@@ -48,7 +48,8 @@ struct ContentAreaView: View {
                 .font(AppTypography.font(size: isCompact ? AppTypography.heroCompact : AppTypography.hero, weight: .regular))
                 .foregroundStyle(AppTheme.textPrimary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .truncationMode(.tail)
+                .layoutPriority(2)
 
             if project.hasDirectory {
                 Button {
@@ -60,6 +61,7 @@ struct ContentAreaView: View {
                         .underline(isPathHovering, color: AppTheme.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
                 .help("Open project folder in Finder")

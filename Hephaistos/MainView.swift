@@ -12,7 +12,6 @@ struct MainView: View {
     private let rightMinimumWidth: CGFloat = 220
     private let leftCollapsedWidth: CGFloat = 72
     private let leftCompactThreshold: CGFloat = 118
-    private let rightCollapsedWidth: CGFloat = 72
     private let minimumMainWidth: CGFloat = 80
     private let workspaceBarHeightRegular: CGFloat = 34
     private let workspaceBarHeightCompact: CGFloat = 30
@@ -23,7 +22,11 @@ struct MainView: View {
         GeometryReader { proxy in
             let isCompact = proxy.size.width < 1200 || proxy.size.height < 760
             let workspaceBarHeight = isCompact ? workspaceBarHeightCompact : workspaceBarHeightRegular
-            let requestedLeftWidth = clampedLeftSidebarWidth(leftSidebarWidth, totalWidth: proxy.size.width)
+            let requestedLeftWidth = clampedLeftSidebarWidth(
+                leftSidebarWidth,
+                totalWidth: proxy.size.width,
+                rightSidebarCollapsed: appState.isRightSidebarCollapsed
+            )
             let widths = panelWidths(
                 totalWidth: proxy.size.width,
                 requestedLeftWidth: requestedLeftWidth,
@@ -37,6 +40,7 @@ struct MainView: View {
                 workspaceTopBar(
                     sidebarWidth: sidebarWidth,
                     rightPanelWidth: rightPanelWidth,
+                    rightSidebarCollapsed: appState.isRightSidebarCollapsed,
                     workspaceBarHeight: workspaceBarHeight
                 )
 
@@ -67,24 +71,20 @@ struct MainView: View {
                                 .overlay(.ultraThinMaterial.opacity(0.03))
                         )
 
-                    Rectangle()
-                        .fill(AppTheme.line)
-                        .frame(width: 1)
+                    if !appState.isRightSidebarCollapsed {
+                        Rectangle()
+                            .fill(AppTheme.line)
+                            .frame(width: 1)
 
-                    Group {
-                        if appState.isRightSidebarCollapsed {
-                            CollapsedRightSidebar()
-                        } else {
-                            RightPanelView()
-                        }
+                        RightPanelView()
+                            .frame(width: rightPanelWidth)
+                            .frame(maxHeight: .infinity)
+                            .background(
+                                AppTheme.rightPanel
+                                    .overlay(.ultraThinMaterial.opacity(0.08))
+                            )
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
-                    .frame(width: rightPanelWidth)
-                    .frame(maxHeight: .infinity)
-                    .background(
-                        AppTheme.rightPanel
-                            .overlay(.ultraThinMaterial.opacity(0.08))
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
             .onAppear {
@@ -112,6 +112,7 @@ struct MainView: View {
     private func workspaceTopBar(
         sidebarWidth: CGFloat,
         rightPanelWidth: CGFloat,
+        rightSidebarCollapsed: Bool,
         workspaceBarHeight: CGFloat
     ) -> some View {
         HStack(spacing: 0) {
@@ -134,12 +135,14 @@ struct MainView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: workspaceBarHeight)
 
-            Rectangle()
-                .fill(AppTheme.line)
-                .frame(width: 1, height: workspaceBarHeight)
+            if !rightSidebarCollapsed {
+                Rectangle()
+                    .fill(AppTheme.line)
+                    .frame(width: 1, height: workspaceBarHeight)
 
-            Color.clear
-                .frame(width: rightPanelWidth, height: workspaceBarHeight)
+                Color.clear
+                    .frame(width: rightPanelWidth, height: workspaceBarHeight)
+            }
         }
         .frame(height: workspaceBarHeight)
         .background(
@@ -229,16 +232,20 @@ struct MainView: View {
         requestedLeftWidth: CGFloat,
         rightSidebarCollapsed: Bool
     ) -> (left: CGFloat, right: CGFloat) {
-        var leftWidth = clampedLeftSidebarWidth(requestedLeftWidth, totalWidth: totalWidth)
+        var leftWidth = clampedLeftSidebarWidth(
+            requestedLeftWidth,
+            totalWidth: totalWidth,
+            rightSidebarCollapsed: rightSidebarCollapsed
+        )
         var rightWidth = preferredRightPanelWidth(totalWidth: totalWidth, rightSidebarCollapsed: rightSidebarCollapsed)
 
-        let dividerCount: CGFloat = 2
+        let dividerCount: CGFloat = rightSidebarCollapsed ? 1 : 2
         let adaptiveMainMinimum: CGFloat = totalWidth < 1200 ? 140 : minimumMainWidth
         let maxSidebarSpace = max(totalWidth - dividerCount - adaptiveMainMinimum, 0)
 
         let overflow = leftWidth + rightWidth - maxSidebarSpace
         if overflow > 0 {
-            let rightReduction = min(max(rightWidth - rightCollapsedWidth, 0), overflow)
+            let rightReduction = min(rightWidth, overflow)
             rightWidth -= rightReduction
 
             let remainingOverflow = overflow - rightReduction
@@ -252,15 +259,19 @@ struct MainView: View {
 
     private func preferredRightPanelWidth(totalWidth: CGFloat, rightSidebarCollapsed: Bool) -> CGFloat {
         let adaptiveRightMinimum = totalWidth < 1200 ? 170 : rightMinimumWidth
-        return rightSidebarCollapsed ? rightCollapsedWidth : max(totalWidth * rightRatio, adaptiveRightMinimum)
+        return rightSidebarCollapsed ? 0 : max(totalWidth * rightRatio, adaptiveRightMinimum)
     }
 
-    private func clampedLeftSidebarWidth(_ proposedWidth: CGFloat, totalWidth: CGFloat) -> CGFloat {
-        let dividerCount: CGFloat = 2
+    private func clampedLeftSidebarWidth(
+        _ proposedWidth: CGFloat,
+        totalWidth: CGFloat,
+        rightSidebarCollapsed: Bool
+    ) -> CGFloat {
+        let dividerCount: CGFloat = rightSidebarCollapsed ? 1 : 2
         let adaptiveMainMinimum: CGFloat = totalWidth < 1200 ? 140 : minimumMainWidth
         let maxWidth = max(
             leftCollapsedWidth,
-            totalWidth - dividerCount - adaptiveMainMinimum - rightCollapsedWidth
+            totalWidth - dividerCount - adaptiveMainMinimum - (rightSidebarCollapsed ? 0 : rightMinimumWidth)
         )
         return min(max(proposedWidth, leftCollapsedWidth), maxWidth)
     }
@@ -291,7 +302,11 @@ struct MainView: View {
 
                                 guard let dragStartWidth = leftSidebarDragStartWidth else { return }
                                 let proposed = dragStartWidth + value.translation.width
-                                leftSidebarWidth = clampedLeftSidebarWidth(proposed, totalWidth: totalWidth)
+                                leftSidebarWidth = clampedLeftSidebarWidth(
+                                    proposed,
+                                    totalWidth: totalWidth,
+                                    rightSidebarCollapsed: appState.isRightSidebarCollapsed
+                                )
                             }
                             .onEnded { _ in
                                 leftSidebarDragStartWidth = nil
@@ -355,25 +370,6 @@ private struct RightSidebarToggleButton: View {
         .onHover { hovering in
             isHovering = hovering
         }
-    }
-}
-
-private struct CollapsedRightSidebar: View {
-    var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "slider.horizontal.3")
-                .font(AppTypography.font(size: AppTypography.icon, weight: .semibold))
-                .foregroundStyle(AppTheme.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(AppTheme.control)
-                )
-
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, AppLayout.paneVertical)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 
