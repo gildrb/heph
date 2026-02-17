@@ -11,11 +11,14 @@ struct MainView: View {
     private let leftCollapsedWidth: CGFloat = 56
     private let rightMinimumWidth: CGFloat = 190
     private let minimumMainWidth: CGFloat = 80
-    private let titleBarHeight: CGFloat = 46
-    private let workspaceBarHeight: CGFloat = 44
+    private let trafficLightsOffset: CGFloat = 72
+    private let workspaceBarHeightRegular: CGFloat = 34
+    private let workspaceBarHeightCompact: CGFloat = 30
 
     var body: some View {
         GeometryReader { proxy in
+            let isCompact = proxy.size.width < 1200 || proxy.size.height < 760
+            let workspaceBarHeight = isCompact ? workspaceBarHeightCompact : workspaceBarHeightRegular
             let widths = panelWidths(
                 totalWidth: proxy.size.width,
                 rightPanelVisible: appState.showRightPanel,
@@ -25,13 +28,11 @@ struct MainView: View {
             let rightPanelWidth = widths.right
 
             VStack(spacing: 0) {
-                appTitleBar
-
-                Rectangle()
-                    .fill(AppTheme.line)
-                    .frame(height: 1)
-
-                workspaceTopBar(sidebarWidth: sidebarWidth, rightPanelWidth: rightPanelWidth)
+                workspaceTopBar(
+                    sidebarWidth: sidebarWidth,
+                    rightPanelWidth: rightPanelWidth,
+                    workspaceBarHeight: workspaceBarHeight
+                )
 
                 Rectangle()
                     .fill(AppTheme.line)
@@ -74,6 +75,7 @@ struct MainView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.background)
+        .ignoresSafeArea(.container, edges: .top)
         .sheet(isPresented: $appState.showSettings) {
             SettingsView()
                 .environmentObject(appState)
@@ -81,60 +83,31 @@ struct MainView: View {
         }
     }
 
-    private var appTitleBar: some View {
-        HStack(spacing: 14) {
-            Text("main")
-                .font(.system(size: AppTypography.small, weight: .regular))
-                .foregroundStyle(AppTheme.textSecondary)
-
-            Spacer(minLength: 0)
-
-            RightSidebarToggleButton(isExpanded: appState.showRightPanel) {
-                appState.toggleRightPanel()
-            }
-        }
-        .padding(.horizontal, AppLayout.paneHorizontal)
-        .frame(height: titleBarHeight)
-        .background(
-            AppTheme.chrome
-                .overlay(.regularMaterial.opacity(0.08))
-        )
-    }
-
-    private func workspaceTopBar(sidebarWidth: CGFloat, rightPanelWidth: CGFloat) -> some View {
+    private func workspaceTopBar(
+        sidebarWidth: CGFloat,
+        rightPanelWidth: CGFloat,
+        workspaceBarHeight: CGFloat
+    ) -> some View {
         HStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "folder")
-                    .font(.system(size: AppTypography.small, weight: .medium))
-                    .foregroundStyle(AppTheme.textSecondary)
-                Text(appState.selectedProjectName)
-                    .font(.system(size: AppTypography.body))
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, AppLayout.paneHorizontal)
-            .frame(width: sidebarWidth, height: workspaceBarHeight, alignment: .leading)
+            Color.clear
+                .frame(width: sidebarWidth, height: workspaceBarHeight)
 
             Rectangle()
                 .fill(AppTheme.line)
                 .frame(width: 1, height: workspaceBarHeight)
 
             HStack(spacing: 0) {
-                topBarNavigation
+                topBarNavigation(workspaceBarHeight: workspaceBarHeight)
 
                 Rectangle()
                     .fill(AppTheme.line)
                     .frame(width: 1, height: workspaceBarHeight)
 
-                mainProjectTabs
+                mainProjectTabs(workspaceBarHeight: workspaceBarHeight)
 
                 Spacer(minLength: 0)
             }
             .frame(height: workspaceBarHeight)
-            .background(
-                AppTheme.chrome
-                    .overlay(.regularMaterial.opacity(0.08))
-            )
 
             if appState.showRightPanel {
                 Rectangle()
@@ -143,27 +116,48 @@ struct MainView: View {
 
                 Color.clear
                     .frame(width: rightPanelWidth, height: workspaceBarHeight)
-                    .background(
-                        AppTheme.chrome
-                            .overlay(.regularMaterial.opacity(0.08))
-                    )
             }
         }
         .frame(height: workspaceBarHeight)
+        .background(
+            AppTheme.chrome
+                .overlay(.regularMaterial.opacity(0.08))
+        )
+        .overlay(alignment: .leading) {
+            LeftSidebarToggleButton(isCollapsed: appState.isLeftSidebarCollapsed) {
+                appState.toggleLeftSidebar()
+            }
+            .padding(.leading, AppLayout.paneHorizontal + trafficLightsOffset)
+        }
+        .overlay(alignment: .trailing) {
+            RightSidebarToggleButton(isExpanded: appState.showRightPanel) {
+                appState.toggleRightPanel()
+            }
+            .padding(.trailing, AppLayout.paneHorizontal)
+        }
     }
 
-    private var topBarNavigation: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "arrow.left")
-            Image(systemName: "arrow.right")
+    private func topBarNavigation(workspaceBarHeight: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            NavigationArrowButton(
+                systemName: "arrow.left",
+                isEnabled: appState.canNavigateBack,
+                accessibilityLabel: "Navigate Back",
+                action: { appState.navigateBack() }
+            )
+
+            NavigationArrowButton(
+                systemName: "arrow.right",
+                isEnabled: appState.canNavigateForward,
+                accessibilityLabel: "Navigate Forward",
+                action: { appState.navigateForward() }
+            )
         }
-        .font(.system(size: AppTypography.body, weight: .medium))
-        .foregroundStyle(AppTheme.textSecondary)
         .padding(.horizontal, AppLayout.paneHorizontal)
         .frame(height: workspaceBarHeight)
     }
 
-    private var mainProjectTabs: some View {
+    private func mainProjectTabs(workspaceBarHeight: CGFloat) -> some View {
         HStack(spacing: 0) {
             ForEach(appState.openProjectTabs) { project in
                 ProjectTabItem(
@@ -188,11 +182,14 @@ struct MainView: View {
         rightPanelVisible: Bool,
         leftSidebarCollapsed: Bool
     ) -> (left: CGFloat, right: CGFloat) {
-        var leftWidth = leftSidebarCollapsed ? leftCollapsedWidth : max(totalWidth * leftRatio, leftMinimumWidth)
-        var rightWidth: CGFloat = rightPanelVisible ? max(totalWidth * rightRatio, rightMinimumWidth) : 0
+        let adaptiveLeftMinimum = totalWidth < 1200 ? 200 : leftMinimumWidth
+        let adaptiveRightMinimum = totalWidth < 1200 ? 150 : rightMinimumWidth
+        var leftWidth = leftSidebarCollapsed ? leftCollapsedWidth : max(totalWidth * leftRatio, adaptiveLeftMinimum)
+        var rightWidth: CGFloat = rightPanelVisible ? max(totalWidth * rightRatio, adaptiveRightMinimum) : 0
 
         let dividerCount: CGFloat = rightPanelVisible ? 2 : 1
-        let maxSidebarSpace = max(totalWidth - dividerCount - minimumMainWidth, 0)
+        let adaptiveMainMinimum: CGFloat = totalWidth < 1200 ? 140 : minimumMainWidth
+        let maxSidebarSpace = max(totalWidth - dividerCount - adaptiveMainMinimum, 0)
         let sidebarSpace = leftWidth + rightWidth
 
         if sidebarSpace > maxSidebarSpace, sidebarSpace > 0 {
@@ -202,6 +199,57 @@ struct MainView: View {
         }
 
         return (leftWidth, rightWidth)
+    }
+}
+
+private struct LeftSidebarToggleButton: View {
+    let isCollapsed: Bool
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "sidebar.left")
+                .font(AppTypography.font(size: AppTypography.small, weight: .medium))
+                .foregroundStyle(AppTheme.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(!isCollapsed || isHovering ? AppTheme.hover : .clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isCollapsed ? "Expand Left Sidebar" : "Collapse Left Sidebar")
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+}
+
+private struct NavigationArrowButton: View {
+    let systemName: String
+    let isEnabled: Bool
+    let accessibilityLabel: String
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(AppTypography.font(size: AppTypography.body, weight: .medium))
+                .foregroundStyle(isEnabled ? AppTheme.textSecondary : AppTheme.textMuted)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isEnabled && isHovering ? AppTheme.hover : .clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .accessibilityLabel(accessibilityLabel)
+        .onHover { hovering in
+            isHovering = hovering
+        }
     }
 }
 
@@ -218,7 +266,7 @@ private struct RightSidebarToggleButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "sidebar.right")
-                .font(.system(size: AppTypography.small, weight: .medium))
+                .font(AppTypography.font(size: AppTypography.small, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
                 .frame(width: 28, height: 28)
                 .background(
@@ -247,7 +295,7 @@ private struct ProjectTabItem: View {
             Button(action: onSelect) {
                 HStack(spacing: 8) {
                     Text(project.name)
-                        .font(.system(size: AppTypography.body))
+                        .font(AppTypography.font(size: AppTypography.body))
                         .foregroundStyle(isSelected ? AppTheme.textPrimary : AppTheme.textSecondary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -268,7 +316,7 @@ private struct ProjectTabItem: View {
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: AppTypography.small, weight: .medium))
+                    .font(AppTypography.font(size: AppTypography.small, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: 16, height: 16)
                     .background(

@@ -3,7 +3,6 @@ import SwiftUI
 struct SidebarView: View {
     @EnvironmentObject private var appState: AppState
     private let contentInset: CGFloat = AppLayout.paneHorizontal
-    private let rowInset = EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0)
 
     var body: some View {
         VStack(alignment: .leading, spacing: appState.isLeftSidebarCollapsed ? 12 : 10) {
@@ -19,27 +18,15 @@ struct SidebarView: View {
 
     private var collapsedSidebar: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                SidebarIconButton(
-                    systemName: "sidebar.left",
-                    isActive: !appState.isLeftSidebarCollapsed,
-                    accessibilityLabel: appState.isLeftSidebarCollapsed ? "Expand Left Sidebar" : "Collapse Left Sidebar"
-                ) {
-                    appState.toggleLeftSidebar()
-                }
-                Spacer()
-            }
-
             Spacer()
 
             SidebarCompactButton(systemName: "plus", accessibilityLabel: "Create New Chat") {
                 appState.newChat()
             }
 
-            SidebarCompactButton(systemName: "magnifyingglass", accessibilityLabel: "Search Chats") {
-                appState.toggleLeftSidebar()
-                if !appState.isSearchVisible {
-                    appState.toggleSearch()
+            SidebarCompactButton(systemName: "magnifyingglass", accessibilityLabel: "Open Search") {
+                if appState.isLeftSidebarCollapsed {
+                    appState.toggleLeftSidebar()
                 }
             }
 
@@ -51,50 +38,20 @@ struct SidebarView: View {
 
     private var expandedSidebar: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                SidebarIconButton(
-                    systemName: "sidebar.left",
-                    isActive: !appState.isLeftSidebarCollapsed,
-                    accessibilityLabel: appState.isLeftSidebarCollapsed ? "Expand Left Sidebar" : "Collapse Left Sidebar"
-                ) {
-                    appState.toggleLeftSidebar()
-                }
-
-                SidebarActionButton(title: "New Chat") {
+            VStack(alignment: .leading, spacing: 8) {
+                SidebarPrimaryActionRow(systemName: "plus", title: "New Chat") {
                     appState.newChat()
                 }
 
-                SidebarActionButton(title: appState.isSearchVisible ? "Hide Search" : "Search") {
-                    appState.toggleSearch()
-                }
+                SidebarSearchBar(text: $appState.sidebarQuery)
             }
             .padding(.horizontal, contentInset)
 
-            if appState.isSearchVisible {
-                TextField("Search history", text: $appState.sidebarQuery)
-                    .font(.system(size: AppTypography.body))
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-                    .padding(.horizontal, contentInset)
-            }
-
-            List {
-                Section {
-                    ForEach(appState.projects) { project in
-                        SidebarSelectableRow(
-                            title: project.name,
-                            isSelected: appState.selectedProjectID == project.id
-                        ) {
-                            appState.selectProject(project.id)
-                        }
-                        .listRowInsets(rowInset)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                    }
-                } header: {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 8) {
                         Text("Projects")
-                            .font(.system(size: AppTypography.small, weight: .medium))
+                            .font(AppTypography.font(size: AppTypography.small, weight: .medium))
                             .foregroundStyle(AppTheme.textSecondary)
 
                         Spacer(minLength: 0)
@@ -103,58 +60,74 @@ struct SidebarView: View {
                             appState.createProject()
                         } label: {
                             Image(systemName: "folder.badge.plus")
-                                .font(.system(size: AppTypography.small, weight: .medium))
+                                .font(AppTypography.font(size: AppTypography.small, weight: .medium))
                                 .foregroundStyle(AppTheme.textSecondary)
                                 .frame(width: 18, height: 18)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Create Project")
                     }
-                    .textCase(nil)
                     .padding(.horizontal, contentInset)
-                }
+                    .padding(.bottom, 4)
 
-                Section {
-                    if appState.filteredChats.isEmpty {
-                        Text("No chats yet. Create one with New Chat.")
-                            .font(.system(size: AppTypography.body))
+                    if appState.sidebarProjects.isEmpty {
+                        Text("No matches found.")
+                            .font(AppTypography.font(size: AppTypography.body))
                             .foregroundStyle(AppTheme.textMuted)
                             .padding(.horizontal, contentInset)
                             .padding(.vertical, 4)
-                            .listRowInsets(rowInset)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        ForEach(appState.filteredChats) { chat in
-                            SidebarSelectableRow(
-                                title: chat.title,
-                                isSelected: appState.selectedChatID == chat.id
+                        ForEach(appState.sidebarProjects) { project in
+                            let projectChats = appState.chats(for: project)
+                            let isExpanded = appState.hasSidebarQuery || appState.isProjectExpanded(project.id)
+
+                            SidebarProjectRow(
+                                title: project.name,
+                                isSelected: appState.selectedProjectID == project.id,
+                                isExpanded: isExpanded
                             ) {
-                                appState.selectChat(chat.id)
+                                if appState.hasSidebarQuery {
+                                    appState.selectProject(project.id)
+                                } else if appState.selectedProjectID == project.id {
+                                    appState.toggleProjectExpansion(project.id)
+                                } else {
+                                    appState.expandProject(project.id)
+                                    appState.selectProject(project.id)
+                                }
                             }
-                            .listRowInsets(rowInset)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+
+                            if isExpanded {
+                                if projectChats.isEmpty {
+                                    Text("No chats yet.")
+                                        .font(AppTypography.font(size: AppTypography.small))
+                                        .foregroundStyle(AppTheme.textMuted)
+                                        .padding(.horizontal, AppLayout.rowHorizontal + 22)
+                                        .padding(.vertical, 4)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                } else {
+                                    ForEach(projectChats) { chat in
+                                        SidebarChatRow(
+                                            title: chat.title,
+                                            isSelected: appState.selectedProjectID == project.id && appState.selectedChatID == chat.id
+                                        ) {
+                                            appState.selectChat(chat.id, in: project.id)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                } header: {
-                    Text("Chats")
-                        .font(.system(size: AppTypography.small, weight: .medium))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .textCase(nil)
-                        .padding(.horizontal, contentInset)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .listStyle(.plain)
-            .environment(\.defaultMinListRowHeight, 30)
-            .scrollContentBackground(.hidden)
             .background(AppTheme.sidebar)
 
             Button {
                 appState.showSettings = true
             } label: {
                 Text("SETTINGS")
-                    .font(.system(size: AppTypography.small, weight: .regular))
+                    .font(AppTypography.font(size: AppTypography.small, weight: .regular))
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, contentInset)
@@ -172,7 +145,7 @@ private struct SidebarCompactButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: AppTypography.small, weight: .semibold))
+                .font(AppTypography.font(size: AppTypography.small, weight: .semibold))
                 .foregroundStyle(AppTheme.textSecondary)
                 .frame(width: 28, height: 28)
         }
@@ -181,23 +154,33 @@ private struct SidebarCompactButton: View {
     }
 }
 
-private struct SidebarActionButton: View {
+private struct SidebarPrimaryActionRow: View {
+    let systemName: String
     let title: String
     let action: () -> Void
     @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: AppTypography.small, weight: .regular))
-                .foregroundStyle(AppTheme.textSecondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(isHovering ? AppTheme.hover : .clear)
-                )
+            HStack(spacing: 10) {
+                Image(systemName: systemName)
+                    .font(AppTypography.font(size: AppTypography.small, weight: .semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+
+                Text(title)
+                    .font(AppTypography.font(size: AppTypography.body, weight: .regular))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, AppLayout.rowHorizontal)
+            .padding(.vertical, AppLayout.rowVertical)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isHovering ? AppTheme.hover : .clear)
+            )
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -206,41 +189,81 @@ private struct SidebarActionButton: View {
     }
 }
 
-private struct SidebarIconButton: View {
-    let systemName: String
-    let isActive: Bool
-    let accessibilityLabel: String
-    let action: () -> Void
-    @State private var isHovering = false
+private struct SidebarSearchBar: View {
+    @Binding var text: String
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: AppTypography.small, weight: .medium))
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(AppTypography.font(size: AppTypography.small, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isActive || isHovering ? AppTheme.hover : .clear)
-                )
+
+            TextField("Search", text: $text)
+                .textFieldStyle(.plain)
+                .font(AppTypography.font(size: AppTypography.body))
+                .foregroundStyle(AppTheme.textPrimary)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(AppTypography.font(size: AppTypography.small))
+                        .foregroundStyle(AppTheme.textMuted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear Search")
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-        .onHover { hovering in
-            isHovering = hovering
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(AppTheme.control)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.line, lineWidth: 1)
+        )
+    }
+}
+
+private struct SidebarProjectRow: View {
+    let title: String
+    let isSelected: Bool
+    let isExpanded: Bool
+    let action: () -> Void
+
+    var body: some View {
+        SelectableHoverRow(isSelected: isSelected, action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(AppTypography.font(size: AppTypography.small, weight: .medium))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: 10)
+
+                Text(title)
+                    .font(AppTypography.font(size: AppTypography.body))
+                    .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+            }
         }
     }
 }
 
-private struct SidebarSelectableRow: View {
+private struct SidebarChatRow: View {
     let title: String
     let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
-        SelectableHoverRow(isSelected: isSelected, action: action) {
+        SelectableHoverRow(
+            isSelected: isSelected,
+            horizontalPadding: AppLayout.rowHorizontal + 22,
+            action: action
+        ) {
             Text(title)
-                .font(.system(size: AppTypography.body))
+                .font(AppTypography.font(size: AppTypography.body))
                 .foregroundStyle(AppTheme.textPrimary)
                 .lineLimit(1)
         }

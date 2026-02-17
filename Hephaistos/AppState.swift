@@ -7,13 +7,18 @@ import AppKit
 
 @MainActor
 final class AppState: ObservableObject {
+    private struct NavigationState: Equatable {
+        let projectID: Project.ID?
+        let chatID: Chat.ID?
+    }
+
     @Published var projects: [Project]
     @Published var openProjectTabIDs: [Project.ID]
     @Published var selectedProjectID: Project.ID?
     @Published var selectedChatID: Chat.ID?
 
-    @Published var isSearchVisible = false
     @Published var sidebarQuery = ""
+    @Published var expandedProjectIDs: Set<Project.ID>
     @Published var isLeftSidebarCollapsed = false
     @Published var showRightPanel = true
     @Published var showSettings = false
@@ -30,6 +35,9 @@ final class AppState: ObservableObject {
     @Published var reasoningMode = false
 
     @Published var excludedFileDraft = ""
+    private var backStack: [NavigationState] = []
+    private var forwardStack: [NavigationState] = []
+    private let normalChatsFolderName = "Chats"
 
     init() {
         let availablePresets = Self.defaultPresets
@@ -40,6 +48,7 @@ final class AppState: ObservableObject {
         openProjectTabIDs = starterProjects.map(\.id)
         selectedProjectID = starterProjects.first?.id
         selectedChatID = starterProjects.first?.history.first?.id
+        expandedProjectIDs = starterProjects.first.map { Set([$0.id]) } ?? []
 
         presets = availablePresets
         selectedPresetID = defaultPreset.id
@@ -65,25 +74,58 @@ final class AppState: ObservableObject {
 
     var filteredChats: [Chat] {
         guard let project = selectedProject else { return [] }
+        return filterChats(in: project, query: sidebarQuery)
+    }
+
+    var hasSidebarQuery: Bool {
+        !sidebarQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var sidebarProjects: [Project] {
         let query = sidebarQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return project.history }
-        return project.history.filter {
-            $0.title.localizedCaseInsensitiveContains(query) ||
-            $0.message.localizedCaseInsensitiveContains(query) ||
-            $0.attachments.contains(where: { $0.localizedCaseInsensitiveContains(query) })
+        guard hasSidebarQuery else { return projects }
+        return projects.filter { project in
+            project.name.localizedCaseInsensitiveContains(query)
+            || !filterChats(in: project, query: query).isEmpty
         }
+    }
+
+    func chats(for project: Project) -> [Chat] {
+        filterChats(in: project, query: sidebarQuery)
+    }
+
+    func isProjectExpanded(_ projectID: Project.ID) -> Bool {
+        expandedProjectIDs.contains(projectID)
+    }
+
+    func toggleProjectExpansion(_ projectID: Project.ID) {
+        if expandedProjectIDs.contains(projectID) {
+            expandedProjectIDs.remove(projectID)
+        } else {
+            expandedProjectIDs.insert(projectID)
+        }
+    }
+
+    func expandProject(_ projectID: Project.ID) {
+        expandedProjectIDs.insert(projectID)
     }
 
     var currentModelName: String {
         presets.first(where: { $0.id == selectedPresetID })?.model ?? "Unknown"
     }
 
+    var canNavigateBack: Bool {
+        !backStack.isEmpty
+    }
+
+    var canNavigateForward: Bool {
+        !forwardStack.isEmpty
+    }
+
     func selectProject(_ projectID: Project.ID) {
-        if !openProjectTabIDs.contains(projectID) {
-            openProjectTabIDs.append(projectID)
-        }
-        selectedProjectID = projectID
-        selectedChatID = projects.first(where: { $0.id == projectID })?.history.first?.id
+        let firstChatID = projects.first(where: { $0.id == projectID })?.history.first?.id
+        expandedProjectIDs.insert(projectID)
+        navigate(to: NavigationState(projectID: projectID, chatID: firstChatID), recording: true)
     }
 
     func closeProjectTab(_ projectID: Project.ID) {
@@ -93,19 +135,23 @@ final class AppState: ObservableObject {
         guard selectedProjectID == projectID else { return }
 
         if openProjectTabIDs.isEmpty {
-            selectedProjectID = nil
-            selectedChatID = nil
+            navigate(to: NavigationState(projectID: nil, chatID: nil), recording: true)
             return
         }
 
         let fallbackIndex = min(closingIndex, openProjectTabIDs.count - 1)
         let fallbackID = openProjectTabIDs[fallbackIndex]
-        selectedProjectID = fallbackID
-        selectedChatID = projects.first(where: { $0.id == fallbackID })?.history.first?.id
+        let fallbackChatID = projects.first(where: { $0.id == fallbackID })?.history.first?.id
+        navigate(to: NavigationState(projectID: fallbackID, chatID: fallbackChatID), recording: true)
     }
 
     func selectChat(_ chatID: Chat.ID) {
-        selectedChatID = chatID
+        navigate(to: NavigationState(projectID: selectedProjectID, chatID: chatID), recording: true)
+    }
+
+    func selectChat(_ chatID: Chat.ID, in projectID: Project.ID) {
+        expandedProjectIDs.insert(projectID)
+        navigate(to: NavigationState(projectID: projectID, chatID: chatID), recording: true)
     }
 
     func createProject() {
@@ -133,12 +179,15 @@ final class AppState: ObservableObject {
         )
 
         projects.append(newProject)
-        openProjectTabIDs.append(newProject.id)
-        selectedProjectID = newProject.id
-        selectedChatID = nil
+        navigate(to: NavigationState(projectID: newProject.id, chatID: nil), recording: true)
     }
 
     func newChat() {
+        if selectedProjectID == nil, let normalChatsID = normalChatsProjectID {
+            selectProject(normalChatsID)
+        }
+
+        var newChatID: Chat.ID?
         updateSelectedProject { project in
             let chatNumber = project.history.count + 1
             let chat = Chat(
@@ -147,7 +196,11 @@ final class AppState: ObservableObject {
                 createdAt: .now
             )
             project.history.insert(chat, at: 0)
-            selectedChatID = chat.id
+            newChatID = chat.id
+        }
+
+        if let newChatID {
+            navigate(to: NavigationState(projectID: selectedProjectID, chatID: newChatID), recording: true)
         }
     }
 
@@ -169,26 +222,40 @@ final class AppState: ObservableObject {
     }
 
     func sendDraftMessage() {
+        if selectedProjectID == nil, let normalChatsID = normalChatsProjectID {
+            selectProject(normalChatsID)
+        }
+
         let trimmed = draftMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draftAttachments.map(\.path)
         guard !trimmed.isEmpty || !attachments.isEmpty else { return }
 
+        var newChatID: Chat.ID?
         updateSelectedProject { project in
             let title = draftTitle(message: trimmed, attachments: attachments)
             let chat = Chat(title: title, message: trimmed, attachments: attachments, createdAt: .now)
             project.history.insert(chat, at: 0)
-            selectedChatID = chat.id
+            newChatID = chat.id
+        }
+
+        if let newChatID {
+            navigate(to: NavigationState(projectID: selectedProjectID, chatID: newChatID), recording: true)
         }
 
         draftMessage = ""
         draftAttachments.removeAll()
     }
 
-    func toggleSearch() {
-        isSearchVisible.toggle()
-        if !isSearchVisible {
-            sidebarQuery = ""
-        }
+    func navigateBack() {
+        guard let previous = backStack.popLast() else { return }
+        forwardStack.append(currentNavigationState)
+        apply(navigationState: normalized(navigationState: previous))
+    }
+
+    func navigateForward() {
+        guard let next = forwardStack.popLast() else { return }
+        backStack.append(currentNavigationState)
+        apply(navigationState: normalized(navigationState: next))
     }
 
     func toggleLeftSidebar() {
@@ -235,8 +302,10 @@ final class AppState: ObservableObject {
 
     func openProjectDirectoryInFinder(_ path: String) {
 #if canImport(AppKit)
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else { return }
         let fileManager = FileManager.default
-        let projectURL = URL(fileURLWithPath: path)
+        let projectURL = URL(fileURLWithPath: trimmedPath)
         var isDirectory: ObjCBool = false
 
         if fileManager.fileExists(atPath: projectURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
@@ -261,6 +330,56 @@ final class AppState: ObservableObject {
         mutation(&projects[index])
     }
 
+    private var currentNavigationState: NavigationState {
+        NavigationState(projectID: selectedProjectID, chatID: selectedChatID)
+    }
+
+    private func navigate(to targetState: NavigationState, recording: Bool) {
+        let normalizedTarget = normalized(navigationState: targetState)
+        let currentState = currentNavigationState
+        guard normalizedTarget != currentState else { return }
+
+        if recording {
+            backStack.append(currentState)
+            forwardStack.removeAll()
+        }
+
+        apply(navigationState: normalizedTarget)
+    }
+
+    private func normalized(navigationState: NavigationState) -> NavigationState {
+        guard
+            let projectID = navigationState.projectID,
+            let project = projects.first(where: { $0.id == projectID })
+        else {
+            return NavigationState(projectID: nil, chatID: nil)
+        }
+
+        let resolvedChatID: Chat.ID?
+        if let chatID = navigationState.chatID, project.history.contains(where: { $0.id == chatID }) {
+            resolvedChatID = chatID
+        } else {
+            resolvedChatID = project.history.first?.id
+        }
+
+        return NavigationState(projectID: projectID, chatID: resolvedChatID)
+    }
+
+    private func apply(navigationState: NavigationState) {
+        guard let projectID = navigationState.projectID else {
+            selectedProjectID = nil
+            selectedChatID = nil
+            return
+        }
+
+        if !openProjectTabIDs.contains(projectID) {
+            openProjectTabIDs.append(projectID)
+        }
+
+        selectedProjectID = projectID
+        selectedChatID = navigationState.chatID
+    }
+
     private func draftTitle(message: String, attachments: [String]) -> String {
         if !message.isEmpty {
             return String(message.prefix(42))
@@ -269,6 +388,24 @@ final class AppState: ObservableObject {
             return URL(fileURLWithPath: firstAttachment).lastPathComponent
         }
         return "New Chat"
+    }
+
+    private var normalChatsProjectID: Project.ID? {
+        projects.first(where: { !$0.hasDirectory && $0.name == normalChatsFolderName })?.id
+    }
+
+    private func filterChats(in project: Project, query: String) -> [Chat] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return project.history }
+        let queryTerms = trimmed
+            .split(whereSeparator: \.isWhitespace)
+            .map { String($0) }
+        return project.history.filter { chat in
+            let searchableFields = [chat.title, chat.message] + chat.attachments
+            return queryTerms.allSatisfy { term in
+                searchableFields.contains(where: { $0.localizedCaseInsensitiveContains(term) })
+            }
+        }
     }
 }
 
@@ -283,6 +420,13 @@ private extension AppState {
 
     static var defaultProjects: [Project] {
         return [
+            Project(
+                name: "Chats",
+                path: "",
+                history: [],
+                systemPrompt: "General chat folder for non-directory conversations.",
+                excludedFiles: []
+            ),
             Project(
                 name: "MfI-1",
                 path: "/Users/gildrb/Hephaestus/MfI-1",

@@ -15,6 +15,7 @@ struct HephaistosApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .environment(\.font, AppTypography.font(size: AppTypography.body))
                 .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)

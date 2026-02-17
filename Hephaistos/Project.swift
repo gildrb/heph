@@ -23,4 +23,8 @@ struct Project: Identifiable, Hashable {
         self.systemPrompt = systemPrompt
         self.excludedFiles = excludedFiles
     }
+
+    var hasDirectory: Bool {
+        !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }

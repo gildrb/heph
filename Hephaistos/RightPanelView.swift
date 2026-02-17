@@ -3,87 +3,195 @@ import SwiftUI
 struct RightPanelView: View {
     @EnvironmentObject private var appState: AppState
 
+    private var excludedFiles: [String] {
+        appState.selectedProject?.excludedFiles ?? []
+    }
+
     var body: some View {
-        Form {
-            Section {
-                Picker("Preset", selection: presetBinding) {
-                    ForEach(appState.presets) { preset in
-                        Text(preset.name).tag(preset.id)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: AppLayout.paneVertical) {
+                advancedParametersSection
+                systemPromptSection
+                excludeFilesSection
+            }
+            .padding(.horizontal, AppLayout.paneHorizontal)
+            .padding(.vertical, AppLayout.paneVertical)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var advancedParametersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Advanced Parameters")
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Text("Preset")
+                        .font(AppTypography.font(size: AppTypography.body))
+                        .foregroundStyle(AppTheme.textSecondary)
+                    Spacer(minLength: 8)
+                    Picker("", selection: presetBinding) {
+                        ForEach(appState.presets) { preset in
+                            Text(preset.name).tag(preset.id)
+                        }
                     }
-                }
-                .pickerStyle(.menu)
-
-                MetricRow(title: "Model", value: appState.currentModelName)
-                MetricRow(title: "Temperature", value: String(format: "%.1f", appState.temperature))
-                Slider(value: $appState.temperature, in: 0...2, step: 0.1)
-                    .controlSize(.small)
-
-                MetricRow(title: "Max Tokens", value: "\(appState.maxTokens)")
-                Stepper("", value: $appState.maxTokens, in: 256...16384, step: 256)
                     .labelsHidden()
-                    .controlSize(.small)
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 140, alignment: .trailing)
+                }
+                .padding(.horizontal, AppLayout.paneHorizontal)
+                .padding(.vertical, 10)
 
-                MetricRow(title: "Top P", value: String(format: "%.1f", appState.topP))
-                Slider(value: $appState.topP, in: 0.1...1, step: 0.1)
-                    .controlSize(.small)
+                Divider().overlay(AppTheme.line)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    MetricRow(title: "Model", value: appState.currentModelName)
+                }
+                .padding(.horizontal, AppLayout.paneHorizontal)
+                .padding(.vertical, 10)
+
+                Divider().overlay(AppTheme.line)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    MetricRow(title: "Temperature", value: String(format: "%.1f", appState.temperature))
+                    Slider(value: $appState.temperature, in: 0...2, step: 0.1)
+                        .controlSize(.small)
+                }
+                .padding(.horizontal, AppLayout.paneHorizontal)
+                .padding(.vertical, 10)
+
+                Divider().overlay(AppTheme.line)
+
+                Stepper(value: $appState.maxTokens, in: 256...16384, step: 256) {
+                    MetricRow(title: "Max Tokens", value: "\(appState.maxTokens)")
+                }
+                .controlSize(.small)
+                .padding(.horizontal, AppLayout.paneHorizontal)
+                .padding(.vertical, 10)
+
+                Divider().overlay(AppTheme.line)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    MetricRow(title: "Top P", value: String(format: "%.1f", appState.topP))
+                    Slider(value: $appState.topP, in: 0.1...1, step: 0.1)
+                        .controlSize(.small)
+                }
+                .padding(.horizontal, AppLayout.paneHorizontal)
+                .padding(.vertical, 10)
+
+                Divider().overlay(AppTheme.line)
 
                 Toggle("Stream responses", isOn: $appState.streamResponses)
                     .toggleStyle(.switch)
+                    .font(AppTypography.font(size: AppTypography.body))
+                    .padding(.horizontal, AppLayout.paneHorizontal)
+                    .padding(.vertical, 10)
+
+                Divider().overlay(AppTheme.line)
+
                 Toggle("Reasoning mode", isOn: $appState.reasoningMode)
                     .toggleStyle(.switch)
-            } header: {
-                sectionTitle("Advanced Parameters")
+                    .font(AppTypography.font(size: AppTypography.body))
+                    .padding(.horizontal, AppLayout.paneHorizontal)
+                    .padding(.vertical, 10)
             }
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(AppTheme.control)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(AppTheme.line, lineWidth: 1)
+            )
+        }
+    }
 
-            Section {
-                TextEditor(text: systemPromptBinding)
-                    .font(.system(size: AppTypography.body))
-                    .scrollContentBackground(.hidden)
-                    .background(AppTheme.control)
-                    .cornerRadius(8)
-                    .frame(minHeight: 140)
-            } header: {
-                sectionTitle("System Prompt")
-            }
+    private var systemPromptSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("System Prompt")
 
-            Section {
-                ForEach(appState.selectedProject?.excludedFiles ?? [], id: \.self) { path in
-                    HStack(spacing: 8) {
-                        Text(path)
-                            .font(.system(size: AppTypography.body))
-                            .foregroundStyle(AppTheme.textPrimary)
-                            .lineLimit(1)
+            TextEditor(text: systemPromptBinding)
+                .font(AppTypography.font(size: AppTypography.body))
+                .foregroundStyle(AppTheme.textPrimary)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(minHeight: 140)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(AppTheme.control)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(AppTheme.line, lineWidth: 1)
+                )
+        }
+    }
 
-                        Spacer(minLength: 0)
+    private var excludeFilesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Exclude Files")
 
-                        Button {
-                            appState.removeExcludedFile(path)
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(AppTheme.textMuted)
+            VStack(alignment: .leading, spacing: 0) {
+                if excludedFiles.isEmpty {
+                    Text("No excluded paths.")
+                        .font(AppTypography.font(size: AppTypography.body))
+                        .foregroundStyle(AppTheme.textMuted)
+                        .padding(.horizontal, AppLayout.paneHorizontal)
+                        .padding(.vertical, 10)
+                } else {
+                    ForEach(Array(excludedFiles.enumerated()), id: \.element) { index, path in
+                        HStack(spacing: 8) {
+                            Text(path)
+                                .font(AppTypography.font(size: AppTypography.body))
+                                .foregroundStyle(AppTheme.textPrimary)
+                                .lineLimit(1)
+
+                            Spacer(minLength: 0)
+
+                            Button {
+                                appState.removeExcludedFile(path)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(AppTypography.font(size: AppTypography.small))
+                                    .foregroundStyle(AppTheme.textMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove Excluded File")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Remove Excluded File")
+                        .padding(.horizontal, AppLayout.paneHorizontal)
+                        .padding(.vertical, 10)
+
+                        if index < excludedFiles.count - 1 {
+                            Divider().overlay(AppTheme.line)
+                        }
                     }
                 }
+
+                Divider().overlay(AppTheme.line)
 
                 HStack(spacing: 8) {
                     TextField("Path to exclude", text: $appState.excludedFileDraft)
                         .textFieldStyle(.roundedBorder)
+                        .font(AppTypography.font(size: AppTypography.body))
+
                     Button("Add") {
                         appState.addExcludedFile()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
-            } header: {
-                sectionTitle("Exclude Files")
+                .padding(.horizontal, AppLayout.paneHorizontal)
+                .padding(.vertical, 10)
             }
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(AppTheme.control)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(AppTheme.line, lineWidth: 1)
+            )
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .padding(.horizontal, AppLayout.paneHorizontal)
-        .padding(.vertical, AppLayout.paneVertical)
     }
 
     private var presetBinding: Binding<AIPreset.ID> {
@@ -102,7 +210,7 @@ struct RightPanelView: View {
 
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: AppTypography.small))
+            .font(AppTypography.font(size: AppTypography.small))
             .foregroundStyle(AppTheme.textSecondary)
     }
 }
@@ -117,14 +225,18 @@ private struct MetricRow: View {
     let value: String
 
     var body: some View {
-        LabeledContent {
-            Text(value)
-                .font(.system(size: AppTypography.body))
-                .foregroundStyle(AppTheme.textPrimary)
-        } label: {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title)
-                .font(.system(size: AppTypography.body))
+                .font(AppTypography.font(size: AppTypography.body))
                 .foregroundStyle(AppTheme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(AppTypography.font(size: AppTypography.body))
+                .foregroundStyle(AppTheme.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
     }
 }

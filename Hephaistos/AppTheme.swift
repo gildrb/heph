@@ -20,11 +20,15 @@ enum AppTypography {
     static let small: CGFloat = 13
     static let body: CGFloat = 15
     static let hero: CGFloat = 71
+
+    static func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        Font.custom("Inter", size: size).weight(weight)
+    }
 }
 
 enum AppLayout {
     static let paneHorizontal: CGFloat = 12
-    static let paneVertical: CGFloat = 12
+    static let paneVertical: CGFloat = 16
     static let rowHorizontal: CGFloat = paneHorizontal
     static let rowVertical: CGFloat = 6
 }

@@ -16,41 +16,54 @@ struct ContentAreaView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            if let project = appState.selectedProject {
-                header(for: project)
-                chatComposer
-                historySection(for: appState.filteredChats)
-            } else {
-                Text("Select a project to begin")
-                    .font(.system(size: AppTypography.body))
-                    .foregroundStyle(AppTheme.textSecondary)
+        GeometryReader { proxy in
+            let isCompact = proxy.size.width < 980 || proxy.size.height < 700
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: isCompact ? 16 : 22) {
+                    if let project = appState.selectedProject {
+                        header(for: project, isCompact: isCompact)
+                        chatComposer
+                        historySection(for: appState.filteredChats)
+                    } else {
+                        Text("Select a project to begin")
+                            .font(AppTypography.font(size: AppTypography.body))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                }
+                .padding(.horizontal, AppLayout.paneHorizontal)
+                .padding(.top, AppLayout.paneVertical)
+                .padding(.bottom, AppLayout.paneVertical)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, AppLayout.paneHorizontal)
-        .padding(.top, AppLayout.paneVertical)
     }
 
-    private func header(for project: Project) -> some View {
+    private func header(for project: Project, isCompact: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             Text(project.name)
-                .font(.system(size: AppTypography.hero, weight: .regular))
+                .font(AppTypography.font(size: isCompact ? 52 : AppTypography.hero, weight: .regular))
                 .foregroundStyle(AppTheme.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
 
-            Button {
-                appState.openProjectDirectoryInFinder(project.path)
-            } label: {
-                Text(project.path)
-                    .font(.system(size: AppTypography.body))
-                    .foregroundStyle(isPathHovering ? AppTheme.textPrimary : AppTheme.textSecondary)
-                    .underline(isPathHovering, color: AppTheme.textSecondary)
-                    .lineLimit(1)
-            }
-            .buttonStyle(.plain)
-            .help("Open project folder in Finder")
-            .accessibilityLabel("Open Project Folder in Finder")
-            .onHover { hovering in
-                isPathHovering = hovering
+            if project.hasDirectory {
+                Button {
+                    appState.openProjectDirectoryInFinder(project.path)
+                } label: {
+                    Text(project.path)
+                        .font(AppTypography.font(size: AppTypography.body))
+                        .foregroundStyle(isPathHovering ? AppTheme.textPrimary : AppTheme.textSecondary)
+                        .underline(isPathHovering, color: AppTheme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .buttonStyle(.plain)
+                .help("Open project folder in Finder")
+                .accessibilityLabel("Open Project Folder in Finder")
+                .onHover { hovering in
+                    isPathHovering = hovering
+                }
             }
 
             Spacer()
@@ -61,7 +74,7 @@ struct ContentAreaView: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $appState.draftMessage)
-                    .font(.system(size: AppTypography.body))
+                    .font(AppTypography.font(size: AppTypography.body))
                     .foregroundStyle(AppTheme.textPrimary)
                     .scrollContentBackground(.hidden)
                     .focused($isComposerFocused)
@@ -71,7 +84,7 @@ struct ContentAreaView: View {
 
                 if isDraftEmpty {
                     Text("Type your question here...")
-                        .font(.system(size: AppTypography.body))
+                        .font(AppTypography.font(size: AppTypography.body))
                         .foregroundStyle(AppTheme.textMuted)
                         .padding(.top, 10)
                         .padding(.leading, 14)
@@ -114,20 +127,22 @@ struct ContentAreaView: View {
 
                 Spacer()
 
-                Button("Send") {
+                Button {
                     appState.sendDraftMessage()
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(AppTypography.font(size: AppTypography.small, weight: .semibold))
+                        .foregroundStyle(canSendDraft ? AppTheme.textPrimary : AppTheme.textMuted)
+                        .frame(width: 26, height: 26)
                 }
-                .font(.system(size: AppTypography.small, weight: .medium))
-                .foregroundStyle(canSendDraft ? AppTheme.textPrimary : AppTheme.textMuted)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
                 .background(
-                    Capsule(style: .continuous)
+                    Circle()
                         .fill(canSendDraft ? AppTheme.focus : AppTheme.line)
                 )
                 .buttonStyle(.plain)
                 .disabled(!canSendDraft)
                 .keyboardShortcut(.return, modifiers: [.command])
+                .accessibilityLabel("Send")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -154,14 +169,14 @@ struct ContentAreaView: View {
     private func historySection(for chats: [Chat]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Project History")
-                .font(.system(size: AppTypography.small))
+                .font(AppTypography.font(size: AppTypography.small))
                 .foregroundStyle(AppTheme.textSecondary)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     if chats.isEmpty {
                         Text("No project history yet.")
-                            .font(.system(size: AppTypography.body))
+                            .font(AppTypography.font(size: AppTypography.body))
                             .foregroundStyle(AppTheme.textMuted)
                             .padding(.top, 2)
                     } else {
@@ -186,7 +201,7 @@ private struct ComposerIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: AppTypography.small, weight: .medium))
+                .font(AppTypography.font(size: AppTypography.small, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
                 .frame(width: 24, height: 24)
                 .background(
@@ -208,17 +223,17 @@ private struct AttachmentChip: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "doc")
-                .font(.system(size: AppTypography.small, weight: .medium))
+                .font(AppTypography.font(size: AppTypography.small, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
 
             Text(title)
-                .font(.system(size: AppTypography.small))
+                .font(AppTypography.font(size: AppTypography.small))
                 .foregroundStyle(AppTheme.textPrimary)
                 .lineLimit(1)
 
             Button(action: removeAction) {
                 Image(systemName: "xmark")
-                    .font(.system(size: AppTypography.small, weight: .medium))
+                    .font(AppTypography.font(size: AppTypography.small, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
             }
             .buttonStyle(.plain)
@@ -251,14 +266,14 @@ private struct ProjectHistoryRow: View {
         ) {
             HStack {
                 Text(chat.title)
-                    .font(.system(size: AppTypography.body))
+                    .font(AppTypography.font(size: AppTypography.body))
                     .foregroundStyle(AppTheme.textPrimary)
                     .lineLimit(1)
 
                 Spacer()
 
                 Text(chat.createdAt, style: .date)
-                    .font(.system(size: AppTypography.body))
+                    .font(AppTypography.font(size: AppTypography.body))
                     .foregroundStyle(AppTheme.textMuted)
             }
         }

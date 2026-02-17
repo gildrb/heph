@@ -9,7 +9,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Settings")
-                .font(.system(size: AppTypography.body, weight: .semibold))
+                .font(AppTypography.font(size: AppTypography.body, weight: .semibold))
                 .foregroundStyle(AppTheme.textPrimary)
 
             Toggle("Save local history", isOn: $saveHistory)
@@ -29,7 +29,7 @@ struct SettingsView: View {
         .padding(.horizontal, AppLayout.paneHorizontal)
         .padding(.vertical, AppLayout.paneVertical)
         .background(AppTheme.background)
-        .font(.system(size: AppTypography.body))
+        .font(AppTypography.font(size: AppTypography.body))
     }
 }
 
