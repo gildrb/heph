@@ -3,15 +3,11 @@ import SwiftUI
 struct SidebarView: View {
     @EnvironmentObject private var appState: AppState
     let isCompact: Bool
-    let onRequestExpand: (() -> Void)?
-    @FocusState private var isSearchFocused: Bool
 
     init(
-        isCompact: Bool = false,
-        onRequestExpand: (() -> Void)? = nil
+        isCompact: Bool = false
     ) {
         self.isCompact = isCompact
-        self.onRequestExpand = onRequestExpand
     }
 
     var body: some View {
@@ -39,10 +35,10 @@ struct SidebarView: View {
 
             SidebarCompactButton(
                 systemName: "magnifyingglass",
-                accessibilityLabel: "Expand Sidebar for Search",
-                isActive: appState.hasSidebarQuery
+                accessibilityLabel: "Open Search",
+                isActive: appState.isSpotlightSearchPresented
             ) {
-                expandSidebar(focusSearch: true)
+                appState.isSpotlightSearchPresented = true
             }
 
             SidebarCompactButton(systemName: "folder.badge.plus", accessibilityLabel: "Create Project") {
@@ -64,15 +60,15 @@ struct SidebarView: View {
                 SidebarPrimaryActionRow(systemName: "square.and.pencil", title: "New Chat") {
                     appState.newChat()
                 }
-            }
 
-            SidebarSearchBar(text: $appState.sidebarQuery, isFocused: $isSearchFocused)
+                SidebarPrimaryActionRow(systemName: "magnifyingglass", title: "Search") {
+                    appState.isSpotlightSearchPresented = true
+                }
+            }
 
             ScrollView(.vertical, showsIndicators: false) {
                 let projectEntries = appState.sidebarProjects.filter(\.hasDirectory)
                 let chatEntries = appState.sidebarProjects.filter { !$0.hasDirectory }
-                let hasChatResults = chatEntries.contains { !appState.chats(for: $0).isEmpty }
-                let hasProjectResults = !projectEntries.isEmpty
 
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -130,48 +126,16 @@ struct SidebarView: View {
                             }
                         }
                     }
-
-                    if appState.hasSidebarQuery && !hasProjectResults && !hasChatResults {
-                        Text("No matches found.")
-                            .font(AppTypography.font(size: AppTypography.body))
-                            .foregroundStyle(AppTheme.textMuted)
-                            .padding(.leading, SidebarRowLayout.textLeading)
-                            .padding(.trailing, AppLayout.rowHorizontal)
-                            .padding(.top, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(AppTheme.sidebar)
 
             VStack(alignment: .leading, spacing: 8) {
-                Button {
+                SidebarPrimaryActionRow(systemName: "gearshape", title: "Settings") {
                     appState.showSettings = true
-                } label: {
-                    Text("SETTINGS")
-                        .font(AppTypography.font(size: AppTypography.category, weight: .regular))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, SidebarRowLayout.textLeading)
-                        .padding(.trailing, AppLayout.rowHorizontal)
                 }
-                .buttonStyle(.plain)
             }
-        }
-    }
-
-    private func expandSidebar(focusSearch: Bool) {
-        onRequestExpand?()
-
-        if focusSearch {
-            focusSearchBar(after: 0.2)
-        }
-    }
-
-    private func focusSearchBar(after delay: Double = 0) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            isSearchFocused = true
         }
     }
 
@@ -259,47 +223,6 @@ private struct SidebarPrimaryActionRow: View {
         .onHover { hovering in
             isHovering = hovering
         }
-    }
-}
-
-private struct SidebarSearchBar: View {
-    @Binding var text: String
-    @FocusState.Binding var isFocused: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(AppTypography.font(size: AppTypography.icon, weight: .medium))
-                .foregroundStyle(AppTheme.textSecondary)
-
-            TextField("Search", text: $text)
-                .textFieldStyle(.plain)
-                .font(AppTypography.font(size: AppTypography.body))
-                .foregroundStyle(AppTheme.textPrimary)
-                .focused($isFocused)
-
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(AppTypography.font(size: AppTypography.icon))
-                        .foregroundStyle(AppTheme.textMuted)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear Search")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(AppTheme.control)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(AppTheme.line, lineWidth: 1)
-        )
     }
 }
 

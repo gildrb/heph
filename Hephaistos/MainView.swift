@@ -46,13 +46,7 @@ struct MainView: View {
 
                 HStack(spacing: 0) {
                     SidebarView(
-                        isCompact: isLeftSidebarCompact,
-                        onRequestExpand: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                let target = max(leftSidebarWidth, leftMinimumWidth)
-                                leftSidebarWidth = clampedLeftSidebarWidth(target, totalWidth: proxy.size.width)
-                            }
-                        }
+                        isCompact: isLeftSidebarCompact
                     )
                         .frame(width: sidebarWidth)
                         .frame(maxHeight: .infinity)
@@ -100,6 +94,14 @@ struct MainView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.background)
         .ignoresSafeArea(.container, edges: .top)
+        .overlay {
+            if appState.isSpotlightSearchPresented {
+                SpotlightSearchOverlay(isPresented: $appState.isSpotlightSearchPresented)
+                    .environmentObject(appState)
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
+        }
         .sheet(isPresented: $appState.showSettings) {
             SettingsView()
                 .environmentObject(appState)
@@ -271,6 +273,15 @@ struct MainView: View {
                 Color.clear
                     .frame(width: 8)
                     .contentShape(Rectangle())
+                    .onHover { hovering in
+#if canImport(AppKit)
+                        if hovering {
+                            NSCursor.resizeLeftRight.set()
+                        } else {
+                            NSCursor.arrow.set()
+                        }
+#endif
+                    }
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in

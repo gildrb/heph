@@ -18,8 +18,10 @@ Last updated: 2026-02-17
 - None
 
 ## Done Recently
-- Reworked left sidebar collapse into a ChatGPT-style icon rail with persistent quick actions and a focused search handoff when expanding.
-- Collapsed top chrome into a single row and moved both sidebar toggles into that row so controls sit on the traffic-light line instead of below it.
+- Set all app text tokens to size `15` (including project/title text) for fully uniform text sizing.
+- Removed left sidebar hide toggle; left sidebar is now always present, user-resizable, and auto-compacts to icon rail at narrow width.
+- Made top project tab strip horizontally scrollable so opening many project tabs no longer compresses/collapses the layout.
+- Collapsed top chrome into a single row and kept the right sidebar toggle in that row so controls sit on the traffic-light line.
 - Unified pane padding tokens across left/main/right panes and replaced right `Form` layout with explicit padded cards for consistent alignment.
 - Increased main content top inset so the project title has more space below the top bar.
 - Replaced Search/Hide toggle with an always-visible sidebar search bar stacked below New Chat.

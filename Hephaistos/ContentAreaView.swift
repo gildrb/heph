@@ -25,12 +25,12 @@ struct ContentAreaView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: isCompact ? 16 : 22) {
                     if let project = appState.selectedProject {
-                        header(for: project)
+                        header(for: project, isCompact: isCompact)
                         chatComposer
                         historySection(for: appState.filteredChats)
                     } else {
                         Text("Select a project to begin")
-                            .font(AppTypography.font(size: AppTypography.body))
+                            .font(AppTypography.font(size: AppTypography.body, weight: .regular))
                             .foregroundStyle(AppTheme.textSecondary)
                     }
                 }
@@ -42,10 +42,10 @@ struct ContentAreaView: View {
         }
     }
 
-    private func header(for project: Project) -> some View {
+    private func header(for project: Project, isCompact: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             Text(project.name)
-                .font(AppTypography.font(size: AppTypography.hero, weight: .regular))
+                .font(AppTypography.font(size: isCompact ? AppTypography.heroCompact : AppTypography.hero, weight: .regular))
                 .foregroundStyle(AppTheme.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)

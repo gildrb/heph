@@ -12,15 +12,23 @@ final class AppState: ObservableObject {
         let chatID: Chat.ID?
     }
 
+    struct ChatSearchResult: Identifiable, Hashable {
+        let projectID: Project.ID
+        let projectName: String
+        let chat: Chat
+
+        var id: Chat.ID { chat.id }
+    }
+
     @Published var projects: [Project]
     @Published var openProjectTabIDs: [Project.ID]
     @Published var pinnedProjectTabIDs: [Project.ID]
     @Published var selectedProjectID: Project.ID?
     @Published var selectedChatID: Chat.ID?
 
-    @Published var sidebarQuery = ""
     @Published var expandedProjectIDs: Set<Project.ID>
     @Published var isRightSidebarCollapsed = false
+    @Published var isSpotlightSearchPresented = false
     @Published var showSettings = false
 
     @Published var draftMessage = ""
@@ -43,13 +51,14 @@ final class AppState: ObservableObject {
         let availablePresets = Self.defaultPresets
         let defaultPreset = availablePresets[0]
         let starterProjects = Self.defaultProjects
+        let startupChatsProject = starterProjects.first(where: { !$0.hasDirectory })
 
         projects = starterProjects
-        openProjectTabIDs = []
+        openProjectTabIDs = startupChatsProject.map { [$0.id] } ?? []
         pinnedProjectTabIDs = []
-        selectedProjectID = nil
-        selectedChatID = nil
-        expandedProjectIDs = []
+        selectedProjectID = startupChatsProject?.id
+        selectedChatID = startupChatsProject?.history.first?.id
+        expandedProjectIDs = startupChatsProject.map { Set([$0.id]) } ?? []
 
         presets = availablePresets
         selectedPresetID = defaultPreset.id
@@ -75,27 +84,11 @@ final class AppState: ObservableObject {
 
     var filteredChats: [Chat] {
         guard let project = selectedProject else { return [] }
-        return filterChats(in: project, query: sidebarQuery)
-    }
-
-    var hasSidebarQuery: Bool {
-        !sidebarQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return project.history
     }
 
     var sidebarProjects: [Project] {
-        let query = sidebarQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matchingProjects: [Project]
-
-        if hasSidebarQuery {
-            matchingProjects = projects.filter { project in
-                project.name.localizedCaseInsensitiveContains(query)
-                || !filterChats(in: project, query: query).isEmpty
-            }
-        } else {
-            matchingProjects = projects
-        }
-
-        return orderedSidebarProjects(matchingProjects)
+        orderedSidebarProjects(projects)
     }
 
     private func orderedSidebarProjects(_ source: [Project]) -> [Project] {
@@ -110,7 +103,34 @@ final class AppState: ObservableObject {
     }
 
     func chats(for project: Project) -> [Chat] {
-        filterChats(in: project, query: sidebarQuery)
+        project.history
+    }
+
+    func searchChats(query: String) -> [ChatSearchResult] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queryTerms = trimmed
+            .split(whereSeparator: \.isWhitespace)
+            .map { String($0) }
+
+        let allResults = projects.flatMap { project in
+            project.history.compactMap { chat -> ChatSearchResult? in
+                if queryTerms.isEmpty {
+                    return ChatSearchResult(projectID: project.id, projectName: project.name, chat: chat)
+                }
+
+                let searchableFields = [chat.title, chat.message] + chat.attachments
+                let matches = queryTerms.allSatisfy { term in
+                    searchableFields.contains(where: { $0.localizedCaseInsensitiveContains(term) })
+                }
+                guard matches else { return nil }
+
+                return ChatSearchResult(projectID: project.id, projectName: project.name, chat: chat)
+            }
+        }
+
+        return allResults.sorted { left, right in
+            left.chat.createdAt > right.chat.createdAt
+        }
     }
 
     func isProjectExpanded(_ projectID: Project.ID) -> Bool {
@@ -484,19 +504,6 @@ final class AppState: ObservableObject {
         return chatsProject.id
     }
 
-    private func filterChats(in project: Project, query: String) -> [Chat] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return project.history }
-        let queryTerms = trimmed
-            .split(whereSeparator: \.isWhitespace)
-            .map { String($0) }
-        return project.history.filter { chat in
-            let searchableFields = [chat.title, chat.message] + chat.attachments
-            return queryTerms.allSatisfy { term in
-                searchableFields.contains(where: { $0.localizedCaseInsensitiveContains(term) })
-            }
-        }
-    }
 }
 
 private extension AppState {
@@ -509,6 +516,20 @@ private extension AppState {
     }
 
     static var defaultProjects: [Project] {
-        []
+        [
+            Project(
+                name: "Chats",
+                path: "",
+                history: [
+                    Chat(
+                        title: "Untitled Chat",
+                        message: "",
+                        createdAt: .now
+                    )
+                ],
+                systemPrompt: "",
+                excludedFiles: []
+            )
+        ]
     }
 }
