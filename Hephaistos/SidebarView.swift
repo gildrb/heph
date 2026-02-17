@@ -1,8 +1,20 @@
 import SwiftUI
 
 struct SidebarView: View {
+    private struct PendingChatAction {
+        let projectID: Project.ID
+        let chatID: Chat.ID
+        let currentTitle: String
+    }
+
     @EnvironmentObject private var appState: AppState
     let isCompact: Bool
+    @State private var projectPendingRename: Project?
+    @State private var renameProjectNameDraft = ""
+    @State private var projectPendingDelete: Project?
+    @State private var chatPendingRename: PendingChatAction?
+    @State private var renameChatTitleDraft = ""
+    @State private var chatPendingDelete: PendingChatAction?
 
     init(
         isCompact: Bool = false
@@ -25,6 +37,58 @@ struct SidebarView: View {
         .padding(.horizontal, isCompact ? AppLayout.paneHorizontal : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .animation(.easeInOut(duration: 0.2), value: isCompact)
+        .alert("Rename Project", isPresented: isRenameAlertPresented) {
+            TextField("Project Name", text: $renameProjectNameDraft)
+
+            Button("Cancel", role: .cancel) {
+                projectPendingRename = nil
+                renameProjectNameDraft = ""
+            }
+
+            Button("Rename") {
+                commitProjectRename()
+            }
+            .keyboardShortcut(.defaultAction)
+        } message: {
+            Text("Enter a new name for this project.")
+        }
+        .alert("Delete Project", isPresented: isDeleteAlertPresented) {
+            Button("Cancel", role: .cancel) {
+                projectPendingDelete = nil
+            }
+
+            Button("Delete", role: .destructive) {
+                confirmDeleteProject()
+            }
+        } message: {
+            Text("This project and its local history will be removed from the sidebar.")
+        }
+        .alert("Rename Chat", isPresented: isRenameChatAlertPresented) {
+            TextField("Chat Name", text: $renameChatTitleDraft)
+
+            Button("Cancel", role: .cancel) {
+                chatPendingRename = nil
+                renameChatTitleDraft = ""
+            }
+
+            Button("Rename") {
+                commitChatRename()
+            }
+            .keyboardShortcut(.defaultAction)
+        } message: {
+            Text("Enter a new name for this chat.")
+        }
+        .alert("Delete Chat", isPresented: isDeleteChatAlertPresented) {
+            Button("Cancel", role: .cancel) {
+                chatPendingDelete = nil
+            }
+
+            Button("Delete", role: .destructive) {
+                confirmDeleteChat()
+            }
+        } message: {
+            Text("This chat will be permanently removed.")
+        }
     }
 
     private var collapsedSidebar: some View {
@@ -92,6 +156,12 @@ struct SidebarView: View {
                                 },
                                 toggleExpansionAction: {
                                     appState.toggleProjectExpansion(project.id)
+                                },
+                                renameAction: {
+                                    beginProjectRename(project)
+                                },
+                                deleteAction: {
+                                    projectPendingDelete = project
                                 }
                             )
 
@@ -100,7 +170,25 @@ struct SidebarView: View {
                                     ForEach(projectChats) { chat in
                                         SidebarChatRow(
                                             title: chat.title,
-                                            isSelected: appState.selectedProjectID == project.id && appState.selectedChatID == chat.id
+                                            isSelected: appState.selectedProjectID == project.id && appState.selectedChatID == chat.id,
+                                            isPinned: appState.isChatPinned(chat.id),
+                                            moveTargets: projectEntries.filter { $0.id != project.id },
+                                            renameAction: {
+                                                beginChatRename(projectID: project.id, chat: chat)
+                                            },
+                                            moveToProjectAction: { targetProjectID in
+                                                appState.moveChat(chat.id, from: project.id, to: targetProjectID)
+                                            },
+                                            togglePinAction: {
+                                                appState.toggleChatPin(chat.id)
+                                            },
+                                            deleteAction: {
+                                                chatPendingDelete = PendingChatAction(
+                                                    projectID: project.id,
+                                                    chatID: chat.id,
+                                                    currentTitle: chat.title
+                                                )
+                                            }
                                         ) {
                                             appState.selectChat(chat.id, in: project.id)
                                         }
@@ -114,12 +202,30 @@ struct SidebarView: View {
                         sidebarCategoryTitle("Chats")
 
                         ForEach(chatEntries) { project in
-                            let projectChats = appState.chats(for: project)
+                            let projectChats = appState.chatsForChatCategory(for: project)
 
                             ForEach(projectChats) { chat in
                                 SidebarChatRow(
                                     title: chat.title,
-                                    isSelected: appState.selectedProjectID == project.id && appState.selectedChatID == chat.id
+                                    isSelected: appState.selectedProjectID == project.id && appState.selectedChatID == chat.id,
+                                    isPinned: appState.isChatPinned(chat.id),
+                                    moveTargets: projectEntries,
+                                    renameAction: {
+                                        beginChatRename(projectID: project.id, chat: chat)
+                                    },
+                                    moveToProjectAction: { targetProjectID in
+                                        appState.moveChat(chat.id, from: project.id, to: targetProjectID)
+                                    },
+                                    togglePinAction: {
+                                        appState.toggleChatPin(chat.id)
+                                    },
+                                    deleteAction: {
+                                        chatPendingDelete = PendingChatAction(
+                                            projectID: project.id,
+                                            chatID: chat.id,
+                                            currentTitle: chat.title
+                                        )
+                                    }
                                 ) {
                                     appState.selectChat(chat.id, in: project.id)
                                 }
@@ -147,8 +253,49 @@ struct SidebarView: View {
             Spacer(minLength: 0)
         }
         .padding(.leading, SidebarRowLayout.textLeading)
-        .padding(.trailing, AppLayout.rowHorizontal)
+        .padding(.trailing, SidebarRowLayout.trailingInset)
         .padding(.bottom, 6)
+    }
+
+    private var isRenameAlertPresented: Binding<Bool> {
+        Binding(
+            get: { projectPendingRename != nil },
+            set: { isPresented in
+                if !isPresented {
+                    projectPendingRename = nil
+                    renameProjectNameDraft = ""
+                }
+            }
+        )
+    }
+
+    private var isDeleteAlertPresented: Binding<Bool> {
+        Binding(
+            get: { projectPendingDelete != nil },
+            set: { isPresented in
+                if !isPresented {
+                    projectPendingDelete = nil
+                }
+            }
+        )
+    }
+
+    private func beginProjectRename(_ project: Project) {
+        projectPendingRename = project
+        renameProjectNameDraft = project.name
+    }
+
+    private func commitProjectRename() {
+        guard let projectID = projectPendingRename?.id else { return }
+        appState.renameProject(projectID, to: renameProjectNameDraft)
+        projectPendingRename = nil
+        renameProjectNameDraft = ""
+    }
+
+    private func confirmDeleteProject() {
+        guard let projectID = projectPendingDelete?.id else { return }
+        appState.deleteProject(projectID)
+        projectPendingDelete = nil
     }
 }
 
@@ -211,13 +358,11 @@ private struct SidebarPrimaryActionRow: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, AppLayout.rowHorizontal)
+            .padding(.leading, SidebarRowLayout.leadingInset)
+            .padding(.trailing, SidebarRowLayout.trailingInset)
             .padding(.vertical, AppLayout.rowVertical)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isHovering ? AppTheme.hover : .clear)
-            )
+            .background(isHovering ? AppTheme.hover : .clear)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -232,6 +377,8 @@ private struct SidebarProjectRow: View {
     let isExpanded: Bool
     let selectAction: () -> Void
     let toggleExpansionAction: () -> Void
+    let renameAction: () -> Void
+    let deleteAction: () -> Void
     @State private var isHovering = false
 
     var body: some View {
@@ -252,12 +399,31 @@ private struct SidebarProjectRow: View {
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
+
+                Menu {
+                    Button("Rename") {
+                        renameAction()
+                    }
+
+                    Button("Delete", role: .destructive) {
+                        deleteAction()
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(AppTypography.font(size: AppTypography.icon, weight: .semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .frame(width: 16, height: 16)
+                }
+                .menuStyle(.borderlessButton)
+                .opacity(isHovering || isSelected ? 1 : 0)
+                .allowsHitTesting(isHovering || isSelected)
             }
             .contentShape(Rectangle())
             .onTapGesture(perform: selectAction)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, AppLayout.rowHorizontal)
+        .padding(.leading, SidebarRowLayout.leadingInset)
+        .padding(.trailing, SidebarRowLayout.trailingInset)
         .padding(.vertical, AppLayout.rowVertical)
         .background(backgroundColor)
         .onHover { hovering in
@@ -293,9 +459,11 @@ private struct SidebarChatRow: View {
 }
 
 private enum SidebarRowLayout {
+    static let leadingInset: CGFloat = AppLayout.rowHorizontal + 8
+    static let trailingInset: CGFloat = AppLayout.rowHorizontal
     static let iconWidth: CGFloat = 14
     static let textSpacing: CGFloat = 10
-    static let textLeading: CGFloat = AppLayout.rowHorizontal + iconWidth + textSpacing
+    static let textLeading: CGFloat = leadingInset + iconWidth + textSpacing
 }
 
 #Preview {

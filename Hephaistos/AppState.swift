@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
     @Published var projects: [Project]
     @Published var openProjectTabIDs: [Project.ID]
     @Published var pinnedProjectTabIDs: [Project.ID]
+    @Published var pinnedChatIDs: Set<Chat.ID>
     @Published var selectedProjectID: Project.ID?
     @Published var selectedChatID: Chat.ID?
 
@@ -56,6 +57,7 @@ final class AppState: ObservableObject {
         projects = starterProjects
         openProjectTabIDs = startupChatsProject.map { [$0.id] } ?? []
         pinnedProjectTabIDs = []
+        pinnedChatIDs = []
         selectedProjectID = startupChatsProject?.id
         selectedChatID = startupChatsProject?.history.first?.id
         expandedProjectIDs = startupChatsProject.map { Set([$0.id]) } ?? []
@@ -104,6 +106,24 @@ final class AppState: ObservableObject {
 
     func chats(for project: Project) -> [Chat] {
         project.history
+    }
+
+    func chatsForChatCategory(for project: Project) -> [Chat] {
+        let pinned = project.history.filter { pinnedChatIDs.contains($0.id) }
+        let regular = project.history.filter { !pinnedChatIDs.contains($0.id) }
+        return pinned + regular
+    }
+
+    func isChatPinned(_ chatID: Chat.ID) -> Bool {
+        pinnedChatIDs.contains(chatID)
+    }
+
+    func toggleChatPin(_ chatID: Chat.ID) {
+        if pinnedChatIDs.contains(chatID) {
+            pinnedChatIDs.remove(chatID)
+        } else {
+            pinnedChatIDs.insert(chatID)
+        }
     }
 
     func searchChats(query: String) -> [ChatSearchResult] {
@@ -244,6 +264,94 @@ final class AppState: ObservableObject {
 
         projects.append(newProject)
         navigate(to: NavigationState(projectID: newProject.id, chatID: nil), recording: true)
+    }
+
+    func renameProject(_ projectID: Project.ID, to name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        projects[index].name = trimmedName
+    }
+
+    func deleteProject(_ projectID: Project.ID) {
+        guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        guard projects[index].hasDirectory else { return }
+
+        projects.remove(at: index)
+        openProjectTabIDs.removeAll(where: { $0 == projectID })
+        pinnedProjectTabIDs.removeAll(where: { $0 == projectID })
+        expandedProjectIDs.remove(projectID)
+
+        backStack = sanitizeNavigationStack(backStack)
+        forwardStack = sanitizeNavigationStack(forwardStack)
+        normalizeOpenTabOrder()
+
+        if selectedProjectID == projectID || selectedProject == nil {
+            if let chatsProjectID = normalChatsProjectID {
+                let fallbackChatID = projects.first(where: { $0.id == chatsProjectID })?.history.first?.id
+                apply(navigationState: NavigationState(projectID: chatsProjectID, chatID: fallbackChatID))
+            } else if let firstProject = projects.first {
+                apply(navigationState: NavigationState(projectID: firstProject.id, chatID: firstProject.history.first?.id))
+            } else {
+                apply(navigationState: NavigationState(projectID: nil, chatID: nil))
+            }
+        }
+    }
+
+    func renameChat(_ chatID: Chat.ID, in projectID: Project.ID, to title: String) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return }
+        guard let projectIndex = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        guard let chatIndex = projects[projectIndex].history.firstIndex(where: { $0.id == chatID }) else { return }
+        projects[projectIndex].history[chatIndex].title = trimmedTitle
+    }
+
+    func moveChat(_ chatID: Chat.ID, from sourceProjectID: Project.ID, to targetProjectID: Project.ID) {
+        guard sourceProjectID != targetProjectID else { return }
+        guard let sourceIndex = projects.firstIndex(where: { $0.id == sourceProjectID }) else { return }
+        guard let targetIndex = projects.firstIndex(where: { $0.id == targetProjectID }) else { return }
+        guard let chatIndex = projects[sourceIndex].history.firstIndex(where: { $0.id == chatID }) else { return }
+
+        let movedChat = projects[sourceIndex].history.remove(at: chatIndex)
+        projects[targetIndex].history.insert(movedChat, at: 0)
+        expandedProjectIDs.insert(targetProjectID)
+
+        backStack = sanitizeNavigationStack(backStack)
+        forwardStack = sanitizeNavigationStack(forwardStack)
+
+        if selectedProjectID == sourceProjectID && selectedChatID == chatID {
+            apply(navigationState: NavigationState(projectID: targetProjectID, chatID: chatID))
+            return
+        }
+
+        if selectedProjectID == sourceProjectID && selectedChatID == nil {
+            apply(
+                navigationState: NavigationState(
+                    projectID: sourceProjectID,
+                    chatID: projects[sourceIndex].history.first?.id
+                )
+            )
+        }
+    }
+
+    func deleteChat(_ chatID: Chat.ID, in projectID: Project.ID) {
+        guard let projectIndex = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        guard let chatIndex = projects[projectIndex].history.firstIndex(where: { $0.id == chatID }) else { return }
+
+        projects[projectIndex].history.remove(at: chatIndex)
+        pinnedChatIDs.remove(chatID)
+
+        backStack = sanitizeNavigationStack(backStack)
+        forwardStack = sanitizeNavigationStack(forwardStack)
+
+        if selectedProjectID == projectID && selectedChatID == chatID {
+            apply(
+                navigationState: NavigationState(
+                    projectID: projectID,
+                    chatID: projects[projectIndex].history.first?.id
+                )
+            )
+        }
     }
 
     func newChat() {
@@ -464,6 +572,14 @@ final class AppState: ObservableObject {
         let pinnedTabSet = Set(pinnedProjectTabIDs)
         let unpinnedTabIDs = openProjectTabIDs.filter { !pinnedTabSet.contains($0) }
         openProjectTabIDs = pinnedProjectTabIDs + unpinnedTabIDs
+    }
+
+    private func sanitizeNavigationStack(_ stack: [NavigationState]) -> [NavigationState] {
+        stack.compactMap { state in
+            let normalizedState = normalized(navigationState: state)
+            guard normalizedState.projectID != nil else { return nil }
+            return normalizedState
+        }
     }
 
     private func copyToPasteboard(_ string: String) {
