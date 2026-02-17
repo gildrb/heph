@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 
 struct ContentAreaView: View {
@@ -6,6 +7,8 @@ struct ContentAreaView: View {
     @FocusState private var isComposerFocused: Bool
     @State private var isPathHovering = false
     @State private var isFileImporterPresented = false
+    @State private var composerHeight: CGFloat = 44
+    @State private var composerWidth: CGFloat = 0
     
     private var isDraftEmpty: Bool {
         appState.draftMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -22,7 +25,7 @@ struct ContentAreaView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: isCompact ? 16 : 22) {
                     if let project = appState.selectedProject {
-                        header(for: project, isCompact: isCompact)
+                        header(for: project)
                         chatComposer
                         historySection(for: appState.filteredChats)
                     } else {
@@ -39,10 +42,10 @@ struct ContentAreaView: View {
         }
     }
 
-    private func header(for project: Project, isCompact: Bool) -> some View {
+    private func header(for project: Project) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             Text(project.name)
-                .font(AppTypography.font(size: isCompact ? 52 : AppTypography.hero, weight: .regular))
+                .font(AppTypography.font(size: AppTypography.hero, weight: .regular))
                 .foregroundStyle(AppTheme.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -78,9 +81,22 @@ struct ContentAreaView: View {
                     .foregroundStyle(AppTheme.textPrimary)
                     .scrollContentBackground(.hidden)
                     .focused($isComposerFocused)
-                    .frame(height: 44)
+                    .frame(height: composerHeight)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onAppear {
+                                    composerWidth = proxy.size.width
+                                    updateComposerHeight()
+                                }
+                                .onChange(of: proxy.size.width) { newWidth in
+                                    composerWidth = newWidth
+                                    updateComposerHeight()
+                                }
+                        }
+                    )
 
                 if isDraftEmpty {
                     Text("Type your question here...")
@@ -94,6 +110,12 @@ struct ContentAreaView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 isComposerFocused = true
+            }
+            .onAppear {
+                updateComposerHeight()
+            }
+            .onChange(of: appState.draftMessage) { _ in
+                updateComposerHeight()
             }
 
             if !appState.draftAttachments.isEmpty {
@@ -131,7 +153,7 @@ struct ContentAreaView: View {
                     appState.sendDraftMessage()
                 } label: {
                     Image(systemName: "arrow.up")
-                        .font(AppTypography.font(size: AppTypography.small, weight: .semibold))
+                        .font(AppTypography.font(size: AppTypography.icon, weight: .semibold))
                         .foregroundStyle(canSendDraft ? AppTheme.textPrimary : AppTheme.textMuted)
                         .frame(width: 26, height: 26)
                 }
@@ -166,10 +188,29 @@ struct ContentAreaView: View {
         }
     }
 
+    private func updateComposerHeight() {
+        let minHeight: CGFloat = 44
+        let horizontalInsets: CGFloat = 20
+        let verticalInsets: CGFloat = 8
+        let usableWidth = max(composerWidth - horizontalInsets, 1)
+        let text = appState.draftMessage.isEmpty ? " " : appState.draftMessage
+        let font = NSFont(name: "Inter", size: AppTypography.body) ?? .systemFont(ofSize: AppTypography.body)
+        let attributedText = NSAttributedString(
+            string: text + "\n",
+            attributes: [.font: font]
+        )
+        let measuredRect = attributedText.boundingRect(
+            with: NSSize(width: usableWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        let targetHeight = ceil(measuredRect.height + verticalInsets)
+        composerHeight = max(minHeight, targetHeight)
+    }
+
     private func historySection(for chats: [Chat]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Project History")
-                .font(AppTypography.font(size: AppTypography.small))
+                .font(AppTypography.font(size: AppTypography.category))
                 .foregroundStyle(AppTheme.textSecondary)
 
             ScrollView {
@@ -201,7 +242,7 @@ private struct ComposerIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(AppTypography.font(size: AppTypography.small, weight: .medium))
+                .font(AppTypography.font(size: AppTypography.icon, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
                 .frame(width: 24, height: 24)
                 .background(
@@ -223,7 +264,7 @@ private struct AttachmentChip: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "doc")
-                .font(AppTypography.font(size: AppTypography.small, weight: .medium))
+                .font(AppTypography.font(size: AppTypography.icon, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
 
             Text(title)
@@ -233,7 +274,7 @@ private struct AttachmentChip: View {
 
             Button(action: removeAction) {
                 Image(systemName: "xmark")
-                    .font(AppTypography.font(size: AppTypography.small, weight: .medium))
+                    .font(AppTypography.font(size: AppTypography.icon, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
             }
             .buttonStyle(.plain)

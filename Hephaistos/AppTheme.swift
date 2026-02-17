@@ -17,9 +17,11 @@ enum AppTheme {
 }
 
 enum AppTypography {
-    static let small: CGFloat = 13
+    static let icon: CGFloat = 13
+    static let small: CGFloat = 15
     static let body: CGFloat = 15
-    static let hero: CGFloat = 71
+    static let category: CGFloat = 15
+    static let hero: CGFloat = 15
 
     static func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
         Font.custom("Inter", size: size).weight(weight)

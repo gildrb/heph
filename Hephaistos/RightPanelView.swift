@@ -152,7 +152,7 @@ struct RightPanelView: View {
                                 appState.removeExcludedFile(path)
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(AppTypography.font(size: AppTypography.small))
+                                    .font(AppTypography.font(size: AppTypography.icon))
                                     .foregroundStyle(AppTheme.textMuted)
                             }
                             .buttonStyle(.plain)
@@ -210,7 +210,7 @@ struct RightPanelView: View {
 
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(AppTypography.font(size: AppTypography.small))
+            .font(AppTypography.font(size: AppTypography.category))
             .foregroundStyle(AppTheme.textSecondary)
     }
 }

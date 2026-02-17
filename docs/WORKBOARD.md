@@ -18,6 +18,7 @@ Last updated: 2026-02-17
 - None
 
 ## Done Recently
+- Reworked left sidebar collapse into a ChatGPT-style icon rail with persistent quick actions and a focused search handoff when expanding.
 - Collapsed top chrome into a single row and moved both sidebar toggles into that row so controls sit on the traffic-light line instead of below it.
 - Unified pane padding tokens across left/main/right panes and replaced right `Form` layout with explicit padded cards for consistent alignment.
 - Increased main content top inset so the project title has more space below the top bar.

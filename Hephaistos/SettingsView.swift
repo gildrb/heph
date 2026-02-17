@@ -14,7 +14,13 @@ struct SettingsView: View {
 
             Toggle("Save local history", isOn: $saveHistory)
             Toggle("Open last project on launch", isOn: $openLastProject)
-            Toggle("Show right panel by default", isOn: $appState.showRightPanel)
+            Toggle(
+                "Expanded right sidebar",
+                isOn: Binding(
+                    get: { !appState.isRightSidebarCollapsed },
+                    set: { appState.isRightSidebarCollapsed = !$0 }
+                )
+            )
 
             Spacer()
 

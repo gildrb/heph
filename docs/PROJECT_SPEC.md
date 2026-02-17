@@ -33,6 +33,7 @@ Hephaistos is a native-feeling macOS study app:
 
 ## Interaction Rules (Current)
 - Left and right panel toggles are in top bar corners
+- Left sidebar collapse switches to an icon rail with persistent quick actions (new chat, search, create project, settings)
 - Top navigation arrows support back/forward state history
   - History tracks project/chat context
 - Search filters by chat title and chat content (word-based)
@@ -46,4 +47,3 @@ Hephaistos is a native-feeling macOS study app:
 - Reuse same spacing/color/typography primitives
 - No decorative fake macOS traffic lights
 - Keep UI consistency over one-off styling
-
