@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
-    { name = "Gil", email = "weathering294@gmail.com" }
+    { name = "Gil", email = "hi@gildrb.com" }
 ]
 requires-python = ">=3.13"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 hephaistos = "hephaistos.cli.app:main"
+heph = "hephaistos.cli.app:main"
 
 [build-system]
 requires = ["uv_build>=0.10.1,<0.11.0"]
