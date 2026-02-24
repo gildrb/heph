@@ -3,23 +3,23 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+
+from hephaistos.source.service import add_source, list_sources, reindex_sources
 
 
 def _cmd_source_add(args: argparse.Namespace) -> None:
-    file_path = Path(args.file).expanduser().resolve()
-    print(f"[todo] source add {file_path}")
+    print(add_source(args.file))
 
 
 def _cmd_source_list(args: argparse.Namespace) -> None:
-    print("[todo] source list")
+    print(list_sources())
 
 
 def _cmd_source_reindex(args: argparse.Namespace) -> None:
-    print("[todo] source reindex")
+    print(reindex_sources())
 
 
-def register_source_commands(subparsers) -> None:
+def register(subparsers) -> None:
     source = subparsers.add_parser("source", help="Manage source documents.")
     source_sub = source.add_subparsers(dest="source_command", required=True)
 
@@ -32,3 +32,4 @@ def register_source_commands(subparsers) -> None:
 
     reindex = source_sub.add_parser("reindex", help="Rebuild source indexes.")
     reindex.set_defaults(handler=_cmd_source_reindex)
+

@@ -21,6 +21,11 @@ Build a Python CLI app where a user can:
 5. Tweak advanced params interactively with `/parameters`.
 6. Store everything as readable Markdown files.
 
+Current CLI behavior:
+
+1. Running `heph` or `hephaistos` with no arguments opens an interactive main menu.
+2. Running with arguments (for example, `heph armory init ./my-armory`) dispatches directly.
+
 ## Minimal Dependency Baseline
 
 Keep v1 intentionally small:
@@ -30,6 +35,17 @@ Keep v1 intentionally small:
 3. `pytest` (dev dependency) for lightweight regression tests.
 
 Do not add more dependencies until a concrete feature blocks you.
+
+## Architecture Map (Mole-style Mental Model)
+
+Use this mapping while building:
+
+1. `bin` -> generated executables from `[project.scripts]` (`heph`, `hephaistos`).
+2. `app` -> global CLI parser, entrypoints, and interactive startup menu (`src/hephaistos/app/`).
+3. feature packages -> command wiring + use-cases + storage for each domain (`armory/`, `source/`, `chat/`, `parameters/`).
+4. `shared` -> cross-feature helpers and base errors (`src/hephaistos/shared/`).
+5. `scripts` -> dev/install helpers (`scripts/`).
+6. `tests` -> unit/integration checks (`tests/`).
 
 ## Suggested Final Folder Structure
 
@@ -42,61 +58,46 @@ Hephaistos/
     hephaistos/
       __init__.py
       __main__.py
-      cli/
-        app.py
-        commands/
-          armory.py
-          source.py
-          chat.py
-          parameters.py
-        repl.py
-        slash_commands.py
-      core/
-        types.py
-        errors.py
-        chat_service.py
+      app/
+        cli.py
+        menu.py
+        aliases.py
       armory/
-        layout.py
+        cli.py
+        service.py
+        storage.py
+        types.py
+      source/
+        cli.py
+        service.py
+        storage.py
+        types.py
+      chat/
+        cli.py
+        service.py
+        session_store.py
+        slash_commands.py
+        repl.py
+        types.py
+      parameters/
+        cli.py
+        service.py
+        store.py
+        types.py
+      shared/
+        errors.py
+        paths.py
         io.py
-        locks.py
-        conflicts.py
-        markdown.py
-      providers/
-        base.py
-        openai_adapter.py
-        anthropic_adapter.py
-        gemini_adapter.py
-        registry.py
-        parameter_map.py
-      auth/
-        base.py
-        keychain_store.py
-        oauth_stub.py
-      ingest/
-        pdf_extract.py
-        chunking.py
-        pipeline.py
-      retrieval/
-        index.py
-        search.py
-        context_builder.py
-      config/
-        app_config.py
-        parameters_store.py
   tests/
-    test_armory_layout.py
-    test_markdown_roundtrip.py
-    test_conflict_writes.py
-    test_parameters_command.py
-    test_pdf_ingest_pipeline.py
-    test_retrieval_search.py
+    test_armory_lib.py
+    test_armory_cmd.py
+    test_cli_integration.py
 ```
 
 ## Current State Alignment (Because You Used `uv init`)
 
 Keep only one package location: `src/hephaistos/`.
-
-Right now you also have a top-level `hephaistos/` folder. Treat that as temporary and migrate/delete it so imports and entrypoints are not ambiguous.
+Keep command entrypoints in `src/hephaistos/app/` and feature behavior in feature folders (`armory/`, `source/`, `chat/`, `parameters/`).
 
 ## How To Build It (Do In This Exact Order)
 
@@ -107,13 +108,13 @@ Create:
 - `pyproject.toml`
 - `.gitignore`
 - `src/hephaistos/__main__.py`
-- `src/hephaistos/cli/app.py`
+- `src/hephaistos/app/cli.py`
 
 What to implement:
 
 1. CLI entry command `hephaistos`.
 2. A simple `--help`.
-3. Set `[project.scripts]` to `hephaistos = "hephaistos.cli.app:main"` in `pyproject.toml`.
+3. Set `[project.scripts]` to `hephaistos = "hephaistos.app.cli:main"` in `pyproject.toml`.
 4. No business logic yet.
 
 Done when:
@@ -122,21 +123,19 @@ Done when:
 
 ---
 
-### Step 2: Define core domain types first
+### Step 2: Define shared + feature types first
 
 Create:
 
-- `src/hephaistos/core/types.py`
-- `src/hephaistos/core/errors.py`
+- `src/hephaistos/shared/errors.py`
+- `src/hephaistos/armory/types.py`
 
 Define dataclasses (stdlib) for:
 
 - `ArmoryInfo`
-- `ChatMessage`
-- `ChatSession`
-- `ModelParameters`
-- `ChatRequest`
-- `ChatResponse`
+- `SourceItem`
+- `ChatSessionRef`
+- `ParameterProfile`
 
 Done when:
 
@@ -144,19 +143,19 @@ Done when:
 
 ---
 
-### Step 3: Build armory folder management
+### Step 3: Build armory feature package
 
 Create:
 
-- `src/hephaistos/armory/layout.py`
-- `src/hephaistos/armory/io.py`
-- `src/hephaistos/armory/markdown.py`
+- `src/hephaistos/armory/cli.py`
+- `src/hephaistos/armory/service.py`
+- `src/hephaistos/armory/storage.py`
 
 Implement:
 
 1. `armory init <path>` creates required folders.
 2. `armory open <path>` validates structure.
-3. Markdown read/write helpers.
+3. Marker + layout validation helpers.
 
 Done when:
 
@@ -164,22 +163,21 @@ Done when:
 
 ---
 
-### Step 4: Add safe file writes and sync conflict handling
+### Step 4: Add shared filesystem safety helpers
 
 Create:
 
-- `src/hephaistos/armory/locks.py`
-- `src/hephaistos/armory/conflicts.py`
+- `src/hephaistos/shared/io.py`
 
 Implement:
 
 1. Atomic write (temp file + rename).
-2. Lock file for single-writer protection.
-3. Conflict file creation (never auto-merge).
+2. Add lock/conflict policy later when sync is implemented.
+3. Keep write path centralized in shared helpers.
 
 Done when:
 
-- Simulated concurrent writes produce `.conflict-*` files, not data loss.
+- Writes are abstracted in one shared place, not duplicated by feature.
 
 ---
 
@@ -248,7 +246,7 @@ Done when:
 
 Create:
 
-- `src/hephaistos/core/chat_service.py`
+- `src/hephaistos/chat/service.py`
 
 Implement:
 
@@ -267,10 +265,10 @@ Done when:
 
 Create:
 
-- `src/hephaistos/cli/repl.py`
-- `src/hephaistos/cli/slash_commands.py`
-- `src/hephaistos/cli/commands/chat.py`
-- `src/hephaistos/cli/commands/parameters.py`
+- `src/hephaistos/chat/repl.py`
+- `src/hephaistos/chat/slash_commands.py`
+- `src/hephaistos/chat/cli.py`
+- `src/hephaistos/parameters/cli.py`
 
 Implement:
 
@@ -292,7 +290,7 @@ Create:
 - `src/hephaistos/ingest/pdf_extract.py`
 - `src/hephaistos/ingest/chunking.py`
 - `src/hephaistos/ingest/pipeline.py`
-- `src/hephaistos/cli/commands/source.py`
+- `src/hephaistos/source/cli.py`
 
 Implement:
 
@@ -420,5 +418,5 @@ You are done with v1 when all are true:
 ## What To Do Next (First 3 Actions)
 
 1. Create `pyproject.toml` + CLI skeleton (`Step 1`).
-2. Implement `src/hephaistos/core/types.py` and `src/hephaistos/armory/layout.py` (`Steps 2-3`).
+2. Implement `src/hephaistos/shared/errors.py` and `src/hephaistos/armory/storage.py` (`Steps 2-3`).
 3. Add first tests for armory init and markdown roundtrip (`Step 13 subset early`).

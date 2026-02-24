@@ -1,0 +1,51 @@
+"""Armory filesystem operations."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+
+from hephaistos.armory.types import ARMORY_DIRS, MARKER_FILE
+from hephaistos.shared.errors import HephaistosError
+
+
+class ArmoryError(HephaistosError):
+    """Base error for armory operations."""
+
+
+class ArmoryValidationError(ArmoryError):
+    """Raised when a path is not a valid armory."""
+
+
+def initialize(path: Path) -> None:
+    """Create the armory directory layout and marker file."""
+    path.mkdir(parents=True, exist_ok=True)
+
+    for dirname in ARMORY_DIRS:
+        (path / dirname).mkdir(parents=True, exist_ok=True)
+
+    marker_path = path / MARKER_FILE
+    if not marker_path.exists():
+        created_at = datetime.now(UTC).isoformat()
+        marker_path.write_text(
+            f'version = 1\ncreated_at = "{created_at}"\n',
+            encoding="utf-8",
+        )
+
+
+def validate(path: Path) -> None:
+    """Ensure path is a valid armory folder."""
+    if not path.exists():
+        raise ArmoryValidationError(f"armory does not exist: {path}")
+    if not path.is_dir():
+        raise ArmoryValidationError(f"path is not a directory: {path}")
+
+    marker_path = path / MARKER_FILE
+    if not marker_path.exists():
+        raise ArmoryValidationError(f"missing armory marker file: {marker_path}")
+
+    missing_dirs = [dirname for dirname in ARMORY_DIRS if not (path / dirname).is_dir()]
+    if missing_dirs:
+        missing = ", ".join(missing_dirs)
+        raise ArmoryValidationError(f"armory is missing required dirs: {missing}")
+

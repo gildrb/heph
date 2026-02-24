@@ -4,20 +4,22 @@ from __future__ import annotations
 
 import argparse
 
+from hephaistos.parameters.service import list_parameters, save_parameters, set_parameter
+
 
 def _cmd_parameters_list(args: argparse.Namespace) -> None:
-    print("[todo] parameters list")
+    print(list_parameters())
 
 
 def _cmd_parameters_set(args: argparse.Namespace) -> None:
-    print(f"[todo] parameters set {args.key}={args.value}")
+    print(set_parameter(args.key, args.value))
 
 
 def _cmd_parameters_save(args: argparse.Namespace) -> None:
-    print(f"[todo] parameters save name={args.name}")
+    print(save_parameters(args.name))
 
 
-def register_parameters_commands(subparsers) -> None:
+def register(subparsers) -> None:
     parameters = subparsers.add_parser("parameters", help="Manage model parameters.")
     params_sub = parameters.add_subparsers(dest="parameters_command", required=True)
 
@@ -32,3 +34,4 @@ def register_parameters_commands(subparsers) -> None:
     save = params_sub.add_parser("save", help="Save current parameters as a profile.")
     save.add_argument("name", help="Profile name.")
     save.set_defaults(handler=_cmd_parameters_save)
+
