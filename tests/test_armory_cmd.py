@@ -4,32 +4,40 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.service import init_armory, open_armory
-from hephaistos.armory.storage import ArmoryValidationError
+from hephaistos.app.cli import build_parser, run_argv
 
 
-def test_init_armory_returns_success_message(tmp_path: Path) -> None:
+def test_init_armory_returns_success_message(tmp_path: Path, capsys) -> None:
+    parser = build_parser()
     armory_path = tmp_path / "study-armory"
 
-    message = init_armory(str(armory_path))
+    run_argv(parser, ["armory", "init", str(armory_path)])
 
-    assert "Initialized armory at" in message
-    assert str(armory_path.resolve()) in message
+    out = capsys.readouterr().out
+    assert "Initialized armory at" in out
+    assert str(armory_path.resolve()) in out
 
 
-def test_open_armory_returns_success_message(tmp_path: Path) -> None:
+def test_open_armory_returns_success_message(tmp_path: Path, capsys) -> None:
+    parser = build_parser()
     armory_path = tmp_path / "study-armory"
-    init_armory(str(armory_path))
+    run_argv(parser, ["armory", "init", str(armory_path)])
 
-    message = open_armory(str(armory_path))
+    run_argv(parser, ["armory", "open", str(armory_path)])
 
-    assert "Opened armory" in message
-    assert str(armory_path.resolve()) in message
+    out = capsys.readouterr().out
+    assert "Opened armory" in out
+    assert str(armory_path.resolve()) in out
 
 
-def test_open_armory_fails_for_uninitialized_path(tmp_path: Path) -> None:
+def test_open_armory_fails_for_uninitialized_path(tmp_path: Path, capsys) -> None:
+    parser = build_parser()
     uninitialized = tmp_path / "not-initialized"
     uninitialized.mkdir(parents=True)
 
-    with pytest.raises(ArmoryValidationError):
-        open_armory(str(uninitialized))
+    with pytest.raises(SystemExit) as exc:
+        run_argv(parser, ["armory", "open", str(uninitialized)])
+
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "missing armory marker file" in err

@@ -1,2 +1,0 @@
-"""Armory feature package."""
-

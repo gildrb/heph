@@ -10,9 +10,9 @@ def test_parser_includes_expected_top_level_commands() -> None:
     help_text = parser.format_help()
 
     assert "armory" in help_text
-    assert "source" in help_text
-    assert "chat" in help_text
-    assert "parameters" in help_text
+    assert "source" not in help_text
+    assert "chat" not in help_text
+    assert "parameters" not in help_text
 
 
 def test_run_argv_dispatches_armory_init(tmp_path: Path, capsys) -> None:
@@ -24,4 +24,3 @@ def test_run_argv_dispatches_armory_init(tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert "Initialized armory at" in out
     assert armory_path.is_dir()
-

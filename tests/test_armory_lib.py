@@ -9,9 +9,9 @@ from hephaistos.armory.storage import (
     ArmoryValidationError,
     MARKER_FILE,
     initialize,
+    normalize_path,
     validate,
 )
-from hephaistos.shared.paths import normalize_path
 
 
 def test_initialize_armory_creates_required_layout(tmp_path: Path) -> None:

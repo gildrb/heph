@@ -1,23 +1,24 @@
 [project]
 name = "hephaistos"
 version = "0.1.0"
-description = "Add your description here"
+description = "Armory-first study CLI"
 readme = "README.md"
 authors = [
     { name = "Gil", email = "hi@gildrb.com" }
 ]
 requires-python = ">=3.13"
-dependencies = [
-    "httpx>=0.28.1",
-]
+dependencies = []
 
 [project.scripts]
 hephaistos = "hephaistos.app.cli:main"
-heph = "hephaistos.app.aliases:main"
+heph = "hephaistos.app.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.10.1,<0.11.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
 
 [dependency-groups]
 dev = [

@@ -5,16 +5,21 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hephaistos.armory.types import ARMORY_DIRS, MARKER_FILE
-from hephaistos.shared.errors import HephaistosError
+ARMORY_DIRS = ("source", "library", "notes", "chats", "parameters", ".hephaistos")
+MARKER_FILE = Path(".hephaistos/armory.toml")
 
 
-class ArmoryError(HephaistosError):
+class ArmoryError(Exception):
     """Base error for armory operations."""
 
 
 class ArmoryValidationError(ArmoryError):
     """Raised when a path is not a valid armory."""
+
+
+def normalize_path(raw_path: str | Path) -> Path:
+    """Expand and resolve a user path to an absolute path."""
+    return Path(raw_path).expanduser().resolve()
 
 
 def initialize(path: Path) -> None:
@@ -48,4 +53,3 @@ def validate(path: Path) -> None:
     if missing_dirs:
         missing = ", ".join(missing_dirs)
         raise ArmoryValidationError(f"armory is missing required dirs: {missing}")
-
