@@ -6,8 +6,11 @@ Minimal Python CLI for armory-based study workflows.
 
 ```bash
 uv sync
-uv run hephaistos --help
+uv run hephaistos
 ```
+
+`hephaistos` (or `heph`) with no args opens the interactive menu in a TTY.
+In non-interactive shells, it prints help.
 
 Create and validate an armory:
 
@@ -22,11 +25,16 @@ Short alias:
 uv run heph --help
 ```
 
+Install shell entrypoints:
+
+```bash
+uv tool install --force --editable .
+heph
+```
+
 ## Commands
 
 - `armory` -> initialize/open armory folders
-
-Running `hephaistos` with no arguments opens the interactive menu when stdin/stdout are TTY.
 
 ## Project Layout
 

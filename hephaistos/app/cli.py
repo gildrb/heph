@@ -33,8 +33,11 @@ def main() -> None:
     parser = build_parser()
     argv = sys.argv[1:]
 
-    if not argv and sys.stdin.isatty() and sys.stdout.isatty():
-        run_main_menu(parser, lambda menu_argv: run_argv(parser, menu_argv))
+    if not argv:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            run_main_menu(parser, lambda menu_argv: run_argv(parser, menu_argv))
+        else:
+            parser.print_help()
         return
 
     run_argv(parser, argv)
