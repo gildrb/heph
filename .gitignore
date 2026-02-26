@@ -1,8 +1,131 @@
+# ============================================================================
+# Universal .gitignore
+# Covers OS artifacts, IDE/editor configs, and common language/tool outputs.
+# Add project-specific rules at the bottom.
+# ============================================================================
+
+# --- OS artifacts ---
 .DS_Store
-**/.DS_Store
-.venv/
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# --- IDEs and editors ---
+# JetBrains (IntelliJ, PyCharm, WebStorm, etc.)
+.idea/
+*.iml
+
+# Visual Studio Code
+.vscode/
+
+# Visual Studio
+*.suo
+*.user
+*.sln.docuser
+*.userprefs
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# Vim / Neovim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+Session.vim
+Neovim.shada
+
+# Emacs
+\#*\#
+.#*
+
+# Cloud9
+.c9/
+
+# Serena
+.serena/
+
+# VS Code history extension
+.history/
+
+# --- Python ---
 __pycache__/
-.pytest_cache/
 *.pyc
+*.pyo
+*.egg-info/
+*.egg
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# --- JavaScript / TypeScript ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+.parcel-cache/
+
+# --- Build output ---
+dist/
+build/
+target/
+out/
+
+# --- Java / Kotlin ---
+*.class
+*.jar
+*.war
+
+# --- Rust ---
+# Note: keep Cargo.lock for binaries, ignore for libraries
+
+# --- Go ---
+bin/
+
+# --- .NET ---
+[Bb]in/
+[Oo]bj/
+*.dll
+*.exe
+
+# --- Testing & coverage ---
+coverage/
+junit.xml
+*.lcov
+
+# --- Miscellaneous ---
+*.log
+*.pid
+*.seed
+*.gz
+*.zip
+*.tar
+*.tgz
+
+# --- Nx ---
+.nx/
+
+# --- Angular ---
+.angular/
+
+# --- Storybook ---
+storybook-static/
+
+# ============================================================================
+# Project-specific rules (add below)
+# ============================================================================
 /*-armory/
 **/.hephaistos/
