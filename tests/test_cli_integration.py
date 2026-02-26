@@ -17,7 +17,7 @@ class _FakeTTY(io.StringIO):
 
 
 def test_parser_includes_expected_top_level_commands() -> None:
-    parser = build_parser()
+    parser, _items = build_parser()
     help_text = parser.format_help()
 
     assert "armory" in help_text
@@ -27,7 +27,7 @@ def test_parser_includes_expected_top_level_commands() -> None:
 
 
 def test_run_argv_dispatches_armory_init(tmp_path: Path, capsys) -> None:
-    parser = build_parser()
+    parser, _items = build_parser()
     armory_path = tmp_path / "integration-armory"
 
     run_argv(parser, ["armory", "init", str(armory_path)])

@@ -1,1 +1,2 @@
 ## cli with register() for domain logic modules
+
