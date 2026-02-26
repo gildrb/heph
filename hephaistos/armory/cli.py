@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from hephaistos.armory.storage import ArmoryError, initialize, normalize_path, validate
+from hephaistos.armory.storage import ArmoryError, initialize, normalize_path, validate, read_marker
 
 
 def _cmd_armory_init(args: argparse.Namespace) -> None:
@@ -22,13 +22,14 @@ def _cmd_armory_open(args: argparse.Namespace) -> None:
     try:
         armory_path = normalize_path(args.path)
         validate(armory_path)
+        marker = read_marker(armory_path)
     except ArmoryError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
-    print(f"Opened armory {armory_path}")
+    print(f"Opened armory {armory_path} (created {marker.get('created_at', 'unknown')})")
 
 
-def register(subparsers) -> None:
+def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     armory = subparsers.add_parser("armory", help="Manage armories (workspaces).")
     armory_sub = armory.add_subparsers(dest="armory_command", required=True)
 

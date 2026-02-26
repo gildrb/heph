@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import tomllib
+
 ARMORY_DIRS = ("source", "library", "notes", "chats", "parameters", ".hephaistos")
 MARKER_FILE = Path(".hephaistos/armory.toml")
 
@@ -44,6 +46,14 @@ def validate(path: Path) -> None:
         raise ArmoryValidationError(f"armory does not exist: {path}")
     if not path.is_dir():
         raise ArmoryValidationError(f"path is not a directory: {path}")
+    
+def read_marker(path: Path) -> dict[str, object]:
+    """Read and return the parsed armory marker file."""
+    marker_path = path / MARKER_FILE
+    if not marker_path.exists():
+        raise ArmoryValidationError(f"missing armory marker file: {marker_path}")
+    with marker_path.open("rb") as f:
+        return tomllib.load(f)
 
     marker_path = path / MARKER_FILE
     if not marker_path.exists():
