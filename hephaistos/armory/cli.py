@@ -5,8 +5,14 @@ from __future__ import annotations
 import argparse
 import sys
 
-from hephaistos.armory.storage import ArmoryError, initialize, normalize_path, validate, read_marker
 from hephaistos.app.menu import MenuItem
+from hephaistos.armory.storage import (
+    ArmoryError,
+    initialize,
+    normalize_path,
+    read_marker,
+    validate,
+)
 
 
 def _cmd_armory_init(args: argparse.Namespace) -> None:
@@ -27,7 +33,9 @@ def _cmd_armory_open(args: argparse.Namespace) -> None:
     except ArmoryError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
-    print(f"Opened armory {armory_path} (created {marker.get('created_at', 'unknown')})")
+    print(
+        f"Opened armory {armory_path} (created {marker.get('created_at', 'unknown')})"
+    )
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -41,6 +49,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     open_cmd = armory_sub.add_parser("open", help="Open and validate an armory.")
     open_cmd.add_argument("path", help="Path to an existing armory folder.")
     open_cmd.set_defaults(handler=_cmd_armory_open)
+
 
 MENU_ITEMS: list[MenuItem] = [
     MenuItem(
