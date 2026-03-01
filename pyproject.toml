@@ -7,7 +7,9 @@ authors = [
     { name = "Gil", email = "hi@gildrb.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "openai>=1.0.0",
+]
 
 [project.scripts]
 hephaistos = "hephaistos.app.cli:main"

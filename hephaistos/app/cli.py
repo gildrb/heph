@@ -7,6 +7,8 @@ import sys
 from hephaistos.app.menu import MenuItem, run_main_menu
 from hephaistos.armory.cli import register as register_armory_commands
 from hephaistos.armory.cli import MENU_ITEMS as armory_menu_items
+from hephaistos.chat.cli import register as register_chat_commands
+from hephaistos.chat.cli import MENU_ITEMS as chat_menu_items
 
 
 
@@ -19,10 +21,11 @@ def build_parser() -> tuple[argparse.ArgumentParser, list[MenuItem]]:
     subparsers = parser.add_subparsers(dest="command", required=True)
  
     register_armory_commands(subparsers)
+    register_chat_commands(subparsers)
  
     menu_items: list[MenuItem] = []
     menu_items.extend(armory_menu_items)
-    # future: menu_items.extend(source_menu_items), etc.
+    menu_items.extend(chat_menu_items)
  
     return parser, menu_items
 

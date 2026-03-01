@@ -21,8 +21,8 @@ def test_parser_includes_expected_top_level_commands() -> None:
     help_text = parser.format_help()
 
     assert "armory" in help_text
+    assert "chat" in help_text
     assert "source" not in help_text
-    assert "chat" not in help_text
     assert "parameters" not in help_text
 
 
