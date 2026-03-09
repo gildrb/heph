@@ -46,14 +46,6 @@ def validate(path: Path) -> None:
         raise ArmoryValidationError(f"armory does not exist: {path}")
     if not path.is_dir():
         raise ArmoryValidationError(f"path is not a directory: {path}")
-    
-def read_marker(path: Path) -> dict[str, object]:
-    """Read and return the parsed armory marker file."""
-    marker_path = path / MARKER_FILE
-    if not marker_path.exists():
-        raise ArmoryValidationError(f"missing armory marker file: {marker_path}")
-    with marker_path.open("rb") as f:
-        return tomllib.load(f)
 
     marker_path = path / MARKER_FILE
     if not marker_path.exists():
@@ -63,3 +55,12 @@ def read_marker(path: Path) -> dict[str, object]:
     if missing_dirs:
         missing = ", ".join(missing_dirs)
         raise ArmoryValidationError(f"armory is missing required dirs: {missing}")
+
+
+def read_marker(path: Path) -> dict[str, object]:
+    """Read and return the parsed armory marker file."""
+    marker_path = path / MARKER_FILE
+    if not marker_path.exists():
+        raise ArmoryValidationError(f"missing armory marker file: {marker_path}")
+    with marker_path.open("rb") as f:
+        return tomllib.load(f)

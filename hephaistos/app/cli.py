@@ -4,30 +4,39 @@ import argparse
 from pathlib import Path
 import sys
 
-from hephaistos.app.menu import MenuItem, run_main_menu
+from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.cli import register as register_armory_commands
-from hephaistos.armory.cli import MENU_ITEMS as armory_menu_items
 from hephaistos.chat.cli import register as register_chat_commands
-from hephaistos.chat.cli import MENU_ITEMS as chat_menu_items
 
 
+def _hide_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    name: str,
+) -> None:
+    subparsers._choices_actions = [
+        action
+        for action in subparsers._choices_actions
+        if getattr(action, "dest", None) != name
+    ]
 
-def build_parser() -> tuple[argparse.ArgumentParser, list[MenuItem]]:
+
+def build_parser() -> argparse.ArgumentParser:
     prog = Path(sys.argv[0]).name or "hephaistos"
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="Armory-first study CLI.",
+        description="Chat-first study CLI.",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
- 
+    subparsers = parser.add_subparsers(
+        dest="command",
+        required=True,
+        metavar="command",
+    )
+
     register_armory_commands(subparsers)
     register_chat_commands(subparsers)
- 
-    menu_items: list[MenuItem] = []
-    menu_items.extend(armory_menu_items)
-    menu_items.extend(chat_menu_items)
- 
-    return parser, menu_items
+    _hide_subparser(subparsers, "chat")
+
+    return parser
 
 
 def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
@@ -40,14 +49,14 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 
 def main() -> None:
-    parser, menu_items = build_parser()
+    parser = build_parser()
     argv = sys.argv[1:]
- 
+
     if not argv:
         if sys.stdin.isatty() and sys.stdout.isatty():
-            run_main_menu(parser, menu_items, lambda menu_argv: run_argv(parser, menu_argv))
+            run_chat_shell()
         else:
             parser.print_help()
         return
- 
+
     run_argv(parser, argv)

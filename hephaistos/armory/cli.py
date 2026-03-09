@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import sys
 
-from hephaistos.app.menu import MenuItem
 from hephaistos.armory.storage import (
     ArmoryError,
     initialize,
@@ -39,6 +38,7 @@ def _cmd_armory_open(args: argparse.Namespace) -> None:
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Register armory subcommands."""
     armory = subparsers.add_parser("armory", help="Manage armories (workspaces).")
     armory_sub = armory.add_subparsers(dest="armory_command", required=True)
 
@@ -49,21 +49,3 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     open_cmd = armory_sub.add_parser("open", help="Open and validate an armory.")
     open_cmd.add_argument("path", help="Path to an existing armory folder.")
     open_cmd.set_defaults(handler=_cmd_armory_open)
-
-
-MENU_ITEMS: list[MenuItem] = [
-    MenuItem(
-        label="Armory Init",
-        description="Create a new armory folder",
-        prompts={"path": "Armory path [./armory]: "},
-        defaults={"path": "./armory"},
-        argv=["armory", "init"],
-    ),
-    MenuItem(
-        label="Armory Open",
-        description="Validate and open an armory",
-        prompts={"path": "Armory path [./armory]: "},
-        defaults={"path": "./armory"},
-        argv=["armory", "open"],
-    ),
-]

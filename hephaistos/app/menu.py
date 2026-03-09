@@ -1,91 +1,103 @@
-"""Interactive menu for no-args CLI startup."""
+"""Interactive menu helpers for TTY workflows."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
+import sys
 
-import argparse
-from collections.abc import Callable
-
+if sys.platform != "win32":
+    import termios
+    import tty
 
 
 @dataclass(frozen=True)
-class MenuItem:
-    label: str                  # e.g. "armory init"
-    description: str            # e.g. "Create a new armory folder"
-    prompts: dict[str, str]     # e.g. {"name": "Enter armory name"}
-    defaults: dict[str, str]    # e.g. {"name": "my_armory"}
-    argv: list[str]             # e.g. ["armory", "init"]
+class MenuOption:
+    label: str
+    description: str
 
-def run(self, argv: list[str]) -> None:
-    """Run the command associated with this option."""
-    _run_choice(self.command, argv)
-
-def _print_menu(items: list[MenuItem]) -> None:
-    print("Hephaistos CLI")
-    for i, item in enumerate(items, start=1):
-        print(f"{i}. {item.label:<20s}{item.description}")
-    print("h. Help              Show command help")
-    print("q. Quit")
 
 def _clear_screen() -> None:
     print("\033[2J\033[H", end="")
 
 
-def _menu_text() -> None:
-    print("Hephaistos CLI")
-    print("1. Armory Init       Create a new armory folder")
-    print("2. Armory Open       Validate and open an armory")
-    print("h. Help              Show command help")
-    print("q. Quit")
+def _render_menu(title: str, options: list[MenuOption], selected: int) -> None:
+    _clear_screen()
+    print(title)
+    print("Use Up/Down or j/k, Enter to select, q to cancel.\n")
+    for index, option in enumerate(options):
+        prefix = ">" if index == selected else " "
+        print(f"{prefix} {option.label}")
+        if option.description:
+            print(f"   {option.description}")
 
 
- 
-def _run_choice(run_command: Callable[[list[str]], None], argv: list[str]) -> None:
+def _select_with_arrow_keys(title: str, options: list[MenuOption]) -> int | None:
+    fd = sys.stdin.fileno()
+    original = termios.tcgetattr(fd)
+    selected = 0
+
     try:
-        run_command(argv)
-    except SystemExit as exc:
-        if exc.code:
-            print(f"command failed with exit code {exc.code}")
+        tty.setraw(fd)
+        while True:
+            _render_menu(title, options, selected)
+            key = sys.stdin.read(1)
 
-def _dispatch_item(
-    item: MenuItem,
-    run_command: Callable[[list[str]], None],
-) -> None:
-    argv = list(item.argv)
-    for arg_name, prompt_text in item.prompts.items():
-        raw = input(prompt_text).strip()
-        argv.append(raw or item.defaults.get(arg_name, ""))
-    _run_choice(run_command, argv)
+            if key in {"q", "\x03"}:
+                _clear_screen()
+                return None
+            if key in {"\r", "\n"}:
+                _clear_screen()
+                return selected
+            if key == "k":
+                selected = (selected - 1) % len(options)
+                continue
+            if key == "j":
+                selected = (selected + 1) % len(options)
+                continue
+            if key != "\x1b":
+                continue
 
-def run_main_menu(
-    parser: argparse.ArgumentParser,
-    items: list[MenuItem],
-    run_command: Callable[[list[str]], None],
-) -> None:
-    """Run an interactive menu loop and dispatch commands."""
+            sequence = sys.stdin.read(2)
+            if sequence == "[A":
+                selected = (selected - 1) % len(options)
+            elif sequence == "[B":
+                selected = (selected + 1) % len(options)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, original)
+
+
+def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
+    print(title)
+    for index, option in enumerate(options, start=1):
+        print(f"{index}. {option.label}")
+        if option.description:
+            print(f"   {option.description}")
+    print("q. Cancel")
+
     while True:
-        _clear_screen()
-        _print_menu(items)
         choice = input("\nSelect option: ").strip().lower()
- 
         if choice in {"q", "quit", "exit"}:
-            return
-        if choice in {"h", "help"}:
-            parser.print_help()
-            input("\nPress Enter to continue...")
-            continue
- 
-        # numeric selection
+            return None
         try:
-            idx = int(choice) - 1
+            selected = int(choice) - 1
         except ValueError:
             print("Unknown option.")
-            input("Press Enter to continue...")
             continue
- 
-        if 0 <= idx < len(items):
-            _dispatch_item(items[idx], run_command)
-            input("\nPress Enter to continue...")
-        else:
-            print("Unknown option.")
-            input("Press Enter to continue...")
+        if 0 <= selected < len(options):
+            return selected
+        print("Unknown option.")
+
+
+def select_option(title: str, options: list[MenuOption]) -> int | None:
+    """Return the selected option index or ``None`` when cancelled."""
+    if not options:
+        return None
+
+    can_use_tty = sys.stdin.isatty() and sys.stdout.isatty() and sys.platform != "win32"
+    if can_use_tty:
+        try:
+            return _select_with_arrow_keys(title, options)
+        except (OSError, termios.error):
+            pass
+
+    return _select_with_prompt(title, options)

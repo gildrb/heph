@@ -9,7 +9,9 @@ uv sync
 uv run hephaistos
 ```
 
-`hephaistos` (or `heph`) with no args opens the interactive menu in a TTY.
+`hephaistos` (or `heph`) with no args opens the chat shell immediately in a TTY.
+Type a message right away, or use `/armory` to open the workspace menu.
+That menu supports arrow keys or `j`/`k`, then Enter to select.
 In non-interactive shells, it prints help.
 
 Create and validate an armory:
@@ -35,6 +37,7 @@ heph
 ## Commands
 
 - `armory` -> initialize/open armory folders
+- `chat` -> hidden direct subcommands for start/resume/list flows
 
 ## Project Layout
 
@@ -42,12 +45,13 @@ heph
 hephaistos/
   app/
   armory/
+  chat/
 tests/
 ```
 
 ## Status
 
-- Implemented: CLI wiring, armory init/open validation, tests.
+- Implemented: chat-first shell startup, `/armory` menu flow, armory init/open validation, tests.
 
 ## Development
 

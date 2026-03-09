@@ -17,17 +17,17 @@ class _FakeTTY(io.StringIO):
 
 
 def test_parser_includes_expected_top_level_commands() -> None:
-    parser, _items = build_parser()
+    parser = build_parser()
     help_text = parser.format_help()
 
     assert "armory" in help_text
-    assert "source" not in help_text
     assert "chat" not in help_text
+    assert "source" not in help_text
     assert "parameters" not in help_text
 
 
 def test_run_argv_dispatches_armory_init(tmp_path: Path, capsys) -> None:
-    parser, _items = build_parser()
+    parser = build_parser()
     armory_path = tmp_path / "integration-armory"
 
     run_argv(parser, ["armory", "init", str(armory_path)])
@@ -37,14 +37,14 @@ def test_run_argv_dispatches_armory_init(tmp_path: Path, capsys) -> None:
     assert armory_path.is_dir()
 
 
-def test_main_without_args_uses_menu_on_tty(monkeypatch) -> None:
+def test_main_without_args_uses_chat_shell_on_tty(monkeypatch) -> None:
     called = False
 
-    def fake_menu(*_args) -> None:
+    def fake_shell() -> None:
         nonlocal called
         called = True
 
-    monkeypatch.setattr(app_cli, "run_main_menu", fake_menu)
+    monkeypatch.setattr(app_cli, "run_chat_shell", fake_shell)
     monkeypatch.setattr(app_cli.sys, "argv", ["heph"])
     monkeypatch.setattr(app_cli.sys, "stdin", _FakeTTY(True))
     monkeypatch.setattr(app_cli.sys, "stdout", _FakeTTY(True))
