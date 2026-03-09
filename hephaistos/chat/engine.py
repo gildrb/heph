@@ -32,9 +32,7 @@ class ChatConfig:
         api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get(
             "OPENAI_API_KEY", ""
         )
-        base_url = os.environ.get(
-            "HEPHAISTOS_BASE_URL", "https://api.openai.com/v1"
-        )
+        base_url = os.environ.get("HEPHAISTOS_BASE_URL", "https://api.openai.com/v1")
         model = os.environ.get("HEPHAISTOS_MODEL", "gpt-4o-mini")
         return cls(api_key=api_key, base_url=base_url, model=model)
 
@@ -71,9 +69,7 @@ class Conversation:
 def _build_client(config: ChatConfig) -> OpenAI:
     """Create an OpenAI client from the given config."""
     if not config.api_key:
-        raise EngineError(
-            "No API key found. Set HEPHAISTOS_API_KEY or OPENAI_API_KEY."
-        )
+        raise EngineError("No API key found. Set HEPHAISTOS_API_KEY or OPENAI_API_KEY.")
     return OpenAI(api_key=config.api_key, base_url=config.base_url)
 
 
