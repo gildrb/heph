@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import secrets
 import signal
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,14 @@ def _make_message(msg_type: str, **kwargs: Any) -> str:
     return json.dumps(payload)
 
 
+def _load_config() -> ChatConfig:
+    """Load config from environment, allowing empty API key initially."""
+    api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+    base_url = os.environ.get("HEPHAISTOS_BASE_URL", "https://api.openai.com/v1")
+    model = os.environ.get("HEPHAISTOS_MODEL", "gpt-4o-mini")
+    return ChatConfig(api_key=api_key, base_url=base_url, model=model)
+
+
 class ChatServer:
     def __init__(self) -> None:
         self.session: ChatSession | None = None
@@ -53,9 +63,16 @@ class ChatServer:
 
     def _get_or_create_session(self) -> ChatSession:
         if self.session is None:
-            config = ChatConfig.from_env()
+            config = _load_config()
             self.session = create_session(config, discover_startup_armory())
         return self.session
+
+    def _ensure_configured(self) -> None:
+        """Ensure the session has a valid config with API key."""
+        if self.session is None:
+            self.session = create_session(_load_config(), discover_startup_armory())
+        if not self.session.config.api_key or not self.session.config.api_key.strip():
+            raise EngineError("No API key configured. Set HEPHAISTOS_API_KEY or OPENAI_API_KEY environment variable.")
 
     async def handle_message(
         self,
@@ -96,7 +113,10 @@ class ChatServer:
         if not message:
             return
 
-        session = self._get_or_create_session()
+        # Ensure we have a valid config with API key before proceeding
+        self._ensure_configured()
+        session = self.session
+
         session.conversation.add("user", message)
 
         message_id = _generate_id()
@@ -160,9 +180,7 @@ class ChatServer:
             self._start_fresh_session(armory_path)
             await self._send_session_info(websocket)
         except ArmoryError as exc:
-            import sys
-
-            print(f"error: {exc}", file=sys.stderr)
+            await websocket.send(_make_message("error", error=str(exc)))
 
     async def _handle_create_armory(
         self,
@@ -180,9 +198,7 @@ class ChatServer:
             self._start_fresh_session(armory_path)
             await self._send_session_info(websocket)
         except ArmoryError as exc:
-            import sys
-
-            print(f"error: {exc}", file=sys.stderr)
+            await websocket.send(_make_message("error", error=str(exc)))
 
     async def _handle_list_sessions(
         self,
@@ -203,9 +219,7 @@ class ChatServer:
                 )
             )
         except ArmoryError as exc:
-            import sys
-
-            print(f"error: {exc}", file=sys.stderr)
+            await websocket.send(_make_message("error", error=str(exc)))
 
     async def _handle_resume_session(
         self,
@@ -219,13 +233,13 @@ class ChatServer:
 
         try:
             armory_path = validate_armory_path(path_str)
-            config = ChatConfig.from_env()
+            config = _load_config()
+            if not config.api_key or not config.api_key.strip():
+                raise EngineError("No API key configured. Set HEPHAISTOS_API_KEY or OPENAI_API_KEY environment variable.")
             self.session = resume_session(config, armory_path, session_id)
             await self._send_session_info(websocket)
         except (ArmoryError, chat_storage.ChatStorageError) as exc:
-            import sys
-
-            print(f"error: {exc}", file=sys.stderr)
+            await websocket.send(_make_message("error", error=str(exc)))
 
     async def _handle_save(
         self,
@@ -241,9 +255,7 @@ class ChatServer:
             path = save_session(self.session)
             await websocket.send(_make_message("saved", path=str(path)))
         except chat_storage.ChatStorageError as exc:
-            import sys
-
-            print(f"error: {exc}", file=sys.stderr)
+            await websocket.send(_make_message("error", error=str(exc)))
 
     def _handle_new_chat(self) -> None:
         if self.session is None:
@@ -263,7 +275,7 @@ class ChatServer:
                 except chat_storage.ChatStorageError:
                     pass
         self.session = create_session(
-            self.session.config if self.session else ChatConfig.from_env(),
+            self.session.config if self.session else _load_config(),
             armory_path,
         )
 
@@ -295,6 +307,7 @@ async def handle_connection(
     server = ChatServer()
     session = server._get_or_create_session()
 
+    # Send session info - use placeholder if no API key configured
     await websocket.send(
         _make_message(
             "session_info",
@@ -321,8 +334,6 @@ async def handle_connection(
 
 
 def _generate_id() -> str:
-    import secrets
-
     return secrets.token_hex(8)
 
 
@@ -344,7 +355,13 @@ async def run_server(port: int = DEFAULT_PORT) -> None:
     except RuntimeError:
         pass
 
-    async with websockets.serve(handle_connection, "localhost", port):
+    async with websockets.serve(
+        handle_connection,
+        "localhost",
+        port,
+        ping_interval=30,
+        ping_timeout=10,
+    ):
         await stop.wait()
         logger.info("Server shutdown complete")
 

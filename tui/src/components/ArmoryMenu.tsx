@@ -96,13 +96,13 @@ export function ArmoryMenu({
         left={0}
         right={0}
         bottom={0}
-        backgroundColor="rgba(0,0,0,0.8)"
+        backgroundColor="rgba(0,0,0,0.85)"
         justifyContent="center"
         alignItems="center"
       >
-        <box border padding={2} width={60}>
-          <text>Open Armory</text>
-          <text fg="dim" paddingTop={1}>
+        <box border padding={3} width={60} backgroundColor="#1a1a1a" borderColor="#7c87ff">
+          <text fg="#fafafa" bold>Open Armory</text>
+          <text fg="#737373" paddingTop={1}>
             Enter path:
           </text>
           <input
@@ -112,8 +112,8 @@ export function ArmoryMenu({
             width={50}
             focused
           />
-          <text fg="dim" paddingTop={1}>
-            Enter to confirm, Esc to cancel
+          <text fg="#525252" paddingTop={1}>
+            Enter to confirm · Esc to cancel
           </text>
         </box>
       </box>
@@ -128,13 +128,13 @@ export function ArmoryMenu({
         left={0}
         right={0}
         bottom={0}
-        backgroundColor="rgba(0,0,0,0.8)"
+        backgroundColor="rgba(0,0,0,0.85)"
         justifyContent="center"
         alignItems="center"
       >
-        <box border padding={2} width={60}>
-          <text>Create Armory</text>
-          <text fg="dim" paddingTop={1}>
+        <box border padding={3} width={60} backgroundColor="#1a1a1a" borderColor="#7c87ff">
+          <text fg="#fafafa" bold>Create Armory</text>
+          <text fg="#737373" paddingTop={1}>
             Enter path for new armory:
           </text>
           <input
@@ -144,8 +144,8 @@ export function ArmoryMenu({
             width={50}
             focused
           />
-          <text fg="dim" paddingTop={1}>
-            Enter to create, Esc to cancel
+          <text fg="#525252" paddingTop={1}>
+            Enter to create · Esc to cancel
           </text>
         </box>
       </box>
@@ -159,28 +159,26 @@ export function ArmoryMenu({
       left={0}
       right={0}
       bottom={0}
-      backgroundColor="rgba(0,0,0,0.8)"
+      backgroundColor="rgba(0,0,0,0.85)"
       justifyContent="center"
       alignItems="center"
     >
-      <box border padding={2} width={60}>
-        <text>
-          <strong>Armory</strong>
-        </text>
-        <box flexDirection="column" marginTop={1}>
+      <box border padding={3} width={50} backgroundColor="#1a1a1a" borderColor="#7c87ff">
+        <text fg="#fafafa" bold>Armory</text>
+        <box flexDirection="column" marginTop={2}>
           {ARMORY_OPTIONS.map((option, index) => (
             <box key={option.name} flexDirection="row" paddingY={1}>
-              <text width={3} fg={index === selectedIndex ? "#00ff00" : "dim"}>
-                {index === selectedIndex ? ">" : " "}
+              <text width={2} fg={index === selectedIndex ? "#7c87ff" : "#404040"}>
+                {index === selectedIndex ? "›" : " "}
               </text>
-              <text fg={index === selectedIndex ? "#ffffff" : "dim"}>
+              <text fg={index === selectedIndex ? "#fafafa" : "#737373"}>
                 {option.name}
               </text>
             </box>
           ))}
         </box>
-        <text fg="dim" paddingTop={1}>
-          j/k or arrows to navigate, Enter to select, Esc to cancel
+        <text fg="#525252" paddingTop={2}>
+          j/k or ↑/↓ to navigate · Enter to select · Esc to cancel
         </text>
       </box>
     </box>

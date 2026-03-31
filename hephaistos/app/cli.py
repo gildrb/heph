@@ -65,6 +65,12 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 
 def _run_tui() -> int:
+    """Launch the TUI: starts the WS server then runs bun.
+
+    The WS server runs in a daemon thread so it is terminated when the
+    parent process exits (i.e. when the TUI window is closed). This is
+    acceptable for local dev usage where the TUI is the only interface.
+    """
     bun_path = _find_bun()
     if bun_path is None:
         print(
@@ -81,14 +87,13 @@ def _run_tui() -> int:
     from hephaistos.app import ws_server
     import threading
     import asyncio
+    import time
 
     server_thread = threading.Thread(
         target=lambda: asyncio.run(ws_server.run_server()),
         daemon=True,
     )
     server_thread.start()
-    import time
-
     time.sleep(0.5)
 
     try:

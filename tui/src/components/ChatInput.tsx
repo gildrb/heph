@@ -1,38 +1,37 @@
-import { useState } from "react";
-
 interface ChatInputProps {
+  value: string;
+  onChange: (value: string) => void;
   onSend: (message: string) => void;
   disabled?: boolean;
   prompt?: string;
 }
 
-export function ChatInput({ onSend, disabled, prompt = "> " }: ChatInputProps) {
-  const [value, setValue] = useState("");
-
+export function ChatInput({ value, onChange, onSend, disabled, prompt = "› " }: ChatInputProps) {
   const handleSubmit = () => {
     const trimmed = value.trim();
     if (trimmed && !disabled) {
       onSend(trimmed);
-      setValue("");
     }
   };
 
   return (
-    <box flexDirection="row" padding={1}>
-      <text fg="cyan">{prompt}</text>
+    <box flexDirection="row" alignItems="center">
+      <text fg="#7c87ff" bold>{prompt}</text>
       <input
         value={value}
-        onChange={setValue}
+        onChange={onChange}
         placeholder="Type a message..."
         width="100%"
+        disabled={disabled}
       />
       {value.trim() && !disabled && (
-        <box
-          onMouseDown={handleSubmit}
-          paddingX={1}
-          marginLeft={1}
-        >
-          <text fg="green">[Enter] Send</text>
+        <box paddingX={2}>
+          <text fg="#10b981" dim={false}>↵ send</text>
+        </box>
+      )}
+      {disabled && (
+        <box paddingX={2}>
+          <text fg="#737373">waiting...</text>
         </box>
       )}
     </box>

@@ -106,10 +106,24 @@ def session_has_messages(session: ChatSession) -> bool:
 
 
 def _derive_title(conversation: Conversation) -> str:
+    first_user_content = ""
     for message in conversation.messages:
         if message.role == "user":
-            return message.content[:60]
-    return ""
+            first_user_content = message.content
+            break
+    if not first_user_content:
+        return ""
+    # Use first 60 chars; if the user sends near-identical starts,
+    # append a counter suffix so titles stay distinct
+    prefix = first_user_content[:60]
+    count = sum(
+        1
+        for msg in conversation.messages
+        if msg.role == "user" and msg.content.startswith(first_user_content[:20])
+    )
+    if count > 1:
+        return f"{prefix} ({count})"
+    return prefix
 
 
 def send_user_message(

@@ -26,15 +26,18 @@ def test_chat_config_falls_back_to_openai_key(monkeypatch) -> None:
 
 
 def test_chat_config_defaults(monkeypatch) -> None:
+    from hephaistos.chat.engine import EngineError
+
     monkeypatch.delenv("HEPHAISTOS_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("HEPHAISTOS_BASE_URL", raising=False)
     monkeypatch.delenv("HEPHAISTOS_MODEL", raising=False)
 
-    config = ChatConfig.from_env()
-    assert config.api_key == ""
-    assert config.base_url == "https://api.openai.com/v1"
-    assert config.model == "gpt-4o-mini"
+    # No API key set → must raise immediately, not silently return an empty key
+    import pytest
+
+    with pytest.raises(EngineError, match="No API key found"):
+        ChatConfig.from_env()
 
 
 def test_conversation_add_and_convert() -> None:
