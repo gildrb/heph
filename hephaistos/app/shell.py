@@ -6,7 +6,12 @@ from pathlib import Path
 import sys
 
 from hephaistos.app.menu import MenuOption, select_option
-from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
+from hephaistos.armory.storage import (
+    ArmoryError,
+    discover_startup_armory,
+    initialize,
+    normalize_path,
+)
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, EngineError
 from hephaistos.chat.session import (
@@ -29,16 +34,6 @@ ARMORY_MENU_OPTIONS = [
     MenuOption("Detach armory", "Keep chatting without workspace context."),
     MenuOption("Cancel", "Return to the chat prompt."),
 ]
-
-
-def _discover_startup_armory() -> Path | None:
-    candidates = [Path.cwd(), Path.cwd() / "armory"]
-    for candidate in candidates:
-        try:
-            return validate_armory_path(str(candidate))
-        except ArmoryError:
-            continue
-    return None
 
 
 def _default_armory_input(session: ChatSession) -> str:
@@ -264,7 +259,7 @@ def run_chat_shell(session: ChatSession | None = None) -> None:
     """Run the interactive chat shell."""
     if session is None:
         config = ChatConfig.from_env()
-        session = create_session(config, _discover_startup_armory())
+        session = create_session(config, discover_startup_armory())
 
     _print_shell_intro(session)
 
@@ -287,7 +282,7 @@ def run_chat_shell(session: ChatSession | None = None) -> None:
 
         print("Assistant: ", end="", flush=True)
         try:
-            send_user_message(session, user_input)
+            send_user_message(session, user_input, stream=True)
         except EngineError as exc:
             print(f"\nerror: {exc}", file=sys.stderr)
         print()

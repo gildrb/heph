@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+from typing import Optional
 
 from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.cli import register as register_armory_commands
 from hephaistos.chat.cli import register as register_chat_commands
+
+
+def _find_bun() -> Optional[Path]:
+    bun_path = shutil.which("bun")
+    if bun_path:
+        return Path(bun_path)
+    return None
 
 
 def _hide_subparser(
@@ -36,6 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
     register_chat_commands(subparsers)
     _hide_subparser(subparsers, "chat")
 
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch the rich TUI interface (requires bun)",
+    )
+
     return parser
 
 
@@ -48,13 +64,58 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
     handler(args)
 
 
+def _run_tui() -> int:
+    bun_path = _find_bun()
+    if bun_path is None:
+        print(
+            "error: bun is required for TUI mode. Install from https://bun.sh",
+            file=sys.stderr,
+        )
+        return 1
+
+    tui_script = Path(__file__).parent.parent.parent / "tui" / "src" / "index.tsx"
+    if not tui_script.exists():
+        print(f"error: TUI script not found at {tui_script}", file=sys.stderr)
+        return 1
+
+    from hephaistos.app import ws_server
+    import threading
+    import asyncio
+
+    server_thread = threading.Thread(
+        target=lambda: asyncio.run(ws_server.run_server()),
+        daemon=True,
+    )
+    server_thread.start()
+    import time
+
+    time.sleep(0.5)
+
+    try:
+        result = subprocess.run(
+            [str(bun_path), "run", str(tui_script)],
+            check=True,
+        )
+        return result.returncode
+    except subprocess.CalledProcessError as e:
+        return e.returncode
+
+
 def main() -> None:
-    parser = build_parser()
     argv = sys.argv[1:]
+
+    if "--tui" in argv:
+        exit(_run_tui())
+
+    parser = build_parser()
 
     if not argv:
         if sys.stdin.isatty() and sys.stdout.isatty():
-            run_chat_shell()
+            bun_path = _find_bun()
+            if bun_path is not None:
+                exit(_run_tui())
+            else:
+                run_chat_shell()
         else:
             parser.print_help()
         return

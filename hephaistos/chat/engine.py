@@ -10,7 +10,6 @@ Configure via environment variables:
 from __future__ import annotations
 
 import os
-import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
@@ -100,15 +99,8 @@ def get_reply(
     config: ChatConfig,
     conversation: Conversation,
 ) -> str:
-    """Send the conversation and return the full reply as a string.
-
-    Also prints streamed chunks to stdout in real time.
-    """
+    """Send the conversation and return the full reply as a string."""
     parts: list[str] = []
     for chunk in stream_reply(config, conversation):
-        sys.stdout.write(chunk)
-        sys.stdout.flush()
         parts.append(chunk)
-    sys.stdout.write("\n")
-    sys.stdout.flush()
     return "".join(parts)
