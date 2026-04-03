@@ -10,6 +10,8 @@ Configure via environment variables:
 from __future__ import annotations
 
 import os
+import sys
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
@@ -31,8 +33,6 @@ class ChatConfig:
         api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get(
             "OPENAI_API_KEY", ""
         )
-        if not api_key or not api_key.strip():
-            raise EngineError("No API key found. Set HEPHAISTOS_API_KEY or OPENAI_API_KEY.")
         base_url = os.environ.get("HEPHAISTOS_BASE_URL", "https://api.openai.com/v1")
         model = os.environ.get("HEPHAISTOS_MODEL", "gpt-4o-mini")
         return cls(api_key=api_key.strip(), base_url=base_url, model=model)
@@ -77,10 +77,13 @@ def _build_client(config: ChatConfig) -> OpenAI:
 def stream_reply(
     config: ChatConfig,
     conversation: Conversation,
+    *,
+    abort: threading.Event | None = None,
 ) -> Iterator[str]:
     """Send the conversation to the LLM and yield response chunks.
 
     Each yielded string is a text delta from the streamed response.
+    If *abort* is provided and becomes set, the iterator stops early.
     """
     client = _build_client(config)
     try:
@@ -90,6 +93,9 @@ def stream_reply(
             stream=True,
         )
         for chunk in stream:
+            if abort is not None and abort.is_set():
+                stream.close()
+                return
             delta = chunk.choices[0].delta
             if delta.content:
                 yield delta.content
@@ -100,9 +106,18 @@ def stream_reply(
 def get_reply(
     config: ChatConfig,
     conversation: Conversation,
+    *,
+    abort: threading.Event | None = None,
 ) -> str:
-    """Send the conversation and return the full reply as a string."""
+    """Send the conversation and return the full reply as a string.
+
+    Also prints streamed chunks to stdout in real time.
+    """
     parts: list[str] = []
-    for chunk in stream_reply(config, conversation):
+    for chunk in stream_reply(config, conversation, abort=abort):
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
         parts.append(chunk)
+    sys.stdout.write("\n")
+    sys.stdout.flush()
     return "".join(parts)

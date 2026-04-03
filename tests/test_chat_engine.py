@@ -25,19 +25,27 @@ def test_chat_config_falls_back_to_openai_key(monkeypatch) -> None:
     assert config.api_key == "openai-fallback"
 
 
-def test_chat_config_defaults(monkeypatch) -> None:
-    from hephaistos.chat.engine import EngineError
-
+def test_chat_config_defaults_no_key(monkeypatch) -> None:
     monkeypatch.delenv("HEPHAISTOS_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("HEPHAISTOS_BASE_URL", raising=False)
     monkeypatch.delenv("HEPHAISTOS_MODEL", raising=False)
 
-    # No API key set → must raise immediately, not silently return an empty key
+    # No API key → returns config with empty key (error deferred to call time)
+    config = ChatConfig.from_env()
+    assert config.api_key == ""
+    assert config.base_url == "https://api.openai.com/v1"
+    assert config.model == "gpt-4o-mini"
+
+
+def test_build_client_raises_without_api_key() -> None:
     import pytest
 
+    from hephaistos.chat.engine import EngineError, _build_client
+
+    config = ChatConfig(api_key="", base_url="http://localhost/v1", model="test")
     with pytest.raises(EngineError, match="No API key found"):
-        ChatConfig.from_env()
+        _build_client(config)
 
 
 def test_conversation_add_and_convert() -> None:

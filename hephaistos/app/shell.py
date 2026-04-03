@@ -1,17 +1,40 @@
-"""Chat-first interactive shell."""
+"""Chat-first interactive shell with rich terminal UX.
+
+Features:
+- Slash commands with tab-autocomplete
+- Shell mode via ! prefix
+- Arrow-key history navigation
+- Multi-line input with backslash continuation
+- Streaming interrupt via Ctrl+C
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
+import select
+import signal
+import subprocess
 import sys
+import termios
+import threading
+import tty
+from pathlib import Path
 
-from hephaistos.app.menu import MenuOption, select_option
-from hephaistos.armory.storage import (
-    ArmoryError,
-    discover_startup_armory,
-    initialize,
-    normalize_path,
+from hephaistos.app.autocomplete import match_commands, format_suggestions
+from hephaistos.app.commands import get_registry
+from hephaistos.app.display import (
+    STYLE_ACCENT,
+    STYLE_ASSISTANT,
+    STYLE_DIM,
+    STYLE_PROMPT,
+    build_prompt,
+    print_error,
+    print_info,
+    print_success,
+    styled,
 )
+from hephaistos.app.input_history import InputHistory
+from hephaistos.app.menu import MenuOption, select_option
+from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, EngineError
 from hephaistos.chat.session import (
@@ -35,6 +58,23 @@ ARMORY_MENU_OPTIONS = [
     MenuOption("Cancel", "Return to the chat prompt."),
 ]
 
+_HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
+
+
+# ---------------------------------------------------------------------------
+# Armory management (used by commands.py too)
+# ---------------------------------------------------------------------------
+
+
+def _discover_startup_armory() -> Path | None:
+    candidates = [Path.cwd(), Path.cwd() / "armory"]
+    for candidate in candidates:
+        try:
+            return validate_armory_path(str(candidate))
+        except ArmoryError:
+            continue
+    return None
+
 
 def _default_armory_input(session: ChatSession) -> str:
     if session.armory_path is not None:
@@ -47,70 +87,39 @@ def _prompt_path(label: str, default: str) -> str:
     return raw or default
 
 
-def _print_shell_intro(session: ChatSession) -> None:
-    print("Hephaistos")
-    if session.armory_path is None:
-        print("Armory: none. Use /armory to open or create one.")
-    else:
-        print(f"Armory: {session.armory_path}")
-        if session.source_file_count:
-            print(
-                f"Context: loaded {session.source_file_count} file(s) from source/ and library/."
-            )
-    print(f"Session: {session.session_id}")
-    print(f"Model:   {session.config.model}")
-    print(f"API:     {session.config.base_url}")
-    print("Commands: /help, /armory, /save, /clear, /status, /exit\n")
-
-
-def _chat_prompt(session: ChatSession) -> str:
-    if session.armory_path is None:
-        return "You> "
-    return f"{session.armory_path.name}> "
-
-
 def _save_before_switch(session: ChatSession) -> None:
     if not session.dirty:
         return
-
     if session.armory_path is None:
-        print("Starting a fresh chat. Previous messages were not saved.")
+        print_info("Previous messages were not saved (no armory).")
         return
-
     try:
         path = save_session(session)
+        print_success(f"Saved chat to {path}")
     except chat_storage.ChatStorageError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return
-
-    print(f"Saved chat to {path}")
+        print_error(str(exc))
 
 
 def _start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatSession:
     _save_before_switch(session)
     new_session = create_session(session.config, armory_path)
-
     if armory_path is None:
-        print("Detached armory. Chat is now running without workspace context.")
+        print_info("Detached armory. Chat is running without workspace context.")
     else:
-        print(f"Using armory {armory_path}")
+        print_success(f"Using armory {armory_path}")
         if new_session.source_file_count:
-            print(
-                f"Loaded {new_session.source_file_count} file(s) from source/ and library/."
-            )
+            print_info(f"Loaded {new_session.source_file_count} file(s).")
     return new_session
 
 
 def _open_armory(session: ChatSession) -> ChatSession:
     default_path = _default_armory_input(session)
     raw_path = _prompt_path("Armory path", default_path)
-
     try:
         armory_path = validate_armory_path(raw_path)
     except ArmoryError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print_error(str(exc))
         return session
-
     return _start_fresh_session(session, armory_path)
 
 
@@ -118,25 +127,22 @@ def _create_armory(session: ChatSession) -> ChatSession:
     default_path = _default_armory_input(session)
     raw_path = _prompt_path("New armory path", default_path)
     armory_path = normalize_path(raw_path)
-
     try:
         initialize(armory_path)
     except ArmoryError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print_error(str(exc))
         return session
-
-    print(f"Initialized armory at {armory_path}")
+    print_success(f"Initialized armory at {armory_path}")
     return _start_fresh_session(session, armory_path)
 
 
 def _prompt_armory_for_sessions(session: ChatSession) -> Path | None:
     default_path = _default_armory_input(session)
     raw_path = _prompt_path("Armory path", default_path)
-
     try:
         return validate_armory_path(raw_path)
     except ArmoryError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print_error(str(exc))
         return None
 
 
@@ -144,12 +150,10 @@ def _resume_saved_chat(session: ChatSession) -> ChatSession:
     armory_path = _prompt_armory_for_sessions(session)
     if armory_path is None:
         return session
-
     sessions = list_armory_sessions(armory_path)
     if not sessions:
-        print("No saved chats found.")
+        print_info("No saved chats found.")
         return session
-
     options = [
         MenuOption(
             entry["title"] or entry["session_id"],
@@ -160,19 +164,16 @@ def _resume_saved_chat(session: ChatSession) -> ChatSession:
     selected = select_option("Resume Saved Chat", options)
     if selected is None:
         return session
-
     entry = sessions[selected]
     _save_before_switch(session)
-
     try:
         resumed = resume_session(session.config, armory_path, entry["session_id"])
     except chat_storage.ChatStorageError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print_error(str(exc))
         return session
-
-    print(f"Resumed session {resumed.session_id}")
+    print_success(f"Resumed session {resumed.session_id}")
     if resumed.title:
-        print(f"Title: {resumed.title}")
+        print_info(f"Title: {resumed.title}")
     return resumed
 
 
@@ -180,32 +181,14 @@ def _list_saved_chats(session: ChatSession) -> None:
     armory_path = _prompt_armory_for_sessions(session)
     if armory_path is None:
         return
-
     sessions = list_armory_sessions(armory_path)
     if not sessions:
-        print("No saved chats found.")
+        print_info("No saved chats found.")
         return
-
     print(f"Saved chats for {armory_path}:")
     for entry in sessions:
         title = entry["title"] or "(untitled)"
         print(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
-
-
-def _show_status(session: ChatSession) -> None:
-    armory = str(session.armory_path) if session.armory_path is not None else "none"
-    print(f"Armory: {armory}")
-    print(f"Session: {session.session_id}")
-    if session.title:
-        print(f"Title: {session.title}")
-
-
-def _print_help() -> None:
-    print("/armory  Open the armory menu.")
-    print("/save    Save the current chat to the active armory.")
-    print("/clear   Start a fresh chat in the current armory.")
-    print("/status  Show the active armory and session.")
-    print("/exit    Leave the shell.")
 
 
 def _handle_armory_command(session: ChatSession) -> ChatSession:
@@ -226,46 +209,383 @@ def _handle_armory_command(session: ChatSession) -> ChatSession:
     return session
 
 
-def _handle_command(session: ChatSession, user_input: str) -> tuple[ChatSession, bool]:
-    command = user_input.strip().lower()
+# ---------------------------------------------------------------------------
+# Line editor (raw terminal)
+# ---------------------------------------------------------------------------
 
-    if command in {"/exit", "/quit"}:
-        return session, False
-    if command == "/help":
-        _print_help()
-        return session, True
-    if command == "/armory":
-        return _handle_armory_command(session), True
-    if command == "/save":
+
+class _LineEditor:
+    """A minimal line editor with history, autocomplete, and multi-line."""
+
+    def __init__(self, history: InputHistory) -> None:
+        self.history = history
+        self.buf = ""
+        self.cursor = 0
+        self._suggestion_lines: list[str] = []
+
+    def _prompt_str(self, session: ChatSession) -> tuple[str, int]:
+        armory_name = session.armory_path.name if session.armory_path else None
+        mode = "bash" if self.buf.startswith("!") else "prompt"
+        return build_prompt(armory_name, mode)
+
+    def _render(self, session: ChatSession) -> None:
+        prompt, prompt_vis_len = self._prompt_str(session)
+
+        # Cursor is on the prompt line. Clear from here to end of screen
+        # (this wipes any stale suggestions below, leaving output above intact).
+        sys.stdout.write("\r\033[J")
+        self._suggestion_lines = []
+
+        # Draw prompt + full buffer, then erase any leftover chars on this line
+        sys.stdout.write(f"{prompt}{self.buf}\033[K")
+
+        # If typing a slash command, show suggestions below the prompt
+        stripped = self.buf.lstrip()
+        if stripped.startswith("/") and " " not in stripped:
+            registry = get_registry()
+            matches = match_commands(stripped, registry.suggestions())
+            if matches:
+                suggestions = format_suggestions(matches)
+                sys.stdout.write("\r\n" + "\r\n".join(suggestions))
+                self._suggestion_lines = suggestions
+
+        # Move cursor back to prompt line (up from suggestions) and to correct column
+        if self._suggestion_lines:
+            sys.stdout.write(f"\033[{len(self._suggestion_lines)}A")
+        vis_col = prompt_vis_len + self.cursor
+        sys.stdout.write(f"\r\033[{vis_col}C")
+        sys.stdout.flush()
+
+    def _clear_suggestions(self) -> None:
+        # Cursor is on the prompt line — just clear everything below
+        if self._suggestion_lines:
+            sys.stdout.write("\033[J")
+            self._suggestion_lines = []
+
+    def read_line(self, session: ChatSession) -> str | None:
+        """Read a line with full editing. Returns None on Ctrl+D."""
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        self.buf = ""
+        self.cursor = 0
+        self._suggestion_lines = []
+        multiline_parts: list[str] = []
+
         try:
-            path = save_session(session)
-        except chat_storage.ChatStorageError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-        else:
-            print(f"Saved chat to {path}")
-        return session, True
-    if command == "/clear":
-        return _start_fresh_session(session, session.armory_path), True
-    if command == "/status":
-        _show_status(session)
+            tty.setraw(fd)
+            self._render(session)
+
+            while True:
+                ch = sys.stdin.read(1)
+
+                # Ctrl+C — cancel current input
+                if ch == "\x03":
+                    self._clear_suggestions()
+                    sys.stdout.write("\n\r")
+                    sys.stdout.flush()
+                    return ""
+
+                # Ctrl+D — exit
+                if ch == "\x04":
+                    self._clear_suggestions()
+                    sys.stdout.write("\n\r")
+                    sys.stdout.flush()
+                    return None
+
+                # Enter
+                if ch in ("\r", "\n"):
+                    self._clear_suggestions()
+
+                    # Backslash continuation for multi-line
+                    if self.buf.endswith("\\"):
+                        self.buf = self.buf[:-1]
+                        multiline_parts.append(self.buf)
+                        sys.stdout.write("\n\r  ")
+                        sys.stdout.flush()
+                        self.buf = ""
+                        self.cursor = 0
+                        continue
+
+                    result = "".join(multiline_parts) + self.buf
+                    sys.stdout.write("\n\r")
+                    sys.stdout.flush()
+                    self.buf = ""
+                    self.cursor = 0
+                    return result
+
+                # Backspace / Delete
+                if ch in ("\x7f", "\x08"):
+                    if self.cursor > 0:
+                        self.buf = self.buf[: self.cursor - 1] + self.buf[self.cursor :]
+                        self.cursor -= 1
+                    self._render(session)
+                    continue
+
+                # Escape sequences
+                if ch == "\x1b":
+                    ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+                    if not ready:
+                        # Bare Escape — cancel input
+                        self._clear_suggestions()
+                        sys.stdout.write("\n\r")
+                        sys.stdout.flush()
+                        return ""
+                    seq = sys.stdin.read(1)
+                    if seq == "[":
+                        arrow = sys.stdin.read(1)
+                        if arrow == "A":  # Up
+                            self.buf = self.history.up(self.buf)
+                            self.cursor = len(self.buf)
+                            self._render(session)
+                        elif arrow == "B":  # Down
+                            self.buf = self.history.down(self.buf)
+                            self.cursor = len(self.buf)
+                            self._render(session)
+                        elif arrow == "C":  # Right
+                            if self.cursor < len(self.buf):
+                                self.cursor += 1
+                                self._render(session)
+                        elif arrow == "D":  # Left
+                            if self.cursor > 0:
+                                self.cursor -= 1
+                                self._render(session)
+                        elif arrow == "3":  # Delete key
+                            sys.stdin.read(1)  # consume ~
+                            if self.cursor < len(self.buf):
+                                self.buf = self.buf[: self.cursor] + self.buf[self.cursor + 1 :]
+                                self._render(session)
+                    continue
+
+                # Tab — autocomplete
+                if ch == "\t":
+                    stripped = self.buf.lstrip()
+                    if stripped.startswith("/") and " " not in stripped:
+                        registry = get_registry()
+                        matches = match_commands(stripped, registry.suggestions())
+                        if len(matches) == 1:
+                            # Auto-complete to the single match
+                            prefix_len = len(self.buf) - len(stripped)
+                            self.buf = self.buf[:prefix_len] + "/" + matches[0].name + " "
+                            self.cursor = len(self.buf)
+                    self._render(session)
+                    continue
+
+                # Ctrl+A — home
+                if ch == "\x01":
+                    self.cursor = 0
+                    self._render(session)
+                    continue
+
+                # Ctrl+E — end
+                if ch == "\x05":
+                    self.cursor = len(self.buf)
+                    self._render(session)
+                    continue
+
+                # Ctrl+U — clear line
+                if ch == "\x15":
+                    self.buf = self.buf[self.cursor :]
+                    self.cursor = 0
+                    self._render(session)
+                    continue
+
+                # Ctrl+K — kill to end
+                if ch == "\x0b":
+                    self.buf = self.buf[: self.cursor]
+                    self._render(session)
+                    continue
+
+                # Regular printable character
+                if ord(ch) >= 32:
+                    self.buf = self.buf[: self.cursor] + ch + self.buf[self.cursor :]
+                    self.cursor += 1
+                    self._render(session)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+# ---------------------------------------------------------------------------
+# Main shell loop
+# ---------------------------------------------------------------------------
+
+
+def _print_shell_intro(session: ChatSession) -> None:
+    print(styled("Hephaistos", STYLE_PROMPT))
+    if session.armory_path is None:
+        print(f"  Armory: {styled('none', STYLE_DIM)}. Use {styled('/armory', STYLE_ACCENT)} to open or create one.")
+    else:
+        print(f"  Armory: {styled(str(session.armory_path), STYLE_ACCENT)}")
+        if session.source_file_count:
+            print(f"  Context: {session.source_file_count} file(s) from source/ and library/.")
+    print(f"  Session: {styled(session.session_id, STYLE_DIM)}")
+    print(f"  Model:   {session.config.model}")
+    print(f"  API:     {session.config.base_url}")
+    print(f"  Type {styled('/help', STYLE_ACCENT)} for commands.\n")
+
+
+def _get_history_path(session: ChatSession) -> Path:
+    if session.armory_path:
+        # Per-armory history
+        return session.armory_path / ".hephaistos" / "history.json"
+    return _HISTORY_DIR / "default_history.json"
+
+
+def _run_shell_command(cmd: str) -> None:
+    """Execute a shell command and display output."""
+    print(styled(f"$ {cmd}", STYLE_DIM))
+    try:
+        subprocess.run(cmd, shell=True, capture_output=False, text=True)
+    except Exception as exc:
+        print_error(str(exc))
+
+
+def _handle_input(session: ChatSession, user_input: str, history: InputHistory) -> tuple[ChatSession, bool]:
+    """Process a single input. Returns (session, should_continue)."""
+    if not user_input:
         return session, True
 
-    print(f"Unknown command: {user_input}")
-    print("Type /help for the available commands.")
+    # Shell mode: !command
+    if user_input.startswith("!"):
+        cmd = user_input[1:].strip()
+        if cmd:
+            history.add(user_input)
+            _run_shell_command(cmd)
+        return session, True
+
+    # Slash commands
+    if user_input.startswith("/"):
+        history.add(user_input)
+        stripped = user_input.strip()
+        space_idx = stripped.find(" ")
+        if space_idx == -1:
+            cmd_name = stripped[1:].lower()
+            cmd_args = ""
+        else:
+            cmd_name = stripped[1:space_idx].lower()
+            cmd_args = stripped[space_idx + 1:].strip()
+
+        registry = get_registry()
+        cmd = registry.find(cmd_name)
+        if cmd is None:
+            print_error(f"Unknown command: {stripped}")
+            print_info("Type /help for available commands.")
+            return session, True
+
+        result = cmd.handle(session, cmd_args)
+
+        if result.should_exit:
+            return session, False
+
+        if result.new_session is not None:
+            session = result.new_session  # type: ignore[assignment]
+
+        # Handle /edit resend
+        if result.output and result.output.startswith("__RESEND__:"):
+            new_input = result.output[len("__RESEND__:"):]
+            history.add(new_input)
+            print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
+            abort = threading.Event()
+            try:
+                send_user_message(session, new_input, abort=abort)
+            except EngineError as exc:
+                print_error(str(exc))
+            print()
+
+        return session, True
+
+    # Normal LLM prompt
+    history.add(user_input)
+    print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
+    abort = threading.Event()
+    try:
+        send_user_message(session, user_input, abort=abort)
+    except EngineError as exc:
+        print_error(str(exc))
+    print()
     return session, True
 
 
+def _save_on_exit(session: ChatSession) -> None:
+    if session.armory_path is not None and session.dirty and session_has_messages(session):
+        try:
+            path = save_session(session)
+            print_success(f"Saved chat to {path}")
+        except chat_storage.ChatStorageError as exc:
+            print_error(str(exc))
+
+
 def run_chat_shell(session: ChatSession | None = None) -> None:
-    """Run the interactive chat shell."""
+    """Run the interactive chat shell with rich terminal UX."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        _run_fallback_shell(session)
+        return
+
     if session is None:
         config = ChatConfig.from_env()
-        session = create_session(config, discover_startup_armory())
+        session = create_session(config, _discover_startup_armory())
 
     _print_shell_intro(session)
 
+    history_path = _get_history_path(session)
+    history = InputHistory.load(history_path)
+    editor = _LineEditor(history)
+
+    # Set up Ctrl+C handler for streaming interrupt
+    abort_event = threading.Event()
+    original_sigint = signal.getsignal(signal.SIGINT)
+
+    def _sigint_handler(signum: int, frame: object) -> None:
+        abort_event.set()
+
     while True:
         try:
-            user_input = input(_chat_prompt(session)).strip()
+            signal.signal(signal.SIGINT, original_sigint)
+            user_input = editor.read_line(session)
+        except (termios.error, OSError):
+            # Terminal not available for raw mode
+            signal.signal(signal.SIGINT, original_sigint)
+            _run_fallback_shell(session)
+            return
+
+        if user_input is None:
+            # Ctrl+D
+            break
+
+        if not user_input:
+            continue
+
+        # Install interrupt handler during LLM call
+        signal.signal(signal.SIGINT, _sigint_handler)
+        abort_event.clear()
+
+        session, should_continue = _handle_input(session, user_input, history)
+
+        # Restore normal SIGINT
+        signal.signal(signal.SIGINT, original_sigint)
+
+        if not should_continue:
+            break
+
+    # Save history
+    try:
+        history.save(history_path)
+    except OSError:
+        pass
+
+    _save_on_exit(session)
+
+
+def _run_fallback_shell(session: ChatSession | None = None) -> None:
+    """Simple fallback shell when raw terminal is not available."""
+    if session is None:
+        config = ChatConfig.from_env()
+        session = create_session(config, _discover_startup_armory())
+
+    print("Hephaistos (basic mode)")
+    while True:
+        try:
+            armory_name = session.armory_path.name if session.armory_path else "heph"
+            user_input = input(f"{armory_name}> ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
@@ -274,23 +594,37 @@ def run_chat_shell(session: ChatSession | None = None) -> None:
             continue
 
         if user_input.startswith("/"):
-            session, should_continue = _handle_command(session, user_input)
-            if should_continue:
-                print()
-                continue
-            break
+            stripped = user_input.strip()
+            space_idx = stripped.find(" ")
+            if space_idx == -1:
+                cmd_name = stripped[1:].lower()
+                cmd_args = ""
+            else:
+                cmd_name = stripped[1:space_idx].lower()
+                cmd_args = stripped[space_idx + 1:].strip()
 
-        print("Assistant: ", end="", flush=True)
+            registry = get_registry()
+            cmd = registry.find(cmd_name)
+            if cmd is not None:
+                result = cmd.handle(session, cmd_args)
+                if result.new_session is not None:
+                    session = result.new_session
+                if result.should_exit:
+                    break
+                continue
+
+            print_error(f"Unknown command: {stripped}")
+            print_info("Type /help for available commands.")
+            continue
+
+        if user_input.startswith("!"):
+            _run_shell_command(user_input[1:])
+            continue
+
         try:
-            send_user_message(session, user_input, stream=True)
+            send_user_message(session, user_input)
         except EngineError as exc:
-            print(f"\nerror: {exc}", file=sys.stderr)
+            print_error(str(exc))
         print()
 
-    if session.armory_path is not None and session.dirty and session_has_messages(session):
-        try:
-            path = save_session(session)
-        except chat_storage.ChatStorageError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-        else:
-            print(f"Saved chat to {path}")
+    _save_on_exit(session)

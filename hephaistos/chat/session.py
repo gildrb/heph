@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig, Conversation, EngineError, get_reply, stream_reply
+from hephaistos.chat.engine import ChatConfig, Conversation, get_reply
 
 
 @dataclass
@@ -113,8 +114,6 @@ def _derive_title(conversation: Conversation) -> str:
             break
     if not first_user_content:
         return ""
-    # Use first 60 chars; if the user sends near-identical starts,
-    # append a counter suffix so titles stay distinct
     prefix = first_user_content[:60]
     count = sum(
         1
@@ -129,20 +128,14 @@ def _derive_title(conversation: Conversation) -> str:
 def send_user_message(
     session: ChatSession,
     user_input: str,
-    stream: bool = False,
+    *,
+    abort: threading.Event | None = None,
 ) -> str:
-    """Append a user message, stream the reply, and store the assistant output.
-
-    When stream=True, each reply chunk is passed to on_chunk(chunk) callback
-    instead of being accumulated silently.
-    """
+    """Append a user message, stream the reply, and store the assistant output."""
     session.conversation.add("user", user_input)
 
     try:
-        if stream:
-            reply = _stream_and_print(session)
-        else:
-            reply = get_reply(session.config, session.conversation)
+        reply = get_reply(session.config, session.conversation, abort=abort)
     except Exception:
         session.conversation.messages.pop()
         raise
@@ -152,16 +145,6 @@ def send_user_message(
         session.title = _derive_title(session.conversation)
     session.dirty = True
     return reply
-
-
-def _stream_and_print(session: ChatSession) -> str:
-    """Stream the LLM reply and print each chunk to stdout."""
-    parts: list[str] = []
-    for chunk in stream_reply(session.config, session.conversation):
-        print(chunk, end="", flush=True)
-        parts.append(chunk)
-    print()
-    return "".join(parts)
 
 
 def save_session(session: ChatSession) -> Path:

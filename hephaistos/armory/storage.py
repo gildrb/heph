@@ -79,7 +79,7 @@ def discover_startup_armory() -> Path | None:
             return candidate
         except ArmoryError:
             continue
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError):
             # tomllib raises OSError on missing files and ValueError on decode errors
             continue
     return None
