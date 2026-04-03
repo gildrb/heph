@@ -22,6 +22,10 @@ export function App() {
   useKeyboard(
     useCallback(
       (key) => {
+        if (backend.error) {
+          backend.clearError();
+          return;
+        }
         if (key.name === "escape") {
           if (showArmoryMenu) {
             setShowArmoryMenu(false);

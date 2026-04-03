@@ -143,7 +143,7 @@ def send_user_message(
             reply = _stream_and_print(session)
         else:
             reply = get_reply(session.config, session.conversation)
-    except EngineError:
+    except Exception:
         session.conversation.messages.pop()
         raise
 

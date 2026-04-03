@@ -95,7 +95,7 @@ class ChatServer:
             elif msg_type == "save":
                 self._handle_save(websocket)
             elif msg_type == "new_chat":
-                self._handle_new_chat()
+                await self._handle_new_chat(websocket)
             else:
                 await websocket.send(
                     _make_message("error", error=f"Unknown message type: {msg_type}")
@@ -135,7 +135,12 @@ class ChatServer:
         accumulated = ""
 
         try:
-            for chunk in stream_reply(session.config, session.conversation):
+            stream_iter = stream_reply(session.config, session.conversation)
+            while True:
+                try:
+                    chunk = await asyncio.to_thread(next, stream_iter)
+                except StopIteration:
+                    break
                 accumulated += chunk
                 await websocket.send(
                     _make_message(
@@ -257,11 +262,12 @@ class ChatServer:
         except chat_storage.ChatStorageError as exc:
             await websocket.send(_make_message("error", error=str(exc)))
 
-    def _handle_new_chat(self) -> None:
+    async def _handle_new_chat(self, websocket: WebSocketServerProtocol) -> None:
         if self.session is None:
             return
         armory_path = self.session.armory_path
         self.session = create_session(self.session.config, armory_path)
+        await self._send_session_info(websocket)
 
     def _start_fresh_session(self, armory_path: Path | None) -> None:
         if (

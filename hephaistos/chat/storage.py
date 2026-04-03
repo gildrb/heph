@@ -87,8 +87,13 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
 
     data = json.loads(file_path.read_text(encoding="utf-8"))
     conversation = Conversation()
-    for msg_data in data.get("messages", []):
-        conversation.add(msg_data["role"], msg_data["content"])
+    try:
+        for msg_data in data.get("messages", []):
+            conversation.add(msg_data["role"], msg_data["content"])
+    except KeyError as exc:
+        raise ChatStorageError(
+            f"corrupt session file {session_id}: missing key {exc}"
+        ) from exc
     return conversation, data.get("title", "")
 
 

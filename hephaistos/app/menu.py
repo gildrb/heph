@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import select
 import sys
 
 if sys.platform != "win32":
@@ -57,6 +58,10 @@ def _select_with_arrow_keys(title: str, options: list[MenuOption]) -> int | None
             if key != "\x1b":
                 continue
 
+            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+            if not ready:
+                _clear_screen()
+                return None
             sequence = sys.stdin.read(2)
             if sequence == "[A":
                 selected = (selected - 1) % len(options)

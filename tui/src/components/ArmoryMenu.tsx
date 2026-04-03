@@ -6,7 +6,7 @@ interface ArmoryMenuProps {
   onClose: () => void;
   onOpenArmory: (path: string) => void;
   onCreateArmory: (path: string) => void;
-  onResumeSession: (sessionId: string) => void;
+  onResumeSession: (sessionId: string, armoryPath: string) => void;
   onNewChat: () => void;
   armoryPath: string | null;
 }

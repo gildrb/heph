@@ -15,7 +15,7 @@ interface UseBackendReturn {
   switchArmory: (path: string) => void;
   createArmory: (path: string) => void;
   listSessions: () => void;
-  resumeSession: (sessionId: string) => void;
+  resumeSession: (sessionId: string, armoryPath: string) => void;
   save: () => void;
   newChat: () => void;
   clearError: () => void;
@@ -106,8 +106,16 @@ export function useBackend(port = 8765): UseBackendReturn {
       }
     });
 
+    const unsubConnection = client.onConnectionChange((connected: boolean) => {
+      setIsConnected(connected);
+      if (!connected) {
+        setIsStreaming(false);
+      }
+    });
+
     return () => {
       unsubscribe();
+      unsubConnection();
       client.disconnect();
     };
   }, [client]);
@@ -132,8 +140,8 @@ export function useBackend(port = 8765): UseBackendReturn {
     client.listSessions();
   }, [client]);
 
-  const resumeSession = useCallback((sessionId: string) => {
-    client.resumeSession(sessionId);
+  const resumeSession = useCallback((sessionId: string, armoryPath: string) => {
+    client.resumeSession(sessionId, armoryPath);
   }, [client]);
 
   const save = useCallback(() => {

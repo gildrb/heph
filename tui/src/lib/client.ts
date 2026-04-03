@@ -1,16 +1,20 @@
 import { createWebSocketUrl, type ServerMessage, type ClientMessage } from "./types";
 
 export type MessageHandler = (msg: ServerMessage) => void;
+export type ConnectionHandler = (connected: boolean) => void;
 
 export class BackendClient {
   private ws: WebSocket | null = null;
   private port: number;
   private handlers: Set<MessageHandler> = new Set();
+  private connectionHandlers: Set<ConnectionHandler> = new Set();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
   private messageBuffer: ClientMessage[] = [];
   private isConnected = false;
+  private intentionallyClosed = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(port = 8765) {
     this.port = port;
@@ -23,7 +27,9 @@ export class BackendClient {
 
       this.ws.onopen = () => {
         this.isConnected = true;
+        this.intentionallyClosed = false;
         this.reconnectAttempts = 0;
+        this.connectionHandlers.forEach((h) => h(true));
         while (this.messageBuffer.length > 0) {
           const msg = this.messageBuffer.shift();
           if (msg) this.send(msg);
@@ -42,7 +48,10 @@ export class BackendClient {
 
       this.ws.onclose = () => {
         this.isConnected = false;
-        this.attemptReconnect();
+        this.connectionHandlers.forEach((h) => h(false));
+        if (!this.intentionallyClosed) {
+          this.attemptReconnect();
+        }
       };
 
       this.ws.onerror = (error) => {
@@ -59,7 +68,8 @@ export class BackendClient {
       return;
     }
     this.reconnectAttempts++;
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.connect().catch(() => {});
     }, this.reconnectDelay * this.reconnectAttempts);
   }
@@ -75,6 +85,11 @@ export class BackendClient {
   onMessage(handler: MessageHandler): () => void {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);
+  }
+
+  onConnectionChange(handler: ConnectionHandler): () => void {
+    this.connectionHandlers.add(handler);
+    return () => this.connectionHandlers.delete(handler);
   }
 
   sendMessage(content: string) {
@@ -93,8 +108,8 @@ export class BackendClient {
     this.send({ type: "list_sessions" });
   }
 
-  resumeSession(sessionId: string) {
-    this.send({ type: "resume_session", session_id: sessionId });
+  resumeSession(sessionId: string, armoryPath: string) {
+    this.send({ type: "resume_session", session_id: sessionId, armory_path: armoryPath });
   }
 
   save() {
@@ -106,6 +121,11 @@ export class BackendClient {
   }
 
   disconnect() {
+    this.intentionallyClosed = true;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;
