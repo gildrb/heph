@@ -19,8 +19,8 @@ def test_select_option_uses_prompt_fallback(monkeypatch, capsys) -> None:
 
     out = capsys.readouterr().out
     assert selected == 1
-    assert "1. Open existing armory" in out
-    assert "2. Create new armory" in out
+    assert "Open existing armory" in out
+    assert "Create new armory" in out
 
 
 def test_select_option_returns_none_for_cancel(monkeypatch) -> None:

@@ -356,14 +356,14 @@ class _LineEditor:
                 # Ctrl+C — cancel current input
                 if ch == "\x03":
                     self._clear_suggestions()
-                    sys.stdout.write("\n\r")
+                    sys.stdout.write("\r\n")
                     sys.stdout.flush()
                     return ""
 
                 # Ctrl+D — exit
                 if ch == "\x04":
                     self._clear_suggestions()
-                    sys.stdout.write("\n\r")
+                    sys.stdout.write("\r\n")
                     sys.stdout.flush()
                     return None
 
@@ -375,14 +375,14 @@ class _LineEditor:
                     if self.buf.endswith("\\"):
                         self.buf = self.buf[:-1]
                         multiline_parts.append(self.buf)
-                        sys.stdout.write("\n\r  ")
+                        sys.stdout.write("\r\n  ")
                         sys.stdout.flush()
                         self.buf = ""
                         self.cursor = 0
                         continue
 
                     result = "".join(multiline_parts) + self.buf
-                    sys.stdout.write("\n\r")
+                    sys.stdout.write("\r\n")
                     sys.stdout.flush()
                     self.buf = ""
                     self.cursor = 0
@@ -403,7 +403,7 @@ class _LineEditor:
                     if not ready:
                         # Bare Escape — cancel input
                         self._clear_suggestions()
-                        sys.stdout.write("\n\r")
+                        sys.stdout.write("\r\n")
                         sys.stdout.flush()
                         return ""
                     seq = self._read_char(fd)

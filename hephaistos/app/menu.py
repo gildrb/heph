@@ -10,6 +10,13 @@ if sys.platform != "win32":
     import termios
     import tty
 
+from hephaistos.app.display import (
+    BOLD,
+    STYLE_DIM,
+    STYLE_PROMPT,
+    styled,
+)
+
 
 @dataclass(frozen=True)
 class MenuOption:
@@ -24,13 +31,35 @@ def _clear_screen() -> None:
 
 def _render_menu(title: str, options: list[MenuOption], selected: int) -> None:
     _clear_screen()
-    sys.stdout.write(f"{title}\r\n")
-    sys.stdout.write("Use Up/Down or j/k, Enter to select, q to cancel.\r\n\r\n")
+
+    # Title
+    sys.stdout.write(f"{styled(title, STYLE_PROMPT)}\r\n")
+    sys.stdout.write(
+        f"{styled('Use Up/Down or j/k, Enter to select, q to cancel.', STYLE_DIM)}\r\n\r\n"
+    )
+
+    max_label = max(len(opt.label) for opt in options) if options else 0
+
     for index, option in enumerate(options):
-        prefix = ">" if index == selected else " "
-        sys.stdout.write(f"{prefix} {option.label}\r\n")
-        if option.description:
-            sys.stdout.write(f"   {option.description}\r\n")
+        if index == selected:
+            # Inverse highlight (same as slash command autocomplete)
+            label = f"\033[7m {option.label} \033[0m"
+            if option.description:
+                padded = f" {option.label} ".ljust(max_label + 2)
+                line = f"\033[7m>{padded}  {option.description}\033[0m"
+            else:
+                line = f"\033[7m> {option.label}\033[0m"
+        else:
+            label = styled(option.label, BOLD)
+            desc = styled(option.description, STYLE_DIM) if option.description else ""
+            if desc:
+                padded = f"  {option.label}".ljust(max_label + 4)
+                line = f" {padded}{desc}"
+            else:
+                line = f" {label}"
+
+        sys.stdout.write(f"{line}\r\n")
+
     sys.stdout.flush()
 
 
@@ -60,7 +89,7 @@ def _select_with_arrow_keys(title: str, options: list[MenuOption]) -> int | None
             if key != "\x1b":
                 continue
 
-            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+            ready, _, _ = select.select([fd], [], [], 0.05)
             if not ready:
                 _clear_screen()
                 return None
@@ -74,12 +103,17 @@ def _select_with_arrow_keys(title: str, options: list[MenuOption]) -> int | None
 
 
 def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
-    print(title)
+    print(styled(title, STYLE_PROMPT))
     for index, option in enumerate(options, start=1):
-        print(f"{index}. {option.label}")
-        if option.description:
-            print(f"   {option.description}")
-    print("q. Cancel")
+        label = styled(option.label, BOLD)
+        desc = styled(option.description, STYLE_DIM) if option.description else ""
+        if desc:
+            max_label = max(len(opt.label) for opt in options)
+            padded = f"  {option.label}".ljust(max_label + 4)
+            print(f"  {index}. {padded}{desc}")
+        else:
+            print(f"  {index}. {label}")
+    print(f"  {styled('q.', STYLE_DIM)} Cancel")
 
     while True:
         choice = input("\nSelect option: ").strip().lower()

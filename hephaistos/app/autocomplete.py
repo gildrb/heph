@@ -12,11 +12,12 @@ class CommandSuggestion:
 
 
 def match_commands(prefix: str, commands: list[CommandSuggestion]) -> list[CommandSuggestion]:
-    """Return commands whose names start with the given prefix (after /)."""
+    """Return commands whose names start with the given prefix (after /), sorted alphabetically."""
     if not prefix.startswith("/"):
         return []
     search = prefix[1:].lower()
-    return [cmd for cmd in commands if cmd.name.lower().startswith(search)]
+    matches = [cmd for cmd in commands if cmd.name.lower().startswith(search)]
+    return sorted(matches, key=lambda c: c.name)
 
 
 def format_suggestions(matches: list[CommandSuggestion], max_width: int = 80, selected: int = -1) -> list[str]:
