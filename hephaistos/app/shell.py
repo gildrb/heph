@@ -306,19 +306,23 @@ class _LineEditor:
 
         # ── Move cursor to the top-border line and clear everything below ──
         # The panel layout from top to bottom is:
-        #   0: top border (╭───╮)
-        #   1: input line  (│▌ prompt text)
-        #   2..N-1: suggestions (if any)
-        #   N: bottom border (╰───╯)
-        #   N+1: footer (if shown)
+        #   0: blank spacer line
+        #   1: top border (╭───╮)
+        #   2: input line  (│▌ prompt text)
+        #   3..N: suggestions (if any)
+        #   N+1: bottom border (╰───╯)
+        #   N+2: footer (if shown)
         #
-        # When _render is called, the cursor sits on the input line (row 1
-        # relative to the panel).  We move up one line to the top border
-        # position so we can overwrite the entire panel in place.
+        # When _render is called, the cursor sits on the input line (row 2
+        # relative to the panel).  We move up two lines to the spacer row
+        # so we can overwrite the entire panel in place.
 
-        sys.stdout.write("\033[A\r")  # up to top-border row
-        sys.stdout.write("\033[J")     # clear from top border to end of screen
+        sys.stdout.write("\033[2A\r")  # up to blank line above top-border
+        sys.stdout.write("\033[J")     # clear from there to end of screen
         self._suggestion_lines = []
+
+        # Blank line for breathing room above the chatbox
+        sys.stdout.write("\r\n")
 
         # ── Draw the full chatbox panel ──
 
@@ -388,8 +392,8 @@ class _LineEditor:
         # erase everything from there to end of screen.  This removes the
         # top border, input line, suggestions, bottom border, and footer in
         # one shot so the chatbox panel is completely cleared.
-        sys.stdout.write("\033[A\r")  # up to top-border row
-        sys.stdout.write("\033[J")     # clear from top border to end of screen
+        sys.stdout.write("\033[2A\r")  # up to blank line above top-border
+        sys.stdout.write("\033[J")     # clear from there to end of screen
         self._suggestion_lines = []
         self._suggestion_index = -1
         self._current_matches = []
