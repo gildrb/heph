@@ -19,17 +19,19 @@ def match_commands(prefix: str, commands: list[CommandSuggestion]) -> list[Comma
     return [cmd for cmd in commands if cmd.name.lower().startswith(search)]
 
 
-def format_suggestions(matches: list[CommandSuggestion], max_width: int = 80) -> list[str]:
+def format_suggestions(matches: list[CommandSuggestion], max_width: int = 80, selected: int = -1) -> list[str]:
     """Format matched commands into displayable suggestion lines."""
     if not matches:
         return []
     lines: list[str] = []
-    for cmd in matches:
+    for i, cmd in enumerate(matches):
         entry = f"  /{cmd.name}"
         if cmd.description:
-            # Pad to column 20 for alignment
             padded = entry.ljust(min(22, max_width - len(cmd.description) - 2))
-            lines.append(f"{padded} {cmd.description}")
+            text = f"{padded} {cmd.description}"
         else:
-            lines.append(entry)
+            text = entry
+        if i == selected:
+            text = f"\033[7m{text}\033[0m"
+        lines.append(text)
     return lines

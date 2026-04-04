@@ -10,6 +10,7 @@ Features:
 
 from __future__ import annotations
 
+import os
 import select
 import signal
 import subprocess
@@ -222,6 +223,49 @@ class _LineEditor:
         self.buf = ""
         self.cursor = 0
         self._suggestion_lines: list[str] = []
+        self._suggestion_index: int = -1
+        self._current_matches: list = []  # list[CommandSuggestion]
+
+    def _reset_suggestion_index(self) -> None:
+        """Reset suggestion selection when buffer content changes."""
+        self._suggestion_index = -1
+
+    def _handle_arrow(self, key: str, session: ChatSession, fd: int) -> None:
+        """Handle an arrow key (A=up, B=down, C=right, D=left)."""
+        if key == "A":  # Up
+            if self._current_matches:
+                if self._suggestion_index <= 0:
+                    self._suggestion_index = len(self._current_matches) - 1
+                else:
+                    self._suggestion_index -= 1
+            else:
+                self.buf = self.history.up(self.buf)
+                self.cursor = len(self.buf)
+            self._render(session)
+        elif key == "B":  # Down
+            if self._current_matches:
+                if self._suggestion_index >= len(self._current_matches) - 1:
+                    self._suggestion_index = 0
+                else:
+                    self._suggestion_index += 1
+            else:
+                self.buf = self.history.down(self.buf)
+                self.cursor = len(self.buf)
+            self._render(session)
+        elif key == "C":  # Right
+            if self.cursor < len(self.buf):
+                self.cursor += 1
+                self._render(session)
+        elif key == "D":  # Left
+            if self.cursor > 0:
+                self.cursor -= 1
+                self._render(session)
+        elif key == "3":  # Delete key (CSI 3 ~)
+            os.read(fd, 1)  # consume ~
+            if self.cursor < len(self.buf):
+                self.buf = self.buf[: self.cursor] + self.buf[self.cursor + 1 :]
+                self._reset_suggestion_index()
+                self._render(session)
 
     def _prompt_str(self, session: ChatSession) -> tuple[str, int]:
         armory_name = session.armory_path.name if session.armory_path else None
@@ -244,10 +288,13 @@ class _LineEditor:
         if stripped.startswith("/") and " " not in stripped:
             registry = get_registry()
             matches = match_commands(stripped, registry.suggestions())
+            self._current_matches = matches
             if matches:
-                suggestions = format_suggestions(matches)
+                suggestions = format_suggestions(matches, selected=self._suggestion_index)
                 sys.stdout.write("\r\n" + "\r\n".join(suggestions))
                 self._suggestion_lines = suggestions
+        else:
+            self._current_matches = []
 
         # Move cursor back to prompt line (up from suggestions) and to correct column
         if self._suggestion_lines:
@@ -261,6 +308,31 @@ class _LineEditor:
         if self._suggestion_lines:
             sys.stdout.write("\033[J")
             self._suggestion_lines = []
+        self._suggestion_index = -1
+        self._current_matches = []
+
+    def _read_char(self, fd: int) -> str:
+        """Read one byte from fd directly, returning it as a single char."""
+        b = os.read(fd, 1)
+        if not b:
+            return ""
+        byte = b[0]
+        if byte < 0x80:
+            return b.decode("utf-8")
+        # Multi-byte UTF-8: figure out length and read continuation bytes
+        if byte < 0xE0:
+            needed = 1
+        elif byte < 0xF0:
+            needed = 2
+        else:
+            needed = 3
+        buf = b
+        for _ in range(needed):
+            extra = os.read(fd, 1)
+            if not extra:
+                break
+            buf += extra
+        return buf.decode("utf-8", errors="replace")
 
     def read_line(self, session: ChatSession) -> str | None:
         """Read a line with full editing. Returns None on Ctrl+D."""
@@ -269,6 +341,8 @@ class _LineEditor:
         self.buf = ""
         self.cursor = 0
         self._suggestion_lines = []
+        self._suggestion_index = -1
+        self._current_matches = []
         multiline_parts: list[str] = []
 
         try:
@@ -276,7 +350,7 @@ class _LineEditor:
             self._render(session)
 
             while True:
-                ch = sys.stdin.read(1)
+                ch = self._read_char(fd)
 
                 # Ctrl+C — cancel current input
                 if ch == "\x03":
@@ -318,55 +392,51 @@ class _LineEditor:
                     if self.cursor > 0:
                         self.buf = self.buf[: self.cursor - 1] + self.buf[self.cursor :]
                         self.cursor -= 1
+                    self._reset_suggestion_index()
                     self._render(session)
                     continue
 
                 # Escape sequences
                 if ch == "\x1b":
-                    ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+                    ready, _, _ = select.select([fd], [], [], 0.1)
                     if not ready:
                         # Bare Escape — cancel input
                         self._clear_suggestions()
                         sys.stdout.write("\n\r")
                         sys.stdout.flush()
                         return ""
-                    seq = sys.stdin.read(1)
+                    seq = self._read_char(fd)
+                    # Handle both CSI [A-D and SS3 OA-OD (normal + app mode)
                     if seq == "[":
-                        arrow = sys.stdin.read(1)
-                        if arrow == "A":  # Up
-                            self.buf = self.history.up(self.buf)
-                            self.cursor = len(self.buf)
-                            self._render(session)
-                        elif arrow == "B":  # Down
-                            self.buf = self.history.down(self.buf)
-                            self.cursor = len(self.buf)
-                            self._render(session)
-                        elif arrow == "C":  # Right
-                            if self.cursor < len(self.buf):
-                                self.cursor += 1
-                                self._render(session)
-                        elif arrow == "D":  # Left
-                            if self.cursor > 0:
-                                self.cursor -= 1
-                                self._render(session)
-                        elif arrow == "3":  # Delete key
-                            sys.stdin.read(1)  # consume ~
-                            if self.cursor < len(self.buf):
-                                self.buf = self.buf[: self.cursor] + self.buf[self.cursor + 1 :]
-                                self._render(session)
+                        arrow = self._read_char(fd)
+                        self._handle_arrow(arrow, session, fd)
+                    elif seq == "O":
+                        arrow = self._read_char(fd)
+                        self._handle_arrow(arrow, session, fd)
                     continue
 
                 # Tab — autocomplete
                 if ch == "\t":
-                    stripped = self.buf.lstrip()
-                    if stripped.startswith("/") and " " not in stripped:
-                        registry = get_registry()
-                        matches = match_commands(stripped, registry.suggestions())
-                        if len(matches) == 1:
-                            # Auto-complete to the single match
+                    if self._suggestion_index >= 0 and self._current_matches:
+                        # Complete to the highlighted suggestion
+                        idx = self._suggestion_index
+                        if idx < len(self._current_matches):
+                            cmd = self._current_matches[idx]
+                            stripped = self.buf.lstrip()
                             prefix_len = len(self.buf) - len(stripped)
-                            self.buf = self.buf[:prefix_len] + "/" + matches[0].name + " "
+                            self.buf = self.buf[:prefix_len] + "/" + cmd.name + " "
                             self.cursor = len(self.buf)
+                            self._suggestion_index = -1
+                    else:
+                        stripped = self.buf.lstrip()
+                        if stripped.startswith("/") and " " not in stripped:
+                            registry = get_registry()
+                            matches = match_commands(stripped, registry.suggestions())
+                            if len(matches) == 1:
+                                # Auto-complete to the single match
+                                prefix_len = len(self.buf) - len(stripped)
+                                self.buf = self.buf[:prefix_len] + "/" + matches[0].name + " "
+                                self.cursor = len(self.buf)
                     self._render(session)
                     continue
 
@@ -386,12 +456,14 @@ class _LineEditor:
                 if ch == "\x15":
                     self.buf = self.buf[self.cursor :]
                     self.cursor = 0
+                    self._reset_suggestion_index()
                     self._render(session)
                     continue
 
                 # Ctrl+K — kill to end
                 if ch == "\x0b":
                     self.buf = self.buf[: self.cursor]
+                    self._reset_suggestion_index()
                     self._render(session)
                     continue
 
@@ -399,6 +471,7 @@ class _LineEditor:
                 if ord(ch) >= 32:
                     self.buf = self.buf[: self.cursor] + ch + self.buf[self.cursor :]
                     self.cursor += 1
+                    self._reset_suggestion_index()
                     self._render(session)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
