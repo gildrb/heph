@@ -26,6 +26,7 @@ from hephaistos.app.commands import get_registry
 from hephaistos.app.display import (
     BOLD,
     DIM,
+    RED,
     RESET,
     STYLE_ACCENT,
     STYLE_ASSISTANT,
@@ -37,6 +38,7 @@ from hephaistos.app.display import (
     print_shell_intro,
     print_success,
     styled,
+    visible_len,
 )
 from hephaistos import __version__
 from hephaistos.app.input_history import InputHistory
@@ -321,15 +323,22 @@ class _LineEditor:
         # ── Draw the full chatbox panel ──
 
         # Top border: ╭─...─╮ (bold cyan)
-        corner_tl = styled("╭", f"{BOLD}{RED}")
-        corner_tr = styled("╮", f"{BOLD}{RED}")
-        top_fill = styled("─" * (cols - 2), f"{BOLD}{RED}")
+        corner_tl = styled("╭", RED)
+        corner_tr = styled("╮", RED)
+        top_fill = styled("─" * (cols - 2), RED)
         sys.stdout.write(f"{corner_tl}{top_fill}{corner_tr}\033[K\r\n")
+
+        # Borders for content lines
+        corner_left = styled("│ ", RED)
+        corner_right = styled(" │", RED)
+        content_width = cols - 4  # subtract left "│ " and right " │"
 
         # Input line: │▌ prompt input │
         accent_bar = styled("▌ ", STYLE_PROMPT)
-        corner_left = styled("│ ", f"{BOLD}{RED}")
-        sys.stdout.write(f"{corner_left}{accent_bar}{prompt}{self.buf}\033[K")
+        input_content = f"{accent_bar}{prompt}{self.buf}"
+        input_vis = visible_len(input_content)
+        pad = max(0, content_width - input_vis)
+        sys.stdout.write(f"{corner_left}{input_content}{' ' * pad}{corner_right}\033[K")
 
         # If typing a slash command, show suggestions below the prompt
         stripped = self.buf.lstrip()
@@ -339,15 +348,18 @@ class _LineEditor:
             self._current_matches = matches
             if matches:
                 suggestions = format_suggestions(matches, selected=self._suggestion_index)
-                sys.stdout.write("\r\n" + "\r\n".join(suggestions))
+                for sug in suggestions:
+                    sug_vis = visible_len(sug)
+                    sug_pad = max(0, content_width - sug_vis)
+                    sys.stdout.write(f"\r\n{corner_left}{sug}{' ' * sug_pad}{corner_right}")
                 self._suggestion_lines = suggestions
         else:
             self._current_matches = []
 
         # Bottom border: ╰─...─╯
-        corner_bl = styled("╰", f"{BOLD}{RED}")
-        corner_br = styled("╯", f"{BOLD}{RED}")
-        bottom_fill = styled("─" * (cols - 2), f"{BOLD}{RED}")
+        corner_bl = styled("╰", RED)
+        corner_br = styled("╯", RED)
+        bottom_fill = styled("─" * (cols - 2), RED)
         sys.stdout.write(f"\r\n{corner_bl}{bottom_fill}{corner_br}\033[K")
 
         # Footer line below the border

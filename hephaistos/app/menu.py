@@ -19,6 +19,7 @@ if sys.platform != "win32":
 
 from hephaistos.app.display import (
     BOLD,
+    RED,
     RESET,
     STYLE_ACCENT,
     STYLE_DIM,
@@ -94,7 +95,7 @@ _BOX_H = "─"
 _BOX_V = "│"
 
 # Style for the box border
-_BOX_STYLE = f"{BOLD}{RED}"
+_BOX_STYLE = RED
 
 
 def _box_line(content: str, inner_width: int, left: str, right: str, style: str = _BOX_STYLE) -> str:

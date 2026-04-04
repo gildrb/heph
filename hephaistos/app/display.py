@@ -11,7 +11,7 @@ import threading
 BOLD = "\033[1m"
 DIM = "\033[2m"
 ITALIC = "\033[3m"
-RED = "\033[31m"
+RED = "\033[91m"
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
 
