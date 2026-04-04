@@ -24,8 +24,13 @@ from pathlib import Path
 from hephaistos.app.autocomplete import match_commands, format_suggestions
 from hephaistos.app.commands import get_registry
 from hephaistos.app.display import (
+    BOLD,
+    DIM,
+    RESET,
+    STYLE_ACCENT,
     STYLE_ASSISTANT,
     STYLE_DIM,
+    STYLE_PROMPT,
     build_prompt,
     print_error,
     print_info,
@@ -294,13 +299,37 @@ class _LineEditor:
         except OSError:
             cols = 80
 
-        # Cursor is on the prompt line. Clear from here to end of screen
-        # (this wipes any stale suggestions/footer below, leaving output above intact).
-        sys.stdout.write("\r\033[J")
+        # Ensure minimum width for box-drawing
+        cols = max(cols, 20)
+
+        # ── Move cursor to the top-border line and clear everything below ──
+        # The panel layout from top to bottom is:
+        #   0: top border (╭───╮)
+        #   1: input line  (│▌ prompt text)
+        #   2..N-1: suggestions (if any)
+        #   N: bottom border (╰───╯)
+        #   N+1: footer (if shown)
+        #
+        # When _render is called, the cursor sits on the input line (row 1
+        # relative to the panel).  We move up one line to the top border
+        # position so we can overwrite the entire panel in place.
+
+        sys.stdout.write("\033[A\r")  # up to top-border row
+        sys.stdout.write("\033[J")     # clear from top border to end of screen
         self._suggestion_lines = []
 
-        # Draw prompt + full buffer, then erase any leftover chars on this line
-        sys.stdout.write(f"{prompt}{self.buf}\033[K")
+        # ── Draw the full chatbox panel ──
+
+        # Top border: ╭─...─╮ (bold cyan)
+        corner_tl = styled("╭", f"{BOLD}{RED}")
+        corner_tr = styled("╮", f"{BOLD}{RED}")
+        top_fill = styled("─" * (cols - 2), f"{BOLD}{RED}")
+        sys.stdout.write(f"{corner_tl}{top_fill}{corner_tr}\033[K\r\n")
+
+        # Input line: │▌ prompt input │
+        accent_bar = styled("▌ ", STYLE_PROMPT)
+        corner_left = styled("│ ", f"{BOLD}{RED}")
+        sys.stdout.write(f"{corner_left}{accent_bar}{prompt}{self.buf}\033[K")
 
         # If typing a slash command, show suggestions below the prompt
         stripped = self.buf.lstrip()
@@ -315,31 +344,40 @@ class _LineEditor:
         else:
             self._current_matches = []
 
-        # Draw chatbox border line
-        border = styled("─" * cols, STYLE_DIM)
-        sys.stdout.write(f"\r\n{border}\033[K")
+        # Bottom border: ╰─...─╯
+        corner_bl = styled("╰", f"{BOLD}{RED}")
+        corner_br = styled("╯", f"{BOLD}{RED}")
+        bottom_fill = styled("─" * (cols - 2), f"{BOLD}{RED}")
+        sys.stdout.write(f"\r\n{corner_bl}{bottom_fill}{corner_br}\033[K")
 
-        # Draw footer line below the border
-        extra_lines = 1  # border line
+        # Footer line below the border
+        footer_lines = 0
         if self._show_footer:
             if self._escape_pending:
                 footer = styled(" Press Esc again to cancel input", "\033[1m\033[33m")
             else:
                 footer = _HELP_FOOTER
             sys.stdout.write(f"\r\n{footer}\033[K")
-            extra_lines = 2  # border + footer
+            footer_lines = 1
 
-        # Move cursor back to prompt line (up from border + footer + suggestions) and to correct column
-        total_below = len(self._suggestion_lines) + extra_lines
-        if total_below:
-            sys.stdout.write(f"\033[{total_below}A")
-        vis_col = prompt_vis_len + self.cursor
+        # Move cursor back to the input line and to correct column
+        lines_below_input = len(self._suggestion_lines) + 1 + footer_lines  # +1 for bottom border
+        if lines_below_input:
+            sys.stdout.write(f"\033[{lines_below_input}A")
+        # vis_col: "│ " (2) + "▌ " (2) + prompt + cursor
+        left_border_vis = 2  # "│ "
+        accent_vis = 2  # "▌ "
+        vis_col = left_border_vis + accent_vis + prompt_vis_len + self.cursor
         sys.stdout.write(f"\r\033[{vis_col}C")
         sys.stdout.flush()
 
     def _clear_suggestions(self) -> None:
-        # Cursor is on the prompt line — just clear everything below (includes footer)
-        sys.stdout.write("\033[J")
+        # Cursor is on the input line. Move up to the top-border row, then
+        # erase everything from there to end of screen.  This removes the
+        # top border, input line, suggestions, bottom border, and footer in
+        # one shot so the chatbox panel is completely cleared.
+        sys.stdout.write("\033[A\r")  # up to top-border row
+        sys.stdout.write("\033[J")     # clear from top border to end of screen
         self._suggestion_lines = []
         self._suggestion_index = -1
         self._current_matches = []

@@ -1,7 +1,7 @@
 """Interactive menu helpers for TTY workflows.
 
 Uses an alternate screen buffer so the user's terminal scrollback is
-preserved.  Supports arrow-key / j-k navigation only (no typing).
+preserved.  Supports arrow-key navigation only (no typing).
 The menu fills the full terminal viewport and is centered with the
 Hephaistos visual identity.
 """
@@ -19,6 +19,7 @@ if sys.platform != "win32":
 
 from hephaistos.app.display import (
     BOLD,
+    RESET,
     STYLE_ACCENT,
     STYLE_DIM,
     STYLE_PROMPT,
@@ -76,63 +77,115 @@ def _center(text: str, width: int) -> str:
     return f"{' ' * pad}{text}"
 
 
+def _pad_to(text: str, width: int) -> str:
+    """Pad *text* with trailing spaces so its visible width equals *width*."""
+    vis = visible_len(text)
+    if vis >= width:
+        return text
+    return text + " " * (width - vis)
+
+
+# Box-drawing characters
+_BOX_TL = "╭"
+_BOX_TR = "╮"
+_BOX_BL = "╰"
+_BOX_BR = "╯"
+_BOX_H = "─"
+_BOX_V = "│"
+
+# Style for the box border
+_BOX_STYLE = f"{BOLD}{RED}"
+
+
+def _box_line(content: str, inner_width: int, left: str, right: str, style: str = _BOX_STYLE) -> str:
+    """Render a content line wrapped in box vertical characters, padded to *inner_width*."""
+    padded = _pad_to(content, inner_width)
+    return f"{style}{left}{RESET}{padded}{style}{right}{RESET}"
+
+
+def _box_horizontal(fill_char: str, inner_width: int, left: str, right: str, style: str = _BOX_STYLE) -> str:
+    """Render a horizontal box line (top or bottom border)."""
+    return f"{style}{left}{fill_char * inner_width}{right}{RESET}"
+
+
 def _render_menu(
     title: str,
     options: list[MenuOption],
     selected: int,
 ) -> int:
-    """Render the full-viewport menu.  Returns the number of lines written."""
+    """Render the full-viewport menu inside a box.  Returns the number of lines written."""
 
     cols, rows = _term_size()
     _clear_screen()
 
+    # Inner width: leave 4 columns margin on each side for the box + padding
+    box_inner = max(20, cols - 8)
+
     # ── Build content lines ──
     content: list[str] = []
 
-    # Title line: ⚡ Hephaistos — {title} ⚡
-    title_text = f"⚡ Hephaistos — {title} ⚡"
-    content.append(styled(title_text, STYLE_PROMPT))
+    # Blank line above title
+    content.append("")
 
-    # Separator
-    sep = styled("─" * len(title_text), STYLE_DIM)
-    content.append(sep)
-    content.append("")  # blank line
+    # Title line: ⚡ Hephaistos — {title} ⚡
+    title_text = styled(f"  ⚡ Hephaistos — {title} ⚡  ", STYLE_PROMPT)
+    content.append(_box_line(_center(title_text, box_inner), box_inner, _BOX_V, _BOX_V))
+
+    # Separator line inside box
+    sep_inner = styled(f"{_BOX_H * box_inner}", _BOX_STYLE)
+    content.append(f"{_BOX_STYLE}{_BOX_V}{RESET}{sep_inner}{_BOX_STYLE}{_BOX_V}{RESET}")
+
+    content.append(_box_line("", box_inner, _BOX_V, _BOX_V))  # blank line
 
     # Options
     for idx, option in enumerate(options):
         if idx == selected:
-            # Selected item: ▸ label (bold + reverse video) with description
-            arrow = styled("▸", STYLE_ACCENT)
+            arrow = styled("  ▸ ", STYLE_ACCENT)
             label = styled(option.label, BOLD)
-            content.append(_center(f"{arrow} {label}", cols))
-            if option.description:
-                content.append(_center(styled(f"  {option.description}", STYLE_DIM), cols))
+            line_text = f"{arrow}{label}"
         else:
-            # Unselected item
             label = styled(option.label, STYLE_DIM)
-            content.append(_center(f"  {label}", cols))
-            if option.description:
-                content.append(_center(styled(f"  {option.description}", STYLE_DIM), cols))
-        content.append("")  # spacing between items
+            line_text = f"    {label}"
+        content.append(_box_line(line_text, box_inner, _BOX_V, _BOX_V))
 
-    # Bottom separator
-    content.append(sep)
+        if option.description:
+            if idx == selected:
+                desc = styled(f"      {option.description}", STYLE_DIM)
+            else:
+                desc = styled(f"      {option.description}", STYLE_DIM)
+            content.append(_box_line(desc, box_inner, _BOX_V, _BOX_V))
+        else:
+            content.append(_box_line("", box_inner, _BOX_V, _BOX_V))  # spacing
 
-    # Footer
-    footer = styled("↑↓ navigate · Enter select · Esc cancel", STYLE_DIM)
-    content.append(_center(footer, cols))
+    content.append(_box_line("", box_inner, _BOX_V, _BOX_V))  # blank line
 
-    # ── Vertically center the content block ──
-    total_content_lines = len(content)
-    top_pad = max(0, (rows - total_content_lines) // 2)
+    # Bottom separator inside box
+    content.append(f"{_BOX_STYLE}{_BOX_V}{RESET}{sep_inner}{_BOX_STYLE}{_BOX_V}{RESET}")
 
-    # Move cursor to the correct starting row
+    # Footer inside box
+    footer = styled("  ↑↓ navigate · Enter select · Esc cancel  ", STYLE_DIM)
+    content.append(_box_line(_center(footer, box_inner), box_inner, _BOX_V, _BOX_V))
+
+    # Blank line below footer
+    content.append("")
+
+    # ── Assemble with top/bottom borders ──
     output_lines: list[str] = []
+
+    # Top border
+    top_border = _box_horizontal(_BOX_H, box_inner, _BOX_TL, _BOX_TR)
+    bottom_border = _box_horizontal(_BOX_H, box_inner, _BOX_BL, _BOX_BR)
+
+    # Vertically center the whole block
+    total_lines = 1 + len(content) + 1  # top_border + content + bottom_border
+    top_pad = max(0, (rows - total_lines) // 2)
     for _ in range(top_pad):
         output_lines.append("")
-    output_lines.extend(content)
 
-    # Clear screen then write everything
+    output_lines.append(top_border)
+    output_lines.extend(content)
+    output_lines.append(bottom_border)
+
     sys.stdout.write("\r\n".join(output_lines))
     sys.stdout.flush()
     return len(output_lines)
@@ -146,16 +199,18 @@ def _read_escape_sequence(fd: int) -> str | None:
     """After reading \\x1b, consume the rest of an escape sequence.
 
     Returns a canonical key name:
-      "up", "down", "left", "right", or None for unrecognized/bare Escape.
-    A bare Escape (no following bytes within 200 ms) returns None.
+      "up", "down", "left", "right", "delete", "escape" for bare Escape,
+      or None for unrecognized sequences (silently consumed).
+    A bare Escape (no following bytes within 200 ms) returns "escape".
+    Unrecognized sequences return None so the caller can ignore them.
     """
     ready, _, _ = select.select([fd], [], [], 0.2)
     if not ready:
-        return None  # bare Escape
+        return "escape"  # bare Escape
 
     ch = os.read(fd, 1)
     if not ch:
-        return None
+        return "escape"
 
     b = ch[0]
 
@@ -164,9 +219,9 @@ def _read_escape_sequence(fd: int) -> str | None:
         # Read parameter bytes and intermediate bytes until final byte (0x40..0x7E)
         params = b""
         while True:
-            r, _, _ = select.select([fd], [], [], 0.05)
+            r, _, _ = select.select([fd], [], [], 0.1)
             if not r:
-                return None
+                return None  # incomplete/unrecognized CSI → ignore
             next_byte = os.read(fd, 1)
             if not next_byte:
                 return None
@@ -185,7 +240,7 @@ def _read_escape_sequence(fd: int) -> str | None:
                 elif params == b"3" and code == b"~":
                     return "delete"
                 else:
-                    return None  # unrecognized CSI
+                    return None  # unrecognized CSI → ignore
             elif 0x20 <= nb <= 0x3F:
                 params += next_byte
             else:
@@ -193,7 +248,7 @@ def _read_escape_sequence(fd: int) -> str | None:
 
     # SS3 sequence: ESC O ...
     if b == 0x4F:  # 'O'
-        r, _, _ = select.select([fd], [], [], 0.05)
+        r, _, _ = select.select([fd], [], [], 0.1)
         if not r:
             return None
         next_byte = os.read(fd, 1)
@@ -210,6 +265,7 @@ def _read_escape_sequence(fd: int) -> str | None:
             return "left"
         return None
 
+    # Any other escape initiator that we don't recognize → ignore
     return None
 
 
@@ -237,14 +293,14 @@ def _select_with_arrow_keys(title: str, options: list[MenuOption]) -> int | None
             # ── Escape ──
             if byte == 0x1B:
                 key = _read_escape_sequence(fd)
-                if key is None:
+                if key == "escape":
                     # Bare Escape → cancel
                     return None
                 elif key == "up":
                     selected = (selected - 1) % len(options) if options else 0
                 elif key == "down":
                     selected = (selected + 1) % len(options) if options else 0
-                # left/right/delete → ignore
+                # left/right/delete/unrecognized → ignore
                 continue
 
             # ── Ctrl+C → cancel ──
@@ -255,15 +311,7 @@ def _select_with_arrow_keys(title: str, options: list[MenuOption]) -> int | None
             if byte in (0x0D, 0x0A):
                 return selected if options else None
 
-            # ── j / k navigation ──
-            if byte == 0x6B:  # 'k'
-                selected = (selected - 1) % len(options) if options else 0
-                continue
-            if byte == 0x6A:  # 'j'
-                selected = (selected + 1) % len(options) if options else 0
-                continue
-
-            # All other keys are ignored
+            # All other keys (including printable characters) are ignored
 
     finally:
         _leave_alt_screen()

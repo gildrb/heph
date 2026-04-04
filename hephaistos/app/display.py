@@ -14,19 +14,19 @@ ITALIC = "\033[3m"
 RED = "\033[31m"
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
-BLUE = "\033[34m"
+
 MAGENTA = "\033[35m"
-CYAN = "\033[36m"
+
 RESET = "\033[0m"
 
 # Shortcuts for common styles
-STYLE_PROMPT = f"{BOLD}{CYAN}"
+STYLE_PROMPT = f"{BOLD}{RED}"
 STYLE_ACCENT = f"{BOLD}{GREEN}"
 STYLE_DIM = DIM
 STYLE_ERROR = f"{BOLD}{RED}"
 STYLE_WARNING = f"{BOLD}{YELLOW}"
 STYLE_MODE = f"{BOLD}{MAGENTA}"
-STYLE_ASSISTANT = f"{BOLD}{BLUE}"
+STYLE_ASSISTANT = f"{BOLD}{RED}"
 
 
 def styled(text: str, style: str) -> str:
@@ -189,7 +189,7 @@ def print_banner(version: str = "") -> None:
     banner_width = max(visible_len(line) for line in lines)
     pad = max(0, (cols - banner_width) // 2)
     for line in lines:
-        sys.stdout.write(f"{' ' * pad}{CYAN}{BOLD}{line}{RESET}\n")
+        sys.stdout.write(f"{' ' * pad}{RED}{BOLD}{line}{RESET}\n")
     if version:
         ver_text = f"v{version}"
         ver_pad = max(0, (cols - len(ver_text)) // 2)
