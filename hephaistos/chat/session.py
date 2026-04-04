@@ -22,6 +22,7 @@ class ChatSession:
     armory_path: Path | None = None
     source_file_count: int = 0
     dirty: bool = False
+    autonomy: str = "low"
 
 
 def validate_armory_path(path_str: str) -> Path:
@@ -130,6 +131,7 @@ def send_user_message(
     abort: threading.Event | None = None,
 ) -> str:
     """Append a user message, run the agent loop, stream output, return reply."""
+    length_before = len(session.conversation.messages)
     session.conversation.add("user", user_input)
 
     try:
@@ -154,7 +156,7 @@ def send_user_message(
             # Fallback: plain streaming without tools
             reply = get_reply(session.config, session.conversation, abort=abort)
     except Exception:
-        session.conversation.messages.pop()
+        del session.conversation.messages[length_before:]
         raise
 
     # The agent_loop already adds the assistant message to conversation,

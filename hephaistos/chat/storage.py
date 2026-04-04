@@ -6,6 +6,7 @@ Each chat session is stored as a JSON file named by its session ID.
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -25,6 +26,17 @@ def _chats_path(armory_path: Path) -> Path:
 
 def _session_path(armory_path: Path, session_id: str) -> Path:
     return _chats_path(armory_path) / f"{session_id}.json"
+
+
+def _validate_session_path(armory_path: Path, session_id: str) -> None:
+    """Ensure the resolved session path stays within the chats directory.
+
+    Raises ChatStorageError if the path would escape the chats directory.
+    """
+    chats = _chats_path(armory_path).resolve()
+    target = _session_path(armory_path, session_id).resolve()
+    if not str(target).startswith(str(chats) + os.sep) and target != chats:
+        raise ChatStorageError(f"invalid session id: {session_id}")
 
 
 def new_session_id() -> str:
@@ -48,6 +60,8 @@ def save(
     title: str = "",
 ) -> Path:
     """Save a conversation to disk. Returns the path of the saved file."""
+    _validate_session_path(armory_path, session_id)
+
     chats = _chats_path(armory_path)
     chats.mkdir(parents=True, exist_ok=True)
 
@@ -81,6 +95,8 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
 
     Returns (conversation, title).
     """
+    _validate_session_path(armory_path, session_id)
+
     file_path = _session_path(armory_path, session_id)
     if not file_path.exists():
         raise ChatStorageError(f"chat session not found: {session_id}")

@@ -26,21 +26,20 @@ from hephaistos.app.commands import get_registry
 from hephaistos.app.display import (
     STYLE_ASSISTANT,
     STYLE_DIM,
-    STYLE_PROMPT,
     build_prompt,
     print_error,
     print_info,
     print_shell_intro,
     print_success,
     styled,
-    visible_len,
 )
 from hephaistos import __version__
 from hephaistos.app.input_history import InputHistory
-from hephaistos.app.menu import MenuOption, confirm, select_option
+from hephaistos.app.menu import MenuOption, select_option
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import EngineError
+from hephaistos.harness.permissions import classify_bash_command, tier_allows
 from hephaistos.parameters.cli import load_config
 from hephaistos.chat.session import (
     ChatSession,
@@ -561,7 +560,14 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory) 
         cmd = user_input[1:].strip()
         if cmd:
             history.add(user_input)
-            _run_shell_command(cmd)
+            required_tier = classify_bash_command(cmd)
+            if not tier_allows(required_tier, session.autonomy):
+                print_error(
+                    f"Permission denied: command requires '{required_tier}' autonomy "
+                    f"(current: '{session.autonomy}')"
+                )
+            else:
+                _run_shell_command(cmd)
         return session, True
 
     # Slash commands
@@ -688,8 +694,8 @@ def run_chat_shell(session: ChatSession | None = None) -> None:
     # Save history
     try:
         history.save(history_path)
-    except OSError:
-        pass
+    except OSError as exc:
+        sys.stderr.write(f"Warning: failed to save history: {exc}\n")
 
     _save_on_exit(session)
 
