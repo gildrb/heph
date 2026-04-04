@@ -31,6 +31,7 @@ from hephaistos.app.display import (
     STYLE_ACCENT,
     STYLE_ASSISTANT,
     STYLE_DIM,
+    STYLE_ERROR,
     STYLE_PROMPT,
     build_prompt,
     print_error,
@@ -245,6 +246,9 @@ class _LineEditor:
         self._escape_pending: bool = False
         self._escape_time: float = 0.0
         self._show_footer: bool = True
+        self._first_render: bool = True
+        self._flash_message: str = ""  # printed above the panel once
+        self._flash_displayed: bool = False  # True after flash has been drawn
 
     def _reset_suggestion_index(self) -> None:
         """Reset suggestion selection when buffer content changes."""
@@ -316,13 +320,32 @@ class _LineEditor:
         # When _render is called, the cursor sits on the input line (row 2
         # relative to the panel).  We move up two lines to the spacer row
         # so we can overwrite the entire panel in place.
+        #
+        # On the very first render the cursor is right after the intro text,
+        # so we must NOT move up — just draw the panel below it.
 
-        sys.stdout.write("\033[2A\r")  # up to blank line above top-border
-        sys.stdout.write("\033[J")     # clear from there to end of screen
-        self._suggestion_lines = []
+        if self._first_render:
+            self._first_render = False
+            self._suggestion_lines = []
+            # Draw the spacer + panel fresh; cursor is already in the right spot
+            sys.stdout.write("\r\n")
+        else:
+            # When a flash message was displayed on the previous render, it sits
+            # one line above the spacer.  Go up one extra line to erase it.
+            up_lines = 3 if self._flash_displayed else 2
+            sys.stdout.write(f"\033[{up_lines}A\r")
+            sys.stdout.write("\033[J")     # clear from there to end of screen
+            self._suggestion_lines = []
+            self._flash_displayed = False
 
-        # Blank line for breathing room above the chatbox
-        sys.stdout.write("\r\n")
+            # Print any pending flash message (e.g. error) above the panel
+            if self._flash_message:
+                sys.stdout.write(self._flash_message + "\r\n")
+                self._flash_message = ""
+                self._flash_displayed = True
+
+            # Blank line for breathing room above the chatbox
+            sys.stdout.write("\r\n")
 
         # ── Draw the full chatbox panel ──
 
@@ -614,7 +637,7 @@ def _run_shell_command(cmd: str) -> None:
         print_error(str(exc))
 
 
-def _handle_input(session: ChatSession, user_input: str, history: InputHistory) -> tuple[ChatSession, bool]:
+def _handle_input(session: ChatSession, user_input: str, history: InputHistory, editor: _LineEditor | None = None) -> tuple[ChatSession, bool]:
     """Process a single input. Returns (session, should_continue)."""
     if not user_input:
         return session, True
@@ -677,7 +700,10 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory) 
             try:
                 send_user_message(session, new_input, abort=abort)
             except EngineError as exc:
-                print_error(str(exc))
+                if editor:
+                    editor._flash_message = f"{styled('error:', STYLE_ERROR)} {exc}"
+                else:
+                    print_error(str(exc))
             print()
 
         return session, True
@@ -689,7 +715,10 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory) 
     try:
         send_user_message(session, user_input, abort=abort)
     except EngineError as exc:
-        print_error(str(exc))
+        if editor:
+            editor._flash_message = f"{styled('error:', STYLE_ERROR)} {exc}"
+        else:
+            print_error(str(exc))
     print()
     return session, True
 
@@ -747,7 +776,7 @@ def run_chat_shell(session: ChatSession | None = None) -> None:
         signal.signal(signal.SIGINT, _sigint_handler)
         abort_event.clear()
 
-        session, should_continue = _handle_input(session, user_input, history)
+        session, should_continue = _handle_input(session, user_input, history, editor)
 
         # Restore normal SIGINT
         signal.signal(signal.SIGINT, original_sigint)
