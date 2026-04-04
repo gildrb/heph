@@ -18,18 +18,20 @@ class MenuOption:
 
 
 def _clear_screen() -> None:
-    print("\033[2J\033[H", end="")
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
 
 
 def _render_menu(title: str, options: list[MenuOption], selected: int) -> None:
     _clear_screen()
-    print(title)
-    print("Use Up/Down or j/k, Enter to select, q to cancel.\n")
+    sys.stdout.write(f"{title}\r\n")
+    sys.stdout.write("Use Up/Down or j/k, Enter to select, q to cancel.\r\n\r\n")
     for index, option in enumerate(options):
         prefix = ">" if index == selected else " "
-        print(f"{prefix} {option.label}")
+        sys.stdout.write(f"{prefix} {option.label}\r\n")
         if option.description:
-            print(f"   {option.description}")
+            sys.stdout.write(f"   {option.description}\r\n")
+    sys.stdout.flush()
 
 
 def _select_with_arrow_keys(title: str, options: list[MenuOption]) -> int | None:
