@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
 
 from hephaistos.app.autocomplete import CommandSuggestion
 from hephaistos.app.display import (
@@ -13,7 +14,11 @@ from hephaistos.app.display import (
     print_success,
     styled,
 )
+from hephaistos.app.menu import MenuOption, confirm, select_option
 from hephaistos.providers.config import ProviderConfig
+
+if TYPE_CHECKING:
+    from hephaistos.chat.session import ChatSession
 
 
 class CommandResult:
@@ -142,6 +147,11 @@ class ClearCommand(Command):
         )
 
         s = _ensure_session(session)
+
+        if session_has_messages(s) and not confirm("Clear conversation?", default=False):
+            print_info("Cancelled.")
+            return CommandResult()
+
         if s.armory_path and s.dirty and session_has_messages(s):
             try:
                 save_session(s)
@@ -171,18 +181,59 @@ class ModelCommand(Command):
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = _ensure_session(session)
-        if not args.strip():
+
+        # Direct set: /model <model-name>
+        if args.strip():
+            old = s.config.model
+            s.config.model = args.strip()
+            print_success(f"Model: {old} -> {s.config.model}")
+            return CommandResult()
+
+        # No args: show unified model picker
+        pc = ProviderConfig.load()
+        active = pc.get_active()
+        current_model = s.config.model
+
+        # Build flat list of (provider_slug, model_name) across all providers
+        options: list[MenuOption] = []
+        model_map: list[tuple[str, str]] = []  # parallel to options: (slug, model)
+
+        for slug, provider in pc.providers.items():
+            if slug == "custom" and not provider.models:
+                continue
+            for model in provider.models:
+                is_current = (provider.active and model == current_model) or (not active and model == current_model)
+                desc = f"via {provider.display_name}"
+                if is_current:
+                    desc += " ← current"
+                options.append(MenuOption(model, desc, is_current=is_current))
+                model_map.append((slug, model))
+
+        if not options:
             has_key = bool(s.config.api_key)
             lines = [
                 f"  Model:   {s.config.model}",
                 f"  API:     {s.config.base_url}",
                 f"  Key:     {'configured' if has_key else styled('not set', STYLE_DIM)}",
+                "",
+                "  No models configured. Use /provider to set up providers.",
             ]
             print("\n".join(lines))
             return CommandResult()
-        old = s.config.model
-        s.config.model = args.strip()
-        print_success(f"Model: {old} -> {s.config.model}")
+
+        selected = select_option("Model", options)
+        if selected is None:
+            return CommandResult()
+
+        slug, model = model_map[selected]
+
+        # Switch provider and model
+        pc.set_active(slug)
+        p = pc.providers[slug]
+        p.current_model = model
+        pc.apply_to_config(s.config)
+        pc.save()
+        print_success(f"Switched to {p.display_name} / {model}")
         return CommandResult()
 
 
@@ -371,7 +422,7 @@ class ProviderCommand(Command):
         else:
             print_info("No active provider configured.")
         print()
-        print("  Authenticated providers & models:")
+        print("  Configured providers & models:")
 
         for slug, p in pc.providers.items():
             bracket = f"    [{slug}]"
@@ -393,7 +444,7 @@ class ProviderCommand(Command):
         return CommandResult()
 
     @staticmethod
-    def _use(pc: ProviderConfig, session: object, slug: str, model: str) -> CommandResult:
+    def _use(pc: ProviderConfig, session: "ChatSession", slug: str, model: str) -> CommandResult:
         if slug not in pc.providers:
             print_error(f"Unknown provider: {slug}")
             print_info(f"Available: {', '.join(pc.providers)}")
@@ -419,7 +470,7 @@ class ProviderCommand(Command):
         return CommandResult()
 
     @staticmethod
-    def _set_model(pc: ProviderConfig, session: object, model: str) -> CommandResult:
+    def _set_model(pc: ProviderConfig, session: "ChatSession", model: str) -> CommandResult:
         active = pc.get_active()
         if active is None:
             print_error("No active provider. Use /provider use <slug> first.")
@@ -444,7 +495,8 @@ class ProviderCommand(Command):
 def _ensure_session(session: object):
     from hephaistos.chat.session import ChatSession
 
-    assert isinstance(session, ChatSession)
+    if not isinstance(session, ChatSession):
+        raise TypeError(f"Expected ChatSession, got {type(session).__name__}")
     return session
 
 

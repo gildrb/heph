@@ -8,13 +8,13 @@ import sys
 from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import (
     create_session,
     list_armory_sessions,
     resume_session,
     validate_armory_path,
 )
+from hephaistos.parameters.cli import load_config
 
 
 def _cmd_chat_start(args: argparse.Namespace) -> None:
@@ -25,7 +25,7 @@ def _cmd_chat_start(args: argparse.Namespace) -> None:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    run_chat_shell(create_session(ChatConfig.from_env(), armory_path))
+    run_chat_shell(create_session(load_config(armory_path), armory_path))
 
 
 def _cmd_chat_resume(args: argparse.Namespace) -> None:
@@ -37,7 +37,7 @@ def _cmd_chat_resume(args: argparse.Namespace) -> None:
         raise SystemExit(2) from exc
 
     try:
-        session = resume_session(ChatConfig.from_env(), armory_path, args.session_id)
+        session = resume_session(load_config(armory_path), armory_path, args.session_id)
     except chat_storage.ChatStorageError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc

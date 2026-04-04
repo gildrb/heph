@@ -66,8 +66,9 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
 
         pc = ProviderConfig.load()
         pc.apply_to_config(config)
-    except Exception:
-        pass
+    except Exception as exc:
+        import sys
+        print(f"warning: could not load provider config: {exc}", file=sys.stderr)
 
     # Environment variable overrides (highest priority)
     api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get(

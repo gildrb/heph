@@ -7,6 +7,7 @@ providers/models, and persisting the selection.
 
 from __future__ import annotations
 
+import json
 import os
 import tomllib
 from dataclasses import dataclass, field
@@ -86,15 +87,15 @@ class ProviderConfig:
         lines: list[str] = []
         for slug, p in self.providers.items():
             lines.append(f"[{slug}]")
-            lines.append(f'display_name = "{p.display_name}"')
-            lines.append(f'endpoint = "{p.endpoint}"')
-            lines.append(f'api_key_env = "{p.api_key_env}"')
+            lines.append(f"display_name = {json.dumps(p.display_name)}")
+            lines.append(f"endpoint = {json.dumps(p.endpoint)}")
+            lines.append(f"api_key_env = {json.dumps(p.api_key_env)}")
             if p.active:
                 lines.append("active = true")
             if p.current_model:
-                lines.append(f'current_model = "{p.current_model}"')
+                lines.append(f"current_model = {json.dumps(p.current_model)}")
             if p.models:
-                models_str = ", ".join(f'"{m}"' for m in p.models)
+                models_str = ", ".join(json.dumps(m) for m in p.models)
                 lines.append(f"models = [{models_str}]")
             lines.append("")
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")

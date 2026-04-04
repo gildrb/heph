@@ -17,6 +17,7 @@ import subprocess
 import sys
 import termios
 import threading
+import time
 import tty
 from pathlib import Path
 
@@ -25,16 +26,18 @@ from hephaistos.app.commands import get_registry
 from hephaistos.app.display import (
     STYLE_ASSISTANT,
     STYLE_DIM,
+    STYLE_PROMPT,
     build_prompt,
     print_error,
     print_info,
     print_shell_intro,
     print_success,
     styled,
+    visible_len,
 )
 from hephaistos import __version__
 from hephaistos.app.input_history import InputHistory
-from hephaistos.app.menu import MenuOption, select_option
+from hephaistos.app.menu import MenuOption, confirm, select_option
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import EngineError
@@ -59,6 +62,13 @@ ARMORY_MENU_OPTIONS = [
     MenuOption("Detach armory", "Keep chatting without workspace context."),
     MenuOption("Cancel", "Return to the chat prompt."),
 ]
+
+_HELP_FOOTER = styled(
+    " Enter send · ↑↓ history · Tab complete · / commands · Ctrl+C cancel · Ctrl+D exit",
+    STYLE_DIM,
+)
+
+_ESCAPE_GUARD_SECONDS = 2.0
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 
@@ -226,6 +236,9 @@ class _LineEditor:
         self._suggestion_lines: list[str] = []
         self._suggestion_index: int = -1
         self._current_matches: list = []  # list[CommandSuggestion]
+        self._escape_pending: bool = False
+        self._escape_time: float = 0.0
+        self._show_footer: bool = True
 
     def _reset_suggestion_index(self) -> None:
         """Reset suggestion selection when buffer content changes."""
@@ -277,7 +290,7 @@ class _LineEditor:
         prompt, prompt_vis_len = self._prompt_str(session)
 
         # Cursor is on the prompt line. Clear from here to end of screen
-        # (this wipes any stale suggestions below, leaving output above intact).
+        # (this wipes any stale suggestions/footer below, leaving output above intact).
         sys.stdout.write("\r\033[J")
         self._suggestion_lines = []
 
@@ -297,18 +310,28 @@ class _LineEditor:
         else:
             self._current_matches = []
 
-        # Move cursor back to prompt line (up from suggestions) and to correct column
-        if self._suggestion_lines:
-            sys.stdout.write(f"\033[{len(self._suggestion_lines)}A")
+        # Draw footer line below suggestions (or below prompt if no suggestions)
+        extra_lines = 0
+        if self._show_footer:
+            if self._escape_pending:
+                footer = styled(" Press Esc again to cancel input", "\033[1m\033[33m")
+            else:
+                footer = _HELP_FOOTER
+            sys.stdout.write(f"\r\n{footer}\033[K")
+            extra_lines = 1
+
+        # Move cursor back to prompt line (up from footer + suggestions) and to correct column
+        total_below = len(self._suggestion_lines) + extra_lines
+        if total_below:
+            sys.stdout.write(f"\033[{total_below}A")
         vis_col = prompt_vis_len + self.cursor
         sys.stdout.write(f"\r\033[{vis_col}C")
         sys.stdout.flush()
 
     def _clear_suggestions(self) -> None:
-        # Cursor is on the prompt line — just clear everything below
-        if self._suggestion_lines:
-            sys.stdout.write("\033[J")
-            self._suggestion_lines = []
+        # Cursor is on the prompt line — just clear everything below (includes footer)
+        sys.stdout.write("\033[J")
+        self._suggestion_lines = []
         self._suggestion_index = -1
         self._current_matches = []
 
@@ -344,6 +367,9 @@ class _LineEditor:
         self._suggestion_lines = []
         self._suggestion_index = -1
         self._current_matches = []
+        self._escape_pending = False
+        self._escape_time = 0.0
+        self._show_footer = True
         multiline_parts: list[str] = []
 
         try:
@@ -353,9 +379,14 @@ class _LineEditor:
             while True:
                 ch = self._read_char(fd)
 
+                # Reset escape guard on any key other than Escape
+                if ch != "\x1b":
+                    self._escape_pending = False
+
                 # Ctrl+C — cancel current input
                 if ch == "\x03":
                     self._clear_suggestions()
+                    self._show_footer = False
                     sys.stdout.write("\r\n")
                     sys.stdout.flush()
                     return ""
@@ -363,6 +394,7 @@ class _LineEditor:
                 # Ctrl+D — exit
                 if ch == "\x04":
                     self._clear_suggestions()
+                    self._show_footer = False
                     sys.stdout.write("\r\n")
                     sys.stdout.flush()
                     return None
@@ -370,6 +402,7 @@ class _LineEditor:
                 # Enter
                 if ch in ("\r", "\n"):
                     self._clear_suggestions()
+                    self._show_footer = False
 
                     # Backslash continuation for multi-line
                     if self.buf.endswith("\\"):
@@ -379,6 +412,7 @@ class _LineEditor:
                         sys.stdout.flush()
                         self.buf = ""
                         self.cursor = 0
+                        self._show_footer = True
                         continue
 
                     result = "".join(multiline_parts) + self.buf
@@ -401,11 +435,17 @@ class _LineEditor:
                 if ch == "\x1b":
                     ready, _, _ = select.select([fd], [], [], 0.1)
                     if not ready:
-                        # Bare Escape — cancel input
-                        self._clear_suggestions()
-                        sys.stdout.write("\r\n")
-                        sys.stdout.flush()
-                        return ""
+                        # Bare Escape — two-press exit guard
+                        if self._escape_pending and (time.monotonic() - self._escape_time < _ESCAPE_GUARD_SECONDS):
+                            self._clear_suggestions()
+                            self._show_footer = False
+                            sys.stdout.write("\r\n")
+                            sys.stdout.flush()
+                            return ""
+                        self._escape_pending = True
+                        self._escape_time = time.monotonic()
+                        self._render(session)
+                        continue
                     seq = self._read_char(fd)
                     # Handle both CSI [A-D and SS3 OA-OD (normal + app mode)
                     if seq == "[":
@@ -661,6 +701,8 @@ def _run_fallback_shell(session: ChatSession | None = None) -> None:
         session = create_session(config, _discover_startup_armory())
 
     print("Hephaistos (basic mode)")
+    history = InputHistory()
+
     while True:
         try:
             armory_name = session.armory_path.name if session.armory_path else "heph"
@@ -669,47 +711,8 @@ def _run_fallback_shell(session: ChatSession | None = None) -> None:
             print()
             break
 
-        if not user_input:
-            continue
-
-        if user_input.startswith("/"):
-            stripped = user_input.strip()
-            if stripped == "/":
-                registry = get_registry()
-                cmd = registry.find("help")
-                if cmd:
-                    cmd.handle(session, "")
-                continue
-            space_idx = stripped.find(" ")
-            if space_idx == -1:
-                cmd_name = stripped[1:].lower()
-                cmd_args = ""
-            else:
-                cmd_name = stripped[1:space_idx].lower()
-                cmd_args = stripped[space_idx + 1:].strip()
-
-            registry = get_registry()
-            cmd = registry.find(cmd_name)
-            if cmd is not None:
-                result = cmd.handle(session, cmd_args)
-                if result.new_session is not None:
-                    session = result.new_session
-                if result.should_exit:
-                    break
-                continue
-
-            print_error(f"Unknown command: {stripped}")
-            print_info("Type /help for available commands.")
-            continue
-
-        if user_input.startswith("!"):
-            _run_shell_command(user_input[1:])
-            continue
-
-        try:
-            send_user_message(session, user_input)
-        except EngineError as exc:
-            print_error(str(exc))
-        print()
+        session, should_continue = _handle_input(session, user_input, history)
+        if not should_continue:
+            break
 
     _save_on_exit(session)
