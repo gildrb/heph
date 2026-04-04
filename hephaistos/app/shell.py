@@ -321,8 +321,9 @@ class _LineEditor:
         # relative to the panel).  We move up two lines to the spacer row
         # so we can overwrite the entire panel in place.
         #
-        # On the very first render the cursor is right after the intro text,
-        # so we must NOT move up — just draw the panel below it.
+        # On the very first render we push the panel to the bottom of the
+        # terminal using cursor positioning so it always anchors at the
+        # viewport edge regardless of how much intro text precedes it.
 
         if self._first_render:
             self._first_render = False
@@ -336,8 +337,8 @@ class _LineEditor:
                 rows = os.get_terminal_size().lines
             except OSError:
                 rows = 24
-            blank_lines = max(0, rows - panel_height)
-            sys.stdout.write("\r\n" * blank_lines)
+            sys.stdout.write(f"\033[{rows};1H")       # move to last row
+            sys.stdout.write(f"\033[{panel_height}A")  # move up by panel height
         else:
             # When a flash message was displayed on the previous render, it sits
             # one line above the spacer.  Go up one extra line to erase it.
@@ -496,8 +497,8 @@ class _LineEditor:
 
                 # Enter
                 if ch in ("\r", "\n"):
-                    # Empty input — stay in the editor, do nothing
-                    if not self.buf and not multiline_parts:
+                    # Empty / whitespace input — stay in the editor, do nothing
+                    if not self.buf.strip() and not multiline_parts:
                         continue
 
                     self._clear_suggestions()
