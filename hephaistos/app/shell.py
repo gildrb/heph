@@ -288,6 +288,12 @@ class _LineEditor:
     def _render(self, session: ChatSession) -> None:
         prompt, prompt_vis_len = self._prompt_str(session)
 
+        # Get terminal width for the chatbox border
+        try:
+            cols = os.get_terminal_size().columns
+        except OSError:
+            cols = 80
+
         # Cursor is on the prompt line. Clear from here to end of screen
         # (this wipes any stale suggestions/footer below, leaving output above intact).
         sys.stdout.write("\r\033[J")
@@ -309,17 +315,21 @@ class _LineEditor:
         else:
             self._current_matches = []
 
-        # Draw footer line below suggestions (or below prompt if no suggestions)
-        extra_lines = 0
+        # Draw chatbox border line
+        border = styled("─" * cols, STYLE_DIM)
+        sys.stdout.write(f"\r\n{border}\033[K")
+
+        # Draw footer line below the border
+        extra_lines = 1  # border line
         if self._show_footer:
             if self._escape_pending:
                 footer = styled(" Press Esc again to cancel input", "\033[1m\033[33m")
             else:
                 footer = _HELP_FOOTER
             sys.stdout.write(f"\r\n{footer}\033[K")
-            extra_lines = 1
+            extra_lines = 2  # border + footer
 
-        # Move cursor back to prompt line (up from footer + suggestions) and to correct column
+        # Move cursor back to prompt line (up from border + footer + suggestions) and to correct column
         total_below = len(self._suggestion_lines) + extra_lines
         if total_below:
             sys.stdout.write(f"\033[{total_below}A")

@@ -80,15 +80,21 @@ def test_confirm_cancel(monkeypatch) -> None:
     assert result is False
 
 
-def test_matches_filter() -> None:
-    opt = MenuOption("Claude Opus", "Fast reasoning model")
-    assert menu._matches_filter(opt, "claude")
-    assert menu._matches_filter(opt, "OPUS")
-    assert menu._matches_filter(opt, "fast")
-    assert not menu._matches_filter(opt, "gemini")
+def test_menu_option_dataclass() -> None:
+    """Verify MenuOption fields work correctly."""
+    opt = MenuOption(label="Open", description="Open a file", is_current=True)
+    assert opt.label == "Open"
+    assert opt.description == "Open a file"
+    assert opt.is_current is True
 
+    # Frozen — cannot reassign
+    try:
+        opt.label = "Changed"  # type: ignore[misc]
+        assert False, "Should have raised FrozenInstanceError"
+    except AttributeError:
+        pass
 
-def test_matches_filter_empty() -> None:
-    opt = MenuOption("Test", "Desc")
-    assert menu._matches_filter(opt, "")
-    assert menu._matches_filter(opt, "test")
+    # Defaults
+    opt2 = MenuOption(label="Test")
+    assert opt2.description == ""
+    assert opt2.is_current is False

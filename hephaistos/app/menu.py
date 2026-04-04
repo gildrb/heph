@@ -1,9 +1,9 @@
 """Interactive menu helpers for TTY workflows.
 
 Uses an alternate screen buffer so the user's terminal scrollback is
-preserved.  Supports arrow-key / j-k navigation, inline search/filter,
-visual borders, current-state markers, and a persistent footer with
-keyboard hints.
+preserved.  Supports arrow-key / j-k navigation only (no typing).
+The menu fills the full terminal viewport and is centered with the
+Hephaistos visual identity.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from dataclasses import dataclass
 import os
 import select
 import sys
-import time
 
 if sys.platform != "win32":
     import termios
@@ -20,12 +19,11 @@ if sys.platform != "win32":
 
 from hephaistos.app.display import (
     BOLD,
-    DIM,
-    RESET,
+    STYLE_ACCENT,
     STYLE_DIM,
     STYLE_PROMPT,
-    visible_len,
     styled,
+    visible_len,
 )
 
 
@@ -68,222 +66,204 @@ def _term_size() -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
-# Border / frame drawing
+# Full-viewport rendering
 # ---------------------------------------------------------------------------
 
-def _hline(width: int, left: str, mid: str, right: str, fill: str = "─") -> str:
-    return f"{left}{fill * (width - 2)}{right}"
+def _center(text: str, width: int) -> str:
+    """Return *text* centered in *width* columns (ANSI-aware)."""
+    vis = visible_len(text)
+    pad = max(0, (width - vis) // 2)
+    return f"{' ' * pad}{text}"
 
 
 def _render_menu(
     title: str,
     options: list[MenuOption],
     selected: int,
-    filter_text: str,
-    escape_pending: bool,
 ) -> int:
-    """Render the menu into the alternate screen.  Returns visible height."""
+    """Render the full-viewport menu.  Returns the number of lines written."""
 
-    cols, _rows = _term_size()
-    inner_w = min(cols - 4, 78)
-    box_w = inner_w + 4
-
+    cols, rows = _term_size()
     _clear_screen()
 
-    lines: list[str] = []
+    # ── Build content lines ──
+    content: list[str] = []
 
-    # ── Top border with title ──
-    title_styled = styled(f" {title} ", STYLE_PROMPT)
-    title_vis = visible_len(title_styled)
-    pad = max(0, inner_w - title_vis)
-    # visible line = ─ pad_left ─ title ─ pad_right ─
-    raw_title = f" {title} "
-    raw_pad_l = pad // 2
-    raw_pad_r = pad - raw_pad_l
-    top = f"┌{'─' * raw_pad_l}{raw_title}{'─' * raw_pad_r}┐"
-    lines.append(styled(top, STYLE_DIM))
+    # Title line: ⚡ Hephaistos — {title} ⚡
+    title_text = f"⚡ Hephaistos — {title} ⚡"
+    content.append(styled(title_text, STYLE_PROMPT))
 
-    # ── Filter / header line ──
-    if filter_text:
-        filter_display = styled(f" search: {filter_text}", STYLE_PROMPT)
-    else:
-        filter_display = styled(" type to filter", DIM)
-    filter_padded = filter_display + " " * max(0, inner_w - visible_len(filter_display))
-    lines.append(f"│{filter_padded}│")
-    lines.append(styled(f"├{'─' * inner_w}┤", STYLE_DIM))
+    # Separator
+    sep = styled("─" * len(title_text), STYLE_DIM)
+    content.append(sep)
+    content.append("")  # blank line
 
-    # ── Options ──
-    max_label = max((visible_len(o.label) + (3 if o.is_current else 0) for o in options), default=0) if options else 0
-
+    # Options
     for idx, option in enumerate(options):
-        prefix = " * " if option.is_current else "   "
         if idx == selected:
-            marker = f"\033[7m {prefix}{option.label}"
-            if option.description:
-                inner = f" {prefix}{option.label}  "
-                padded = inner.ljust(max_label + 6)
-                raw = f"{padded}{option.description}"
-            else:
-                raw = f" {prefix}{option.label}"
-            vis_raw = visible_len(raw)
-            pad_r = max(0, inner_w - vis_raw - 2)
-            lines.append(f"│\033[7m{raw}{' ' * pad_r}\033[0m│")
-        else:
+            # Selected item: ▸ label (bold + reverse video) with description
+            arrow = styled("▸", STYLE_ACCENT)
             label = styled(option.label, BOLD)
-            cur_marker = styled(" *", STYLE_PROMPT) if option.is_current else ""
-            desc = styled(option.description, STYLE_DIM) if option.description else ""
-            if desc:
-                inner = f" {prefix}{option.label}{cur_marker}  "
-                vis_inner = visible_len(inner)
-                pad_needed = max(0, max_label + 6 - vis_inner)
-                padded = inner + " " * pad_needed
-                raw = f"{padded}{desc}"
-            else:
-                raw = f" {prefix}{option.label}{cur_marker}"
-            vis_raw = visible_len(raw)
-            pad_r = max(0, inner_w - vis_raw - 2)
-            lines.append(f"│{raw}{' ' * pad_r}│")
+            content.append(_center(f"{arrow} {label}", cols))
+            if option.description:
+                content.append(_center(styled(f"  {option.description}", STYLE_DIM), cols))
+        else:
+            # Unselected item
+            label = styled(option.label, STYLE_DIM)
+            content.append(_center(f"  {label}", cols))
+            if option.description:
+                content.append(_center(styled(f"  {option.description}", STYLE_DIM), cols))
+        content.append("")  # spacing between items
 
-    # ── Separator ──
-    lines.append(styled(f"├{'─' * inner_w}┤", STYLE_DIM))
+    # Bottom separator
+    content.append(sep)
 
-    # ── Footer with keyboard hints ──
-    if escape_pending:
-        footer_text = styled(" Press Esc/q again to cancel ", "\033[1m\033[33m")
-    else:
-        footer_text = styled(" Enter select · ↑↓ navigate · Esc cancel · / filter ", STYLE_DIM)
-    footer_pad = max(0, inner_w - visible_len(footer_text))
-    lines.append(f"│{footer_text}{' ' * footer_pad}│")
+    # Footer
+    footer = styled("↑↓ navigate · Enter select · Esc cancel", STYLE_DIM)
+    content.append(_center(footer, cols))
 
-    # ── Bottom border ──
-    lines.append(styled(f"└{'─' * inner_w}┘", STYLE_DIM))
+    # ── Vertically center the content block ──
+    total_content_lines = len(content)
+    top_pad = max(0, (rows - total_content_lines) // 2)
 
-    sys.stdout.write("\r\n".join(lines))
+    # Move cursor to the correct starting row
+    output_lines: list[str] = []
+    for _ in range(top_pad):
+        output_lines.append("")
+    output_lines.extend(content)
+
+    # Clear screen then write everything
+    sys.stdout.write("\r\n".join(output_lines))
     sys.stdout.flush()
-    return len(lines)
+    return len(output_lines)
 
 
 # ---------------------------------------------------------------------------
-# Filter logic
+# Escape sequence reader (robust)
 # ---------------------------------------------------------------------------
 
-def _matches_filter(option: MenuOption, filter_text: str) -> bool:
-    if not filter_text:
-        return True
-    ft = filter_text.lower()
-    return ft in option.label.lower() or ft in option.description.lower()
+def _read_escape_sequence(fd: int) -> str | None:
+    """After reading \\x1b, consume the rest of an escape sequence.
+
+    Returns a canonical key name:
+      "up", "down", "left", "right", or None for unrecognized/bare Escape.
+    A bare Escape (no following bytes within 200 ms) returns None.
+    """
+    ready, _, _ = select.select([fd], [], [], 0.2)
+    if not ready:
+        return None  # bare Escape
+
+    ch = os.read(fd, 1)
+    if not ch:
+        return None
+
+    b = ch[0]
+
+    # CSI sequence: ESC [ ... final_byte
+    if b == 0x5B:  # '['
+        # Read parameter bytes and intermediate bytes until final byte (0x40..0x7E)
+        params = b""
+        while True:
+            r, _, _ = select.select([fd], [], [], 0.05)
+            if not r:
+                return None
+            next_byte = os.read(fd, 1)
+            if not next_byte:
+                return None
+            nb = next_byte[0]
+            if 0x40 <= nb <= 0x7E:
+                # final byte
+                code = bytes([nb])
+                if params == b"" and code == b"A":
+                    return "up"
+                elif params == b"" and code == b"B":
+                    return "down"
+                elif params == b"" and code == b"C":
+                    return "right"
+                elif params == b"" and code == b"D":
+                    return "left"
+                elif params == b"3" and code == b"~":
+                    return "delete"
+                else:
+                    return None  # unrecognized CSI
+            elif 0x20 <= nb <= 0x3F:
+                params += next_byte
+            else:
+                return None
+
+    # SS3 sequence: ESC O ...
+    if b == 0x4F:  # 'O'
+        r, _, _ = select.select([fd], [], [], 0.05)
+        if not r:
+            return None
+        next_byte = os.read(fd, 1)
+        if not next_byte:
+            return None
+        nb = next_byte[0]
+        if nb == 0x41:
+            return "up"
+        elif nb == 0x42:
+            return "down"
+        elif nb == 0x43:
+            return "right"
+        elif nb == 0x44:
+            return "left"
+        return None
+
+    return None
 
 
 # ---------------------------------------------------------------------------
 # Interactive arrow-key selector (alternate screen)
 # ---------------------------------------------------------------------------
 
-_ESCAPE_GUARD_SECONDS = 2.0
-
-
 def _select_with_arrow_keys(title: str, options: list[MenuOption]) -> int | None:
     fd = sys.stdin.fileno()
     original = termios.tcgetattr(fd)
-
-    # Build filtered view state
-    all_options = options
-    filtered: list[tuple[int, MenuOption]] = []  # (original_index, option)
-    filter_text = ""
     selected = 0
-    escape_pending = False
-    escape_time = 0.0
-
-    def _rebuild_filtered() -> None:
-        nonlocal filtered, selected
-        filtered = [
-            (i, o) for i, o in enumerate(all_options) if _matches_filter(o, filter_text)
-        ]
-        selected = min(selected, max(len(filtered) - 1, 0))
-
-    _rebuild_filtered()
 
     try:
         _enter_alt_screen()
         tty.setraw(fd)
 
         while True:
-            if not filtered:
-                # Nothing matches — render empty state
-                _clear_screen()
-                cols, _ = _term_size()
-                inner_w = min(cols - 4, 78)
-                top = styled(f"┌{'─' * ((inner_w - visible_len(styled(f' {title} ', STYLE_PROMPT))) // 2)} {title} {'─' * ((inner_w - visible_len(styled(f' {title} ', STYLE_PROMPT))) // 2)}┐", STYLE_DIM)
-                sys.stdout.write(f"{top}\r\n")
-                msg = styled(f"  No matches for '{filter_text}'", STYLE_DIM)
-                pad = max(0, inner_w - visible_len(msg) - 2)
-                sys.stdout.write(f"│{msg}{' ' * pad}│\r\n")
-                bot = styled(f"└{'─' * inner_w}┘", STYLE_DIM)
-                sys.stdout.write(f"{bot}\r\n")
-                sys.stdout.flush()
+            _render_menu(title, options, selected)
 
-            else:
-                _render_menu(title, [o for _, o in filtered], selected, filter_text, escape_pending)
+            ch = os.read(fd, 1)
+            if not ch:
+                continue
+            byte = ch[0]
 
-            key = sys.stdin.read(1)
-
-            # Reset escape guard on any non-escape key
-            if key not in ("\x1b", "q"):
-                escape_pending = False
-
-            # ── Escape / q ──
-            if key in {"q", "\x03"}:
-                if escape_pending:
+            # ── Escape ──
+            if byte == 0x1B:
+                key = _read_escape_sequence(fd)
+                if key is None:
+                    # Bare Escape → cancel
                     return None
-                escape_pending = True
-                escape_time = time.monotonic()
+                elif key == "up":
+                    selected = (selected - 1) % len(options) if options else 0
+                elif key == "down":
+                    selected = (selected + 1) % len(options) if options else 0
+                # left/right/delete → ignore
                 continue
 
-            if key == "\x1b":
-                ready, _, _ = select.select([fd], [], [], 0.05)
-                if not ready:
-                    # Bare Escape
-                    if escape_pending:
-                        return None
-                    escape_pending = True
-                    escape_time = time.monotonic()
-                    continue
-                seq = sys.stdin.read(2)
-                if seq == "[A":
-                    selected = (selected - 1) % len(filtered) if filtered else 0
-                    escape_pending = False
-                elif seq == "[B":
-                    selected = (selected + 1) % len(filtered) if filtered else 0
-                    escape_pending = False
-                else:
-                    escape_pending = False
-                continue
-
-            # ── Enter ──
-            if key in {"\r", "\n"}:
-                if filtered:
-                    return filtered[selected][0]
+            # ── Ctrl+C → cancel ──
+            if byte == 0x03:
                 return None
 
+            # ── Enter ──
+            if byte in (0x0D, 0x0A):
+                return selected if options else None
+
             # ── j / k navigation ──
-            if key == "k":
-                selected = (selected - 1) % len(filtered) if filtered else 0
+            if byte == 0x6B:  # 'k'
+                selected = (selected - 1) % len(options) if options else 0
                 continue
-            if key == "j":
-                selected = (selected + 1) % len(filtered) if filtered else 0
-                continue
-
-            # ── Backspace (delete filter char) ──
-            if key in ("\x7f", "\x08"):
-                if filter_text:
-                    filter_text = filter_text[:-1]
-                    _rebuild_filtered()
+            if byte == 0x6A:  # 'j'
+                selected = (selected + 1) % len(options) if options else 0
                 continue
 
-            # ── Printable → append to filter ──
-            if ord(key) >= 32:
-                filter_text += key
-                _rebuild_filtered()
-                continue
+            # All other keys are ignored
 
     finally:
         _leave_alt_screen()
@@ -313,12 +293,12 @@ def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
         if choice in {"q", "quit", "exit"}:
             return None
         try:
-            selected = int(choice) - 1
+            idx = int(choice) - 1
         except ValueError:
             print("Unknown option.")
             continue
-        if 0 <= selected < len(options):
-            return selected
+        if 0 <= idx < len(options):
+            return idx
         print("Unknown option.")
 
 
