@@ -23,21 +23,22 @@ from pathlib import Path
 from hephaistos.app.autocomplete import match_commands, format_suggestions
 from hephaistos.app.commands import get_registry
 from hephaistos.app.display import (
-    STYLE_ACCENT,
     STYLE_ASSISTANT,
     STYLE_DIM,
-    STYLE_PROMPT,
     build_prompt,
     print_error,
     print_info,
+    print_shell_intro,
     print_success,
     styled,
 )
+from hephaistos import __version__
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.menu import MenuOption, select_option
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig, EngineError
+from hephaistos.chat.engine import EngineError
+from hephaistos.parameters.cli import load_config
 from hephaistos.chat.session import (
     ChatSession,
     create_session,
@@ -483,17 +484,15 @@ class _LineEditor:
 
 
 def _print_shell_intro(session: ChatSession) -> None:
-    print(styled("Hephaistos", STYLE_PROMPT))
-    if session.armory_path is None:
-        print(f"  Armory: {styled('none', STYLE_DIM)}. Use {styled('/armory', STYLE_ACCENT)} to open or create one.")
-    else:
-        print(f"  Armory: {styled(str(session.armory_path), STYLE_ACCENT)}")
-        if session.source_file_count:
-            print(f"  Context: {session.source_file_count} file(s) from source/ and library/.")
-    print(f"  Session: {styled(session.session_id, STYLE_DIM)}")
-    print(f"  Model:   {session.config.model}")
-    print(f"  API:     {session.config.base_url}")
-    print(f"  Type {styled('/help', STYLE_ACCENT)} for commands.\n")
+    print_shell_intro(
+        version=__version__,
+        armory_path=str(session.armory_path) if session.armory_path else None,
+        source_file_count=session.source_file_count or 0,
+        session_id=session.session_id,
+        model=session.config.model,
+        base_url=session.config.base_url,
+        has_api_key=bool(session.config.api_key),
+    )
 
 
 def _get_history_path(session: ChatSession) -> Path:
@@ -594,7 +593,7 @@ def run_chat_shell(session: ChatSession | None = None) -> None:
         return
 
     if session is None:
-        config = ChatConfig.from_env()
+        config = load_config()
         session = create_session(config, _discover_startup_armory())
 
     _print_shell_intro(session)
@@ -651,7 +650,7 @@ def run_chat_shell(session: ChatSession | None = None) -> None:
 def _run_fallback_shell(session: ChatSession | None = None) -> None:
     """Simple fallback shell when raw terminal is not available."""
     if session is None:
-        config = ChatConfig.from_env()
+        config = load_config()
         session = create_session(config, _discover_startup_armory())
 
     print("Hephaistos (basic mode)")

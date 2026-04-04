@@ -93,12 +93,16 @@ class StatusCommand(Command):
         armory = str(s.armory_path) if s.armory_path else styled("none", STYLE_DIM)
         title = s.title or styled("(untitled)", STYLE_DIM)
         msg_count = sum(1 for m in s.conversation.messages if m.role != "system")
+        tool_count = 5 if s.armory_path else 0
+        mode = "agent (tools)" if s.armory_path else "plain chat"
         lines = [
             f"  Armory:   {armory}",
             f"  Session:  {s.session_id}",
             f"  Title:    {title}",
             f"  Model:    {s.config.model}",
             f"  API:      {s.config.base_url}",
+            f"  Mode:     {mode}",
+            f"  Tools:    {tool_count}",
             f"  Messages: {msg_count}",
             f"  Dirty:    {'yes' if s.dirty else 'no'}",
         ]
@@ -277,15 +281,21 @@ class HistoryCommand(Command):
         s = _ensure_session(session)
         user_msgs = [m for m in s.conversation.messages if m.role == "user"]
         asst_msgs = [m for m in s.conversation.messages if m.role == "assistant"]
+        tool_msgs = [m for m in s.conversation.messages if m.role == "tool"]
         total_chars = sum(len(m.content) for m in s.conversation.messages)
         est_tokens = total_chars // 4
         lines = [
             f"  Turns:     {len(user_msgs)}",
             f"  User:      {len(user_msgs)} messages",
             f"  Assistant: {len(asst_msgs)} messages",
+        ]
+        if tool_msgs:
+            lines.append(f"  Tool:      {len(tool_msgs)} results")
+        lines.extend([
             f"  Chars:     {total_chars}",
             f"  ~Tokens:   ~{est_tokens}",
-        ]
+            f"  Max tokens: {s.config.max_tokens}",
+        ])
         print("\n".join(lines))
         return CommandResult()
 

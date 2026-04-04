@@ -26,6 +26,7 @@ class ChatConfig:
     api_key: str = ""
     base_url: str = "https://api.openai.com/v1"
     model: str = "gpt-4o-mini"
+    max_tokens: int = 4096
 
     @classmethod
     def from_env(cls) -> ChatConfig:
@@ -35,7 +36,15 @@ class ChatConfig:
         )
         base_url = os.environ.get("HEPHAISTOS_BASE_URL", "https://api.openai.com/v1")
         model = os.environ.get("HEPHAISTOS_MODEL", "gpt-4o-mini")
-        return cls(api_key=api_key.strip(), base_url=base_url, model=model)
+        max_tokens = int(
+            os.environ.get("HEPHAISTOS_MAX_TOKENS", "4096")
+        )
+        return cls(
+            api_key=api_key.strip(),
+            base_url=base_url,
+            model=model,
+            max_tokens=max_tokens,
+        )
 
 
 class EngineError(Exception):
@@ -90,6 +99,7 @@ def stream_reply(
         stream = client.chat.completions.create(
             model=config.model,
             messages=conversation.to_api_messages(),
+            max_tokens=config.max_tokens,
             stream=True,
         )
         for chunk in stream:

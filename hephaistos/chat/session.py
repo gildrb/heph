@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation, get_reply
+from hephaistos.harness.dispatch import agent_loop
 
 
 @dataclass
@@ -30,50 +32,46 @@ def validate_armory_path(path_str: str) -> Path:
     return armory_path
 
 
-def _read_source_context(armory_path: Path) -> tuple[str, int]:
-    context_parts: list[str] = []
-    file_count = 0
-
+def _count_source_files(armory_path: Path) -> int:
+    """Count source files in armory (for display only; no stuffing)."""
+    count = 0
     for dirname in ("source", "library"):
         folder = armory_path / dirname
         if not folder.is_dir():
             continue
         for file_path in sorted(folder.rglob("*")):
-            if not file_path.is_file():
-                continue
-            try:
-                text = file_path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
-                continue
-            rel = file_path.relative_to(armory_path)
-            context_parts.append(f"--- {rel} ---\n{text}")
-            file_count += 1
-
-    return "\n\n".join(context_parts), file_count
+            if file_path.is_file():
+                count += 1
+    return count
 
 
-def _build_system_prompt(source_context: str) -> str:
-    base = "You are a helpful assistant."
-    if not source_context:
-        return base
-    return (
-        f"{base}\n\n"
-        "The user has provided the following reference files. "
-        "Use them to inform your responses:\n\n"
-        f"{source_context}"
-    )
+_SYSTEM_PROMPT = (
+    "You are a helpful coding assistant with access to tools. "
+    "When asked about files or code, use list_files and read_file "
+    "to explore the workspace rather than guessing. "
+    "Use bash to run commands when needed. "
+    "Be concise and accurate."
+)
+
+_SYSTEM_PROMPT_WITH_WORKSPACE = (
+    "You are a helpful coding assistant with access to tools. "
+    "Your workspace is the armory directory — use list_files and read_file "
+    "to explore it. Use bash to run commands, write_file and edit_file "
+    "to modify files. Be concise and accurate."
+)
 
 
 def create_session(config: ChatConfig, armory_path: Path | None = None) -> ChatSession:
     """Create a fresh chat session, optionally scoped to an armory."""
     conversation = Conversation()
-    source_context = ""
     source_file_count = 0
 
     if armory_path is not None:
-        source_context, source_file_count = _read_source_context(armory_path)
+        source_file_count = _count_source_files(armory_path)
+        conversation.add("system", _SYSTEM_PROMPT_WITH_WORKSPACE)
+    else:
+        conversation.add("system", _SYSTEM_PROMPT)
 
-    conversation.add("system", _build_system_prompt(source_context))
     return ChatSession(
         config=config,
         conversation=conversation,
@@ -90,7 +88,7 @@ def resume_session(
 ) -> ChatSession:
     """Load a saved session from an armory."""
     conversation, title = chat_storage.load(armory_path, session_id)
-    _, source_file_count = _read_source_context(armory_path)
+    source_file_count = _count_source_files(armory_path)
     return ChatSession(
         config=config,
         conversation=conversation,
@@ -131,16 +129,40 @@ def send_user_message(
     *,
     abort: threading.Event | None = None,
 ) -> str:
-    """Append a user message, stream the reply, and store the assistant output."""
+    """Append a user message, run the agent loop, stream output, return reply."""
     session.conversation.add("user", user_input)
 
     try:
-        reply = get_reply(session.config, session.conversation, abort=abort)
+        if session.armory_path is not None:
+            # Agent loop with tools — workspace is the armory
+            parts: list[str] = []
+            for chunk in agent_loop(
+                session.config,
+                session.conversation,
+                session.armory_path,
+                abort=abort,
+            ):
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+                parts.append(chunk)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            reply = "".join(parts)
+            # Strip tool-activity annotations for storage
+            # (they're interleaved with text; we store the raw output)
+        else:
+            # Fallback: plain streaming without tools
+            reply = get_reply(session.config, session.conversation, abort=abort)
     except Exception:
         session.conversation.messages.pop()
         raise
 
-    session.conversation.add("assistant", reply)
+    # The agent_loop already adds the assistant message to conversation,
+    # but for the plain get_reply path we need to add it here.
+    # Check if the last message is already from the assistant.
+    if session.conversation.messages and session.conversation.messages[-1].role != "assistant":
+        session.conversation.add("assistant", reply)
+
     if not session.title:
         session.title = _derive_title(session.conversation)
     session.dirty = True
