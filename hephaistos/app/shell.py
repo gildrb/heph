@@ -327,8 +327,17 @@ class _LineEditor:
         if self._first_render:
             self._first_render = False
             self._suggestion_lines = []
-            # Draw the spacer + panel fresh; cursor is already in the right spot
-            sys.stdout.write("\r\n")
+            # Push the panel to the bottom of the terminal viewport.
+            # Panel height: spacer(1) + top border(1) + input line(1)
+            #   + suggestions(0 on first render) + bottom border(1)
+            #   + footer(1) = 5 lines.
+            panel_height = 5
+            try:
+                rows = os.get_terminal_size().lines
+            except OSError:
+                rows = 24
+            blank_lines = max(0, rows - panel_height)
+            sys.stdout.write("\r\n" * blank_lines)
         else:
             # When a flash message was displayed on the previous render, it sits
             # one line above the spacer.  Go up one extra line to erase it.
@@ -487,6 +496,10 @@ class _LineEditor:
 
                 # Enter
                 if ch in ("\r", "\n"):
+                    # Empty input — stay in the editor, do nothing
+                    if not self.buf and not multiline_parts:
+                        continue
+
                     self._clear_suggestions()
                     self._show_footer = False
 
