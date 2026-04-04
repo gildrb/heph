@@ -40,9 +40,9 @@ def _parse_toml_simple(path: Path) -> dict[str, str]:
 
 
 def load_config(armory_path: Path | None = None) -> ChatConfig:
-    """Load ChatConfig from TOML defaults + environment variable overrides.
+    """Load ChatConfig from TOML defaults + provider config + env overrides.
 
-    Priority: env vars > TOML file > ChatConfig defaults.
+    Priority: env vars > provider config > TOML file > ChatConfig defaults.
     """
     config = ChatConfig()
 
@@ -60,7 +60,16 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
             except ValueError:
                 pass
 
-    # Environment variable overrides
+    # Apply provider config (overrides TOML defaults)
+    try:
+        from hephaistos.providers.config import ProviderConfig
+
+        pc = ProviderConfig.load()
+        pc.apply_to_config(config)
+    except Exception:
+        pass
+
+    # Environment variable overrides (highest priority)
     api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get(
         "OPENAI_API_KEY", ""
     )

@@ -528,6 +528,13 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory) 
     if user_input.startswith("/"):
         history.add(user_input)
         stripped = user_input.strip()
+        if stripped == "/":
+            # Bare "/" — treat as /help
+            registry = get_registry()
+            cmd = registry.find("help")
+            if cmd:
+                cmd.handle(session, "")
+            return session, True
         space_idx = stripped.find(" ")
         if space_idx == -1:
             cmd_name = stripped[1:].lower()
@@ -667,6 +674,12 @@ def _run_fallback_shell(session: ChatSession | None = None) -> None:
 
         if user_input.startswith("/"):
             stripped = user_input.strip()
+            if stripped == "/":
+                registry = get_registry()
+                cmd = registry.find("help")
+                if cmd:
+                    cmd.handle(session, "")
+                continue
             space_idx = stripped.find(" ")
             if space_idx == -1:
                 cmd_name = stripped[1:].lower()
