@@ -456,9 +456,11 @@ class _LineEditor:
         # Clear each line above the input (multiline parts + top border)
         for _ in range(self._prev_content_lines):
             sys.stdout.write("\r\033[K\033[A")
-        # Clear flash message line if present (sits above the spacer)
+        # Cursor is now on the top border.  Clear the spacer and flash
+        # message (if any) so no stale text remains above the panel.
         if self._flash_displayed:
-            sys.stdout.write("\r\033[K\033[A")
+            sys.stdout.write("\r\033[K\033[A")  # top border → spacer
+            sys.stdout.write("\r\033[K\033[A")  # spacer → flash
         # Clear the line we landed on and everything below
         sys.stdout.write("\r\033[K\033[J\r\n")
         sys.stdout.flush()
