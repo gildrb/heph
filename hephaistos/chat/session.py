@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import sys
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig, Conversation, get_reply
+from hephaistos.chat.engine import ChatConfig, Conversation, Message, get_reply
 from hephaistos.harness.dispatch import agent_loop
+from hephaistos.harness.rag import ArmoryIndex, build_context, load_or_build, retrieve
 
 
 @dataclass
@@ -23,6 +24,7 @@ class ChatSession:
     source_file_count: int = 0
     dirty: bool = False
     autonomy: str = "low"
+    _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
 
 
 def validate_armory_path(path_str: str) -> Path:
@@ -54,11 +56,20 @@ _SYSTEM_PROMPT = (
     "Be concise and accurate."
 )
 
-_SYSTEM_PROMPT_WITH_WORKSPACE = (
-    "You are a helpful coding assistant with access to tools. "
-    "Your workspace is the armory directory — use list_files and read_file "
-    "to explore it. Use bash to run commands, write_file and edit_file "
-    "to modify files. Be concise and accurate."
+_SYSTEM_PROMPT_RAG = (
+    "You are a knowledgeable study assistant. "
+    "Relevant excerpts from the armory's source material are provided below "
+    "as context for each question. Use this context as your primary reference. "
+    "When you draw from a source, cite it by filename. "
+    "If the provided context is insufficient, you may use read_file and "
+    "list_files to explore the armory workspace for more detail. "
+    "Use bash to run commands when needed. "
+    "Be concise, accurate, and attribute your answers to sources."
+)
+
+_RAG_CONTEXT_PREFIX = (
+    "The following excerpts were automatically retrieved from the armory "
+    "based on the user's question:\n\n"
 )
 
 
@@ -69,7 +80,7 @@ def create_session(config: ChatConfig, armory_path: Path | None = None) -> ChatS
 
     if armory_path is not None:
         source_file_count = _count_source_files(armory_path)
-        conversation.add("system", _SYSTEM_PROMPT_WITH_WORKSPACE)
+        conversation.add("system", _SYSTEM_PROMPT_RAG)
     else:
         conversation.add("system", _SYSTEM_PROMPT)
 
@@ -134,6 +145,10 @@ def send_user_message(
     length_before = len(session.conversation.messages)
     session.conversation.add("user", user_input)
 
+    # RAG context injection: retrieve and stuff before the user message
+    if session.armory_path is not None:
+        _inject_rag_context(session, user_input)
+
     try:
         if session.armory_path is not None:
             # Agent loop with tools — workspace is the armory
@@ -150,8 +165,6 @@ def send_user_message(
             sys.stdout.write("\n")
             sys.stdout.flush()
             reply = "".join(parts)
-            # Strip tool-activity annotations for storage
-            # (they're interleaved with text; we store the raw output)
         else:
             # Fallback: plain streaming without tools
             reply = get_reply(session.config, session.conversation, abort=abort)
@@ -161,7 +174,6 @@ def send_user_message(
 
     # The agent_loop already adds the assistant message to conversation,
     # but for the plain get_reply path we need to add it here.
-    # Check if the last message is already from the assistant.
     if session.conversation.messages and session.conversation.messages[-1].role != "assistant":
         session.conversation.add("assistant", reply)
 
@@ -169,6 +181,38 @@ def send_user_message(
         session.title = _derive_title(session.conversation)
     session.dirty = True
     return reply
+
+
+def _inject_rag_context(session: ChatSession, user_input: str) -> int:
+    """Build/load the RAG index, retrieve relevant chunks, and inject context.
+
+    Inserts a system message with retrieved context just before the last
+    user message. Returns the number of messages inserted (0 or 1).
+    """
+    try:
+        if session._rag_index is None:
+            session._rag_index = load_or_build(session.armory_path)  # type: ignore[arg-type]
+
+        scored = retrieve(user_input, session._rag_index, top_k=5)
+        if not scored:
+            return 0
+
+        context_text = build_context(scored, max_tokens=2000)
+        if not context_text:
+            return 0
+
+        full_context = _RAG_CONTEXT_PREFIX + context_text
+
+        # Insert just before the last message (which is the user message)
+        last_idx = len(session.conversation.messages) - 1
+        session.conversation.messages.insert(
+            last_idx,
+            Message(role="system", content=full_context),
+        )
+        return 1
+    except Exception:
+        # RAG failure should never block the conversation
+        return 0
 
 
 def save_session(session: ChatSession) -> Path:

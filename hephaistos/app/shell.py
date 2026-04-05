@@ -440,6 +440,20 @@ class _LineEditor:
         self._suggestion_index = -1
         self._current_matches = []
 
+    def _clear_down(self) -> None:
+        """Clear from the current line downward and advance to a new line.
+
+        Unlike _clear_suggestions this never moves the cursor upward,
+        so it is safe for tall multiline panels that may extend past the
+        top of the visible screen.
+        """
+        self._show_footer = False
+        sys.stdout.write("\r\033[K\033[J\r\n")
+        sys.stdout.flush()
+        self._suggestion_lines = []
+        self._suggestion_index = -1
+        self._current_matches = []
+
     def _read_char(self, fd: int) -> str:
         """Read one byte from fd directly, returning it as a single char."""
         b = os.read(fd, 1)
@@ -490,18 +504,12 @@ class _LineEditor:
 
                 # Ctrl+C — cancel current input
                 if ch == "\x03":
-                    self._clear_suggestions()
-                    self._show_footer = False
-                    sys.stdout.write("\r\n")
-                    sys.stdout.flush()
+                    self._clear_down()
                     return ""
 
                 # Ctrl+D — exit
                 if ch == "\x04":
-                    self._clear_suggestions()
-                    self._show_footer = False
-                    sys.stdout.write("\r\n")
-                    sys.stdout.flush()
+                    self._clear_down()
                     return None
 
                 # Enter
@@ -509,9 +517,6 @@ class _LineEditor:
                     # Empty / whitespace input — stay in the editor, do nothing
                     if not self.buf.strip() and not self._multiline_parts:
                         continue
-
-                    self._clear_suggestions()
-                    self._show_footer = False
 
                     # Backslash continuation for multi-line
                     if self.buf.endswith("\\"):
@@ -524,8 +529,7 @@ class _LineEditor:
                         continue
 
                     result = "".join(self._multiline_parts) + self.buf
-                    sys.stdout.write("\r\n")
-                    sys.stdout.flush()
+                    self._clear_down()
                     self.buf = ""
                     self.cursor = 0
                     return result
@@ -545,10 +549,7 @@ class _LineEditor:
                     if not ready:
                         # Bare Escape — two-press exit guard
                         if self._escape_pending and (time.monotonic() - self._escape_time < _ESCAPE_GUARD_SECONDS):
-                            self._clear_suggestions()
-                            self._show_footer = False
-                            sys.stdout.write("\r\n")
-                            sys.stdout.flush()
+                            self._clear_down()
                             return ""
                         self._escape_pending = True
                         self._escape_time = time.monotonic()
