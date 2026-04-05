@@ -336,7 +336,7 @@ class _LineEditor:
             if self._flash_message:
                 sys.stdout.write(self._flash_message + "\r\n")
                 self._flash_displayed = True
-            sys.stdout.write("\r\n\r\n")  # breathing room below the intro
+            sys.stdout.write("\r\n")  # breathing room below the intro
         else:
             # up_lines = previous multiline lines + top border + spacer
             # (+ flash line if present)
@@ -460,7 +460,10 @@ class _LineEditor:
         # message (if any) so no stale text remains above the panel.
         if self._flash_displayed:
             sys.stdout.write("\r\033[K\033[A")  # top border → spacer
-            sys.stdout.write("\r\033[K\033[A")  # spacer → flash
+            sys.stdout.write("\r\033[K\033[A")  # spacer → flash line
+            sys.stdout.write("\r\033[K\033[A")  # flash line → above
+        else:
+            sys.stdout.write("\r\033[K\033[A")  # top border → spacer
         # Clear the line we landed on and everything below
         sys.stdout.write("\r\033[K\033[J\r\n")
         sys.stdout.flush()
@@ -755,10 +758,12 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory, 
                 send_user_message(session, new_input, abort=abort)
             except EngineError as exc:
                 if editor:
+                    sys.stdout.write("\r\033[K")
                     editor._flash_message = f"{styled('error:', STYLE_ERROR)} {exc}"
                 else:
                     print_error(str(exc))
-            print()
+            else:
+                print()
 
         return session, True
 
@@ -770,10 +775,12 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory, 
         send_user_message(session, user_input, abort=abort)
     except EngineError as exc:
         if editor:
+            sys.stdout.write("\r\033[K")
             editor._flash_message = f"{styled('error:', STYLE_ERROR)} {exc}"
         else:
             print_error(str(exc))
-    print()
+    else:
+        print()
     return session, True
 
 
