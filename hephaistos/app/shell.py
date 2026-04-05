@@ -332,6 +332,10 @@ class _LineEditor:
         if self._first_render:
             self._first_render = False
             self._suggestion_lines = []
+            # Show any pending flash message (e.g. API error) above the box
+            if self._flash_message:
+                sys.stdout.write(self._flash_message + "\r\n")
+                self._flash_displayed = True
             sys.stdout.write("\r\n\r\n")  # breathing room below the intro
         else:
             # up_lines = previous multiline lines + top border + spacer
@@ -441,13 +445,21 @@ class _LineEditor:
         self._current_matches = []
 
     def _clear_down(self) -> None:
-        """Clear from the current line downward and advance to a new line.
+        """Clear the entire panel and advance to a new line.
 
-        Unlike _clear_suggestions this never moves the cursor upward,
-        so it is safe for tall multiline panels that may extend past the
-        top of the visible screen.
+        Erases lines above the input line (multiline content + top border)
+        one-by-one, then clears everything below.  The cursor never moves
+        above what is already on screen, so this is safe even for tall
+        multiline panels that may have scrolled past the top.
         """
         self._show_footer = False
+        # Clear each line above the input (multiline parts + top border)
+        for _ in range(self._prev_content_lines):
+            sys.stdout.write("\r\033[K\033[A")
+        # Clear flash message line if present (sits above the spacer)
+        if self._flash_displayed:
+            sys.stdout.write("\r\033[K\033[A")
+        # Clear the line we landed on and everything below
         sys.stdout.write("\r\033[K\033[J\r\n")
         sys.stdout.flush()
         self._suggestion_lines = []
@@ -529,6 +541,10 @@ class _LineEditor:
                         continue
 
                     result = "".join(self._multiline_parts) + self.buf
+                    # Collapse box to single line before clearing so
+                    # empty multiline lines don't consume vertical space
+                    self._multiline_parts = []
+                    self._prev_content_lines = 1
                     self._clear_down()
                     self.buf = ""
                     self.cursor = 0
