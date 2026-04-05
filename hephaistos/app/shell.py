@@ -321,9 +321,8 @@ class _LineEditor:
         # relative to the panel).  We move up two lines to the spacer row
         # so we can overwrite the entire panel in place.
         #
-        # On the very first render we push the panel to the bottom of the
-        # terminal using cursor positioning so it always anchors at the
-        # viewport edge regardless of how much intro text precedes it.
+        # On the very first render we use \033[B (cursor-down, clamped at
+        # viewport) to reach the bottom without scrolling away the banner.
 
         if self._first_render:
             self._first_render = False
@@ -333,12 +332,8 @@ class _LineEditor:
             #   + suggestions(0 on first render) + bottom border(1)
             #   + footer(1) = 5 lines.
             panel_height = 5
-            try:
-                rows = os.get_terminal_size().lines
-            except OSError:
-                rows = 24
-            sys.stdout.write(f"\033[{rows};1H")       # move to last row
-            sys.stdout.write(f"\033[{panel_height}A")  # move up by panel height
+            sys.stdout.write("\033[999B")            # move to last visible row (clamped, no scroll)
+            sys.stdout.write(f"\033[{panel_height}A") # move up by panel height
         else:
             # When a flash message was displayed on the previous render, it sits
             # one line above the spacer.  Go up one extra line to erase it.
@@ -348,10 +343,11 @@ class _LineEditor:
             self._suggestion_lines = []
             self._flash_displayed = False
 
-            # Print any pending flash message (e.g. error) above the panel
+            # Print flash message (e.g. error) above the panel.
+            # The message persists until explicitly cleared in _handle_input
+            # so it doesn't vanish between keystrokes.
             if self._flash_message:
                 sys.stdout.write(self._flash_message + "\r\n")
-                self._flash_message = ""
                 self._flash_displayed = True
 
             # Blank line for breathing room above the chatbox
@@ -421,11 +417,11 @@ class _LineEditor:
         sys.stdout.flush()
 
     def _clear_suggestions(self) -> None:
-        # Cursor is on the input line. Move up to the top-border row, then
-        # erase everything from there to end of screen.  This removes the
-        # top border, input line, suggestions, bottom border, and footer in
-        # one shot so the chatbox panel is completely cleared.
-        sys.stdout.write("\033[2A\r")  # up to blank line above top-border
+        # Cursor is on the input line. Move up past the top-border row
+        # (and flash message if present), then erase everything from there
+        # to end of screen.
+        up = 3 if self._flash_displayed else 2
+        sys.stdout.write(f"\033[{up}A\r")
         sys.stdout.write("\033[J")     # clear from there to end of screen
         self._suggestion_lines = []
         self._suggestion_index = -1
@@ -655,6 +651,11 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory, 
     """Process a single input. Returns (session, should_continue)."""
     if not user_input:
         return session, True
+
+    # Clear any previous flash message — it will be re-set on error
+    if editor:
+        editor._flash_message = ""
+        editor._flash_displayed = False
 
     # Shell mode: !command
     if user_input.startswith("!"):
