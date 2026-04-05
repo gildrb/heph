@@ -71,7 +71,7 @@ ARMORY_MENU_OPTIONS = [
 ]
 
 _HELP_FOOTER = styled(
-    " Enter send · ↑↓ history · Tab complete · / commands · Ctrl+C cancel · Ctrl+D exit",
+    " Enter send · ⌥Enter newline · ↑↓ history · Tab complete · / commands · Ctrl+C cancel · Ctrl+D exit",
     STYLE_DIM,
 )
 
@@ -249,6 +249,8 @@ class _LineEditor:
         self._first_render: bool = True
         self._flash_message: str = ""  # printed above the panel once
         self._flash_displayed: bool = False  # True after flash has been drawn
+        self._multiline_parts: list[str] = []
+        self._prev_content_lines: int = 1  # lines drawn inside box (for cursor repositioning)
 
     def _reset_suggestion_index(self) -> None:
         """Reset suggestion selection when buffer content changes."""
@@ -308,18 +310,19 @@ class _LineEditor:
         # Ensure minimum width for box-drawing
         cols = max(cols, 20)
 
-        # ── Move cursor to the top-border line and clear everything below ──
+        # ── Move cursor to the spacer line and clear everything below ──
         # The panel layout from top to bottom is:
         #   0: blank spacer line
         #   1: top border (╭───╮)
-        #   2: input line  (│▌ prompt text)
-        #   3..N: suggestions (if any)
+        #   2..M: multiline continuation lines (│ text │)
+        #   M+1: input line  (│▌ prompt text)
+        #   M+2..N: suggestions (if any)
         #   N+1: bottom border (╰───╯)
         #   N+2: footer (if shown)
         #
-        # When _render is called, the cursor sits on the input line (row 2
-        # relative to the panel).  We move up two lines to the spacer row
-        # so we can overwrite the entire panel in place.
+        # When _render is called, the cursor sits on the input line.  We
+        # move up past any multiline lines and the top border to the
+        # spacer row so we can overwrite the entire panel in place.
         #
         # On the very first render we draw the panel directly after the
         # intro text with a small gap, instead of anchoring at the viewport
@@ -331,9 +334,11 @@ class _LineEditor:
             self._suggestion_lines = []
             sys.stdout.write("\r\n\r\n")  # breathing room below the intro
         else:
-            # When a flash message was displayed on the previous render, it sits
-            # one line above the spacer.  Go up one extra line to erase it.
-            up_lines = 3 if self._flash_displayed else 2
+            # up_lines = previous multiline lines + top border + spacer
+            # (+ flash line if present)
+            up_lines = self._prev_content_lines + 1
+            if self._flash_displayed:
+                up_lines += 1
             sys.stdout.write(f"\033[{up_lines}A\r")
             sys.stdout.write("\033[J")     # clear from there to end of screen
             self._suggestion_lines = []
@@ -361,6 +366,13 @@ class _LineEditor:
         corner_left = styled("│ ", RED)
         corner_right = styled(" │", RED)
         content_width = cols - 4  # subtract left "│ " and right " │"
+
+        # Multiline continuation lines (no accent bar)
+        for part in self._multiline_parts:
+            part_text = part.rstrip("\n")
+            part_vis = visible_len(part_text)
+            part_pad = max(0, content_width - part_vis)
+            sys.stdout.write(f"{corner_left}{part_text}{' ' * part_pad}{corner_right}\033[K\r\n")
 
         # Input line: │▌ prompt input │
         accent_bar = styled("▌ ", STYLE_PROMPT)
@@ -412,11 +424,16 @@ class _LineEditor:
         sys.stdout.write(f"\r\033[{vis_col}C")
         sys.stdout.flush()
 
+        # Track how many content lines we drew for cursor repositioning next time
+        self._prev_content_lines = len(self._multiline_parts) + 1  # +1 for input line
+
     def _clear_suggestions(self) -> None:
-        # Cursor is on the input line. Move up past the top-border row
-        # (and flash message if present), then erase everything from there
-        # to end of screen.
-        up = 3 if self._flash_displayed else 2
+        # Cursor is on the input line. Move up past multiline lines, the
+        # top-border row (and flash message if present), then erase
+        # everything from there to end of screen.
+        up = self._prev_content_lines + 1  # content lines + top border
+        if self._flash_displayed:
+            up += 1
         sys.stdout.write(f"\033[{up}A\r")
         sys.stdout.write("\033[J")     # clear from there to end of screen
         self._suggestion_lines = []
@@ -458,7 +475,7 @@ class _LineEditor:
         self._escape_pending = False
         self._escape_time = 0.0
         self._show_footer = True
-        multiline_parts: list[str] = []
+        self._multiline_parts = []
 
         try:
             tty.setraw(fd)
@@ -490,7 +507,7 @@ class _LineEditor:
                 # Enter
                 if ch in ("\r", "\n"):
                     # Empty / whitespace input — stay in the editor, do nothing
-                    if not self.buf.strip() and not multiline_parts:
+                    if not self.buf.strip() and not self._multiline_parts:
                         continue
 
                     self._clear_suggestions()
@@ -499,15 +516,14 @@ class _LineEditor:
                     # Backslash continuation for multi-line
                     if self.buf.endswith("\\"):
                         self.buf = self.buf[:-1]
-                        multiline_parts.append(self.buf)
-                        sys.stdout.write("\r\n  ")
-                        sys.stdout.flush()
+                        self._multiline_parts.append(self.buf)
                         self.buf = ""
                         self.cursor = 0
                         self._show_footer = True
+                        self._render(session)
                         continue
 
-                    result = "".join(multiline_parts) + self.buf
+                    result = "".join(self._multiline_parts) + self.buf
                     sys.stdout.write("\r\n")
                     sys.stdout.flush()
                     self.buf = ""
@@ -546,6 +562,13 @@ class _LineEditor:
                     elif seq == "O":
                         arrow = self._read_char(fd)
                         self._handle_arrow(arrow, session, fd)
+                    elif seq in ("\r", "\n"):
+                        # Option/Alt+Enter — insert newline
+                        self._multiline_parts.append(self.buf + "\n")
+                        self.buf = ""
+                        self.cursor = 0
+                        self._show_footer = True
+                        self._render(session)
                     continue
 
                 # Tab — autocomplete
