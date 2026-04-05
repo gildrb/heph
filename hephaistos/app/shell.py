@@ -533,7 +533,8 @@ class _LineEditor:
                 # Enter
                 if ch in ("\r", "\n"):
                     # Empty / whitespace input — stay in the editor, do nothing
-                    if not self.buf.strip() and not self._multiline_parts:
+                    combined = "".join(self._multiline_parts) + self.buf
+                    if not combined.strip():
                         continue
 
                     # Backslash continuation for multi-line
@@ -691,7 +692,7 @@ def _run_shell_command(cmd: str) -> None:
 
 def _handle_input(session: ChatSession, user_input: str, history: InputHistory, editor: _LineEditor | None = None) -> tuple[ChatSession, bool]:
     """Process a single input. Returns (session, should_continue)."""
-    if not user_input:
+    if not user_input or not user_input.strip():
         return session, True
 
     # Clear any previous flash message — it will be re-set on error
