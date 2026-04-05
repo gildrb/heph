@@ -106,3 +106,96 @@ def test_handle_input_unknown_command(capsys) -> None:
     assert cont is True
     out = capsys.readouterr().out
     assert "Unknown command" in out
+
+
+# ---------------------------------------------------------------------------
+# Cancellation / back-navigation tests
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_path_returns_none_on_q(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    result = shell._prompt_path("Path", "/default")
+    assert result is None
+
+
+def test_prompt_path_returns_none_on_cancel(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "cancel")
+    result = shell._prompt_path("Path", "/default")
+    assert result is None
+
+
+def test_prompt_path_returns_none_on_back(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "back")
+    result = shell._prompt_path("Path", "/default")
+    assert result is None
+
+
+def test_prompt_path_returns_default_on_empty(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    result = shell._prompt_path("Path", "/default")
+    assert result == "/default"
+
+
+def test_prompt_path_returns_value_when_provided(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "/my/path")
+    result = shell._prompt_path("Path", "/default")
+    assert result == "/my/path"
+
+
+def test_open_armory_cancelled_returns_session_unchanged(monkeypatch, capsys) -> None:
+    session = create_session(ChatConfig(), None)
+    assert session.armory_path is None
+
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    new_session = shell._open_armory(session)
+
+    assert new_session is session
+    assert new_session.armory_path is None
+    out = capsys.readouterr().out
+    assert "Cancelled" in out
+
+
+def test_create_armory_cancelled_returns_session_unchanged(monkeypatch, capsys) -> None:
+    session = create_session(ChatConfig(), None)
+    assert session.armory_path is None
+
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    new_session = shell._create_armory(session)
+
+    assert new_session is session
+    assert new_session.armory_path is None
+    out = capsys.readouterr().out
+    assert "Cancelled" in out
+
+
+def test_prompt_armory_for_sessions_cancelled_returns_none(monkeypatch, capsys) -> None:
+    session = create_session(ChatConfig(), None)
+
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    result = shell._prompt_armory_for_sessions(session)
+
+    assert result is None
+    out = capsys.readouterr().out
+    assert "Cancelled" in out
+
+
+def test_resume_saved_chat_cancelled_returns_session_unchanged(monkeypatch, capsys) -> None:
+    session = create_session(ChatConfig(), None)
+
+    # Cancel at the path prompt
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    new_session = shell._resume_saved_chat(session)
+
+    assert new_session is session
+
+
+def test_list_saved_chats_cancelled_returns_early(monkeypatch, capsys) -> None:
+    session = create_session(ChatConfig(), None)
+
+    # Cancel at the path prompt
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    shell._list_saved_chats(session)
+
+    out = capsys.readouterr().out
+    assert "Cancelled" in out

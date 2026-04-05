@@ -101,8 +101,11 @@ def _default_armory_input(session: ChatSession) -> str:
     return str((Path.cwd() / "armory").resolve())
 
 
-def _prompt_path(label: str, default: str) -> str:
-    raw = input(f"{label} [{default}]: ").strip()
+def _prompt_path(label: str, default: str) -> str | None:
+    """Prompt the user for a path.  Returns *None* on cancel (empty or 'q')."""
+    raw = input(f"{label} [{default}] (q to cancel): ").strip()
+    if raw.lower() in ("q", "quit", "cancel", "back"):
+        return None
     return raw or default
 
 
@@ -134,6 +137,9 @@ def _start_fresh_session(session: ChatSession, armory_path: Path | None) -> Chat
 def _open_armory(session: ChatSession) -> ChatSession:
     default_path = _default_armory_input(session)
     raw_path = _prompt_path("Armory path", default_path)
+    if raw_path is None:
+        print_info("Cancelled.")
+        return session
     try:
         armory_path = validate_armory_path(raw_path)
     except ArmoryError as exc:
@@ -145,6 +151,9 @@ def _open_armory(session: ChatSession) -> ChatSession:
 def _create_armory(session: ChatSession) -> ChatSession:
     default_path = _default_armory_input(session)
     raw_path = _prompt_path("New armory path", default_path)
+    if raw_path is None:
+        print_info("Cancelled.")
+        return session
     armory_path = normalize_path(raw_path)
     try:
         initialize(armory_path)
@@ -158,6 +167,9 @@ def _create_armory(session: ChatSession) -> ChatSession:
 def _prompt_armory_for_sessions(session: ChatSession) -> Path | None:
     default_path = _default_armory_input(session)
     raw_path = _prompt_path("Armory path", default_path)
+    if raw_path is None:
+        print_info("Cancelled.")
+        return None
     try:
         return validate_armory_path(raw_path)
     except ArmoryError as exc:
