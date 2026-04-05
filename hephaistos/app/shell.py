@@ -504,6 +504,7 @@ class _LineEditor:
         self._escape_time = 0.0
         self._show_footer = True
         self._multiline_parts = []
+        self._first_render = True
 
         try:
             tty.setraw(fd)
