@@ -321,19 +321,15 @@ class _LineEditor:
         # relative to the panel).  We move up two lines to the spacer row
         # so we can overwrite the entire panel in place.
         #
-        # On the very first render we use \033[B (cursor-down, clamped at
-        # viewport) to reach the bottom without scrolling away the banner.
+        # On the very first render we draw the panel directly after the
+        # intro text with a small gap, instead of anchoring at the viewport
+        # bottom.  This avoids overlapping the banner on small terminals
+        # and eliminates the huge gap on large ones.
 
         if self._first_render:
             self._first_render = False
             self._suggestion_lines = []
-            # Push the panel to the bottom of the terminal viewport.
-            # Panel height: spacer(1) + top border(1) + input line(1)
-            #   + suggestions(0 on first render) + bottom border(1)
-            #   + footer(1) = 5 lines.
-            panel_height = 5
-            sys.stdout.write("\033[999B")            # move to last visible row (clamped, no scroll)
-            sys.stdout.write(f"\033[{panel_height}A") # move up by panel height
+            sys.stdout.write("\r\n\r\n")  # breathing room below the intro
         else:
             # When a flash message was displayed on the previous render, it sits
             # one line above the spacer.  Go up one extra line to erase it.
