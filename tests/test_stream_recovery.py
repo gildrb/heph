@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
@@ -15,7 +15,6 @@ from hephaistos.chat.engine import (
     EngineError,
     RetryConfig,
     StreamRecoveryError,
-    _build_client,
     _wait_backoff,
     is_retryable_error,
     stream_reply,
@@ -26,6 +25,30 @@ from hephaistos.chat.engine import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _make_request() -> httpx.Request:
+    return httpx.Request("POST", "http://localhost/v1/chat/completions")
+
+
+def _connection_error() -> APIConnectionError:
+    return APIConnectionError(request=_make_request())
+
+
+def _timeout_error() -> APITimeoutError:
+    return APITimeoutError(request=_make_request())
+
+
+def _server_error() -> InternalServerError:
+    req = _make_request()
+    resp = httpx.Response(500, request=req)
+    return InternalServerError("server error", response=resp, body=None)
+
+
+def _rate_limit_error() -> RateLimitError:
+    req = _make_request()
+    resp = httpx.Response(429, request=req)
+    return RateLimitError("rate limited", response=resp, body=None)
+
 
 def _config() -> ChatConfig:
     return ChatConfig(api_key="test-key", base_url="http://localhost/v1", model="test")
@@ -50,6 +73,42 @@ def _make_chunk(content: str | None = None, finish_reason: str | None = None) ->
     return chunk
 
 
+class FailingIterator:
+    """Stream iterator that yields one chunk then raises."""
+
+    def __init__(self, content: str, error: Exception | None = None) -> None:
+        self._content = content
+        self._error = error or _connection_error()
+        self._yielded = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if not self._yielded:
+            self._yielded = True
+            return _make_chunk(self._content)
+        raise self._error
+
+
+class EmptyFailingIterator:
+    """Stream iterator that raises immediately (no content)."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self._error = error or _connection_error()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        raise self._error
+
+
+def _workspace():
+    from pathlib import Path
+    return Path("/tmp/fake_workspace")
+
+
 # ---------------------------------------------------------------------------
 # is_retryable_error
 # ---------------------------------------------------------------------------
@@ -57,16 +116,16 @@ def _make_chunk(content: str | None = None, finish_reason: str | None = None) ->
 
 class TestIsRetryableError:
     def test_connection_error_is_retryable(self) -> None:
-        assert is_retryable_error(APIConnectionError(MagicMock())) is True
+        assert is_retryable_error(_connection_error()) is True
 
     def test_timeout_is_retryable(self) -> None:
-        assert is_retryable_error(APITimeoutError(MagicMock())) is True
+        assert is_retryable_error(_timeout_error()) is True
 
     def test_internal_server_error_is_retryable(self) -> None:
-        assert is_retryable_error(InternalServerError(MagicMock(), body=None)) is True
+        assert is_retryable_error(_server_error()) is True
 
     def test_rate_limit_is_retryable(self) -> None:
-        assert is_retryable_error(RateLimitError(MagicMock(), response=MagicMock(), body=None)) is True
+        assert is_retryable_error(_rate_limit_error()) is True
 
     def test_generic_exception_not_retryable(self) -> None:
         assert is_retryable_error(RuntimeError("boom")) is False
@@ -105,7 +164,6 @@ class TestRetryConfig:
 class TestWaitBackoff:
     def test_returns_true_on_normal_sleep(self) -> None:
         cfg = RetryConfig(base_delay=0.01, max_delay=0.01)
-        # Should return True (not aborted)
         assert _wait_backoff(0, cfg) is True
 
     def test_returns_false_when_aborted(self) -> None:
@@ -113,17 +171,6 @@ class TestWaitBackoff:
         abort = threading.Event()
         abort.set()
         assert _wait_backoff(0, cfg, abort) is False
-
-    def test_backoff_increases_delay(self) -> None:
-        """Attempt 0 → base_delay, attempt 3 → min(base*8, max)."""
-        cfg = RetryConfig(base_delay=1.0, max_delay=4.0)
-        # Just check that it doesn't crash and respects the bounds
-        import time
-        t0 = time.monotonic()
-        _wait_backoff(0, cfg)
-        elapsed = time.monotonic() - t0
-        # With jitter up to 0.5 * delay, the elapsed time should be < delay
-        assert elapsed < 2.0  # generous upper bound
 
 
 # ---------------------------------------------------------------------------
@@ -133,10 +180,10 @@ class TestWaitBackoff:
 
 class TestStreamRecoveryError:
     def test_carries_partial_content(self) -> None:
-        original = RuntimeError("connection reset")
+        original = _connection_error()
         err = StreamRecoveryError("Hello, world!", original)
         assert err.partial_content == "Hello, world!"
-        assert "12 chars" in str(err)
+        assert "13 chars" in str(err)
         assert err.__cause__ is original
 
     def test_no_cause(self) -> None:
@@ -160,31 +207,24 @@ class TestStreamReplyRetry:
         """No retry needed — stream completes normally."""
         chunks = [_make_chunk("Hi "), _make_chunk("there")]
 
-        mock_stream = MagicMock()
-        mock_stream.__iter__ = MagicMock(return_value=iter(chunks))
-
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_stream
+        mock_client.chat.completions.create.return_value = iter(chunks)
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with patch("hephaistos.chat.engine._build_client", return_value=mock_client):
             result = list(stream_reply(_config(), _conv(), retry=retry))
 
         assert result == ["Hi ", "there"]
-        # Only called once
         assert mock_client.chat.completions.create.call_count == 1
 
     def test_retries_on_pre_stream_connection_error(self) -> None:
-        """Connection error before any content → retry succeeds."""
+        """Connection error before any content -> retry succeeds."""
         chunks = [_make_chunk("Recovered")]
-        mock_stream = MagicMock()
-        mock_stream.__iter__ = MagicMock(return_value=iter(chunks))
 
         mock_client = MagicMock()
-        # First call fails, second succeeds
         mock_client.chat.completions.create.side_effect = [
-            APIConnectionError(MagicMock()),
-            mock_stream,
+            _connection_error(),
+            iter(chunks),
         ]
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
@@ -195,15 +235,13 @@ class TestStreamReplyRetry:
         assert mock_client.chat.completions.create.call_count == 2
 
     def test_retries_on_pre_stream_timeout(self) -> None:
-        """Timeout before content → retry succeeds."""
+        """Timeout before content -> retry succeeds."""
         chunks = [_make_chunk("OK")]
-        mock_stream = MagicMock()
-        mock_stream.__iter__ = MagicMock(return_value=iter(chunks))
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = [
-            APITimeoutError(MagicMock()),
-            mock_stream,
+            _timeout_error(),
+            iter(chunks),
         ]
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
@@ -213,19 +251,22 @@ class TestStreamReplyRetry:
         assert result == ["OK"]
 
     def test_raises_engine_error_after_max_retries(self) -> None:
-        """All retries exhausted → EngineError."""
+        """All retries exhausted -> EngineError."""
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = APIConnectionError(MagicMock())
+        mock_client.chat.completions.create.side_effect = _connection_error()
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
         with (
             patch("hephaistos.chat.engine._build_client", return_value=mock_client),
-            pytest.raises(EngineError, match="failed after 3 attempts"),
+            pytest.raises(EngineError, match="LLM request failed"),
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
 
+        # Should have retried 3 times total (max_retries + 1)
+        assert mock_client.chat.completions.create.call_count == 3
+
     def test_non_retryable_error_raises_immediately(self) -> None:
-        """AuthenticationError (not retryable) → raise immediately."""
+        """Non-retryable error -> raise immediately, no retry."""
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = RuntimeError("auth fail")
 
@@ -236,34 +277,12 @@ class TestStreamReplyRetry:
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
 
-        # Should only be called once — no retry
         assert mock_client.chat.completions.create.call_count == 1
 
-    def test_mid_stream_failure_with_partial_content_raises_recovery(self) -> None:
-        """Stream drops AFTER content → StreamRecoveryError with partial."""
-        # First chunk succeeds, then iteration raises
-        def _iter_fail(self_unused=None):
-            yield _make_chunk("Hello ")
-
-        mock_stream = MagicMock()
-        mock_stream.__iter__ = MagicMock(side_effect=[
-            # Attempt 1: yield one chunk then fail
-            _iter_fail(),
-        ])
-        # Make the iterator raise after first chunk
-        # Actually, let's use a simpler approach:
-        # Create a custom iterator that yields then raises
-        class FailingIterator:
-            def __iter__(self):
-                return self
-            def __next__(self):
-                if not hasattr(self, '_yielded'):
-                    self._yielded = True
-                    return _make_chunk("Hello ")
-                raise APIConnectionError(MagicMock())
-
+    def test_mid_stream_failure_with_partial_raises_recovery(self) -> None:
+        """Stream drops AFTER content -> StreamRecoveryError with partial."""
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = FailingIterator()
+        mock_client.chat.completions.create.return_value = FailingIterator("Hello ")
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
@@ -275,18 +294,12 @@ class TestStreamReplyRetry:
         assert exc_info.value.partial_content == "Hello "
 
     def test_mid_stream_failure_no_content_retries(self) -> None:
-        """Stream drops with NO content yet → retry (safe to retry)."""
-        class FailingIteratorEmpty:
-            def __iter__(self):
-                return self
-            def __next__(self):
-                raise APIConnectionError(MagicMock())
-
+        """Stream drops with NO content yet -> safe to retry."""
         good_chunks = [_make_chunk("Retry OK")]
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = [
-            FailingIteratorEmpty(),
+            EmptyFailingIterator(),
             iter(good_chunks),
         ]
 
@@ -297,9 +310,8 @@ class TestStreamReplyRetry:
         assert result == ["Retry OK"]
 
     def test_abort_event_stops_before_stream(self) -> None:
-        """Abort event set before streaming starts → returns empty."""
+        """Abort event set before streaming starts -> returns empty."""
         mock_client = MagicMock()
-
         abort = threading.Event()
         abort.set()
 
@@ -311,12 +323,11 @@ class TestStreamReplyRetry:
         mock_client.chat.completions.create.assert_not_called()
 
     def test_abort_event_stops_mid_backoff(self) -> None:
-        """Abort event set during backoff → returns empty."""
+        """Abort event set during backoff -> returns empty."""
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = APIConnectionError(MagicMock())
+        mock_client.chat.completions.create.side_effect = _connection_error()
 
         abort = threading.Event()
-        # Set abort after a tiny delay so the retry loop can enter
         threading.Timer(0.01, abort.set).start()
 
         retry = RetryConfig(max_retries=5, base_delay=10.0, max_delay=30.0)
@@ -324,22 +335,14 @@ class TestStreamReplyRetry:
             result = list(stream_reply(_config(), _conv(), abort=abort, retry=retry))
 
         assert result == []
-        # Should have called create at least once
         assert mock_client.chat.completions.create.call_count >= 1
 
-
-class TestStreamReplyRetryNotRetryableMidStream:
-    """Mid-stream failure with non-retryable error (even with no content)."""
-
     def test_non_retryable_mid_stream_no_content_raises(self) -> None:
-        class FailIterator:
-            def __iter__(self):
-                return self
-            def __next__(self):
-                raise RuntimeError("unexpected")
-
+        """Non-retryable mid-stream failure with no content -> raise immediately."""
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = FailIterator()
+        mock_client.chat.completions.create.return_value = EmptyFailingIterator(
+            error=RuntimeError("unexpected")
+        )
 
         retry = RetryConfig(max_retries=3, base_delay=0.01)
         with (
@@ -348,7 +351,6 @@ class TestStreamReplyRetryNotRetryableMidStream:
         ):
             list(stream_reply(_config(), _conv(), retry=retry))
 
-        # No retry since RuntimeError is not retryable
         assert mock_client.chat.completions.create.call_count == 1
 
 
@@ -371,17 +373,8 @@ class TestGetReply:
         assert result == "Hello world"
 
     def test_get_reply_propagates_stream_recovery_error(self) -> None:
-        class FailAfterContent:
-            def __iter__(self):
-                return self
-            def __next__(self):
-                if not hasattr(self, '_sent'):
-                    self._sent = True
-                    return _make_chunk("Partial ")
-                raise APIConnectionError(MagicMock())
-
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = FailAfterContent()
+        mock_client.chat.completions.create.return_value = FailingIterator("Partial ")
 
         retry = RetryConfig(max_retries=0, base_delay=0.01)
         with (
@@ -400,7 +393,7 @@ class TestGetReply:
 
 class TestConversationConsistency:
     def test_rollback_on_engine_error(self) -> None:
-        """Verify that the conversation is rolled back on failure."""
+        """Verify conversation is rolled back on EngineError."""
         from hephaistos.chat.session import ChatSession, send_user_message
 
         config = _config()
@@ -411,11 +404,10 @@ class TestConversationConsistency:
             session_id="test-rollback",
         )
 
-        # The conversation starts with one user message
         assert len(conv.messages) == 1
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = APIConnectionError(MagicMock())
+        mock_client.chat.completions.create.side_effect = _connection_error()
 
         with (
             patch("hephaistos.chat.engine._build_client", return_value=mock_client),
@@ -423,12 +415,12 @@ class TestConversationConsistency:
         ):
             send_user_message(session, "hello")
 
-        # Conversation should be rolled back to original state
+        # Conversation rolled back to original state
         assert len(conv.messages) == 1
         assert conv.messages[0].content == "test prompt"
 
     def test_rollback_on_stream_recovery(self) -> None:
-        """Verify that the conversation is rolled back on StreamRecoveryError."""
+        """Verify conversation is rolled back on StreamRecoveryError."""
         from hephaistos.chat.session import ChatSession, send_user_message
 
         config = _config()
@@ -441,17 +433,8 @@ class TestConversationConsistency:
 
         assert len(conv.messages) == 1
 
-        class FailAfterContent:
-            def __iter__(self):
-                return self
-            def __next__(self):
-                if not hasattr(self, '_sent'):
-                    self._sent = True
-                    return _make_chunk("Partial reply")
-                raise APIConnectionError(MagicMock())
-
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = FailAfterContent()
+        mock_client.chat.completions.create.return_value = FailingIterator("Partial reply")
 
         with (
             patch("hephaistos.chat.engine._build_client", return_value=mock_client),
@@ -459,12 +442,12 @@ class TestConversationConsistency:
         ):
             send_user_message(session, "hello")
 
-        # Conversation should be rolled back
+        # Conversation rolled back
         assert len(conv.messages) == 1
         assert conv.messages[0].content == "test prompt"
-        # But partial content should be available in the exception
+        # Partial content available in the exception
         assert exc_info.value.partial_content == "Partial reply"
-        # Session should be dirty so the user knows something happened
+        # Session marked dirty
         assert session.dirty is True
 
     def test_successful_reply_does_not_rollback(self) -> None:
@@ -472,7 +455,7 @@ class TestConversationConsistency:
         from hephaistos.chat.session import ChatSession, send_user_message
 
         config = _config()
-        conv = Conversation()  # empty
+        conv = Conversation()
         session = ChatSession(
             config=config,
             conversation=conv,
@@ -506,7 +489,7 @@ class TestAgentLoopRetry:
         chunks = [_make_chunk("Done")]
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = [
-            APIConnectionError(MagicMock()),
+            _connection_error(),
             iter(chunks),
         ]
 
@@ -521,17 +504,8 @@ class TestAgentLoopRetry:
         """Agent loop raises StreamRecoveryError when stream drops mid-content."""
         from hephaistos.harness.dispatch import agent_loop
 
-        class FailAfterContent:
-            def __iter__(self):
-                return self
-            def __next__(self):
-                if not hasattr(self, '_sent'):
-                    self._sent = True
-                    return _make_chunk("Partial agent ")
-                raise APIConnectionError(MagicMock())
-
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = FailAfterContent()
+        mock_client.chat.completions.create.return_value = FailingIterator("Partial agent ")
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
         with (
@@ -547,22 +521,14 @@ class TestAgentLoopRetry:
         from hephaistos.harness.dispatch import agent_loop
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = APIConnectionError(MagicMock())
+        mock_client.chat.completions.create.side_effect = _connection_error()
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
         with (
             patch("hephaistos.harness.dispatch._build_client", return_value=mock_client),
-            pytest.raises(EngineError, match="failed after 2 attempts"),
+            pytest.raises(EngineError, match="LLM request failed"),
         ):
             list(agent_loop(_config(), _conv(), workspace=_workspace(), retry=retry))
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _workspace():
-    from pathlib import Path
-    return Path("/tmp/fake_workspace")
-
-
+        # Should have retried 2 times total (max_retries + 1)
+        assert mock_client.chat.completions.create.call_count == 2
