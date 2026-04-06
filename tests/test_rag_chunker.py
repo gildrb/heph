@@ -85,8 +85,8 @@ class TestChunkFile:
         empty.write_text("")
 
         doc = chunk_file(empty, armory)
-        assert doc is not None
-        assert doc.chunks == []
+        # Empty files produce no chunks — returns None
+        assert doc is None
 
     def test_content_hash_changes_on_edit(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
