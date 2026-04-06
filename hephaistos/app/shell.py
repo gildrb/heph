@@ -46,7 +46,7 @@ from hephaistos.app.input_history import InputHistory
 from hephaistos.app.menu import MenuOption, select_option
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import EngineError
+from hephaistos.chat.engine import EngineError, StreamRecoveryError
 from hephaistos.harness.permissions import classify_bash_command, tier_allows
 from hephaistos.parameters.cli import load_config
 from hephaistos.chat.session import (
@@ -769,6 +769,18 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory, 
             abort = threading.Event()
             try:
                 send_user_message(session, new_input, abort=abort)
+            except StreamRecoveryError as rec:
+                msg = (
+                    f"{styled('warning:', STYLE_ERROR)} "
+                    f"Stream interrupted — connection lost after partial reply."
+                )
+                if rec.partial_content:
+                    msg += f" ({len(rec.partial_content)} chars received)"
+                if editor:
+                    sys.stdout.write("\r\033[K")
+                    editor._flash_message = msg
+                else:
+                    print(msg)
             except EngineError as exc:
                 if editor:
                     sys.stdout.write("\r\033[K")
@@ -786,6 +798,18 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory, 
     abort = threading.Event()
     try:
         send_user_message(session, user_input, abort=abort)
+    except StreamRecoveryError as rec:
+        msg = (
+            f"{styled('warning:', STYLE_ERROR)} "
+            f"Stream interrupted — connection lost after partial reply."
+        )
+        if rec.partial_content:
+            msg += f" ({len(rec.partial_content)} chars received)"
+        if editor:
+            sys.stdout.write("\r\033[K")
+            editor._flash_message = msg
+        else:
+            print(msg)
     except EngineError as exc:
         if editor:
             sys.stdout.write("\r\033[K")
@@ -804,6 +828,7 @@ def _save_on_exit(session: ChatSession) -> None:
             print_success(f"Saved chat to {path}")
         except chat_storage.ChatStorageError as exc:
             print_error(str(exc))
+    session.trace.close()
 
 
 def run_chat_shell(session: ChatSession | None = None) -> None:

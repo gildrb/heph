@@ -4,3 +4,8 @@ api_key = ""
 
 base_url = "https://api.z.ai/api/paas/v4/"
 max_tokens = 4096
+
+# Logging configuration (overridden by HEPHAISTOS_LOG_* env vars)
+# log_level = "WARNING"     # DEBUG, INFO, WARNING, ERROR
+# log_file = ""             # Path to append-only log file
+# log_format = "json"      # "json" or "text"

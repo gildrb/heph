@@ -10,6 +10,9 @@ import json
 from pathlib import Path
 
 from hephaistos.harness.rag.chunker import Chunk, ChunkedDocument, chunk_file
+from hephaistos.logging import Timer, get_logger
+
+_log = get_logger("rag.index")
 
 _INDEX_FILE = "rag_index.json"
 _SOURCE_DIRS = ("source", "library")
@@ -39,22 +42,31 @@ class ArmoryIndex:
 
     def build(self) -> None:
         """Scan source directories and build the chunk index."""
+        timer = Timer()
         self.documents = []
         self._file_hashes = {}
 
-        for dirname in _SOURCE_DIRS:
-            folder = self.armory_path / dirname
-            if not folder.is_dir():
-                continue
-            for file_path in sorted(folder.rglob("*")):
-                if not file_path.is_file():
+        with timer:
+            for dirname in _SOURCE_DIRS:
+                folder = self.armory_path / dirname
+                if not folder.is_dir():
                     continue
-                if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
-                    continue
-                doc = chunk_file(file_path, self.armory_path, _CHUNK_SIZE, _OVERLAP)
-                if doc is not None and doc.chunks:
-                    self.documents.append(doc)
-                    self._file_hashes[doc.source] = doc.content_hash
+                for file_path in sorted(folder.rglob("*")):
+                    if not file_path.is_file():
+                        continue
+                    if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
+                        continue
+                    doc = chunk_file(file_path, self.armory_path, _CHUNK_SIZE, _OVERLAP)
+                    if doc is not None and doc.chunks:
+                        self.documents.append(doc)
+                        self._file_hashes[doc.source] = doc.content_hash
+
+        _log.info("index built", extra={"fields": {
+            "armory": str(self.armory_path),
+            "documents": len(self.documents),
+            "chunks": self.chunk_count,
+            "latency_ms": timer.ms,
+        }})
 
     def save(self) -> Path:
         """Persist the index to ``.hephaistos/rag_index.json``."""
@@ -175,6 +187,10 @@ def build_index(armory_path: Path) -> ArmoryIndex:
     index = ArmoryIndex(armory_path)
     index.build()
     index.save()
+    _log.info("index built and saved", extra={"fields": {
+        "armory": str(armory_path),
+        "chunks": index.chunk_count,
+    }})
     return index
 
 
@@ -182,5 +198,12 @@ def load_or_build(armory_path: Path) -> ArmoryIndex:
     """Load existing index if fresh, otherwise rebuild."""
     index = ArmoryIndex(armory_path)
     if index.load() and not index.is_stale():
+        _log.info("index loaded from cache", extra={"fields": {
+            "armory": str(armory_path),
+            "chunks": index.chunk_count,
+        }})
         return index
+    _log.info("index stale or missing, rebuilding", extra={"fields": {
+        "armory": str(armory_path),
+    }})
     return build_index(armory_path)

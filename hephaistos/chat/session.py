@@ -9,9 +9,12 @@ from pathlib import Path
 
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig, Conversation, Message, get_reply
+from hephaistos.chat.engine import ChatConfig, Conversation, Message, StreamRecoveryError, get_reply
 from hephaistos.harness.dispatch import agent_loop
 from hephaistos.harness.rag import ArmoryIndex, build_context, load_or_build, retrieve
+from hephaistos.logging import Timer, TraceWriter, get_logger
+
+_log = get_logger("chat.session")
 
 
 @dataclass
@@ -25,6 +28,13 @@ class ChatSession:
     dirty: bool = False
     autonomy: str = "low"
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
+    trace: TraceWriter = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.trace is None:
+            object.__setattr__(
+                self, "trace", TraceWriter(self.session_id, self.armory_path)
+            )
 
 
 def validate_armory_path(path_str: str) -> Path:
@@ -84,13 +94,21 @@ def create_session(config: ChatConfig, armory_path: Path | None = None) -> ChatS
     else:
         conversation.add("system", _SYSTEM_PROMPT)
 
-    return ChatSession(
+    session = ChatSession(
         config=config,
         conversation=conversation,
         session_id=chat_storage.new_session_id(),
         armory_path=armory_path,
         source_file_count=source_file_count,
     )
+    _log.info("session created", extra={"fields": {
+        "session_id": session.session_id,
+        "armory": str(armory_path) if armory_path else None,
+        "source_files": source_file_count,
+        "model": config.model,
+    }})
+    session.trace.record_session_event("created", model=config.model)
+    return session
 
 
 def resume_session(
@@ -101,7 +119,7 @@ def resume_session(
     """Load a saved session from an armory."""
     conversation, title = chat_storage.load(armory_path, session_id)
     source_file_count = _count_source_files(armory_path)
-    return ChatSession(
+    session = ChatSession(
         config=config,
         conversation=conversation,
         session_id=session_id,
@@ -109,6 +127,13 @@ def resume_session(
         armory_path=armory_path,
         source_file_count=source_file_count,
     )
+    _log.info("session resumed", extra={"fields": {
+        "session_id": session_id,
+        "armory": str(armory_path),
+        "message_count": len(conversation.messages),
+    }})
+    session.trace.record_session_event("resumed", title=title)
+    return session
 
 
 def session_has_messages(session: ChatSession) -> bool:
@@ -144,11 +169,19 @@ def send_user_message(
     """Append a user message, run the agent loop, stream output, return reply."""
     length_before = len(session.conversation.messages)
     session.conversation.add("user", user_input)
+    session.trace.record_user_message(user_input)
+
+    _log.info("user message", extra={"fields": {
+        "session_id": session.session_id,
+        "input_len": len(user_input),
+        "message_count": len(session.conversation.messages),
+    }})
 
     # RAG context injection: retrieve and stuff before the user message
     if session.armory_path is not None:
         _inject_rag_context(session, user_input)
 
+    timer = Timer()
     try:
         if session.armory_path is not None:
             # Agent loop with tools — workspace is the armory
@@ -168,7 +201,23 @@ def send_user_message(
         else:
             # Fallback: plain streaming without tools
             reply = get_reply(session.config, session.conversation, abort=abort)
+    except StreamRecoveryError as rec:
+        # Partial content was streamed before the connection dropped.
+        # Roll back the conversation to keep it consistent, but preserve
+        # the partial reply in the exception for the caller to inspect.
+        _log.warning("stream interrupted, rolling back", extra={"fields": {
+            "session_id": session.session_id,
+            "partial_len": len(rec.partial_content),
+            "latency_ms": timer.ms,
+        }})
+        del session.conversation.messages[length_before:]
+        session.dirty = True
+        raise
     except Exception:
+        _log.error("send_user_message failed", extra={"fields": {
+            "session_id": session.session_id,
+            "latency_ms": timer.ms,
+        }}, exc_info=True)
         del session.conversation.messages[length_before:]
         raise
 
@@ -180,6 +229,14 @@ def send_user_message(
     if not session.title:
         session.title = _derive_title(session.conversation)
     session.dirty = True
+
+    _log.info("reply complete", extra={"fields": {
+        "session_id": session.session_id,
+        "reply_len": len(reply),
+        "latency_ms": timer.ms,
+    }})
+    session.trace.record_session_event("reply", latency_ms=round(timer.ms, 1), reply_len=len(reply))
+
     return reply
 
 
@@ -190,12 +247,33 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
     user message. Returns the number of messages inserted (0 or 1).
     """
     try:
+        timer = Timer()
         if session._rag_index is None:
             session._rag_index = load_or_build(session.armory_path)  # type: ignore[arg-type]
 
-        scored = retrieve(user_input, session._rag_index, top_k=5)
+        with timer:
+            scored = retrieve(user_input, session._rag_index, top_k=5)
         if not scored:
+            _log.info("rag retrieve: no results", extra={"fields": {
+                "query_len": len(user_input),
+                "latency_ms": timer.ms,
+            }})
             return 0
+
+        scores = [sc.score for sc in scored]
+        _log.info("rag retrieve", extra={"fields": {
+            "query_len": len(user_input),
+            "retrieved": len(scored),
+            "top_score": round(scores[0], 4) if scores else 0,
+            "latency_ms": round(timer.ms, 1),
+        }})
+        session.trace.record_rag_retrieve(
+            query=user_input,
+            top_k=5,
+            retrieved=len(scored),
+            scores=scores,
+            latency_ms=timer.ms,
+        )
 
         context_text = build_context(scored, max_tokens=2000)
         if not context_text:
@@ -212,6 +290,7 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
         return 1
     except Exception:
         # RAG failure should never block the conversation
+        _log.warning("rag context injection failed", exc_info=True)
         return 0
 
 
@@ -229,6 +308,12 @@ def save_session(session: ChatSession) -> Path:
         title=title,
     )
     session.dirty = False
+    _log.info("session saved", extra={"fields": {
+        "session_id": session.session_id,
+        "path": str(path),
+        "message_count": len(session.conversation.messages),
+    }})
+    session.trace.record_session_event("saved", path=str(path))
     return path
 
 

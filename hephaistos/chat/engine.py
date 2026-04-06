@@ -5,18 +5,32 @@ Configure via environment variables:
     HEPHAISTOS_API_KEY   – API key (falls back to OPENAI_API_KEY)
     HEPHAISTOS_BASE_URL  – Base URL for the API (default: https://api.openai.com/v1)
     HEPHAISTOS_MODEL     – Model name (default: gpt-4o-mini)
+
+Streaming error recovery:
+    Transient failures (connection drops, timeouts, server errors) are
+    retried automatically with exponential backoff.  If a retry fails
+    after content has already been streamed to the caller, a
+    ``StreamRecoveryError`` is raised carrying the partial response so
+    that the caller can decide how to proceed.
 """
 
 from __future__ import annotations
 
 import os
+import random
 import sys
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
+from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
+
+from hephaistos.logging import Timer, get_logger
+
+_log = get_logger("chat.engine")
 
 
 @dataclass
@@ -51,6 +65,44 @@ class EngineError(Exception):
     """Raised when the engine cannot communicate with the LLM."""
 
 
+class StreamRecoveryError(EngineError):
+    """Raised when a streaming response was interrupted.
+
+    Carries the partial content that was already received (and possibly
+    displayed) so that callers can preserve it or retry.
+    """
+
+    def __init__(self, partial_content: str, last_error: Exception | None = None) -> None:
+        self.partial_content = partial_content
+        msg = f"Stream interrupted after {len(partial_content)} chars"
+        if last_error:
+            msg += f": {last_error}"
+        super().__init__(msg)
+        self.__cause__ = last_error
+
+
+@dataclass
+class RetryConfig:
+    """Configuration for automatic retry of transient failures."""
+
+    max_retries: int = 3
+    base_delay: float = 1.0  # seconds
+    max_delay: float = 30.0  # seconds
+
+    @classmethod
+    def from_env(cls) -> RetryConfig:
+        """Build config from environment variables."""
+        return cls(
+            max_retries=int(os.environ.get("HEPHAISTOS_MAX_RETRIES", "3")),
+            base_delay=float(os.environ.get("HEPHAISTOS_RETRY_BASE_DELAY", "1.0")),
+            max_delay=float(os.environ.get("HEPHAISTOS_RETRY_MAX_DELAY", "30.0")),
+        )
+
+
+# Retryable exception types from the OpenAI library
+_RETRYABLE_TYPES = (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError)
+
+
 @dataclass
 class Message:
     """A single message in a conversation."""
@@ -83,34 +135,125 @@ def _build_client(config: ChatConfig) -> OpenAI:
     return OpenAI(api_key=config.api_key, base_url=config.base_url)
 
 
+def is_retryable_error(exc: Exception) -> bool:
+    """Return True if *exc* is a transient error worth retrying."""
+    return isinstance(exc, _RETRYABLE_TYPES)
+
+
+def _wait_backoff(
+    attempt: int,
+    config: RetryConfig,
+    abort: threading.Event | None = None,
+) -> bool:
+    """Sleep with exponential backoff + jitter.  Returns False if aborted."""
+    delay = min(config.base_delay * (2 ** attempt), config.max_delay)
+    jitter = random.uniform(0, delay * 0.5)
+    if abort is not None:
+        return not abort.wait(timeout=jitter)
+    time.sleep(jitter)
+    return True
+
+
 def stream_reply(
     config: ChatConfig,
     conversation: Conversation,
     *,
     abort: threading.Event | None = None,
+    retry: RetryConfig | None = None,
 ) -> Iterator[str]:
     """Send the conversation to the LLM and yield response chunks.
 
     Each yielded string is a text delta from the streamed response.
     If *abort* is provided and becomes set, the iterator stops early.
+
+    Transient errors (connection drops, timeouts, server errors) are
+    retried automatically with exponential backoff.  If a failure occurs
+    *after* content has already been yielded, a
+    :class:`StreamRecoveryError` is raised carrying the partial text.
     """
+    retry = retry or RetryConfig()
+    msg_count = len(conversation.messages)
+    _log.debug("stream_reply start", extra={"fields": {
+        "model": config.model,
+        "message_count": msg_count,
+        "max_tokens": config.max_tokens,
+        "max_retries": retry.max_retries,
+    }})
+
     client = _build_client(config)
-    try:
-        stream = client.chat.completions.create(
-            model=config.model,
-            messages=conversation.to_api_messages(),
-            max_tokens=config.max_tokens,
-            stream=True,
-        )
-        for chunk in stream:
-            if abort is not None and abort.is_set():
-                stream.close()
-                return
-            delta = chunk.choices[0].delta
-            if delta.content:
-                yield delta.content
-    except Exception as exc:
-        raise EngineError(f"LLM request failed: {exc}") from exc
+    last_error: Exception | None = None
+
+    for attempt in range(retry.max_retries + 1):
+        if abort is not None and abort.is_set():
+            return
+
+        timer = Timer()
+
+        # --- Open the stream ---
+        try:
+            with timer:
+                stream = client.chat.completions.create(
+                    model=config.model,
+                    messages=conversation.to_api_messages(),
+                    max_tokens=config.max_tokens,
+                    stream=True,
+                )
+        except Exception as exc:
+            last_error = exc
+            _log.warning("stream_reply request failed (attempt %d/%d)",
+                         attempt + 1, retry.max_retries + 1,
+                         extra={"fields": {"error": str(exc), "latency_ms": timer.ms}})
+            if is_retryable_error(exc) and attempt < retry.max_retries:
+                if not _wait_backoff(attempt, retry, abort):
+                    return  # aborted during backoff
+                continue
+            raise EngineError(f"LLM request failed: {exc}") from exc
+
+        # --- Consume the stream ---
+        partial_content = ""
+        try:
+            for chunk in stream:
+                if abort is not None and abort.is_set():
+                    stream.close()
+                    _log.info("stream_reply aborted", extra={"fields": {
+                        "model": config.model, "latency_ms": timer.ms,
+                    }})
+                    return
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    partial_content += delta.content
+                    yield delta.content
+        except Exception as exc:
+            _log.error("stream_reply mid-stream failure (attempt %d/%d, %d chars received)",
+                       attempt + 1, retry.max_retries + 1, len(partial_content),
+                       extra={"fields": {"error": str(exc), "latency_ms": timer.ms}})
+            # If we already streamed content, we cannot cleanly retry
+            # (the caller has already received partial output).  Raise
+            # a recovery error so the caller can decide what to do.
+            if partial_content:
+                raise StreamRecoveryError(partial_content, exc) from exc
+            # No content yet — safe to retry
+            last_error = exc
+            if is_retryable_error(exc) and attempt < retry.max_retries:
+                if not _wait_backoff(attempt, retry, abort):
+                    return
+                continue
+            raise EngineError(f"LLM stream failed: {exc}") from exc
+
+        # Stream completed successfully
+        _log.info("stream_reply complete", extra={"fields": {
+            "model": config.model,
+            "latency_ms": timer.ms,
+            "message_count": msg_count,
+        }})
+        return
+
+    # All retries exhausted (only reached on pre-stream failures)
+    raise EngineError(
+        f"LLM request failed after {retry.max_retries + 1} attempts: {last_error}"
+    ) from last_error
 
 
 def get_reply(
@@ -118,16 +261,25 @@ def get_reply(
     conversation: Conversation,
     *,
     abort: threading.Event | None = None,
+    retry: RetryConfig | None = None,
 ) -> str:
     """Send the conversation and return the full reply as a string.
 
     Also prints streamed chunks to stdout in real time.
+    On :class:`StreamRecoveryError` the partial text is preserved in the
+    exception for the caller to inspect.
     """
     parts: list[str] = []
-    for chunk in stream_reply(config, conversation, abort=abort):
-        sys.stdout.write(chunk)
-        sys.stdout.flush()
-        parts.append(chunk)
+    try:
+        for chunk in stream_reply(config, conversation, abort=abort, retry=retry):
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+            parts.append(chunk)
+    except StreamRecoveryError:
+        if parts:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        raise
     sys.stdout.write("\n")
     sys.stdout.flush()
     return "".join(parts)

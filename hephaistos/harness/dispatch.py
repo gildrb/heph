@@ -16,8 +16,20 @@ import threading
 from collections.abc import Iterator
 from pathlib import Path
 
-from hephaistos.chat.engine import ChatConfig, Conversation, EngineError, _build_client
+from hephaistos.chat.engine import (
+    ChatConfig,
+    Conversation,
+    EngineError,
+    RetryConfig,
+    StreamRecoveryError,
+    _build_client,
+    _wait_backoff,
+    is_retryable_error,
+)
 from hephaistos.harness.tools import TOOL_SCHEMAS, get_handler
+from hephaistos.logging import Timer, get_logger
+
+_log = get_logger("harness.dispatch")
 
 _MAX_TURNS = 20
 _MAX_RESULT_DISPLAY = 200
@@ -43,6 +55,9 @@ def execute_tool_calls(
         try:
             arguments = json.loads(tc["function"]["arguments"])
         except json.JSONDecodeError:
+            _log.warning("tool call invalid JSON", extra={"fields": {
+                "tool": name, "call_id": call_id,
+            }})
             results.append({
                 "role": "tool",
                 "tool_call_id": call_id,
@@ -52,6 +67,9 @@ def execute_tool_calls(
 
         handler = get_handler(name)
         if handler is None:
+            _log.warning("unknown tool", extra={"fields": {
+                "tool": name, "call_id": call_id,
+            }})
             results.append({
                 "role": "tool",
                 "tool_call_id": call_id,
@@ -59,11 +77,25 @@ def execute_tool_calls(
             })
             continue
 
+        timer = Timer()
         try:
-            output = handler(workspace=workspace, **arguments)
+            with timer:
+                output = handler(workspace=workspace, **arguments)
         except Exception as exc:
             output = f"Tool error ({name}): {exc}"
+            _log.error("tool execution failed", extra={"fields": {
+                "tool": name,
+                "args": arguments,
+                "latency_ms": timer.ms,
+                "error": str(exc),
+            }})
 
+        _log.info("tool executed", extra={"fields": {
+            "tool": name,
+            "args": _summarise_args(name, arguments),
+            "latency_ms": round(timer.ms, 1),
+            "result_len": len(output),
+        }})
         results.append({
             "role": "tool",
             "tool_call_id": call_id,
@@ -107,6 +139,15 @@ def _merge_tool_call_deltas(
 # ---------------------------------------------------------------------------
 
 
+def _summarise_args(name: str, args: dict) -> dict:
+    """Summarise tool args for logging (truncate large content)."""
+    if name == "bash":
+        return {"command": args.get("command", "")[:200]}
+    if name == "write_file":
+        return {"path": args.get("path", ""), "content_len": len(args.get("content", ""))}
+    return {k: (str(v)[:100] if isinstance(v, str) and len(v) > 100 else v) for k, v in args.items()}
+
+
 def _format_tool_args(name: str, args: dict) -> str:
     """Format tool call for display."""
     if name == "bash":
@@ -145,6 +186,7 @@ def agent_loop(
     *,
     abort: threading.Event | None = None,
     max_turns: int = _MAX_TURNS,
+    retry: RetryConfig | None = None,
 ) -> Iterator[str]:
     """Run the agent loop, yielding text chunks as they stream.
 
@@ -153,55 +195,129 @@ def agent_loop(
 
     After iteration completes, *conversation* has been updated with all
     messages (user, assistant, tool calls, tool results).
-    """
-    api_messages = conversation.to_api_messages()
 
-    for _ in range(max_turns):
+    Transient streaming failures are retried with exponential backoff.
+    If a failure occurs after content has already been yielded, a
+    :class:`StreamRecoveryError` is raised.
+    """
+    retry = retry or RetryConfig()
+    api_messages = conversation.to_api_messages()
+    loop_timer = Timer()
+
+    _log.info("agent_loop start", extra={"fields": {
+        "model": config.model,
+        "message_count": len(api_messages),
+        "max_turns": max_turns,
+    }})
+
+    for turn_idx in range(max_turns):
         if abort is not None and abort.is_set():
+            _log.info("agent_loop aborted", extra={"fields": {
+                "turn": turn_idx,
+                "latency_ms": loop_timer.ms,
+            }})
             return
 
-        client = _build_client(config)
-        try:
-            response = client.chat.completions.create(
-                model=config.model,
-                messages=api_messages,
-                tools=TOOL_SCHEMAS,
-                max_tokens=config.max_tokens,
-                stream=True,
-            )
-        except Exception as exc:
-            raise EngineError(f"LLM request failed: {exc}") from exc
+        turn_timer = Timer()
+        last_api_error: Exception | None = None
 
-        # Collect streamed response
-        collected_text = ""
-        collected_tool_calls: list[dict] = []
-        finish_reason = ""
-
-        for chunk in response:
+        for api_attempt in range(retry.max_retries + 1):
             if abort is not None and abort.is_set():
-                response.close()
+                _log.info("agent_loop aborted", extra={"fields": {
+                    "turn": turn_idx,
+                    "latency_ms": loop_timer.ms,
+                }})
                 return
 
-            if not chunk.choices:
-                continue
+            client = _build_client(config)
+            try:
+                with turn_timer:
+                    response = client.chat.completions.create(
+                        model=config.model,
+                        messages=api_messages,
+                        tools=TOOL_SCHEMAS,
+                        max_tokens=config.max_tokens,
+                        stream=True,
+                    )
+            except Exception as exc:
+                last_api_error = exc
+                _log.warning(
+                    "agent_loop request failed (attempt %d/%d, turn %d)",
+                    api_attempt + 1, retry.max_retries + 1, turn_idx,
+                    extra={"fields": {"error": str(exc), "latency_ms": turn_timer.ms}},
+                )
+                if is_retryable_error(exc) and api_attempt < retry.max_retries:
+                    if not _wait_backoff(api_attempt, retry, abort):
+                        return
+                    continue
+                _log.error("agent_loop LLM request failed", extra={"fields": {
+                    "model": config.model,
+                    "turn": turn_idx,
+                    "latency_ms": turn_timer.ms,
+                    "error": str(exc),
+                }})
+                raise EngineError(f"LLM request failed: {exc}") from exc
 
-            choice = chunk.choices[0]
-            delta = choice.delta
-            finish_reason = choice.finish_reason or finish_reason
+            # Collect streamed response
+            collected_text = ""
+            collected_tool_calls: list[dict] = []
+            finish_reason = ""
 
-            # Stream text content immediately
-            if delta.content:
-                collected_text += delta.content
-                yield delta.content
+            try:
+                for chunk in response:
+                    if abort is not None and abort.is_set():
+                        response.close()
+                        return
 
-            # Accumulate tool-call deltas
-            if delta.tool_calls:
-                _merge_tool_call_deltas(collected_tool_calls, delta.tool_calls)
+                    if not chunk.choices:
+                        continue
+
+                    choice = chunk.choices[0]
+                    delta = choice.delta
+                    finish_reason = choice.finish_reason or finish_reason
+
+                    # Stream text content immediately
+                    if delta.content:
+                        collected_text += delta.content
+                        yield delta.content
+
+                    # Accumulate tool-call deltas
+                    if delta.tool_calls:
+                        _merge_tool_call_deltas(collected_tool_calls, delta.tool_calls)
+            except Exception as exc:
+                _log.error(
+                    "agent_loop mid-stream failure (attempt %d/%d, turn %d, %d chars)",
+                    api_attempt + 1, retry.max_retries + 1, turn_idx, len(collected_text),
+                    extra={"fields": {"error": str(exc), "latency_ms": turn_timer.ms}},
+                )
+                if collected_text:
+                    raise StreamRecoveryError(collected_text, exc) from exc
+                last_api_error = exc
+                if is_retryable_error(exc) and api_attempt < retry.max_retries:
+                    if not _wait_backoff(api_attempt, retry, abort):
+                        return
+                    continue
+                raise EngineError(f"LLM stream failed: {exc}") from exc
+
+            # Stream consumed successfully — break retry loop
+            break
+        else:
+            # All retries exhausted
+            raise EngineError(
+                f"LLM request failed after {retry.max_retries + 1} attempts: {last_api_error}"
+            ) from last_api_error
 
         # --- No tool calls: we're done ---
         if not collected_tool_calls:
             # Append final assistant message to conversation
             conversation.add("assistant", collected_text)
+            _log.info("agent_loop complete", extra={"fields": {
+                "model": config.model,
+                "turn": turn_idx,
+                "latency_ms": loop_timer.ms,
+                "text_len": len(collected_text),
+                "finish_reason": finish_reason,
+            }})
             return
 
         # --- Tool calls: execute and continue ---
@@ -231,13 +347,21 @@ def agent_loop(
         )
 
         # Display tool activity
+        tool_names = []
         for tc in collected_tool_calls:
             name = tc["function"]["name"]
+            tool_names.append(name)
             try:
                 args = json.loads(tc["function"]["arguments"])
             except json.JSONDecodeError:
                 args = {}
             yield f"\n{_format_tool_args(name, args)}\n"
+
+        _log.info("agent_loop tool calls", extra={"fields": {
+            "turn": turn_idx,
+            "tools": tool_names,
+            "latency_ms": turn_timer.ms,
+        }})
 
         # Execute
         tool_results = execute_tool_calls(collected_tool_calls, workspace)
@@ -250,3 +374,7 @@ def agent_loop(
 
     # Max turns reached
     yield "\n[Agent loop reached maximum turns]"
+    _log.warning("agent loop max turns reached", extra={"fields": {
+        "max_turns": max_turns,
+        "model": config.model,
+    }})

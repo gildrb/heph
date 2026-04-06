@@ -21,6 +21,9 @@ from typing import Protocol, runtime_checkable
 
 from hephaistos.harness.rag.chunker import Chunk
 from hephaistos.harness.rag.index import ArmoryIndex
+from hephaistos.logging import get_logger
+
+_log = get_logger("rag.retrieve")
 
 # ---------------------------------------------------------------------------
 # Public data types
@@ -379,4 +382,11 @@ def retrieve(
     dependencies.
     """
     retriever = _create_retriever(index)
-    return retriever.retrieve(query, top_k)
+    results = retriever.retrieve(query, top_k)
+    _log.debug("retrieve results", extra={"fields": {
+        "query_len": len(query),
+        "top_k": top_k,
+        "returned": len(results),
+        "retriever": type(retriever).__name__,
+    }})
+    return results

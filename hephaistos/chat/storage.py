@@ -12,6 +12,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from hephaistos.chat.engine import Conversation, Message
+from hephaistos.logging import get_logger
+
+_log = get_logger("chat.storage")
 
 CHATS_DIR = "chats"
 
@@ -87,6 +90,11 @@ def save(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    _log.info("session saved", extra={"fields": {
+        "session_id": session_id,
+        "path": str(file_path),
+        "message_count": len(conversation.messages),
+    }})
     return file_path
 
 
@@ -107,9 +115,17 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
         for msg_data in data.get("messages", []):
             conversation.add(msg_data["role"], msg_data["content"])
     except KeyError as exc:
+        _log.error("corrupt session file", extra={"fields": {
+            "session_id": session_id,
+            "error": f"missing key {exc}",
+        }})
         raise ChatStorageError(
             f"corrupt session file {session_id}: missing key {exc}"
         ) from exc
+    _log.debug("session loaded", extra={"fields": {
+        "session_id": session_id,
+        "message_count": len(conversation.messages),
+    }})
     return conversation, data.get("title", "")
 
 
