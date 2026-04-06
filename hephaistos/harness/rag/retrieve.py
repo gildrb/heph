@@ -5,8 +5,12 @@ Backends (selected automatically based on available dependencies):
 - ``EmbeddingRetriever`` — dense vector similarity via sentence-transformers
 - ``HybridRetriever``    — reciprocal-rank fusion of TF-IDF + embeddings
 
-The top-level ``retrieve()`` function auto-selects the best backend:
-embeddings if ``sentence-transformers`` is installed, otherwise TF-IDF.
+Post-retrieval re-ranking (optional, requires sentence-transformers):
+- ``CrossEncoderReranker`` — cross-encoder re-scoring for improved precision
+
+The top-level ``retrieve()`` function auto-selects the best backend and
+applies re-ranking when available: hybrid retrieval → RRF fusion →
+cross-encoder re-ranking → top-k results.
 """
 
 from __future__ import annotations
@@ -61,6 +65,23 @@ class RetrieverProtocol(Protocol):
     """Minimal interface every retriever must implement."""
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]: ...
+
+
+@runtime_checkable
+class RerankerProtocol(Protocol):
+    """Interface for post-retrieval re-rankers.
+
+    A re-ranker takes a list of candidate ``ScoredChunk``\ s produced by
+    a retriever and re-scores them (typically with a cross-encoder) to
+    improve precision.  The returned list is sorted by the new scores.
+    """
+
+    def rerank(
+        self,
+        query: str,
+        candidates: list[ScoredChunk],
+        top_k: int = 5,
+    ) -> list[ScoredChunk]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +183,9 @@ Retriever = TfidfRetriever
 _EMBED_MODEL_ENV = "HEPHAISTOS_EMBED_MODEL"
 _EMBED_MODEL_DEFAULT = "all-MiniLM-L6-v2"
 
+_RERANK_MODEL_ENV = "HEPHAISTOS_RERANK_MODEL"
+_RERANK_MODEL_DEFAULT = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
 
 def _is_sentence_transformers_available() -> bool:
     """Return True if sentence-transformers can be imported."""
@@ -250,6 +274,71 @@ class EmbeddingRetriever:
 
 
 # ---------------------------------------------------------------------------
+# Cross-encoder re-ranker (requires sentence-transformers)
+# ---------------------------------------------------------------------------
+
+
+class CrossEncoderReranker:
+    """Cross-encoder re-ranker for improved retrieval precision.
+
+    Uses a ``sentence_transformers.CrossEncoder`` model to jointly encode
+    ``(query, chunk_text)`` pairs, producing a relevance score that is
+    typically far more accurate than bi-encoder similarity alone.
+
+    The model is lazy-loaded on first use.  Falls back to a no-op (returns
+    candidates unchanged, truncated to *top_k*) if the library cannot be
+    imported.
+    """
+
+    def __init__(self, model_name: str | None = None) -> None:
+        self._model_name = model_name or os.environ.get(
+            _RERANK_MODEL_ENV, _RERANK_MODEL_DEFAULT,
+        )
+        self._model = None  # lazy-loaded
+
+    @property
+    def model_name(self) -> str:
+        """Name of the cross-encoder model."""
+        return self._model_name
+
+    def _ensure_model(self):
+        """Lazy-load the CrossEncoder model."""
+        if self._model is not None:
+            return self._model
+        from sentence_transformers import CrossEncoder
+        self._model = CrossEncoder(self._model_name)
+        return self._model
+
+    def rerank(
+        self,
+        query: str,
+        candidates: list[ScoredChunk],
+        top_k: int = 5,
+    ) -> list[ScoredChunk]:
+        """Re-score *candidates* with the cross-encoder and return *top_k*.
+
+        Each candidate's ``score`` is replaced by the cross-encoder
+        relevance score.  Results are sorted descending by the new score.
+        """
+        if not candidates:
+            return []
+
+        model = self._ensure_model()
+
+        # Build (query, passage) pairs for the cross-encoder
+        pairs = [(query, sc.chunk.text) for sc in candidates]
+        scores = model.predict(pairs)
+
+        # Re-score and sort
+        scored = [
+            ScoredChunk(chunk=candidates[i].chunk, score=float(scores[i]))
+            for i in range(len(candidates))
+        ]
+        scored.sort(key=lambda s: s.score, reverse=True)
+        return scored[:top_k]
+
+
+# ---------------------------------------------------------------------------
 # Hybrid retriever (reciprocal rank fusion)
 # ---------------------------------------------------------------------------
 
@@ -303,11 +392,13 @@ class HybridRetriever:
         self,
         index: ArmoryIndex,
         embed_model: str | None = None,
+        reranker: RerankerProtocol | None = None,
         *,
         candidate_multiplier: int = 3,
     ) -> None:
         self._tfidf = TfidfRetriever(index)
         self._embedding: EmbeddingRetriever | None = None
+        self._reranker = reranker
         self._candidate_multiplier = candidate_multiplier
 
         if _is_sentence_transformers_available():
@@ -322,28 +413,40 @@ class HybridRetriever:
         """Whether the embedding backend is active."""
         return self._embedding is not None
 
+    @property
+    def has_reranker(self) -> bool:
+        """Whether a re-ranker is attached."""
+        return self._reranker is not None
+
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
-        """Retrieve via TF-IDF + embeddings, fused with RRF."""
+        """Retrieve via TF-IDF + embeddings, fused with RRF, then re-ranked."""
+        pool = top_k * self._candidate_multiplier
+
         if self._embedding is None:
-            return self._tfidf.retrieve(query, top_k=top_k)
+            # No embeddings — just TF-IDF
+            candidates = self._tfidf.retrieve(query, top_k=pool if self._reranker else top_k)
+        else:
+            # Hybrid: over-fetch from both, fuse with RRF
+            tfidf_results = self._tfidf.retrieve(query, top_k=pool)
+            embed_results = self._embedding.retrieve(query, top_k=pool)
 
-        # Over-fetch from each retriever so RRF has a wider candidate pool
-        candidates = top_k * self._candidate_multiplier
+            if not tfidf_results and not embed_results:
+                return []
 
-        tfidf_results = self._tfidf.retrieve(query, top_k=candidates)
-        embed_results = self._embedding.retrieve(query, top_k=candidates)
+            if not tfidf_results:
+                candidates = embed_results
+            elif not embed_results:
+                candidates = tfidf_results
+            else:
+                candidates = _reciprocal_rank_fusion([tfidf_results, embed_results])
 
-        if not tfidf_results and not embed_results:
-            return []
+        # Apply cross-encoder re-ranker if available
+        if self._reranker is not None:
+            if not candidates:
+                return []
+            return self._reranker.rerank(query, candidates, top_k=top_k)
 
-        if not tfidf_results:
-            return embed_results[:top_k]
-
-        if not embed_results:
-            return tfidf_results[:top_k]
-
-        fused = _reciprocal_rank_fusion([tfidf_results, embed_results])
-        return fused[:top_k]
+        return candidates[:top_k]
 
 
 # ---------------------------------------------------------------------------
@@ -353,15 +456,27 @@ class HybridRetriever:
 def _create_retriever(
     index: ArmoryIndex,
     embed_model: str | None = None,
+    rerank_model: str | None = None,
 ) -> TfidfRetriever | EmbeddingRetriever | HybridRetriever:
     """Create the best available retriever for the given index.
 
     Strategy:
     1. If sentence-transformers is available → ``HybridRetriever`` (TF-IDF + embeddings)
+       with an optional ``CrossEncoderReranker`` for post-retrieval re-scoring.
     2. Otherwise → ``TfidfRetriever`` (pure keyword matching)
     """
     if _is_sentence_transformers_available():
-        hybrid = HybridRetriever(index, embed_model=embed_model)
+        reranker: RerankerProtocol | None = None
+        try:
+            reranker = CrossEncoderReranker(model_name=rerank_model)
+        except Exception:
+            reranker = None
+
+        hybrid = HybridRetriever(
+            index,
+            embed_model=embed_model,
+            reranker=reranker,
+        )
         if hybrid.has_embeddings:
             return hybrid
     return TfidfRetriever(index)

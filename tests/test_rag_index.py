@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from hephaistos.harness.rag.chunker import ChunkStrategy
 from hephaistos.harness.rag.index import ArmoryIndex, build_index, load_or_build
 
 
@@ -169,3 +170,75 @@ class TestArmoryIndexSkips:
         index = ArmoryIndex(arm)
         index.build()
         assert index.chunk_count == 0
+
+
+class TestArmoryIndexHeadingMetadata:
+    """Verify heading/heading_level survive save → load roundtrip."""
+
+    def test_heading_preserved_on_save_load(self, armory: Path) -> None:
+        index = ArmoryIndex(armory)
+        index.build()
+        index.save()
+
+        loaded = ArmoryIndex(armory)
+        assert loaded.load()
+        for chunk in loaded.all_chunks:
+            # All test fixtures have headings
+            assert chunk.heading != ""
+            assert chunk.heading_level >= 1
+
+    def test_strategy_preserved_on_save_load(self, armory: Path) -> None:
+        index = ArmoryIndex(armory, strategy=ChunkStrategy.SEMANTIC)
+        index.build()
+        index.save()
+
+        loaded = ArmoryIndex(armory)
+        assert loaded.load()
+        assert loaded.strategy == ChunkStrategy.SEMANTIC
+
+
+class TestArmoryIndexStrategy:
+    """Verify strategy parameter threads through build pipeline."""
+
+    def test_build_with_text_strategy(self, armory: Path) -> None:
+        index = ArmoryIndex(armory, strategy=ChunkStrategy.TEXT)
+        index.build()
+        # TEXT strategy never sets heading metadata
+        for chunk in index.all_chunks:
+            assert chunk.heading == ""
+            assert chunk.heading_level == 0
+
+    def test_build_index_accepts_strategy(self, armory: Path) -> None:
+        index = build_index(armory, strategy=ChunkStrategy.MARKDOWN)
+        # All .md files should have heading metadata
+        for chunk in index.all_chunks:
+            assert chunk.heading != ""
+
+    def test_load_or_build_accepts_strategy(self, armory: Path) -> None:
+        index = load_or_build(armory, strategy=ChunkStrategy.TEXT)
+        assert index.chunk_count > 0
+        assert index.strategy == ChunkStrategy.TEXT
+
+    def test_v1_index_still_loads(self, armory: Path) -> None:
+        """A v1 index (without heading fields) should still load gracefully."""
+        index = ArmoryIndex(armory)
+        index.build()
+        index.save()
+
+        # Manually downgrade to v1 format (strip heading fields)
+        import json
+        index_path = armory / ".hephaistos" / "rag_index.json"
+        data = json.loads(index_path.read_text())
+        data["version"] = 1
+        for doc in data["documents"]:
+            for c in doc["chunks"]:
+                c.pop("heading", None)
+                c.pop("heading_level", None)
+        index_path.write_text(json.dumps(data))
+
+        loaded = ArmoryIndex(armory)
+        assert loaded.load()
+        # Defaults should fill in
+        for chunk in loaded.all_chunks:
+            assert chunk.heading == ""
+            assert chunk.heading_level == 0

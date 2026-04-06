@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -15,7 +13,6 @@ from hephaistos.logging import (
     TraceWriter,
     _JsonFormatter,
     _TextFormatter,
-    _ensure_root,
     get_logger,
 )
 
@@ -414,8 +411,8 @@ class TestLoggingIntegration:
 
     def test_multiple_loggers_share_root(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HEPHAISTOS_LOG_LEVEL", "DEBUG")
-        log1 = get_logger("module1")
-        log2 = get_logger("module2")
+        get_logger("module1")
+        get_logger("module2")
         root = logging.getLogger("hephaistos")
         # Both share the same root handler
         assert len(root.handlers) == 1  # only stderr, no file

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.harness.rag.chunker import chunk_file, chunk_text
+from hephaistos.harness.rag.chunker import (
+    ChunkStrategy,
+    chunk_file,
+    chunk_markdown,
+    chunk_semantic,
+    chunk_text,
+)
 
 
 class TestChunkText:
@@ -101,3 +107,126 @@ class TestChunkFile:
         assert doc1 is not None
         assert doc2 is not None
         assert doc1.content_hash != doc2.content_hash
+
+
+class TestChunkMarkdown:
+    def test_empty_input(self) -> None:
+        assert chunk_markdown("", "test.md") == []
+        assert chunk_markdown("   ", "test.md") == []
+
+    def test_single_section_no_headings(self) -> None:
+        text = "Just some plain text without headings."
+        chunks = chunk_markdown(text, "plain.md")
+        assert len(chunks) == 1
+        assert chunks[0].heading == ""
+        assert chunks[0].heading_level == 0
+
+    def test_splits_on_headings(self) -> None:
+        text = (
+            "# Title\n\nIntro paragraph.\n\n"
+            "## Section A\n\nContent A.\n\n"
+            "## Section B\n\nContent B."
+        )
+        chunks = chunk_markdown(text, "doc.md")
+        assert len(chunks) == 3
+        assert chunks[0].heading == "Title"
+        assert chunks[0].heading_level == 1
+        assert chunks[1].heading == "Section A"
+        assert chunks[1].heading_level == 2
+        assert chunks[2].heading == "Section B"
+        assert chunks[2].heading_level == 2
+
+    def test_preamble_before_first_heading(self) -> None:
+        text = "Preamble text.\n\n# First Heading\n\nContent."
+        chunks = chunk_markdown(text, "pre.md")
+        assert len(chunks) == 2
+        assert chunks[0].heading == ""
+        assert chunks[0].heading_level == 0
+        assert "Preamble" in chunks[0].text
+        assert chunks[1].heading == "First Heading"
+
+    def test_oversized_section_splits_at_paragraphs(self) -> None:
+        # Section larger than chunk_size should split at paragraph breaks
+        section_body = "\n\n".join(f"Paragraph {i}. " + "x" * 80 for i in range(20))
+        text = f"# Big Section\n\n{section_body}"
+        chunks = chunk_markdown(text, "big.md", chunk_size=300)
+        assert len(chunks) > 1
+        # All chunks should carry the parent heading
+        for c in chunks:
+            assert c.heading == "Big Section"
+            assert c.heading_level == 1
+
+
+class TestChunkSemantic:
+    def test_empty_input(self) -> None:
+        assert chunk_semantic("", "test.txt") == []
+        assert chunk_semantic("   ", "test.txt") == []
+
+    def test_short_text_single_chunk(self) -> None:
+        # With or without sentence-transformers, a short text yields 1 chunk
+        chunks = chunk_semantic("Hello world.", "short.txt")
+        assert len(chunks) >= 1
+        assert chunks[0].source == "short.txt"
+
+    def test_falls_back_to_chunk_text_without_st(self) -> None:
+        # chunk_semantic always works (falls back to chunk_text)
+        text = "A. " * 200
+        chunks = chunk_semantic(text, "fallback.txt", chunk_size=500)
+        assert len(chunks) >= 1
+
+
+class TestChunkStrategy:
+    def test_auto_uses_markdown_for_md(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        md = armory / "doc.md"
+        md.write_text("# Heading\n\nContent paragraph.\n")
+
+        doc = chunk_file(md, armory, strategy=ChunkStrategy.AUTO)
+        assert doc is not None
+        # chunk_markdown sets heading metadata
+        assert doc.chunks[0].heading == "Heading"
+        assert doc.chunks[0].heading_level == 1
+
+    def test_auto_uses_semantic_for_txt(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        txt = armory / "notes.txt"
+        txt.write_text("Some plain text. More text here.")
+
+        doc = chunk_file(txt, armory, strategy=ChunkStrategy.AUTO)
+        assert doc is not None
+        # Semantic or text fallback — both produce chunks
+        assert len(doc.chunks) >= 1
+
+    def test_explicit_text_strategy(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        md = armory / "doc.md"
+        md.write_text("# Heading\n\nContent paragraph.\n")
+
+        # Forcing TEXT strategy on .md should NOT set heading metadata
+        doc = chunk_file(md, armory, strategy=ChunkStrategy.TEXT)
+        assert doc is not None
+        assert doc.chunks[0].heading == ""  # chunk_text never sets headings
+
+    def test_explicit_markdown_strategy_on_txt(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        txt = armory / "notes.txt"
+        txt.write_text("# Heading\n\nContent.\n")
+
+        # Forcing MARKDOWN on .txt should still parse headings
+        doc = chunk_file(txt, armory, strategy=ChunkStrategy.MARKDOWN)
+        assert doc is not None
+        assert doc.chunks[0].heading == "Heading"
+
+    def test_explicit_semantic_strategy(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        txt = armory / "data.txt"
+        txt.write_text("First sentence. Second sentence. Third sentence.")
+
+        doc = chunk_file(txt, armory, strategy=ChunkStrategy.SEMANTIC)
+        assert doc is not None
+        assert len(doc.chunks) >= 1

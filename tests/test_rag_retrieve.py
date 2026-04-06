@@ -10,8 +10,10 @@ import pytest
 from hephaistos.harness.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.harness.rag.index import ArmoryIndex
 from hephaistos.harness.rag.retrieve import (
+    CrossEncoderReranker,
     EmbeddingRetriever,
     HybridRetriever,
+    RerankerProtocol,
     Retriever,
     RetrieverProtocol,
     ScoredChunk,
@@ -69,6 +71,13 @@ class TestRetrieverProtocol:
 
     def test_plain_object_does_not_satisfy(self) -> None:
         assert not isinstance(object(), RetrieverProtocol)
+
+    def test_cross_encoder_reranker_satisfies_reranker_protocol(self) -> None:
+        reranker = CrossEncoderReranker()
+        assert isinstance(reranker, RerankerProtocol)
+
+    def test_plain_object_does_not_satisfy_reranker_protocol(self) -> None:
+        assert not isinstance(object(), RerankerProtocol)
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +579,300 @@ class TestHybridRetriever:
 
 
 # ---------------------------------------------------------------------------
+# Cross-encoder re-ranker (mocked — no real model download)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossEncoderReranker:
+    def _make_reranker_with_mock(
+        self,
+        predict_scores: list[float],
+    ) -> CrossEncoderReranker:
+        """Create a CrossEncoderReranker with a mocked CrossEncoder model."""
+        reranker = CrossEncoderReranker()
+        mock_model = MagicMock()
+        mock_model.predict.return_value = predict_scores
+        reranker._model = mock_model
+        return reranker
+
+    def test_empty_candidates(self) -> None:
+        reranker = self._make_reranker_with_mock([])
+        results = reranker.rerank("test", [])
+        assert results == []
+
+    def test_rerank_rescores_and_sorts(self) -> None:
+        """Cross-encoder scores replace original scores; results sorted desc."""
+        c_a = _make_chunk("Python programming language", "a.md", 0)
+        c_b = _make_chunk("Cooking recipes", "b.md", 0)
+        c_c = _make_chunk("Rust systems programming", "c.md", 0)
+
+        candidates = [
+            ScoredChunk(chunk=c_a, score=0.9),  # was top by TF-IDF
+            ScoredChunk(chunk=c_b, score=0.5),
+            ScoredChunk(chunk=c_c, score=0.3),
+        ]
+
+        # Cross-encoder says: c (Rust) is most relevant, then a, then b
+        reranker = self._make_reranker_with_mock([0.6, 0.1, 0.95])
+
+        results = reranker.rerank("systems programming language", candidates, top_k=3)
+        assert len(results) == 3
+        # New ordering: c (0.95) > a (0.6) > b (0.1)
+        assert results[0].chunk.source == "c.md"
+        assert results[0].score == 0.95
+        assert results[1].chunk.source == "a.md"
+        assert results[1].score == 0.6
+        assert results[2].chunk.source == "b.md"
+        assert results[2].score == 0.1
+
+    def test_rerank_respects_top_k(self) -> None:
+        c_a = _make_chunk("doc a", "a.md", 0)
+        c_b = _make_chunk("doc b", "b.md", 0)
+        c_c = _make_chunk("doc c", "c.md", 0)
+        c_d = _make_chunk("doc d", "d.md", 0)
+
+        candidates = [
+            ScoredChunk(chunk=c_a, score=0.9),
+            ScoredChunk(chunk=c_b, score=0.7),
+            ScoredChunk(chunk=c_c, score=0.5),
+            ScoredChunk(chunk=c_d, score=0.3),
+        ]
+
+        reranker = self._make_reranker_with_mock([0.4, 0.8, 0.6, 0.2])
+        results = reranker.rerank("test", candidates, top_k=2)
+        assert len(results) == 2
+        # b (0.8) > c (0.6)
+        assert results[0].chunk.source == "b.md"
+        assert results[1].chunk.source == "c.md"
+
+    def test_scores_are_cross_encoder_scores(self) -> None:
+        """Original retrieval scores are fully replaced by cross-encoder scores."""
+        c_a = _make_chunk("hello", "a.md", 0)
+        candidates = [ScoredChunk(chunk=c_a, score=0.1)]
+
+        reranker = self._make_reranker_with_mock([0.99])
+        results = reranker.rerank("test", candidates, top_k=5)
+        assert results[0].score == 0.99
+
+    def test_model_name_default(self) -> None:
+        reranker = CrossEncoderReranker()
+        assert reranker.model_name == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    def test_model_name_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HEPHAISTOS_RERANK_MODEL", "my-custom-reranker")
+        reranker = CrossEncoderReranker()
+        assert reranker.model_name == "my-custom-reranker"
+
+    def test_model_name_from_constructor(self) -> None:
+        reranker = CrossEncoderReranker(model_name="other-model")
+        assert reranker.model_name == "other-model"
+
+    def test_model_lazy_loaded(self) -> None:
+        """Model is not loaded at construction time."""
+        reranker = CrossEncoderReranker()
+        assert reranker._model is None
+
+    def test_model_cached_after_first_use(self) -> None:
+        reranker = CrossEncoderReranker()
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.5]
+        reranker._model = mock_model
+
+        c_a = _make_chunk("hello", "a.md", 0)
+        candidates = [ScoredChunk(chunk=c_a, score=0.1)]
+
+        reranker.rerank("test", candidates)
+        reranker.rerank("test", candidates)
+        # predict called twice (once per rerank call), but model was set once
+        assert mock_model.predict.call_count == 2
+
+    def test_predict_receives_query_text_pairs(self) -> None:
+        """Cross-encoder receives (query, chunk_text) pairs."""
+        reranker = CrossEncoderReranker()
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.5, 0.3]
+        reranker._model = mock_model
+
+        c_a = _make_chunk("Python code", "a.md", 0)
+        c_b = _make_chunk("Rust code", "b.md", 0)
+        candidates = [
+            ScoredChunk(chunk=c_a, score=0.9),
+            ScoredChunk(chunk=c_b, score=0.5),
+        ]
+
+        reranker.rerank("programming", candidates)
+        call_args = mock_model.predict.call_args[0][0]
+        assert call_args == [
+            ("programming", "Python code"),
+            ("programming", "Rust code"),
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Hybrid retriever with re-ranker
+# ---------------------------------------------------------------------------
+
+
+class TestHybridRetrieverWithReranker:
+    def test_reranker_property(self) -> None:
+        chunks = [_make_chunk("hello", "a.md", 0)]
+        index = _make_index_with_chunks(chunks)
+
+        mock_reranker = MagicMock(spec=CrossEncoderReranker)
+        hybrid = HybridRetriever(index, reranker=mock_reranker)
+        assert hybrid.has_reranker
+
+    def test_no_reranker_property(self) -> None:
+        chunks = [_make_chunk("hello", "a.md", 0)]
+        index = _make_index_with_chunks(chunks)
+        hybrid = HybridRetriever(index)
+        assert not hybrid.has_reranker
+
+    def test_reranker_applied_after_rrf_fusion(self) -> None:
+        """Full pipeline: TF-IDF + embeddings → RRF → cross-encoder re-rank."""
+        chunks = [
+            _make_chunk("Python programming", "a.md", 0),
+            _make_chunk("Rust systems", "b.md", 0),
+            _make_chunk("Cooking recipes", "c.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+
+        # Mock embedding retriever
+        mock_embed = MagicMock(spec=EmbeddingRetriever)
+        mock_embed.retrieve.return_value = [
+            ScoredChunk(chunk=chunks[0], score=0.9),
+            ScoredChunk(chunk=chunks[1], score=0.5),
+        ]
+
+        # Mock cross-encoder reranker — flip the order
+        mock_reranker = MagicMock(spec=CrossEncoderReranker)
+        mock_reranker.rerank.side_effect = (
+            lambda query, candidates, top_k=5: [
+                ScoredChunk(chunk=chunks[1], score=0.99),
+                ScoredChunk(chunk=chunks[0], score=0.7),
+            ][:top_k]
+        )
+
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=True,
+        ), patch(
+            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+            return_value=mock_embed,
+        ):
+            hybrid = HybridRetriever(index, reranker=mock_reranker)
+            results = hybrid.retrieve("programming", top_k=3)
+
+            # Reranker was called with the fused candidates
+            mock_reranker.rerank.assert_called_once()
+            call_args = mock_reranker.rerank.call_args
+            assert call_args[0][0] == "programming"  # query
+            assert call_args[1]["top_k"] == 3
+
+            # Results reflect reranker's ordering
+            assert results[0].chunk.source == "b.md"
+            assert results[0].score == 0.99
+            assert results[1].chunk.source == "a.md"
+            assert results[1].score == 0.7
+
+    def test_reranker_not_called_when_no_results(self) -> None:
+        """If retrieval returns nothing, reranker is not invoked."""
+        chunks = [_make_chunk("unrelated", "a.md", 0)]
+        index = _make_index_with_chunks(chunks)
+
+        mock_reranker = MagicMock(spec=CrossEncoderReranker)
+
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=False,
+        ):
+            hybrid = HybridRetriever(index, reranker=mock_reranker)
+            results = hybrid.retrieve("zzzzzzz quantum xyz")
+            assert results == []
+            mock_reranker.rerank.assert_not_called()
+
+    def test_tfidf_only_with_reranker(self) -> None:
+        """When no embeddings, TF-IDF over-fetches so reranker has a pool."""
+        chunks = [
+            _make_chunk("Python programming language", "a.md", 0),
+            _make_chunk("Python scripting automation", "b.md", 0),
+            _make_chunk("Cooking with Python beans", "c.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+
+        mock_reranker = MagicMock(spec=CrossEncoderReranker)
+        mock_reranker.rerank.return_value = [
+            ScoredChunk(chunk=chunks[1], score=0.95),
+            ScoredChunk(chunk=chunks[0], score=0.8),
+        ]
+
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=False,
+        ):
+            hybrid = HybridRetriever(index, reranker=mock_reranker)
+            results = hybrid.retrieve("python scripting", top_k=2)
+
+            # Reranker was called with over-fetched pool
+            mock_reranker.rerank.assert_called_once()
+            call_args = mock_reranker.rerank.call_args
+            # The pool should have > top_k candidates
+            candidates_arg = call_args[0][1]
+            assert len(candidates_arg) > 2  # over-fetched
+            assert call_args[1]["top_k"] == 2
+
+            assert len(results) == 2
+            assert results[0].chunk.source == "b.md"
+
+    def test_tfidf_only_without_reranker_same_behavior(self) -> None:
+        """Without reranker, TF-IDF-only path behaves as before."""
+        chunks = [
+            _make_chunk("Python is a programming language.", "py.md", 0),
+            _make_chunk("Rust is a systems language.", "rs.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=False,
+        ):
+            hybrid = HybridRetriever(index)
+            results = hybrid.retrieve("python programming")
+            assert len(results) > 0
+            assert results[0].chunk.source == "py.md"
+
+    def test_reranker_over_fetch_respects_top_k(self) -> None:
+        """Reranker receives full candidate pool but returns exactly top_k."""
+        chunks = [
+            _make_chunk(f"doc {i}", f"d{i}.md", 0) for i in range(10)
+        ]
+        index = _make_index_with_chunks(chunks)
+
+        mock_embed = MagicMock(spec=EmbeddingRetriever)
+        mock_embed.retrieve.return_value = [
+            ScoredChunk(chunk=chunks[i], score=float(10 - i) / 10)
+            for i in range(10)
+        ]
+
+        mock_reranker = MagicMock(spec=CrossEncoderReranker)
+        mock_reranker.rerank.return_value = [
+            ScoredChunk(chunk=chunks[i], score=float(i) / 10)
+            for i in range(3)
+        ]
+
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=True,
+        ), patch(
+            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+            return_value=mock_embed,
+        ):
+            hybrid = HybridRetriever(index, reranker=mock_reranker)
+            results = hybrid.retrieve("doc", top_k=3)
+            assert len(results) == 3
+
+
+# ---------------------------------------------------------------------------
 # Auto-selection factory
 # ---------------------------------------------------------------------------
 
@@ -593,6 +896,32 @@ class TestCreateRetriever:
             r = _create_retriever(index)
             assert isinstance(r, HybridRetriever)
             assert r.has_embeddings
+
+    def test_hybrid_has_reranker_when_st_available(self) -> None:
+        """Factory auto-creates a CrossEncoderReranker alongside the hybrid retriever."""
+        index = _make_index_with_chunks([_make_chunk("hello")])
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=True,
+        ):
+            r = _create_retriever(index)
+            assert isinstance(r, HybridRetriever)
+            assert r.has_reranker
+
+    def test_reranker_creation_failure_still_returns_hybrid(self) -> None:
+        """If CrossEncoderReranker fails, hybrid still works without it."""
+        index = _make_index_with_chunks([_make_chunk("hello")])
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=True,
+        ), patch(
+            "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
+            side_effect=ImportError("no cross-encoder"),
+        ):
+            r = _create_retriever(index)
+            assert isinstance(r, HybridRetriever)
+            assert r.has_embeddings
+            assert not r.has_reranker
 
     def test_falls_back_to_tfidf_if_hybrid_init_fails(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])
@@ -637,12 +966,20 @@ class TestRetrieveConvenience:
             ScoredChunk(chunk=chunks[0], score=0.95),
         ]
 
+        mock_reranker = MagicMock(spec=CrossEncoderReranker)
+        mock_reranker.rerank.return_value = [
+            ScoredChunk(chunk=chunks[0], score=0.99),
+        ]
+
         with patch(
             "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
             return_value=True,
         ), patch(
             "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
             return_value=mock_embed,
+        ), patch(
+            "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
+            return_value=mock_reranker,
         ):
             results = retrieve("binary search", index)
             assert len(results) > 0

@@ -1,8 +1,9 @@
 """Provider configuration: multi-provider LLM API management.
 
 Stores provider definitions (endpoint, API key env var, models) in a TOML file
-at ``~/.config/hephaistos/providers.toml``.  Supports loading, switching
-providers/models, and persisting the selection.
+at ``~/.config/hephaistos/providers.toml``.  API keys are resolved at runtime
+from the OS keychain → environment variable → volatile in-memory store, and
+are **never** written to config files or persisted inside ChatConfig objects.
 """
 
 from __future__ import annotations
@@ -29,11 +30,15 @@ class Provider:
 
     @property
     def is_authenticated(self) -> bool:
-        return bool(os.environ.get(self.api_key_env, "").strip())
+        """Check if a key is available via any resolution path."""
+        from hephaistos.providers.keyring_store import resolve_key
+        return bool(resolve_key(self.slug, self.api_key_env))
 
     @property
     def api_key(self) -> str:
-        return os.environ.get(self.api_key_env, "").strip()
+        """Resolve the API key from keychain → env var → volatile store."""
+        from hephaistos.providers.keyring_store import resolve_key
+        return resolve_key(self.slug, self.api_key_env)
 
     @property
     def resolved_model(self) -> str:
@@ -72,14 +77,21 @@ class ProviderConfig:
         return True
 
     def apply_to_config(self, config: object) -> None:
-        """Apply the active provider settings to a ChatConfig instance."""
+        """Apply the active provider settings to a ChatConfig instance.
+
+        Sets base_url and model directly, but stores only a *reference*
+        (provider slug) for the API key so the raw key is not held in
+        the config object.  The engine resolves the key lazily at call time.
+        """
         active = self.get_active()
         if active is None:
             return
         config.base_url = active.endpoint
         config.model = active.resolved_model
-        if active.api_key:
-            config.api_key = active.api_key
+        # Store provider reference for lazy key resolution instead of
+        # copying the raw key into the config object.
+        config._provider_slug = active.slug
+        config._provider_env = active.api_key_env
 
     def save(self, path: Path | None = None) -> None:
         path = path or _PROVIDERS_FILE

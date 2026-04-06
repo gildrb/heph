@@ -2,13 +2,22 @@
 
 Splits text files into chunks with metadata preservation.
 
-Chunking strategies (auto-selected per file):
-- Markdown files (.md): structure-aware — respects ``#`` headers, code fences
-- Other text files: fixed-window with paragraph-boundary breaks
-- Semantic chunking (optional): when ``sentence-transformers`` is available,
-  splits on embedding-similarity boundaries instead of character counts
-- Hierarchical metadata: stores parent heading for each chunk so retrieval
-  can return heading context alongside matched subsections
+Chunking strategies (selectable via ``ChunkStrategy``):
+
+- **AUTO** (default): picks the best strategy per file — Markdown files get
+  structure-aware chunking, all other text files use semantic chunking when
+  ``sentence-transformers`` is available, falling back to fixed-window.
+- **MARKDOWN**: structure-aware — respects ``#`` headers, splits oversized
+  sections at paragraph boundaries.  Each chunk carries ``heading`` +
+  ``heading_level`` for hierarchical context.
+- **SEMANTIC**: splits into sentences, embeds each, then merges into chunks
+  at cosine-similarity breakpoints.  Falls back to fixed-window when
+  ``sentence-transformers`` is unavailable.
+- **TEXT**: fixed-window with paragraph → newline → sentence → hard-cut
+  boundary detection.
+
+Hierarchical metadata (``heading``, ``heading_level``) is preserved so
+retrieval can return heading context alongside matched subsections.
 """
 
 from __future__ import annotations
@@ -16,7 +25,9 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
+from typing import Callable
 
 _TEXT_EXTENSIONS = frozenset({
     ".txt", ".md", ".rst", ".adoc", ".org",
@@ -37,6 +48,20 @@ _DEFAULT_OVERLAP = 100
 _MAX_CHUNK_SIZE = 2000
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
+
+
+# ---------------------------------------------------------------------------
+# Chunking strategy enum
+# ---------------------------------------------------------------------------
+
+
+class ChunkStrategy(Enum):
+    """Selects which chunking algorithm ``chunk_file`` uses."""
+
+    AUTO = "auto"          # markdown → chunk_markdown, else → semantic → text fallback
+    MARKDOWN = "markdown"  # always use chunk_markdown
+    SEMANTIC = "semantic"  # always use chunk_semantic (falls back to text internally)
+    TEXT = "text"          # always use chunk_text
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +181,7 @@ def _chunk_markdown_section(
 
         candidate = f"{current}\n\n{part}" if current else part
 
-        if len(candidate) > _MAX_CHUNK_SIZE and current:
+        if len(candidate) > chunk_size and current:
             # Flush current
             chunks.append(Chunk(
                 text=current.strip(),
@@ -219,7 +244,7 @@ def chunk_markdown(
 
 
 # ---------------------------------------------------------------------------
-# Fixed-window chunking (legacy, for non-Markdown files)
+# Fixed-window chunking
 # ---------------------------------------------------------------------------
 
 
@@ -406,6 +431,30 @@ def _split_sentences(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Strategy resolver
+# ---------------------------------------------------------------------------
+
+
+def _resolve_strategy(strategy: ChunkStrategy, path: Path) -> Callable:
+    """Map a ``ChunkStrategy`` + file path to the actual chunking function.
+
+    AUTO picks the best algorithm for the file type:
+    - ``.md`` files → ``chunk_markdown``
+    - everything else → ``chunk_semantic`` (which internally falls back to
+      ``chunk_text`` when *sentence-transformers* is unavailable)
+    """
+    if strategy == ChunkStrategy.AUTO:
+        if _is_markdown(path):
+            return chunk_markdown
+        return chunk_semantic
+    if strategy == ChunkStrategy.MARKDOWN:
+        return chunk_markdown
+    if strategy == ChunkStrategy.SEMANTIC:
+        return chunk_semantic
+    return chunk_text
+
+
+# ---------------------------------------------------------------------------
 # File-level entry point
 # ---------------------------------------------------------------------------
 
@@ -415,8 +464,20 @@ def chunk_file(
     armory_root: Path,
     chunk_size: int = _DEFAULT_CHUNK_SIZE,
     overlap: int = _DEFAULT_OVERLAP,
+    *,
+    strategy: ChunkStrategy = ChunkStrategy.AUTO,
 ) -> ChunkedDocument | None:
-    """Read and chunk a single file. Returns None for binary/skipped files."""
+    """Read and chunk a single file. Returns None for binary/skipped files.
+
+    *strategy* controls which algorithm is used:
+
+    - ``ChunkStrategy.AUTO`` (default): Markdown files → structure-aware,
+      other text → semantic (with fixed-window fallback).
+    - ``ChunkStrategy.MARKDOWN``: always use heading-aware chunking.
+    - ``ChunkStrategy.SEMANTIC``: always use embedding-based chunking
+      (falls back to fixed-window when *sentence-transformers* is absent).
+    - ``ChunkStrategy.TEXT``: always use fixed-window chunking.
+    """
     if not _is_text_file(path):
         return None
 
@@ -430,11 +491,9 @@ def chunk_file(
 
     rel = str(path.relative_to(armory_root))
 
-    # Auto-select chunking strategy
-    if _is_markdown(path):
-        chunks = chunk_markdown(text, rel, chunk_size, overlap)
-    else:
-        chunks = chunk_text(text, rel, chunk_size, overlap)
+    # Select and run the chunking function
+    chunk_fn = _resolve_strategy(strategy, path)
+    chunks = chunk_fn(text, rel, chunk_size, overlap)
 
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 

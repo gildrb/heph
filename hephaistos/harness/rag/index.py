@@ -9,7 +9,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hephaistos.harness.rag.chunker import Chunk, ChunkedDocument, chunk_file
+from hephaistos.harness.rag.chunker import (
+    Chunk,
+    ChunkedDocument,
+    ChunkStrategy,
+    chunk_file,
+)
 from hephaistos.logging import Timer, get_logger
 
 _log = get_logger("rag.index")
@@ -20,12 +25,21 @@ _SOURCE_DIRS = ("source", "library")
 _CHUNK_SIZE = 500
 _OVERLAP = 100
 
+# Persisted index format version — bump when layout changes.
+_INDEX_VERSION = 2
+
 
 class ArmoryIndex:
     """Manages the chunk index for an armory."""
 
-    def __init__(self, armory_path: Path) -> None:
+    def __init__(
+        self,
+        armory_path: Path,
+        *,
+        strategy: ChunkStrategy = ChunkStrategy.AUTO,
+    ) -> None:
         self.armory_path = armory_path
+        self.strategy = strategy
         self.documents: list[ChunkedDocument] = []
         self._file_hashes: dict[str, str] = {}  # rel_path -> hash
 
@@ -54,15 +68,25 @@ class ArmoryIndex:
                 for file_path in sorted(folder.rglob("*")):
                     if not file_path.is_file():
                         continue
-                    if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
+                    if any(
+                        part.startswith(".")
+                        for part in file_path.relative_to(folder).parts
+                    ):
                         continue
-                    doc = chunk_file(file_path, self.armory_path, _CHUNK_SIZE, _OVERLAP)
+                    doc = chunk_file(
+                        file_path,
+                        self.armory_path,
+                        _CHUNK_SIZE,
+                        _OVERLAP,
+                        strategy=self.strategy,
+                    )
                     if doc is not None and doc.chunks:
                         self.documents.append(doc)
                         self._file_hashes[doc.source] = doc.content_hash
 
         _log.info("index built", extra={"fields": {
             "armory": str(self.armory_path),
+            "strategy": self.strategy.value,
             "documents": len(self.documents),
             "chunks": self.chunk_count,
             "latency_ms": timer.ms,
@@ -74,9 +98,10 @@ class ArmoryIndex:
         index_path.parent.mkdir(parents=True, exist_ok=True)
 
         data = {
-            "version": 1,
+            "version": _INDEX_VERSION,
             "chunk_size": _CHUNK_SIZE,
             "overlap": _OVERLAP,
+            "strategy": self.strategy.value,
             "documents": [
                 {
                     "source": doc.source,
@@ -88,6 +113,8 @@ class ArmoryIndex:
                             "index": c.index,
                             "char_start": c.char_start,
                             "char_end": c.char_end,
+                            "heading": c.heading,
+                            "heading_level": c.heading_level,
                         }
                         for c in doc.chunks
                     ],
@@ -95,7 +122,9 @@ class ArmoryIndex:
                 for doc in self.documents
             ],
         }
-        index_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        index_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         return index_path
 
     def load(self) -> bool:
@@ -109,8 +138,16 @@ class ArmoryIndex:
         except (json.JSONDecodeError, OSError):
             return False
 
-        if data.get("version") != 1:
+        version = data.get("version", 1)
+        if version not in (1, 2):
             return False
+
+        # Recover strategy from persisted index (v2+)
+        if version >= 2 and "strategy" in data:
+            try:
+                self.strategy = ChunkStrategy(data["strategy"])
+            except ValueError:
+                pass  # keep default
 
         self.documents = []
         self._file_hashes = {}
@@ -122,6 +159,8 @@ class ArmoryIndex:
                     index=c["index"],
                     char_start=c["char_start"],
                     char_end=c["char_end"],
+                    heading=c.get("heading", ""),
+                    heading_level=c.get("heading_level", 0),
                 )
                 for c in doc_data.get("chunks", [])
             ]
@@ -148,7 +187,10 @@ class ArmoryIndex:
             for file_path in sorted(folder.rglob("*")):
                 if not file_path.is_file():
                     continue
-                if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
+                if any(
+                    part.startswith(".")
+                    for part in file_path.relative_to(folder).parts
+                ):
                     continue
                 rel = str(file_path.relative_to(self.armory_path))
                 if rel not in self._file_hashes:
@@ -176,27 +218,39 @@ class ArmoryIndex:
             for file_path in sorted(folder.rglob("*")):
                 if not file_path.is_file():
                     continue
-                if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
+                if any(
+                    part.startswith(".")
+                    for part in file_path.relative_to(folder).parts
+                ):
                     continue
                 count += 1
         return count
 
 
-def build_index(armory_path: Path) -> ArmoryIndex:
+def build_index(
+    armory_path: Path,
+    *,
+    strategy: ChunkStrategy = ChunkStrategy.AUTO,
+) -> ArmoryIndex:
     """Build a fresh index for the armory and persist it."""
-    index = ArmoryIndex(armory_path)
+    index = ArmoryIndex(armory_path, strategy=strategy)
     index.build()
     index.save()
     _log.info("index built and saved", extra={"fields": {
         "armory": str(armory_path),
+        "strategy": strategy.value,
         "chunks": index.chunk_count,
     }})
     return index
 
 
-def load_or_build(armory_path: Path) -> ArmoryIndex:
+def load_or_build(
+    armory_path: Path,
+    *,
+    strategy: ChunkStrategy = ChunkStrategy.AUTO,
+) -> ArmoryIndex:
     """Load existing index if fresh, otherwise rebuild."""
-    index = ArmoryIndex(armory_path)
+    index = ArmoryIndex(armory_path, strategy=strategy)
     if index.load() and not index.is_stale():
         _log.info("index loaded from cache", extra={"fields": {
             "armory": str(armory_path),
@@ -206,4 +260,4 @@ def load_or_build(armory_path: Path) -> ArmoryIndex:
     _log.info("index stale or missing, rebuilding", extra={"fields": {
         "armory": str(armory_path),
     }})
-    return build_index(armory_path)
+    return build_index(armory_path, strategy=strategy)

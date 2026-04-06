@@ -35,26 +35,50 @@ _log = get_logger("chat.engine")
 
 @dataclass
 class ChatConfig:
-    """Configuration for the LLM engine."""
+    """Configuration for the LLM engine.
+
+    API keys are resolved lazily at call time from the OS keychain →
+    environment variable → volatile in-memory store.  The ``api_key`` field
+    is kept for backward compatibility but should not be used to store raw
+    keys persistently.  Use the ``resolved_api_key`` property instead.
+    """
 
     api_key: str = ""
     base_url: str = "https://api.openai.com/v1"
     model: str = "gpt-4o-mini"
     max_tokens: int = 4096
+    # Provider references for lazy key resolution (set by ProviderConfig)
+    _provider_slug: str = field(default="", repr=False)
+    _provider_env: str = field(default="", repr=False)
+
+    @property
+    def resolved_api_key(self) -> str:
+        """Resolve the API key via keychain → env → volatile → raw fallback."""
+        # 1. If a provider slug is set, use the full resolution chain
+        if self._provider_slug:
+            from hephaistos.providers.keyring_store import resolve_key
+            key = resolve_key(self._provider_slug, self._provider_env)
+            if key:
+                return key
+        # 2. Check env vars directly (covers from_env() path)
+        env_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get(
+            "OPENAI_API_KEY", ""
+        )
+        if env_key.strip():
+            return env_key.strip()
+        # 3. Fall back to the raw field (backward compat for tests)
+        return self.api_key
 
     @classmethod
     def from_env(cls) -> ChatConfig:
         """Build config from environment variables."""
-        api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get(
-            "OPENAI_API_KEY", ""
-        )
         base_url = os.environ.get("HEPHAISTOS_BASE_URL", "https://api.openai.com/v1")
         model = os.environ.get("HEPHAISTOS_MODEL", "gpt-4o-mini")
         max_tokens = int(
             os.environ.get("HEPHAISTOS_MAX_TOKENS", "4096")
         )
         return cls(
-            api_key=api_key.strip(),
+            api_key="",  # Key resolved lazily via resolved_api_key
             base_url=base_url,
             model=model,
             max_tokens=max_tokens,
@@ -130,9 +154,13 @@ class Conversation:
 
 def _build_client(config: ChatConfig) -> OpenAI:
     """Create an OpenAI client from the given config."""
-    if not config.api_key or not config.api_key.strip():
-        raise EngineError("No API key found. Set HEPHAISTOS_API_KEY or OPENAI_API_KEY.")
-    return OpenAI(api_key=config.api_key, base_url=config.base_url)
+    api_key = config.resolved_api_key
+    if not api_key:
+        raise EngineError(
+            "No API key found. Set one via /api key, environment variable, "
+            "or the OS keychain."
+        )
+    return OpenAI(api_key=api_key, base_url=config.base_url)
 
 
 def is_retryable_error(exc: Exception) -> bool:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -107,6 +108,7 @@ class StatusCommand(Command):
             f"  Title:    {title}",
             f"  Model:    {s.config.model}",
             f"  API:      {s.config.base_url}",
+            f"  Key:      {'configured' if s.config.resolved_api_key else styled('not set', STYLE_DIM)}",
             f"  Mode:     {mode}",
             f"  Tools:    {tool_count}",
             f"  Messages: {msg_count}",
@@ -239,18 +241,48 @@ class ModelCommand(Command):
 
 class ApiCommand(Command):
     name = "api"
-    description = "Set API key or base URL"
+    description = "Manage API key (keychain) or base URL"
 
     def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.providers.config import ProviderConfig
+        from hephaistos.providers.keyring_store import (
+            mask_key,
+            resolve_key,
+            store_key,
+            set_volatile,
+        )
+
         s = _ensure_session(session)
         parts = args.strip().split(maxsplit=1)
+
         if not parts:
-            bool(s.config.api_key)
-            masked = f"{s.config.api_key[:8]}...{s.config.api_key[-4:]}" if len(s.config.api_key) > 12 else ("*" * len(s.config.api_key)) if s.config.api_key else styled("not set", STYLE_DIM)
+            # Show current status — never reveal the raw key
+            pc = ProviderConfig.load()
+            active = pc.get_active()
+            slug = active.slug if active else ""
+            env_var = active.api_key_env if active else ""
+
+            key = resolve_key(slug, env_var) if slug else ""
+            key_display = mask_key(key) if key else styled("not set", STYLE_DIM)
+
+            source = ""
+            if key:
+                from hephaistos.providers import keyring_store as ks
+                if ks.retrieve_key(slug):
+                    source = "keychain"
+                elif env_var and os.environ.get(env_var, "").strip():
+                    source = f"env ({env_var})"
+                elif ks.get_volatile(slug):
+                    source = "volatile (session-only)"
+                else:
+                    source = "unknown"
+
             lines = [
                 f"  Base URL:  {s.config.base_url}",
-                f"  API Key:   {masked}",
+                f"  API Key:   {key_display}",
             ]
+            if source:
+                lines.append(f"  Source:    {source}")
             print("\n".join(lines))
             return CommandResult()
 
@@ -261,8 +293,24 @@ class ApiCommand(Command):
             if not value:
                 print_error("Usage: /api key <your-api-key>")
                 return CommandResult()
-            s.config.api_key = value.strip()
-            print_success("API key updated.")
+
+            raw_key = value.strip()
+            pc = ProviderConfig.load()
+            active = pc.get_active()
+            slug = active.slug if active else "custom"
+
+            # Try keychain first; fall back to volatile
+            try:
+                store_key(slug, raw_key)
+                print_success(f"API key saved to keychain for '{slug}'.")
+            except Exception:
+                set_volatile(slug, raw_key)
+                print_success(
+                    f"API key set for this session only (keychain unavailable)."
+                )
+
+            # Also set volatile so the current session picks it up immediately
+            set_volatile(slug, raw_key)
             return CommandResult()
 
         if subcmd in ("url", "base-url", "baseurl"):
