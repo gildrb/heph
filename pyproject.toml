@@ -11,6 +11,11 @@ dependencies = [
     "openai>=1.0.0",
 ]
 
+[project.optional-dependencies]
+embeddings = [
+    "sentence-transformers>=3.0.0",
+]
+
 [project.scripts]
 hephaistos = "hephaistos.app.cli:main"
 heph = "hephaistos.app.cli:main"
@@ -26,4 +31,7 @@ module-root = ""
 dev = [
     "pytest>=9.0.2",
     "ruff>=0.15.8",
+]
+rag = [
+    "sentence-transformers>=3.0.0",
 ]

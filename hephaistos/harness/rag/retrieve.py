@@ -1,19 +1,30 @@
-"""Retrieval engine: TF-IDF keyword scoring over chunk index.
+"""Retrieval engine: pluggable retriever protocol with multiple backends.
 
-V1 uses pure-stdlib TF-IDF. The ``Retriever`` protocol is designed so a
-future embedding-based implementation can be swapped in as a drop-in
-replacement.
+Backends (selected automatically based on available dependencies):
+- ``TfidfRetriever``     — pure-stdlib keyword scoring (always available)
+- ``EmbeddingRetriever`` — dense vector similarity via sentence-transformers
+- ``HybridRetriever``    — reciprocal-rank fusion of TF-IDF + embeddings
+
+The top-level ``retrieve()`` function auto-selects the best backend:
+embeddings if ``sentence-transformers`` is installed, otherwise TF-IDF.
 """
 
 from __future__ import annotations
 
 import math
+import os
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 from hephaistos.harness.rag.chunker import Chunk
 from hephaistos.harness.rag.index import ArmoryIndex
+
+# ---------------------------------------------------------------------------
+# Public data types
+# ---------------------------------------------------------------------------
 
 _WORD_RE = re.compile(r"[a-zA-Z0-9]+")
 _STOP_WORDS = frozenset({
@@ -37,8 +48,30 @@ class ScoredChunk:
     score: float
 
 
-class Retriever:
-    """TF-IDF retriever over an ``ArmoryIndex``."""
+# ---------------------------------------------------------------------------
+# Retriever protocol
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class RetrieverProtocol(Protocol):
+    """Minimal interface every retriever must implement."""
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]: ...
+
+
+# ---------------------------------------------------------------------------
+# TF-IDF retriever (pure stdlib, always available)
+# ---------------------------------------------------------------------------
+
+
+def _tokenize(text: str) -> list[str]:
+    tokens = _WORD_RE.findall(text.lower())
+    return [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
+
+
+class TfidfRetriever:
+    """TF-IDF cosine-similarity retriever over an ``ArmoryIndex``."""
 
     def __init__(self, index: ArmoryIndex) -> None:
         self._chunks = index.all_chunks
@@ -47,16 +80,14 @@ class Retriever:
         if self._chunks:
             self._build_idf()
 
-    def _tokenize(self, text: str) -> list[str]:
-        tokens = _WORD_RE.findall(text.lower())
-        return [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
+    # -- index fitting -----------------------------------------------------
 
     def _build_idf(self) -> None:
         doc_count = len(self._chunks)
         df: dict[str, int] = {}
 
         for chunk in self._chunks:
-            freq = Counter(self._tokenize(chunk.text))
+            freq = Counter(_tokenize(chunk.text))
             self._chunk_freqs.append(freq)
             for term in freq:
                 df[term] = df.get(term, 0) + 1
@@ -66,16 +97,14 @@ class Retriever:
             for term, count in df.items()
         }
 
-    def retrieve(
-        self,
-        query: str,
-        top_k: int = 5,
-    ) -> list[ScoredChunk]:
+    # -- retrieval ---------------------------------------------------------
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
         """Return the top-k chunks most relevant to *query*."""
         if not self._chunks:
             return []
 
-        query_tokens = self._tokenize(query)
+        query_tokens = _tokenize(query)
         if not query_tokens:
             return []
 
@@ -97,7 +126,6 @@ class Retriever:
         query_freq: Counter,
         query_terms: set[str],
     ) -> float:
-        """Compute TF-IDF cosine similarity between chunk and query."""
         dot = 0.0
         chunk_norm_sq = 0.0
         query_norm_sq = 0.0
@@ -119,11 +147,236 @@ class Retriever:
         return dot / (math.sqrt(chunk_norm_sq) * math.sqrt(query_norm_sq))
 
 
+# Backward-compatible alias — existing code that references ``Retriever``
+# continues to work unchanged.
+Retriever = TfidfRetriever
+
+
+# ---------------------------------------------------------------------------
+# Embedding retriever (requires sentence-transformers)
+# ---------------------------------------------------------------------------
+
+_EMBED_MODEL_ENV = "HEPHAISTOS_EMBED_MODEL"
+_EMBED_MODEL_DEFAULT = "all-MiniLM-L6-v2"
+
+
+def _is_sentence_transformers_available() -> bool:
+    """Return True if sentence-transformers can be imported."""
+    try:
+        import sentence_transformers  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+class EmbeddingRetriever:
+    """Dense vector retriever using sentence-transformers embeddings.
+
+    Chunks are encoded into vectors on first retrieval; subsequent queries
+    reuse the cached embeddings.  Falls back gracefully if the library or
+    model cannot be loaded.
+    """
+
+    def __init__(
+        self,
+        index: ArmoryIndex,
+        model_name: str | None = None,
+    ) -> None:
+        self._chunks = index.all_chunks
+        self._model_name = model_name or os.environ.get(
+            _EMBED_MODEL_ENV, _EMBED_MODEL_DEFAULT,
+        )
+        self._embeddings: list[list[float]] | None = None
+        self._model = None  # lazy-loaded
+
+    def _ensure_model(self):
+        """Lazy-load the sentence-transformers model."""
+        if self._model is not None:
+            return self._model
+        from sentence_transformers import SentenceTransformer
+        self._model = SentenceTransformer(self._model_name)
+        return self._model
+
+    def _ensure_embeddings(self) -> list[list[float]]:
+        """Build chunk embeddings if not yet computed."""
+        if self._embeddings is not None:
+            return self._embeddings
+
+        if not self._chunks:
+            self._embeddings = []
+            return self._embeddings
+
+        model = self._ensure_model()
+        texts = [c.text for c in self._chunks]
+        vectors = model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+        # Convert to plain Python lists for portability
+        self._embeddings = [row.tolist() for row in vectors]
+        return self._embeddings
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
+        """Return the top-k chunks by embedding cosine similarity."""
+        if not self._chunks:
+            return []
+
+        embeddings = self._ensure_embeddings()
+        model = self._ensure_model()
+
+        # Encode query
+        query_vec = model.encode([query], convert_to_numpy=True, show_progress_bar=False)
+        query_embedding = query_vec[0].tolist()
+
+        # Score every chunk
+        scored: list[ScoredChunk] = []
+        for i, chunk_embedding in enumerate(embeddings):
+            sim = _cosine_similarity(query_embedding, chunk_embedding)
+            if sim > 0:
+                scored.append(ScoredChunk(chunk=self._chunks[i], score=sim))
+
+        scored.sort(key=lambda s: s.score, reverse=True)
+        return scored[:top_k]
+
+
+# ---------------------------------------------------------------------------
+# Hybrid retriever (reciprocal rank fusion)
+# ---------------------------------------------------------------------------
+
+
+def _reciprocal_rank_fusion(
+    ranked_lists: list[list[ScoredChunk]],
+    *,
+    k: int = 60,
+) -> list[ScoredChunk]:
+    """Merge multiple ranked lists using Reciprocal Rank Fusion (RRF).
+
+    Each chunk is identified by ``(source, index)``.  The RRF score is
+    ``sum(1 / (k + rank_i))`` across all lists where the chunk appears.
+
+    The returned ``ScoredChunk.score`` is the RRF score.  The ``chunk``
+    object comes from the first list that contained it.
+    """
+    # chunk_key -> (rrf_score, ScoredChunk)
+    merged: dict[tuple[str, int], tuple[float, ScoredChunk]] = {}
+
+    for ranked in ranked_lists:
+        for rank, sc in enumerate(ranked):
+            key = (sc.chunk.source, sc.chunk.index)
+            rrf_delta = 1.0 / (k + rank + 1)  # +1 for 0-based rank
+            if key in merged:
+                current_score, best_sc = merged[key]
+                merged[key] = (current_score + rrf_delta, best_sc)
+            else:
+                merged[key] = (rrf_delta, sc)
+
+    results = [
+        ScoredChunk(chunk=sc.chunk, score=score)
+        for (_, score, sc) in (
+            (key, score, sc) for key, (score, sc) in merged.items()
+        )
+    ]
+    # Sort by RRF score descending
+    results.sort(key=lambda s: s.score, reverse=True)
+    return results
+
+
+class HybridRetriever:
+    """Hybrid retriever combining TF-IDF and embedding retrieval via RRF.
+
+    Runs both retrievers, then merges results with reciprocal rank fusion.
+    If ``sentence-transformers`` is not available, silently falls back to
+    pure TF-IDF retrieval.
+    """
+
+    def __init__(
+        self,
+        index: ArmoryIndex,
+        embed_model: str | None = None,
+        *,
+        candidate_multiplier: int = 3,
+    ) -> None:
+        self._tfidf = TfidfRetriever(index)
+        self._embedding: EmbeddingRetriever | None = None
+        self._candidate_multiplier = candidate_multiplier
+
+        if _is_sentence_transformers_available():
+            try:
+                self._embedding = EmbeddingRetriever(index, model_name=embed_model)
+            except Exception:
+                # If the model can't be loaded, fall back gracefully
+                self._embedding = None
+
+    @property
+    def has_embeddings(self) -> bool:
+        """Whether the embedding backend is active."""
+        return self._embedding is not None
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
+        """Retrieve via TF-IDF + embeddings, fused with RRF."""
+        if self._embedding is None:
+            return self._tfidf.retrieve(query, top_k=top_k)
+
+        # Over-fetch from each retriever so RRF has a wider candidate pool
+        candidates = top_k * self._candidate_multiplier
+
+        tfidf_results = self._tfidf.retrieve(query, top_k=candidates)
+        embed_results = self._embedding.retrieve(query, top_k=candidates)
+
+        if not tfidf_results and not embed_results:
+            return []
+
+        if not tfidf_results:
+            return embed_results[:top_k]
+
+        if not embed_results:
+            return tfidf_results[:top_k]
+
+        fused = _reciprocal_rank_fusion([tfidf_results, embed_results])
+        return fused[:top_k]
+
+
+# ---------------------------------------------------------------------------
+# Auto-selection factory
+# ---------------------------------------------------------------------------
+
+def _create_retriever(
+    index: ArmoryIndex,
+    embed_model: str | None = None,
+) -> TfidfRetriever | EmbeddingRetriever | HybridRetriever:
+    """Create the best available retriever for the given index.
+
+    Strategy:
+    1. If sentence-transformers is available → ``HybridRetriever`` (TF-IDF + embeddings)
+    2. Otherwise → ``TfidfRetriever`` (pure keyword matching)
+    """
+    if _is_sentence_transformers_available():
+        hybrid = HybridRetriever(index, embed_model=embed_model)
+        if hybrid.has_embeddings:
+            return hybrid
+    return TfidfRetriever(index)
+
+
+# ---------------------------------------------------------------------------
+# Convenience function (public API)
+# ---------------------------------------------------------------------------
+
 def retrieve(
     query: str,
     index: ArmoryIndex,
     top_k: int = 5,
 ) -> list[ScoredChunk]:
-    """Convenience function: create a retriever and return top-k chunks."""
-    retriever = Retriever(index)
+    """Retrieve the top-k most relevant chunks for *query*.
+
+    Automatically selects the best retriever backend based on available
+    dependencies.
+    """
+    retriever = _create_retriever(index)
     return retriever.retrieve(query, top_k)
