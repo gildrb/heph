@@ -682,7 +682,7 @@ def _print_shell_intro(session: ChatSession) -> None:
         session_id=session.session_id,
         model=session.config.model,
         base_url=session.config.base_url,
-        has_api_key=bool(session.config.api_key),
+        has_api_key=bool(session.config.resolved_api_key),
     )
 
 
