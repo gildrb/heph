@@ -25,6 +25,13 @@ from typing import Protocol, runtime_checkable
 
 from hephaistos.harness.rag.chunker import Chunk
 from hephaistos.harness.rag.index import ArmoryIndex
+from hephaistos.harness.rag.query_transform import (
+    PromptFn,
+    QueryTransformerProtocol,
+    TransformStrategy,
+    create_transformer,
+    transform_query,
+)
 from hephaistos.logging import get_logger
 
 _log = get_logger("rag.retrieve")
@@ -395,11 +402,13 @@ class HybridRetriever:
         reranker: RerankerProtocol | None = None,
         *,
         candidate_multiplier: int = 3,
+        query_transformer: QueryTransformerProtocol | None = None,
     ) -> None:
         self._tfidf = TfidfRetriever(index)
         self._embedding: EmbeddingRetriever | None = None
         self._reranker = reranker
         self._candidate_multiplier = candidate_multiplier
+        self._query_transformer = query_transformer
 
         if _is_sentence_transformers_available():
             try:
@@ -418,27 +427,44 @@ class HybridRetriever:
         """Whether a re-ranker is attached."""
         return self._reranker is not None
 
+    @property
+    def has_query_transformer(self) -> bool:
+        """Whether a query transformer is attached."""
+        return self._query_transformer is not None
+
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
-        """Retrieve via TF-IDF + embeddings, fused with RRF, then re-ranked."""
+        """Retrieve via TF-IDF + embeddings, fused with RRF, then re-ranked.
+
+        When a query transformer is attached, the query is first transformed
+        into one or more alternative queries.  Results from all queries are
+        merged with Reciprocal Rank Fusion before re-ranking.
+        """
+        # --- Query transformation ---
+        if self._query_transformer is not None:
+            queries = self._query_transformer.transform(query)
+        else:
+            queries = [query]
+
         pool = top_k * self._candidate_multiplier
 
-        if self._embedding is None:
-            # No embeddings — just TF-IDF
-            candidates = self._tfidf.retrieve(query, top_k=pool if self._reranker else top_k)
+        if len(queries) == 1:
+            # Single query — standard retrieval path
+            candidates = self._retrieve_single(queries[0], pool)
         else:
-            # Hybrid: over-fetch from both, fuse with RRF
-            tfidf_results = self._tfidf.retrieve(query, top_k=pool)
-            embed_results = self._embedding.retrieve(query, top_k=pool)
+            # Multiple queries — retrieve for each, then fuse all results
+            all_results: list[list[ScoredChunk]] = []
+            for q in queries:
+                results = self._retrieve_single(q, pool)
+                if results:
+                    all_results.append(results)
 
-            if not tfidf_results and not embed_results:
+            if not all_results:
                 return []
 
-            if not tfidf_results:
-                candidates = embed_results
-            elif not embed_results:
-                candidates = tfidf_results
+            if len(all_results) == 1:
+                candidates = all_results[0]
             else:
-                candidates = _reciprocal_rank_fusion([tfidf_results, embed_results])
+                candidates = _reciprocal_rank_fusion(all_results)
 
         # Apply cross-encoder re-ranker if available
         if self._reranker is not None:
@@ -447,6 +473,23 @@ class HybridRetriever:
             return self._reranker.rerank(query, candidates, top_k=top_k)
 
         return candidates[:top_k]
+
+    def _retrieve_single(self, query: str, pool: int) -> list[ScoredChunk]:
+        """Run TF-IDF + (optional) embedding retrieval for a single query."""
+        if self._embedding is None:
+            return self._tfidf.retrieve(query, top_k=pool if self._reranker else pool)
+
+        tfidf_results = self._tfidf.retrieve(query, top_k=pool)
+        embed_results = self._embedding.retrieve(query, top_k=pool)
+
+        if not tfidf_results and not embed_results:
+            return []
+        if not tfidf_results:
+            return embed_results
+        if not embed_results:
+            return tfidf_results
+
+        return _reciprocal_rank_fusion([tfidf_results, embed_results])
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +500,7 @@ def _create_retriever(
     index: ArmoryIndex,
     embed_model: str | None = None,
     rerank_model: str | None = None,
+    query_transformer: QueryTransformerProtocol | None = None,
 ) -> TfidfRetriever | EmbeddingRetriever | HybridRetriever:
     """Create the best available retriever for the given index.
 
@@ -464,6 +508,8 @@ def _create_retriever(
     1. If sentence-transformers is available → ``HybridRetriever`` (TF-IDF + embeddings)
        with an optional ``CrossEncoderReranker`` for post-retrieval re-scoring.
     2. Otherwise → ``TfidfRetriever`` (pure keyword matching)
+
+    A ``query_transformer`` can be attached to any retriever type.
     """
     if _is_sentence_transformers_available():
         reranker: RerankerProtocol | None = None
@@ -476,6 +522,7 @@ def _create_retriever(
             index,
             embed_model=embed_model,
             reranker=reranker,
+            query_transformer=query_transformer,
         )
         if hybrid.has_embeddings:
             return hybrid
@@ -490,18 +537,32 @@ def retrieve(
     query: str,
     index: ArmoryIndex,
     top_k: int = 5,
+    *,
+    transform_strategy: TransformStrategy = TransformStrategy.IDENTITY,
+    prompt_fn: PromptFn | None = None,
 ) -> list[ScoredChunk]:
     """Retrieve the top-k most relevant chunks for *query*.
 
     Automatically selects the best retriever backend based on available
-    dependencies.
+    dependencies.  When *transform_strategy* is set to something other
+    than ``IDENTITY``, the query is transformed before retrieval.
+
+    LLM-based strategies (``HYDE``, ``MULTI_QUERY``) require *prompt_fn*
+    to be provided — a callable that sends a prompt to the model and
+    returns the text response.
     """
-    retriever = _create_retriever(index)
+    # Build query transformer if requested
+    transformer = None
+    if transform_strategy != TransformStrategy.IDENTITY:
+        transformer = create_transformer(transform_strategy, prompt_fn)
+
+    retriever = _create_retriever(index, query_transformer=transformer)
     results = retriever.retrieve(query, top_k)
     _log.debug("retrieve results", extra={"fields": {
         "query_len": len(query),
         "top_k": top_k,
         "returned": len(results),
         "retriever": type(retriever).__name__,
+        "transform_strategy": transform_strategy.value,
     }})
     return results
