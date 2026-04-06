@@ -212,7 +212,7 @@ class ModelCommand(Command):
                 model_map.append((slug, model))
 
         if not options:
-            has_key = bool(s.config.api_key)
+            has_key = bool(s.config.resolved_api_key)
             lines = [
                 f"  Model:   {s.config.model}",
                 f"  API:     {s.config.base_url}",
@@ -306,7 +306,7 @@ class ApiCommand(Command):
             except Exception:
                 set_volatile(slug, raw_key)
                 print_success(
-                    f"API key set for this session only (keychain unavailable)."
+                    "API key set for this session only (keychain unavailable)."
                 )
 
             # Also set volatile so the current session picks it up immediately

@@ -9,7 +9,6 @@ are **never** written to config files or persisted inside ChatConfig objects.
 from __future__ import annotations
 
 import json
-import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
