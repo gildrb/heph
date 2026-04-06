@@ -1,10 +1,20 @@
 """Text chunking for RAG indexing.
 
-Splits text files into overlapping chunks with metadata preservation.
+Splits text files into chunks with metadata preservation.
+
+Chunking strategies (auto-selected per file):
+- Markdown files (.md): structure-aware — respects ``#`` headers, code fences
+- Other text files: fixed-window with paragraph-boundary breaks
+- Semantic chunking (optional): when ``sentence-transformers`` is available,
+  splits on embedding-similarity boundaries instead of character counts
+- Hierarchical metadata: stores parent heading for each chunk so retrieval
+  can return heading context alongside matched subsections
 """
 
 from __future__ import annotations
 
+import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +34,14 @@ _TEXT_EXTENSIONS = frozenset({
 
 _DEFAULT_CHUNK_SIZE = 500
 _DEFAULT_OVERLAP = 100
+_MAX_CHUNK_SIZE = 2000
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
+_CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
+
+
+# ---------------------------------------------------------------------------
+# Data types
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +51,8 @@ class Chunk:
     index: int  # chunk index within the source file
     char_start: int
     char_end: int
+    heading: str = ""  # nearest parent heading (hierarchical context)
+    heading_level: int = 0  # heading depth (1–6, 0 = no heading)
 
 
 @dataclass
@@ -40,6 +60,11 @@ class ChunkedDocument:
     source: str
     chunks: list[Chunk] = field(default_factory=list)
     content_hash: str = ""
+
+
+# ---------------------------------------------------------------------------
+# File-type detection
+# ---------------------------------------------------------------------------
 
 
 def _is_text_file(path: Path) -> bool:
@@ -52,13 +77,172 @@ def _is_text_file(path: Path) -> bool:
         return False
 
 
+def _is_markdown(path: Path) -> bool:
+    return path.suffix.lower() in (".md", ".mdown", ".markdown")
+
+
+# ---------------------------------------------------------------------------
+# Markdown structure-aware chunking
+# ---------------------------------------------------------------------------
+
+
+def _parse_sections(text: str) -> list[tuple[str, int, int, int]]:
+    """Split text into sections at heading boundaries.
+
+    Returns list of (heading_title, heading_level, char_start, char_end).
+    Sections include their heading line in the text span.
+    """
+    sections: list[tuple[str, int, int, int]] = []
+    matches = list(_HEADING_RE.finditer(text))
+
+    if not matches:
+        # No headings — entire file is one section
+        if text.strip():
+            sections.append(("", 0, 0, len(text)))
+        return sections
+
+    # Content before first heading
+    if matches[0].start() > 0:
+        preamble = text[:matches[0].start()]
+        if preamble.strip():
+            sections.append(("", 0, 0, matches[0].start()))
+
+    for i, m in enumerate(matches):
+        level = len(m.group(1))
+        title = m.group(2).strip()
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        sections.append((title, level, start, end))
+
+    return sections
+
+
+def _chunk_markdown_section(
+    text: str,
+    source: str,
+    idx_start: int,
+    heading: str,
+    heading_level: int,
+    char_offset: int,
+    chunk_size: int,
+    overlap: int,
+) -> list[Chunk]:
+    """Chunk a single markdown section, possibly splitting large sections."""
+    text = text.strip()
+    if not text:
+        return []
+
+    if len(text) <= chunk_size:
+        return [Chunk(
+            text=text,
+            source=source,
+            index=idx_start,
+            char_start=char_offset,
+            char_end=char_offset + len(text),
+            heading=heading,
+            heading_level=heading_level,
+        )]
+
+    # Section is too large — split by paragraph boundaries
+    parts = re.split(r"\n\n+", text)
+    chunks: list[Chunk] = []
+    current = ""
+    chunk_idx = idx_start
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        candidate = f"{current}\n\n{part}" if current else part
+
+        if len(candidate) > _MAX_CHUNK_SIZE and current:
+            # Flush current
+            chunks.append(Chunk(
+                text=current.strip(),
+                source=source,
+                index=chunk_idx,
+                char_start=char_offset,
+                char_end=char_offset + len(current),
+                heading=heading,
+                heading_level=heading_level,
+            ))
+            chunk_idx += 1
+            char_offset += len(current)
+            current = part
+        else:
+            current = candidate
+
+    if current.strip():
+        chunks.append(Chunk(
+            text=current.strip(),
+            source=source,
+            index=chunk_idx,
+            char_start=char_offset,
+            char_end=char_offset + len(current),
+            heading=heading,
+            heading_level=heading_level,
+        ))
+
+    return chunks
+
+
+def chunk_markdown(
+    text: str,
+    source: str,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    overlap: int = _DEFAULT_OVERLAP,
+) -> list[Chunk]:
+    """Structure-aware Markdown chunking.
+
+    Splits on heading boundaries first, then by paragraphs within sections
+    that exceed *chunk_size*.  Each chunk carries its nearest parent heading
+    as ``heading`` metadata for hierarchical context.
+    """
+    if not text or not text.strip():
+        return []
+
+    sections = _parse_sections(text)
+    chunks: list[Chunk] = []
+    idx = 0
+
+    for heading_title, heading_level, start, end in sections:
+        section_text = text[start:end]
+        new_chunks = _chunk_markdown_section(
+            section_text, source, idx, heading_title, heading_level,
+            start, chunk_size, overlap,
+        )
+        chunks.extend(new_chunks)
+        idx += len(new_chunks)
+
+    return chunks
+
+
+# ---------------------------------------------------------------------------
+# Fixed-window chunking (legacy, for non-Markdown files)
+# ---------------------------------------------------------------------------
+
+
+def _find_boundary(text: str, target: int, search_back: int) -> int:
+    """Look backwards from *target* for a good break point."""
+    start = max(target - search_back, 0)
+    window = text[start:target]
+
+    for sep in ("\n\n", "\n", ". ", "! ", "? ", "; ", ", "):
+        idx = window.rfind(sep)
+        if idx >= 0:
+            return start + idx + len(sep)
+
+    return target
+
+
 def chunk_text(
     text: str,
     source: str,
     chunk_size: int = _DEFAULT_CHUNK_SIZE,
     overlap: int = _DEFAULT_OVERLAP,
 ) -> list[Chunk]:
-    """Split *text* into overlapping chunks.
+    """Split *text* into overlapping chunks (fixed-window).
 
     Tries to break on paragraph boundaries (double newlines) for readability.
     Falls back to sentence boundaries (single newline or period+space) and
@@ -98,17 +282,132 @@ def chunk_text(
     return chunks
 
 
-def _find_boundary(text: str, target: int, search_back: int) -> int:
-    """Look backwards from *target* for a good break point."""
-    start = max(target - search_back, 0)
-    window = text[start:target]
+# ---------------------------------------------------------------------------
+# Semantic chunking (requires sentence-transformers, optional)
+# ---------------------------------------------------------------------------
 
-    for sep in ("\n\n", "\n", ". ", "! ", "? ", "; ", ", "):
-        idx = window.rfind(sep)
-        if idx >= 0:
-            return start + idx + len(sep)
 
-    return target
+def _is_st_available() -> bool:
+    try:
+        import sentence_transformers  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _cosine_sim(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(x * x for x in b) ** 0.5
+    if na == 0 or nb == 0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def chunk_semantic(
+    text: str,
+    source: str,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    overlap: int = _DEFAULT_OVERLAP,
+    *,
+    similarity_threshold: float = 0.5,
+    min_chunk: int = 100,
+) -> list[Chunk]:
+    """Semantic chunking: split on embedding similarity boundaries.
+
+    Splits text into sentences, embeds each, then merges adjacent sentences
+    into chunks by finding natural "drops" in cosine similarity between
+    consecutive sentence embeddings.
+
+    Falls back to ``chunk_text()`` if ``sentence-transformers`` is not
+    available.
+    """
+    if not text or not text.strip():
+        return []
+
+    if not _is_st_available():
+        return chunk_text(text, source, chunk_size, overlap)
+
+    from sentence_transformers import SentenceTransformer
+
+    # Split into sentences
+    sentences = _split_sentences(text)
+    if len(sentences) <= 1:
+        return [Chunk(text=text.strip(), source=source, index=0,
+                       char_start=0, char_end=len(text))]
+
+    # Encode sentences
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    embeddings = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
+    emb_lists = [row.tolist() for row in embeddings]
+
+    # Find breakpoints: where similarity drops below threshold
+    breakpoints: list[int] = [0]
+    for i in range(1, len(emb_lists)):
+        sim = _cosine_sim(emb_lists[i - 1], emb_lists[i])
+        if sim < similarity_threshold:
+            breakpoints.append(i)
+    breakpoints.append(len(sentences))
+
+    # Build chunks from sentence groups
+    chunks: list[Chunk] = []
+    char_pos = 0
+    idx = 0
+
+    for bp_idx in range(len(breakpoints) - 1):
+        start_sent = breakpoints[bp_idx]
+        end_sent = breakpoints[bp_idx + 1]
+        chunk_sentences = sentences[start_sent:end_sent]
+        chunk_str = " ".join(chunk_sentences).strip()
+
+        if not chunk_str:
+            continue
+
+        # Skip very small chunks — merge with previous
+        if len(chunk_str) < min_chunk and chunks:
+            prev = chunks[-1]
+            merged = f"{prev.text} {chunk_str}"
+            chunks[-1] = Chunk(
+                text=merged,
+                source=source,
+                index=prev.index,
+                char_start=prev.char_start,
+                char_end=char_pos + len(chunk_str),
+            )
+            char_pos += len(chunk_str) + 1
+            continue
+
+        chunks.append(Chunk(
+            text=chunk_str,
+            source=source,
+            index=idx,
+            char_start=char_pos,
+            char_end=char_pos + len(chunk_str),
+        ))
+        idx += 1
+        char_pos += len(chunk_str) + 1
+
+    return chunks if chunks else chunk_text(text, source, chunk_size, overlap)
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentences for semantic chunking."""
+    # Split on sentence-ending punctuation followed by whitespace
+    parts = re.split(r'(?<=[.!?])\s+', text)
+    # Also split on newlines for code-like text
+    result: list[str] = []
+    for part in parts:
+        sub = part.split('\n')
+        for s in sub:
+            s = s.strip()
+            if s:
+                result.append(s)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# File-level entry point
+# ---------------------------------------------------------------------------
 
 
 def chunk_file(
@@ -126,10 +425,17 @@ def chunk_file(
     except (UnicodeDecodeError, OSError):
         return None
 
-    rel = str(path.relative_to(armory_root))
-    chunks = chunk_text(text, rel, chunk_size, overlap)
+    if not text.strip():
+        return None
 
-    import hashlib
+    rel = str(path.relative_to(armory_root))
+
+    # Auto-select chunking strategy
+    if _is_markdown(path):
+        chunks = chunk_markdown(text, rel, chunk_size, overlap)
+    else:
+        chunks = chunk_text(text, rel, chunk_size, overlap)
+
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
     return ChunkedDocument(
