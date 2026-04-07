@@ -101,15 +101,39 @@ def _tokenize(text: str) -> list[str]:
     return [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
 
 
+def _is_sklearn_available() -> bool:
+    """Return True if scikit-learn can be imported."""
+    try:
+        from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 class TfidfRetriever:
-    """TF-IDF cosine-similarity retriever over an ``ArmoryIndex``."""
+    """TF-IDF cosine-similarity retriever over an ``ArmoryIndex``.
+
+    Uses scikit-learn's ``TfidfVectorizer`` when available (sublinear TF
+    scaling, proper L2 normalization).  Falls back to a hand-rolled stdlib
+    implementation otherwise.
+    """
 
     def __init__(self, index: ArmoryIndex) -> None:
         self._chunks = index.all_chunks
+        # sklearn path (preferred when available)
+        self._vectorizer = None
+        self._matrix = None
+        # stdlib fallback
         self._idf: dict[str, float] = {}
         self._chunk_freqs: list[Counter] = []
         if self._chunks:
-            self._build_idf()
+            if _is_sklearn_available():
+                try:
+                    self._build_sklearn()
+                except Exception:
+                    self._build_idf()
+            else:
+                self._build_idf()
 
     # -- index fitting -----------------------------------------------------
 
@@ -128,13 +152,48 @@ class TfidfRetriever:
             for term, count in df.items()
         }
 
+    # -- sklearn build ---------------------------------------------------
+
+    def _build_sklearn(self) -> None:
+        """Build TF-IDF matrix using scikit-learn (preferred when available)."""
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
+        texts = [c.text for c in self._chunks]
+        self._vectorizer = TfidfVectorizer(
+            stop_words="english",
+            sublinear_tf=True,
+            max_features=10000,
+            token_pattern=r"(?u)\\b[a-zA-Z0-9]{2,}\\b",
+        )
+        self._matrix = self._vectorizer.fit_transform(texts)
+
     # -- retrieval ---------------------------------------------------------
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
         """Return the top-k chunks most relevant to *query*."""
         if not self._chunks:
             return []
+        if self._matrix is not None:
+            return self._retrieve_sklearn(query, top_k)
+        return self._retrieve_stdlib(query, top_k)
 
+    def _retrieve_sklearn(self, query: str, top_k: int) -> list[ScoredChunk]:
+        """Retrieve using scikit-learn TF-IDF vectors and cosine similarity."""
+        import numpy as np
+
+        query_vec = self._vectorizer.transform([query])
+        # TfidfVectorizer produces L2-normalized vectors by default,
+        # so dot product == cosine similarity.
+        scores = (query_vec @ self._matrix.T).toarray().flatten()
+        top_indices = np.argsort(scores)[::-1][:top_k]
+        return [
+            ScoredChunk(chunk=self._chunks[idx], score=float(scores[idx]))
+            for idx in top_indices
+            if scores[idx] > 0
+        ]
+
+    def _retrieve_stdlib(self, query: str, top_k: int) -> list[ScoredChunk]:
+        """Retrieve using the hand-rolled TF-IDF implementation (fallback)."""
         query_tokens = _tokenize(query)
         if not query_tokens:
             return []

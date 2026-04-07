@@ -7,6 +7,10 @@ Implements the core s01/s02 pattern from learn-claude-code:
 
 The MODEL decides when to call tools and when to stop.
 The CODE just executes what the model asks for.
+
+Token usage is extracted from streaming responses and tracked via
+:class:`~hephaistos.chat.usage.SessionUsage`.  The caller receives
+interleaved text deltas and tool-activity annotations.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from hephaistos.harness.compact import (
     estimate_messages_tokens,
     micro_compact,
 )
+from hephaistos.chat.usage import ContextBudget, SessionUsage, TokenUsage
 from hephaistos.harness.tools import TOOL_SCHEMAS, get_handler
 from hephaistos.logging import Timer, get_logger
 
@@ -39,6 +44,7 @@ _log = get_logger("harness.dispatch")
 
 _MAX_TURNS = 20
 _MAX_RESULT_DISPLAY = 200
+_MAX_TOOL_CALLS_PER_TURN = 5  # strict limit: study agent doesn't need many
 
 
 # ---------------------------------------------------------------------------
@@ -49,12 +55,39 @@ _MAX_RESULT_DISPLAY = 200
 def execute_tool_calls(
     tool_calls: list[dict],
     workspace: Path,
+    *,
+    max_calls: int = _MAX_TOOL_CALLS_PER_TURN,
 ) -> list[dict]:
     """Execute each tool call and return tool-result messages.
 
+    Enforces *max_calls* per turn.  Excess tool calls are rejected with
+    an error message instead of being executed.
+
     Returns a list of messages with ``role: "tool"`` to append back.
     """
+    if len(tool_calls) > max_calls:
+        _log.warning("tool call limit exceeded", extra={"fields": {
+            "requested": len(tool_calls),
+            "max": max_calls,
+        }})
+
     results: list[dict] = []
+    for i, tc in enumerate(tool_calls):
+        call_id = tc.get("id", "")
+        name = tc["function"]["name"]
+
+        # Enforce per-turn tool call limit
+        if i >= max_calls:
+            results.append({
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": (
+                    f"Error: tool call limit reached ({max_calls} per turn). "
+                    f"Prioritize reading and writing documents. "
+                    f"Tool '{name}' was not executed."
+                ),
+            })
+            continue
     for tc in tool_calls:
         name = tc["function"]["name"]
         call_id = tc.get("id", "")
@@ -208,6 +241,7 @@ def agent_loop(
     abort: threading.Event | None = None,
     max_turns: int = _MAX_TURNS,
     retry: RetryConfig | None = None,
+    usage: SessionUsage | None = None,
 ) -> Iterator[str]:
     """Run the agent loop, yielding text chunks as they stream.
 
@@ -217,6 +251,9 @@ def agent_loop(
     After iteration completes, *conversation* has been updated with all
     messages (user, assistant, tool calls, tool results).
 
+    If *usage* is provided, token counts from API responses are recorded
+    for cost tracking and budget management.
+
     Transient streaming failures are retried with exponential backoff.
     If a failure occurs after content has already been yielded, a
     :class:`StreamRecoveryError` is raised.
@@ -225,11 +262,15 @@ def agent_loop(
     api_messages = conversation.to_api_messages()
     loop_timer = Timer()
     compact_triggered = False
+    budget = ContextBudget(model=config.model, max_tokens=config.max_tokens)
 
     _log.info("agent_loop start", extra={"fields": {
         "model": config.model,
         "message_count": len(api_messages),
         "max_turns": max_turns,
+        "context_window": budget.context_window,
+        "prompt_budget": budget.prompt_budget,
+        "tokens_remaining": budget.tokens_remaining(api_messages),
     }})
 
     for turn_idx in range(max_turns):
@@ -293,6 +334,7 @@ def agent_loop(
             collected_text = ""
             collected_tool_calls: list[dict] = []
             finish_reason = ""
+            stream_usage: dict | None = None
 
             try:
                 for chunk in response:
@@ -300,7 +342,14 @@ def agent_loop(
                         response.close()
                         return
 
+                    # Check for usage in non-choice chunks (final chunk)
                     if not chunk.choices:
+                        if hasattr(chunk, 'usage') and chunk.usage:
+                            stream_usage = {
+                                'prompt_tokens': getattr(chunk.usage, 'prompt_tokens', 0) or 0,
+                                'completion_tokens': getattr(chunk.usage, 'completion_tokens', 0) or 0,
+                                'total_tokens': getattr(chunk.usage, 'total_tokens', 0) or 0,
+                            }
                         continue
 
                     choice = chunk.choices[0]
@@ -315,6 +364,14 @@ def agent_loop(
                     # Accumulate tool-call deltas
                     if delta.tool_calls:
                         _merge_tool_call_deltas(collected_tool_calls, delta.tool_calls)
+
+                    # Check for usage in the final choice chunk
+                    if finish_reason and hasattr(chunk, 'usage') and chunk.usage:
+                        stream_usage = {
+                            'prompt_tokens': getattr(chunk.usage, 'prompt_tokens', 0) or 0,
+                            'completion_tokens': getattr(chunk.usage, 'completion_tokens', 0) or 0,
+                            'total_tokens': getattr(chunk.usage, 'total_tokens', 0) or 0,
+                        }
             except Exception as exc:
                 _log.error(
                     "agent_loop mid-stream failure (attempt %d/%d, turn %d, %d chars)",
@@ -340,6 +397,14 @@ def agent_loop(
 
         # --- No tool calls: we're done ---
         if not collected_tool_calls:
+            # Record usage
+            if usage is not None:
+                if stream_usage:
+                    usage.record(TokenUsage.from_api_response(stream_usage), config.model)
+                else:
+                    prompt_chars = sum(len(m.get('content', '') or '') for m in api_messages)
+                    usage.estimate_from_chars(prompt_chars, len(collected_text), config.model)
+
             # Append final assistant message to conversation
             conversation.add("assistant", collected_text)
             _log.info("agent_loop complete", extra={"fields": {
@@ -348,6 +413,7 @@ def agent_loop(
                 "latency_ms": loop_timer.ms,
                 "text_len": len(collected_text),
                 "finish_reason": finish_reason,
+                "tokens_remaining": budget.tokens_remaining(api_messages),
             }})
             return
 
@@ -396,6 +462,25 @@ def agent_loop(
 
         # Execute
         tool_results = execute_tool_calls(collected_tool_calls, workspace)
+
+        # Record usage for this turn
+        if usage is not None:
+            if stream_usage:
+                usage.record(TokenUsage.from_api_response(stream_usage), config.model)
+            else:
+                prompt_chars = sum(len(m.get('content', '') or '') for m in api_messages)
+                usage.estimate_from_chars(prompt_chars, len(collected_text), config.model)
+
+        # Check context budget — warn if running low
+        urgency = budget.compaction_urgency(api_messages)
+        if urgency in ("medium", "high"):
+            remaining = budget.tokens_remaining(api_messages)
+            yield f"\n[Warning: context window {remaining} tokens remaining ({urgency} urgency). Consider /compact.]"
+            _log.warning("context budget low", extra={"fields": {
+                "remaining": remaining,
+                "urgency": urgency,
+                "turn": turn_idx,
+            }})
 
         # Append results
         for tr in tool_results:
