@@ -27,7 +27,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # JSON formatter
 # ---------------------------------------------------------------------------
@@ -168,7 +167,7 @@ class Timer:
         log.info("done", extra={"fields": {"latency_ms": t.ms}})
     """
 
-    __slots__ = ("_start", "_end")
+    __slots__ = ("_end", "_start")
 
     def __init__(self) -> None:
         self._start: float = 0.0

@@ -86,8 +86,6 @@ def render_markdown_lite(text: str) -> str:
 
     Handles: **bold**, *italic*, `code`, ```code blocks```.
     """
-    import re
-
     result = text
 
     # Code blocks (triple backtick)

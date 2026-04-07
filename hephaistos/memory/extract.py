@@ -13,7 +13,6 @@ Extraction is deliberately conservative:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from hephaistos.chat.engine import ChatConfig, Conversation, _build_client
 from hephaistos.logging import Timer, get_logger

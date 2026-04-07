@@ -2,11 +2,22 @@
 
 Each tool has a JSON schema (for the OpenAI tools= param) and a handler
 function.  Handlers receive the workspace root for path sandboxing.
+
+Tool philosophy for a study RAG agent:
+- Read/write tools are primary — the agent works with documents.
+- Bash is available but strictly limited (timeout, structured output).
+- Web fetch fills knowledge gaps, but with strict source attribution.
+- The agent should NEVER guess. If information is not in the documents
+  and cannot be fetched, it must say so.
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -47,13 +58,17 @@ TOOL_SCHEMAS: list[dict] = [
         "type": "function",
         "function": {
             "name": "bash",
-            "description": "Run a shell command and return stdout and stderr.",
+            "description": "Run a shell command and return structured output with exit code.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
                         "description": "The shell command to run.",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds (default: 30).",
                     },
                 },
                 "required": ["command"],
@@ -184,30 +199,76 @@ TOOL_SCHEMAS: list[dict] = [
 
 _BASH_TIMEOUT = 30
 _MAX_READ_CHARS = 50_000
+_WEB_FETCH_TIMEOUT = 15
+_WEB_FETCH_MAX_CHARS = 20_000
+_WEB_USER_AGENT = "Hephaistos/0.1 (study agent)"
 
 
-def run_bash(command: str, **_kwargs: object) -> str:
-    """Execute a shell command and return stdout + stderr."""
+# ---------------------------------------------------------------------------
+# Structured bash result
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class BashResult:
+    """Structured result from a bash command execution."""
+
+    stdout: str
+    stderr: str
+    exit_code: int
+    timed_out: bool
+    duration_seconds: float
+
+    def to_display(self) -> str:
+        """Format for display to the LLM."""
+        parts: list[str] = []
+        if self.stdout:
+            parts.append(self.stdout)
+        if self.stderr:
+            parts.append(f"--- stderr ---\n{self.stderr}")
+        if self.timed_out:
+            parts.append(f"[timed out after {self.duration_seconds:.1f}s]")
+        elif self.exit_code != 0:
+            parts.append(f"[exit code {self.exit_code}]")
+        return "\n".join(parts) if parts else "(no output)"
+
+
+def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str:
+    """Execute a shell command and return structured output."""
+    import time as _time
+
+    actual_timeout = timeout or _BASH_TIMEOUT
+    start = _time.monotonic()
     try:
         result = subprocess.run(
             command,
             shell=True,
             capture_output=True,
             text=True,
-            timeout=_BASH_TIMEOUT,
+            timeout=actual_timeout,
         )
-        output = ""
-        if result.stdout:
-            output += result.stdout
-        if result.stderr:
-            output += ("\n--- stderr ---\n" + result.stderr) if output else result.stderr
-        if result.returncode != 0:
-            output += f"\n[exit code {result.returncode}]"
-        return output or "(no output)"
+        elapsed = _time.monotonic() - start
+        br = BashResult(
+            stdout=result.stdout or "",
+            stderr=result.stderr or "",
+            exit_code=result.returncode,
+            timed_out=False,
+            duration_seconds=round(elapsed, 2),
+        )
+        output = br.to_display()
     except subprocess.TimeoutExpired:
-        return f"Command timed out after {_BASH_TIMEOUT}s"
+        elapsed = _time.monotonic() - start
+        br = BashResult(
+            stdout="",
+            stderr="",
+            exit_code=-1,
+            timed_out=True,
+            duration_seconds=round(elapsed, 2),
+        )
+        output = br.to_display()
     except Exception as exc:
-        return f"Error running command: {exc}"
+        output = f"Error running command: {exc}"
+    return output[:_MAX_READ_CHARS]
 
 
 def run_read_file(
@@ -324,6 +385,62 @@ def run_list_files(
     if not lines:
         return "(no files found)"
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Web fetch tool
+# ---------------------------------------------------------------------------
+
+
+def run_web_fetch(url: str, **_kwargs: object) -> str:
+    """Fetch a URL and return the text content with source attribution.
+
+    This tool is for filling knowledge gaps that cannot be answered from
+    the armory documents.  The response always includes the source URL
+    so the user can verify the information.
+    """
+    # Basic URL validation
+    if not url.startswith(("http://", "https://")):
+        return "Error: URL must start with http:// or https://"
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": _WEB_USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_WEB_FETCH_TIMEOUT) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            if not any(ct in content_type for ct in ("text", "json", "xml")):
+                return f"Error: non-text content type ({content_type}). URL: {url}"
+            raw = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return f"Error: HTTP {exc.code} fetching {url}"
+    except urllib.error.URLError as exc:
+        return f"Error: could not reach {url} — {exc.reason}"
+    except Exception as exc:
+        return f"Error fetching {url}: {exc}"
+
+    # Truncate
+    if len(raw) > _WEB_FETCH_MAX_CHARS:
+        raw = raw[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
+
+    # Strip HTML tags if it looks like HTML (basic)
+    if "<html" in raw.lower() or "<body" in raw.lower():
+        # Remove script/style blocks
+        raw = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", raw, flags=re.IGNORECASE)
+        # Remove tags
+        raw = re.sub(r"<[^>]+>", " ", raw)
+        # Collapse whitespace
+        raw = re.sub(r"\s+", " ", raw).strip()
+        if len(raw) > _WEB_FETCH_MAX_CHARS:
+            raw = raw[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
+
+    return (
+        f"--- Source: {url} ---\n"
+        f"{raw}\n"
+        f"--- End of fetched content ---"
+    )
 
 
 # ---------------------------------------------------------------------------

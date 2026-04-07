@@ -30,13 +30,13 @@ from hephaistos.chat.engine import (
     _wait_backoff,
     is_retryable_error,
 )
+from hephaistos.chat.usage import ContextBudget, SessionUsage, TokenUsage
 from hephaistos.harness.compact import (
     TOKEN_THRESHOLD,
     auto_compact,
     estimate_messages_tokens,
     micro_compact,
 )
-from hephaistos.chat.usage import ContextBudget, SessionUsage, TokenUsage
 from hephaistos.harness.tools import TOOL_SCHEMAS, get_handler
 from hephaistos.logging import Timer, get_logger
 
@@ -88,9 +88,7 @@ def execute_tool_calls(
                 ),
             })
             continue
-    for tc in tool_calls:
-        name = tc["function"]["name"]
-        call_id = tc.get("id", "")
+
         try:
             arguments = json.loads(tc["function"]["arguments"])
         except json.JSONDecodeError:
@@ -201,6 +199,8 @@ def _format_tool_args(name: str, args: dict) -> str:
         return f"  [edit] {args.get('path', '')}"
     if name == "list_files":
         return f"  [list] {args.get('path', '.') or '.'}"
+    if name == "compact":
+        return "  [compact] compressing conversation"
     return f"  [{name}] {args}"
 
 

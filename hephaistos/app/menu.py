@@ -2,6 +2,7 @@
 
 Uses prompt_toolkit for arrow-key navigation in full-screen mode.
 Falls back to a numbered prompt when the terminal is not a TTY.
+All keybindings are configurable via ``DEFAULT_MENU_KEYBINDINGS``.
 """
 
 from __future__ import annotations
@@ -16,7 +17,8 @@ from prompt_toolkit.layout import FormattedTextControl, HSplit, Layout, Window
 from prompt_toolkit.layout.dimension import D
 from prompt_toolkit.styles import Style as PtStyle
 
-from hephaistos.app.display import BOLD, STYLE_DIM, STYLE_PROMPT, styled
+from hephaistos.app.display import BOLD, STYLE_DIM, STYLE_PROMPT, styled, visible_len
+from hephaistos.app.keybindings import DEFAULT_MENU_KEYBINDINGS
 
 
 @dataclass(frozen=True)
@@ -37,7 +39,18 @@ _MENU_STYLE = PtStyle.from_dict({
 })
 
 
-def _select_with_prompt_toolkit(title: str, options: list[MenuOption]) -> int | None:
+def _add_binding(kb: KeyBindings, keys: str | list[str], handler) -> None:
+    """Register a key binding, accepting a single key or a list of aliases."""
+    key_list = [keys] if isinstance(keys, str) else keys
+    for key in key_list:
+        kb.add(*[k.strip() for k in key.split(",")])(handler)
+
+
+def _select_with_prompt_toolkit(
+    title: str,
+    options: list[MenuOption],
+    keybindings: dict[str, str | list[str]],
+) -> int | None:
     """Arrow-key selector using prompt_toolkit (full-screen, alternate buffer)."""
     selected = [0]  # mutable for closure
 
@@ -57,32 +70,31 @@ def _select_with_prompt_toolkit(title: str, options: list[MenuOption]) -> int | 
 
     kb = KeyBindings()
 
-    @kb.add("up")
+    @_add_binding(kb, keybindings["navigate_up"])
     def _(event):
         if options:
             selected[0] = (selected[0] - 1) % len(options)
 
-    @kb.add("down")
+    @_add_binding(kb, keybindings["navigate_down"])
     def _(event):
         if options:
             selected[0] = (selected[0] + 1) % len(options)
 
-    @kb.add("enter")
+    @_add_binding(kb, keybindings["select"])
     def _(event):
         event.app.exit(result=selected[0])
 
-    @kb.add("c-c")
-    @kb.add("escape")
+    @_add_binding(kb, keybindings["cancel"])
     def _(event):
         event.app.exit(result=None)
 
     layout = Layout(HSplit([
-        Window(height=D(min=1)),   # flexible top spacer (centering)
+        Window(height=D(min=1)),
         Window(
             content=FormattedTextControl(get_text),
             dont_extend_height=True,
         ),
-        Window(height=D(min=1)),   # flexible bottom spacer
+        Window(height=D(min=1)),
     ]))
 
     app = Application(
@@ -106,7 +118,7 @@ def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
         desc = styled(option.description, STYLE_DIM) if option.description else ""
         cur = styled(" *", STYLE_PROMPT) if option.is_current else ""
         if desc:
-            max_label = max(_visible_len(o.label) for o in options)
+            max_label = max(visible_len(o.label) for o in options)
             padded = f"  {option.label}{cur}".ljust(max_label + 6)
             print(f"  {index}. {padded}{desc}")
         else:
@@ -128,29 +140,25 @@ def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _visible_len(text: str) -> int:
-    """Return visible (non-ANSI) character count."""
-    import re
-    return len(re.sub(r"\033\[[0-9;]*m", "", text))
-
-
-# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
-def select_option(title: str, options: list[MenuOption]) -> int | None:
+def select_option(
+    title: str,
+    options: list[MenuOption],
+    *,
+    keybindings: dict[str, str | list[str]] | None = None,
+) -> int | None:
     """Return the selected option index or ``None`` when cancelled."""
     if not options:
         return None
 
+    kb = keybindings or DEFAULT_MENU_KEYBINDINGS
+
     if sys.stdin.isatty() and sys.stdout.isatty():
         try:
-            return _select_with_prompt_toolkit(title, options)
+            return _select_with_prompt_toolkit(title, options, kb)
         except Exception:
             pass  # fall through to numbered prompt
 

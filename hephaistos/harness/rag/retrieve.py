@@ -23,6 +23,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer as _SklearnTfidfVectorizer
+    import numpy as np
+    _HAS_SKLEARN = True
+except ImportError:
+    _HAS_SKLEARN = False
+
 from hephaistos.harness.rag.chunker import Chunk
 from hephaistos.harness.rag.index import ArmoryIndex
 from hephaistos.harness.rag.query_transform import (
@@ -30,7 +37,6 @@ from hephaistos.harness.rag.query_transform import (
     QueryTransformerProtocol,
     TransformStrategy,
     create_transformer,
-    transform_query,
 )
 from hephaistos.logging import get_logger
 
@@ -101,15 +107,6 @@ def _tokenize(text: str) -> list[str]:
     return [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
 
 
-def _is_sklearn_available() -> bool:
-    """Return True if scikit-learn can be imported."""
-    try:
-        from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
 class TfidfRetriever:
     """TF-IDF cosine-similarity retriever over an ``ArmoryIndex``.
 
@@ -121,13 +118,13 @@ class TfidfRetriever:
     def __init__(self, index: ArmoryIndex) -> None:
         self._chunks = index.all_chunks
         # sklearn path (preferred when available)
-        self._vectorizer = None
+        self._vectorizer: _SklearnTfidfVectorizer | None = None
         self._matrix = None
         # stdlib fallback
         self._idf: dict[str, float] = {}
         self._chunk_freqs: list[Counter] = []
         if self._chunks:
-            if _is_sklearn_available():
+            if _HAS_SKLEARN:
                 try:
                     self._build_sklearn()
                 except Exception:
@@ -156,10 +153,8 @@ class TfidfRetriever:
 
     def _build_sklearn(self) -> None:
         """Build TF-IDF matrix using scikit-learn (preferred when available)."""
-        from sklearn.feature_extraction.text import TfidfVectorizer
-
         texts = [c.text for c in self._chunks]
-        self._vectorizer = TfidfVectorizer(
+        self._vectorizer = _SklearnTfidfVectorizer(
             stop_words="english",
             sublinear_tf=True,
             max_features=10000,
@@ -179,8 +174,6 @@ class TfidfRetriever:
 
     def _retrieve_sklearn(self, query: str, top_k: int) -> list[ScoredChunk]:
         """Retrieve using scikit-learn TF-IDF vectors and cosine similarity."""
-        import numpy as np
-
         query_vec = self._vectorizer.transform([query])
         # TfidfVectorizer produces L2-normalized vectors by default,
         # so dot product == cosine similarity.

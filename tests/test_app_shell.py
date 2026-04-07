@@ -5,10 +5,26 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from hephaistos.app import shell
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
-from hephaistos.chat.session import create_session
+from hephaistos.chat.session import SessionError, create_session
+
+
+def _make_armory(tmp_path: Path) -> Path:
+    """Create a valid armory with one source file."""
+    armory_path = tmp_path / "test-armory"
+    initialize(armory_path)
+    (armory_path / "source").mkdir(exist_ok=True)
+    (armory_path / "source" / "exam.md").write_text("# Past Exam\n## Q1\nWhat is 2+2?\n\nAnswer: 4\n")
+    return armory_path
+
+
+def _make_session(tmp_path: Path):
+    """Create a session attached to a valid armory."""
+    armory_path = _make_armory(tmp_path)
+    return create_session(ChatConfig(), armory_path)
 
 
 def test_run_chat_shell_armory_command_opens_existing_armory(
@@ -16,60 +32,61 @@ def test_run_chat_shell_armory_command_opens_existing_armory(
     monkeypatch,
     capsys,
 ) -> None:
-    armory_path = tmp_path / "study-armory"
-    initialize(armory_path)
+    old_armory = _make_armory(tmp_path / "old")
+    new_armory = _make_armory(tmp_path / "new")
 
-    responses = iter(["/armory", str(armory_path), "/exit"])
+    responses = iter(["/armory", str(new_armory), "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
     monkeypatch.setattr(shell, "select_option", lambda *_args, **_kwargs: 0)
 
-    session = create_session(ChatConfig(), None)
-    # Force fallback mode since pytest isn't a TTY
+    session = create_session(ChatConfig(), old_armory)
     with patch.object(shell.sys.stdin, "isatty", return_value=False), \
          patch.object(shell.sys.stdout, "isatty", return_value=False):
         shell._run_fallback_shell(session)
 
     out = capsys.readouterr().out
-    assert f"Using armory {armory_path.resolve()}" in out
+    assert f"Using armory {new_armory.resolve()}" in out
 
 
-def test_run_chat_shell_save_without_armory_prints_error(monkeypatch, capsys) -> None:
-    responses = iter(["/save", "/exit"])
-    monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
-
-    session = create_session(ChatConfig(), None)
-    shell._run_fallback_shell(session)
-
-    out = capsys.readouterr().out
-    assert "cannot save chat without an active armory" in out
+def test_create_session_without_armory_raises(tmp_path: Path) -> None:
+    with pytest.raises(SessionError, match="armory is required"):
+        create_session(ChatConfig(), None)
 
 
-def test_fallback_shell_exits_on_quit(monkeypatch, capsys) -> None:
+def test_create_session_empty_armory_raises(tmp_path: Path) -> None:
+    armory_path = tmp_path / "empty-armory"
+    initialize(armory_path)
+    # No source files
+    with pytest.raises(SessionError, match="no source documents"):
+        create_session(ChatConfig(), armory_path)
+
+
+def test_fallback_shell_exits_on_quit(monkeypatch, capsys, tmp_path: Path) -> None:
     responses = iter(["/quit"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
 
-    session = create_session(ChatConfig(), None)
+    session = _make_session(tmp_path)
     shell._run_fallback_shell(session)
 
     out = capsys.readouterr().out
     assert "basic mode" in out
 
 
-def test_fallback_shell_runs_bang_command(monkeypatch, capsys) -> None:
+def test_fallback_shell_runs_bang_command(monkeypatch, capsys, tmp_path: Path) -> None:
     responses = iter(["!echo hello", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
 
-    session = create_session(ChatConfig(), None)
+    session = _make_session(tmp_path)
     shell._run_fallback_shell(session)
 
     out = capsys.readouterr().out
     assert "hello" in out
 
 
-def test_handle_input_slash_command(monkeypatch, capsys) -> None:
+def test_handle_input_slash_command(monkeypatch, capsys, tmp_path: Path) -> None:
     from hephaistos.app.input_history import InputHistory
 
-    session = create_session(ChatConfig(), None)
+    session = _make_session(tmp_path)
     history = InputHistory()
     session, cont = shell._handle_input(session, "/status", history)
     assert cont is True
@@ -77,19 +94,19 @@ def test_handle_input_slash_command(monkeypatch, capsys) -> None:
     assert "Session:" in out
 
 
-def test_handle_input_exit(monkeypatch) -> None:
+def test_handle_input_exit(monkeypatch, tmp_path: Path) -> None:
     from hephaistos.app.input_history import InputHistory
 
-    session = create_session(ChatConfig(), None)
+    session = _make_session(tmp_path)
     history = InputHistory()
     session, cont = shell._handle_input(session, "/exit", history)
     assert cont is False
 
 
-def test_handle_input_shell_mode(monkeypatch, capsys) -> None:
+def test_handle_input_shell_mode(monkeypatch, capsys, tmp_path: Path) -> None:
     from hephaistos.app.input_history import InputHistory
 
-    session = create_session(ChatConfig(), None)
+    session = _make_session(tmp_path)
     history = InputHistory()
     session, cont = shell._handle_input(session, "!echo test-output", history)
     assert cont is True
@@ -97,10 +114,10 @@ def test_handle_input_shell_mode(monkeypatch, capsys) -> None:
     assert "test-output" in out
 
 
-def test_handle_input_unknown_command(capsys) -> None:
+def test_handle_input_unknown_command(capsys, tmp_path: Path) -> None:
     from hephaistos.app.input_history import InputHistory
 
-    session = create_session(ChatConfig(), None)
+    session = _make_session(tmp_path)
     history = InputHistory()
     session, cont = shell._handle_input(session, "/unknown", history)
     assert cont is True
@@ -143,34 +160,30 @@ def test_prompt_path_returns_value_when_provided(monkeypatch) -> None:
     assert result == "/my/path"
 
 
-def test_open_armory_cancelled_returns_session_unchanged(monkeypatch, capsys) -> None:
-    session = create_session(ChatConfig(), None)
-    assert session.armory_path is None
+def test_open_armory_cancelled_returns_session_unchanged(monkeypatch, capsys, tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
 
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
     new_session = shell._open_armory(session)
 
     assert new_session is session
-    assert new_session.armory_path is None
     out = capsys.readouterr().out
     assert "Cancelled" in out
 
 
-def test_create_armory_cancelled_returns_session_unchanged(monkeypatch, capsys) -> None:
-    session = create_session(ChatConfig(), None)
-    assert session.armory_path is None
+def test_create_armory_cancelled_returns_session_unchanged(monkeypatch, capsys, tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
 
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
     new_session = shell._create_armory(session)
 
     assert new_session is session
-    assert new_session.armory_path is None
     out = capsys.readouterr().out
     assert "Cancelled" in out
 
 
-def test_prompt_armory_for_sessions_cancelled_returns_none(monkeypatch, capsys) -> None:
-    session = create_session(ChatConfig(), None)
+def test_prompt_armory_for_sessions_cancelled_returns_none(monkeypatch, capsys, tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
 
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
     result = shell._prompt_armory_for_sessions(session)
@@ -180,8 +193,8 @@ def test_prompt_armory_for_sessions_cancelled_returns_none(monkeypatch, capsys) 
     assert "Cancelled" in out
 
 
-def test_resume_saved_chat_cancelled_returns_session_unchanged(monkeypatch, capsys) -> None:
-    session = create_session(ChatConfig(), None)
+def test_resume_saved_chat_cancelled_returns_session_unchanged(monkeypatch, capsys, tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
 
     # Cancel at the path prompt
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
@@ -190,8 +203,8 @@ def test_resume_saved_chat_cancelled_returns_session_unchanged(monkeypatch, caps
     assert new_session is session
 
 
-def test_list_saved_chats_cancelled_returns_early(monkeypatch, capsys) -> None:
-    session = create_session(ChatConfig(), None)
+def test_list_saved_chats_cancelled_returns_early(monkeypatch, capsys, tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
 
     # Cancel at the path prompt
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")

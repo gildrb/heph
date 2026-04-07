@@ -19,7 +19,7 @@ import json
 import time
 from pathlib import Path
 
-from hephaistos.chat.engine import Conversation, _build_client
+from hephaistos.chat.engine import ChatConfig, Conversation, _build_client
 from hephaistos.harness.rag.context import estimate_tokens
 from hephaistos.logging import get_logger
 
@@ -112,48 +112,50 @@ def _find_tool_name(messages: list[dict], tool_result_idx: int) -> str:
 
 def auto_compact(
     messages: list[dict],
-    config: object,
+    config: ChatConfig,
     workspace: Path,
 ) -> list[dict]:
     """Save transcript to disk, summarise via LLM, return compressed list.
 
-    *config* is a :class:`ChatConfig` — typed as ``object`` here to
-    avoid a circular import.
+    If summarisation fails (network error, API key missing, etc.) the
+    original messages are returned unchanged and the error is logged.
     """
     # --- Save full transcript for recovery ---
-    transcript_path = _save_transcript(messages, workspace)
-    _log.info("transcript saved", extra={"fields": {
-        "path": str(transcript_path),
-        "messages": len(messages),
-    }})
+    _save_transcript(messages, workspace)
 
-    # --- Build summarisation prompt ---
-    serialized = json.dumps(messages, default=str, ensure_ascii=False)
-    if len(serialized) > 80_000:
-        serialized = serialized[:80_000] + "\n... [truncated]"
+    try:
+        # --- Build summarisation prompt ---
+        serialized = json.dumps(messages, default=str, ensure_ascii=False)
+        if len(serialized) > 80_000:
+            serialized = serialized[:80_000] + "\n... [truncated]"
 
-    summary_prompt = (
-        "Summarize the following conversation for continuity. "
-        "Preserve key facts, decisions, file paths, code changes, "
-        "and any context needed to continue working.\n\n"
-        f"{serialized}"
-    )
+        summary_prompt = (
+            "Summarize the following conversation for continuity. "
+            "Preserve key facts, decisions, file paths, code changes, "
+            "and any context needed to continue working.\n\n"
+            f"{serialized}"
+        )
 
-    temp = Conversation()
-    temp.add(
-        "system",
-        "You are a helpful assistant that summarizes conversations concisely.",
-    )
-    temp.add("user", summary_prompt)
+        temp = Conversation()
+        temp.add(
+            "system",
+            "You are a helpful assistant that summarizes conversations concisely.",
+        )
+        temp.add("user", summary_prompt)
 
-    client = _build_client(config)  # type: ignore[arg-type]
-    response = client.chat.completions.create(
-        model=config.model,  # type: ignore[union-attr]
-        messages=temp.to_api_messages(),
-        max_tokens=2000,
-        stream=False,
-    )
-    summary = response.choices[0].message.content or "(summary unavailable)"
+        client = _build_client(config)
+        response = client.chat.completions.create(
+            model=config.model,
+            messages=temp.to_api_messages(),
+            max_tokens=2000,
+            stream=False,
+        )
+        summary = response.choices[0].message.content or "(summary unavailable)"
+    except Exception as exc:
+        _log.error("auto_compact summarisation failed", extra={"fields": {
+            "error": str(exc),
+        }})
+        return messages
 
     # --- Build compressed message list ---
     system_msgs = [m for m in messages if m.get("role") == "system"]

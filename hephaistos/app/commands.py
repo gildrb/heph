@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class CommandResult:
-    __slots__ = ("output", "should_exit", "new_session")
+    __slots__ = ("new_session", "output", "should_exit")
 
     def __init__(
         self,
@@ -100,19 +100,26 @@ class StatusCommand(Command):
         armory = str(s.armory_path) if s.armory_path else styled("none", STYLE_DIM)
         title = s.title or styled("(untitled)", STYLE_DIM)
         msg_count = sum(1 for m in s.conversation.messages if m.role != "system")
-        tool_count = 5 if s.armory_path else 0
+        tool_count = 7 if s.armory_path else 0
         mode = "agent (tools)" if s.armory_path else "plain chat"
+        usage_summary = s.usage.summary()
+        mem_count = len(s._memory.entries) if s._memory else 0
+
         lines = [
-            f"  Armory:   {armory}",
-            f"  Session:  {s.session_id}",
-            f"  Title:    {title}",
-            f"  Model:    {s.config.model}",
-            f"  API:      {s.config.base_url}",
-            f"  Key:      {'configured' if s.config.resolved_api_key else styled('not set', STYLE_DIM)}",
-            f"  Mode:     {mode}",
-            f"  Tools:    {tool_count}",
-            f"  Messages: {msg_count}",
-            f"  Dirty:    {'yes' if s.dirty else 'no'}",
+            f"  Armory:    {armory}",
+            f"  Session:   {s.session_id}",
+            f"  Title:     {title}",
+            f"  Model:     {s.config.model}",
+            f"  API:       {s.config.base_url}",
+            f"  Key:       {'configured' if s.config.resolved_api_key else styled('not set', STYLE_DIM)}",
+            f"  Mode:      {mode}",
+            f"  Tools:     {tool_count}",
+            f"  Messages:  {msg_count}",
+            f"  Memory:    {mem_count} concepts",
+            f"  API calls: {usage_summary['api_calls']}",
+            f"  Tokens:    {usage_summary['total_tokens']} (prompt: {usage_summary['prompt_tokens']}, completion: {usage_summary['completion_tokens']})",
+            f"  Cost:      ${usage_summary['cost_usd']:.4f}",
+            f"  Dirty:     {'yes' if s.dirty else 'no'}",
         ]
         print("\n".join(lines))
         return CommandResult()
@@ -248,8 +255,8 @@ class ApiCommand(Command):
         from hephaistos.providers.keyring_store import (
             mask_key,
             resolve_key,
-            store_key,
             set_volatile,
+            store_key,
         )
 
         s = _ensure_session(session)
@@ -384,6 +391,7 @@ class HistoryCommand(Command):
         tool_msgs = [m for m in s.conversation.messages if m.role == "tool"]
         total_chars = sum(len(m.content) for m in s.conversation.messages)
         est_tokens = total_chars // 4
+        usage_summary = s.usage.summary()
         lines = [
             f"  Turns:     {len(user_msgs)}",
             f"  User:      {len(user_msgs)} messages",
@@ -391,10 +399,16 @@ class HistoryCommand(Command):
         ]
         if tool_msgs:
             lines.append(f"  Tool:      {len(tool_msgs)} results")
+        mem_count = len(s._memory.entries) if s._memory else 0
         lines.extend([
+            f"  Memory:    {mem_count} concepts learned",
             f"  Chars:     {total_chars}",
             f"  ~Tokens:   ~{est_tokens}",
             f"  Max tokens: {s.config.max_tokens}",
+            "",
+            f"  API calls: {usage_summary['api_calls']}",
+            f"  Tokens:    {usage_summary['total_tokens']}",
+            f"  Cost:      ${usage_summary['cost_usd']:.4f}",
         ])
         print("\n".join(lines))
         return CommandResult()
@@ -492,7 +506,7 @@ class ProviderCommand(Command):
         return CommandResult()
 
     @staticmethod
-    def _use(pc: ProviderConfig, session: "ChatSession", slug: str, model: str) -> CommandResult:
+    def _use(pc: ProviderConfig, session: ChatSession, slug: str, model: str) -> CommandResult:
         if slug not in pc.providers:
             print_error(f"Unknown provider: {slug}")
             print_info(f"Available: {', '.join(pc.providers)}")
@@ -518,7 +532,7 @@ class ProviderCommand(Command):
         return CommandResult()
 
     @staticmethod
-    def _set_model(pc: ProviderConfig, session: "ChatSession", model: str) -> CommandResult:
+    def _set_model(pc: ProviderConfig, session: ChatSession, model: str) -> CommandResult:
         active = pc.get_active()
         if active is None:
             print_error("No active provider. Use /provider use <slug> first.")

@@ -20,7 +20,11 @@ def match_commands(prefix: str, commands: list[CommandSuggestion]) -> list[Comma
     return sorted(matches, key=lambda c: c.name)
 
 
-def format_suggestions(matches: list[CommandSuggestion], max_width: int = 80, selected: int = -1) -> list[str]:
+def format_suggestions(
+    matches: list[CommandSuggestion],
+    max_width: int = 80,
+    selected: int = -1,
+) -> list[str]:
     """Format matched commands into displayable suggestion lines."""
     if not matches:
         return []

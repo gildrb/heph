@@ -24,8 +24,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI, RateLimitError
 from openai.types.chat import ChatCompletionMessageParam
 
 from hephaistos.logging import Timer, get_logger
@@ -47,6 +46,7 @@ class ChatConfig:
     base_url: str = "https://api.openai.com/v1"
     model: str = "gpt-4o-mini"
     max_tokens: int = 4096
+    rag_context_budget: int = 2000
     # Provider references for lazy key resolution (set by ProviderConfig)
     _provider_slug: str = field(default="", repr=False)
     _provider_env: str = field(default="", repr=False)

@@ -6,51 +6,46 @@ Features:
 - Arrow-key history navigation
 - Multi-line input with backslash continuation
 - Streaming interrupt via Ctrl+C
+
+All keybindings are configurable via ``DEFAULT_SHELL_KEYBINDINGS``.
 """
 
 from __future__ import annotations
 
-import os
-import select
 import signal
 import subprocess
 import sys
-import termios
 import threading
-import time
-import tty
 from pathlib import Path
 
-from hephaistos.app.autocomplete import match_commands, format_suggestions
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.styles import Style as PtStyle
+
+from hephaistos import __version__
 from hephaistos.app.commands import get_registry
 from hephaistos.app.display import (
-    BOLD,
-    DIM,
-    RED,
-    RESET,
-    STYLE_ACCENT,
     STYLE_ASSISTANT,
     STYLE_DIM,
     STYLE_ERROR,
-    STYLE_PROMPT,
-    build_prompt,
     print_error,
     print_info,
     print_shell_intro,
     print_success,
     styled,
-    visible_len,
 )
-from hephaistos import __version__
 from hephaistos.app.input_history import InputHistory
+from hephaistos.app.keybindings import DEFAULT_SHELL_KEYBINDINGS
 from hephaistos.app.menu import MenuOption, select_option
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import EngineError, StreamRecoveryError
-from hephaistos.harness.permissions import classify_bash_command, tier_allows
-from hephaistos.parameters.cli import load_config
 from hephaistos.chat.session import (
     ChatSession,
+    SessionError,
     create_session,
     list_armory_sessions,
     resume_session,
@@ -59,25 +54,105 @@ from hephaistos.chat.session import (
     session_has_messages,
     validate_armory_path,
 )
-
+from hephaistos.harness.permissions import classify_bash_command, tier_allows
+from hephaistos.parameters.cli import load_config
 
 ARMORY_MENU_OPTIONS = [
     MenuOption("Open existing armory", "Attach a workspace and load its study context."),
     MenuOption("Create new armory", "Initialize a new workspace and start chatting in it."),
     MenuOption("Resume saved chat", "Pick a saved conversation from an armory."),
     MenuOption("List saved chats", "Show the saved sessions for an armory."),
-    MenuOption("Detach armory", "Keep chatting without workspace context."),
     MenuOption("Cancel", "Return to the chat prompt."),
 ]
 
-_HELP_FOOTER = styled(
-    " Enter send · ⌥Enter newline · ↑↓ history · Tab complete · / commands · Ctrl+C cancel · Ctrl+D exit",
-    STYLE_DIM,
+_HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
+
+
+# ---------------------------------------------------------------------------
+# prompt_toolkit configuration
+# ---------------------------------------------------------------------------
+
+_PT_STYLE = PtStyle.from_dict({
+    "armory": "bold green",
+    "prompt-mark": "bold ansired",
+    "bottom-toolbar": "bg:#333333 #aaaaaa",
+    "completion-menu.completion.current": "bg:ansired fg:white bold",
+    "completion-menu.completion": "bg:#555555 fg:white",
+})
+
+_HELP_TOOLBAR = (
+    " Enter send · ⌥Enter newline · ↑↓ history"
+    " · Tab complete · / commands · Ctrl+C cancel · Ctrl+D exit"
 )
 
-_ESCAPE_GUARD_SECONDS = 2.0
 
-_HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
+class SlashCommandCompleter(Completer):
+    """Tab-completion for slash commands."""
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        stripped = text.lstrip()
+
+        if not stripped.startswith("/") or " " in stripped:
+            return
+
+        prefix = stripped[1:].lower()
+        registry = get_registry()
+
+        for cmd in registry.suggestions():
+            if cmd.name.lower().startswith(prefix):
+                yield Completion(
+                    text=cmd.name + " ",
+                    start_position=-(len(stripped) - 1),
+                    display_meta=cmd.description,
+                )
+
+
+def _build_keybindings(
+    keybindings: dict[str, str | list[str]],
+) -> KeyBindings:
+    """Build prompt_toolkit key bindings from a config dict."""
+    kb = KeyBindings()
+    submit_keys = keybindings["submit"]
+    newline_keys = keybindings["newline"]
+
+    @kb.add(*[k.strip() for k in submit_keys.split(",")] if isinstance(submit_keys, str) else submit_keys)
+    def _(event):
+        buf = event.current_buffer
+        line = buf.document.current_line_before_cursor
+
+        # Backslash continuation → replace \ with newline
+        if line.rstrip().endswith("\\"):
+            stripped = line.rstrip()
+            buf.delete_before_cursor(count=len(line) - len(stripped) + 1)
+            buf.insert_text("\n")
+            return
+
+        # Ignore empty input
+        if not buf.text.strip():
+            return
+
+        buf.validate_and_handle()
+
+    @kb.add(*[k.strip() for k in newline_keys.split(",")] if isinstance(newline_keys, str) else newline_keys)
+    def _(event):
+        """Insert a newline (e.g. Alt+Enter)."""
+        event.current_buffer.insert_text("\n")
+
+    return kb
+
+
+def _get_prompt_message(session: ChatSession):
+    """Return a callable that builds the prompt for each iteration."""
+    def message():
+        name = session.armory_path.name
+        return FormattedText([("class:armory", name), ("class:prompt-mark", " > ")])
+    return message
+
+
+def _get_bottom_toolbar():
+    """Return the help footer for the bottom toolbar."""
+    return FormattedText([("class:bottom-toolbar", _HELP_TOOLBAR)])
 
 
 # ---------------------------------------------------------------------------
@@ -117,15 +192,16 @@ def _save_before_switch(session: ChatSession) -> None:
         print_error(str(exc))
 
 
-def _start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatSession:
+def _start_fresh_session(session: ChatSession, armory_path: Path) -> ChatSession:
     _save_before_switch(session)
-    new_session = create_session(session.config, armory_path)
-    if armory_path is None:
-        print_info("Detached armory. Chat is running without workspace context.")
-    else:
-        print_success(f"Using armory {armory_path}")
-        if new_session.source_file_count:
-            print_info(f"Loaded {new_session.source_file_count} file(s).")
+    try:
+        new_session = create_session(session.config, armory_path)
+    except SessionError as exc:
+        print_error(str(exc))
+        return session
+    print_success(f"Using armory {armory_path}")
+    if new_session.source_file_count:
+        print_info(f"Loaded {new_session.source_file_count} file(s).")
     return new_session
 
 
@@ -219,7 +295,7 @@ def _list_saved_chats(session: ChatSession) -> None:
 
 def _handle_armory_command(session: ChatSession) -> ChatSession:
     selected = select_option("Armory", ARMORY_MENU_OPTIONS)
-    if selected is None or selected == 5:
+    if selected is None or selected == 4:
         return session
     if selected == 0:
         return _open_armory(session)
@@ -230,462 +306,12 @@ def _handle_armory_command(session: ChatSession) -> ChatSession:
     if selected == 3:
         _list_saved_chats(session)
         return session
-    if selected == 4:
-        return _start_fresh_session(session, None)
     return session
 
 
 # ---------------------------------------------------------------------------
-# Line editor (raw terminal)
+# Shell command execution
 # ---------------------------------------------------------------------------
-
-
-class _LineEditor:
-    """A minimal line editor with history, autocomplete, and multi-line."""
-
-    def __init__(self, history: InputHistory) -> None:
-        self.history = history
-        self.buf = ""
-        self.cursor = 0
-        self._suggestion_lines: list[str] = []
-        self._suggestion_index: int = -1
-        self._current_matches: list = []  # list[CommandSuggestion]
-        self._escape_pending: bool = False
-        self._escape_time: float = 0.0
-        self._show_footer: bool = True
-        self._first_render: bool = True
-        self._flash_message: str = ""  # printed above the panel once
-        self._flash_displayed: bool = False  # True after flash has been drawn
-        self._multiline_parts: list[str] = []
-        self._prev_content_lines: int = 1  # lines drawn inside box (for cursor repositioning)
-
-    def _reset_suggestion_index(self) -> None:
-        """Reset suggestion selection when buffer content changes."""
-        self._suggestion_index = -1
-
-    def _handle_arrow(self, key: str, session: ChatSession, fd: int) -> None:
-        """Handle an arrow key (A=up, B=down, C=right, D=left)."""
-        if key == "A":  # Up
-            if self._current_matches:
-                if self._suggestion_index <= 0:
-                    self._suggestion_index = len(self._current_matches) - 1
-                else:
-                    self._suggestion_index -= 1
-            else:
-                self.buf = self.history.up(self.buf)
-                self.cursor = len(self.buf)
-            self._render(session)
-        elif key == "B":  # Down
-            if self._current_matches:
-                if self._suggestion_index >= len(self._current_matches) - 1:
-                    self._suggestion_index = 0
-                else:
-                    self._suggestion_index += 1
-            else:
-                self.buf = self.history.down(self.buf)
-                self.cursor = len(self.buf)
-            self._render(session)
-        elif key == "C":  # Right
-            if self.cursor < len(self.buf):
-                self.cursor += 1
-                self._render(session)
-        elif key == "D":  # Left
-            if self.cursor > 0:
-                self.cursor -= 1
-                self._render(session)
-        elif key == "3":  # Delete key (CSI 3 ~)
-            os.read(fd, 1)  # consume ~
-            if self.cursor < len(self.buf):
-                self.buf = self.buf[: self.cursor] + self.buf[self.cursor + 1 :]
-                self._reset_suggestion_index()
-                self._render(session)
-
-    def _prompt_str(self, session: ChatSession) -> tuple[str, int]:
-        armory_name = session.armory_path.name if session.armory_path else None
-        mode = "bash" if self.buf.startswith("!") else "prompt"
-        return build_prompt(armory_name, mode)
-
-    def _render(self, session: ChatSession) -> None:
-        prompt, prompt_vis_len = self._prompt_str(session)
-
-        # Get terminal width for the chatbox border
-        try:
-            cols = os.get_terminal_size().columns
-        except OSError:
-            cols = 80
-
-        # Ensure minimum width for box-drawing
-        cols = max(cols, 20)
-
-        # ── Move cursor to the spacer line and clear everything below ──
-        # The panel layout from top to bottom is:
-        #   0: blank spacer line
-        #   1: top border (╭───╮)
-        #   2..M: multiline continuation lines (│ text │)
-        #   M+1: input line  (│▌ prompt text)
-        #   M+2..N: suggestions (if any)
-        #   N+1: bottom border (╰───╯)
-        #   N+2: footer (if shown)
-        #
-        # When _render is called, the cursor sits on the input line.  We
-        # move up past any multiline lines and the top border to the
-        # spacer row so we can overwrite the entire panel in place.
-        #
-        # On the very first render we draw the panel directly after the
-        # intro text with a small gap, instead of anchoring at the viewport
-        # bottom.  This avoids overlapping the banner on small terminals
-        # and eliminates the huge gap on large ones.
-
-        if self._first_render:
-            self._first_render = False
-            self._suggestion_lines = []
-            # Show any pending flash message (e.g. API error) above the box
-            if self._flash_message:
-                sys.stdout.write(self._flash_message + "\r\n")
-                self._flash_displayed = True
-            sys.stdout.write("\r\n")  # breathing room below the intro
-        else:
-            # up_lines = previous multiline lines + top border + spacer
-            # (+ flash line if present)
-            up_lines = self._prev_content_lines + 1
-            if self._flash_displayed:
-                up_lines += 1
-            sys.stdout.write(f"\033[{up_lines}A\r")
-            sys.stdout.write("\033[J")     # clear from there to end of screen
-            self._suggestion_lines = []
-            self._flash_displayed = False
-
-            # Print flash message (e.g. error) above the panel.
-            # The message persists until explicitly cleared in _handle_input
-            # so it doesn't vanish between keystrokes.
-            if self._flash_message:
-                sys.stdout.write(self._flash_message + "\r\n")
-                self._flash_displayed = True
-
-            # Blank line for breathing room above the chatbox
-            sys.stdout.write("\r\n")
-
-        # ── Draw the full chatbox panel ──
-
-        # Top border: ╭─...─╮ (bold cyan)
-        corner_tl = styled("╭", RED)
-        corner_tr = styled("╮", RED)
-        top_fill = styled("─" * (cols - 2), RED)
-        sys.stdout.write(f"{corner_tl}{top_fill}{corner_tr}\033[K\r\n")
-
-        # Borders for content lines
-        corner_left = styled("│ ", RED)
-        corner_right = styled(" │", RED)
-        content_width = cols - 4  # subtract left "│ " and right " │"
-
-        # Multiline continuation lines (no accent bar)
-        for part in self._multiline_parts:
-            part_text = part.rstrip("\n")
-            part_vis = visible_len(part_text)
-            part_pad = max(0, content_width - part_vis)
-            sys.stdout.write(f"{corner_left}{part_text}{' ' * part_pad}{corner_right}\033[K\r\n")
-
-        # Input line: │▌ prompt input │
-        accent_bar = styled("▌ ", STYLE_PROMPT)
-        input_content = f"{accent_bar}{prompt}{self.buf}"
-        input_vis = visible_len(input_content)
-        pad = max(0, content_width - input_vis)
-        sys.stdout.write(f"{corner_left}{input_content}{' ' * pad}{corner_right}\033[K")
-
-        # If typing a slash command, show suggestions below the prompt
-        stripped = self.buf.lstrip()
-        if stripped.startswith("/") and " " not in stripped:
-            registry = get_registry()
-            matches = match_commands(stripped, registry.suggestions())
-            self._current_matches = matches
-            if matches:
-                suggestions = format_suggestions(matches, selected=self._suggestion_index)
-                for sug in suggestions:
-                    sug_vis = visible_len(sug)
-                    sug_pad = max(0, content_width - sug_vis)
-                    sys.stdout.write(f"\r\n{corner_left}{sug}{' ' * sug_pad}{corner_right}")
-                self._suggestion_lines = suggestions
-        else:
-            self._current_matches = []
-
-        # Bottom border: ╰─...─╯
-        corner_bl = styled("╰", RED)
-        corner_br = styled("╯", RED)
-        bottom_fill = styled("─" * (cols - 2), RED)
-        sys.stdout.write(f"\r\n{corner_bl}{bottom_fill}{corner_br}\033[K")
-
-        # Footer line below the border
-        footer_lines = 0
-        if self._show_footer:
-            if self._escape_pending:
-                footer = styled(" Press Esc again to cancel input", "\033[1m\033[33m")
-            else:
-                footer = _HELP_FOOTER
-            sys.stdout.write(f"\r\n{footer}\033[K")
-            footer_lines = 1
-
-        # Move cursor back to the input line and to correct column
-        lines_below_input = len(self._suggestion_lines) + 1 + footer_lines  # +1 for bottom border
-        if lines_below_input:
-            sys.stdout.write(f"\033[{lines_below_input}A")
-        # vis_col: "│ " (2) + "▌ " (2) + prompt + cursor
-        left_border_vis = 2  # "│ "
-        accent_vis = 2  # "▌ "
-        vis_col = left_border_vis + accent_vis + prompt_vis_len + self.cursor
-        sys.stdout.write(f"\r\033[{vis_col}C")
-        sys.stdout.flush()
-
-        # Track how many content lines we drew for cursor repositioning next time
-        self._prev_content_lines = len(self._multiline_parts) + 1  # +1 for input line
-
-    def _clear_suggestions(self) -> None:
-        # Cursor is on the input line. Move up past multiline lines, the
-        # top-border row (and flash message if present), then erase
-        # everything from there to end of screen.
-        up = self._prev_content_lines + 1  # content lines + top border
-        if self._flash_displayed:
-            up += 1
-        sys.stdout.write(f"\033[{up}A\r")
-        sys.stdout.write("\033[J")     # clear from there to end of screen
-        self._suggestion_lines = []
-        self._suggestion_index = -1
-        self._current_matches = []
-
-    def _clear_down(self) -> None:
-        """Clear the entire panel and advance to a new line.
-
-        Erases lines above the input line (multiline content + top border)
-        one-by-one, then clears everything below.  The cursor never moves
-        above what is already on screen, so this is safe even for tall
-        multiline panels that may have scrolled past the top.
-        """
-        self._show_footer = False
-        # Clear each line above the input (multiline parts + top border)
-        for _ in range(self._prev_content_lines):
-            sys.stdout.write("\r\033[K\033[A")
-        # Cursor is now on the top border.  Clear the spacer and flash
-        # message (if any) so no stale text remains above the panel.
-        if self._flash_displayed:
-            sys.stdout.write("\r\033[K\033[A")  # top border → spacer
-            sys.stdout.write("\r\033[K\033[A")  # spacer → flash line
-            sys.stdout.write("\r\033[K\033[A")  # flash line → above
-        else:
-            sys.stdout.write("\r\033[K\033[A")  # top border → spacer
-        # Clear the line we landed on and everything below
-        sys.stdout.write("\r\033[K\033[J\r\n")
-        sys.stdout.flush()
-        self._suggestion_lines = []
-        self._suggestion_index = -1
-        self._current_matches = []
-
-    def _read_char(self, fd: int) -> str:
-        """Read one byte from fd directly, returning it as a single char."""
-        b = os.read(fd, 1)
-        if not b:
-            return ""
-        byte = b[0]
-        if byte < 0x80:
-            return b.decode("utf-8")
-        # Multi-byte UTF-8: figure out length and read continuation bytes
-        if byte < 0xE0:
-            needed = 1
-        elif byte < 0xF0:
-            needed = 2
-        else:
-            needed = 3
-        buf = b
-        for _ in range(needed):
-            extra = os.read(fd, 1)
-            if not extra:
-                break
-            buf += extra
-        return buf.decode("utf-8", errors="replace")
-
-    def read_line(self, session: ChatSession) -> str | None:
-        """Read a line with full editing. Returns None on Ctrl+D."""
-        fd = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        self.buf = ""
-        self.cursor = 0
-        self._suggestion_lines = []
-        self._suggestion_index = -1
-        self._current_matches = []
-        self._escape_pending = False
-        self._escape_time = 0.0
-        self._show_footer = True
-        self._multiline_parts = []
-        self._first_render = True
-
-        try:
-            tty.setraw(fd)
-            self._render(session)
-
-            while True:
-                ch = self._read_char(fd)
-
-                # Reset escape guard on any key other than Escape
-                if ch != "\x1b":
-                    self._escape_pending = False
-
-                # Ctrl+C — cancel current input
-                if ch == "\x03":
-                    self._clear_down()
-                    return ""
-
-                # Ctrl+D — exit
-                if ch == "\x04":
-                    self._clear_down()
-                    return None
-
-                # Enter
-                if ch in ("\r", "\n"):
-                    # Empty / whitespace input — stay in the editor, do nothing
-                    combined = "".join(self._multiline_parts) + self.buf
-                    if not combined.strip():
-                        continue
-
-                    # Backslash continuation for multi-line
-                    if self.buf.endswith("\\"):
-                        self.buf = self.buf[:-1]
-                        self._multiline_parts.append(self.buf)
-                        self.buf = ""
-                        self.cursor = 0
-                        self._show_footer = True
-                        self._render(session)
-                        continue
-
-                    result = "".join(self._multiline_parts) + self.buf
-                    # Collapse box to single line before clearing so
-                    # empty multiline lines don't consume vertical space
-                    self._multiline_parts = []
-                    self._prev_content_lines = 1
-                    self._clear_down()
-                    self.buf = ""
-                    self.cursor = 0
-                    return result
-
-                # Backspace / Delete
-                if ch in ("\x7f", "\x08"):
-                    if self.cursor > 0:
-                        self.buf = self.buf[: self.cursor - 1] + self.buf[self.cursor :]
-                        self.cursor -= 1
-                    self._reset_suggestion_index()
-                    self._render(session)
-                    continue
-
-                # Escape sequences
-                if ch == "\x1b":
-                    ready, _, _ = select.select([fd], [], [], 0.1)
-                    if not ready:
-                        # Bare Escape — two-press exit guard
-                        if self._escape_pending and (time.monotonic() - self._escape_time < _ESCAPE_GUARD_SECONDS):
-                            self._clear_down()
-                            return ""
-                        self._escape_pending = True
-                        self._escape_time = time.monotonic()
-                        self._render(session)
-                        continue
-                    seq = self._read_char(fd)
-                    # Handle both CSI [A-D and SS3 OA-OD (normal + app mode)
-                    if seq == "[":
-                        arrow = self._read_char(fd)
-                        self._handle_arrow(arrow, session, fd)
-                    elif seq == "O":
-                        arrow = self._read_char(fd)
-                        self._handle_arrow(arrow, session, fd)
-                    elif seq in ("\r", "\n"):
-                        # Option/Alt+Enter — insert newline
-                        self._multiline_parts.append(self.buf + "\n")
-                        self.buf = ""
-                        self.cursor = 0
-                        self._show_footer = True
-                        self._render(session)
-                    continue
-
-                # Tab — autocomplete
-                if ch == "\t":
-                    if self._suggestion_index >= 0 and self._current_matches:
-                        # Complete to the highlighted suggestion
-                        idx = self._suggestion_index
-                        if idx < len(self._current_matches):
-                            cmd = self._current_matches[idx]
-                            stripped = self.buf.lstrip()
-                            prefix_len = len(self.buf) - len(stripped)
-                            self.buf = self.buf[:prefix_len] + "/" + cmd.name + " "
-                            self.cursor = len(self.buf)
-                            self._suggestion_index = -1
-                    else:
-                        stripped = self.buf.lstrip()
-                        if stripped.startswith("/") and " " not in stripped:
-                            registry = get_registry()
-                            matches = match_commands(stripped, registry.suggestions())
-                            if len(matches) == 1:
-                                # Auto-complete to the single match
-                                prefix_len = len(self.buf) - len(stripped)
-                                self.buf = self.buf[:prefix_len] + "/" + matches[0].name + " "
-                                self.cursor = len(self.buf)
-                    self._render(session)
-                    continue
-
-                # Ctrl+A — home
-                if ch == "\x01":
-                    self.cursor = 0
-                    self._render(session)
-                    continue
-
-                # Ctrl+E — end
-                if ch == "\x05":
-                    self.cursor = len(self.buf)
-                    self._render(session)
-                    continue
-
-                # Ctrl+U — clear line
-                if ch == "\x15":
-                    self.buf = self.buf[self.cursor :]
-                    self.cursor = 0
-                    self._reset_suggestion_index()
-                    self._render(session)
-                    continue
-
-                # Ctrl+K — kill to end
-                if ch == "\x0b":
-                    self.buf = self.buf[: self.cursor]
-                    self._reset_suggestion_index()
-                    self._render(session)
-                    continue
-
-                # Regular printable character
-                if ord(ch) >= 32:
-                    self.buf = self.buf[: self.cursor] + ch + self.buf[self.cursor :]
-                    self.cursor += 1
-                    self._reset_suggestion_index()
-                    self._render(session)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-
-# ---------------------------------------------------------------------------
-# Main shell loop
-# ---------------------------------------------------------------------------
-
-
-def _print_shell_intro(session: ChatSession) -> None:
-    print_shell_intro(
-        version=__version__,
-        armory_path=str(session.armory_path) if session.armory_path else None,
-        source_file_count=session.source_file_count or 0,
-        session_id=session.session_id,
-        model=session.config.model,
-        base_url=session.config.base_url,
-        has_api_key=bool(session.config.resolved_api_key),
-    )
-
-
-def _get_history_path(session: ChatSession) -> Path:
-    if session.armory_path:
-        # Per-armory history
-        return session.armory_path / ".hephaistos" / "history.json"
-    return _HISTORY_DIR / "default_history.json"
 
 
 def _run_shell_command(cmd: str) -> None:
@@ -697,15 +323,19 @@ def _run_shell_command(cmd: str) -> None:
         print_error(str(exc))
 
 
-def _handle_input(session: ChatSession, user_input: str, history: InputHistory, editor: _LineEditor | None = None) -> tuple[ChatSession, bool]:
+# ---------------------------------------------------------------------------
+# Input processing
+# ---------------------------------------------------------------------------
+
+
+def _handle_input(
+    session: ChatSession,
+    user_input: str,
+    history: InputHistory,
+) -> tuple[ChatSession, bool]:
     """Process a single input. Returns (session, should_continue)."""
     if not user_input or not user_input.strip():
         return session, True
-
-    # Clear any previous flash message — it will be re-set on error
-    if editor:
-        editor._flash_message = ""
-        editor._flash_displayed = False
 
     # Shell mode: !command
     if user_input.startswith("!"):
@@ -727,7 +357,6 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory, 
         history.add(user_input)
         stripped = user_input.strip()
         if stripped == "/":
-            # Bare "/" — treat as /help
             registry = get_registry()
             cmd = registry.find("help")
             if cmd:
@@ -771,17 +400,9 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory, 
                 )
                 if rec.partial_content:
                     msg += f" ({len(rec.partial_content)} chars received)"
-                if editor:
-                    sys.stdout.write("\r\033[K")
-                    editor._flash_message = msg
-                else:
-                    print(msg)
+                print(msg)
             except EngineError as exc:
-                if editor:
-                    sys.stdout.write("\r\033[K")
-                    editor._flash_message = f"{styled('error:', STYLE_ERROR)} {exc}"
-                else:
-                    print_error(str(exc))
+                print_error(str(exc))
             else:
                 print()
 
@@ -800,20 +421,33 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory, 
         )
         if rec.partial_content:
             msg += f" ({len(rec.partial_content)} chars received)"
-        if editor:
-            sys.stdout.write("\r\033[K")
-            editor._flash_message = msg
-        else:
-            print(msg)
+        print(msg)
     except EngineError as exc:
-        if editor:
-            sys.stdout.write("\r\033[K")
-            editor._flash_message = f"{styled('error:', STYLE_ERROR)} {exc}"
-        else:
-            print_error(str(exc))
+        print_error(str(exc))
     else:
         print()
     return session, True
+
+
+# ---------------------------------------------------------------------------
+# Session lifecycle
+# ---------------------------------------------------------------------------
+
+
+def _print_shell_intro(session: ChatSession) -> None:
+    print_shell_intro(
+        version=__version__,
+        armory_path=str(session.armory_path),
+        source_file_count=session.source_file_count or 0,
+        session_id=session.session_id,
+        model=session.config.model,
+        base_url=session.config.base_url,
+        has_api_key=bool(session.config.resolved_api_key),
+    )
+
+
+def _get_history_path(session: ChatSession) -> Path:
+    return session.armory_path / ".hephaistos" / "history"
 
 
 def _save_on_exit(session: ChatSession) -> None:
@@ -826,7 +460,16 @@ def _save_on_exit(session: ChatSession) -> None:
     session.trace.close()
 
 
-def run_chat_shell(session: ChatSession | None = None) -> None:
+# ---------------------------------------------------------------------------
+# Main shell loop (prompt_toolkit)
+# ---------------------------------------------------------------------------
+
+
+def run_chat_shell(
+    session: ChatSession | None = None,
+    *,
+    keybindings: dict[str, str | list[str]] | None = None,
+) -> None:
     """Run the interactive chat shell with rich terminal UX."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         _run_fallback_shell(session)
@@ -834,71 +477,87 @@ def run_chat_shell(session: ChatSession | None = None) -> None:
 
     if session is None:
         config = load_config()
-        session = create_session(config, _discover_startup_armory())
+        armory = _discover_startup_armory()
+        if armory is None:
+            print_error("No armory found. Create one with: hephaistos armory init <path>")
+            return
+        session = create_session(config, armory)
 
     _print_shell_intro(session)
 
-    history_path = _get_history_path(session)
-    history = InputHistory.load(history_path)
-    editor = _LineEditor(history)
+    kb = keybindings or DEFAULT_SHELL_KEYBINDINGS
 
-    # Set up Ctrl+C handler for streaming interrupt
+    # Set up prompt_toolkit session
+    history_path = _get_history_path(session)
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+
+    pt_session = PromptSession(
+        message=_get_prompt_message(session),
+        style=_PT_STYLE,
+        history=FileHistory(str(history_path)),
+        completer=SlashCommandCompleter(),
+        key_bindings=_build_keybindings(kb),
+        bottom_toolbar=_get_bottom_toolbar,
+        multiline=False,
+        complete_while_typing=True,
+    )
+
     abort_event = threading.Event()
     original_sigint = signal.getsignal(signal.SIGINT)
 
     def _sigint_handler(signum: int, frame: object) -> None:
         abort_event.set()
 
+    # History for the _handle_input function (tracks InputHistory entries
+    # for the /edit command and similar operations).
+    history = InputHistory()
+
     while True:
         try:
             signal.signal(signal.SIGINT, original_sigint)
-            user_input = editor.read_line(session)
-        except (termios.error, OSError):
-            # Terminal not available for raw mode
-            signal.signal(signal.SIGINT, original_sigint)
-            _run_fallback_shell(session)
-            return
-
-        if user_input is None:
-            # Ctrl+D
+            user_input = pt_session.prompt()
+        except KeyboardInterrupt:
+            continue
+        except EOFError:
             break
 
-        if not user_input:
+        if not user_input or not user_input.strip():
             continue
 
-        # Install interrupt handler during LLM call
         signal.signal(signal.SIGINT, _sigint_handler)
         abort_event.clear()
 
-        session, should_continue = _handle_input(session, user_input, history, editor)
+        session, should_continue = _handle_input(session, user_input, history)
 
-        # Restore normal SIGINT
         signal.signal(signal.SIGINT, original_sigint)
 
         if not should_continue:
             break
 
-    # Save history
-    try:
-        history.save(history_path)
-    except OSError as exc:
-        sys.stderr.write(f"Warning: failed to save history: {exc}\n")
-
     _save_on_exit(session)
 
 
+# ---------------------------------------------------------------------------
+# Fallback shell (non-TTY / basic mode)
+# ---------------------------------------------------------------------------
+
+
 def _run_fallback_shell(session: ChatSession | None = None) -> None:
-    """Simple fallback shell when raw terminal is not available."""
+    """Simple fallback shell when the terminal is not a TTY."""
     if session is None:
         config = load_config()
-        session = create_session(config, _discover_startup_armory())
+        armory = _discover_startup_armory()
+        if armory is None:
+            print_error("No armory found. Create one with: hephaistos armory init <path>")
+            return
+        session = create_session(config, armory)
 
     print("Hephaistos (basic mode)")
     history = InputHistory()
 
     while True:
         try:
-            armory_name = session.armory_path.name if session.armory_path else "heph"
+            armory_name = session.armory_path.name
             user_input = input(f"{armory_name}> ").strip()
         except (EOFError, KeyboardInterrupt):
             print()

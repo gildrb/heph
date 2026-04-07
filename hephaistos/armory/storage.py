@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
-
-import tomllib
 
 ARMORY_DIRS = ("source", "library", "notes", "chats", "parameters", ".hephaistos")
 MARKER_FILE = Path(".hephaistos/armory.toml")

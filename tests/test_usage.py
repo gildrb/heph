@@ -1,0 +1,254 @@
+"""Tests for token usage tracking, cost estimation, and context budget."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from hephaistos.chat.usage import (
+    ContextBudget,
+    SessionUsage,
+    TokenUsage,
+    estimate_conversation_tokens,
+    estimate_message_tokens,
+    get_context_window,
+    load_usage,
+    save_usage,
+    _get_pricing,
+)
+
+
+# ---------------------------------------------------------------------------
+# TokenUsage
+# ---------------------------------------------------------------------------
+
+
+class TestTokenUsage:
+    def test_from_api_response_none(self):
+        usage = TokenUsage.from_api_response(None)
+        assert usage.prompt_tokens == 0
+        assert usage.completion_tokens == 0
+        assert usage.total_tokens == 0
+
+    def test_from_api_response_with_data(self):
+        usage = TokenUsage.from_api_response({
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+        })
+        assert usage.prompt_tokens == 100
+        assert usage.completion_tokens == 50
+        assert usage.total_tokens == 150
+
+    def test_from_api_response_missing_fields(self):
+        usage = TokenUsage.from_api_response({})
+        assert usage.prompt_tokens == 0
+        assert usage.total_tokens == 0
+
+    def test_from_api_response_with_none_values(self):
+        usage = TokenUsage.from_api_response({
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+        })
+        assert usage.prompt_tokens == 0
+        assert usage.completion_tokens == 0
+
+
+# ---------------------------------------------------------------------------
+# SessionUsage
+# ---------------------------------------------------------------------------
+
+
+class TestSessionUsage:
+    def test_record_with_usage(self):
+        session = SessionUsage()
+        usage = TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        session.record(usage, "gpt-4o-mini")
+
+        assert session.total_prompt_tokens == 100
+        assert session.total_completion_tokens == 50
+        assert session.total_tokens == 150
+        assert session.api_calls == 1
+        assert session.total_cost_usd > 0
+
+    def test_record_multiple_calls(self):
+        session = SessionUsage()
+        session.record(TokenUsage(100, 50, 150), "gpt-4o-mini")
+        session.record(TokenUsage(200, 100, 300), "gpt-4o-mini")
+
+        assert session.total_prompt_tokens == 300
+        assert session.total_completion_tokens == 150
+        assert session.api_calls == 2
+
+    def test_record_free_model(self):
+        session = SessionUsage()
+        session.record(TokenUsage(1000, 500, 1500), "qwen/qwen3.6-plus:free")
+        assert session.total_cost_usd == 0.0
+
+    def test_estimate_from_chars(self):
+        session = SessionUsage()
+        session.estimate_from_chars(400, 100, "gpt-4o-mini")
+        assert session.total_prompt_tokens == 100
+        assert session.total_completion_tokens == 25
+        assert session.api_calls == 1
+
+    def test_summary(self):
+        session = SessionUsage()
+        session.record(TokenUsage(100, 50, 150), "gpt-4o-mini")
+        s = session.summary()
+        assert s["api_calls"] == 1
+        assert s["prompt_tokens"] == 100
+        assert s["completion_tokens"] == 50
+        assert s["total_tokens"] == 150
+        assert "cost_usd" in s
+
+
+# ---------------------------------------------------------------------------
+# Pricing
+# ---------------------------------------------------------------------------
+
+
+class TestPricing:
+    def test_known_model(self):
+        prompt, completion = _get_pricing("gpt-4o-mini")
+        assert prompt > 0
+        assert completion > 0
+
+    def test_free_model(self):
+        prompt, completion = _get_pricing("qwen/qwen3.6-plus:free")
+        assert prompt == 0.0
+        assert completion == 0.0
+
+    def test_unknown_model_returns_default(self):
+        prompt, completion = _get_pricing("nonexistent-model-xyz")
+        assert prompt > 0
+        assert completion > 0
+
+    def test_prefix_match(self):
+        prompt, completion = _get_pricing("gpt-5.4-some-new-variant")
+        assert prompt > 0
+
+
+# ---------------------------------------------------------------------------
+# Context window
+# ---------------------------------------------------------------------------
+
+
+class TestContextWindow:
+    def test_known_model(self):
+        assert get_context_window("gpt-4o") == 128_000
+
+    def test_prefix_match(self):
+        cw = get_context_window("gpt-5.4-turbo-extended")
+        assert cw >= 128_000
+
+    def test_unknown_model(self):
+        cw = get_context_window("totally-unknown-model")
+        assert cw == 128_000  # default
+
+
+# ---------------------------------------------------------------------------
+# Token estimation
+# ---------------------------------------------------------------------------
+
+
+class TestTokenEstimation:
+    def test_estimate_message_tokens(self):
+        tokens = estimate_message_tokens("Hello world, this is a test")
+        assert tokens == len("Hello world, this is a test") // 4
+
+    def test_estimate_conversation_tokens(self):
+        messages = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there"},
+        ]
+        tokens = estimate_conversation_tokens(messages)
+        # At least the content + overhead per message
+        assert tokens > 0
+
+    def test_estimate_conversation_with_tool_calls(self):
+        messages = [
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"function": {"name": "bash", "arguments": '{"command": "ls"}'}},
+            ]},
+            {"role": "tool", "content": "file1.txt\nfile2.txt"},
+        ]
+        tokens = estimate_conversation_tokens(messages)
+        assert tokens > 0
+
+
+# ---------------------------------------------------------------------------
+# ContextBudget
+# ---------------------------------------------------------------------------
+
+
+class TestContextBudget:
+    def test_prompt_budget(self):
+        budget = ContextBudget(model="gpt-4o", max_tokens=4096)
+        assert budget.prompt_budget == budget.context_window - 4096
+
+    def test_tokens_remaining(self):
+        budget = ContextBudget(model="gpt-4o", max_tokens=4096)
+        messages = [{"role": "user", "content": "short"}]
+        remaining = budget.tokens_remaining(messages)
+        assert remaining > 0
+        assert remaining < budget.prompt_budget
+
+    def test_needs_compaction_small_conversation(self):
+        budget = ContextBudget(model="gpt-4o", max_tokens=4096)
+        messages = [{"role": "user", "content": "hello"}]
+        assert not budget.needs_compaction(messages)
+
+    def test_needs_compaction_large_conversation(self):
+        budget = ContextBudget(model="gpt-4o", max_tokens=4096)
+        # Create a conversation that exceeds 80% of prompt budget
+        # estimate_conversation_tokens uses 4 chars per token, so we need
+        # prompt_budget * 4 * 0.8 chars to hit the threshold
+        big_msg = "x" * int(budget.prompt_budget * 4 * 0.85)
+        messages = [{"role": "user", "content": big_msg}]
+        assert budget.needs_compaction(messages)
+
+    def test_compaction_urgency(self):
+        budget = ContextBudget(model="gpt-4o", max_tokens=4096)
+        assert budget.compaction_urgency([{"role": "user", "content": "hi"}]) == "none"
+
+        # Push to high urgency (96% of prompt budget in estimated tokens)
+        huge = "x" * int(budget.prompt_budget * 4 * 0.96)
+        assert budget.compaction_urgency([{"role": "user", "content": huge}]) == "high"
+
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+
+
+class TestUsagePersistence:
+    def test_save_and_load(self, tmp_path: Path):
+        session = SessionUsage()
+        session.record(TokenUsage(100, 50, 150), "gpt-4o-mini")
+
+        path = save_usage(tmp_path, "test-session", session)
+        assert path is not None
+        assert path.exists()
+
+        loaded = load_usage(tmp_path, "test-session")
+        assert loaded is not None
+        assert loaded.total_prompt_tokens == 100
+        assert loaded.total_completion_tokens == 50
+        assert loaded.api_calls == 1
+
+    def test_load_nonexistent(self, tmp_path: Path):
+        loaded = load_usage(tmp_path, "nonexistent")
+        assert loaded is None
+
+    def test_load_corrupt_file(self, tmp_path: Path):
+        usage_dir = tmp_path / ".hephaistos" / "usage"
+        usage_dir.mkdir(parents=True)
+        bad_file = usage_dir / "bad.json"
+        bad_file.write_text("not valid json{{{")
+        loaded = load_usage(tmp_path, "bad")
+        assert loaded is None
