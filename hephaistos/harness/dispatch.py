@@ -26,6 +26,12 @@ from hephaistos.chat.engine import (
     _wait_backoff,
     is_retryable_error,
 )
+from hephaistos.harness.compact import (
+    TOKEN_THRESHOLD,
+    auto_compact,
+    estimate_messages_tokens,
+    micro_compact,
+)
 from hephaistos.harness.tools import TOOL_SCHEMAS, get_handler
 from hephaistos.logging import Timer, get_logger
 
@@ -175,6 +181,21 @@ def _summarize_result(content: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Conversation sync (after compaction)
+# ---------------------------------------------------------------------------
+
+
+def _sync_conversation(conversation: Conversation, api_messages: list[dict]) -> None:
+    """Rebuild *conversation* messages from the (possibly compacted) API messages."""
+    conversation.messages.clear()
+    for msg in api_messages:
+        role = msg.get("role", "")
+        content = msg.get("content")
+        if role in ("system", "user", "assistant") and content:
+            conversation.add(role, content)
+
+
+# ---------------------------------------------------------------------------
 # Agent loop (streaming)
 # ---------------------------------------------------------------------------
 
@@ -203,6 +224,7 @@ def agent_loop(
     retry = retry or RetryConfig()
     api_messages = conversation.to_api_messages()
     loop_timer = Timer()
+    compact_triggered = False
 
     _log.info("agent_loop start", extra={"fields": {
         "model": config.model,
@@ -217,6 +239,15 @@ def agent_loop(
                 "latency_ms": loop_timer.ms,
             }})
             return
+
+        # --- Layer 1: micro_compact (silent, every turn) ---
+        micro_compact(api_messages)
+
+        # --- Layer 2: auto_compact (token threshold) ---
+        if estimate_messages_tokens(api_messages) > TOKEN_THRESHOLD:
+            yield "\n[Auto-compacting conversation (context threshold reached)...]\n"
+            api_messages[:] = auto_compact(api_messages, config, workspace)
+            _sync_conversation(conversation, api_messages)
 
         turn_timer = Timer()
         last_api_error: Exception | None = None
@@ -371,6 +402,15 @@ def agent_loop(
             api_messages.append(tr)
             summary = _summarize_result(tr.get("content", ""))
             yield f"{summary}\n"
+
+        # --- Layer 3: manual compact tool ---
+        if "compact" in tool_names:
+            compact_triggered = True
+            yield "\n[Compacting conversation...]\n"
+            api_messages[:] = auto_compact(api_messages, config, workspace)
+            _sync_conversation(conversation, api_messages)
+            continue
+
 
     # Max turns reached
     yield "\n[Agent loop reached maximum turns]"

@@ -30,6 +30,22 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "compact",
+            "description": (
+                "Compress the conversation context to free up space. "
+                "Use when you notice the conversation is getting long or "
+                "you are running low on context."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "bash",
             "description": "Run a shell command and return stdout and stderr.",
             "parameters": {
@@ -297,6 +313,7 @@ def get_handler(name: str):
 
 
 _HANDLERS: dict[str, callable] = {
+    "compact": lambda **_kw: "[compact triggered]",
     "bash": lambda **kw: run_bash(kw["command"]),
     "read_file": lambda **kw: run_read_file(kw["path"], offset=kw.get("offset"), limit=kw.get("limit"), **_workspace_kw(kw)),
     "write_file": lambda **kw: run_write_file(kw["path"], kw["content"], **_workspace_kw(kw)),
