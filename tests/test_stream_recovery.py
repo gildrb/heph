@@ -402,6 +402,7 @@ class TestConversationConsistency:
             config=config,
             conversation=conv,
             session_id="test-rollback",
+            armory_path=_workspace(),
         )
 
         assert len(conv.messages) == 1
@@ -426,6 +427,7 @@ class TestConversationConsistency:
             config=config,
             conversation=conv,
             session_id="test-recovery",
+            armory_path=_workspace(),
         )
 
         assert len(conv.messages) == 1
@@ -457,6 +459,7 @@ class TestConversationConsistency:
             config=config,
             conversation=conv,
             session_id="test-success",
+            armory_path=_workspace(),
         )
 
         with patch("hephaistos.chat.session.agent_loop", return_value=iter(["Hello!"])):

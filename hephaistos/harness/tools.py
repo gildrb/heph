@@ -170,6 +170,36 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "search_files",
+            "description": (
+                "Search for a text pattern across files in the workspace. "
+                "Returns matching lines with file paths and line numbers. "
+                "Use this to find where a topic, term, or formula is discussed "
+                "in source documents before answering."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Text or regex pattern to search for.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory to search in. Defaults to workspace root.",
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "Whether the search is case-sensitive. Default: false.",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_fetch",
             "description": (
                 "Fetch a web page and return its text content. "
@@ -202,6 +232,7 @@ _MAX_READ_CHARS = 50_000
 _WEB_FETCH_TIMEOUT = 15
 _WEB_FETCH_MAX_CHARS = 20_000
 _WEB_USER_AGENT = "Hephaistos/0.1 (study agent)"
+_MAX_SEARCH_RESULTS = 50
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +419,69 @@ def run_list_files(
 
 
 # ---------------------------------------------------------------------------
+# Search files tool
+# ---------------------------------------------------------------------------
+
+
+def run_search_files(
+    pattern: str,
+    *,
+    workspace: Path,
+    path: str = "",
+    case_sensitive: bool = False,
+    **_kwargs: object,
+) -> str:
+    """Search for text patterns across armory documents."""
+    try:
+        target = safe_path(workspace, path or ".")
+    except ValueError as exc:
+        return str(exc)
+    if not target.is_dir():
+        return f"Not a directory: {path or '.'}"
+
+    flags = 0 if case_sensitive else re.IGNORECASE
+    try:
+        regex = re.compile(pattern, flags)
+    except re.error as exc:
+        return f"Invalid regex pattern: {exc}"
+
+    matches: list[str] = []
+    file_count = 0
+
+    for file_path in sorted(target.rglob("*")):
+        if not file_path.is_file():
+            continue
+        rel = file_path.relative_to(workspace)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        suffix = file_path.suffix.lower()
+        if suffix in (".pdf", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".tar", ".gz"):
+            continue
+
+        try:
+            text = file_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+
+        for line_no, line in enumerate(text.splitlines(), 1):
+            if regex.search(line):
+                matches.append(f"{rel}:{line_no}: {line.strip()}")
+                if len(matches) >= _MAX_SEARCH_RESULTS:
+                    break
+        file_count += 1
+        if len(matches) >= _MAX_SEARCH_RESULTS:
+            break
+
+    if not matches:
+        return f"No matches found for '{pattern}' in {file_count} files."
+
+    header = f"Found {len(matches)} matches for '{pattern}':"
+    if len(matches) >= _MAX_SEARCH_RESULTS:
+        header += f" (showing first {_MAX_SEARCH_RESULTS})"
+    return header + "\n" + "\n".join(matches)
+
+
+# ---------------------------------------------------------------------------
 # Web fetch tool
 # ---------------------------------------------------------------------------
 
@@ -447,6 +541,20 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
 # Dispatch map
 # ---------------------------------------------------------------------------
 
+
+def _mutation_wrap(path_str: str, fn: callable, **kwargs: object) -> str:
+    """Wrap a file mutation handler with the mutation queue for safety."""
+    workspace = kwargs.get("workspace")
+    if workspace and isinstance(workspace, Path):
+        try:
+            target = safe_path(workspace, str(path_str))
+            from hephaistos.harness.mutation_queue import get_queue
+            queue = get_queue(workspace)
+            return queue.execute(target, fn, **kwargs)
+        except ValueError:
+            pass  # fall through to direct call
+    return fn(**kwargs)
+
 def get_handler(name: str):
     """Return the handler function for a tool name, or None."""
     return _HANDLERS.get(name)
@@ -462,18 +570,22 @@ def _dispatch_read_file(**kw: object) -> str:
 
 
 def _dispatch_write_file(**kw: object) -> str:
-    return run_write_file(
+    return _mutation_wrap(
         kw["path"],  # type: ignore[index]
-        kw["content"],  # type: ignore[index]
+        run_write_file,
+        path=kw["path"],  # type: ignore[index]
+        content=kw["content"],  # type: ignore[index]
         **_workspace_kw(kw),
     )
 
 
 def _dispatch_edit_file(**kw: object) -> str:
-    return run_edit_file(
+    return _mutation_wrap(
         kw["path"],  # type: ignore[index]
-        kw["old_text"],  # type: ignore[index]
-        kw["new_text"],  # type: ignore[index]
+        run_edit_file,
+        path=kw["path"],  # type: ignore[index]
+        old_text=kw["old_text"],  # type: ignore[index]
+        new_text=kw["new_text"],  # type: ignore[index]
         **_workspace_kw(kw),
     )
 
@@ -482,6 +594,15 @@ def _dispatch_list_files(**kw: object) -> str:
     return run_list_files(
         path=kw.get("path", ""),  # type: ignore[attr-defined]
         pattern=kw.get("pattern", "*"),  # type: ignore[attr-defined]
+        **_workspace_kw(kw),
+    )
+
+
+def _dispatch_search_files(**kw: object) -> str:
+    return run_search_files(
+        kw["pattern"],  # type: ignore[index]
+        path=kw.get("path", ""),  # type: ignore[attr-defined]
+        case_sensitive=kw.get("case_sensitive", False),  # type: ignore[attr-defined]
         **_workspace_kw(kw),
     )
 
@@ -497,6 +618,7 @@ _HANDLERS: dict[str, callable] = {
     "write_file": _dispatch_write_file,
     "edit_file": _dispatch_edit_file,
     "list_files": _dispatch_list_files,
+    "search_files": _dispatch_search_files,
     "web_fetch": _dispatch_web_fetch,
 }
 

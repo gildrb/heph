@@ -189,15 +189,17 @@ class MemoryStore:
         tags: list[str] | None = None,
     ) -> MemoryEntry | None:
         """Add a memory entry. Returns None if it duplicates an existing entry."""
-        # Deduplication: check if we already have this exact topic+content
+        # Deduplication: check if we already have this exact topic
         topic_lower = topic.lower().strip()
-        content_lower = content.lower().strip()
 
         for existing in self.entries:
             if existing.topic.lower().strip() == topic_lower:
                 # Same topic — upgrade confidence if the new one is higher
                 confidence_order = {"extracted": 1, "discussed": 2, "verified": 3}
-                if confidence_order.get(confidence, 0) > confidence_order.get(existing.confidence, 0):
+                if (
+                    confidence_order.get(confidence, 0)
+                    > confidence_order.get(existing.confidence, 0)
+                ):
                     existing.confidence = confidence
                     self._dirty = True
                     _log.debug("memory confidence upgraded", extra={"fields": {
@@ -239,7 +241,11 @@ class MemoryStore:
                 content=e.get("content", ""),
                 source=e.get("source", source),
                 confidence=e.get("confidence", confidence),
-                tags=e.get("tags", "").split(",") if isinstance(e.get("tags"), str) else e.get("tags", []),
+                tags=(
+                    e.get("tags", "").split(",")
+                    if isinstance(e.get("tags"), str)
+                    else e.get("tags", [])
+                ),
             )
             if result is not None:
                 added += 1
@@ -277,7 +283,10 @@ class MemoryStore:
         if not parts:
             return ""
 
-        header = "The user has already studied these topics (do NOT repeat this material unless asked):"
+        header = (
+            "The user has already studied these topics"
+            " (do NOT repeat this material unless asked):"
+        )
         return header + "\n" + "\n".join(parts)
 
     def build_topic_dedup_context(self) -> str:

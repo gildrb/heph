@@ -18,6 +18,7 @@ and ``INFO`` for notable events (LLM request, tool call, index build).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -25,7 +26,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 # ---------------------------------------------------------------------------
 # JSON formatter
@@ -57,7 +58,7 @@ class _JsonFormatter(logging.Formatter):
 class _TextFormatter(logging.Formatter):
     """Human-readable coloured formatter for development."""
 
-    _LEVEL_COLOURS = {
+    _LEVEL_COLOURS: ClassVar[dict[str, str]] = {
         "DEBUG": "\033[36m",    # cyan
         "INFO": "\033[32m",     # green
         "WARNING": "\033[33m",  # yellow
@@ -217,7 +218,12 @@ class TraceWriter:
     @property
     def path(self) -> Path | None:
         if self._path is None and self._armory_path is not None:
-            self._path = self._armory_path / ".hephaistos" / _TRACES_DIR / f"{self.session_id}.jsonl"
+            self._path = (
+                self._armory_path
+                / ".hephaistos"
+                / _TRACES_DIR
+                / f"{self.session_id}.jsonl"
+            )
         return self._path
 
     def _ensure_handle(self) -> Any:
@@ -329,10 +335,8 @@ class TraceWriter:
 
     def close(self) -> None:
         if self._file_handle is not None:
-            try:
+            with contextlib.suppress(OSError):
                 self._file_handle.close()
-            except OSError:
-                pass
             self._file_handle = None
 
 

@@ -37,7 +37,10 @@ _EXTRACTION_SYSTEM_PROMPT = (
     "- Each entry: {\"topic\": \"...\", \"content\": \"...\", \"source\": \"...\"}\n"
     "- Source should be the document name or 'conversation'.\n\n"
     "Example output:\n"
-    '[{"topic": "TCP handshake", "content": "TCP uses a 3-way handshake: SYN, SYN-ACK, ACK", "source": "networking_notes.md"}]'
+    'Example: '
+    '[{"topic": "TCP handshake", '
+    '"content": "TCP uses a 3-way handshake: SYN, SYN-ACK, ACK", '
+    '"source": "networking_notes.md"}]'
 )
 
 _EXTRACTION_USER_TEMPLATE = (

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -55,10 +56,8 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         if toml.get("model_id"):
             config.model = toml["model_id"]
         if toml.get("max_tokens"):
-            try:
+            with contextlib.suppress(ValueError):
                 config.max_tokens = int(toml["max_tokens"])
-            except ValueError:
-                pass
 
     # Apply provider config (overrides TOML defaults)
     try:
@@ -91,17 +90,13 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
 
     max_tokens = os.environ.get("HEPHAISTOS_MAX_TOKENS")
     if max_tokens:
-        try:
+        with contextlib.suppress(ValueError):
             config.max_tokens = int(max_tokens)
-        except ValueError:
-            pass
 
     rag_context_budget = os.environ.get("HEPHAISTOS_RAG_CONTEXT_BUDGET")
     if rag_context_budget:
-        try:
+        with contextlib.suppress(ValueError):
             config.rag_context_budget = int(rag_context_budget)
-        except ValueError:
-            pass
 
     return config
 
