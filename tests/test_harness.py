@@ -183,7 +183,7 @@ class TestListFiles:
 
 class TestToolSchemas:
     def test_schema_count(self) -> None:
-        assert len(TOOL_SCHEMAS) == 5
+        assert len(TOOL_SCHEMAS) == 6
 
     def test_all_have_function_type(self) -> None:
         for schema in TOOL_SCHEMAS:

@@ -19,6 +19,7 @@ import json
 import time
 from pathlib import Path
 
+from hephaistos.chat.engine import Conversation, _build_client
 from hephaistos.harness.rag.context import estimate_tokens
 from hephaistos.logging import get_logger
 
@@ -119,7 +120,7 @@ def auto_compact(
     *config* is a :class:`ChatConfig` — typed as ``object`` here to
     avoid a circular import.
     """
-    from hephaistos.chat.engine import Conversation, _build_client
+    from hephaistos.chat.engine import Conversation
 
     # --- Save full transcript for recovery ---
     transcript_path = _save_transcript(messages, workspace)
