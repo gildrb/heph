@@ -530,11 +530,7 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
         if len(raw) > _WEB_FETCH_MAX_CHARS:
             raw = raw[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
 
-    return (
-        f"--- Source: {url} ---\n"
-        f"{raw}\n"
-        f"--- End of fetched content ---"
-    )
+    return f"--- Source: {url} ---\n{raw}\n--- End of fetched content ---"
 
 
 # ---------------------------------------------------------------------------
@@ -549,11 +545,13 @@ def _mutation_wrap(path_str: str, fn: callable, **kwargs: object) -> str:
         try:
             target = safe_path(workspace, str(path_str))
             from hephaistos.harness.mutation_queue import get_queue
+
             queue = get_queue(workspace)
             return queue.execute(target, fn, **kwargs)
         except ValueError:
             pass  # fall through to direct call
     return fn(**kwargs)
+
 
 def get_handler(name: str):
     """Return the handler function for a tool name, or None."""

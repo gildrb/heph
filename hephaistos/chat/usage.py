@@ -139,14 +139,19 @@ class SessionUsage:
         )
         self.total_cost_usd += call_cost
 
-        _log.info("usage recorded", extra={"fields": {
-            "prompt_tokens": usage.prompt_tokens,
-            "completion_tokens": usage.completion_tokens,
-            "total_tokens": usage.total_tokens,
-            "call_cost_usd": round(call_cost, 6),
-            "session_cost_usd": round(self.total_cost_usd, 6),
-            "api_calls": self.api_calls,
-        }})
+        _log.info(
+            "usage recorded",
+            extra={
+                "fields": {
+                    "prompt_tokens": usage.prompt_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                    "total_tokens": usage.total_tokens,
+                    "call_cost_usd": round(call_cost, 6),
+                    "session_cost_usd": round(self.total_cost_usd, 6),
+                    "api_calls": self.api_calls,
+                }
+            },
+        )
 
     def estimate_from_chars(self, prompt_chars: int, completion_chars: int, model: str) -> None:
         """Fallback estimation when API doesn't report usage."""

@@ -31,12 +31,14 @@ class Provider:
     def is_authenticated(self) -> bool:
         """Check if a key is available via any resolution path."""
         from hephaistos.providers.keyring_store import resolve_key
+
         return bool(resolve_key(self.slug, self.api_key_env))
 
     @property
     def api_key(self) -> str:
         """Resolve the API key from keychain → env var → volatile store."""
         from hephaistos.providers.keyring_store import resolve_key
+
         return resolve_key(self.slug, self.api_key_env)
 
     @property

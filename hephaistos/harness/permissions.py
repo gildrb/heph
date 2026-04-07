@@ -50,69 +50,214 @@ _TIER_DESCRIPTIONS = {
 # ---------------------------------------------------------------------------
 
 # Commands that are always read-only
-_NONE_COMMANDS = frozenset({
-    "cat", "head", "tail", "less", "more", "ls", "file", "wc", "diff",
-    "pwd", "echo", "whoami", "date", "uname", "hostname", "uptime",
-    "ps", "top", "htop", "df", "du", "free", "env", "printenv",
-    "which", "where", "type", "command", "true", "false", "test",
-    "basename", "dirname", "realpath", "readlink", "stat",
-    "find", "locate", "tree",
-    "grep", "rg", "ag", "ack", "fgrep", "egrep",
-    "sort", "uniq", "cut", "tr", "paste", "tee", "fmt",
-    "md5sum", "sha256sum", "sha1sum", "xxd", "hexdump",
-    "seq", "bc", "expr", "factor",
-    "id", "groups", "ulimit",
-    "git",  # git is special-cased below
-    "curl", "wget",  # GETs without pipe-to-bash are read-only
-    "python", "python3", "node",  # running a script is classified by args
-})
+_NONE_COMMANDS = frozenset(
+    {
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "more",
+        "ls",
+        "file",
+        "wc",
+        "diff",
+        "pwd",
+        "echo",
+        "whoami",
+        "date",
+        "uname",
+        "hostname",
+        "uptime",
+        "ps",
+        "top",
+        "htop",
+        "df",
+        "du",
+        "free",
+        "env",
+        "printenv",
+        "which",
+        "where",
+        "type",
+        "command",
+        "true",
+        "false",
+        "test",
+        "basename",
+        "dirname",
+        "realpath",
+        "readlink",
+        "stat",
+        "find",
+        "locate",
+        "tree",
+        "grep",
+        "rg",
+        "ag",
+        "ack",
+        "fgrep",
+        "egrep",
+        "sort",
+        "uniq",
+        "cut",
+        "tr",
+        "paste",
+        "tee",
+        "fmt",
+        "md5sum",
+        "sha256sum",
+        "sha1sum",
+        "xxd",
+        "hexdump",
+        "seq",
+        "bc",
+        "expr",
+        "factor",
+        "id",
+        "groups",
+        "ulimit",
+        "git",  # git is special-cased below
+        "curl",
+        "wget",  # GETs without pipe-to-bash are read-only
+        "python",
+        "python3",
+        "node",  # running a script is classified by args
+    }
+)
 
 # Commands that are low-risk (file creation/modification, no system changes)
-_LOW_COMMANDS = frozenset({
-    "touch", "mkdir", "cp", "mv",
-    "chmod", "chown", "ln", "rmdir",
-    "zip", "unzip", "tar", "gzip", "gunzip", "bzip2", "xz",
-    "sed", "awk", "perl", "ruby",  # text processing — typically safe
-    "patch",
-})
+_LOW_COMMANDS = frozenset(
+    {
+        "touch",
+        "mkdir",
+        "cp",
+        "mv",
+        "chmod",
+        "chown",
+        "ln",
+        "rmdir",
+        "zip",
+        "unzip",
+        "tar",
+        "gzip",
+        "gunzip",
+        "bzip2",
+        "xz",
+        "sed",
+        "awk",
+        "perl",
+        "ruby",  # text processing — typically safe
+        "patch",
+    }
+)
 
 # Commands that are medium-risk (dev operations, recoverable)
-_MEDIUM_COMMANDS = frozenset({
-    "pip", "pip3", "npm", "yarn", "pnpm", "bun",
-    "cargo", "go", "rustc", "gcc", "g++", "cc", "make", "cmake",
-    "pytest", "jest", "mocha", "vitest", "cargo-test",
-    "dotnet", "gradle", "maven", "mvn", "ant",
-    "docker", "podman",  # container ops
-    "npm-run", "npx",
-})
+_MEDIUM_COMMANDS = frozenset(
+    {
+        "pip",
+        "pip3",
+        "npm",
+        "yarn",
+        "pnpm",
+        "bun",
+        "cargo",
+        "go",
+        "rustc",
+        "gcc",
+        "g++",
+        "cc",
+        "make",
+        "cmake",
+        "pytest",
+        "jest",
+        "mocha",
+        "vitest",
+        "cargo-test",
+        "dotnet",
+        "gradle",
+        "maven",
+        "mvn",
+        "ant",
+        "docker",
+        "podman",  # container ops
+        "npm-run",
+        "npx",
+    }
+)
 
 # Patterns that immediately escalate to high
-_HIGH_PATTERNS = frozenset({
-    "sudo", "su ", "doas", "run0",
-    "rm -rf", "rm -r /", "rm -rf /",
-    "mkfs", "dd if=", "dd of=/dev",
-    "chmod 777", "chmod -R 777",
-    "> /dev/",  # writing to device files
-    "iptables", "nft ", "ufw ",
-    "systemctl", "service ",
-    "crontab -", "at now",
-    "ssh ", "scp ", "rsync ",  # network writes
-    "kill -9", "killall", "pkill",
-    "nohup", "disown",
-    "eval ", "exec ",
-})
+_HIGH_PATTERNS = frozenset(
+    {
+        "sudo",
+        "su ",
+        "doas",
+        "run0",
+        "rm -rf",
+        "rm -r /",
+        "rm -rf /",
+        "mkfs",
+        "dd if=",
+        "dd of=/dev",
+        "chmod 777",
+        "chmod -R 777",
+        "> /dev/",  # writing to device files
+        "iptables",
+        "nft ",
+        "ufw ",
+        "systemctl",
+        "service ",
+        "crontab -",
+        "at now",
+        "ssh ",
+        "scp ",
+        "rsync ",  # network writes
+        "kill -9",
+        "killall",
+        "pkill",
+        "nohup",
+        "disown",
+        "eval ",
+        "exec ",
+    }
+)
 
 # Patterns that are medium (package installs, builds, git local ops)
-_MEDIUM_PATTERNS = frozenset({
-    "install", "pip install", "pip3 install", "npm install", "yarn add",
-    "git commit", "git checkout", "git switch", "git pull", "git rebase",
-    "git stash", "git cherry-pick", "git merge", "git reset",
-    "make ", "cmake ", "cargo build", "cargo test", "cargo run",
-    "go build", "go test", "go run", "go mod",
-    "pytest", "jest", "mocha ", "vitest ",
-    "npm run ", "npm build", "npx ",
-    "python -m pytest", "python3 -m pytest",
-})
+_MEDIUM_PATTERNS = frozenset(
+    {
+        "install",
+        "pip install",
+        "pip3 install",
+        "npm install",
+        "yarn add",
+        "git commit",
+        "git checkout",
+        "git switch",
+        "git pull",
+        "git rebase",
+        "git stash",
+        "git cherry-pick",
+        "git merge",
+        "git reset",
+        "make ",
+        "cmake ",
+        "cargo build",
+        "cargo test",
+        "cargo run",
+        "go build",
+        "go test",
+        "go run",
+        "go mod",
+        "pytest",
+        "jest",
+        "mocha ",
+        "vitest ",
+        "npm run ",
+        "npm build",
+        "npx ",
+        "python -m pytest",
+        "python3 -m pytest",
+    }
+)
 
 
 def _split_compound(command: str) -> list[str]:
@@ -174,15 +319,45 @@ def _classify_single(command: str) -> str:
     # Handle "git" subcommands specially
     if base_cmd == "git":
         git_sub = tokens[1] if len(tokens) > 1 else ""
-        if git_sub in ("status", "log", "diff", "branch", "tag", "remote",
-                        "show", "config", "rev-parse", "shortlog",
-                        "blame", "reflog", "stash list", "notes",
-                        "ls-files", "ls-tree", "ls-remote"):
+        if git_sub in (
+            "status",
+            "log",
+            "diff",
+            "branch",
+            "tag",
+            "remote",
+            "show",
+            "config",
+            "rev-parse",
+            "shortlog",
+            "blame",
+            "reflog",
+            "stash list",
+            "notes",
+            "ls-files",
+            "ls-tree",
+            "ls-remote",
+        ):
             return "none"
-        if git_sub in ("commit", "checkout", "switch", "pull", "rebase",
-                        "stash", "stash pop", "stash apply", "stash drop",
-                        "cherry-pick", "merge", "reset", "restore",
-                        "add", "rm", "mv", "init"):
+        if git_sub in (
+            "commit",
+            "checkout",
+            "switch",
+            "pull",
+            "rebase",
+            "stash",
+            "stash pop",
+            "stash apply",
+            "stash drop",
+            "cherry-pick",
+            "merge",
+            "reset",
+            "restore",
+            "add",
+            "rm",
+            "mv",
+            "init",
+        ):
             return "medium"
         if git_sub in ("push", "force-push", "push --force"):
             return "high"
@@ -285,6 +460,7 @@ def tier_allows(required: str, current: str) -> bool:
 # Interactive permission prompt
 # ---------------------------------------------------------------------------
 
+
 def request_permission(
     tool_name: str,
     args: dict,
@@ -296,7 +472,7 @@ def request_permission(
     Returns True if approved.
     """
     summary = _format_tool_summary(tool_name, args)
-    warn_style = '\033[1m\033[33m'
+    warn_style = "\033[1m\033[33m"
     sys.stdout.write(
         f"\n{styled('Permission required:', warn_style)} "
         f"{summary}\n"

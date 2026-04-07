@@ -77,21 +77,31 @@ class FileMutationQueue:
                 result = fn(**kwargs)
         except Exception as exc:
             result = f"Error: {exc}"
-            _log.error("mutation failed", extra={"fields": {
-                "path": str(path),
-                "latency_ms": timer.ms,
-                "error": str(exc),
-            }})
+            _log.error(
+                "mutation failed",
+                extra={
+                    "fields": {
+                        "path": str(path),
+                        "latency_ms": timer.ms,
+                        "error": str(exc),
+                    }
+                },
+            )
         finally:
             with self._pending_lock:
                 self._pending -= 1
 
-        _log.info("mutation complete", extra={"fields": {
-            "path": str(path),
-            "latency_ms": round(timer.ms, 1),
-            "result_len": len(result),
-            "pending": self._pending,
-        }})
+        _log.info(
+            "mutation complete",
+            extra={
+                "fields": {
+                    "path": str(path),
+                    "latency_ms": round(timer.ms, 1),
+                    "result_len": len(result),
+                    "pending": self._pending,
+                }
+            },
+        )
         return result
 
     @property

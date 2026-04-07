@@ -51,6 +51,7 @@ _MAX_TOOL_CALLS_PER_TURN = 5  # strict limit: study agent doesn't need many
 # Steering message queue
 # ---------------------------------------------------------------------------
 
+
 class SteeringQueue:
     """Thread-safe queue for steering messages typed while the agent works.
 
@@ -73,10 +74,15 @@ class SteeringQueue:
             return
         with self._lock:
             self._messages.append(message)
-        _log.info("steering message queued", extra={"fields": {
-            "queue_len": len(self._messages),
-            "message_len": len(message),
-        }})
+        _log.info(
+            "steering message queued",
+            extra={
+                "fields": {
+                    "queue_len": len(self._messages),
+                    "message_len": len(message),
+                }
+            },
+        )
 
     def drain(self) -> list[str]:
         """Remove and return all queued messages."""
@@ -110,10 +116,15 @@ def execute_tool_calls(
     Returns a list of messages with ``role: "tool"`` to append back.
     """
     if len(tool_calls) > max_calls:
-        _log.warning("tool call limit exceeded", extra={"fields": {
-            "requested": len(tool_calls),
-            "max": max_calls,
-        }})
+        _log.warning(
+            "tool call limit exceeded",
+            extra={
+                "fields": {
+                    "requested": len(tool_calls),
+                    "max": max_calls,
+                }
+            },
+        )
 
     results: list[dict] = []
     for i, tc in enumerate(tool_calls):
@@ -122,40 +133,58 @@ def execute_tool_calls(
 
         # Enforce per-turn tool call limit
         if i >= max_calls:
-            results.append({
-                "role": "tool",
-                "tool_call_id": call_id,
-                "content": (
-                    f"Error: tool call limit reached ({max_calls} per turn). "
-                    f"Prioritize reading and writing documents. "
-                    f"Tool '{name}' was not executed."
-                ),
-            })
+            results.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": (
+                        f"Error: tool call limit reached ({max_calls} per turn). "
+                        f"Prioritize reading and writing documents. "
+                        f"Tool '{name}' was not executed."
+                    ),
+                }
+            )
             continue
 
         try:
             arguments = json.loads(tc["function"]["arguments"])
         except json.JSONDecodeError:
-            _log.warning("tool call invalid JSON", extra={"fields": {
-                "tool": name, "call_id": call_id,
-            }})
-            results.append({
-                "role": "tool",
-                "tool_call_id": call_id,
-                "content": f"Error: invalid JSON arguments for {name}",
-            })
+            _log.warning(
+                "tool call invalid JSON",
+                extra={
+                    "fields": {
+                        "tool": name,
+                        "call_id": call_id,
+                    }
+                },
+            )
+            results.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": f"Error: invalid JSON arguments for {name}",
+                }
+            )
             continue
 
         handler = get_handler(name)
         if handler is None:
-            _log.warning("unknown tool", extra={"fields": {
-                "tool": name, "call_id": call_id,
-            }})
-            results.append({
-                "role": "tool",
-                "tool_call_id": call_id,
-                "content": f"Unknown tool: {name}",
-            })
+            _log.warning(
+                "unknown tool",
+                extra={
+                    "fields": {
+                        "tool": name,
+                        "call_id": call_id,
+                    }
+                },
+            )
+            results.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": f"Unknown tool: {name}",
+                }
+            )
             continue
 
         timer = Timer()
@@ -164,24 +193,36 @@ def execute_tool_calls(
                 output = handler(workspace=workspace, **arguments)
         except Exception as exc:
             output = f"Tool error ({name}): {exc}"
-            _log.error("tool execution failed", extra={"fields": {
-                "tool": name,
-                "args": arguments,
-                "latency_ms": timer.ms,
-                "error": str(exc),
-            }})
+            _log.error(
+                "tool execution failed",
+                extra={
+                    "fields": {
+                        "tool": name,
+                        "args": arguments,
+                        "latency_ms": timer.ms,
+                        "error": str(exc),
+                    }
+                },
+            )
 
-        _log.info("tool executed", extra={"fields": {
-            "tool": name,
-            "args": _summarise_args(name, arguments),
-            "latency_ms": round(timer.ms, 1),
-            "result_len": len(output),
-        }})
-        results.append({
-            "role": "tool",
-            "tool_call_id": call_id,
-            "content": str(output),
-        })
+        _log.info(
+            "tool executed",
+            extra={
+                "fields": {
+                    "tool": name,
+                    "args": _summarise_args(name, arguments),
+                    "latency_ms": round(timer.ms, 1),
+                    "result_len": len(output),
+                }
+            },
+        )
+        results.append(
+            {
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": str(output),
+            }
+        )
 
     return results
 
@@ -200,11 +241,13 @@ def _merge_tool_call_deltas(
         idx = delta.get("index", 0)
         # Extend the list if needed
         while len(accumulated) <= idx:
-            accumulated.append({
-                "id": "",
-                "type": "function",
-                "function": {"name": "", "arguments": ""},
-            })
+            accumulated.append(
+                {
+                    "id": "",
+                    "type": "function",
+                    "function": {"name": "", "arguments": ""},
+                }
+            )
         entry = accumulated[idx]
         if delta.get("id"):
             entry["id"] = delta["id"]
@@ -227,8 +270,7 @@ def _summarise_args(name: str, args: dict) -> dict:
     if name == "write_file":
         return {"path": args.get("path", ""), "content_len": len(args.get("content", ""))}
     return {
-        k: (str(v)[:100] if isinstance(v, str) and len(v) > 100 else v)
-        for k, v in args.items()
+        k: (str(v)[:100] if isinstance(v, str) and len(v) > 100 else v) for k, v in args.items()
     }
 
 
@@ -311,21 +353,31 @@ def agent_loop(
     loop_timer = Timer()
     budget = ContextBudget(model=config.model, max_tokens=config.max_tokens)
 
-    _log.info("agent_loop start", extra={"fields": {
-        "model": config.model,
-        "message_count": len(api_messages),
-        "max_turns": max_turns,
-        "context_window": budget.context_window,
-        "prompt_budget": budget.prompt_budget,
-        "tokens_remaining": budget.tokens_remaining(api_messages),
-    }})
+    _log.info(
+        "agent_loop start",
+        extra={
+            "fields": {
+                "model": config.model,
+                "message_count": len(api_messages),
+                "max_turns": max_turns,
+                "context_window": budget.context_window,
+                "prompt_budget": budget.prompt_budget,
+                "tokens_remaining": budget.tokens_remaining(api_messages),
+            }
+        },
+    )
 
     for turn_idx in range(max_turns):
         if abort is not None and abort.is_set():
-            _log.info("agent_loop aborted", extra={"fields": {
-                "turn": turn_idx,
-                "latency_ms": loop_timer.ms,
-            }})
+            _log.info(
+                "agent_loop aborted",
+                extra={
+                    "fields": {
+                        "turn": turn_idx,
+                        "latency_ms": loop_timer.ms,
+                    }
+                },
+            )
             return
 
         # --- Layer 1: micro_compact (silent, every turn) ---
@@ -342,10 +394,15 @@ def agent_loop(
 
         for api_attempt in range(retry.max_retries + 1):
             if abort is not None and abort.is_set():
-                _log.info("agent_loop aborted", extra={"fields": {
-                    "turn": turn_idx,
-                    "latency_ms": loop_timer.ms,
-                }})
+                _log.info(
+                    "agent_loop aborted",
+                    extra={
+                        "fields": {
+                            "turn": turn_idx,
+                            "latency_ms": loop_timer.ms,
+                        }
+                    },
+                )
                 return
 
             client = _build_client(config)
@@ -362,19 +419,26 @@ def agent_loop(
                 last_api_error = exc
                 _log.warning(
                     "agent_loop request failed (attempt %d/%d, turn %d)",
-                    api_attempt + 1, retry.max_retries + 1, turn_idx,
+                    api_attempt + 1,
+                    retry.max_retries + 1,
+                    turn_idx,
                     extra={"fields": {"error": str(exc), "latency_ms": turn_timer.ms}},
                 )
                 if is_retryable_error(exc) and api_attempt < retry.max_retries:
                     if not _wait_backoff(api_attempt, retry, abort):
                         return
                     continue
-                _log.error("agent_loop LLM request failed", extra={"fields": {
-                    "model": config.model,
-                    "turn": turn_idx,
-                    "latency_ms": turn_timer.ms,
-                    "error": str(exc),
-                }})
+                _log.error(
+                    "agent_loop LLM request failed",
+                    extra={
+                        "fields": {
+                            "model": config.model,
+                            "turn": turn_idx,
+                            "latency_ms": turn_timer.ms,
+                            "error": str(exc),
+                        }
+                    },
+                )
                 raise EngineError(f"LLM request failed: {exc}") from exc
 
             # Collect streamed response
@@ -391,17 +455,13 @@ def agent_loop(
 
                     # Check for usage in non-choice chunks (final chunk)
                     if not chunk.choices:
-                        if hasattr(chunk, 'usage') and chunk.usage:
+                        if hasattr(chunk, "usage") and chunk.usage:
                             stream_usage = {
-                                'prompt_tokens': (
-                                    getattr(chunk.usage, 'prompt_tokens', 0) or 0
+                                "prompt_tokens": (getattr(chunk.usage, "prompt_tokens", 0) or 0),
+                                "completion_tokens": (
+                                    getattr(chunk.usage, "completion_tokens", 0) or 0
                                 ),
-                                'completion_tokens': (
-                                    getattr(chunk.usage, 'completion_tokens', 0) or 0
-                                ),
-                                'total_tokens': (
-                                    getattr(chunk.usage, 'total_tokens', 0) or 0
-                                ),
+                                "total_tokens": (getattr(chunk.usage, "total_tokens", 0) or 0),
                             }
                         continue
 
@@ -419,22 +479,21 @@ def agent_loop(
                         _merge_tool_call_deltas(collected_tool_calls, delta.tool_calls)
 
                     # Check for usage in the final choice chunk
-                    if finish_reason and hasattr(chunk, 'usage') and chunk.usage:
+                    if finish_reason and hasattr(chunk, "usage") and chunk.usage:
                         stream_usage = {
-                            'prompt_tokens': (
-                                getattr(chunk.usage, 'prompt_tokens', 0) or 0
+                            "prompt_tokens": (getattr(chunk.usage, "prompt_tokens", 0) or 0),
+                            "completion_tokens": (
+                                getattr(chunk.usage, "completion_tokens", 0) or 0
                             ),
-                            'completion_tokens': (
-                                getattr(chunk.usage, 'completion_tokens', 0) or 0
-                            ),
-                            'total_tokens': (
-                                getattr(chunk.usage, 'total_tokens', 0) or 0
-                            ),
+                            "total_tokens": (getattr(chunk.usage, "total_tokens", 0) or 0),
                         }
             except Exception as exc:
                 _log.error(
                     "agent_loop mid-stream failure (attempt %d/%d, turn %d, %d chars)",
-                    api_attempt + 1, retry.max_retries + 1, turn_idx, len(collected_text),
+                    api_attempt + 1,
+                    retry.max_retries + 1,
+                    turn_idx,
+                    len(collected_text),
                     extra={"fields": {"error": str(exc), "latency_ms": turn_timer.ms}},
                 )
                 if collected_text:
@@ -461,19 +520,24 @@ def agent_loop(
                 if stream_usage:
                     usage.record(TokenUsage.from_api_response(stream_usage), config.model)
                 else:
-                    prompt_chars = sum(len(m.get('content', '') or '') for m in api_messages)
+                    prompt_chars = sum(len(m.get("content", "") or "") for m in api_messages)
                     usage.estimate_from_chars(prompt_chars, len(collected_text), config.model)
 
             # Append final assistant message to conversation
             conversation.add("assistant", collected_text)
-            _log.info("agent_loop complete", extra={"fields": {
-                "model": config.model,
-                "turn": turn_idx,
-                "latency_ms": loop_timer.ms,
-                "text_len": len(collected_text),
-                "finish_reason": finish_reason,
-                "tokens_remaining": budget.tokens_remaining(api_messages),
-            }})
+            _log.info(
+                "agent_loop complete",
+                extra={
+                    "fields": {
+                        "model": config.model,
+                        "turn": turn_idx,
+                        "latency_ms": loop_timer.ms,
+                        "text_len": len(collected_text),
+                        "finish_reason": finish_reason,
+                        "tokens_remaining": budget.tokens_remaining(api_messages),
+                    }
+                },
+            )
             return
 
         # --- Tool calls: execute and continue ---
@@ -491,11 +555,13 @@ def agent_loop(
             for tc in collected_tool_calls
         ]
 
-        api_messages.append({
-            "role": "assistant",
-            "content": assistant_content,
-            "tool_calls": tool_calls_api,
-        })
+        api_messages.append(
+            {
+                "role": "assistant",
+                "content": assistant_content,
+                "tool_calls": tool_calls_api,
+            }
+        )
         # Store a simplified version in our Conversation
         conversation.add(
             "assistant",
@@ -513,11 +579,16 @@ def agent_loop(
                 args = {}
             yield f"\n{_format_tool_args(name, args)}\n"
 
-        _log.info("agent_loop tool calls", extra={"fields": {
-            "turn": turn_idx,
-            "tools": tool_names,
-            "latency_ms": turn_timer.ms,
-        }})
+        _log.info(
+            "agent_loop tool calls",
+            extra={
+                "fields": {
+                    "turn": turn_idx,
+                    "tools": tool_names,
+                    "latency_ms": turn_timer.ms,
+                }
+            },
+        )
 
         # Execute
         tool_results = execute_tool_calls(collected_tool_calls, workspace)
@@ -527,7 +598,7 @@ def agent_loop(
             if stream_usage:
                 usage.record(TokenUsage.from_api_response(stream_usage), config.model)
             else:
-                prompt_chars = sum(len(m.get('content', '') or '') for m in api_messages)
+                prompt_chars = sum(len(m.get("content", "") or "") for m in api_messages)
                 usage.estimate_from_chars(prompt_chars, len(collected_text), config.model)
 
         # Check context budget — warn if running low
@@ -538,11 +609,16 @@ def agent_loop(
                 f"\n[Warning: context window {remaining} tokens remaining"
                 f" ({urgency} urgency). Consider /compact.]"
             )
-            _log.warning("context budget low", extra={"fields": {
-                "remaining": remaining,
-                "urgency": urgency,
-                "turn": turn_idx,
-            }})
+            _log.warning(
+                "context budget low",
+                extra={
+                    "fields": {
+                        "remaining": remaining,
+                        "urgency": urgency,
+                        "turn": turn_idx,
+                    }
+                },
+            )
 
         # Append results
         for tr in tool_results:
@@ -557,10 +633,15 @@ def agent_loop(
                 api_messages.append({"role": "user", "content": msg})
                 conversation.add("user", msg)
                 yield f"\n[Steering: {msg[:100]}]\n"
-                _log.info("steering message injected", extra={"fields": {
-                    "message_len": len(msg),
-                    "turn": turn_idx,
-                }})
+                _log.info(
+                    "steering message injected",
+                    extra={
+                        "fields": {
+                            "message_len": len(msg),
+                            "turn": turn_idx,
+                        }
+                    },
+                )
 
         # --- Layer 3: manual compact tool ---
         if "compact" in tool_names:
@@ -569,10 +650,14 @@ def agent_loop(
             _sync_conversation(conversation, api_messages)
             continue
 
-
     # Max turns reached
     yield "\n[Agent loop reached maximum turns]"
-    _log.warning("agent loop max turns reached", extra={"fields": {
-        "max_turns": max_turns,
-        "model": config.model,
-    }})
+    _log.warning(
+        "agent loop max turns reached",
+        extra={
+            "fields": {
+                "max_turns": max_turns,
+                "model": config.model,
+            }
+        },
+    )

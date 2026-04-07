@@ -74,13 +74,15 @@ _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 # prompt_toolkit configuration
 # ---------------------------------------------------------------------------
 
-_PT_STYLE = PtStyle.from_dict({
-    "armory": "bold green",
-    "prompt-mark": "bold ansired",
-    "bottom-toolbar": "bg:#333333 #aaaaaa",
-    "completion-menu.completion.current": "bg:ansired fg:white bold",
-    "completion-menu.completion": "bg:#555555 fg:white",
-})
+_PT_STYLE = PtStyle.from_dict(
+    {
+        "armory": "bold green",
+        "prompt-mark": "bold ansired",
+        "bottom-toolbar": "bg:#333333 #aaaaaa",
+        "completion-menu.completion.current": "bg:ansired fg:white bold",
+        "completion-menu.completion": "bg:#555555 fg:white",
+    }
+)
 
 _HELP_TOOLBAR = (
     " Enter send · ⌥Enter newline · ↑↓ history"
@@ -383,6 +385,7 @@ def _handle_input(
     # If the agent is currently streaming, enqueue as steering message
     if streaming:
         from hephaistos.harness.dispatch import SteeringQueue
+
         if isinstance(session.steering, SteeringQueue):
             session.steering.enqueue(user_input)
         return session, True
@@ -418,7 +421,7 @@ def _handle_input(
             cmd_args = ""
         else:
             cmd_name = stripped[1:space_idx].lower()
-            cmd_args = stripped[space_idx + 1:].strip()
+            cmd_args = stripped[space_idx + 1 :].strip()
 
         registry = get_registry()
         cmd = registry.find(cmd_name)
@@ -437,7 +440,7 @@ def _handle_input(
 
         # Handle /edit resend
         if result.output and result.output.startswith("__RESEND__:"):
-            new_input = result.output[len("__RESEND__:"):]
+            new_input = result.output[len("__RESEND__:") :]
             history.add(new_input)
             print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
             abort = threading.Event()
@@ -531,9 +534,7 @@ def run_chat_shell(
         config = load_config()
         armory = _discover_startup_armory()
         session = (
-            create_plain_session(config)
-            if armory is None
-            else create_session(config, armory)
+            create_plain_session(config) if armory is None else create_session(config, armory)
         )
 
     _print_shell_intro(session)
@@ -604,9 +605,7 @@ def _run_fallback_shell(session: ChatSession | None = None) -> None:
         config = load_config()
         armory = _discover_startup_armory()
         session = (
-            create_plain_session(config)
-            if armory is None
-            else create_session(config, armory)
+            create_plain_session(config) if armory is None else create_session(config, armory)
         )
 
     print("Hephaistos (basic mode)")

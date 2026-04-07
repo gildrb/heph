@@ -46,10 +46,10 @@ _log = get_logger("rag.query_transform")
 class TransformStrategy(Enum):
     """Selects which query transformation strategy to apply."""
 
-    IDENTITY = "identity"        # no transformation (passthrough)
-    HYDE = "hyde"                # Hypothetical Document Embeddings
+    IDENTITY = "identity"  # no transformation (passthrough)
+    HYDE = "hyde"  # Hypothetical Document Embeddings
     MULTI_QUERY = "multi_query"  # multi-query reformulation
-    EXPANSION = "expansion"      # keyword expansion (no LLM needed)
+    EXPANSION = "expansion"  # keyword expansion (no LLM needed)
 
 
 @runtime_checkable
@@ -192,10 +192,15 @@ class QueryExpander:
         expanded_terms = list(expansions)[:8]  # cap to avoid query bloat
         expanded_query = f"{query} {' '.join(expanded_terms)}"
 
-        _log.debug("query expanded", extra={"fields": {
-            "original": query[:80],
-            "expansions": expanded_terms,
-        }})
+        _log.debug(
+            "query expanded",
+            extra={
+                "fields": {
+                    "original": query[:80],
+                    "expansions": expanded_terms,
+                }
+            },
+        )
 
         return [query, expanded_query]
 
@@ -238,17 +243,24 @@ class HyDETransformer:
         try:
             hypothetical_doc = self._prompt_fn(prompt)
         except Exception as exc:
-            _log.warning("HyDE generation failed, falling back to original query",
-                         extra={"fields": {"error": str(exc)}})
+            _log.warning(
+                "HyDE generation failed, falling back to original query",
+                extra={"fields": {"error": str(exc)}},
+            )
             return [query]
 
         if not hypothetical_doc or not hypothetical_doc.strip():
             return [query]
 
-        _log.debug("HyDE: generated hypothetical document", extra={"fields": {
-            "query_len": len(query),
-            "doc_len": len(hypothetical_doc),
-        }})
+        _log.debug(
+            "HyDE: generated hypothetical document",
+            extra={
+                "fields": {
+                    "query_len": len(query),
+                    "doc_len": len(hypothetical_doc),
+                }
+            },
+        )
 
         # Return both the hypothetical document (primary) and the original
         # query (for fallback keyword matching)
@@ -300,30 +312,28 @@ class MultiQueryTransformer:
         try:
             response = self._prompt_fn(prompt)
         except Exception as exc:
-            _log.warning("multi-query generation failed, falling back to original query",
-                         extra={"fields": {"error": str(exc)}})
+            _log.warning(
+                "multi-query generation failed, falling back to original query",
+                extra={"fields": {"error": str(exc)}},
+            )
             return [query]
 
         if not response or not response.strip():
             return [query]
 
         # Parse the response into individual queries
-        alternatives = [
-            line.strip()
-            for line in response.strip().splitlines()
-            if line.strip()
-        ]
+        alternatives = [line.strip() for line in response.strip().splitlines() if line.strip()]
 
         # Filter out lines that look like numbering or labels
         cleaned: list[str] = []
         for alt in alternatives:
             # Strip leading numbering like "1. " or "- " or "* "
-            alt = re.sub(r'^[\d\-\*]+\.\s*', '', alt).strip()
+            alt = re.sub(r"^[\d\-\*]+\.\s*", "", alt).strip()
             if alt and len(alt) > 5:  # skip very short fragments
                 cleaned.append(alt)
 
         # Cap to max_alternatives
-        cleaned = cleaned[:self._max_alternatives]
+        cleaned = cleaned[: self._max_alternatives]
 
         if not cleaned:
             return [query]
@@ -331,11 +341,16 @@ class MultiQueryTransformer:
         # Always include the original query
         queries = [query, *cleaned]
 
-        _log.debug("multi-query: generated alternatives", extra={"fields": {
-            "original": query[:80],
-            "alternatives": len(cleaned),
-            "total_queries": len(queries),
-        }})
+        _log.debug(
+            "multi-query: generated alternatives",
+            extra={
+                "fields": {
+                    "original": query[:80],
+                    "alternatives": len(cleaned),
+                    "total_queries": len(queries),
+                }
+            },
+        )
 
         return queries
 
@@ -428,10 +443,15 @@ def transform_query(
     transformer = create_transformer(strategy, prompt_fn)
     result = transformer.transform(query)
 
-    _log.info("query transformed", extra={"fields": {
-        "strategy": strategy.value,
-        "original_len": len(query),
-        "num_queries": len(result),
-    }})
+    _log.info(
+        "query transformed",
+        extra={
+            "fields": {
+                "strategy": strategy.value,
+                "original_len": len(query),
+                "num_queries": len(result),
+            }
+        },
+    )
 
     return result

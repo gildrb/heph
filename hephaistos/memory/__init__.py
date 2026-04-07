@@ -43,6 +43,7 @@ _MEMORY_FILE = "memory.json"
 # Data types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class MemoryEntry:
     """A single learned concept or fact."""
@@ -87,6 +88,7 @@ class MemoryEntry:
 # Memory store
 # ---------------------------------------------------------------------------
 
+
 class MemoryStore:
     """Persistent memory store for an armory.
 
@@ -110,15 +112,25 @@ class MemoryStore:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
             self.entries = [MemoryEntry.from_dict(e) for e in data.get("entries", [])]
-            _log.info("memory loaded", extra={"fields": {
-                "armory": str(self.armory_path),
-                "entries": len(self.entries),
-            }})
+            _log.info(
+                "memory loaded",
+                extra={
+                    "fields": {
+                        "armory": str(self.armory_path),
+                        "entries": len(self.entries),
+                    }
+                },
+            )
             return True
         except (json.JSONDecodeError, OSError) as exc:
-            _log.warning("memory load failed", extra={"fields": {
-                "error": str(exc),
-            }})
+            _log.warning(
+                "memory load failed",
+                extra={
+                    "fields": {
+                        "error": str(exc),
+                    }
+                },
+            )
             return False
 
     def save(self) -> Path:
@@ -134,10 +146,15 @@ class MemoryStore:
             encoding="utf-8",
         )
         self._dirty = False
-        _log.info("memory saved", extra={"fields": {
-            "armory": str(self.armory_path),
-            "entries": len(self.entries),
-        }})
+        _log.info(
+            "memory saved",
+            extra={
+                "fields": {
+                    "armory": str(self.armory_path),
+                    "entries": len(self.entries),
+                }
+            },
+        )
         return self._path
 
     # -- Querying ----------------------------------------------------------
@@ -149,10 +166,7 @@ class MemoryStore:
     def has_topic(self, topic: str) -> bool:
         """Check if a topic has already been covered."""
         topic_lower = topic.lower().strip()
-        return any(
-            e.topic.lower().strip() == topic_lower
-            for e in self.entries
-        )
+        return any(e.topic.lower().strip() == topic_lower for e in self.entries)
 
     def find_related(self, query: str, *, limit: int = 10) -> list[MemoryEntry]:
         """Find memory entries related to a query.
@@ -196,16 +210,20 @@ class MemoryStore:
             if existing.topic.lower().strip() == topic_lower:
                 # Same topic — upgrade confidence if the new one is higher
                 confidence_order = {"extracted": 1, "discussed": 2, "verified": 3}
-                if (
-                    confidence_order.get(confidence, 0)
-                    > confidence_order.get(existing.confidence, 0)
+                if confidence_order.get(confidence, 0) > confidence_order.get(
+                    existing.confidence, 0
                 ):
                     existing.confidence = confidence
                     self._dirty = True
-                    _log.debug("memory confidence upgraded", extra={"fields": {
-                        "topic": topic,
-                        "confidence": confidence,
-                    }})
+                    _log.debug(
+                        "memory confidence upgraded",
+                        extra={
+                            "fields": {
+                                "topic": topic,
+                                "confidence": confidence,
+                            }
+                        },
+                    )
                     return existing
                 # Already covered at equal or higher confidence — skip
                 return None
@@ -219,11 +237,16 @@ class MemoryStore:
         )
         self.entries.append(entry)
         self._dirty = True
-        _log.info("memory added", extra={"fields": {
-            "topic": topic,
-            "source": source,
-            "confidence": confidence,
-        }})
+        _log.info(
+            "memory added",
+            extra={
+                "fields": {
+                    "topic": topic,
+                    "source": source,
+                    "confidence": confidence,
+                }
+            },
+        )
         return entry
 
     def add_batch(
@@ -284,8 +307,7 @@ class MemoryStore:
             return ""
 
         header = (
-            "The user has already studied these topics"
-            " (do NOT repeat this material unless asked):"
+            "The user has already studied these topics (do NOT repeat this material unless asked):"
         )
         return header + "\n" + "\n".join(parts)
 
@@ -302,6 +324,7 @@ class MemoryStore:
 # ---------------------------------------------------------------------------
 # Convenience functions
 # ---------------------------------------------------------------------------
+
 
 def load_memory(armory_path: Path) -> MemoryStore:
     """Load memory for an armory (creates empty store if none exists)."""

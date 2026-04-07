@@ -69,10 +69,7 @@ class ArmoryIndex:
                 for file_path in sorted(folder.rglob("*")):
                     if not file_path.is_file():
                         continue
-                    if any(
-                        part.startswith(".")
-                        for part in file_path.relative_to(folder).parts
-                    ):
+                    if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
                         continue
                     doc = chunk_file(
                         file_path,
@@ -85,13 +82,18 @@ class ArmoryIndex:
                         self.documents.append(doc)
                         self._file_hashes[doc.source] = doc.content_hash
 
-        _log.info("index built", extra={"fields": {
-            "armory": str(self.armory_path),
-            "strategy": self.strategy.value,
-            "documents": len(self.documents),
-            "chunks": self.chunk_count,
-            "latency_ms": timer.ms,
-        }})
+        _log.info(
+            "index built",
+            extra={
+                "fields": {
+                    "armory": str(self.armory_path),
+                    "strategy": self.strategy.value,
+                    "documents": len(self.documents),
+                    "chunks": self.chunk_count,
+                    "latency_ms": timer.ms,
+                }
+            },
+        )
 
     def save(self) -> Path:
         """Persist the index to ``.hephaistos/rag_index.json``."""
@@ -123,9 +125,7 @@ class ArmoryIndex:
                 for doc in self.documents
             ],
         }
-        index_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        index_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return index_path
 
     def load(self) -> bool:
@@ -186,15 +186,13 @@ class ArmoryIndex:
             for file_path in sorted(folder.rglob("*")):
                 if not file_path.is_file():
                     continue
-                if any(
-                    part.startswith(".")
-                    for part in file_path.relative_to(folder).parts
-                ):
+                if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
                     continue
                 rel = str(file_path.relative_to(self.armory_path))
                 if rel not in self._file_hashes:
                     return True
                 import hashlib
+
                 try:
                     content = file_path.read_text(encoding="utf-8")
                     h = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
@@ -214,10 +212,7 @@ class ArmoryIndex:
             for file_path in sorted(folder.rglob("*")):
                 if not file_path.is_file():
                     continue
-                if any(
-                    part.startswith(".")
-                    for part in file_path.relative_to(folder).parts
-                ):
+                if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
                     continue
                 count += 1
         return count
@@ -232,11 +227,16 @@ def build_index(
     index = ArmoryIndex(armory_path, strategy=strategy)
     index.build()
     index.save()
-    _log.info("index built and saved", extra={"fields": {
-        "armory": str(armory_path),
-        "strategy": strategy.value,
-        "chunks": index.chunk_count,
-    }})
+    _log.info(
+        "index built and saved",
+        extra={
+            "fields": {
+                "armory": str(armory_path),
+                "strategy": strategy.value,
+                "chunks": index.chunk_count,
+            }
+        },
+    )
     return index
 
 
@@ -248,12 +248,22 @@ def load_or_build(
     """Load existing index if fresh, otherwise rebuild."""
     index = ArmoryIndex(armory_path, strategy=strategy)
     if index.load() and not index.is_stale():
-        _log.info("index loaded from cache", extra={"fields": {
-            "armory": str(armory_path),
-            "chunks": index.chunk_count,
-        }})
+        _log.info(
+            "index loaded from cache",
+            extra={
+                "fields": {
+                    "armory": str(armory_path),
+                    "chunks": index.chunk_count,
+                }
+            },
+        )
         return index
-    _log.info("index stale or missing, rebuilding", extra={"fields": {
-        "armory": str(armory_path),
-    }})
+    _log.info(
+        "index stale or missing, rebuilding",
+        extra={
+            "fields": {
+                "armory": str(armory_path),
+            }
+        },
+    )
     return build_index(armory_path, strategy=strategy)

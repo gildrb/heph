@@ -17,6 +17,7 @@ Token refresh happens automatically when the access token expires.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import secrets
@@ -73,13 +74,18 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 
         _OAuthCallbackHandler.code = params.get("code", [None])[0]
         _OAuthCallbackHandler.state = params.get("state", [None])[0]
-        self._respond("Authentication successful! You can close this tab and return to Hephaistos.")
+        self._respond(
+            "Authentication successful! You can close this tab and return to Hephaistos."
+        )
 
     def _respond(self, message: str) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        html = f"<html><body style='font-family:sans-serif;padding:40px'><h2>{message}</h2></body></html>"
+        html = (
+            f"<html><body style='font-family:sans-serif;padding:40px'>"
+            f"<h2>{message}</h2></body></html>"
+        )
         self.wfile.write(html.encode("utf-8"))
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -98,10 +104,12 @@ def _store_oauth_token(provider_slug: str, token_data: dict) -> None:
     key = f"{_OAUTH_KEY_PREFIX}{provider_slug}"
     try:
         import keyring
+
         keyring.set_password("hephaistos", key, json.dumps(token_data))
     except Exception:
         # Fallback: store in volatile memory
         from hephaistos.providers.keyring_store import set_volatile
+
         set_volatile(key, json.dumps(token_data))
 
 
@@ -110,6 +118,7 @@ def _load_oauth_token(provider_slug: str) -> dict | None:
     key = f"{_OAUTH_KEY_PREFIX}{provider_slug}"
     try:
         import keyring
+
         raw = keyring.get_password("hephaistos", key)
         if raw:
             return json.loads(raw)
@@ -117,6 +126,7 @@ def _load_oauth_token(provider_slug: str) -> dict | None:
         pass
     # Try volatile
     from hephaistos.providers.keyring_store import get_volatile
+
     raw = get_volatile(key)
     if raw:
         return json.loads(raw)
@@ -207,18 +217,21 @@ def login(provider_slug: str) -> dict | None:
     server = HTTPServer(("127.0.0.1", provider.callback_port), _OAuthCallbackHandler)
     server.timeout = 120  # 2 minute timeout
 
-    _log.info("oauth: starting callback server", extra={"fields": {
-        "provider": provider_slug,
-        "port": provider.callback_port,
-    }})
+    _log.info(
+        "oauth: starting callback server",
+        extra={
+            "fields": {
+                "provider": provider_slug,
+                "port": provider.callback_port,
+            }
+        },
+    )
 
     print(f"\n  Opening browser for {provider.display_name}...")
     print(f"  If the browser doesn't open, visit:\n  {auth_url}\n")
 
-    try:
+    with contextlib.suppress(Exception):
         webbrowser.open(auth_url)
-    except Exception:
-        pass
 
     # Wait for callback
     result: dict | None = None
@@ -253,10 +266,15 @@ def login(provider_slug: str) -> dict | None:
         result = token_data
 
     except Exception as exc:
-        _log.error("oauth login failed", extra={"fields": {
-            "provider": provider_slug,
-            "error": str(exc),
-        }})
+        _log.error(
+            "oauth login failed",
+            extra={
+                "fields": {
+                    "provider": provider_slug,
+                    "error": str(exc),
+                }
+            },
+        )
         print(f"  Login failed: {exc}")
     finally:
         server.server_close()
@@ -273,13 +291,15 @@ def _exchange_code(
     """Exchange authorization code for access + refresh tokens."""
     import urllib.request
 
-    data = urlencode({
-        "grant_type": "authorization_code",
-        "client_id": provider.client_id,
-        "code": code,
-        "code_verifier": verifier,
-        "redirect_uri": redirect_uri,
-    }).encode("utf-8")
+    data = urlencode(
+        {
+            "grant_type": "authorization_code",
+            "client_id": provider.client_id,
+            "code": code,
+            "code_verifier": verifier,
+            "redirect_uri": redirect_uri,
+        }
+    ).encode("utf-8")
 
     req = urllib.request.Request(
         provider.token_url,
@@ -294,17 +314,27 @@ def _exchange_code(
         with urllib.request.urlopen(req, timeout=30) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
-        _log.error("token exchange failed", extra={"fields": {
-            "provider": provider.slug,
-            "error": str(exc),
-        }})
+        _log.error(
+            "token exchange failed",
+            extra={
+                "fields": {
+                    "provider": provider.slug,
+                    "error": str(exc),
+                }
+            },
+        )
         print(f"  Token exchange failed: {exc}")
         return None
 
     if "access_token" not in body or "refresh_token" not in body:
-        _log.error("token exchange returned incomplete data", extra={"fields": {
-            "keys": list(body.keys()),
-        }})
+        _log.error(
+            "token exchange returned incomplete data",
+            extra={
+                "fields": {
+                    "keys": list(body.keys()),
+                }
+            },
+        )
         print("  Token exchange returned incomplete data.")
         return None
 
@@ -339,11 +369,13 @@ def refresh(provider_slug: str) -> dict | None:
 
     import urllib.request
 
-    data = urlencode({
-        "grant_type": "refresh_token",
-        "client_id": provider.client_id,
-        "refresh_token": refresh_token,
-    }).encode("utf-8")
+    data = urlencode(
+        {
+            "grant_type": "refresh_token",
+            "client_id": provider.client_id,
+            "refresh_token": refresh_token,
+        }
+    ).encode("utf-8")
 
     req = urllib.request.Request(
         provider.token_url,
@@ -358,10 +390,15 @@ def refresh(provider_slug: str) -> dict | None:
         with urllib.request.urlopen(req, timeout=30) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
-        _log.error("token refresh failed", extra={"fields": {
-            "provider": provider_slug,
-            "error": str(exc),
-        }})
+        _log.error(
+            "token refresh failed",
+            extra={
+                "fields": {
+                    "provider": provider_slug,
+                    "error": str(exc),
+                }
+            },
+        )
         return None
 
     updated = {
@@ -396,10 +433,12 @@ def logout(provider_slug: str) -> bool:
     key = f"{_OAUTH_KEY_PREFIX}{provider_slug}"
     try:
         import keyring
+
         keyring.delete_password("hephaistos", key)
     except Exception:
         pass
     from hephaistos.providers.keyring_store import clear_volatile
+
     clear_volatile(key)
     return True
 
@@ -408,9 +447,11 @@ def available_providers() -> list[dict[str, str]]:
     """List available OAuth providers and their login status."""
     result = []
     for slug, provider in _PROVIDERS.items():
-        result.append({
-            "slug": slug,
-            "display_name": provider.display_name,
-            "logged_in": is_logged_in(slug),
-        })
+        result.append(
+            {
+                "slug": slug,
+                "display_name": provider.display_name,
+                "logged_in": is_logged_in(slug),
+            }
+        )
     return result

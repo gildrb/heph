@@ -112,7 +112,7 @@ class StatusCommand(Command):
             f"  Model:     {s.config.model}",
             f"  API:       {s.config.base_url}",
             (
-                f"  Key:       configured"
+                "  Key:       configured"
                 if s.config.resolved_api_key
                 else f"  Key:       {styled('not set', STYLE_DIM)}"
             ),
@@ -219,9 +219,8 @@ class ModelCommand(Command):
             if slug == "custom" and not provider.models:
                 continue
             for model in provider.models:
-                is_current = (
-                    (provider.active and model == current_model)
-                    or (not active and model == current_model)
+                is_current = (provider.active and model == current_model) or (
+                    not active and model == current_model
                 )
                 desc = f"via {provider.display_name}"
                 if is_current:
@@ -286,6 +285,7 @@ class ApiCommand(Command):
             source = ""
             if key:
                 from hephaistos.providers import keyring_store as ks
+
                 if ks.retrieve_key(slug):
                     source = "keychain"
                 elif env_var and os.environ.get(env_var, "").strip():
@@ -323,9 +323,7 @@ class ApiCommand(Command):
                 print_success(f"API key saved to keychain for '{slug}'.")
             except Exception:
                 set_volatile(slug, raw_key)
-                print_success(
-                    "API key set for this session only (keychain unavailable)."
-                )
+                print_success("API key set for this session only (keychain unavailable).")
 
             # Also set volatile so the current session picks it up immediately
             set_volatile(slug, raw_key)
@@ -412,16 +410,18 @@ class HistoryCommand(Command):
         if tool_msgs:
             lines.append(f"  Tool:      {len(tool_msgs)} results")
         mem_count = len(s._memory.entries) if s._memory else 0
-        lines.extend([
-            f"  Memory:    {mem_count} concepts learned",
-            f"  Chars:     {total_chars}",
-            f"  ~Tokens:   ~{est_tokens}",
-            f"  Max tokens: {s.config.max_tokens}",
-            "",
-            f"  API calls: {usage_summary['api_calls']}",
-            f"  Tokens:    {usage_summary['total_tokens']}",
-            f"  Cost:      ${usage_summary['cost_usd']:.4f}",
-        ])
+        lines.extend(
+            [
+                f"  Memory:    {mem_count} concepts learned",
+                f"  Chars:     {total_chars}",
+                f"  ~Tokens:   ~{est_tokens}",
+                f"  Max tokens: {s.config.max_tokens}",
+                "",
+                f"  API calls: {usage_summary['api_calls']}",
+                f"  Tokens:    {usage_summary['total_tokens']}",
+                f"  Cost:      ${usage_summary['cost_usd']:.4f}",
+            ]
+        )
         print("\n".join(lines))
         return CommandResult()
 
@@ -444,9 +444,7 @@ class EditCommand(Command):
             return CommandResult()
 
         original = last_user.content
-        print_info(
-            f"Last message: {original[:100]}{'...' if len(original) > 100 else ''}"
-        )
+        print_info(f"Last message: {original[:100]}{'...' if len(original) > 100 else ''}")
         print(styled("Enter new message (empty to cancel):", STYLE_PROMPT))
         try:
             new_text = input("  ").strip()
@@ -566,7 +564,8 @@ class LoginCommand(Command):
     description = "Log in with a provider subscription (OAuth)"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.providers.oauth import available_providers, login as oauth_login
+        from hephaistos.providers.oauth import available_providers
+        from hephaistos.providers.oauth import login as oauth_login
 
         providers = available_providers()
         if not providers:
@@ -608,7 +607,8 @@ class LogoutCommand(Command):
     description = "Log out of a provider subscription"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.providers.oauth import available_providers, logout as oauth_logout
+        from hephaistos.providers.oauth import available_providers
+        from hephaistos.providers.oauth import logout as oauth_logout
 
         providers = available_providers()
         logged_in = [p for p in providers if p["logged_in"]]
@@ -652,7 +652,11 @@ class ModelsCommand(Command):
                 current_provider = m.provider
                 print(f"\n  {styled(current_provider, STYLE_PROMPT)}")
 
-            price = f"${m.prompt_price_per_1k:.4f}/${m.completion_price_per_1k:.4f}" if not m.is_free else "free"
+            price = (
+                f"${m.prompt_price_per_1k:.4f}/${m.completion_price_per_1k:.4f}"
+                if not m.is_free
+                else "free"
+            )
             ctx = f"{m.context_window // 1000}k ctx"
             tags = f" [{', '.join(m.tags)}]" if m.tags else ""
             print(f"    {m.name:<45} {ctx:<12} {price}{tags}")

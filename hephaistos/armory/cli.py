@@ -32,9 +32,7 @@ def _cmd_armory_open(args: argparse.Namespace) -> None:
     except ArmoryError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
-    print(
-        f"Opened armory {armory_path} (created {marker.get('created_at', 'unknown')})"
-    )
+    print(f"Opened armory {armory_path} (created {marker.get('created_at', 'unknown')})")
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:

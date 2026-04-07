@@ -80,9 +80,7 @@ def save(
     # Preserve created_at if the file already exists
     if file_path.exists():
         existing = json.loads(file_path.read_text(encoding="utf-8"))
-        data["created_at"] = existing.get(
-            "created_at", datetime.now(UTC).isoformat()
-        )
+        data["created_at"] = existing.get("created_at", datetime.now(UTC).isoformat())
     else:
         data["created_at"] = datetime.now(UTC).isoformat()
 
@@ -90,11 +88,16 @@ def save(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
-    _log.info("session saved", extra={"fields": {
-        "session_id": session_id,
-        "path": str(file_path),
-        "message_count": len(conversation.messages),
-    }})
+    _log.info(
+        "session saved",
+        extra={
+            "fields": {
+                "session_id": session_id,
+                "path": str(file_path),
+                "message_count": len(conversation.messages),
+            }
+        },
+    )
     return file_path
 
 
@@ -115,17 +118,25 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
         for msg_data in data.get("messages", []):
             conversation.add(msg_data["role"], msg_data["content"])
     except KeyError as exc:
-        _log.error("corrupt session file", extra={"fields": {
-            "session_id": session_id,
-            "error": f"missing key {exc}",
-        }})
-        raise ChatStorageError(
-            f"corrupt session file {session_id}: missing key {exc}"
-        ) from exc
-    _log.debug("session loaded", extra={"fields": {
-        "session_id": session_id,
-        "message_count": len(conversation.messages),
-    }})
+        _log.error(
+            "corrupt session file",
+            extra={
+                "fields": {
+                    "session_id": session_id,
+                    "error": f"missing key {exc}",
+                }
+            },
+        )
+        raise ChatStorageError(f"corrupt session file {session_id}: missing key {exc}") from exc
+    _log.debug(
+        "session loaded",
+        extra={
+            "fields": {
+                "session_id": session_id,
+                "message_count": len(conversation.messages),
+            }
+        },
+    )
     return conversation, data.get("title", "")
 
 

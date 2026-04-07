@@ -34,10 +34,10 @@ _EXTRACTION_SYSTEM_PROMPT = (
     "- Each entry must have a 'topic' (short label) and 'content' (the fact).\n"
     "- If the conversation doesn't contain substantive learning, return an empty list.\n"
     "- Return ONLY a JSON array, no other text.\n"
-    "- Each entry: {\"topic\": \"...\", \"content\": \"...\", \"source\": \"...\"}\n"
+    '- Each entry: {"topic": "...", "content": "...", "source": "..."}\n'
     "- Source should be the document name or 'conversation'.\n\n"
     "Example output:\n"
-    'Example: '
+    "Example: "
     '[{"topic": "TCP handshake", '
     '"content": "TCP uses a 3-way handshake: SYN, SYN-ACK, ACK", '
     '"source": "networking_notes.md"}]'
@@ -92,10 +92,15 @@ def extract_from_exchange(
             )
         raw = response.choices[0].message.content or "[]"
     except Exception as exc:
-        _log.warning("memory extraction failed", extra={"fields": {
-            "error": str(exc),
-            "latency_ms": timer.ms,
-        }})
+        _log.warning(
+            "memory extraction failed",
+            extra={
+                "fields": {
+                    "error": str(exc),
+                    "latency_ms": timer.ms,
+                }
+            },
+        )
         return []
 
     # Parse the response
@@ -121,16 +126,23 @@ def extract_from_exchange(
             content = entry.get("content", "").strip()
             if not topic or not content:
                 continue
-            valid.append({
-                "topic": topic[:100],
-                "content": content[:500],
-                "source": entry.get("source", "conversation"),
-            })
+            valid.append(
+                {
+                    "topic": topic[:100],
+                    "content": content[:500],
+                    "source": entry.get("source", "conversation"),
+                }
+            )
 
-        _log.info("memory extracted", extra={"fields": {
-            "entries": len(valid),
-            "latency_ms": timer.ms,
-        }})
+        _log.info(
+            "memory extracted",
+            extra={
+                "fields": {
+                    "entries": len(valid),
+                    "latency_ms": timer.ms,
+                }
+            },
+        )
         return valid
 
     except json.JSONDecodeError:

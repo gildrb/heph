@@ -24,8 +24,9 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 try:
-    from sklearn.feature_extraction.text import TfidfVectorizer as _SklearnTfidfVectorizer
     import numpy as np
+    from sklearn.feature_extraction.text import TfidfVectorizer as _SklearnTfidfVectorizer
+
     _HAS_SKLEARN = True
 except ImportError:
     _HAS_SKLEARN = False
@@ -47,19 +48,105 @@ _log = get_logger("rag.retrieve")
 # ---------------------------------------------------------------------------
 
 _WORD_RE = re.compile(r"[a-zA-Z0-9]+")
-_STOP_WORDS = frozenset({
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "to", "of", "in", "for",
-    "on", "with", "at", "by", "from", "as", "into", "through", "during",
-    "before", "after", "above", "below", "between", "and", "but", "or",
-    "not", "no", "nor", "so", "if", "then", "than", "too", "very",
-    "just", "about", "also", "this", "that", "these", "those", "it",
-    "its", "i", "me", "my", "we", "our", "you", "your", "he", "she",
-    "they", "them", "their", "what", "which", "who", "how", "when",
-    "where", "why", "all", "each", "every", "both", "few", "more",
-    "most", "other", "some", "such", "any", "up", "out",
-})
+_STOP_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "shall",
+        "can",
+        "to",
+        "of",
+        "in",
+        "for",
+        "on",
+        "with",
+        "at",
+        "by",
+        "from",
+        "as",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "between",
+        "and",
+        "but",
+        "or",
+        "not",
+        "no",
+        "nor",
+        "so",
+        "if",
+        "then",
+        "than",
+        "too",
+        "very",
+        "just",
+        "about",
+        "also",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "i",
+        "me",
+        "my",
+        "we",
+        "our",
+        "you",
+        "your",
+        "he",
+        "she",
+        "they",
+        "them",
+        "their",
+        "what",
+        "which",
+        "who",
+        "how",
+        "when",
+        "where",
+        "why",
+        "all",
+        "each",
+        "every",
+        "both",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "any",
+        "up",
+        "out",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,8 +232,7 @@ class TfidfRetriever:
                 df[term] = df.get(term, 0) + 1
 
         self._idf = {
-            term: math.log((doc_count + 1) / (count + 1)) + 1
-            for term, count in df.items()
+            term: math.log((doc_count + 1) / (count + 1)) + 1 for term, count in df.items()
         }
 
     # -- sklearn build ---------------------------------------------------
@@ -245,6 +331,7 @@ def _is_sentence_transformers_available() -> bool:
     """Return True if sentence-transformers can be imported."""
     try:
         import sentence_transformers  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -275,7 +362,8 @@ class EmbeddingRetriever:
     ) -> None:
         self._chunks = index.all_chunks
         self._model_name = model_name or os.environ.get(
-            _EMBED_MODEL_ENV, _EMBED_MODEL_DEFAULT,
+            _EMBED_MODEL_ENV,
+            _EMBED_MODEL_DEFAULT,
         )
         self._embeddings: list[list[float]] | None = None
         self._model = None  # lazy-loaded
@@ -285,6 +373,7 @@ class EmbeddingRetriever:
         if self._model is not None:
             return self._model
         from sentence_transformers import SentenceTransformer
+
         self._model = SentenceTransformer(self._model_name)
         return self._model
 
@@ -346,7 +435,8 @@ class CrossEncoderReranker:
 
     def __init__(self, model_name: str | None = None) -> None:
         self._model_name = model_name or os.environ.get(
-            _RERANK_MODEL_ENV, _RERANK_MODEL_DEFAULT,
+            _RERANK_MODEL_ENV,
+            _RERANK_MODEL_DEFAULT,
         )
         self._model = None  # lazy-loaded
 
@@ -360,6 +450,7 @@ class CrossEncoderReranker:
         if self._model is not None:
             return self._model
         from sentence_transformers import CrossEncoder
+
         self._model = CrossEncoder(self._model_name)
         return self._model
 
@@ -425,9 +516,7 @@ def _reciprocal_rank_fusion(
 
     results = [
         ScoredChunk(chunk=sc.chunk, score=score)
-        for (_, score, sc) in (
-            (key, score, sc) for key, (score, sc) in merged.items()
-        )
+        for (_, score, sc) in ((key, score, sc) for key, (score, sc) in merged.items())
     ]
     # Sort by RRF score descending
     results.sort(key=lambda s: s.score, reverse=True)
@@ -543,6 +632,7 @@ class HybridRetriever:
 # Auto-selection factory
 # ---------------------------------------------------------------------------
 
+
 def _create_retriever(
     index: ArmoryIndex,
     embed_model: str | None = None,
@@ -580,6 +670,7 @@ def _create_retriever(
 # Convenience function (public API)
 # ---------------------------------------------------------------------------
 
+
 def retrieve(
     query: str,
     index: ArmoryIndex,
@@ -605,11 +696,16 @@ def retrieve(
 
     retriever = _create_retriever(index, query_transformer=transformer)
     results = retriever.retrieve(query, top_k)
-    _log.debug("retrieve results", extra={"fields": {
-        "query_len": len(query),
-        "top_k": top_k,
-        "returned": len(results),
-        "retriever": type(retriever).__name__,
-        "transform_strategy": transform_strategy.value,
-    }})
+    _log.debug(
+        "retrieve results",
+        extra={
+            "fields": {
+                "query_len": len(query),
+                "top_k": top_k,
+                "returned": len(results),
+                "retriever": type(retriever).__name__,
+                "transform_strategy": transform_strategy.value,
+            }
+        },
+    )
     return results

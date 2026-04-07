@@ -14,7 +14,8 @@ from hephaistos.chat.engine import (
     ChatConfig,
     Conversation,
     Message,
-    StreamRecoveryError, get_reply,
+    StreamRecoveryError,
+    get_reply,
 )
 from hephaistos.chat.usage import SessionUsage, save_usage
 from hephaistos.harness.dispatch import agent_loop
@@ -40,15 +41,16 @@ class ChatSession:
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
     usage: SessionUsage = field(default_factory=SessionUsage)
     trace: TraceWriter = field(default=None, init=False, repr=False)
-    steering: object = field(default=None, init=False, repr=False)  # SteeringQueue, typed as object to avoid circular import
+    steering: object = field(
+        default=None, init=False, repr=False
+    )  # SteeringQueue, typed as object to avoid circular import
 
     def __post_init__(self) -> None:
         if self.trace is None:
-            object.__setattr__(
-                self, "trace", TraceWriter(self.session_id, self.armory_path)
-            )
+            object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))
         if self.steering is None:
             from hephaistos.harness.dispatch import SteeringQueue
+
             object.__setattr__(self, "steering", SteeringQueue())
 
 
@@ -87,9 +89,7 @@ def _list_source_file_names(armory_path: Path) -> list[str]:
     return names
 
 
-_RAG_CONTEXT_PREFIX = (
-    "Source material retrieved for this question:\n\n"
-)
+_RAG_CONTEXT_PREFIX = "Source material retrieved for this question:\n\n"
 
 
 _SYSTEM_PROMPT_FALLBACK = (
@@ -113,10 +113,15 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
         conversation=conversation,
         session_id=chat_storage.new_session_id(),
     )
-    _log.info("plain session created", extra={"fields": {
-        "session_id": session.session_id,
-        "model": config.model,
-    }})
+    _log.info(
+        "plain session created",
+        extra={
+            "fields": {
+                "session_id": session.session_id,
+                "model": config.model,
+            }
+        },
+    )
     session.trace.record_session_event("created", model=config.model, mode="plain")
     return session
 
@@ -127,9 +132,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     Raises SessionError if armory_path is None or has no source documents.
     """
     if armory_path is None:
-        raise SessionError(
-            "An armory is required. Create one with: hephaistos armory init <path>"
-        )
+        raise SessionError("An armory is required. Create one with: hephaistos armory init <path>")
 
     source_file_count = _count_source_files(armory_path)
     if source_file_count == 0:
@@ -170,13 +173,18 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     )
     # Load memory for this session
     session._memory = load_memory(armory_path)
-    _log.info("session created", extra={"fields": {
-        "session_id": session.session_id,
-        "armory": str(armory_path),
-        "source_files": source_file_count,
-        "model": config.model,
-        "memory_entries": len(session._memory.entries) if session._memory else 0,
-    }})
+    _log.info(
+        "session created",
+        extra={
+            "fields": {
+                "session_id": session.session_id,
+                "armory": str(armory_path),
+                "source_files": source_file_count,
+                "model": config.model,
+                "memory_entries": len(session._memory.entries) if session._memory else 0,
+            }
+        },
+    )
     session.trace.record_session_event("created", model=config.model)
     return session
 
@@ -198,12 +206,17 @@ def resume_session(
         source_file_count=source_file_count,
     )
     session._memory = load_memory(armory_path)
-    _log.info("session resumed", extra={"fields": {
-        "session_id": session_id,
-        "armory": str(armory_path),
-        "message_count": len(conversation.messages),
-        "memory_entries": len(session._memory.entries) if session._memory else 0,
-    }})
+    _log.info(
+        "session resumed",
+        extra={
+            "fields": {
+                "session_id": session_id,
+                "armory": str(armory_path),
+                "message_count": len(conversation.messages),
+                "memory_entries": len(session._memory.entries) if session._memory else 0,
+            }
+        },
+    )
     session.trace.record_session_event("resumed", title=title)
     return session
 
@@ -245,11 +258,16 @@ def send_user_message(
     session.conversation.add("user", user_input)
     session.trace.record_user_message(user_input)
 
-    _log.info("user message", extra={"fields": {
-        "session_id": session.session_id,
-        "input_len": len(user_input),
-        "message_count": len(session.conversation.messages),
-    }})
+    _log.info(
+        "user message",
+        extra={
+            "fields": {
+                "session_id": session.session_id,
+                "input_len": len(user_input),
+                "message_count": len(session.conversation.messages),
+            }
+        },
+    )
 
     timer = Timer()
     reply = ""
@@ -279,19 +297,30 @@ def send_user_message(
         # Partial content was streamed before the connection dropped.
         # Roll back the conversation to keep it consistent, but preserve
         # the partial reply in the exception for the caller to inspect.
-        _log.warning("stream interrupted, rolling back", extra={"fields": {
-            "session_id": session.session_id,
-            "partial_len": len(rec.partial_content),
-            "latency_ms": timer.ms,
-        }})
+        _log.warning(
+            "stream interrupted, rolling back",
+            extra={
+                "fields": {
+                    "session_id": session.session_id,
+                    "partial_len": len(rec.partial_content),
+                    "latency_ms": timer.ms,
+                }
+            },
+        )
         session.conversation.messages = original_messages
         session.dirty = True
         raise
     except Exception:
-        _log.error("send_user_message failed", extra={"fields": {
-            "session_id": session.session_id,
-            "latency_ms": timer.ms,
-        }}, exc_info=True)
+        _log.error(
+            "send_user_message failed",
+            extra={
+                "fields": {
+                    "session_id": session.session_id,
+                    "latency_ms": timer.ms,
+                }
+            },
+            exc_info=True,
+        )
         session.conversation.messages = original_messages
         raise
 
@@ -299,6 +328,7 @@ def send_user_message(
     if session.armory_path is not None and reply:
         try:
             from hephaistos.harness.citation import verify_response
+
             notice = verify_response(reply, session.conversation.messages)
             if notice:
                 sys.stdout.write(notice)
@@ -314,11 +344,16 @@ def send_user_message(
         session.title = _derive_title(session.conversation)
     session.dirty = True
 
-    _log.info("reply complete", extra={"fields": {
-        "session_id": session.session_id,
-        "reply_len": len(reply),
-        "latency_ms": timer.ms,
-    }})
+    _log.info(
+        "reply complete",
+        extra={
+            "fields": {
+                "session_id": session.session_id,
+                "reply_len": len(reply),
+                "latency_ms": timer.ms,
+            }
+        },
+    )
     session.trace.record_session_event(
         "reply", latency_ms=round(timer.ms, 1), reply_len=len(reply)
     )
@@ -327,6 +362,7 @@ def send_user_message(
     if session._memory is not None and len(reply) >= 100:
         try:
             from hephaistos.memory.extract import extract_and_store
+
             sources_used = ""
             # Find RAG context that was injected to identify sources
             for msg in session.conversation.messages:
@@ -341,9 +377,14 @@ def send_user_message(
                 sources=sources_used,
             )
             if added:
-                _log.info("memory updated", extra={"fields": {
-                    "new_entries": added,
-                }})
+                _log.info(
+                    "memory updated",
+                    extra={
+                        "fields": {
+                            "new_entries": added,
+                        }
+                    },
+                )
         except Exception:
             _log.warning("memory extraction failed", exc_info=True)
 
@@ -371,19 +412,29 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
         with timer:
             scored = retrieve(user_input, session._rag_index, top_k=5)
         if not scored:
-            _log.info("rag retrieve: no results", extra={"fields": {
-                "query_len": len(user_input),
-                "latency_ms": timer.ms,
-            }})
+            _log.info(
+                "rag retrieve: no results",
+                extra={
+                    "fields": {
+                        "query_len": len(user_input),
+                        "latency_ms": timer.ms,
+                    }
+                },
+            )
             return 0
 
         scores = [sc.score for sc in scored]
-        _log.info("rag retrieve", extra={"fields": {
-            "query_len": len(user_input),
-            "retrieved": len(scored),
-            "top_score": round(scores[0], 4) if scores else 0,
-            "latency_ms": round(timer.ms, 1),
-        }})
+        _log.info(
+            "rag retrieve",
+            extra={
+                "fields": {
+                    "query_len": len(user_input),
+                    "retrieved": len(scored),
+                    "top_score": round(scores[0], 4) if scores else 0,
+                    "latency_ms": round(timer.ms, 1),
+                }
+            },
+        )
         session.trace.record_rag_retrieve(
             query=user_input,
             top_k=5,
@@ -392,9 +443,7 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
             latency_ms=timer.ms,
         )
 
-        context_text = build_context(
-            scored, max_tokens=session.config.rag_context_budget
-        )
+        context_text = build_context(scored, max_tokens=session.config.rag_context_budget)
         if not context_text:
             return 0
 
@@ -427,11 +476,16 @@ def save_session(session: ChatSession) -> Path:
         title=title,
     )
     session.dirty = False
-    _log.info("session saved", extra={"fields": {
-        "session_id": session.session_id,
-        "path": str(path),
-        "message_count": len(session.conversation.messages),
-    }})
+    _log.info(
+        "session saved",
+        extra={
+            "fields": {
+                "session_id": session.session_id,
+                "path": str(path),
+                "message_count": len(session.conversation.messages),
+            }
+        },
+    )
     session.trace.record_session_event("saved", path=str(path))
     return path
 

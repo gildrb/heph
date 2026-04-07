@@ -32,11 +32,13 @@ class MenuOption:
 # prompt_toolkit arrow-key selector (full-screen)
 # ---------------------------------------------------------------------------
 
-_MENU_STYLE = PtStyle.from_dict({
-    "title": "bold ansired",
-    "selected": "bold green",
-    "dim": "#888888",
-})
+_MENU_STYLE = PtStyle.from_dict(
+    {
+        "title": "bold ansired",
+        "selected": "bold green",
+        "dim": "#888888",
+    }
+)
 
 
 def _add_binding(kb: KeyBindings, keys: str | list[str], handler) -> None:
@@ -88,14 +90,18 @@ def _select_with_prompt_toolkit(
     def _(event):
         event.app.exit(result=None)
 
-    layout = Layout(HSplit([
-        Window(height=D(min=1)),
-        Window(
-            content=FormattedTextControl(get_text),
-            dont_extend_height=True,
-        ),
-        Window(height=D(min=1)),
-    ]))
+    layout = Layout(
+        HSplit(
+            [
+                Window(height=D(min=1)),
+                Window(
+                    content=FormattedTextControl(get_text),
+                    dont_extend_height=True,
+                ),
+                Window(height=D(min=1)),
+            ]
+        )
+    )
 
     app = Application(
         layout=layout,

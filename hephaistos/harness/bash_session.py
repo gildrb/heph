@@ -26,10 +26,7 @@ _DEFAULT_TIMEOUT = 30
 _MARKER = "__HEPH_RESULT__:"
 
 # Bash wrapper that prints a marker + exit code after each command
-_SHELL_INIT = (
-    'export PS1=""\n'
-    f'_heph_run() {{ eval "$1"; echo "{_MARKER}$?"; }}\n'
-)
+_SHELL_INIT = f'export PS1=""\n_heph_run() {{ eval "$1"; echo "{_MARKER}$?"; }}\n'
 
 
 class BashSession:
@@ -70,10 +67,15 @@ class BashSession:
         self._proc.stdin.write(_SHELL_INIT)
         self._proc.stdin.flush()
 
-        _log.info("bash session started", extra={"fields": {
-            "cwd": str(self._cwd),
-            "pid": self._proc.pid,
-        }})
+        _log.info(
+            "bash session started",
+            extra={
+                "fields": {
+                    "cwd": str(self._cwd),
+                    "pid": self._proc.pid,
+                }
+            },
+        )
         return self._proc
 
     def run(self, command: str, timeout: int | None = None) -> str:
@@ -92,9 +94,10 @@ class BashSession:
             try:
                 return self._run_locked(proc, command, timeout)
             except Exception as exc:
-                _log.warning("bash command failed, restarting session", extra={
-                    "fields": {"error": str(exc)}
-                })
+                _log.warning(
+                    "bash command failed, restarting session",
+                    extra={"fields": {"error": str(exc)}},
+                )
                 self._kill()
                 proc = self._ensure_process()
                 try:
@@ -117,6 +120,7 @@ class BashSession:
         output_lines: list[str] = []
         deadline_ns = _DEFAULT_TIMEOUT * 1_000_000_000
         import time
+
         deadline_ns = time.monotonic_ns() + timeout * 1_000_000_000
 
         while time.monotonic_ns() < deadline_ns:
@@ -129,7 +133,7 @@ class BashSession:
             line_stripped = line.rstrip("\n")
 
             if line_stripped.startswith(_MARKER):
-                exit_code_str = line_stripped[len(_MARKER):]
+                exit_code_str = line_stripped[len(_MARKER) :]
                 try:
                     exit_code = int(exit_code_str)
                 except ValueError:

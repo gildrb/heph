@@ -29,7 +29,7 @@ _log = get_logger("harness.compact")
 # Tunables (module-level so tests / callers can override)
 # ---------------------------------------------------------------------------
 
-KEEP_RECENT: int = 3          # tool results left untouched by micro_compact
+KEEP_RECENT: int = 3  # tool results left untouched by micro_compact
 PLACEHOLDER_THRESHOLD: int = 100  # only replace results longer than this (chars)
 TOKEN_THRESHOLD: int = 50_000  # auto_compact trigger
 TRANSCRIPTS_DIR: str = ".transcripts"
@@ -72,9 +72,7 @@ def micro_compact(messages: list[dict], *, keep_recent: int = KEEP_RECENT) -> in
     Operates **in-place** on *messages*.  Returns the number of results
     that were replaced.
     """
-    tool_result_indices = [
-        i for i, msg in enumerate(messages) if msg.get("role") == "tool"
-    ]
+    tool_result_indices = [i for i, msg in enumerate(messages) if msg.get("role") == "tool"]
 
     if len(tool_result_indices) <= keep_recent:
         return 0
@@ -152,22 +150,32 @@ def auto_compact(
         )
         summary = response.choices[0].message.content or "(summary unavailable)"
     except Exception as exc:
-        _log.error("auto_compact summarisation failed", extra={"fields": {
-            "error": str(exc),
-        }})
+        _log.error(
+            "auto_compact summarisation failed",
+            extra={
+                "fields": {
+                    "error": str(exc),
+                }
+            },
+        )
         return messages
 
     # --- Build compressed message list ---
     system_msgs = [m for m in messages if m.get("role") == "system"]
     compressed = [*system_msgs, {"role": "user", "content": f"[Compressed]\n\n{summary}"}]
 
-    _log.info("auto_compact complete", extra={"fields": {
-        "before_messages": len(messages),
-        "after_messages": len(compressed),
-        "before_tokens": estimate_messages_tokens(messages),
-        "after_tokens": estimate_messages_tokens(compressed),
-        "summary_len": len(summary),
-    }})
+    _log.info(
+        "auto_compact complete",
+        extra={
+            "fields": {
+                "before_messages": len(messages),
+                "after_messages": len(compressed),
+                "before_tokens": estimate_messages_tokens(messages),
+                "after_tokens": estimate_messages_tokens(compressed),
+                "summary_len": len(summary),
+            }
+        },
+    )
 
     return compressed
 

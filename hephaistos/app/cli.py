@@ -14,9 +14,7 @@ def _hide_subparser(
     name: str,
 ) -> None:
     subparsers._choices_actions = [
-        action
-        for action in subparsers._choices_actions
-        if getattr(action, "dest", None) != name
+        action for action in subparsers._choices_actions if getattr(action, "dest", None) != name
     ]
 
 

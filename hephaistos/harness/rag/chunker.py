@@ -29,19 +29,53 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-_TEXT_EXTENSIONS = frozenset({
-    ".txt", ".md", ".rst", ".adoc", ".org",
-    ".py", ".js", ".ts", ".tsx", ".jsx",
-    ".java", ".kt", ".go", ".rs", ".c", ".cpp", ".h", ".hpp",
-    ".rb", ".php", ".swift", ".zig",
-    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
-    ".html", ".css", ".xml", ".svg",
-    ".sh", ".bash", ".zsh", ".fish",
-    ".sql", ".graphql",
-    ".tex", ".bib",
-    ".csv", ".tsv",
-    ".log",
-})
+_TEXT_EXTENSIONS = frozenset(
+    {
+        ".txt",
+        ".md",
+        ".rst",
+        ".adoc",
+        ".org",
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".java",
+        ".kt",
+        ".go",
+        ".rs",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".rb",
+        ".php",
+        ".swift",
+        ".zig",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".html",
+        ".css",
+        ".xml",
+        ".svg",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".fish",
+        ".sql",
+        ".graphql",
+        ".tex",
+        ".bib",
+        ".csv",
+        ".tsv",
+        ".log",
+    }
+)
 
 _DEFAULT_CHUNK_SIZE = 500
 _DEFAULT_OVERLAP = 100
@@ -58,10 +92,10 @@ _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
 class ChunkStrategy(Enum):
     """Selects which chunking algorithm ``chunk_file`` uses."""
 
-    AUTO = "auto"          # markdown → chunk_markdown, else → semantic → text fallback
+    AUTO = "auto"  # markdown → chunk_markdown, else → semantic → text fallback
     MARKDOWN = "markdown"  # always use chunk_markdown
     SEMANTIC = "semantic"  # always use chunk_semantic (falls back to text internally)
-    TEXT = "text"          # always use chunk_text
+    TEXT = "text"  # always use chunk_text
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +162,7 @@ def _parse_sections(text: str) -> list[tuple[str, int, int, int]]:
 
     # Content before first heading
     if matches[0].start() > 0:
-        preamble = text[:matches[0].start()]
+        preamble = text[: matches[0].start()]
         if preamble.strip():
             sections.append(("", 0, 0, matches[0].start()))
 
@@ -158,15 +192,17 @@ def _chunk_markdown_section(
         return []
 
     if len(text) <= chunk_size:
-        return [Chunk(
-            text=text,
-            source=source,
-            index=idx_start,
-            char_start=char_offset,
-            char_end=char_offset + len(text),
-            heading=heading,
-            heading_level=heading_level,
-        )]
+        return [
+            Chunk(
+                text=text,
+                source=source,
+                index=idx_start,
+                char_start=char_offset,
+                char_end=char_offset + len(text),
+                heading=heading,
+                heading_level=heading_level,
+            )
+        ]
 
     # Section is too large — split by paragraph boundaries
     parts = re.split(r"\n\n+", text)
@@ -183,15 +219,17 @@ def _chunk_markdown_section(
 
         if len(candidate) > chunk_size and current:
             # Flush current
-            chunks.append(Chunk(
-                text=current.strip(),
-                source=source,
-                index=chunk_idx,
-                char_start=char_offset,
-                char_end=char_offset + len(current),
-                heading=heading,
-                heading_level=heading_level,
-            ))
+            chunks.append(
+                Chunk(
+                    text=current.strip(),
+                    source=source,
+                    index=chunk_idx,
+                    char_start=char_offset,
+                    char_end=char_offset + len(current),
+                    heading=heading,
+                    heading_level=heading_level,
+                )
+            )
             chunk_idx += 1
             char_offset += len(current)
             current = part
@@ -199,15 +237,17 @@ def _chunk_markdown_section(
             current = candidate
 
     if current.strip():
-        chunks.append(Chunk(
-            text=current.strip(),
-            source=source,
-            index=chunk_idx,
-            char_start=char_offset,
-            char_end=char_offset + len(current),
-            heading=heading,
-            heading_level=heading_level,
-        ))
+        chunks.append(
+            Chunk(
+                text=current.strip(),
+                source=source,
+                index=chunk_idx,
+                char_start=char_offset,
+                char_end=char_offset + len(current),
+                heading=heading,
+                heading_level=heading_level,
+            )
+        )
 
     return chunks
 
@@ -234,8 +274,14 @@ def chunk_markdown(
     for heading_title, heading_level, start, end in sections:
         section_text = text[start:end]
         new_chunks = _chunk_markdown_section(
-            section_text, source, idx, heading_title, heading_level,
-            start, chunk_size, overlap,
+            section_text,
+            source,
+            idx,
+            heading_title,
+            heading_level,
+            start,
+            chunk_size,
+            overlap,
         )
         chunks.extend(new_chunks)
         idx += len(new_chunks)
@@ -290,13 +336,15 @@ def chunk_text(
 
         chunk_text_str = text[pos:end].strip()
         if chunk_text_str:
-            chunks.append(Chunk(
-                text=chunk_text_str,
-                source=source,
-                index=idx,
-                char_start=pos,
-                char_end=end,
-            ))
+            chunks.append(
+                Chunk(
+                    text=chunk_text_str,
+                    source=source,
+                    index=idx,
+                    char_start=pos,
+                    char_end=end,
+                )
+            )
             idx += 1
 
         advance = end - pos
@@ -315,6 +363,7 @@ def chunk_text(
 def _is_st_available() -> bool:
     try:
         import sentence_transformers  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -358,8 +407,7 @@ def chunk_semantic(
     # Split into sentences
     sentences = _split_sentences(text)
     if len(sentences) <= 1:
-        return [Chunk(text=text.strip(), source=source, index=0,
-                       char_start=0, char_end=len(text))]
+        return [Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))]
 
     # Encode sentences
     model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -402,13 +450,15 @@ def chunk_semantic(
             char_pos += len(chunk_str) + 1
             continue
 
-        chunks.append(Chunk(
-            text=chunk_str,
-            source=source,
-            index=idx,
-            char_start=char_pos,
-            char_end=char_pos + len(chunk_str),
-        ))
+        chunks.append(
+            Chunk(
+                text=chunk_str,
+                source=source,
+                index=idx,
+                char_start=char_pos,
+                char_end=char_pos + len(chunk_str),
+            )
+        )
         idx += 1
         char_pos += len(chunk_str) + 1
 
@@ -418,11 +468,11 @@ def chunk_semantic(
 def _split_sentences(text: str) -> list[str]:
     """Split text into sentences for semantic chunking."""
     # Split on sentence-ending punctuation followed by whitespace
-    parts = re.split(r'(?<=[.!?])\s+', text)
+    parts = re.split(r"(?<=[.!?])\s+", text)
     # Also split on newlines for code-like text
     result: list[str] = []
     for part in parts:
-        sub = part.split('\n')
+        sub = part.split("\n")
         for s in sub:
             s = s.strip()
             if s:

@@ -67,12 +67,11 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         pc.apply_to_config(config)
     except Exception as exc:
         import sys
+
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
 
     # Environment variable overrides (highest priority for non-key settings)
-    api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get(
-        "OPENAI_API_KEY", ""
-    )
+    api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
     # Do NOT store raw key in config.api_key. The resolved_api_key property
     # will pick it up from env vars at call time.
     # We only set api_key field for backward-compat tests that check it directly.

@@ -59,10 +59,10 @@ class _TextFormatter(logging.Formatter):
     """Human-readable coloured formatter for development."""
 
     _LEVEL_COLOURS: ClassVar[dict[str, str]] = {
-        "DEBUG": "\033[36m",    # cyan
-        "INFO": "\033[32m",     # green
+        "DEBUG": "\033[36m",  # cyan
+        "INFO": "\033[32m",  # green
         "WARNING": "\033[33m",  # yellow
-        "ERROR": "\033[91m",    # bright red
+        "ERROR": "\033[91m",  # bright red
         "CRITICAL": "\033[1;91m",
     }
     _RESET = "\033[0m"
@@ -158,6 +158,7 @@ def get_logger(name: str) -> logging.Logger:
 # Latency helper (context manager / decorator)
 # ---------------------------------------------------------------------------
 
+
 class Timer:
     """Simple wall-clock timer for latency tracking.
 
@@ -219,10 +220,7 @@ class TraceWriter:
     def path(self) -> Path | None:
         if self._path is None and self._armory_path is not None:
             self._path = (
-                self._armory_path
-                / ".hephaistos"
-                / _TRACES_DIR
-                / f"{self.session_id}.jsonl"
+                self._armory_path / ".hephaistos" / _TRACES_DIR / f"{self.session_id}.jsonl"
             )
         return self._path
 
@@ -314,15 +312,17 @@ class TraceWriter:
         scores: list[float],
         latency_ms: float,
     ) -> None:
-        self._write({
-            "type": "rag_retrieve",
-            "ts": self._ts(),
-            "query": query[:200],
-            "top_k": top_k,
-            "retrieved": retrieved,
-            "scores": [round(s, 4) for s in scores],
-            "latency_ms": round(latency_ms, 1),
-        })
+        self._write(
+            {
+                "type": "rag_retrieve",
+                "ts": self._ts(),
+                "query": query[:200],
+                "top_k": top_k,
+                "retrieved": retrieved,
+                "scores": [round(s, 4) for s in scores],
+                "latency_ms": round(latency_ms, 1),
+            }
+        )
 
     def record_session_event(self, event: str, **details: Any) -> None:
         entry: dict[str, Any] = {

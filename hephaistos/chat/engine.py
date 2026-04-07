@@ -57,13 +57,12 @@ class ChatConfig:
         # 1. If a provider slug is set, use the full resolution chain
         if self._provider_slug:
             from hephaistos.providers.keyring_store import resolve_key
+
             key = resolve_key(self._provider_slug, self._provider_env)
             if key:
                 return key
         # 2. Check env vars directly (covers from_env() path)
-        env_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get(
-            "OPENAI_API_KEY", ""
-        )
+        env_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
         if env_key.strip():
             return env_key.strip()
         # 3. Fall back to the raw field (backward compat for tests)
@@ -74,9 +73,7 @@ class ChatConfig:
         """Build config from environment variables."""
         base_url = os.environ.get("HEPHAISTOS_BASE_URL", "https://api.openai.com/v1")
         model = os.environ.get("HEPHAISTOS_MODEL", "gpt-4o-mini")
-        max_tokens = int(
-            os.environ.get("HEPHAISTOS_MAX_TOKENS", "4096")
-        )
+        max_tokens = int(os.environ.get("HEPHAISTOS_MAX_TOKENS", "4096"))
         return cls(
             api_key="",  # Key resolved lazily via resolved_api_key
             base_url=base_url,
@@ -157,8 +154,7 @@ def _build_client(config: ChatConfig) -> OpenAI:
     api_key = config.resolved_api_key
     if not api_key:
         raise EngineError(
-            "No API key found. Set one via /api key, environment variable, "
-            "or the OS keychain."
+            "No API key found. Set one via /api key, environment variable, or the OS keychain."
         )
     return OpenAI(api_key=api_key, base_url=config.base_url)
 
@@ -174,7 +170,7 @@ def _wait_backoff(
     abort: threading.Event | None = None,
 ) -> bool:
     """Sleep with exponential backoff + jitter.  Returns False if aborted."""
-    delay = min(config.base_delay * (2 ** attempt), config.max_delay)
+    delay = min(config.base_delay * (2**attempt), config.max_delay)
     jitter = random.uniform(0, delay * 0.5)
     if abort is not None:
         return not abort.wait(timeout=jitter)
@@ -201,12 +197,17 @@ def stream_reply(
     """
     retry = retry or RetryConfig()
     msg_count = len(conversation.messages)
-    _log.debug("stream_reply start", extra={"fields": {
-        "model": config.model,
-        "message_count": msg_count,
-        "max_tokens": config.max_tokens,
-        "max_retries": retry.max_retries,
-    }})
+    _log.debug(
+        "stream_reply start",
+        extra={
+            "fields": {
+                "model": config.model,
+                "message_count": msg_count,
+                "max_tokens": config.max_tokens,
+                "max_retries": retry.max_retries,
+            }
+        },
+    )
 
     client = _build_client(config)
     last_error: Exception | None = None
@@ -228,9 +229,12 @@ def stream_reply(
                 )
         except Exception as exc:
             last_error = exc
-            _log.warning("stream_reply request failed (attempt %d/%d)",
-                         attempt + 1, retry.max_retries + 1,
-                         extra={"fields": {"error": str(exc), "latency_ms": timer.ms}})
+            _log.warning(
+                "stream_reply request failed (attempt %d/%d)",
+                attempt + 1,
+                retry.max_retries + 1,
+                extra={"fields": {"error": str(exc), "latency_ms": timer.ms}},
+            )
             if is_retryable_error(exc) and attempt < retry.max_retries:
                 if not _wait_backoff(attempt, retry, abort):
                     return  # aborted during backoff
@@ -243,9 +247,15 @@ def stream_reply(
             for chunk in stream:
                 if abort is not None and abort.is_set():
                     stream.close()
-                    _log.info("stream_reply aborted", extra={"fields": {
-                        "model": config.model, "latency_ms": timer.ms,
-                    }})
+                    _log.info(
+                        "stream_reply aborted",
+                        extra={
+                            "fields": {
+                                "model": config.model,
+                                "latency_ms": timer.ms,
+                            }
+                        },
+                    )
                     return
                 if not chunk.choices:
                     continue
@@ -254,9 +264,13 @@ def stream_reply(
                     partial_content += delta.content
                     yield delta.content
         except Exception as exc:
-            _log.error("stream_reply mid-stream failure (attempt %d/%d, %d chars received)",
-                       attempt + 1, retry.max_retries + 1, len(partial_content),
-                       extra={"fields": {"error": str(exc), "latency_ms": timer.ms}})
+            _log.error(
+                "stream_reply mid-stream failure (attempt %d/%d, %d chars received)",
+                attempt + 1,
+                retry.max_retries + 1,
+                len(partial_content),
+                extra={"fields": {"error": str(exc), "latency_ms": timer.ms}},
+            )
             # If we already streamed content, we cannot cleanly retry
             # (the caller has already received partial output).  Raise
             # a recovery error so the caller can decide what to do.
@@ -271,11 +285,16 @@ def stream_reply(
             raise EngineError(f"LLM stream failed: {exc}") from exc
 
         # Stream completed successfully
-        _log.info("stream_reply complete", extra={"fields": {
-            "model": config.model,
-            "latency_ms": timer.ms,
-            "message_count": msg_count,
-        }})
+        _log.info(
+            "stream_reply complete",
+            extra={
+                "fields": {
+                    "model": config.model,
+                    "latency_ms": timer.ms,
+                    "message_count": msg_count,
+                }
+            },
+        )
         return
 
     # All retries exhausted (only reached on pre-stream failures)

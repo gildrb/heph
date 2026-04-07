@@ -70,10 +70,7 @@ def visible_len(text: str) -> int:
 
 def build_prompt(armory_name: str, mode: str = "prompt") -> tuple[str, int]:
     """Build the styled prompt string. Returns (prompt_with_ansi, visible_length)."""
-    if mode == "bash":
-        prefix = styled("!", STYLE_MODE)
-    else:
-        prefix = styled(">", STYLE_PROMPT)
+    prefix = styled("!", STYLE_MODE) if mode == "bash" else styled(">", STYLE_PROMPT)
 
     label = styled(armory_name, STYLE_ACCENT)
 

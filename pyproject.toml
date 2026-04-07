@@ -48,6 +48,9 @@ quote-style = "double"
 indent-style = "space"
 line-ending = "lf"
 
+[tool.ruff.lint.per-file-ignores]
+"hephaistos/providers/registry.py" = ["E501"]  # model data definitions are inherently long
+
 [tool.uv.build-backend]
 module-root = ""
 

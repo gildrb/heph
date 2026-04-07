@@ -66,11 +66,31 @@ def _get_rag_sources(messages: list[Message]) -> set[str]:
 # Source matching helpers
 # ---------------------------------------------------------------------------
 
-_DOC_EXTENSIONS = frozenset({
-    ".md", ".txt", ".py", ".pdf", ".rst", ".json", ".yaml", ".yml",
-    ".toml", ".csv", ".html", ".tex", ".adoc", ".org",
-    ".js", ".ts", ".java", ".go", ".rs", ".c", ".cpp",
-})
+_DOC_EXTENSIONS = frozenset(
+    {
+        ".md",
+        ".txt",
+        ".py",
+        ".pdf",
+        ".rst",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".csv",
+        ".html",
+        ".tex",
+        ".adoc",
+        ".org",
+        ".js",
+        ".ts",
+        ".java",
+        ".go",
+        ".rs",
+        ".c",
+        ".cpp",
+    }
+)
 
 
 def _normalize(source: str) -> str:
@@ -133,7 +153,7 @@ _CITATION_PATTERNS: list[re.Pattern[str]] = [
 class ExtractedCitation:
     """A source citation found in LLM response text."""
 
-    raw: str       # matched filename / path
+    raw: str  # matched filename / path
     position: int  # character offset in the response
 
 
@@ -158,10 +178,12 @@ def extract_citations(text: str) -> list[ExtractedCitation]:
             if key in seen:
                 continue
             seen.add(key)
-            citations.append(ExtractedCitation(
-                raw=raw,
-                position=m.start(1),
-            ))
+            citations.append(
+                ExtractedCitation(
+                    raw=raw,
+                    position=m.start(1),
+                )
+            )
 
     return citations
 
@@ -179,8 +201,8 @@ _NO_CITATION_CHAR_THRESHOLD = 200
 class VerificationResult:
     """Outcome of citation verification."""
 
-    verified: list[str]       # citations matching retrieved sources
-    unverified: list[str]     # citations NOT in retrieved sources
+    verified: list[str]  # citations matching retrieved sources
+    unverified: list[str]  # citations NOT in retrieved sources
     citation_count: int
     has_citations: bool
     all_verified: bool
@@ -265,8 +287,7 @@ def format_verification_notice(result: VerificationResult, reply_len: int) -> st
         and reply_len > _NO_CITATION_CHAR_THRESHOLD
     ):
         parts.append(
-            "\n⚠ No source citations found in this answer "
-            "— verify claims against your materials."
+            "\n⚠ No source citations found in this answer — verify claims against your materials."
         )
 
     return "".join(parts)
@@ -290,12 +311,17 @@ def verify_response(reply: str, messages: list[Message]) -> str:
         notice = format_verification_notice(result, len(reply))
 
         if notice:
-            _log.info("citation verification", extra={"fields": {
-                "sources_retrieved": len(sources),
-                "citations_found": result.citation_count,
-                "verified": len(result.verified),
-                "unverified": result.unverified,
-            }})
+            _log.info(
+                "citation verification",
+                extra={
+                    "fields": {
+                        "sources_retrieved": len(sources),
+                        "citations_found": result.citation_count,
+                        "verified": len(result.verified),
+                        "unverified": result.unverified,
+                    }
+                },
+            )
 
         return notice
 
