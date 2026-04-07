@@ -17,7 +17,6 @@ from hephaistos.app.display import (
 )
 from hephaistos.app.menu import MenuOption, confirm, select_option
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.providers.model_policy import is_blocked_model_name
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -202,8 +201,10 @@ class ModelCommand(Command):
 
         # Direct set: /model <model-name>
         if args.strip():
-            if is_blocked_model_name(args):
-                print_error("Anthropic models are not supported.")
+            pc = ProviderConfig.load()
+            active = pc.get_active()
+            if active and active.slug != "custom" and args.strip() not in active.models:
+                print_error("Model unavailable.")
                 return CommandResult()
             old = s.config.model
             s.config.model = args.strip()
@@ -530,9 +531,6 @@ class ProviderCommand(Command):
         p = pc.providers[slug]
 
         if model:
-            if is_blocked_model_name(model):
-                print_error("Anthropic models are not supported.")
-                return CommandResult()
             if model in p.models:
                 p.current_model = model
             elif p.models:

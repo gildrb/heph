@@ -51,17 +51,17 @@ def test_build_client_raises_without_api_key(monkeypatch) -> None:
         _build_client(config)
 
 
-def test_build_client_rejects_blocked_model() -> None:
+def test_build_client_rejects_unavailable_model_for_known_endpoint() -> None:
     import pytest
 
     from hephaistos.chat.engine import EngineError, _build_client
 
     config = ChatConfig(
         api_key="test-key",
-        base_url="http://localhost/v1",
-        model="anthropic/claude-sonnet-4.6",
+        base_url="https://openrouter.ai/api/v1",
+        model="legacy/vendor-model",
     )
-    with pytest.raises(EngineError, match="Unsupported model"):
+    with pytest.raises(EngineError, match="Model unavailable for endpoint"):
         _build_client(config)
 
 

@@ -13,7 +13,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hephaistos.providers.model_policy import filter_blocked_models, is_blocked_model_name
+from hephaistos.providers.model_support import filter_supported_models
 
 _CONFIG_DIR = Path.home() / ".config" / "hephaistos"
 _PROVIDERS_FILE = _CONFIG_DIR / "providers.toml"
@@ -72,8 +72,6 @@ class ProviderConfig:
 
     def set_model(self, slug: str, model: str) -> bool:
         if slug not in self.providers:
-            return False
-        if is_blocked_model_name(model):
             return False
         p = self.providers[slug]
         if model not in p.models:
@@ -220,12 +218,10 @@ def _sanitize_provider(
     slug: str,
     section: dict,
 ) -> Provider:
-    models = filter_blocked_models(list(section.get("models", [])))
+    models = filter_supported_models(list(section.get("models", [])), slug)
     current_model = section.get("current_model", "")
-    if is_blocked_model_name(current_model):
-        current_model = ""
     if current_model and models and current_model not in models:
-        current_model = models[0]
+        current_model = ""
     return Provider(
         slug=slug,
         display_name=section.get("display_name", slug),

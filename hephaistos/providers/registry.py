@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hephaistos.logging import get_logger
-from hephaistos.providers.model_policy import is_blocked_model_name
+from hephaistos.providers.model_support import is_supported_model_for_provider
 
 _log = get_logger("providers.registry")
 
@@ -250,7 +250,7 @@ class ModelRegistry:
     def __init__(self, models: list[ModelInfo] | None = None) -> None:
         self._models: dict[str, ModelInfo] = {}
         for m in models or _BUILTIN_MODELS:
-            if is_blocked_model_name(m.name):
+            if not is_supported_model_for_provider(m.name, m.provider):
                 continue
             self._models[m.name] = m
 
@@ -296,7 +296,7 @@ class ModelRegistry:
 
     def register(self, model: ModelInfo) -> None:
         """Add or replace a model in the registry."""
-        if is_blocked_model_name(model.name):
+        if not is_supported_model_for_provider(model.name, model.provider):
             return
         self._models[model.name] = model
 

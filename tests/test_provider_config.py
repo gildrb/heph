@@ -4,17 +4,31 @@ from hephaistos.providers.config import ProviderConfig, _default_config
 from hephaistos.providers.registry import ModelInfo, ModelRegistry
 
 
-def test_default_openrouter_models_exclude_anthropic() -> None:
+def test_default_openrouter_models_match_supported_families() -> None:
     config = _default_config()
 
     assert "openrouter" in config.providers
     assert all(
-        "anthropic" not in model.lower() and "claude" not in model.lower()
+        model.startswith(
+            (
+                "openai/",
+                "google/",
+                "qwen/",
+                "stepfun/",
+                "minimax/",
+                "z-ai/",
+                "moonshotai/",
+                "xiaomi/",
+                "x-ai/",
+                "nvidia/",
+                "arcee-ai/",
+            )
+        )
         for model in config.providers["openrouter"].models
     )
 
 
-def test_load_filters_blocked_models(tmp_path) -> None:
+def test_load_filters_unsupported_models(tmp_path) -> None:
     config_path = tmp_path / "providers.toml"
     config_path.write_text(
         """
@@ -23,9 +37,9 @@ display_name = "OpenRouter"
 endpoint = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
 active = true
-current_model = "anthropic/claude-sonnet-4.6"
+current_model = "legacy/vendor-model"
 models = [
-  "anthropic/claude-sonnet-4.6",
+  "legacy/vendor-model",
   "openai/gpt-5.4",
   "google/gemini-3-flash-preview",
 ]
@@ -44,19 +58,19 @@ models = [
     assert provider.current_model == ""
 
 
-def test_set_model_rejects_blocked_name() -> None:
+def test_set_model_rejects_unknown_name() -> None:
     config = _default_config()
 
-    assert not config.set_model("openrouter", "anthropic/claude-sonnet-4.6")
+    assert not config.set_model("openrouter", "legacy/vendor-model")
 
 
-def test_model_registry_ignores_blocked_models() -> None:
+def test_model_registry_ignores_unsupported_models() -> None:
     registry = ModelRegistry(
         [
-            ModelInfo("anthropic/claude-sonnet-4.6", "openrouter", "Claude", 1, 1, 0.1, 0.2),
+            ModelInfo("legacy/vendor-model", "openrouter", "Legacy", 1, 1, 0.1, 0.2),
             ModelInfo("gpt-5.4", "openai-codex", "GPT-5.4", 1, 1, 0.1, 0.2),
         ]
     )
 
-    assert registry.get("anthropic/claude-sonnet-4.6") is None
+    assert registry.get("legacy/vendor-model") is None
     assert registry.get("gpt-5.4") is not None
