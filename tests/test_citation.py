@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 from hephaistos.chat.engine import Message
 from hephaistos.harness.citation import (
-    ExtractedCitation,
     VerificationResult,
     _get_rag_sources,
     extract_citations,
