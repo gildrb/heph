@@ -7,26 +7,22 @@ import re
 import sys
 import threading
 
-# ANSI escape codes
-BOLD = "\033[1m"
-DIM = "\033[2m"
-ITALIC = "\033[3m"
-RED = "\033[91m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
+from hephaistos.app import palette
+from hephaistos.app.palette import (
+    BOLD,
+    FORGE_EMBER,
+    ITALIC,
+    RESET,
+    STYLE_ACCENT,
+    STYLE_DIM,
+    STYLE_ERROR,
+    STYLE_MODE,
+    STYLE_PROMPT,
+    STYLE_WARNING,
+    ansi_fg,
+)
 
-MAGENTA = "\033[35m"
-
-RESET = "\033[0m"
-
-# Shortcuts for common styles
-STYLE_PROMPT = f"{BOLD}{RED}"
-STYLE_ACCENT = f"{BOLD}{GREEN}"
-STYLE_DIM = DIM
-STYLE_ERROR = f"{BOLD}{RED}"
-STYLE_WARNING = f"{BOLD}{YELLOW}"
-STYLE_MODE = f"{BOLD}{MAGENTA}"
-STYLE_ASSISTANT = f"{BOLD}{RED}"
+STYLE_ASSISTANT = palette.STYLE_ASSISTANT
 
 
 def styled(text: str, style: str) -> str:
@@ -185,7 +181,7 @@ def print_banner(version: str = "") -> None:
     banner_width = max(visible_len(line) for line in lines)
     pad = max(0, (cols - banner_width) // 2)
     for line in lines:
-        sys.stdout.write(f"{' ' * pad}{RED}{BOLD}{line}{RESET}\n")
+        sys.stdout.write(f"{' ' * pad}{BOLD}{ansi_fg(FORGE_EMBER)}{line}{RESET}\n")
     if version:
         ver_text = f"v{version}"
         ver_pad = max(0, (cols - len(ver_text)) // 2)
@@ -219,7 +215,11 @@ def print_shell_intro(
 
     # --- Status line ---
     armory_status = styled(armory_path, STYLE_ACCENT)
-    api_status = styled("ok", GREEN) if has_api_key else styled("not configured", RED)
+    api_status = (
+        styled("configured", STYLE_ACCENT)
+        if has_api_key
+        else styled("not configured", STYLE_ERROR)
+    )
     model_display = styled(model, STYLE_PROMPT)
 
     status = (

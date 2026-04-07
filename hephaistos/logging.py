@@ -28,6 +28,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
+from hephaistos.app.palette import (
+    FORGE_BRASS,
+    FORGE_COPPER,
+    FORGE_IRON,
+    FORGE_SMOKE,
+    FORGE_SPARK,
+    ansi_fg,
+)
+
 # ---------------------------------------------------------------------------
 # JSON formatter
 # ---------------------------------------------------------------------------
@@ -59,14 +68,14 @@ class _TextFormatter(logging.Formatter):
     """Human-readable coloured formatter for development."""
 
     _LEVEL_COLOURS: ClassVar[dict[str, str]] = {
-        "DEBUG": "\033[36m",  # cyan
-        "INFO": "\033[32m",  # green
-        "WARNING": "\033[33m",  # yellow
-        "ERROR": "\033[91m",  # bright red
-        "CRITICAL": "\033[1;91m",
+        "DEBUG": ansi_fg(FORGE_COPPER),
+        "INFO": ansi_fg(FORGE_BRASS),
+        "WARNING": ansi_fg(FORGE_SPARK),
+        "ERROR": ansi_fg(FORGE_IRON),
+        "CRITICAL": f"\033[1m{ansi_fg(FORGE_IRON)}",
     }
     _RESET = "\033[0m"
-    _DIM = "\033[2m"
+    _DIM = f"\033[2m{ansi_fg(FORGE_SMOKE)}"
 
     def format(self, record: logging.LogRecord) -> str:
         ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%H:%M:%S")

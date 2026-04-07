@@ -40,6 +40,14 @@ from hephaistos.app.display import (
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.keybindings import DEFAULT_SHELL_KEYBINDINGS
 from hephaistos.app.menu import MenuOption, select_option
+from hephaistos.app.palette import (
+    FORGE_ASH,
+    FORGE_BRASS,
+    FORGE_EMBER,
+    FORGE_PANEL,
+    FORGE_PANEL_RAISED,
+    FORGE_SMOKE,
+)
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import EngineError, StreamRecoveryError
@@ -76,11 +84,11 @@ _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 
 _PT_STYLE = PtStyle.from_dict(
     {
-        "armory": "bold green",
-        "prompt-mark": "bold ansired",
-        "bottom-toolbar": "bg:#333333 #aaaaaa",
-        "completion-menu.completion.current": "bg:ansired fg:white bold",
-        "completion-menu.completion": "bg:#555555 fg:white",
+        "armory": f"bold {FORGE_BRASS}",
+        "prompt-mark": f"bold {FORGE_EMBER}",
+        "bottom-toolbar": f"bg:{FORGE_PANEL} {FORGE_SMOKE}",
+        "completion-menu.completion.current": f"bg:{FORGE_EMBER} fg:{FORGE_ASH} bold",
+        "completion-menu.completion": f"bg:{FORGE_PANEL_RAISED} fg:{FORGE_ASH}",
     }
 )
 

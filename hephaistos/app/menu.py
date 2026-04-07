@@ -19,6 +19,7 @@ from prompt_toolkit.styles import Style as PtStyle
 
 from hephaistos.app.display import BOLD, STYLE_DIM, STYLE_PROMPT, styled, visible_len
 from hephaistos.app.keybindings import DEFAULT_MENU_KEYBINDINGS
+from hephaistos.app.palette import FORGE_BRASS, FORGE_EMBER, FORGE_SMOKE
 
 
 @dataclass(frozen=True)
@@ -34,9 +35,9 @@ class MenuOption:
 
 _MENU_STYLE = PtStyle.from_dict(
     {
-        "title": "bold ansired",
-        "selected": "bold green",
-        "dim": "#888888",
+        "title": f"bold {FORGE_EMBER}",
+        "selected": f"bold {FORGE_BRASS}",
+        "dim": FORGE_SMOKE,
     }
 )
 
