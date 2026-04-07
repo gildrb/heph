@@ -407,7 +407,7 @@ class TestConversationConsistency:
         assert len(conv.messages) == 1
 
         with (
-            patch("hephaistos.harness.dispatch.agent_loop", side_effect=EngineError("boom")),
+            patch("hephaistos.chat.session.agent_loop", side_effect=EngineError("boom")),
             pytest.raises(EngineError),
         ):
             send_user_message(session, "hello")
@@ -432,7 +432,7 @@ class TestConversationConsistency:
 
         with (
             patch(
-                "hephaistos.harness.dispatch.agent_loop",
+                "hephaistos.chat.session.agent_loop",
                 side_effect=StreamRecoveryError("Partial reply"),
             ),
             pytest.raises(StreamRecoveryError) as exc_info,
@@ -459,7 +459,7 @@ class TestConversationConsistency:
             session_id="test-success",
         )
 
-        with patch("hephaistos.harness.dispatch.agent_loop", return_value=iter(["Hello!"])):
+        with patch("hephaistos.chat.session.agent_loop", return_value=iter(["Hello!"])):
             result = send_user_message(session, "Hi")
 
         assert result == "Hello!"

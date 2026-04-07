@@ -14,8 +14,7 @@ from hephaistos.chat.engine import (
     ChatConfig,
     Conversation,
     Message,
-    StreamRecoveryError,
-    get_reply,
+    StreamRecoveryError, get_reply,
 )
 from hephaistos.chat.usage import SessionUsage, save_usage
 from hephaistos.harness.dispatch import agent_loop
@@ -255,23 +254,27 @@ def send_user_message(
     timer = Timer()
     reply = ""
     try:
-        _inject_rag_context(session, user_input)
+        if session.armory_path is not None:
+            _inject_rag_context(session, user_input)
 
-        parts: list[str] = []
-        for chunk in agent_loop(
-            session.config,
-            session.conversation,
-            session.armory_path,
-            abort=abort,
-            usage=session.usage,
-            steering=session.steering,
-        ):
-            sys.stdout.write(chunk)
+            # Agent loop with tools — workspace is the armory
+            parts: list[str] = []
+            for chunk in agent_loop(
+                session.config,
+                session.conversation,
+                session.armory_path,
+                abort=abort,
+                usage=session.usage,
+            ):
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+                parts.append(chunk)
+            sys.stdout.write("\n")
             sys.stdout.flush()
-            parts.append(chunk)
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-        reply = "".join(parts)
+            reply = "".join(parts)
+        else:
+            # Fallback: plain streaming without tools
+            reply = get_reply(session.config, session.conversation, abort=abort)
     except StreamRecoveryError as rec:
         # Partial content was streamed before the connection dropped.
         # Roll back the conversation to keep it consistent, but preserve

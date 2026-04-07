@@ -221,7 +221,7 @@ class TfidfRetriever:
                 q_tf = query_freq[term]
                 dot += tfidf * q_tf
 
-        for term, tf in query_freq.items():
+        for _term, tf in query_freq.items():
             query_norm_sq += tf * tf
 
         if chunk_norm_sq == 0 or query_norm_sq == 0:
@@ -252,7 +252,7 @@ def _is_sentence_transformers_available() -> bool:
 
 def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
     """Compute cosine similarity between two vectors."""
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
     if norm_a == 0.0 or norm_b == 0.0:
@@ -524,7 +524,7 @@ class HybridRetriever:
     def _retrieve_single(self, query: str, pool: int) -> list[ScoredChunk]:
         """Run TF-IDF + (optional) embedding retrieval for a single query."""
         if self._embedding is None:
-            return self._tfidf.retrieve(query, top_k=pool if self._reranker else pool)
+            return self._tfidf.retrieve(query, top_k=pool)
 
         tfidf_results = self._tfidf.retrieve(query, top_k=pool)
         embed_results = self._embedding.retrieve(query, top_k=pool)

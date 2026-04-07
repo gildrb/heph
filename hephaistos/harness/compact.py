@@ -159,12 +159,7 @@ def auto_compact(
 
     # --- Build compressed message list ---
     system_msgs = [m for m in messages if m.get("role") == "system"]
-    compressed = list(system_msgs) + [
-        {
-            "role": "user",
-            "content": f"[Compressed]\n\n{summary}",
-        },
-    ]
+    compressed = [*system_msgs, {"role": "user", "content": f"[Compressed]\n\n{summary}"}]
 
     _log.info("auto_compact complete", extra={"fields": {
         "before_messages": len(messages),
