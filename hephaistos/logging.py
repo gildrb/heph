@@ -29,11 +29,9 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from hephaistos.app.palette import (
-    FORGE_BRASS,
-    FORGE_COPPER,
+    FORGE_EMBER,
     FORGE_IRON,
     FORGE_SMOKE,
-    FORGE_SPARK,
     ansi_fg,
 )
 
@@ -68,9 +66,9 @@ class _TextFormatter(logging.Formatter):
     """Human-readable coloured formatter for development."""
 
     _LEVEL_COLOURS: ClassVar[dict[str, str]] = {
-        "DEBUG": ansi_fg(FORGE_COPPER),
-        "INFO": ansi_fg(FORGE_BRASS),
-        "WARNING": ansi_fg(FORGE_SPARK),
+        "DEBUG": ansi_fg(FORGE_SMOKE),
+        "INFO": ansi_fg(FORGE_EMBER),
+        "WARNING": ansi_fg(FORGE_EMBER),
         "ERROR": ansi_fg(FORGE_IRON),
         "CRITICAL": f"\033[1m{ansi_fg(FORGE_IRON)}",
     }
