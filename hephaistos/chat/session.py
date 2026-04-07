@@ -263,15 +263,15 @@ def send_user_message(
             session.conversation,
             session.armory_path,
             abort=abort,
-                usage=session.usage,
-                steering=session.steering,
-            ):
-                sys.stdout.write(chunk)
-                sys.stdout.flush()
-                parts.append(chunk)
-            sys.stdout.write("\n")
+            usage=session.usage,
+            steering=session.steering,
+        ):
+            sys.stdout.write(chunk)
             sys.stdout.flush()
-            reply = "".join(parts)
+            parts.append(chunk)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        reply = "".join(parts)
     except StreamRecoveryError as rec:
         # Partial content was streamed before the connection dropped.
         # Roll back the conversation to keep it consistent, but preserve

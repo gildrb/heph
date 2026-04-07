@@ -329,7 +329,7 @@ class MultiQueryTransformer:
             return [query]
 
         # Always include the original query
-        queries = [query] + cleaned
+        queries = [query, *cleaned]
 
         _log.debug("multi-query: generated alternatives", extra={"fields": {
             "original": query[:80],

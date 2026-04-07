@@ -6,6 +6,7 @@ incremental rebuild detection.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -144,10 +145,8 @@ class ArmoryIndex:
 
         # Recover strategy from persisted index (v2+)
         if version >= 2 and "strategy" in data:
-            try:
+            with contextlib.suppress(ValueError):
                 self.strategy = ChunkStrategy(data["strategy"])
-            except ValueError:
-                pass  # keep default
 
         self.documents = []
         self._file_hashes = {}
@@ -204,10 +203,7 @@ class ArmoryIndex:
                 except (UnicodeDecodeError, OSError):
                     continue
 
-        if len(self._file_hashes) != self._count_source_files():
-            return True
-
-        return False
+        return len(self._file_hashes) != self._count_source_files()
 
     def _count_source_files(self) -> int:
         count = 0

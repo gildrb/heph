@@ -122,7 +122,7 @@ _CITATION_PATTERNS: list[re.Pattern[str]] = [
     ),
     # Em-dash / en-dash attribution
     re.compile(
-        r"[—–]\s*([a-zA-Z][^\s,.;:!?]*?"
+        r"[—–]\s*([a-zA-Z][^\s,.;:!?]*?"  # noqa: RUF001
         r"(?:\.(?:md|txt|py|pdf|rst|json|yaml|yml|toml|csv|html|tex))"
         r")",
     ),
