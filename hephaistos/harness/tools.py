@@ -452,14 +452,52 @@ def get_handler(name: str):
     return _HANDLERS.get(name)
 
 
+def _dispatch_read_file(**kw: object) -> str:
+    return run_read_file(
+        kw["path"],  # type: ignore[index]
+        offset=kw.get("offset"),  # type: ignore[attr-defined]
+        limit=kw.get("limit"),  # type: ignore[attr-defined]
+        **_workspace_kw(kw),
+    )
+
+
+def _dispatch_write_file(**kw: object) -> str:
+    return run_write_file(
+        kw["path"],  # type: ignore[index]
+        kw["content"],  # type: ignore[index]
+        **_workspace_kw(kw),
+    )
+
+
+def _dispatch_edit_file(**kw: object) -> str:
+    return run_edit_file(
+        kw["path"],  # type: ignore[index]
+        kw["old_text"],  # type: ignore[index]
+        kw["new_text"],  # type: ignore[index]
+        **_workspace_kw(kw),
+    )
+
+
+def _dispatch_list_files(**kw: object) -> str:
+    return run_list_files(
+        path=kw.get("path", ""),  # type: ignore[attr-defined]
+        pattern=kw.get("pattern", "*"),  # type: ignore[attr-defined]
+        **_workspace_kw(kw),
+    )
+
+
+def _dispatch_web_fetch(**kw: object) -> str:
+    return run_web_fetch(kw["url"])  # type: ignore[index]
+
+
 _HANDLERS: dict[str, callable] = {
     "compact": lambda **_kw: "[compact triggered]",
     "bash": lambda **kw: run_bash(kw["command"], timeout=kw.get("timeout")),
-    "read_file": lambda **kw: run_read_file(kw["path"], offset=kw.get("offset"), limit=kw.get("limit"), **_workspace_kw(kw)),
-    "write_file": lambda **kw: run_write_file(kw["path"], kw["content"], **_workspace_kw(kw)),
-    "edit_file": lambda **kw: run_edit_file(kw["path"], kw["old_text"], kw["new_text"], **_workspace_kw(kw)),
-    "list_files": lambda **kw: run_list_files(path=kw.get("path", ""), pattern=kw.get("pattern", "*"), **_workspace_kw(kw)),
-    "web_fetch": lambda **kw: run_web_fetch(kw["url"]),
+    "read_file": _dispatch_read_file,
+    "write_file": _dispatch_write_file,
+    "edit_file": _dispatch_edit_file,
+    "list_files": _dispatch_list_files,
+    "web_fetch": _dispatch_web_fetch,
 }
 
 

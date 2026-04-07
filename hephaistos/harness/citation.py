@@ -120,7 +120,7 @@ _CITATION_PATTERNS: list[re.Pattern[str]] = [
         r")",
         re.IGNORECASE,
     ),
-    # Em-dash attribution: "— file.md" or "– file.md"
+    # Em-dash / en-dash attribution
     re.compile(
         r"[—–]\s*([a-zA-Z][^\s,.;:!?]*?"
         r"(?:\.(?:md|txt|py|pdf|rst|json|yaml|yml|toml|csv|html|tex))"

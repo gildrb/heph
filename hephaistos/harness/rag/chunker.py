@@ -77,7 +77,7 @@ class Chunk:
     char_start: int
     char_end: int
     heading: str = ""  # nearest parent heading (hierarchical context)
-    heading_level: int = 0  # heading depth (1–6, 0 = no heading)
+    heading_level: int = 0  # heading depth (1-6, 0 = no heading)
 
 
 @dataclass
@@ -321,7 +321,7 @@ def _is_st_available() -> bool:
 
 
 def _cosine_sim(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     na = sum(x * x for x in a) ** 0.5
     nb = sum(x * x for x in b) ** 0.5
     if na == 0 or nb == 0:

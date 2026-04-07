@@ -252,27 +252,26 @@ def send_user_message(
         "message_count": len(session.conversation.messages),
     }})
 
-    # RAG context injection: retrieve and stuff before the user message
-    _inject_rag_context(session, user_input)
-
     timer = Timer()
     reply = ""
     try:
+        _inject_rag_context(session, user_input)
+
         parts: list[str] = []
         for chunk in agent_loop(
             session.config,
             session.conversation,
             session.armory_path,
             abort=abort,
-            usage=session.usage,
-            steering=session.steering,
-        ):
-            sys.stdout.write(chunk)
+                usage=session.usage,
+                steering=session.steering,
+            ):
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+                parts.append(chunk)
+            sys.stdout.write("\n")
             sys.stdout.flush()
-            parts.append(chunk)
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-        reply = "".join(parts)
+            reply = "".join(parts)
     except StreamRecoveryError as rec:
         # Partial content was streamed before the connection dropped.
         # Roll back the conversation to keep it consistent, but preserve
@@ -359,10 +358,12 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
     Inserts a system message with retrieved context just before the last
     user message. Returns the number of messages inserted (0 or 1).
     """
+    if session.armory_path is None:
+        return 0
     try:
         timer = Timer()
         if session._rag_index is None:
-            session._rag_index = load_or_build(session.armory_path)  # type: ignore[arg-type]
+            session._rag_index = load_or_build(session.armory_path)
 
         with timer:
             scored = retrieve(user_input, session._rag_index, top_k=5)
