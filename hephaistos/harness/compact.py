@@ -48,7 +48,7 @@ def estimate_messages_tokens(messages: list[dict]) -> int:
         if isinstance(content, str):
             total += estimate_tokens(content)
         elif isinstance(content, list):
-            # Anthropic-style content blocks
+            # Structured content blocks from multimodal/chat APIs
             for part in content:
                 if isinstance(part, dict):
                     text = part.get("text", "") or part.get("content", "")

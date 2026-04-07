@@ -44,11 +44,6 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
     "gpt-5.1-codex-max": (0.005, 0.015),
     "gpt-5.1-codex-mini": (0.0005, 0.0015),
     "gpt-5.3-codex-spark": (0.001, 0.003),
-    # Anthropic (via OpenRouter)
-    "anthropic/claude-opus-4.6": (0.015, 0.075),
-    "anthropic/claude-sonnet-4.6": (0.003, 0.015),
-    "anthropic/claude-sonnet-4.5": (0.003, 0.015),
-    "anthropic/claude-haiku-4.5": (0.0008, 0.004),
     # Google (via OpenRouter)
     "google/gemini-3-pro-preview": (0.00125, 0.005),
     "google/gemini-3-flash-preview": (0.000075, 0.0003),
@@ -75,9 +70,6 @@ _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "gpt-5.3": 128_000,
     "gpt-5.2": 128_000,
     "gpt-5.1": 128_000,
-    "claude-opus": 200_000,
-    "claude-sonnet": 200_000,
-    "claude-haiku": 200_000,
     "gemini-3": 1_000_000,
     "glm-5": 128_000,
     "glm-4": 128_000,

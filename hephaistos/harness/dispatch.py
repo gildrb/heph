@@ -1,6 +1,6 @@
 """Agent loop: the harness dispatch that runs between user and LLM.
 
-Implements the core s01/s02 pattern from learn-claude-code:
+Implements the core tool-call loop:
 - Send messages + tool definitions to LLM
 - If tool_calls -> execute -> append results -> loop
 - If text -> stream to caller -> done

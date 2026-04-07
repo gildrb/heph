@@ -51,6 +51,20 @@ def test_build_client_raises_without_api_key(monkeypatch) -> None:
         _build_client(config)
 
 
+def test_build_client_rejects_blocked_model() -> None:
+    import pytest
+
+    from hephaistos.chat.engine import EngineError, _build_client
+
+    config = ChatConfig(
+        api_key="test-key",
+        base_url="http://localhost/v1",
+        model="anthropic/claude-sonnet-4.6",
+    )
+    with pytest.raises(EngineError, match="Unsupported model"):
+        _build_client(config)
+
+
 def test_conversation_add_and_convert() -> None:
     conv = Conversation()
     conv.add("system", "You are helpful.")

@@ -425,7 +425,9 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
 
         with timer:
             scored = retrieve(
-                user_input, session._rag_index, top_k=5,
+                user_input,
+                session._rag_index,
+                top_k=5,
                 min_score=_RAG_MIN_SCORE,
             )
         if not scored:

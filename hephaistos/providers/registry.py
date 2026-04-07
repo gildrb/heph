@@ -10,7 +10,7 @@ Centralizes model metadata that was previously scattered across
 - Lookup by model name (with prefix matching)
 
 Loaded once at startup and used by the context budget manager,
-the model picker, cost tracking, and the OAuth login flow.
+the model picker, and cost tracking.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hephaistos.logging import get_logger
+from hephaistos.providers.model_policy import is_blocked_model_name
 
 _log = get_logger("providers.registry")
 
@@ -31,7 +32,7 @@ _log = get_logger("providers.registry")
 class ModelInfo:
     """Metadata for a single model."""
 
-    name: str  # canonical name (e.g. "anthropic/claude-sonnet-4.5")
+    name: str  # canonical name (e.g. "openai/gpt-5.4")
     provider: str  # provider slug (e.g. "openrouter", "openai-codex")
     display_name: str  # human-readable name
     context_window: int  # max context tokens
@@ -93,47 +94,6 @@ _BUILTIN_MODELS: list[ModelInfo] = [
     ),
     ModelInfo("gpt-4o", "openai-codex", "GPT-4o", 128_000, 16_384, 0.0025, 0.01),
     ModelInfo("gpt-4o-mini", "openai-codex", "GPT-4o Mini", 128_000, 16_384, 0.00015, 0.0006),
-    # --- Anthropic (via OpenRouter) ---
-    ModelInfo(
-        "anthropic/claude-opus-4.6",
-        "openrouter",
-        "Claude Opus 4.6",
-        200_000,
-        8_192,
-        0.015,
-        0.075,
-        tags=("anthropic",),
-    ),
-    ModelInfo(
-        "anthropic/claude-sonnet-4.6",
-        "openrouter",
-        "Claude Sonnet 4.6",
-        200_000,
-        8_192,
-        0.003,
-        0.015,
-        tags=("anthropic",),
-    ),
-    ModelInfo(
-        "anthropic/claude-sonnet-4.5",
-        "openrouter",
-        "Claude Sonnet 4.5",
-        200_000,
-        8_192,
-        0.003,
-        0.015,
-        tags=("anthropic",),
-    ),
-    ModelInfo(
-        "anthropic/claude-haiku-4.5",
-        "openrouter",
-        "Claude Haiku 4.5",
-        200_000,
-        8_192,
-        0.0008,
-        0.004,
-        tags=("anthropic",),
-    ),
     # --- Google (via OpenRouter) ---
     ModelInfo(
         "google/gemini-3-pro-preview",
@@ -290,6 +250,8 @@ class ModelRegistry:
     def __init__(self, models: list[ModelInfo] | None = None) -> None:
         self._models: dict[str, ModelInfo] = {}
         for m in models or _BUILTIN_MODELS:
+            if is_blocked_model_name(m.name):
+                continue
             self._models[m.name] = m
 
     def get(self, model_name: str) -> ModelInfo | None:
@@ -297,7 +259,7 @@ class ModelRegistry:
         if model_name in self._models:
             return self._models[model_name]
 
-        # Prefix match: "claude-sonnet-4.5" matches "anthropic/claude-sonnet-4.5"
+        # Prefix match: "gpt-5.4-mini" matches "openai/gpt-5.4-mini"
         for key, info in self._models.items():
             if key.endswith(model_name) or model_name.endswith(key):
                 return info
@@ -334,6 +296,8 @@ class ModelRegistry:
 
     def register(self, model: ModelInfo) -> None:
         """Add or replace a model in the registry."""
+        if is_blocked_model_name(model.name):
+            return
         self._models[model.name] = model
 
 

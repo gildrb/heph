@@ -276,7 +276,7 @@ def format_verification_notice(result: VerificationResult, reply_len: int) -> st
     if result.unverified:
         listed = ", ".join(result.unverified[:5])
         parts.append(
-            f"\n⚠ Unverified citation(s): {listed}. "
+            f"\nWarning: Unverified citation(s): {listed}. "
             "These sources were not found in the retrieved context."
         )
 
@@ -287,8 +287,8 @@ def format_verification_notice(result: VerificationResult, reply_len: int) -> st
         and reply_len > _NO_CITATION_CHAR_THRESHOLD
     ):
         parts.append(
-            "\n⚠ No source citations found
-            in this answer — verify claims against your materials."
+            "\n\u26a0 No source citations found"
+            " in this answer - verify claims against your materials."
         )
 
     return "".join(parts)

@@ -17,6 +17,7 @@ from hephaistos.app.display import (
 )
 from hephaistos.app.menu import MenuOption, confirm, select_option
 from hephaistos.providers.config import ProviderConfig
+from hephaistos.providers.model_policy import is_blocked_model_name
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -201,6 +202,9 @@ class ModelCommand(Command):
 
         # Direct set: /model <model-name>
         if args.strip():
+            if is_blocked_model_name(args):
+                print_error("Anthropic models are not supported.")
+                return CommandResult()
             old = s.config.model
             s.config.model = args.strip()
             print_success(f"Model: {old} -> {s.config.model}")
@@ -526,6 +530,9 @@ class ProviderCommand(Command):
         p = pc.providers[slug]
 
         if model:
+            if is_blocked_model_name(model):
+                print_error("Anthropic models are not supported.")
+                return CommandResult()
             if model in p.models:
                 p.current_model = model
             elif p.models:
@@ -556,78 +563,6 @@ class ProviderCommand(Command):
         pc.apply_to_config(session.config)
         pc.save()
         print_success(f"Model: {model}")
-        return CommandResult()
-
-
-class LoginCommand(Command):
-    name = "login"
-    description = "Log in with a provider subscription (OAuth)"
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.providers.oauth import available_providers
-        from hephaistos.providers.oauth import login as oauth_login
-
-        providers = available_providers()
-        if not providers:
-            print_info("No OAuth providers available.")
-            return CommandResult()
-
-        # If a provider slug is given directly
-        slug = args.strip().lower()
-        if slug:
-            matching = [p for p in providers if p["slug"] == slug]
-            if not matching:
-                print_error(f"Unknown provider: {slug}")
-                print_info(f"Available: {', '.join(p['slug'] for p in providers)}")
-                return CommandResult()
-            result = oauth_login(slug)
-            if result is None:
-                print_error("Login failed.")
-            return CommandResult()
-
-        # Show picker
-        options = []
-        for p in providers:
-            status = "✓ logged in" if p["logged_in"] else "not logged in"
-            options.append(MenuOption(p["display_name"], status))
-
-        selected = select_option("OAuth Login", options)
-        if selected is None:
-            return CommandResult()
-
-        chosen = providers[selected]
-        result = oauth_login(chosen["slug"])
-        if result is None:
-            print_error("Login failed.")
-        return CommandResult()
-
-
-class LogoutCommand(Command):
-    name = "logout"
-    description = "Log out of a provider subscription"
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.providers.oauth import available_providers
-        from hephaistos.providers.oauth import logout as oauth_logout
-
-        providers = available_providers()
-        logged_in = [p for p in providers if p["logged_in"]]
-        if not logged_in:
-            print_info("No active OAuth sessions.")
-            return CommandResult()
-
-        slug = args.strip().lower()
-        if slug:
-            oauth_logout(slug)
-            print_success(f"Logged out of {slug}.")
-            return CommandResult()
-
-        options = [MenuOption(p["display_name"], p["slug"]) for p in logged_in]
-        selected = select_option("OAuth Logout", options)
-        if selected is None:
-            return CommandResult()
-        oauth_logout(logged_in[selected]["slug"])
-        print_success(f"Logged out of {logged_in[selected]['display_name']}.")
         return CommandResult()
 
 
@@ -738,8 +673,6 @@ def get_registry() -> CommandRegistry:
             HistoryCommand,
             EditCommand,
             ProviderCommand,
-            LoginCommand,
-            LogoutCommand,
             ModelsCommand,
             UsageCommand,
         ):

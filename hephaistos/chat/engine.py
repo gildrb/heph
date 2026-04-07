@@ -28,6 +28,7 @@ from openai import APIConnectionError, APITimeoutError, InternalServerError, Ope
 from openai.types.chat import ChatCompletionMessageParam
 
 from hephaistos.logging import Timer, get_logger
+from hephaistos.providers.model_policy import is_blocked_model_name
 
 _log = get_logger("chat.engine")
 
@@ -151,6 +152,8 @@ class Conversation:
 
 def _build_client(config: ChatConfig) -> OpenAI:
     """Create an OpenAI client from the given config."""
+    if is_blocked_model_name(config.model):
+        raise EngineError(f"Unsupported model: {config.model}")
     api_key = config.resolved_api_key
     if not api_key:
         raise EngineError(

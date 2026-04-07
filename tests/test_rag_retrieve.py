@@ -978,29 +978,16 @@ class TestMinScoreThreshold:
             _make_chunk("Cooking recipes for beginners.", "cook.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-
-        mock_embed = MagicMock(spec=EmbeddingRetriever)
-        mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[0], score=0.80),
-            ScoredChunk(chunk=chunks[1], score=0.03),  # garbage match
-        ]
-
-        mock_reranker = MagicMock(spec=CrossEncoderReranker)
-        mock_reranker.rerank.side_effect = lambda q, c, top_k: c[:top_k]
-
         with patch(
             "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            return_value=mock_embed,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
-            return_value=mock_reranker,
+            return_value=False,
         ):
-            results = retrieve("python", index, min_score=0.1)
-            assert len(results) == 1
-            assert results[0].chunk.source == "py.md"
+            # TF-IDF: "python" only matches the first chunk, second scores 0
+            all_results = retrieve("python", index, min_score=0.0)
+            assert len(all_results) == 1  # only py.md matches at all
+            # Now use a threshold that filters it
+            high_threshold = retrieve("python", index, min_score=1.0)
+            assert high_threshold == []
 
     def test_all_below_threshold_returns_empty(self) -> None:
         chunks = [
