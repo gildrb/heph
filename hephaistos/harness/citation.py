@@ -287,7 +287,8 @@ def format_verification_notice(result: VerificationResult, reply_len: int) -> st
         and reply_len > _NO_CITATION_CHAR_THRESHOLD
     ):
         parts.append(
-            "\n⚠ No source citations found in this answer — verify claims against your materials."
+            "\n⚠ No source citations found
+            in this answer — verify claims against your materials."
         )
 
     return "".join(parts)
