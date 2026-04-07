@@ -13,6 +13,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hephaistos.providers.model_policy import filter_blocked_models, is_blocked_model_name
+
 _CONFIG_DIR = Path.home() / ".config" / "hephaistos"
 _PROVIDERS_FILE = _CONFIG_DIR / "providers.toml"
 
@@ -71,6 +73,8 @@ class ProviderConfig:
     def set_model(self, slug: str, model: str) -> bool:
         if slug not in self.providers:
             return False
+        if is_blocked_model_name(model):
+            return False
         p = self.providers[slug]
         if model not in p.models:
             return False
@@ -128,15 +132,7 @@ class ProviderConfig:
         for slug, section in data.items():
             if not isinstance(section, dict):
                 continue
-            providers[slug] = Provider(
-                slug=slug,
-                display_name=section.get("display_name", slug),
-                endpoint=section.get("endpoint", ""),
-                api_key_env=section.get("api_key_env", ""),
-                models=section.get("models", []),
-                active=section.get("active", False),
-                current_model=section.get("current_model", ""),
-            )
+            providers[slug] = _sanitize_provider(slug, section)
         return cls(providers=providers)
 
 
@@ -153,10 +149,6 @@ def _default_config() -> ProviderConfig:
                 endpoint="https://openrouter.ai/api/v1",
                 api_key_env="OPENROUTER_API_KEY",
                 models=[
-                    "anthropic/claude-opus-4.6",
-                    "anthropic/claude-sonnet-4.6",
-                    "anthropic/claude-sonnet-4.5",
-                    "anthropic/claude-haiku-4.5",
                     "qwen/qwen3.6-plus:free",
                     "openai/gpt-5.4",
                     "openai/gpt-5.4-mini",
@@ -221,4 +213,25 @@ def _default_config() -> ProviderConfig:
                 models=[],
             ),
         }
+    )
+
+
+def _sanitize_provider(
+    slug: str,
+    section: dict,
+) -> Provider:
+    models = filter_blocked_models(list(section.get("models", [])))
+    current_model = section.get("current_model", "")
+    if is_blocked_model_name(current_model):
+        current_model = ""
+    if current_model and models and current_model not in models:
+        current_model = models[0]
+    return Provider(
+        slug=slug,
+        display_name=section.get("display_name", slug),
+        endpoint=section.get("endpoint", ""),
+        api_key_env=section.get("api_key_env", ""),
+        models=models,
+        active=section.get("active", False),
+        current_model=current_model,
     )

@@ -396,11 +396,25 @@ def send_user_message(
     return reply
 
 
+_RAG_MIN_SCORE = 0.1
+
+_NO_CONTEXT_SIGNAL = (
+    "No relevant documents were found in the armory for this question. "
+    "Answer from your own knowledge only if you are confident, and "
+    "explicitly say that the answer is not from source material. "
+    "Do NOT fabricate source citations."
+)
+
+
 def _inject_rag_context(session: ChatSession, user_input: str) -> int:
     """Build/load the RAG index, retrieve relevant chunks, and inject context.
 
     Inserts a system message with retrieved context just before the last
     user message. Returns the number of messages inserted (0 or 1).
+
+    Chunks scoring below ``_RAG_MIN_SCORE`` are discarded.  When all
+    chunks fall below threshold, a no-context signal is injected instead
+    so the LLM does not fabricate citations.
     """
     if session.armory_path is None:
         return 0
@@ -410,18 +424,28 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
             session._rag_index = load_or_build(session.armory_path)
 
         with timer:
-            scored = retrieve(user_input, session._rag_index, top_k=5)
+            scored = retrieve(
+                user_input, session._rag_index, top_k=5,
+                min_score=_RAG_MIN_SCORE,
+            )
         if not scored:
             _log.info(
-                "rag retrieve: no results",
+                "rag retrieve: no relevant results",
                 extra={
                     "fields": {
                         "query_len": len(user_input),
                         "latency_ms": timer.ms,
+                        "min_score": _RAG_MIN_SCORE,
                     }
                 },
             )
-            return 0
+            # Inject explicit no-context signal so the LLM doesn't hallucinate sources
+            last_idx = len(session.conversation.messages) - 1
+            session.conversation.messages.insert(
+                last_idx,
+                Message(role="system", content=_NO_CONTEXT_SIGNAL),
+            )
+            return 1
 
         scores = [sc.score for sc in scored]
         _log.info(

@@ -964,3 +964,90 @@ class TestRetrieveConvenience:
         ):
             results = retrieve("binary search", index)
             assert len(results) > 0
+
+
+# ---------------------------------------------------------------------------
+# min_score threshold filtering
+# ---------------------------------------------------------------------------
+
+
+class TestMinScoreThreshold:
+    def test_filters_below_threshold(self) -> None:
+        chunks = [
+            _make_chunk("Python programming language basics.", "py.md", 0),
+            _make_chunk("Cooking recipes for beginners.", "cook.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+
+        mock_embed = MagicMock(spec=EmbeddingRetriever)
+        mock_embed.retrieve.return_value = [
+            ScoredChunk(chunk=chunks[0], score=0.80),
+            ScoredChunk(chunk=chunks[1], score=0.03),  # garbage match
+        ]
+
+        mock_reranker = MagicMock(spec=CrossEncoderReranker)
+        mock_reranker.rerank.side_effect = lambda q, c, top_k: c[:top_k]
+
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=True,
+        ), patch(
+            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+            return_value=mock_embed,
+        ), patch(
+            "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
+            return_value=mock_reranker,
+        ):
+            results = retrieve("python", index, min_score=0.1)
+            assert len(results) == 1
+            assert results[0].chunk.source == "py.md"
+
+    def test_all_below_threshold_returns_empty(self) -> None:
+        chunks = [
+            _make_chunk("Cooking recipes.", "cook.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=False,
+        ):
+            # "quantum" shares no tokens with "cooking" — scores will be ~0
+            results = retrieve("quantum physics", index, min_score=0.5)
+            assert results == []
+
+    def test_zero_threshold_is_no_op(self) -> None:
+        chunks = [
+            _make_chunk("Python programming.", "py.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=False,
+        ):
+            results = retrieve("python", index, min_score=0.0)
+            assert len(results) > 0
+
+    def test_default_threshold_is_zero(self) -> None:
+        chunks = [
+            _make_chunk("Python programming.", "py.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=False,
+        ):
+            # Default min_score=0.0 — all results returned
+            results = retrieve("python", index)
+            assert len(results) > 0
+
+    def test_threshold_keeps_exact_match(self) -> None:
+        chunks = [
+            _make_chunk("Python programming language.", "py.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+        with patch(
+            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            return_value=False,
+        ):
+            results = retrieve("python programming", index, min_score=0.05)
+            assert len(results) > 0

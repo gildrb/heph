@@ -678,6 +678,7 @@ def retrieve(
     *,
     transform_strategy: TransformStrategy = TransformStrategy.IDENTITY,
     prompt_fn: PromptFn | None = None,
+    min_score: float = 0.0,
 ) -> list[ScoredChunk]:
     """Retrieve the top-k most relevant chunks for *query*.
 
@@ -688,6 +689,13 @@ def retrieve(
     LLM-based strategies (``HYDE``, ``MULTI_QUERY``) require *prompt_fn*
     to be provided — a callable that sends a prompt to the model and
     returns the text response.
+
+    *min_score* filters out chunks whose relevance score falls below the
+    threshold.  Set to 0.0 (default) to disable filtering.  Typical
+    values: 0.1 for sparse retrieval, 0.15 for dense embeddings, 0.2
+    when high precision is critical.  When all chunks score below the
+    threshold an empty list is returned — the caller should inject a
+    "no relevant documents" signal instead of garbage context.
     """
     # Build query transformer if requested
     transformer = None
@@ -696,6 +704,24 @@ def retrieve(
 
     retriever = _create_retriever(index, query_transformer=transformer)
     results = retriever.retrieve(query, top_k)
+
+    # Filter by minimum relevance score
+    if min_score > 0.0 and results:
+        before = len(results)
+        results = [sc for sc in results if sc.score >= min_score]
+        dropped = before - len(results)
+        if dropped:
+            _log.debug(
+                "retrieve: dropped low-score chunks",
+                extra={
+                    "fields": {
+                        "dropped": dropped,
+                        "kept": len(results),
+                        "min_score": min_score,
+                    }
+                },
+            )
+
     _log.debug(
         "retrieve results",
         extra={
@@ -705,6 +731,7 @@ def retrieve(
                 "returned": len(results),
                 "retriever": type(retriever).__name__,
                 "transform_strategy": transform_strategy.value,
+                "min_score": min_score,
             }
         },
     )
