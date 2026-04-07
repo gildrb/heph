@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from hephaistos.app import shell
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
@@ -17,7 +18,9 @@ def _make_armory(tmp_path: Path) -> Path:
     armory_path = tmp_path / "test-armory"
     initialize(armory_path)
     (armory_path / "source").mkdir(exist_ok=True)
-    (armory_path / "source" / "exam.md").write_text("# Past Exam\n## Q1\nWhat is 2+2?\n\nAnswer: 4\n")
+    (armory_path / "source" / "exam.md").write_text(
+        "# Past Exam\n## Q1\nWhat is 2+2?\n\nAnswer: 4\n"
+    )
     return armory_path
 
 
@@ -148,6 +151,29 @@ def test_handle_input_unknown_command(capsys, tmp_path: Path) -> None:
     assert "Unknown command" in out
 
 
+def test_bottom_toolbar_uses_cached_status(monkeypatch, tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    calls = 0
+
+    def fake_context_left(_session) -> int:
+        nonlocal calls
+        calls += 1
+        return 73
+
+    monkeypatch.setattr(shell, "_context_left", fake_context_left)
+
+    toolbar_ref = [shell._build_bottom_toolbar_status(session)]
+
+    shell._get_bottom_toolbar(toolbar_ref)
+    shell._get_bottom_toolbar(toolbar_ref)
+
+    assert calls == 1
+
+    shell._refresh_bottom_toolbar(session, toolbar_ref)
+
+    assert calls == 2
+
+
 # ---------------------------------------------------------------------------
 # Cancellation / back-navigation tests
 # ---------------------------------------------------------------------------
@@ -183,7 +209,9 @@ def test_prompt_path_returns_value_when_provided(monkeypatch) -> None:
     assert result == "/my/path"
 
 
-def test_open_armory_cancelled_returns_session_unchanged(monkeypatch, capsys, tmp_path: Path) -> None:
+def test_open_armory_cancelled_returns_session_unchanged(
+    monkeypatch, capsys, tmp_path: Path
+) -> None:
     session = _make_session(tmp_path)
 
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
@@ -194,7 +222,9 @@ def test_open_armory_cancelled_returns_session_unchanged(monkeypatch, capsys, tm
     assert "Cancelled" in out
 
 
-def test_create_armory_cancelled_returns_session_unchanged(monkeypatch, capsys, tmp_path: Path) -> None:
+def test_create_armory_cancelled_returns_session_unchanged(
+    monkeypatch, capsys, tmp_path: Path
+) -> None:
     session = _make_session(tmp_path)
 
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
@@ -222,7 +252,9 @@ def test_handle_armory_command_detaches_armory(
     assert "Detached armory. Plain chat mode." in out
 
 
-def test_prompt_armory_for_sessions_cancelled_returns_none(monkeypatch, capsys, tmp_path: Path) -> None:
+def test_prompt_armory_for_sessions_cancelled_returns_none(
+    monkeypatch, capsys, tmp_path: Path
+) -> None:
     session = _make_session(tmp_path)
 
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
@@ -233,7 +265,9 @@ def test_prompt_armory_for_sessions_cancelled_returns_none(monkeypatch, capsys, 
     assert "Cancelled" in out
 
 
-def test_resume_saved_chat_cancelled_returns_session_unchanged(monkeypatch, capsys, tmp_path: Path) -> None:
+def test_resume_saved_chat_cancelled_returns_session_unchanged(
+    monkeypatch, capsys, tmp_path: Path
+) -> None:
     session = _make_session(tmp_path)
 
     # Cancel at the path prompt

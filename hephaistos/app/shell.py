@@ -195,15 +195,23 @@ def _context_left(session: ChatSession) -> int:
     return max(0, min(100, round((remaining / prompt_budget) * 100)))
 
 
-def _get_bottom_toolbar(session_ref: list[ChatSession]):
-    """Return a compact status line shown directly below the input."""
-    session = session_ref[0]
+def _build_bottom_toolbar_status(session: ChatSession) -> str:
+    """Build the compact status line shown directly below the input."""
     location = session.armory_path or Path.cwd()
-    status = (
+    return (
         f"  {session.config.model} · {session.autonomy}"
         f" · {_context_left(session)}% left · {_display_path(location)}"
     )
-    return FormattedText([("class:bottom-toolbar", status)])
+
+
+def _refresh_bottom_toolbar(session: ChatSession, toolbar_ref: list[str]) -> None:
+    """Refresh the cached prompt_toolkit toolbar text for the active session."""
+    toolbar_ref[0] = _build_bottom_toolbar_status(session)
+
+
+def _get_bottom_toolbar(toolbar_ref: list[str]):
+    """Return the cached bottom-toolbar text for prompt_toolkit redraws."""
+    return FormattedText([("class:bottom-toolbar", toolbar_ref[0])])
 
 
 # ---------------------------------------------------------------------------
@@ -571,6 +579,7 @@ def run_chat_shell(
     kb = keybindings or DEFAULT_SHELL_KEYBINDINGS
 
     session_ref = [session]
+    toolbar_ref = [_build_bottom_toolbar_status(session)]
 
     # Set up prompt_toolkit session
     history_path = _get_history_path(session)
@@ -582,7 +591,7 @@ def run_chat_shell(
         history=FileHistory(str(history_path)),
         completer=SlashCommandCompleter(),
         key_bindings=_build_keybindings(kb),
-        bottom_toolbar=lambda: _get_bottom_toolbar(session_ref),
+        bottom_toolbar=lambda: _get_bottom_toolbar(toolbar_ref),
         multiline=True,
         complete_while_typing=True,
     )
@@ -614,6 +623,7 @@ def run_chat_shell(
 
         session, should_continue = _handle_input(session, user_input, history)
         session_ref[0] = session
+        _refresh_bottom_toolbar(session, toolbar_ref)
 
         signal.signal(signal.SIGINT, original_sigint)
 
