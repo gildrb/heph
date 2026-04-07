@@ -10,9 +10,11 @@ from pathlib import Path
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation, Message, StreamRecoveryError, get_reply
+from hephaistos.chat.usage import ContextBudget, SessionUsage, save_usage
 from hephaistos.harness.dispatch import agent_loop
 from hephaistos.harness.rag import ArmoryIndex, build_context, load_or_build, retrieve
 from hephaistos.logging import Timer, TraceWriter, get_logger
+from hephaistos.memory import MemoryStore, load_memory, save_memory
 
 _log = get_logger("chat.session")
 
@@ -28,6 +30,8 @@ class ChatSession:
     dirty: bool = False
     autonomy: str = "low"
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
+    _memory: MemoryStore | None = field(default=None, init=False, repr=False)
+    usage: SessionUsage = field(default_factory=SessionUsage)
     trace: TraceWriter = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -132,7 +136,20 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         )
 
     conversation = Conversation()
-    conversation.add("system", _SYSTEM_PROMPT)
+
+    # Build system prompt with memory context
+    memory_ctx = ""
+    try:
+        mem = load_memory(armory_path)
+        memory_ctx = mem.build_system_context()
+    except Exception:
+        pass
+
+    system_prompt = _SYSTEM_PROMPT
+    if memory_ctx:
+        system_prompt += f"\n\n{memory_ctx}"
+
+    conversation.add("system", system_prompt)
 
     session = ChatSession(
         config=config,
@@ -141,11 +158,14 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         armory_path=armory_path,
         source_file_count=source_file_count,
     )
+    # Load memory for this session
+    session._memory = load_memory(armory_path)
     _log.info("session created", extra={"fields": {
         "session_id": session.session_id,
         "armory": str(armory_path),
         "source_files": source_file_count,
         "model": config.model,
+        "memory_entries": len(session._memory.entries) if session._memory else 0,
     }})
     session.trace.record_session_event("created", model=config.model)
     return session
@@ -167,10 +187,12 @@ def resume_session(
         armory_path=armory_path,
         source_file_count=source_file_count,
     )
+    session._memory = load_memory(armory_path)
     _log.info("session resumed", extra={"fields": {
         "session_id": session_id,
         "armory": str(armory_path),
         "message_count": len(conversation.messages),
+        "memory_entries": len(session._memory.entries) if session._memory else 0,
     }})
     session.trace.record_session_event("resumed", title=title)
     return session
@@ -231,6 +253,7 @@ def send_user_message(
                 session.conversation,
                 session.armory_path,
                 abort=abort,
+                usage=session.usage,
             ):
                 sys.stdout.write(chunk)
                 sys.stdout.flush()
@@ -277,6 +300,37 @@ def send_user_message(
     }})
     session.trace.record_session_event("reply", latency_ms=round(timer.ms, 1), reply_len=len(reply))
 
+    # Extract and store memory from this exchange
+    if session._memory is not None and len(reply) >= 100:
+        try:
+            from hephaistos.memory.extract import extract_and_store
+            sources_used = ""
+            # Find RAG context that was injected to identify sources
+            for msg in session.conversation.messages:
+                if msg.role == "system" and msg.content.startswith(_RAG_CONTEXT_PREFIX):
+                    sources_used = msg.content[:200]
+                    break
+            added = extract_and_store(
+                session.config,
+                session._memory,
+                user_input,
+                reply,
+                sources=sources_used,
+            )
+            if added:
+                _log.info("memory updated", extra={"fields": {
+                    "new_entries": added,
+                }})
+        except Exception:
+            _log.warning("memory extraction failed", exc_info=True)
+
+    # Persist usage
+    if session.armory_path is not None:
+        try:
+            save_usage(session.armory_path, session.session_id, session.usage)
+        except Exception:
+            pass
+
     return reply
 
 
@@ -315,7 +369,9 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
             latency_ms=timer.ms,
         )
 
-        context_text = build_context(scored, max_tokens=2000)
+        context_text = build_context(
+            scored, max_tokens=session.config.rag_context_budget
+        )
         if not context_text:
             return 0
 

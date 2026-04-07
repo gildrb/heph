@@ -152,6 +152,29 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_fetch",
+            "description": (
+                "Fetch a web page and return its text content. "
+                "Use ONLY when the answer cannot be found in the armory documents. "
+                "The response always includes the source URL for verification. "
+                "Do NOT guess or fabricate information — if the fetch fails or "
+                "doesn't contain the answer, say so explicitly."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch (must start with http:// or https://).",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
 ]
 
 
@@ -314,11 +337,12 @@ def get_handler(name: str):
 
 _HANDLERS: dict[str, callable] = {
     "compact": lambda **_kw: "[compact triggered]",
-    "bash": lambda **kw: run_bash(kw["command"]),
+    "bash": lambda **kw: run_bash(kw["command"], timeout=kw.get("timeout")),
     "read_file": lambda **kw: run_read_file(kw["path"], offset=kw.get("offset"), limit=kw.get("limit"), **_workspace_kw(kw)),
     "write_file": lambda **kw: run_write_file(kw["path"], kw["content"], **_workspace_kw(kw)),
     "edit_file": lambda **kw: run_edit_file(kw["path"], kw["old_text"], kw["new_text"], **_workspace_kw(kw)),
     "list_files": lambda **kw: run_list_files(path=kw.get("path", ""), pattern=kw.get("pattern", "*"), **_workspace_kw(kw)),
+    "web_fetch": lambda **kw: run_web_fetch(kw["url"]),
 }
 
 

@@ -261,7 +261,6 @@ def agent_loop(
     retry = retry or RetryConfig()
     api_messages = conversation.to_api_messages()
     loop_timer = Timer()
-    compact_triggered = False
     budget = ContextBudget(model=config.model, max_tokens=config.max_tokens)
 
     _log.info("agent_loop start", extra={"fields": {
@@ -490,7 +489,6 @@ def agent_loop(
 
         # --- Layer 3: manual compact tool ---
         if "compact" in tool_names:
-            compact_triggered = True
             yield "\n[Compacting conversation...]\n"
             api_messages[:] = auto_compact(api_messages, config, workspace)
             _sync_conversation(conversation, api_messages)

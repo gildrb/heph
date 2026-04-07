@@ -106,7 +106,7 @@ def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
         desc = styled(option.description, STYLE_DIM) if option.description else ""
         cur = styled(" *", STYLE_PROMPT) if option.is_current else ""
         if desc:
-            max_label = max(visible_len(o.label) for o in options)
+            max_label = max(_visible_len(o.label) for o in options)
             padded = f"  {option.label}{cur}".ljust(max_label + 6)
             print(f"  {index}. {padded}{desc}")
         else:

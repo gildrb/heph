@@ -9,13 +9,12 @@ from __future__ import annotations
 from hephaistos.harness.rag.retrieve import ScoredChunk
 
 _CHARS_PER_TOKEN = 4
-_DEFAULT_MAX_TOKENS = 2000
 _ATTRIBUTION_TEMPLATE = "--- {source} (chunk {index}, relevance: {score:.2f}) ---"
 
 
 def build_context(
     scored_chunks: list[ScoredChunk],
-    max_tokens: int = _DEFAULT_MAX_TOKENS,
+    max_tokens: int = 2000,
 ) -> str:
     """Assemble scored chunks into a single context string with attribution.
 

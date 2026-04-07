@@ -68,17 +68,14 @@ def visible_len(text: str) -> int:
     return len(_ANSI_RE.sub("", text))
 
 
-def build_prompt(armory_name: str | None, mode: str = "prompt") -> tuple[str, int]:
+def build_prompt(armory_name: str, mode: str = "prompt") -> tuple[str, int]:
     """Build the styled prompt string. Returns (prompt_with_ansi, visible_length)."""
     if mode == "bash":
         prefix = styled("!", STYLE_MODE)
     else:
         prefix = styled(">", STYLE_PROMPT)
 
-    if armory_name:
-        label = styled(armory_name, STYLE_ACCENT)
-    else:
-        label = styled("heph", STYLE_DIM)
+    label = styled(armory_name, STYLE_ACCENT)
 
     prompt = f"{label} {prefix} "
     return prompt, visible_len(prompt)
@@ -206,7 +203,7 @@ def _center_line(text: str, width: int = 80) -> str:
 
 def print_shell_intro(
     version: str,
-    armory_path: str | None,
+    armory_path: str,
     source_file_count: int,
     session_id: str,
     model: str,
@@ -222,7 +219,7 @@ def print_shell_intro(
     print_banner(version)
 
     # --- Status line ---
-    armory_status = styled(str(armory_path), STYLE_ACCENT) if armory_path else styled("none", STYLE_DIM)
+    armory_status = styled(armory_path, STYLE_ACCENT)
     api_status = styled("ok", GREEN) if has_api_key else styled("not configured", RED)
     model_display = styled(model, STYLE_PROMPT)
 
@@ -234,7 +231,7 @@ def print_shell_intro(
 
     # --- Tips ---
     tips = [
-        f"Type {styled('/help', STYLE_ACCENT)} for commands  ·  {styled('/armory', STYLE_ACCENT)} to open a workspace  ·  {styled('!', STYLE_ACCENT)} prefix for shell mode",
+        f"Type {styled('/help', STYLE_ACCENT)} for commands  ·  {styled('/armory', STYLE_ACCENT)} to switch workspace  ·  {styled('!', STYLE_ACCENT)} prefix for shell mode",
     ]
     if not has_api_key:
         tips.insert(0, f"{styled('Set your API key:', STYLE_WARNING)} {styled('/api key <your-key>', STYLE_ACCENT)}")

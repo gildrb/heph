@@ -96,6 +96,13 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         except ValueError:
             pass
 
+    rag_context_budget = os.environ.get("HEPHAISTOS_RAG_CONTEXT_BUDGET")
+    if rag_context_budget:
+        try:
+            config.rag_context_budget = int(rag_context_budget)
+        except ValueError:
+            pass
+
     return config
 
 

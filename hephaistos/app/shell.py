@@ -96,9 +96,7 @@ def _discover_startup_armory() -> Path | None:
 
 
 def _default_armory_input(session: ChatSession) -> str:
-    if session.armory_path is not None:
-        return str(session.armory_path)
-    return str((Path.cwd() / "armory").resolve())
+    return str(session.armory_path)
 
 
 def _prompt_path(label: str, default: str) -> str | None:
@@ -111,9 +109,6 @@ def _prompt_path(label: str, default: str) -> str | None:
 
 def _save_before_switch(session: ChatSession) -> None:
     if not session.dirty:
-        return
-    if session.armory_path is None:
-        print_info("Previous messages were not saved (no armory).")
         return
     try:
         path = save_session(session)
@@ -822,7 +817,7 @@ def _handle_input(session: ChatSession, user_input: str, history: InputHistory, 
 
 
 def _save_on_exit(session: ChatSession) -> None:
-    if session.armory_path is not None and session.dirty and session_has_messages(session):
+    if session.dirty and session_has_messages(session):
         try:
             path = save_session(session)
             print_success(f"Saved chat to {path}")

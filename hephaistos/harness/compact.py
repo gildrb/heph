@@ -120,8 +120,6 @@ def auto_compact(
     *config* is a :class:`ChatConfig` — typed as ``object`` here to
     avoid a circular import.
     """
-    from hephaistos.chat.engine import Conversation
-
     # --- Save full transcript for recovery ---
     transcript_path = _save_transcript(messages, workspace)
     _log.info("transcript saved", extra={"fields": {

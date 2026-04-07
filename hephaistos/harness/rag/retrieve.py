@@ -78,7 +78,7 @@ class RetrieverProtocol(Protocol):
 class RerankerProtocol(Protocol):
     """Interface for post-retrieval re-rankers.
 
-    A re-ranker takes a list of candidate ``ScoredChunk``\ s produced by
+    A re-ranker takes a list of candidate ``ScoredChunk`` objects produced by
     a retriever and re-scores them (typically with a cross-encoder) to
     improve precision.  The returned list is sorted by the new scores.
     """
