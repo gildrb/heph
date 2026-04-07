@@ -61,6 +61,7 @@ from hephaistos.chat.session import (
     session_has_messages,
     validate_armory_path,
 )
+from hephaistos.chat.usage import ContextBudget
 from hephaistos.harness.permissions import classify_bash_command, tier_allows
 from hephaistos.parameters.cli import load_config
 
@@ -84,7 +85,7 @@ _PT_STYLE = PtStyle.from_dict(
     {
         "armory": f"bold {FORGE_EMBER}",
         "prompt-mark": f"bold {FORGE_EMBER}",
-        "bottom-toolbar": f"bg:{FORGE_PANEL} {FORGE_ASH}",
+        "bottom-toolbar": f"{FORGE_SMOKE}",
         "completion-menu.completion.current": f"bg:{FORGE_EMBER} fg:{FORGE_ASH} bold",
         "completion-menu.completion": f"bg:{FORGE_PANEL} fg:{FORGE_ASH}",
         "completion-menu.meta.completion.current": f"bg:{FORGE_EMBER} fg:{FORGE_ASH}",
@@ -93,12 +94,6 @@ _PT_STYLE = PtStyle.from_dict(
         "scrollbar.button": f"bg:{FORGE_EMBER}",
     }
 )
-
-_HELP_TOOLBAR = (
-    " Enter send · ⌥Enter newline · ↑↓ history"
-    " · Tab complete · / commands · Ctrl+C cancel · Ctrl+D exit"
-)
-
 
 class SlashCommandCompleter(Completer):
     """Tab-completion for slash commands."""
@@ -182,9 +177,33 @@ def _get_prompt_message(session_ref: list[ChatSession]):
     return message
 
 
-def _get_bottom_toolbar():
-    """Return the help footer for the bottom toolbar."""
-    return FormattedText([("class:bottom-toolbar", _HELP_TOOLBAR)])
+def _display_path(path: Path) -> str:
+    """Render a path relative to the user's home directory when possible."""
+    resolved = path.expanduser().resolve()
+    try:
+        rel = resolved.relative_to(Path.home())
+        return "~" if str(rel) == "." else f"~/{rel}"
+    except ValueError:
+        return str(resolved)
+
+
+def _context_left(session: ChatSession) -> int:
+    """Return the estimated prompt-budget percentage left for the session."""
+    budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
+    prompt_budget = max(1, budget.prompt_budget)
+    remaining = budget.tokens_remaining(session.conversation.to_api_messages())
+    return max(0, min(100, round((remaining / prompt_budget) * 100)))
+
+
+def _get_bottom_toolbar(session_ref: list[ChatSession]):
+    """Return a compact status line shown directly below the input."""
+    session = session_ref[0]
+    location = session.armory_path or Path.cwd()
+    status = (
+        f"  {session.config.model} · {session.autonomy}"
+        f" · {_context_left(session)}% left · {_display_path(location)}"
+    )
+    return FormattedText([("class:bottom-toolbar", status)])
 
 
 # ---------------------------------------------------------------------------
@@ -563,8 +582,8 @@ def run_chat_shell(
         history=FileHistory(str(history_path)),
         completer=SlashCommandCompleter(),
         key_bindings=_build_keybindings(kb),
-        bottom_toolbar=_get_bottom_toolbar,
-        multiline=False,
+        bottom_toolbar=lambda: _get_bottom_toolbar(session_ref),
+        multiline=True,
         complete_while_typing=True,
     )
 
