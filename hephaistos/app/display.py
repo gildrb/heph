@@ -108,7 +108,11 @@ def render_markdown_lite(text: str) -> str:
     result = re.sub(r"\*\*(.+?)\*\*", lambda m: styled(m.group(1), BOLD), result)
 
     # Italic (single * not preceded/followed by *)
-    result = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", lambda m: styled(m.group(1), ITALIC), result)
+    result = re.sub(
+        r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
+        lambda m: styled(m.group(1), ITALIC),
+        result,
+    )
 
     return result
 
@@ -165,12 +169,12 @@ def print_success(msg: str) -> None:
 
 
 _BANNER = r"""
-    __  __           __          _      __            
+    __  __           __          _      __
    / / / /__  ____  / /_  ____ _(_)____/ /_____  _____
   / /_/ / _ \/ __ \/ __ \/ __ `/ / ___/ __/ __ \/ ___/
- / __  /  __/ /_/ / / / / /_/ / (__  ) /_/ /_/ (__  ) 
-/_/ /_/\___/ .___/_/ /_/\__,_/_/____/\__/\____/____/  
-          /_/                                         
+ / __  /  __/ /_/ / / / / /_/ / (__  ) /_/ /_/ (__  )
+/_/ /_/\___/ .___/_/ /_/\__,_/_/____/\__/\____/____/
+          /_/
 """.strip()
 
 
@@ -221,18 +225,33 @@ def print_shell_intro(
     api_status = styled("ok", GREEN) if has_api_key else styled("not configured", RED)
     model_display = styled(model, STYLE_PROMPT)
 
-    status = f"{styled('armory', STYLE_DIM)} {armory_status}    {styled('model', STYLE_DIM)} {model_display}    {styled('api', STYLE_DIM)} {api_status}"
+    status = (
+        f"{styled('armory', STYLE_DIM)} {armory_status}"
+        f"    {styled('model', STYLE_DIM)} {model_display}"
+        f"    {styled('api', STYLE_DIM)} {api_status}"
+    )
     if source_file_count:
-        status += f"    {styled('context', STYLE_DIM)} {styled(f'{source_file_count} files', STYLE_ACCENT)}"
+        status += (
+            f"    {styled('context', STYLE_DIM)}"
+            f" {styled(f'{source_file_count} files', STYLE_ACCENT)}"
+        )
     print(_center_line(status, cols))
     print()
 
     # --- Tips ---
     tips = [
-        f"Type {styled('/help', STYLE_ACCENT)} for commands  ·  {styled('/armory', STYLE_ACCENT)} to switch workspace  ·  {styled('!', STYLE_ACCENT)} prefix for shell mode",
+        (
+            f"Type {styled('/help', STYLE_ACCENT)} for commands"
+            f"  \u00b7  {styled('/armory', STYLE_ACCENT)} to switch workspace"
+            f"  \u00b7  {styled('!', STYLE_ACCENT)} prefix for shell mode"
+        ),
     ]
     if not has_api_key:
-        tips.insert(0, f"{styled('Set your API key:', STYLE_WARNING)} {styled('/api key <your-key>', STYLE_ACCENT)}")
+        tips.insert(
+            0,
+            f"{styled('Set your API key:', STYLE_WARNING)}"
+            f" {styled('/api key <your-key>', STYLE_ACCENT)}",
+        )
 
     for tip in tips:
         print(_center_line(tip, cols))

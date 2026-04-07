@@ -111,13 +111,21 @@ class StatusCommand(Command):
             f"  Title:     {title}",
             f"  Model:     {s.config.model}",
             f"  API:       {s.config.base_url}",
-            f"  Key:       {'configured' if s.config.resolved_api_key else styled('not set', STYLE_DIM)}",
+            (
+                f"  Key:       configured"
+                if s.config.resolved_api_key
+                else f"  Key:       {styled('not set', STYLE_DIM)}"
+            ),
             f"  Mode:      {mode}",
             f"  Tools:     {tool_count}",
             f"  Messages:  {msg_count}",
             f"  Memory:    {mem_count} concepts",
             f"  API calls: {usage_summary['api_calls']}",
-            f"  Tokens:    {usage_summary['total_tokens']} (prompt: {usage_summary['prompt_tokens']}, completion: {usage_summary['completion_tokens']})",
+            (
+                f"  Tokens:    {usage_summary['total_tokens']}"
+                f" (prompt: {usage_summary['prompt_tokens']},"
+                f" completion: {usage_summary['completion_tokens']})"
+            ),
             f"  Cost:      ${usage_summary['cost_usd']:.4f}",
             f"  Dirty:     {'yes' if s.dirty else 'no'}",
         ]
@@ -211,7 +219,10 @@ class ModelCommand(Command):
             if slug == "custom" and not provider.models:
                 continue
             for model in provider.models:
-                is_current = (provider.active and model == current_model) or (not active and model == current_model)
+                is_current = (
+                    (provider.active and model == current_model)
+                    or (not active and model == current_model)
+                )
                 desc = f"via {provider.display_name}"
                 if is_current:
                     desc += " ← current"
@@ -369,11 +380,12 @@ class CompactCommand(Command):
         sys.stdout.flush()
 
         system_msgs = [m for m in s.conversation.messages if m.role == "system"]
-        s.conversation.messages = system_msgs + [
+        s.conversation.messages = [
+            *system_msgs,
             Message(
                 role="system",
                 content="[Conversation summary] " + summary,
-            )
+            ),
         ]
         s.dirty = True
         print_success("Compacted.")
@@ -549,6 +561,124 @@ class ProviderCommand(Command):
         return CommandResult()
 
 
+class LoginCommand(Command):
+    name = "login"
+    description = "Log in with a provider subscription (OAuth)"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.providers.oauth import available_providers, login as oauth_login
+
+        providers = available_providers()
+        if not providers:
+            print_info("No OAuth providers available.")
+            return CommandResult()
+
+        # If a provider slug is given directly
+        slug = args.strip().lower()
+        if slug:
+            matching = [p for p in providers if p["slug"] == slug]
+            if not matching:
+                print_error(f"Unknown provider: {slug}")
+                print_info(f"Available: {', '.join(p['slug'] for p in providers)}")
+                return CommandResult()
+            result = oauth_login(slug)
+            if result is None:
+                print_error("Login failed.")
+            return CommandResult()
+
+        # Show picker
+        options = []
+        for p in providers:
+            status = "✓ logged in" if p["logged_in"] else "not logged in"
+            options.append(MenuOption(p["display_name"], status))
+
+        selected = select_option("OAuth Login", options)
+        if selected is None:
+            return CommandResult()
+
+        chosen = providers[selected]
+        result = oauth_login(chosen["slug"])
+        if result is None:
+            print_error("Login failed.")
+        return CommandResult()
+
+
+class LogoutCommand(Command):
+    name = "logout"
+    description = "Log out of a provider subscription"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.providers.oauth import available_providers, logout as oauth_logout
+
+        providers = available_providers()
+        logged_in = [p for p in providers if p["logged_in"]]
+        if not logged_in:
+            print_info("No active OAuth sessions.")
+            return CommandResult()
+
+        slug = args.strip().lower()
+        if slug:
+            oauth_logout(slug)
+            print_success(f"Logged out of {slug}.")
+            return CommandResult()
+
+        options = [MenuOption(p["display_name"], p["slug"]) for p in logged_in]
+        selected = select_option("OAuth Logout", options)
+        if selected is None:
+            return CommandResult()
+        oauth_logout(logged_in[selected]["slug"])
+        print_success(f"Logged out of {logged_in[selected]['display_name']}.")
+        return CommandResult()
+
+
+class ModelsCommand(Command):
+    name = "models"
+    description = "List all available models across providers"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.providers.registry import get_registry
+
+        registry = get_registry()
+        models = registry.list_models()
+
+        if not models:
+            print_info("No models in registry.")
+            return CommandResult()
+
+        # Group by provider
+        current_provider = ""
+        for m in models:
+            if m.provider != current_provider:
+                current_provider = m.provider
+                print(f"\n  {styled(current_provider, STYLE_PROMPT)}")
+
+            price = f"${m.prompt_price_per_1k:.4f}/${m.completion_price_per_1k:.4f}" if not m.is_free else "free"
+            ctx = f"{m.context_window // 1000}k ctx"
+            tags = f" [{', '.join(m.tags)}]" if m.tags else ""
+            print(f"    {m.name:<45} {ctx:<12} {price}{tags}")
+
+        print()
+        return CommandResult()
+
+
+class UsageCommand(Command):
+    name = "usage"
+    description = "Show token usage and cost for this session"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        summary = s.usage.summary()
+        lines = [
+            f"  API calls:     {summary['api_calls']}",
+            f"  Prompt tokens: {summary['prompt_tokens']}",
+            f"  Output tokens: {summary['completion_tokens']}",
+            f"  Total tokens:  {summary['total_tokens']}",
+            f"  Estimated cost: ${summary['cost_usd']:.4f}",
+        ]
+        print("\n".join(lines))
+        return CommandResult()
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -604,6 +734,10 @@ def get_registry() -> CommandRegistry:
             HistoryCommand,
             EditCommand,
             ProviderCommand,
+            LoginCommand,
+            LogoutCommand,
+            ModelsCommand,
+            UsageCommand,
         ):
             _registry.register(cmd_class())
     return _registry

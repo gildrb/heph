@@ -344,7 +344,7 @@ def load_permissions(workspace: Path | None = None) -> dict:
       - auto_approve: set[str] — tools to always allow
       - deny: set[str] — tools to always block
     """
-    result: dict = {
+    result: dict[str, str | set[str]] = {
         "autonomy": "low",
         "auto_approve": set(),
         "deny": set(),

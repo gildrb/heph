@@ -406,11 +406,8 @@ class TestConversationConsistency:
 
         assert len(conv.messages) == 1
 
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = _connection_error()
-
         with (
-            patch("hephaistos.chat.engine._build_client", return_value=mock_client),
+            patch("hephaistos.chat.session.get_reply", side_effect=EngineError("boom")),
             pytest.raises(EngineError),
         ):
             send_user_message(session, "hello")
@@ -433,11 +430,11 @@ class TestConversationConsistency:
 
         assert len(conv.messages) == 1
 
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = FailingIterator("Partial reply")
-
         with (
-            patch("hephaistos.chat.engine._build_client", return_value=mock_client),
+            patch(
+                "hephaistos.chat.session.get_reply",
+                side_effect=StreamRecoveryError("Partial reply"),
+            ),
             pytest.raises(StreamRecoveryError) as exc_info,
         ):
             send_user_message(session, "hello")
@@ -462,11 +459,7 @@ class TestConversationConsistency:
             session_id="test-success",
         )
 
-        chunks = [_make_chunk("Hello!")]
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = iter(chunks)
-
-        with patch("hephaistos.chat.engine._build_client", return_value=mock_client):
+        with patch("hephaistos.chat.session.get_reply", return_value="Hello!"):
             result = send_user_message(session, "Hi")
 
         assert result == "Hello!"

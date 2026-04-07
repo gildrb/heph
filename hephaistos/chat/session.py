@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import threading
 from dataclasses import dataclass, field
@@ -9,9 +10,16 @@ from pathlib import Path
 
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig, Conversation, Message, StreamRecoveryError
+from hephaistos.chat.engine import (
+    ChatConfig,
+    Conversation,
+    Message,
+    StreamRecoveryError,
+    get_reply,
+)
 from hephaistos.chat.usage import SessionUsage, save_usage
 from hephaistos.harness.dispatch import agent_loop
+from hephaistos.harness.prompt import build_system_prompt
 from hephaistos.harness.rag import ArmoryIndex, build_context, load_or_build, retrieve
 from hephaistos.logging import Timer, TraceWriter, get_logger
 from hephaistos.memory import MemoryStore, load_memory
@@ -33,12 +41,16 @@ class ChatSession:
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
     usage: SessionUsage = field(default_factory=SessionUsage)
     trace: TraceWriter = field(default=None, init=False, repr=False)
+    steering: object = field(default=None, init=False, repr=False)  # SteeringQueue, typed as object to avoid circular import
 
     def __post_init__(self) -> None:
         if self.trace is None:
             object.__setattr__(
                 self, "trace", TraceWriter(self.session_id, self.armory_path)
             )
+        if self.steering is None:
+            from hephaistos.harness.dispatch import SteeringQueue
+            object.__setattr__(self, "steering", SteeringQueue())
 
 
 def validate_armory_path(path_str: str) -> Path:
@@ -62,6 +74,20 @@ def _count_source_files(armory_path: Path) -> int:
     return count
 
 
+def _list_source_file_names(armory_path: Path) -> list[str]:
+    """Return relative paths of source files for the system prompt."""
+    names: list[str] = []
+    for dirname in ("source", "library"):
+        folder = armory_path / dirname
+        if not folder.is_dir():
+            continue
+        for file_path in sorted(folder.rglob("*")):
+            if file_path.is_file():
+                rel = file_path.relative_to(armory_path)
+                names.append(str(rel))
+    return names
+
+
 _RAG_CONTEXT_PREFIX = (
     "Source material retrieved for this question:\n\n"
 )
@@ -76,6 +102,24 @@ _SYSTEM_PROMPT_FALLBACK = (
 
 class SessionError(Exception):
     """Raised when a session cannot be created or used."""
+
+
+def create_plain_session(config: ChatConfig) -> ChatSession:
+    """Create a fresh chat session without an attached armory."""
+    conversation = Conversation()
+    conversation.add("system", _SYSTEM_PROMPT_FALLBACK)
+
+    session = ChatSession(
+        config=config,
+        conversation=conversation,
+        session_id=chat_storage.new_session_id(),
+    )
+    _log.info("plain session created", extra={"fields": {
+        "session_id": session.session_id,
+        "model": config.model,
+    }})
+    session.trace.record_session_event("created", model=config.model, mode="plain")
+    return session
 
 
 def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
@@ -97,7 +141,10 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
 
     conversation = Conversation()
 
-    # Build system prompt with memory context
+    # List source files for the prompt builder
+    source_files = _list_source_file_names(armory_path)
+
+    # Build memory context
     memory_ctx = ""
     try:
         mem = load_memory(armory_path)
@@ -105,9 +152,13 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     except Exception:
         pass
 
-    system_prompt = _SYSTEM_PROMPT
-    if memory_ctx:
-        system_prompt += f"\n\n{memory_ctx}"
+    # Build the rich system prompt with tool docs, anti-hallucination directives,
+    # source file list, date, and memory context
+    system_prompt = build_system_prompt(
+        armory_path=armory_path,
+        source_files=source_files,
+        memory_context=memory_ctx,
+    )
 
     conversation.add("system", system_prompt)
 
@@ -192,7 +243,6 @@ def send_user_message(
     # Snapshot original messages so rollback is always correct,
     # even if auto_compact rebuilt the message list mid-loop.
     original_messages = list(session.conversation.messages)
-    length_before = len(original_messages)
     session.conversation.add("user", user_input)
     session.trace.record_user_message(user_input)
 
@@ -206,8 +256,8 @@ def send_user_message(
     _inject_rag_context(session, user_input)
 
     timer = Timer()
+    reply = ""
     try:
-        # Agent loop with tools — workspace is the armory
         parts: list[str] = []
         for chunk in agent_loop(
             session.config,
@@ -215,6 +265,7 @@ def send_user_message(
             session.armory_path,
             abort=abort,
             usage=session.usage,
+            steering=session.steering,
         ):
             sys.stdout.write(chunk)
             sys.stdout.flush()
@@ -231,7 +282,7 @@ def send_user_message(
             "partial_len": len(rec.partial_content),
             "latency_ms": timer.ms,
         }})
-        del session.conversation.messages[length_before:]
+        session.conversation.messages = original_messages
         session.dirty = True
         raise
     except Exception:
@@ -239,8 +290,19 @@ def send_user_message(
             "session_id": session.session_id,
             "latency_ms": timer.ms,
         }}, exc_info=True)
-        del session.conversation.messages[length_before:]
+        session.conversation.messages = original_messages
         raise
+
+    # Citation verification: flag fabricated source references
+    if session.armory_path is not None and reply:
+        try:
+            from hephaistos.harness.citation import verify_response
+            notice = verify_response(reply, session.conversation.messages)
+            if notice:
+                sys.stdout.write(notice)
+                sys.stdout.flush()
+        except Exception:
+            _log.warning("citation verification failed", exc_info=True)
 
     # Add assistant reply to conversation if the agent loop didn't already.
     if session.conversation.messages and session.conversation.messages[-1].role != "assistant":
@@ -255,7 +317,9 @@ def send_user_message(
         "reply_len": len(reply),
         "latency_ms": timer.ms,
     }})
-    session.trace.record_session_event("reply", latency_ms=round(timer.ms, 1), reply_len=len(reply))
+    session.trace.record_session_event(
+        "reply", latency_ms=round(timer.ms, 1), reply_len=len(reply)
+    )
 
     # Extract and store memory from this exchange
     if session._memory is not None and len(reply) >= 100:
@@ -283,10 +347,8 @@ def send_user_message(
 
     # Persist usage
     if session.armory_path is not None:
-        try:
+        with contextlib.suppress(Exception):
             save_usage(session.armory_path, session.session_id, session.usage)
-        except Exception:
-            pass
 
     return reply
 

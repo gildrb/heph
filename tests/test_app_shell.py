@@ -72,6 +72,29 @@ def test_fallback_shell_exits_on_quit(monkeypatch, capsys, tmp_path: Path) -> No
     assert "basic mode" in out
 
 
+def test_fallback_shell_without_startup_armory_uses_plain_chat(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    prompts: list[str] = []
+    responses = iter(["/exit"])
+
+    def _input(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return next(responses)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("builtins.input", _input)
+
+    shell._run_fallback_shell()
+
+    out = capsys.readouterr().out
+    assert "No armory found" not in out
+    assert "basic mode" in out
+    assert prompts == ["chat> "]
+
+
 def test_fallback_shell_runs_bang_command(monkeypatch, capsys, tmp_path: Path) -> None:
     responses = iter(["!echo hello", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
@@ -180,6 +203,23 @@ def test_create_armory_cancelled_returns_session_unchanged(monkeypatch, capsys, 
     assert new_session is session
     out = capsys.readouterr().out
     assert "Cancelled" in out
+
+
+def test_handle_armory_command_detaches_armory(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    session = _make_session(tmp_path)
+
+    monkeypatch.setattr(shell, "select_option", lambda *_args, **_kwargs: 2)
+    new_session = shell._handle_armory_command(session)
+
+    assert new_session is not session
+    assert new_session.armory_path is None
+    assert new_session.source_file_count == 0
+    out = capsys.readouterr().out
+    assert "Detached armory. Plain chat mode." in out
 
 
 def test_prompt_armory_for_sessions_cancelled_returns_none(monkeypatch, capsys, tmp_path: Path) -> None:

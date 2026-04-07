@@ -14,7 +14,6 @@ from hephaistos.harness.rag.retrieve import (
     EmbeddingRetriever,
     HybridRetriever,
     RerankerProtocol,
-    Retriever,
     RetrieverProtocol,
     ScoredChunk,
     TfidfRetriever,
@@ -81,25 +80,7 @@ class TestRetrieverProtocol:
 
 
 # ---------------------------------------------------------------------------
-# Backward compatibility
-# ---------------------------------------------------------------------------
-
-
-class TestBackwardCompat:
-    def test_retriever_alias_points_to_tfidf(self) -> None:
-        assert Retriever is TfidfRetriever
-
-    def test_retriever_still_works_as_name(self) -> None:
-        index = _make_index_with_chunks([
-            _make_chunk("Python is great.", "py.md", 0),
-        ])
-        retriever = Retriever(index)
-        results = retriever.retrieve("python")
-        assert len(results) == 1
-
-
-# ---------------------------------------------------------------------------
-# TF-IDF retriever (renamed but same logic)
+# TF-IDF retriever (sklearn + stdlib fallback)
 # ---------------------------------------------------------------------------
 
 

@@ -230,11 +230,6 @@ class TfidfRetriever:
         return dot / (math.sqrt(chunk_norm_sq) * math.sqrt(query_norm_sq))
 
 
-# Backward-compatible alias — existing code that references ``Retriever``
-# continues to work unchanged.
-Retriever = TfidfRetriever
-
-
 # ---------------------------------------------------------------------------
 # Embedding retriever (requires sentence-transformers)
 # ---------------------------------------------------------------------------

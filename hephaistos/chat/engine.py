@@ -2,9 +2,9 @@
 
 Supports any OpenAI-compatible API endpoint, making it LLM-agnostic.
 Configure via environment variables:
-    HEPHAISTOS_API_KEY   – API key (falls back to OPENAI_API_KEY)
-    HEPHAISTOS_BASE_URL  – Base URL for the API (default: https://api.openai.com/v1)
-    HEPHAISTOS_MODEL     – Model name (default: gpt-4o-mini)
+    HEPHAISTOS_API_KEY   - API key (falls back to OPENAI_API_KEY)
+    HEPHAISTOS_BASE_URL  - Base URL for the API (default: https://api.openai.com/v1)
+    HEPHAISTOS_MODEL     - Model name (default: gpt-4o-mini)
 
 Streaming error recovery:
     Transient failures (connection drops, timeouts, server errors) are

@@ -46,6 +46,7 @@ from hephaistos.chat.engine import EngineError, StreamRecoveryError
 from hephaistos.chat.session import (
     ChatSession,
     SessionError,
+    create_plain_session,
     create_session,
     list_armory_sessions,
     resume_session,
@@ -60,6 +61,7 @@ from hephaistos.parameters.cli import load_config
 ARMORY_MENU_OPTIONS = [
     MenuOption("Open existing armory", "Attach a workspace and load its study context."),
     MenuOption("Create new armory", "Initialize a new workspace and start chatting in it."),
+    MenuOption("Detach armory", "Switch to plain chat without workspace tools."),
     MenuOption("Resume saved chat", "Pick a saved conversation from an armory."),
     MenuOption("List saved chats", "Show the saved sessions for an armory."),
     MenuOption("Cancel", "Return to the chat prompt."),
@@ -116,7 +118,13 @@ def _build_keybindings(
     submit_keys = keybindings["submit"]
     newline_keys = keybindings["newline"]
 
-    @kb.add(*[k.strip() for k in submit_keys.split(",")] if isinstance(submit_keys, str) else submit_keys)
+    submit_key_list = (
+        [k.strip() for k in submit_keys.split(",")]
+        if isinstance(submit_keys, str)
+        else submit_keys
+    )
+
+    @kb.add(*submit_key_list)
     def _(event):
         buf = event.current_buffer
         line = buf.document.current_line_before_cursor
@@ -134,7 +142,13 @@ def _build_keybindings(
 
         buf.validate_and_handle()
 
-    @kb.add(*[k.strip() for k in newline_keys.split(",")] if isinstance(newline_keys, str) else newline_keys)
+    newline_key_list = (
+        [k.strip() for k in newline_keys.split(",")]
+        if isinstance(newline_keys, str)
+        else newline_keys
+    )
+
+    @kb.add(*newline_key_list)
     def _(event):
         """Insert a newline (e.g. Alt+Enter)."""
         event.current_buffer.insert_text("\n")
@@ -142,11 +156,17 @@ def _build_keybindings(
     return kb
 
 
-def _get_prompt_message(session: ChatSession):
+def _session_label(session: ChatSession) -> str:
+    return session.armory_path.name if session.armory_path is not None else "chat"
+
+
+def _get_prompt_message(session_ref: list[ChatSession]):
     """Return a callable that builds the prompt for each iteration."""
+
     def message():
-        name = session.armory_path.name
+        name = _session_label(session_ref[0])
         return FormattedText([("class:armory", name), ("class:prompt-mark", " > ")])
+
     return message
 
 
@@ -171,7 +191,7 @@ def _discover_startup_armory() -> Path | None:
 
 
 def _default_armory_input(session: ChatSession) -> str:
-    return str(session.armory_path)
+    return str(session.armory_path or Path.cwd())
 
 
 def _prompt_path(label: str, default: str) -> str | None:
@@ -183,7 +203,7 @@ def _prompt_path(label: str, default: str) -> str | None:
 
 
 def _save_before_switch(session: ChatSession) -> None:
-    if not session.dirty:
+    if not session.dirty or session.armory_path is None:
         return
     try:
         path = save_session(session)
@@ -192,17 +212,33 @@ def _save_before_switch(session: ChatSession) -> None:
         print_error(str(exc))
 
 
-def _start_fresh_session(session: ChatSession, armory_path: Path) -> ChatSession:
+def _start_fresh_session(
+    session: ChatSession,
+    armory_path: Path | None,
+) -> ChatSession:
+    if armory_path is None and session.armory_path is None:
+        print_info("Already in plain chat mode.")
+        return session
     _save_before_switch(session)
     try:
-        new_session = create_session(session.config, armory_path)
+        if armory_path is None:
+            new_session = create_plain_session(session.config)
+        else:
+            new_session = create_session(session.config, armory_path)
     except SessionError as exc:
         print_error(str(exc))
         return session
+    if armory_path is None:
+        print_success("Detached armory. Plain chat mode.")
+        return new_session
     print_success(f"Using armory {armory_path}")
     if new_session.source_file_count:
         print_info(f"Loaded {new_session.source_file_count} file(s).")
     return new_session
+
+
+def _detach_armory(session: ChatSession) -> ChatSession:
+    return _start_fresh_session(session, None)
 
 
 def _open_armory(session: ChatSession) -> ChatSession:
@@ -295,15 +331,17 @@ def _list_saved_chats(session: ChatSession) -> None:
 
 def _handle_armory_command(session: ChatSession) -> ChatSession:
     selected = select_option("Armory", ARMORY_MENU_OPTIONS)
-    if selected is None or selected == 4:
+    if selected is None or selected == 5:
         return session
     if selected == 0:
         return _open_armory(session)
     if selected == 1:
         return _create_armory(session)
     if selected == 2:
-        return _resume_saved_chat(session)
+        return _detach_armory(session)
     if selected == 3:
+        return _resume_saved_chat(session)
+    if selected == 4:
         _list_saved_chats(session)
         return session
     return session
@@ -332,9 +370,21 @@ def _handle_input(
     session: ChatSession,
     user_input: str,
     history: InputHistory,
+    streaming: bool = False,
 ) -> tuple[ChatSession, bool]:
-    """Process a single input. Returns (session, should_continue)."""
+    """Process a single input. Returns (session, should_continue).
+
+    If *streaming* is True, the agent is currently running. The input is
+    enqueued as a steering message instead of being processed normally.
+    """
     if not user_input or not user_input.strip():
+        return session, True
+
+    # If the agent is currently streaming, enqueue as steering message
+    if streaming:
+        from hephaistos.harness.dispatch import SteeringQueue
+        if isinstance(session.steering, SteeringQueue):
+            session.steering.enqueue(user_input)
         return session, True
 
     # Shell mode: !command
@@ -437,7 +487,7 @@ def _handle_input(
 def _print_shell_intro(session: ChatSession) -> None:
     print_shell_intro(
         version=__version__,
-        armory_path=str(session.armory_path),
+        armory_path=str(session.armory_path or "none"),
         source_file_count=session.source_file_count or 0,
         session_id=session.session_id,
         model=session.config.model,
@@ -447,11 +497,13 @@ def _print_shell_intro(session: ChatSession) -> None:
 
 
 def _get_history_path(session: ChatSession) -> Path:
+    if session.armory_path is None:
+        return _HISTORY_DIR / "plain-history"
     return session.armory_path / ".hephaistos" / "history"
 
 
 def _save_on_exit(session: ChatSession) -> None:
-    if session.dirty and session_has_messages(session):
+    if session.dirty and session_has_messages(session) and session.armory_path is not None:
         try:
             path = save_session(session)
             print_success(f"Saved chat to {path}")
@@ -478,21 +530,24 @@ def run_chat_shell(
     if session is None:
         config = load_config()
         armory = _discover_startup_armory()
-        if armory is None:
-            print_error("No armory found. Create one with: hephaistos armory init <path>")
-            return
-        session = create_session(config, armory)
+        session = (
+            create_plain_session(config)
+            if armory is None
+            else create_session(config, armory)
+        )
 
     _print_shell_intro(session)
 
     kb = keybindings or DEFAULT_SHELL_KEYBINDINGS
+
+    session_ref = [session]
 
     # Set up prompt_toolkit session
     history_path = _get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
 
     pt_session = PromptSession(
-        message=_get_prompt_message(session),
+        message=_get_prompt_message(session_ref),
         style=_PT_STYLE,
         history=FileHistory(str(history_path)),
         completer=SlashCommandCompleter(),
@@ -528,6 +583,7 @@ def run_chat_shell(
         abort_event.clear()
 
         session, should_continue = _handle_input(session, user_input, history)
+        session_ref[0] = session
 
         signal.signal(signal.SIGINT, original_sigint)
 
@@ -547,18 +603,18 @@ def _run_fallback_shell(session: ChatSession | None = None) -> None:
     if session is None:
         config = load_config()
         armory = _discover_startup_armory()
-        if armory is None:
-            print_error("No armory found. Create one with: hephaistos armory init <path>")
-            return
-        session = create_session(config, armory)
+        session = (
+            create_plain_session(config)
+            if armory is None
+            else create_session(config, armory)
+        )
 
     print("Hephaistos (basic mode)")
     history = InputHistory()
 
     while True:
         try:
-            armory_name = session.armory_path.name
-            user_input = input(f"{armory_name}> ").strip()
+            user_input = input(f"{_session_label(session)}> ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break

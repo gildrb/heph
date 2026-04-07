@@ -48,6 +48,50 @@ _MAX_TOOL_CALLS_PER_TURN = 5  # strict limit: study agent doesn't need many
 
 
 # ---------------------------------------------------------------------------
+# Steering message queue
+# ---------------------------------------------------------------------------
+
+class SteeringQueue:
+    """Thread-safe queue for steering messages typed while the agent works.
+
+    The shell can enqueue messages while the agent loop is running.
+    After each assistant turn finishes executing its tool calls, the loop
+    checks for queued steering messages and injects them.
+
+    This is cost-effective: the steering message just adds to the normal
+    conversation — no extra API call is made. The next turn includes the
+    queued message as part of its context.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._messages: list[str] = []
+
+    def enqueue(self, message: str) -> None:
+        """Add a steering message to the queue."""
+        if not message.strip():
+            return
+        with self._lock:
+            self._messages.append(message)
+        _log.info("steering message queued", extra={"fields": {
+            "queue_len": len(self._messages),
+            "message_len": len(message),
+        }})
+
+    def drain(self) -> list[str]:
+        """Remove and return all queued messages."""
+        with self._lock:
+            msgs = self._messages[:]
+            self._messages.clear()
+        return msgs
+
+    @property
+    def pending(self) -> int:
+        with self._lock:
+            return len(self._messages)
+
+
+# ---------------------------------------------------------------------------
 # Tool call execution
 # ---------------------------------------------------------------------------
 
@@ -182,7 +226,10 @@ def _summarise_args(name: str, args: dict) -> dict:
         return {"command": args.get("command", "")[:200]}
     if name == "write_file":
         return {"path": args.get("path", ""), "content_len": len(args.get("content", ""))}
-    return {k: (str(v)[:100] if isinstance(v, str) and len(v) > 100 else v) for k, v in args.items()}
+    return {
+        k: (str(v)[:100] if isinstance(v, str) and len(v) > 100 else v)
+        for k, v in args.items()
+    }
 
 
 def _format_tool_args(name: str, args: dict) -> str:
@@ -242,6 +289,7 @@ def agent_loop(
     max_turns: int = _MAX_TURNS,
     retry: RetryConfig | None = None,
     usage: SessionUsage | None = None,
+    steering: SteeringQueue | None = None,
 ) -> Iterator[str]:
     """Run the agent loop, yielding text chunks as they stream.
 
@@ -345,9 +393,15 @@ def agent_loop(
                     if not chunk.choices:
                         if hasattr(chunk, 'usage') and chunk.usage:
                             stream_usage = {
-                                'prompt_tokens': getattr(chunk.usage, 'prompt_tokens', 0) or 0,
-                                'completion_tokens': getattr(chunk.usage, 'completion_tokens', 0) or 0,
-                                'total_tokens': getattr(chunk.usage, 'total_tokens', 0) or 0,
+                                'prompt_tokens': (
+                                    getattr(chunk.usage, 'prompt_tokens', 0) or 0
+                                ),
+                                'completion_tokens': (
+                                    getattr(chunk.usage, 'completion_tokens', 0) or 0
+                                ),
+                                'total_tokens': (
+                                    getattr(chunk.usage, 'total_tokens', 0) or 0
+                                ),
                             }
                         continue
 
@@ -367,9 +421,15 @@ def agent_loop(
                     # Check for usage in the final choice chunk
                     if finish_reason and hasattr(chunk, 'usage') and chunk.usage:
                         stream_usage = {
-                            'prompt_tokens': getattr(chunk.usage, 'prompt_tokens', 0) or 0,
-                            'completion_tokens': getattr(chunk.usage, 'completion_tokens', 0) or 0,
-                            'total_tokens': getattr(chunk.usage, 'total_tokens', 0) or 0,
+                            'prompt_tokens': (
+                                getattr(chunk.usage, 'prompt_tokens', 0) or 0
+                            ),
+                            'completion_tokens': (
+                                getattr(chunk.usage, 'completion_tokens', 0) or 0
+                            ),
+                            'total_tokens': (
+                                getattr(chunk.usage, 'total_tokens', 0) or 0
+                            ),
                         }
             except Exception as exc:
                 _log.error(
@@ -474,7 +534,10 @@ def agent_loop(
         urgency = budget.compaction_urgency(api_messages)
         if urgency in ("medium", "high"):
             remaining = budget.tokens_remaining(api_messages)
-            yield f"\n[Warning: context window {remaining} tokens remaining ({urgency} urgency). Consider /compact.]"
+            yield (
+                f"\n[Warning: context window {remaining} tokens remaining"
+                f" ({urgency} urgency). Consider /compact.]"
+            )
             _log.warning("context budget low", extra={"fields": {
                 "remaining": remaining,
                 "urgency": urgency,
@@ -486,6 +549,18 @@ def agent_loop(
             api_messages.append(tr)
             summary = _summarize_result(tr.get("content", ""))
             yield f"{summary}\n"
+
+        # --- Steering: inject queued user messages after tool execution ---
+        if steering is not None:
+            queued = steering.drain()
+            for msg in queued:
+                api_messages.append({"role": "user", "content": msg})
+                conversation.add("user", msg)
+                yield f"\n[Steering: {msg[:100]}]\n"
+                _log.info("steering message injected", extra={"fields": {
+                    "message_len": len(msg),
+                    "turn": turn_idx,
+                }})
 
         # --- Layer 3: manual compact tool ---
         if "compact" in tool_names:

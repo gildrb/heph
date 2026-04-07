@@ -248,6 +248,28 @@ class TestAutoCompact:
         user_msgs = [m for m in compressed if m["role"] == "user"]
         assert "42" in user_msgs[0]["content"]
 
+    def test_returns_original_on_llm_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """If the summarisation LLM call fails, original messages are returned."""
+        messages = _build_messages(3)
+        config = MagicMock()
+        config.model = "gpt-4o-mini"
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = RuntimeError("no API key")
+        monkeypatch.setattr(
+            "hephaistos.harness.compact._build_client", lambda c: mock_client
+        )
+
+        result = auto_compact(messages, config, tmp_path)
+        # Same list returned — no crash, no compression
+        assert result is messages
+        assert len(result) == len(messages)
+
+        # Transcript still saved even though summarisation failed
+        transcript_dir = tmp_path / ".transcripts"
+        assert transcript_dir.is_dir()
+        assert len(list(transcript_dir.glob("transcript_*.jsonl"))) == 1
+
 
 # ---------------------------------------------------------------------------
 # _sync_conversation
