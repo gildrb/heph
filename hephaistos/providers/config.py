@@ -218,9 +218,10 @@ def _sanitize_provider(
     slug: str,
     section: dict,
 ) -> Provider:
+    has_models_catalog = "models" in section
     models = filter_supported_models(list(section.get("models", [])), slug)
     current_model = section.get("current_model", "")
-    if current_model and models and current_model not in models:
+    if has_models_catalog and current_model and current_model not in models:
         current_model = ""
     return Provider(
         slug=slug,

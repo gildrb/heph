@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from hephaistos.chat.engine import ChatConfig, Conversation, Message
 
 

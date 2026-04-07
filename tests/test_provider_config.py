@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from hephaistos.providers.config import ProviderConfig, _default_config
+from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.registry import ModelInfo, ModelRegistry
 
 
@@ -58,10 +61,70 @@ models = [
     assert provider.current_model == ""
 
 
+def test_load_clears_current_model_when_all_models_are_filtered_out(tmp_path) -> None:
+    config_path = tmp_path / "providers.toml"
+    config_path.write_text(
+        """
+[openai-codex]
+display_name = "OpenAI Codex"
+endpoint = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+active = true
+current_model = "legacy-model"
+models = [
+  "legacy-model",
+]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = ProviderConfig.load(config_path)
+    provider = loaded.providers["openai-codex"]
+
+    assert provider.models == []
+    assert provider.current_model == ""
+
+
+def test_load_preserves_current_model_without_models_list(tmp_path) -> None:
+    config_path = tmp_path / "providers.toml"
+    config_path.write_text(
+        """
+[custom]
+display_name = "Custom"
+endpoint = "https://example.com/v1"
+api_key_env = "CUSTOM_API_KEY"
+active = true
+current_model = "my-custom-model"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = ProviderConfig.load(config_path)
+    provider = loaded.providers["custom"]
+    config = SimpleNamespace(base_url="", model="")
+
+    loaded.apply_to_config(config)
+
+    assert provider.models == []
+    assert provider.current_model == "my-custom-model"
+    assert config.model == "my-custom-model"
+
+
 def test_set_model_rejects_unknown_name() -> None:
     config = _default_config()
 
     assert not config.set_model("openrouter", "legacy/vendor-model")
+
+
+def test_supported_model_for_zai_endpoint_accepts_trailing_slash_variants() -> None:
+    assert is_supported_model_for_endpoint("glm-5-turbo", "https://api.z.ai/api/paas/v4")
+    assert is_supported_model_for_endpoint("glm-5-turbo", "https://api.z.ai/api/paas/v4/")
+    assert not is_supported_model_for_endpoint(
+        "gpt-5.4",
+        "https://api.z.ai/api/paas/v4/",
+    )
 
 
 def test_model_registry_ignores_unsupported_models() -> None:

@@ -17,6 +17,7 @@ from hephaistos.app.display import (
 )
 from hephaistos.app.menu import MenuOption, confirm, select_option
 from hephaistos.providers.config import ProviderConfig
+from hephaistos.providers.model_support import is_supported_model_for_endpoint
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -201,13 +202,12 @@ class ModelCommand(Command):
 
         # Direct set: /model <model-name>
         if args.strip():
-            pc = ProviderConfig.load()
-            active = pc.get_active()
-            if active and active.slug != "custom" and args.strip() not in active.models:
+            model_name = args.strip()
+            if not is_supported_model_for_endpoint(model_name, s.config.base_url):
                 print_error("Model unavailable.")
                 return CommandResult()
             old = s.config.model
-            s.config.model = args.strip()
+            s.config.model = model_name
             print_success(f"Model: {old} -> {s.config.model}")
             return CommandResult()
 

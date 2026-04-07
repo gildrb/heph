@@ -21,10 +21,15 @@ _PROVIDER_PREFIXES: dict[str, tuple[str, ...]] = {
     "zai": ("glm-",),
 }
 
+
+def _normalize_endpoint(base_url: str) -> str:
+    return base_url.strip().rstrip("/")
+
+
 _ENDPOINT_PREFIXES: dict[str, tuple[str, ...]] = {
-    "https://openrouter.ai/api/v1": _PROVIDER_PREFIXES["openrouter"],
-    "https://api.openai.com/v1": _PROVIDER_PREFIXES["openai-codex"],
-    "https://api.z.ai/api/paas/v4/": _PROVIDER_PREFIXES["zai"],
+    _normalize_endpoint("https://openrouter.ai/api/v1"): _PROVIDER_PREFIXES["openrouter"],
+    _normalize_endpoint("https://api.openai.com/v1"): _PROVIDER_PREFIXES["openai-codex"],
+    _normalize_endpoint("https://api.z.ai/api/paas/v4/"): _PROVIDER_PREFIXES["zai"],
 }
 
 
@@ -45,7 +50,7 @@ def filter_supported_models(models: list[str], provider_slug: str) -> list[str]:
 
 def is_supported_model_for_endpoint(model_name: str, base_url: str) -> bool:
     """Return True when a model matches the known families for an endpoint."""
-    prefixes = _ENDPOINT_PREFIXES.get(base_url.rstrip("/"))
+    prefixes = _ENDPOINT_PREFIXES.get(_normalize_endpoint(base_url))
     if prefixes is None:
         return True
     return _matches_prefixes(model_name, prefixes)
