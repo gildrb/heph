@@ -292,7 +292,7 @@ class ModelRegistry:
 
     def list_providers(self) -> list[str]:
         """List all known provider slugs."""
-        return sorted(set(m.provider for m in self._models.values()))
+        return sorted({m.provider for m in self._models.values()})
 
     def register(self, model: ModelInfo) -> None:
         """Add or replace a model in the registry."""
@@ -310,7 +310,7 @@ _registry: ModelRegistry | None = None
 
 def get_registry() -> ModelRegistry:
     """Get the global model registry (lazy-loaded)."""
-    global _registry
+    global _registry  # noqa: PLW0603
     if _registry is None:
         _registry = ModelRegistry()
     return _registry

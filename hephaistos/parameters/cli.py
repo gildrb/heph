@@ -20,7 +20,7 @@ def _parse_toml_simple(path: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if not line or line.startswith("#") or line.startswith("["):
+        if not line or line.startswith(("#", "[")):
             continue
         if "=" not in line:
             continue
@@ -32,10 +32,9 @@ def _parse_toml_simple(path: Path) -> dict[str, str]:
             end = value.find('"', 1)
             if end != -1:
                 value = value[1:end]
-        else:
-            # Unquoted value: strip trailing comment
-            if "#" in value:
-                value = value[: value.index("#")].strip()
+        # Unquoted value: strip trailing comment
+        elif "#" in value:
+            value = value[: value.index("#")].strip()
         result[key] = value
     return result
 
@@ -102,4 +101,3 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
 
 def register() -> None:
     """Register CLI commands (placeholder for future CLI hooks)."""
-    pass

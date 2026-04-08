@@ -17,6 +17,7 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -277,6 +278,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
             capture_output=True,
             text=True,
             timeout=actual_timeout,
+            check=False,
         )
         elapsed = _time.monotonic() - start
         br = BashResult(
@@ -538,7 +540,7 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _mutation_wrap(path_str: str, fn: callable, **kwargs: object) -> str:
+def _mutation_wrap(path_str: str, fn: Callable[..., str], **kwargs: object) -> str:
     """Wrap a file mutation handler with the mutation queue for safety."""
     workspace = kwargs.get("workspace")
     if workspace and isinstance(workspace, Path):
@@ -609,7 +611,7 @@ def _dispatch_web_fetch(**kw: object) -> str:
     return run_web_fetch(kw["url"])  # type: ignore[index]
 
 
-_HANDLERS: dict[str, callable] = {
+_HANDLERS: dict[str, Callable[..., str]] = {
     "compact": lambda **_kw: "[compact triggered]",
     "bash": lambda **kw: run_bash(kw["command"], timeout=kw.get("timeout")),
     "read_file": _dispatch_read_file,

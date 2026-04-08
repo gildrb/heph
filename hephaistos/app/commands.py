@@ -176,6 +176,7 @@ class ClearCommand(Command):
                 print_info("Previous session saved.")
             except chat_storage.ChatStorageError:
                 pass
+        assert s.armory_path is not None
         new = create_session(s.config, s.armory_path)
         print_success("Started fresh session.")
         return CommandResult(new_session=new)
@@ -655,7 +656,7 @@ _registry: CommandRegistry | None = None
 
 
 def get_registry() -> CommandRegistry:
-    global _registry
+    global _registry  # noqa: PLW0603
     if _registry is None:
         _registry = CommandRegistry()
         for cmd_class in (

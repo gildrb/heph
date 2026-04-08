@@ -520,10 +520,12 @@ def load_permissions(workspace: Path | None = None) -> dict:
       - auto_approve: set[str] — tools to always allow
       - deny: set[str] — tools to always block
     """
+    auto_approve: set[str] = set()
+    deny: set[str] = set()
     result: dict[str, str | set[str]] = {
         "autonomy": "low",
-        "auto_approve": set(),
-        "deny": set(),
+        "auto_approve": auto_approve,
+        "deny": deny,
     }
 
     if workspace is None:
@@ -549,12 +551,12 @@ def load_permissions(workspace: Path | None = None) -> dict:
     for val in data.get("auto_approve", "").split(","):
         val = val.strip().strip('"').strip("'")
         if val:
-            result["auto_approve"].add(val)
+            auto_approve.add(val)
 
     # Read denied tools
     for val in data.get("deny", "").split(","):
         val = val.strip().strip('"').strip("'")
         if val:
-            result["deny"].add(val)
+            deny.add(val)
 
     return result

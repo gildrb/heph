@@ -90,7 +90,7 @@ def test_menu_option_dataclass() -> None:
     # Frozen — cannot reassign
     try:
         opt.label = "Changed"  # type: ignore[misc]
-        assert False, "Should have raised FrozenInstanceError"
+        raise AssertionError("Should have raised FrozenInstanceError")
     except AttributeError:
         pass
 

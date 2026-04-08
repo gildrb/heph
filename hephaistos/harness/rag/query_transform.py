@@ -388,13 +388,13 @@ class CompositeTransformer:
                         seen.add(t)
                         next_queries.append(t)
                         result.append(t)
-            current_queries = next_queries if next_queries else current_queries
+            current_queries = next_queries or current_queries
 
         # Ensure at least the original query is present
         if query not in seen:
             result.insert(0, query)
 
-        return result if result else [query]
+        return result or [query]
 
 
 # ---------------------------------------------------------------------------

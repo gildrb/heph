@@ -43,8 +43,10 @@ def test_run_chat_shell_armory_command_opens_existing_armory(
     monkeypatch.setattr(shell, "select_option", lambda *_args, **_kwargs: 0)
 
     session = create_session(ChatConfig(), old_armory)
-    with patch.object(shell.sys.stdin, "isatty", return_value=False), \
-         patch.object(shell.sys.stdout, "isatty", return_value=False):
+    with (
+        patch.object(shell.sys.stdin, "isatty", return_value=False),
+        patch.object(shell.sys.stdout, "isatty", return_value=False),
+    ):
         shell._run_fallback_shell(session)
 
     out = capsys.readouterr().out

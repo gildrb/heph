@@ -30,6 +30,8 @@ try:
     _HAS_SKLEARN = True
 except ImportError:
     _HAS_SKLEARN = False
+    np = None  # type: ignore[assignment]
+    _SklearnTfidfVectorizer = None  # type: ignore[assignment,misc]
 
 from hephaistos.harness.rag.chunker import Chunk
 from hephaistos.harness.rag.index import ArmoryIndex
@@ -205,7 +207,7 @@ class TfidfRetriever:
     def __init__(self, index: ArmoryIndex) -> None:
         self._chunks = index.all_chunks
         # sklearn path (preferred when available)
-        self._vectorizer: _SklearnTfidfVectorizer | None = None
+        self._vectorizer: _SklearnTfidfVectorizer | None = None  # type: ignore[type-arg]
         self._matrix = None
         # stdlib fallback
         self._idf: dict[str, float] = {}
@@ -239,6 +241,7 @@ class TfidfRetriever:
 
     def _build_sklearn(self) -> None:
         """Build TF-IDF matrix using scikit-learn (preferred when available)."""
+        assert _SklearnTfidfVectorizer is not None  # guarded by _HAS_SKLEARN
         texts = [c.text for c in self._chunks]
         self._vectorizer = _SklearnTfidfVectorizer(
             stop_words="english",
@@ -246,7 +249,7 @@ class TfidfRetriever:
             max_features=10000,
             token_pattern=r"(?u)\\b[a-zA-Z0-9]{2,}\\b",
         )
-        self._matrix = self._vectorizer.fit_transform(texts)
+        self._matrix = self._vectorizer.fit_transform(texts)  # type: ignore[union-attr]
 
     # -- retrieval ---------------------------------------------------------
 
@@ -260,11 +263,13 @@ class TfidfRetriever:
 
     def _retrieve_sklearn(self, query: str, top_k: int) -> list[ScoredChunk]:
         """Retrieve using scikit-learn TF-IDF vectors and cosine similarity."""
+        assert self._vectorizer is not None
+        assert self._matrix is not None
         query_vec = self._vectorizer.transform([query])
         # TfidfVectorizer produces L2-normalized vectors by default,
         # so dot product == cosine similarity.
-        scores = (query_vec @ self._matrix.T).toarray().flatten()
-        top_indices = np.argsort(scores)[::-1][:top_k]
+        scores = (query_vec @ self._matrix.T).toarray().flatten()  # type: ignore[union-attr]
+        top_indices = np.argsort(scores)[::-1][:top_k]  # type: ignore[union-attr]
         return [
             ScoredChunk(chunk=self._chunks[idx], score=float(scores[idx]))
             for idx in top_indices
@@ -307,7 +312,7 @@ class TfidfRetriever:
                 q_tf = query_freq[term]
                 dot += tfidf * q_tf
 
-        for _term, tf in query_freq.items():
+        for tf in query_freq.values():
             query_norm_sq += tf * tf
 
         if chunk_norm_sq == 0 or query_norm_sq == 0:
@@ -330,7 +335,7 @@ _RERANK_MODEL_DEFAULT = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 def _is_sentence_transformers_available() -> bool:
     """Return True if sentence-transformers can be imported."""
     try:
-        import sentence_transformers  # noqa: F401
+        import sentence_transformers  # noqa: F401, RUF100
 
         return True
     except ImportError:

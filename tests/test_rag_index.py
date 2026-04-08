@@ -227,6 +227,7 @@ class TestArmoryIndexStrategy:
 
         # Manually downgrade to v1 format (strip heading fields)
         import json
+
         index_path = armory / ".hephaistos" / "rag_index.json"
         data = json.loads(index_path.read_text())
         data["version"] = 1

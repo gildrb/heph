@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import time
 from pathlib import Path
 
-import pytest
-
 from hephaistos.memory import MemoryEntry, MemoryStore, load_memory, save_memory
-
 
 # ---------------------------------------------------------------------------
 # MemoryEntry
@@ -37,7 +32,13 @@ class TestMemoryEntry:
         assert entry.tags == ["a", "b"]
 
     def test_roundtrip(self):
-        entry = MemoryEntry(topic="x", content="y", source="doc.md", confidence="verified", tags=["t1"])
+        entry = MemoryEntry(
+            topic="x",
+            content="y",
+            source="doc.md",
+            confidence="verified",
+            tags=["t1"],
+        )
         restored = MemoryEntry.from_dict(entry.to_dict())
         assert restored.topic == entry.topic
         assert restored.content == entry.content
@@ -88,11 +89,13 @@ class TestMemoryStore:
 
     def test_add_batch(self, tmp_path: Path):
         store = MemoryStore(tmp_path)
-        added = store.add_batch([
-            {"topic": "A", "content": "alpha"},
-            {"topic": "B", "content": "beta"},
-            {"topic": "A", "content": "duplicate"},  # skipped
-        ])
+        added = store.add_batch(
+            [
+                {"topic": "A", "content": "alpha"},
+                {"topic": "B", "content": "beta"},
+                {"topic": "A", "content": "duplicate"},  # skipped
+            ]
+        )
         assert added == 2
         assert len(store.entries) == 2
 
@@ -184,7 +187,7 @@ class TestMemoryPersistence:
     def test_save_only_when_dirty(self, tmp_path: Path):
         store = MemoryStore(tmp_path)
         store.save()  # Not dirty — should not create file
-        path = tmp_path / ".hephaistos" / "memory.json"
+        _path = tmp_path / ".hephaistos" / "memory.json"
         # Actually save() always writes, but save_memory() checks dirty
         store.add("test", "content")
         assert store._dirty

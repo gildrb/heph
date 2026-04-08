@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
 
+from hephaistos.harness.dispatch import (
+    _format_tool_args,
+    _merge_tool_call_deltas,
+    _summarize_result,
+    execute_tool_calls,
+)
 from hephaistos.harness.tools import (
     TOOL_SCHEMAS,
     get_handler,
@@ -20,13 +23,6 @@ from hephaistos.harness.tools import (
     run_write_file,
     safe_path,
 )
-from hephaistos.harness.dispatch import (
-    _format_tool_args,
-    _merge_tool_call_deltas,
-    _summarize_result,
-    execute_tool_calls,
-)
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -140,9 +136,7 @@ class TestWriteFile:
 
 class TestEditFile:
     def test_edit_existing(self, workspace: Path) -> None:
-        result = run_edit_file(
-            "hello.py", 'print("hello")', 'print("world")', workspace=workspace
-        )
+        result = run_edit_file("hello.py", 'print("hello")', 'print("world")', workspace=workspace)
         assert "Edited" in result
         assert (workspace / "hello.py").read_text() == 'print("world")\n'
 
@@ -209,31 +203,35 @@ class TestToolSchemas:
 class TestMergeToolCallDeltas:
     def test_single_delta(self) -> None:
         accumulated: list[dict] = []
-        _merge_tool_call_deltas(accumulated, [
-            {"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"com'}}
-        ])
+        _merge_tool_call_deltas(
+            accumulated,
+            [{"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"com'}}],
+        )
         assert len(accumulated) == 1
         assert accumulated[0]["id"] == "call_1"
         assert accumulated[0]["function"]["name"] == "bash"
 
     def test_multi_chunk_args(self) -> None:
         accumulated: list[dict] = []
-        _merge_tool_call_deltas(accumulated, [
-            {"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"com'}}
-        ])
-        _merge_tool_call_deltas(accumulated, [
-            {"index": 0, "function": {"arguments": 'mand": "ls"}'}}
-        ])
+        _merge_tool_call_deltas(
+            accumulated,
+            [{"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"com'}}],
+        )
+        _merge_tool_call_deltas(
+            accumulated, [{"index": 0, "function": {"arguments": 'mand": "ls"}'}}]
+        )
         assert accumulated[0]["function"]["arguments"] == '{"command": "ls"}'
 
     def test_multiple_tool_calls(self) -> None:
         accumulated: list[dict] = []
-        _merge_tool_call_deltas(accumulated, [
-            {"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"co'}}
-        ])
-        _merge_tool_call_deltas(accumulated, [
-            {"index": 1, "id": "call_2", "function": {"name": "read_file", "arguments": '{"pa'}}
-        ])
+        _merge_tool_call_deltas(
+            accumulated,
+            [{"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"co'}}],
+        )
+        _merge_tool_call_deltas(
+            accumulated,
+            [{"index": 1, "id": "call_2", "function": {"name": "read_file", "arguments": '{"pa'}}],
+        )
         assert len(accumulated) == 2
 
 

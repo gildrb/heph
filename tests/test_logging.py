@@ -16,7 +16,6 @@ from hephaistos.logging import (
     get_logger,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -92,6 +91,7 @@ class TestJsonFormatter:
             raise ValueError("boom")
         except ValueError:
             import sys
+
             exc_info = sys.exc_info()
         record = logging.LogRecord(
             name="hephaistos.test",
@@ -166,7 +166,11 @@ class TestGetLogger:
         assert len(root.handlers) >= 1
         assert isinstance(root.handlers[0], logging.StreamHandler)
 
-    def test_file_handler_when_env_set(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_file_handler_when_env_set(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
         log_file = tmp_path / "test.log"
         monkeypatch.setenv("HEPHAISTOS_LOG_FILE", str(log_file))
         get_logger("test")
@@ -212,6 +216,7 @@ class TestGetLogger:
 class TestTimer:
     def test_basic_timing(self) -> None:
         import time
+
         with Timer() as t:
             time.sleep(0.01)
         assert t.ms > 0
@@ -346,10 +351,7 @@ class TestTraceWriter:
         tw.close()
 
         lines = (
-            (trace_dir / ".hephaistos" / "traces" / "sess7.jsonl")
-            .read_text()
-            .strip()
-            .split("\n")
+            (trace_dir / ".hephaistos" / "traces" / "sess7.jsonl").read_text().strip().split("\n")
         )
         assert len(lines) == 2
         assert json.loads(lines[0])["event"] == "created"
@@ -367,10 +369,7 @@ class TestTraceWriter:
         tw2.close()
 
         lines = (
-            (trace_dir / ".hephaistos" / "traces" / "sess8.jsonl")
-            .read_text()
-            .strip()
-            .split("\n")
+            (trace_dir / ".hephaistos" / "traces" / "sess8.jsonl").read_text().strip().split("\n")
         )
         assert len(lines) == 2
         assert json.loads(lines[0])["content"] == "first"
@@ -389,18 +388,27 @@ class TestTraceWriter:
 
 
 class TestLoggingIntegration:
-    def test_structured_log_roundtrip(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_structured_log_roundtrip(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
         log_file = tmp_path / "integration.log"
         monkeypatch.setenv("HEPHAISTOS_LOG_FILE", str(log_file))
         monkeypatch.setenv("HEPHAISTOS_LOG_LEVEL", "DEBUG")
         monkeypatch.setenv("HEPHAISTOS_LOG_FORMAT", "json")
 
         log = get_logger("integration")
-        log.info("llm request sent", extra={"fields": {
-            "model": "glm-5",
-            "tokens": 120,
-            "latency_ms": 340,
-        }})
+        log.info(
+            "llm request sent",
+            extra={
+                "fields": {
+                    "model": "glm-5",
+                    "tokens": 120,
+                    "latency_ms": 340,
+                }
+            },
+        )
 
         data = json.loads(log_file.read_text().strip())
         assert data["msg"] == "llm request sent"

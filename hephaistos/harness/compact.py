@@ -185,7 +185,6 @@ def _save_transcript(messages: list[dict], workspace: Path) -> Path:
     transcript_dir = workspace / TRANSCRIPTS_DIR
     transcript_dir.mkdir(parents=True, exist_ok=True)
     path = transcript_dir / f"transcript_{int(time.time())}.jsonl"
-    with open(path, "w", encoding="utf-8") as f:
-        for msg in messages:
-            f.write(json.dumps(msg, default=str, ensure_ascii=False) + "\n")
+    with path.open("w", encoding="utf-8") as f:
+        f.writelines(json.dumps(msg, default=str, ensure_ascii=False) + "\n" for msg in messages)
     return path

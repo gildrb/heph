@@ -267,7 +267,7 @@ class MemoryStore:
                 tags=(
                     e.get("tags", "").split(",")
                     if isinstance(e.get("tags"), str)
-                    else e.get("tags", [])
+                    else list(e.get("tags", []) or [])
                 ),
             )
             if result is not None:

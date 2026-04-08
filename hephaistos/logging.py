@@ -26,7 +26,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 
 from hephaistos.app.palette import (
     FORGE_EMBER,
@@ -105,7 +105,7 @@ _root_initialised = False
 
 def _ensure_root() -> None:
     """Configure the ``hephaistos`` root logger exactly once."""
-    global _root_initialised
+    global _root_initialised  # noqa: PLW0603
     if _root_initialised:
         return
     _root_initialised = True
@@ -182,7 +182,7 @@ class Timer:
         self._start: float = 0.0
         self._end: float = 0.0
 
-    def __enter__(self) -> Timer:
+    def __enter__(self) -> Self:
         self._start = time.perf_counter()
         return self
 
@@ -240,7 +240,7 @@ class TraceWriter:
         if p is None:
             return None
         p.parent.mkdir(parents=True, exist_ok=True)
-        self._file_handle = open(p, "a", encoding="utf-8")  # noqa: SIM115
+        self._file_handle = p.open("a", encoding="utf-8")
         return self._file_handle
 
     def _write(self, event: dict[str, Any]) -> None:

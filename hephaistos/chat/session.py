@@ -40,7 +40,7 @@ class ChatSession:
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
     usage: SessionUsage = field(default_factory=SessionUsage)
-    trace: TraceWriter = field(default=None, init=False, repr=False)
+    trace: TraceWriter = field(default=None, init=False, repr=False)  # type: ignore[assignment]
     steering: object = field(
         default=None, init=False, repr=False
     )  # SteeringQueue, typed as object to avoid circular import

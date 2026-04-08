@@ -6,8 +6,8 @@ import pytest
 
 from hephaistos.armory.storage import (
     ARMORY_DIRS,
-    ArmoryValidationError,
     MARKER_FILE,
+    ArmoryValidationError,
     initialize,
     normalize_path,
     validate,

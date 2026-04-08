@@ -185,10 +185,7 @@ class TestVerifyCitations:
         assert result.verified == []
 
     def test_mixed_verified_unverified(self) -> None:
-        reply = (
-            "According to networking.md, TCP is reliable. "
-            "From fiction.md, we learn it's not."
-        )
+        reply = "According to networking.md, TCP is reliable. From fiction.md, we learn it's not."
         sources = {"source/networking.md"}
         result = verify_citations(reply, sources)
         assert not result.all_verified

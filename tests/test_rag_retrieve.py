@@ -24,7 +24,6 @@ from hephaistos.harness.rag.retrieve import (
     retrieve,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -42,11 +41,13 @@ def _make_index_with_chunks(chunks: list[Chunk]) -> ArmoryIndex:
 
     index = ArmoryIndex(Path("/fake"))
     for source, source_chunks in by_source.items():
-        index.documents.append(ChunkedDocument(
-            source=source,
-            chunks=source_chunks,
-            content_hash="fake",
-        ))
+        index.documents.append(
+            ChunkedDocument(
+                source=source,
+                chunks=source_chunks,
+                content_hash="fake",
+            )
+        )
     return index
 
 
@@ -105,8 +106,7 @@ class TestTfidfRetriever:
 
     def test_top_k_limit(self) -> None:
         chunks = [
-            _make_chunk(f"Document about topic number {i}.", f"doc{i}.md", 0)
-            for i in range(10)
+            _make_chunk(f"Document about topic number {i}.", f"doc{i}.md", 0) for i in range(10)
         ]
         index = _make_index_with_chunks(chunks)
         retriever = TfidfRetriever(index)
@@ -266,10 +266,12 @@ class TestReciprocalRankFusion:
 
     def test_one_empty_one_nonempty(self) -> None:
         c_a = _make_chunk("hello", "a.md", 0)
-        result = _reciprocal_rank_fusion([
-            [ScoredChunk(chunk=c_a, score=0.5)],
-            [],
-        ])
+        result = _reciprocal_rank_fusion(
+            [
+                [ScoredChunk(chunk=c_a, score=0.5)],
+                [],
+            ]
+        )
         assert len(result) == 1
         assert result[0].chunk.source == "a.md"
 
@@ -414,7 +416,7 @@ class _MockArray:
     def tolist(self):
         return self._rows
 
-    def __getitem__(self, idx: int) -> "_MockArray":
+    def __getitem__(self, idx: int) -> _MockArray:
         return _MockArray(self._rows[idx])  # type: ignore[index]
 
 
@@ -460,12 +462,15 @@ class TestHybridRetriever:
         chunks = [_make_chunk("hello", "a.md", 0)]
         index = _make_index_with_chunks(chunks)
 
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            side_effect=ImportError("no torch"),
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                side_effect=ImportError("no torch"),
+            ),
         ):
             hybrid = HybridRetriever(index)
             assert hybrid._embedding is None
@@ -501,12 +506,15 @@ class TestHybridRetriever:
             ScoredChunk(chunk=chunks[1], score=0.3),
         ]
 
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            return_value=mock_embed,
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                return_value=mock_embed,
+            ),
         ):
             hybrid = HybridRetriever(index)
             assert hybrid._embedding is mock_embed
@@ -523,12 +531,15 @@ class TestHybridRetriever:
         mock_embed = MagicMock(spec=EmbeddingRetriever)
         mock_embed.retrieve.return_value = []
 
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            return_value=mock_embed,
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                return_value=mock_embed,
+            ),
         ):
             hybrid = HybridRetriever(index)
             # Query has zero TF-IDF overlap, embeddings also return nothing
@@ -536,23 +547,23 @@ class TestHybridRetriever:
             assert results == []
 
     def test_respects_top_k(self) -> None:
-        chunks = [
-            _make_chunk(f"doc {i}", f"d{i}.md", 0) for i in range(10)
-        ]
+        chunks = [_make_chunk(f"doc {i}", f"d{i}.md", 0) for i in range(10)]
         index = _make_index_with_chunks(chunks)
 
         mock_embed = MagicMock(spec=EmbeddingRetriever)
         mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[i], score=float(10 - i) / 10)
-            for i in range(10)
+            ScoredChunk(chunk=chunks[i], score=float(10 - i) / 10) for i in range(10)
         ]
 
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            return_value=mock_embed,
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                return_value=mock_embed,
+            ),
         ):
             hybrid = HybridRetriever(index)
             results = hybrid.retrieve("doc", top_k=3)
@@ -727,19 +738,20 @@ class TestHybridRetrieverWithReranker:
 
         # Mock cross-encoder reranker — flip the order
         mock_reranker = MagicMock(spec=CrossEncoderReranker)
-        mock_reranker.rerank.side_effect = (
-            lambda query, candidates, top_k=5: [
-                ScoredChunk(chunk=chunks[1], score=0.99),
-                ScoredChunk(chunk=chunks[0], score=0.7),
-            ][:top_k]
-        )
+        mock_reranker.rerank.side_effect = lambda query, candidates, top_k=5: [
+            ScoredChunk(chunk=chunks[1], score=0.99),
+            ScoredChunk(chunk=chunks[0], score=0.7),
+        ][:top_k]
 
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            return_value=mock_embed,
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                return_value=mock_embed,
+            ),
         ):
             hybrid = HybridRetriever(index, reranker=mock_reranker)
             results = hybrid.retrieve("programming", top_k=3)
@@ -824,29 +836,28 @@ class TestHybridRetrieverWithReranker:
 
     def test_reranker_over_fetch_respects_top_k(self) -> None:
         """Reranker receives full candidate pool but returns exactly top_k."""
-        chunks = [
-            _make_chunk(f"doc {i}", f"d{i}.md", 0) for i in range(10)
-        ]
+        chunks = [_make_chunk(f"doc {i}", f"d{i}.md", 0) for i in range(10)]
         index = _make_index_with_chunks(chunks)
 
         mock_embed = MagicMock(spec=EmbeddingRetriever)
         mock_embed.retrieve.return_value = [
-            ScoredChunk(chunk=chunks[i], score=float(10 - i) / 10)
-            for i in range(10)
+            ScoredChunk(chunk=chunks[i], score=float(10 - i) / 10) for i in range(10)
         ]
 
         mock_reranker = MagicMock(spec=CrossEncoderReranker)
         mock_reranker.rerank.return_value = [
-            ScoredChunk(chunk=chunks[i], score=float(i) / 10)
-            for i in range(3)
+            ScoredChunk(chunk=chunks[i], score=float(i) / 10) for i in range(3)
         ]
 
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            return_value=mock_embed,
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                return_value=mock_embed,
+            ),
         ):
             hybrid = HybridRetriever(index, reranker=mock_reranker)
             results = hybrid.retrieve("doc", top_k=3)
@@ -892,12 +903,15 @@ class TestCreateRetriever:
     def test_reranker_creation_failure_still_returns_hybrid(self) -> None:
         """If CrossEncoderReranker fails, hybrid still works without it."""
         index = _make_index_with_chunks([_make_chunk("hello")])
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
-            side_effect=ImportError("no cross-encoder"),
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
+                side_effect=ImportError("no cross-encoder"),
+            ),
         ):
             r = _create_retriever(index)
             assert isinstance(r, HybridRetriever)
@@ -906,12 +920,15 @@ class TestCreateRetriever:
 
     def test_falls_back_to_tfidf_if_hybrid_init_fails(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            side_effect=ImportError("nope"),
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                side_effect=ImportError("nope"),
+            ),
         ):
             r = _create_retriever(index)
             assert isinstance(r, TfidfRetriever)
@@ -952,15 +969,19 @@ class TestRetrieveConvenience:
             ScoredChunk(chunk=chunks[0], score=0.99),
         ]
 
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            return_value=mock_embed,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
-            return_value=mock_reranker,
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                return_value=mock_embed,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
+                return_value=mock_reranker,
+            ),
         ):
             results = retrieve("binary search", index)
             assert len(results) > 0

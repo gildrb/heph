@@ -16,15 +16,15 @@ from hephaistos.chat.engine import (
     RetryConfig,
     StreamRecoveryError,
     _wait_backoff,
+    get_reply,
     is_retryable_error,
     stream_reply,
-    get_reply,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_request() -> httpx.Request:
     return httpx.Request("POST", "http://localhost/v1/chat/completions")
@@ -106,6 +106,7 @@ class EmptyFailingIterator:
 
 def _workspace():
     from pathlib import Path
+
     return Path("/tmp/fake_workspace")
 
 
@@ -466,10 +467,12 @@ class TestConversationConsistency:
             result = send_user_message(session, "Hi")
 
         assert result == "Hello!"
-        assert len(conv.messages) == 2  # user + assistant
-        assert conv.messages[0].role == "user"
-        assert conv.messages[1].role == "assistant"
-        assert conv.messages[1].content == "Hello!"
+        # user + RAG no-context system message + assistant
+        assert len(conv.messages) == 3
+        assert conv.messages[0].role == "system"
+        assert conv.messages[1].role == "user"
+        assert conv.messages[2].role == "assistant"
+        assert conv.messages[2].content == "Hello!"
 
 
 # ---------------------------------------------------------------------------

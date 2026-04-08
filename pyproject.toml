@@ -41,6 +41,59 @@ select = [
     "B",    # flake8-bugbear
     "SIM",  # flake8-simplify
     "RUF",  # ruff-specific rules
+    "A",    # flake8-builtins (shadowing)
+    "C4",   # flake8-comprehensions
+    "DTZ",  # flake8-datetimez
+    "EM",   # flake8-errmsg
+    "EXE",  # flake8-executable
+    "ISC",  # flake8-implicit-str-concat
+    "ICN",  # flake8-import-conventions
+    "LOG",  # flake8-logging
+    "G",    # flake8-logging-format
+    "PIE",  # flake8-pie
+    "PYI",  # flake8-pyi
+    "PT",   # flake8-pytest-style
+    "Q",    # flake8-quotes
+    "R",    # refactor
+    "RET",  # flake8-return
+    "SLOT", # flake8-slots
+    "T10",  # flake8-debugger
+    "TCH",  # flake8-type-checking
+    "INT",  # flake8-gettext
+    "ARG",  # flake8-unused-arguments
+    "PTH",  # flake8-use-pathlib
+    "TD",   # flake8-todos
+    "FIX",  # flake8-fixme
+    "ERA",  # eradicate (commented-out code)
+    "PGH",  # pygrep-hooks
+    "PL",   # pylint
+    "TRY",  # tryceratops
+    "FURB", # refurb
+    "PERF", # perflint
+]
+ignore = [
+    "PLR0913",  # too many arguments (fine for config/data classes)
+    "PLR2004",  # magic numbers (tests are full of them)
+    "TD002",    # missing author in TODO
+    "TD003",    # missing issue link in TODO
+    "FIX002",   # TODO in code (we use them)
+    "ERA001",   # commented-out code (too aggressive in tests)
+    "TRY003",   # long exception messages (fine for user-facing errors)
+    "EM101",    # exception must not use string literals
+    "EM102",    # exception must not use f-strings
+    "PLC0415",  # deferred imports (intentional for circular-dep avoidance)
+    "TC001",    # MOVE type-only imports into type-checking block
+    "TC002",    # MOVE type-only imports into type-checking block
+    "TC003",    # MOVE type-only imports into type-checking block
+    "ARG001",   # unused method argument (required by protocol/base class)
+    "ARG002",   # unused method argument (required by protocol/base class)
+    "ARG005",   # unused lambda argument
+    "PLR0911",  # too many returns
+    "PLR0912",  # too many branches
+    "PLR0915",  # too many statements
+    "PLW2901",  # overwritten loop variable
+    "TRY300",   # try body should not contain return
+    "TRY301",   # raise within try block
 ]
 
 [tool.ruff.format]
@@ -54,9 +107,27 @@ line-ending = "lf"
 [tool.uv.build-backend]
 module-root = ""
 
+[tool.basedpyright]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+# Third-party libs that lack stubs
+reportMissingTypeStubs = "none"
+# Optional RAG dependencies (numpy, sklearn, sentence-transformers)
+reportMissingImports = "none"
+# We use `from __future__ import annotations` everywhere
+reportUnusedImport = "warning"
+
+[tool.pytest.ini_options]
+addopts = "--tb=short -q"
+testpaths = ["tests"]
+
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.0",
     "pytest>=9.0.2",
+    "pytest-cov>=7.1.0",
     "ruff>=0.15.8",
 ]
 rag = [

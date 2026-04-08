@@ -95,6 +95,7 @@ _PT_STYLE = PtStyle.from_dict(
     }
 )
 
+
 class SlashCommandCompleter(Completer):
     """Tab-completion for slash commands."""
 
@@ -191,7 +192,7 @@ def _context_left(session: ChatSession) -> int:
     """Return the estimated prompt-budget percentage left for the session."""
     budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
     prompt_budget = max(1, budget.prompt_budget)
-    remaining = budget.tokens_remaining(session.conversation.to_api_messages())
+    remaining = budget.tokens_remaining(session.conversation.to_api_messages())  # type: ignore[arg-type]
     return max(0, min(100, round((remaining / prompt_budget) * 100)))
 
 
@@ -395,7 +396,7 @@ def _run_shell_command(cmd: str) -> None:
     """Execute a shell command and display output."""
     print(styled(f"$ {cmd}", STYLE_DIM))
     try:
-        subprocess.run(cmd, shell=True, capture_output=False, text=True)
+        subprocess.run(cmd, shell=True, capture_output=False, text=True, check=False)
     except Exception as exc:
         print_error(str(exc))
 

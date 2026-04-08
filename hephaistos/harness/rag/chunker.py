@@ -462,7 +462,7 @@ def chunk_semantic(
         idx += 1
         char_pos += len(chunk_str) + 1
 
-    return chunks if chunks else chunk_text(text, source, chunk_size, overlap)
+    return chunks or chunk_text(text, source, chunk_size, overlap)
 
 
 def _split_sentences(text: str) -> list[str]:

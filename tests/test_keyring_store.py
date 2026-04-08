@@ -6,15 +6,14 @@ import pytest
 
 from hephaistos.providers.keyring_store import (
     clear_volatile,
+    delete_key,
     get_volatile,
     mask_key,
     resolve_key,
+    retrieve_key,
     set_volatile,
     store_key,
-    retrieve_key,
-    delete_key,
 )
-
 
 # Use a unique test prefix to avoid colliding with real keys
 _TEST_SLUG = "__test_hephaistos_unit__"

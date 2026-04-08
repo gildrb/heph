@@ -73,21 +73,21 @@ def _select_with_prompt_toolkit(
 
     kb = KeyBindings()
 
-    @_add_binding(kb, keybindings["navigate_up"])
+    @_add_binding(kb, keybindings["navigate_up"])  # type: ignore[misc]
     def _(event):
         if options:
             selected[0] = (selected[0] - 1) % len(options)
 
-    @_add_binding(kb, keybindings["navigate_down"])
+    @_add_binding(kb, keybindings["navigate_down"])  # type: ignore[misc]
     def _(event):
         if options:
             selected[0] = (selected[0] + 1) % len(options)
 
-    @_add_binding(kb, keybindings["select"])
+    @_add_binding(kb, keybindings["select"])  # type: ignore[misc]
     def _(event):
         event.app.exit(result=selected[0])
 
-    @_add_binding(kb, keybindings["cancel"])
+    @_add_binding(kb, keybindings["cancel"])  # type: ignore[misc]
     def _(event):
         event.app.exit(result=None)
 

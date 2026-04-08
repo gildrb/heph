@@ -2,20 +2,15 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from hephaistos.harness.tools import (
+    TOOL_SCHEMAS,
     BashResult,
+    get_handler,
     run_bash,
     run_web_fetch,
-    TOOL_SCHEMAS,
-    get_handler,
 )
-
 
 # ---------------------------------------------------------------------------
 # BashResult
@@ -24,14 +19,26 @@ from hephaistos.harness.tools import (
 
 class TestBashResult:
     def test_success(self):
-        br = BashResult(stdout="hello\n", stderr="", exit_code=0, timed_out=False, duration_seconds=0.5)
+        br = BashResult(
+            stdout="hello\n",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0.5,
+        )
         display = br.to_display()
         assert "hello" in display
         assert "exit code" not in display
         assert "timed out" not in display
 
     def test_nonzero_exit(self):
-        br = BashResult(stdout="", stderr="error", exit_code=1, timed_out=False, duration_seconds=0.1)
+        br = BashResult(
+            stdout="",
+            stderr="error",
+            exit_code=1,
+            timed_out=False,
+            duration_seconds=0.1,
+        )
         display = br.to_display()
         assert "exit code 1" in display
         assert "error" in display
@@ -109,7 +116,17 @@ class TestWebFetch:
 
     def test_fetch_http_error(self):
         import urllib.error
-        with patch("hephaistos.harness.tools.urllib.request.urlopen", side_effect=urllib.error.HTTPError("url", 404, "Not Found", {}, None)):
+
+        with patch(
+            "hephaistos.harness.tools.urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError(
+                "url",
+                404,
+                "Not Found",
+                {},
+                None,
+            ),
+        ):
             result = run_web_fetch("https://example.com/missing")
             assert "HTTP 404" in result
 

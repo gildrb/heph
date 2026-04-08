@@ -13,6 +13,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hephaistos.chat.engine import ChatConfig
 from hephaistos.providers.model_support import filter_supported_models
 
 _CONFIG_DIR = Path.home() / ".config" / "hephaistos"
@@ -79,7 +80,7 @@ class ProviderConfig:
         p.current_model = model
         return True
 
-    def apply_to_config(self, config: object) -> None:
+    def apply_to_config(self, config: ChatConfig) -> None:
         """Apply the active provider settings to a ChatConfig instance.
 
         Sets base_url and model directly, but stores only a *reference*
@@ -123,7 +124,7 @@ class ProviderConfig:
             cfg.save(path)
             return cfg
 
-        with open(path, "rb") as f:
+        with path.open("rb") as f:
             data = tomllib.load(f)
 
         providers: dict[str, Provider] = {}

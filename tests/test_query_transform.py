@@ -5,31 +5,26 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from hephaistos.harness.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.harness.rag.index import ArmoryIndex
 from hephaistos.harness.rag.query_transform import (
+    _SYNONYM_MAP,
     CompositeTransformer,
     HyDETransformer,
     IdentityTransformer,
     MultiQueryTransformer,
-    PromptFn,
     QueryExpander,
     QueryTransformerProtocol,
     TransformStrategy,
     _expand_with_wordnet,
-    _SYNONYM_MAP,
     create_transformer,
     transform_query,
 )
 from hephaistos.harness.rag.retrieve import (
     HybridRetriever,
     ScoredChunk,
-    TfidfRetriever,
     retrieve,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,11 +42,13 @@ def _make_index_with_chunks(chunks: list[Chunk]) -> ArmoryIndex:
 
     index = ArmoryIndex(Path("/fake"))
     for source, source_chunks in by_source.items():
-        index.documents.append(ChunkedDocument(
-            source=source,
-            chunks=source_chunks,
-            content_hash="fake",
-        ))
+        index.documents.append(
+            ChunkedDocument(
+                source=source,
+                chunks=source_chunks,
+                content_hash="fake",
+            )
+        )
     return index
 
 
@@ -187,11 +184,13 @@ class TestHyDETransformer:
         assert result == ["What is machine learning?"]
 
     def test_with_prompt_fn_returns_hypothetical_and_original(self) -> None:
-        mock_fn = MagicMock(return_value=(
-            "Machine learning is a subset of artificial intelligence "
-            "that enables systems to learn from data. It encompasses "
-            "supervised, unsupervised, and reinforcement learning paradigms."
-        ))
+        mock_fn = MagicMock(
+            return_value=(
+                "Machine learning is a subset of artificial intelligence "
+                "that enables systems to learn from data. It encompasses "
+                "supervised, unsupervised, and reinforcement learning paradigms."
+            )
+        )
         t = HyDETransformer(prompt_fn=mock_fn)
         result = t.transform("What is machine learning?")
 
@@ -231,7 +230,9 @@ class TestHyDETransformer:
 
     def test_hypothetical_doc_used_as_primary_query(self) -> None:
         """The hypothetical document should be the first (primary) result."""
-        mock_fn = MagicMock(return_value="Python is an interpreted high-level programming language.")
+        mock_fn = MagicMock(
+            return_value="Python is an interpreted high-level programming language.",
+        )
         t = HyDETransformer(prompt_fn=mock_fn)
         result = t.transform("What is Python?")
         assert "interpreted" in result[0] or "programming" in result[0]
@@ -249,11 +250,13 @@ class TestMultiQueryTransformer:
         assert result == ["What is deep learning?"]
 
     def test_with_prompt_fn_returns_original_plus_alternatives(self) -> None:
-        mock_fn = MagicMock(return_value=(
-            "How does deep learning work?\n"
-            "Explain neural networks and deep learning\n"
-            "What are the applications of deep learning?"
-        ))
+        mock_fn = MagicMock(
+            return_value=(
+                "How does deep learning work?\n"
+                "Explain neural networks and deep learning\n"
+                "What are the applications of deep learning?"
+            )
+        )
         t = MultiQueryTransformer(prompt_fn=mock_fn)
         result = t.transform("What is deep learning?")
 
@@ -262,13 +265,15 @@ class TestMultiQueryTransformer:
         assert "neural networks" in result[1] or "neural networks" in result[2]
 
     def test_respects_max_alternatives(self) -> None:
-        mock_fn = MagicMock(return_value=(
-            "Alt one about topic\n"
-            "Alt two about topic\n"
-            "Alt three about topic\n"
-            "Alt four about topic\n"
-            "Alt five about topic"
-        ))
+        mock_fn = MagicMock(
+            return_value=(
+                "Alt one about topic\n"
+                "Alt two about topic\n"
+                "Alt three about topic\n"
+                "Alt four about topic\n"
+                "Alt five about topic"
+            )
+        )
         t = MultiQueryTransformer(prompt_fn=mock_fn, max_alternatives=2)
         result = t.transform("test query")
 
@@ -276,11 +281,13 @@ class TestMultiQueryTransformer:
         assert len(result) == 3
 
     def test_strips_numbering_from_alternatives(self) -> None:
-        mock_fn = MagicMock(return_value=(
-            "1. First alternative query\n"
-            "2. Second alternative query\n"
-            "3. Third alternative query"
-        ))
+        mock_fn = MagicMock(
+            return_value=(
+                "1. First alternative query\n"
+                "2. Second alternative query\n"
+                "3. Third alternative query"
+            )
+        )
         t = MultiQueryTransformer(prompt_fn=mock_fn, max_alternatives=5)
         result = t.transform("test")
 
@@ -303,11 +310,13 @@ class TestMultiQueryTransformer:
 
     def test_filters_very_short_alternatives(self) -> None:
         """Very short fragments (< 5 chars) should be filtered out."""
-        mock_fn = MagicMock(return_value=(
-            "How does neural network architecture work?\n"
-            "ok\n"
-            "What are the fundamentals of deep learning?"
-        ))
+        mock_fn = MagicMock(
+            return_value=(
+                "How does neural network architecture work?\n"
+                "ok\n"
+                "What are the fundamentals of deep learning?"
+            )
+        )
         t = MultiQueryTransformer(prompt_fn=mock_fn)
         result = t.transform("deep learning")
 
@@ -345,7 +354,7 @@ class TestCompositeTransformer:
         mock2.transform.side_effect = lambda q: [f"expanded: {q}"]
 
         ct = CompositeTransformer([mock1, mock2])
-        result = ct.transform("original")
+        ct.transform("original")
 
         # First transformer called with "original"
         mock1.transform.assert_called_once_with("original")
@@ -554,12 +563,15 @@ class TestHybridRetrieverWithTransformation:
             "how to code in python",
         ]
 
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ), patch(
-            "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
-            return_value=mock_embed,
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                return_value=mock_embed,
+            ),
         ):
             hybrid = HybridRetriever(index, query_transformer=mock_transformer)
             results = hybrid.retrieve("python", top_k=2)
@@ -637,10 +649,12 @@ class TestHybridRetrieverWithTransformation:
         ]
         index = _make_index_with_chunks(chunks)
 
-        mock_fn = MagicMock(return_value=(
-            "Machine learning is an AI discipline focused on building systems "
-            "that learn from data using statistical methods."
-        ))
+        mock_fn = MagicMock(
+            return_value=(
+                "Machine learning is an AI discipline focused on building systems "
+                "that learn from data using statistical methods."
+            )
+        )
         hyde = HyDETransformer(prompt_fn=mock_fn)
 
         with patch(
@@ -744,10 +758,12 @@ class TestRetrieveWithTransformation:
         ]
         index = _make_index_with_chunks(chunks)
 
-        mock_fn = MagicMock(return_value=(
-            "Retrieval-Augmented Generation (RAG) is a technique that combines "
-            "information retrieval with text generation."
-        ))
+        mock_fn = MagicMock(
+            return_value=(
+                "Retrieval-Augmented Generation (RAG) is a technique that combines "
+                "information retrieval with text generation."
+            )
+        )
 
         with patch(
             "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
@@ -769,11 +785,13 @@ class TestRetrieveWithTransformation:
         ]
         index = _make_index_with_chunks(chunks)
 
-        mock_fn = MagicMock(return_value=(
-            "How do vector stores work?\n"
-            "What is similarity search in databases?\n"
-            "Explain embedding-based retrieval systems"
-        ))
+        mock_fn = MagicMock(
+            return_value=(
+                "How do vector stores work?\n"
+                "What is similarity search in databases?\n"
+                "Explain embedding-based retrieval systems"
+            )
+        )
 
         with patch(
             "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",

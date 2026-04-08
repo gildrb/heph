@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-
-import pytest
 
 from hephaistos.chat.usage import (
     ContextBudget,
     SessionUsage,
     TokenUsage,
+    _get_pricing,
     estimate_conversation_tokens,
     estimate_message_tokens,
     get_context_window,
     load_usage,
     save_usage,
-    _get_pricing,
 )
-
 
 # ---------------------------------------------------------------------------
 # TokenUsage
@@ -33,11 +29,13 @@ class TestTokenUsage:
         assert usage.total_tokens == 0
 
     def test_from_api_response_with_data(self):
-        usage = TokenUsage.from_api_response({
-            "prompt_tokens": 100,
-            "completion_tokens": 50,
-            "total_tokens": 150,
-        })
+        usage = TokenUsage.from_api_response(
+            {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+            }
+        )
         assert usage.prompt_tokens == 100
         assert usage.completion_tokens == 50
         assert usage.total_tokens == 150
@@ -48,11 +46,13 @@ class TestTokenUsage:
         assert usage.total_tokens == 0
 
     def test_from_api_response_with_none_values(self):
-        usage = TokenUsage.from_api_response({
-            "prompt_tokens": None,
-            "completion_tokens": None,
-            "total_tokens": None,
-        })
+        usage = TokenUsage.from_api_response(
+            {
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "total_tokens": None,
+            }
+        )
         assert usage.prompt_tokens == 0
         assert usage.completion_tokens == 0
 
@@ -128,7 +128,7 @@ class TestPricing:
         assert completion > 0
 
     def test_prefix_match(self):
-        prompt, completion = _get_pricing("gpt-5.4-some-new-variant")
+        prompt, _completion = _get_pricing("gpt-5.4-some-new-variant")
         assert prompt > 0
 
 
@@ -172,9 +172,13 @@ class TestTokenEstimation:
 
     def test_estimate_conversation_with_tool_calls(self):
         messages = [
-            {"role": "assistant", "content": None, "tool_calls": [
-                {"function": {"name": "bash", "arguments": '{"command": "ls"}'}},
-            ]},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"function": {"name": "bash", "arguments": '{"command": "ls"}'}},
+                ],
+            },
             {"role": "tool", "content": "file1.txt\nfile2.txt"},
         ]
         tokens = estimate_conversation_tokens(messages)

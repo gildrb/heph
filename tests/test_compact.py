@@ -8,16 +8,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hephaistos.chat.engine import Conversation
 from hephaistos.harness.compact import (
     KEEP_RECENT,
-    TOKEN_THRESHOLD,
     auto_compact,
     estimate_messages_tokens,
     micro_compact,
 )
 from hephaistos.harness.dispatch import _sync_conversation
-from hephaistos.chat.engine import Conversation
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,11 +30,13 @@ def _assistant_with_tools(*tool_names: str) -> dict:
     """Build an assistant message with tool_calls (call_id = call_N)."""
     calls = []
     for i, name in enumerate(tool_names):
-        calls.append({
-            "id": f"call_{i + 1}",
-            "type": "function",
-            "function": {"name": name, "arguments": "{}"},
-        })
+        calls.append(
+            {
+                "id": f"call_{i + 1}",
+                "type": "function",
+                "function": {"name": name, "arguments": "{}"},
+            }
+        )
     return {"role": "assistant", "content": None, "tool_calls": calls}
 
 
@@ -46,9 +46,9 @@ def _build_messages(n_tool_results: int, result_size: int = 500) -> list[dict]:
         {"role": "system", "content": "You are helpful."},
         {"role": "user", "content": "Do stuff"},
     ]
-    for i in range(n_tool_results):
-        messages.append(_assistant_with_tools(f"bash"))
-        messages.append(_tool_result("x" * result_size, call_id=f"call_1"))
+    for _i in range(n_tool_results):
+        messages.append(_assistant_with_tools("bash"))
+        messages.append(_tool_result("x" * result_size, call_id="call_1"))
     return messages
 
 
@@ -75,14 +75,16 @@ class TestEstimateMessagesTokens:
             {
                 "role": "assistant",
                 "content": None,
-                "tool_calls": [{
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {
-                        "name": "bash",
-                        "arguments": '{"command": "ls"}',
-                    },
-                }],
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "bash",
+                            "arguments": '{"command": "ls"}',
+                        },
+                    }
+                ],
             },
         ]
         tokens = estimate_messages_tokens(msgs)
@@ -138,21 +140,25 @@ class TestMicroCompact:
             {
                 "role": "assistant",
                 "content": None,
-                "tool_calls": [{
-                    "id": "call_99",
-                    "type": "function",
-                    "function": {"name": "read_file", "arguments": "{}"},
-                }],
+                "tool_calls": [
+                    {
+                        "id": "call_99",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": "{}"},
+                    }
+                ],
             },
             _tool_result("x" * 500, call_id="call_99"),
             {
                 "role": "assistant",
                 "content": None,
-                "tool_calls": [{
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {"name": "bash", "arguments": "{}"},
-                }],
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": "{}"},
+                    }
+                ],
             },
             _tool_result("y" * 500, call_id="call_1"),
             _tool_result("z" * 500, call_id="call_1"),
@@ -197,9 +203,7 @@ class TestAutoCompact:
         """A JSONL transcript file is created under .transcripts/."""
         messages = _build_messages(3)
         config, mock_client = self._mock_config_and_client()
-        monkeypatch.setattr(
-            "hephaistos.harness.compact._build_client", lambda c: mock_client
-        )
+        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
 
         auto_compact(messages, config, tmp_path)
 
@@ -215,13 +219,15 @@ class TestAutoCompact:
             parsed = json.loads(line)
             assert "role" in parsed
 
-    def test_returns_compressed_messages(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_returns_compressed_messages(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """Result has system messages + a compressed user message."""
         messages = _build_messages(5)
         config, mock_client = self._mock_config_and_client()
-        monkeypatch.setattr(
-            "hephaistos.harness.compact._build_client", lambda c: mock_client
-        )
+        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
 
         compressed = auto_compact(messages, config, tmp_path)
 
@@ -237,18 +243,18 @@ class TestAutoCompact:
     def test_summary_content(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The mock LLM summary appears in the compressed output."""
         messages = _build_messages(2)
-        config, mock_client = self._mock_config_and_client(
-            summary="Key fact: the answer is 42."
-        )
-        monkeypatch.setattr(
-            "hephaistos.harness.compact._build_client", lambda c: mock_client
-        )
+        config, mock_client = self._mock_config_and_client(summary="Key fact: the answer is 42.")
+        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
 
         compressed = auto_compact(messages, config, tmp_path)
         user_msgs = [m for m in compressed if m["role"] == "user"]
         assert "42" in user_msgs[0]["content"]
 
-    def test_returns_original_on_llm_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_returns_original_on_llm_failure(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """If the summarisation LLM call fails, original messages are returned."""
         messages = _build_messages(3)
         config = MagicMock()
@@ -256,9 +262,7 @@ class TestAutoCompact:
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = RuntimeError("no API key")
-        monkeypatch.setattr(
-            "hephaistos.harness.compact._build_client", lambda c: mock_client
-        )
+        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
 
         result = auto_compact(messages, config, tmp_path)
         # Same list returned — no crash, no compression

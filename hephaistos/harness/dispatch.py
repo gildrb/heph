@@ -349,7 +349,7 @@ def agent_loop(
     :class:`StreamRecoveryError` is raised.
     """
     retry = retry or RetryConfig()
-    api_messages = conversation.to_api_messages()
+    api_messages: list[dict] = conversation.to_api_messages()  # type: ignore[assignment]
     loop_timer = Timer()
     budget = ContextBudget(model=config.model, max_tokens=config.max_tokens)
 
@@ -410,8 +410,8 @@ def agent_loop(
                 with turn_timer:
                     response = client.chat.completions.create(
                         model=config.model,
-                        messages=api_messages,
-                        tools=TOOL_SCHEMAS,
+                        messages=api_messages,  # type: ignore[arg-type]
+                        tools=TOOL_SCHEMAS,  # type: ignore[arg-type]
                         max_tokens=config.max_tokens,
                         stream=True,
                     )

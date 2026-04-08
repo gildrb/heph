@@ -41,10 +41,7 @@ class TestBuildContext:
         assert "relevance: 0.75" in result
 
     def test_respects_token_budget(self) -> None:
-        long_chunks = [
-            _make_scored("A" * 2000, f"doc{i}.md", 1.0 - i * 0.1)
-            for i in range(10)
-        ]
+        long_chunks = [_make_scored("A" * 2000, f"doc{i}.md", 1.0 - i * 0.1) for i in range(10)]
         result = build_context(long_chunks, max_tokens=100)
         # 100 tokens * 4 chars = 400 chars budget
         assert len(result) < 1000  # well within reason

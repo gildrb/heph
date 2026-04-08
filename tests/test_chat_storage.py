@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import Conversation
 from hephaistos.chat.storage import (
@@ -13,8 +15,6 @@ from hephaistos.chat.storage import (
     new_session_id,
     save,
 )
-
-import pytest
 
 
 def _init_armory(tmp_path: Path) -> Path:

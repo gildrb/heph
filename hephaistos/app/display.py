@@ -86,9 +86,7 @@ def render_markdown_lite(text: str) -> str:
         lang = m.group(1) or ""
         code = m.group(2)
         header = styled(f"  {lang}", STYLE_DIM) if lang else ""
-        lines = []
-        for line in code.rstrip("\n").split("\n"):
-            lines.append(styled(f"  {line}", STYLE_DIM))
+        lines = [styled(f"  {line}", STYLE_DIM) for line in code.rstrip("\n").split("\n")]
         body = "\n".join(lines)
         return f"{header}\n{body}"
 
@@ -101,13 +99,11 @@ def render_markdown_lite(text: str) -> str:
     result = re.sub(r"\*\*(.+?)\*\*", lambda m: styled(m.group(1), BOLD), result)
 
     # Italic (single * not preceded/followed by *)
-    result = re.sub(
+    return re.sub(
         r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
         lambda m: styled(m.group(1), ITALIC),
         result,
     )
-
-    return result
 
 
 class Spinner:
