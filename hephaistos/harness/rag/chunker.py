@@ -84,11 +84,6 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
 
 
-# ---------------------------------------------------------------------------
-# Chunking strategy enum
-# ---------------------------------------------------------------------------
-
-
 class ChunkStrategy(Enum):
     """Selects which chunking algorithm ``chunk_file`` uses."""
 
@@ -96,11 +91,6 @@ class ChunkStrategy(Enum):
     MARKDOWN = "markdown"  # always use chunk_markdown
     SEMANTIC = "semantic"  # always use chunk_semantic (falls back to text internally)
     TEXT = "text"  # always use chunk_text
-
-
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,11 +111,6 @@ class ChunkedDocument:
     content_hash: str = ""
 
 
-# ---------------------------------------------------------------------------
-# File-type detection
-# ---------------------------------------------------------------------------
-
-
 def _is_text_file(path: Path) -> bool:
     if path.suffix.lower() in _TEXT_EXTENSIONS:
         return True
@@ -140,11 +125,6 @@ def _is_markdown(path: Path) -> bool:
     return path.suffix.lower() in (".md", ".mdown", ".markdown")
 
 
-# ---------------------------------------------------------------------------
-# Markdown structure-aware chunking
-# ---------------------------------------------------------------------------
-
-
 def _parse_sections(text: str) -> list[tuple[str, int, int, int]]:
     """Split text into sections at heading boundaries.
 
@@ -155,12 +135,9 @@ def _parse_sections(text: str) -> list[tuple[str, int, int, int]]:
     matches = list(_HEADING_RE.finditer(text))
 
     if not matches:
-        # No headings — entire file is one section
         if text.strip():
             sections.append(("", 0, 0, len(text)))
         return sections
-
-    # Content before first heading
     if matches[0].start() > 0:
         preamble = text[: matches[0].start()]
         if preamble.strip():
@@ -203,8 +180,6 @@ def _chunk_markdown_section(
                 heading_level=heading_level,
             )
         ]
-
-    # Section is too large — split by paragraph boundaries
     parts = re.split(r"\n\n+", text)
     chunks: list[Chunk] = []
     current = ""
@@ -218,7 +193,6 @@ def _chunk_markdown_section(
         candidate = f"{current}\n\n{part}" if current else part
 
         if len(candidate) > chunk_size and current:
-            # Flush current
             chunks.append(
                 Chunk(
                     text=current.strip(),
@@ -289,11 +263,6 @@ def chunk_markdown(
     return chunks
 
 
-# ---------------------------------------------------------------------------
-# Fixed-window chunking
-# ---------------------------------------------------------------------------
-
-
 def _find_boundary(text: str, target: int, search_back: int) -> int:
     """Look backwards from *target* for a good break point."""
     start = max(target - search_back, 0)
@@ -355,11 +324,6 @@ def chunk_text(
     return chunks
 
 
-# ---------------------------------------------------------------------------
-# Semantic chunking (requires sentence-transformers, optional)
-# ---------------------------------------------------------------------------
-
-
 def _is_st_available() -> bool:
     try:
         import sentence_transformers  # noqa: F401
@@ -404,25 +368,18 @@ def chunk_semantic(
 
     from sentence_transformers import SentenceTransformer
 
-    # Split into sentences
     sentences = _split_sentences(text)
     if len(sentences) <= 1:
         return [Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))]
-
-    # Encode sentences
     model = SentenceTransformer("all-MiniLM-L6-v2")
     embeddings = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
     emb_lists = [row.tolist() for row in embeddings]
-
-    # Find breakpoints: where similarity drops below threshold
     breakpoints: list[int] = [0]
     for i in range(1, len(emb_lists)):
         sim = _cosine_sim(emb_lists[i - 1], emb_lists[i])
         if sim < similarity_threshold:
             breakpoints.append(i)
     breakpoints.append(len(sentences))
-
-    # Build chunks from sentence groups
     chunks: list[Chunk] = []
     char_pos = 0
     idx = 0
@@ -435,8 +392,6 @@ def chunk_semantic(
 
         if not chunk_str:
             continue
-
-        # Skip very small chunks — merge with previous
         if len(chunk_str) < min_chunk and chunks:
             prev = chunks[-1]
             merged = f"{prev.text} {chunk_str}"
@@ -467,9 +422,7 @@ def chunk_semantic(
 
 def _split_sentences(text: str) -> list[str]:
     """Split text into sentences for semantic chunking."""
-    # Split on sentence-ending punctuation followed by whitespace
     parts = re.split(r"(?<=[.!?])\s+", text)
-    # Also split on newlines for code-like text
     result: list[str] = []
     for part in parts:
         sub = part.split("\n")
@@ -478,11 +431,6 @@ def _split_sentences(text: str) -> list[str]:
             if s:
                 result.append(s)
     return result
-
-
-# ---------------------------------------------------------------------------
-# Strategy resolver
-# ---------------------------------------------------------------------------
 
 
 def _resolve_strategy(strategy: ChunkStrategy, path: Path) -> Callable:
@@ -502,11 +450,6 @@ def _resolve_strategy(strategy: ChunkStrategy, path: Path) -> Callable:
     if strategy == ChunkStrategy.SEMANTIC:
         return chunk_semantic
     return chunk_text
-
-
-# ---------------------------------------------------------------------------
-# File-level entry point
-# ---------------------------------------------------------------------------
 
 
 def chunk_file(
@@ -540,8 +483,6 @@ def chunk_file(
         return None
 
     rel = str(path.relative_to(armory_root))
-
-    # Select and run the chunking function
     chunk_fn = _resolve_strategy(strategy, path)
     chunks = chunk_fn(text, rel, chunk_size, overlap)
 

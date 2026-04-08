@@ -23,10 +23,6 @@ from pathlib import Path
 
 from hephaistos.app.display import STYLE_DIM, STYLE_PROMPT, styled
 
-# ---------------------------------------------------------------------------
-# Tier ordering
-# ---------------------------------------------------------------------------
-
 _TIER_ORDER: dict[str, int] = {
     "none": 0,
     "low": 1,
@@ -44,10 +40,6 @@ _TIER_DESCRIPTIONS = {
     "high": "Production — git push, sudo, scripts, deployments.",
     "unsafe": "Everything allowed. Sandbox only!",
 }
-
-# ---------------------------------------------------------------------------
-# Bash command classification
-# ---------------------------------------------------------------------------
 
 # Commands that are always read-only
 _NONE_COMMANDS = frozenset(
@@ -262,16 +254,11 @@ _MEDIUM_PATTERNS = frozenset(
 
 def _split_compound(command: str) -> list[str]:
     """Split a command into sub-commands on &&, ||, ;, and pipes."""
-    # Simple approach: split on && || ; |
-    # We don't try to handle nested quotes perfectly — heuristic is fine.
     parts: list[str] = []
-    # Split on ; first
     segments = command.split(";")
     for seg in segments:
-        # Split on && and ||
         sub_parts = re.split(r"\s*(?:&&|\|\|)\s*", seg)
         for sub in sub_parts:
-            # Split on | (pipes) — but not || (already handled)
             pipe_parts = re.split(r"(?<!\|)\|(?!\|)", sub)
             parts.extend(pipe_parts)
     return [p.strip() for p in parts if p.strip()]
@@ -280,43 +267,27 @@ def _split_compound(command: str) -> list[str]:
 def _classify_single(command: str) -> str:
     """Classify a single (non-compound) command to a tier."""
     stripped = command.strip()
-
-    # Check for sudo/doas anywhere
     if re.search(r"\bsudo\b|\bdoas\b|\bru?n0\b", stripped):
         return "high"
-
-    # Check high-risk patterns
     for pattern in _HIGH_PATTERNS:
         if pattern in stripped:
             return "high"
-
-    # Check for pipe-to-bash patterns (curl | bash, wget -qO- | sh)
     if re.search(r"\|\s*(ba)?sh\b", stripped):
         return "high"
-
-    # Check medium patterns
     for pattern in _MEDIUM_PATTERNS:
         if pattern in stripped:
             return "medium"
-
-    # Try to extract the base command
     try:
-        # Handle simple cases
         tokens = shlex.split(stripped, posix=False)
     except ValueError:
-        # If shlex fails (unmatched quotes), use simple split
         tokens = stripped.split()
 
     if not tokens:
         return "none"
 
     base_cmd = tokens[0]
-
-    # Bare shell invocation = arbitrary execution (high risk)
     if base_cmd in ("bash", "sh", "zsh", "fish", "dash", "ksh", "csh", "tcsh"):
         return "high"
-
-    # Handle "git" subcommands specially
     if base_cmd == "git":
         git_sub = tokens[1] if len(tokens) > 1 else ""
         if git_sub in (
@@ -361,28 +332,20 @@ def _classify_single(command: str) -> str:
             return "medium"
         if git_sub in ("push", "force-push", "push --force"):
             return "high"
-        # Unknown git subcommand — default to low
         return "low"
-
-    # Handle "python/python3/node" — check if it's a test/build runner
     if base_cmd in ("python", "python3", "node"):
         args_str = " ".join(tokens[1:])
         if "pytest" in args_str or "unittest" in args_str:
             return "medium"
         if re.match(r"-c\s", args_str):
-            # python -c "..." — classify by the code content
             return _classify_inline_code(args_str)
         return "low"
-
-    # Check against known command sets
     if base_cmd in _NONE_COMMANDS:
         return "none"
     if base_cmd in _LOW_COMMANDS:
         return "low"
     if base_cmd in _MEDIUM_COMMANDS:
         return "medium"
-
-    # Unknown command — default to low (safe default)
     return "low"
 
 
@@ -415,24 +378,17 @@ def classify_bash_command(command: str) -> str:
     return max_tier
 
 
-# ---------------------------------------------------------------------------
-# Tool-level tier mapping
-# ---------------------------------------------------------------------------
-
 _TOOL_TIER_MAP: dict[str, str] = {
-    # Read-only tools
     "read_file": "none",
     "list_files": "none",
     "grep": "none",
     "web_fetch": "none",
     "web_search": "none",
     "question": "none",
-    # File modification tools
     "write_file": "low",
     "edit_file": "low",
     "multi_edit": "low",
     "apply_patch": "low",
-    # Execution tools — classified by command content
     "bash": "none",  # actual tier determined by classify_bash_command
     "execute": "none",
 }
@@ -454,11 +410,6 @@ def get_required_tier(tool_name: str, args: dict) -> str:
 def tier_allows(required: str, current: str) -> bool:
     """Check if the current autonomy level allows the required tier."""
     return _TIER_ORDER.get(current, 0) >= _TIER_ORDER.get(required, 0)
-
-
-# ---------------------------------------------------------------------------
-# Interactive permission prompt
-# ---------------------------------------------------------------------------
 
 
 def request_permission(
@@ -505,10 +456,6 @@ def _format_tool_summary(name: str, args: dict) -> str:
     return f"{name}: {args}"
 
 
-# ---------------------------------------------------------------------------
-# Config loading (unchanged interface)
-# ---------------------------------------------------------------------------
-
 _CONFIG_PATH = ".hephaistos/config.toml"
 
 
@@ -541,19 +488,13 @@ def load_permissions(workspace: Path | None = None) -> dict:
         data = _parse_toml_simple(config_path)
     except Exception:
         return result
-
-    # Read autonomy level
     autonomy = data.get("autonomy", "").strip().strip('"').strip("'")
     if autonomy in _TIER_ORDER:
         result["autonomy"] = autonomy
-
-    # Read auto-approve tools
     for val in data.get("auto_approve", "").split(","):
         val = val.strip().strip('"').strip("'")
         if val:
             auto_approve.add(val)
-
-    # Read denied tools
     for val in data.get("deny", "").split(","):
         val = val.strip().strip('"').strip("'")
         if val:

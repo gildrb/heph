@@ -22,16 +22,7 @@ from typing import Any
 from hephaistos.logging import get_logger
 
 _log = get_logger("chat.usage")
-
-
-# ---------------------------------------------------------------------------
-# Model pricing (USD per 1K tokens)
-# ---------------------------------------------------------------------------
-
-# Prices are approximate and should be updated periodically.
-# Format: (prompt_price_per_1k, completion_price_per_1k)
 _MODEL_PRICING: dict[str, tuple[float, float]] = {
-    # OpenAI
     "gpt-4o": (0.0025, 0.01),
     "gpt-4o-mini": (0.00015, 0.0006),
     "gpt-5.4": (0.002, 0.008),
@@ -49,11 +40,9 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
     "google/gemini-3-flash-preview": (0.000075, 0.0003),
     "google/gemini-3.1-pro-preview": (0.00125, 0.005),
     "google/gemini-3.1-flash-lite-preview": (0.00003, 0.0001),
-    # Qwen
     "qwen/qwen3.6-plus:free": (0.0, 0.0),
     "qwen/qwen3.5-plus-02-15": (0.0004, 0.0012),
     "qwen/qwen3.5-35b-a3b": (0.0001, 0.0003),
-    # Z.AI / GLM
     "glm-5": (0.001, 0.001),
     "glm-5-turbo": (0.0001, 0.0001),
     "glm-4.7": (0.0005, 0.0005),
@@ -62,8 +51,6 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
     "z-ai/glm-5": (0.001, 0.001),
     "z-ai/glm-5-turbo": (0.0001, 0.0001),
 }
-
-# Default context window sizes per model family
 _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "gpt-4o": 128_000,
     "gpt-5.4": 128_000,
@@ -78,11 +65,6 @@ _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
 
 _DEFAULT_CONTEXT_WINDOW = 128_000
 _CHARS_PER_TOKEN = 4
-
-
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -169,11 +151,6 @@ class SessionUsage:
         }
 
 
-# ---------------------------------------------------------------------------
-# Cost estimation
-# ---------------------------------------------------------------------------
-
-
 def _get_pricing(model: str) -> tuple[float, float]:
     """Get (prompt_price_per_1k, completion_price_per_1k) for a model.
 
@@ -181,17 +158,11 @@ def _get_pricing(model: str) -> tuple[float, float]:
     """
     if model in _MODEL_PRICING:
         return _MODEL_PRICING[model]
-
-    # Prefix match for model variants
     for key, pricing in _MODEL_PRICING.items():
         if model.startswith(key) or key.startswith(model):
             return pricing
-
-    # Free models
     if "free" in model.lower():
         return (0.0, 0.0)
-
-    # Unknown model — conservative estimate
     return (0.002, 0.008)
 
 
@@ -219,22 +190,15 @@ def estimate_conversation_tokens(messages: list[dict]) -> int:
     """Estimate total token count for a list of API messages."""
     total = 0
     for msg in messages:
-        # Each message has ~4 tokens overhead (role, formatting)
         total += 4
         content = msg.get("content", "")
         if content:
             total += estimate_message_tokens(content)
-        # Tool call arguments
         for tc in msg.get("tool_calls", []):
             args = tc.get("function", {}).get("arguments", "")
             if args:
                 total += estimate_message_tokens(args)
     return total
-
-
-# ---------------------------------------------------------------------------
-# Budget manager
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -275,11 +239,6 @@ class ContextBudget:
         if ratio > 0.75:
             return "low"
         return "none"
-
-
-# ---------------------------------------------------------------------------
-# Usage persistence (per armory, append-only)
-# ---------------------------------------------------------------------------
 
 
 _USAGE_DIR = "usage"

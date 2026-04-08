@@ -81,7 +81,6 @@ def render_markdown_lite(text: str) -> str:
     """
     result = text
 
-    # Code blocks (triple backtick)
     def _code_block(m: re.Match[str]) -> str:
         lang = m.group(1) or ""
         code = m.group(2)
@@ -92,13 +91,10 @@ def render_markdown_lite(text: str) -> str:
 
     result = re.sub(r"```(\w*)\n(.*?)```", _code_block, result, flags=re.DOTALL)
 
-    # Inline code
     result = re.sub(r"`([^`]+)`", lambda m: styled(m.group(1), STYLE_DIM), result)
 
-    # Bold
     result = re.sub(r"\*\*(.+?)\*\*", lambda m: styled(m.group(1), BOLD), result)
 
-    # Italic (single * not preceded/followed by *)
     return re.sub(
         r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
         lambda m: styled(m.group(1), ITALIC),
@@ -209,7 +205,6 @@ def print_shell_intro(
 
     print_banner(version)
 
-    # --- Status line ---
     armory_status = styled(armory_path, STYLE_ACCENT)
     api_status = (
         styled("configured", STYLE_ACCENT)
@@ -231,7 +226,6 @@ def print_shell_intro(
     print(_center_line(status, cols))
     print()
 
-    # --- Tips ---
     tips = [
         (
             f"Type {styled('/help', STYLE_ACCENT)} for commands"

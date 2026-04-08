@@ -45,10 +45,6 @@ from hephaistos.logging import get_logger
 
 _log = get_logger("rag.retrieve")
 
-# ---------------------------------------------------------------------------
-# Public data types
-# ---------------------------------------------------------------------------
-
 _WORD_RE = re.compile(r"[a-zA-Z0-9]+")
 _STOP_WORDS = frozenset(
     {
@@ -157,11 +153,6 @@ class ScoredChunk:
     score: float
 
 
-# ---------------------------------------------------------------------------
-# Retriever protocol
-# ---------------------------------------------------------------------------
-
-
 @runtime_checkable
 class RetrieverProtocol(Protocol):
     """Minimal interface every retriever must implement."""
@@ -186,11 +177,6 @@ class RerankerProtocol(Protocol):
     ) -> list[ScoredChunk]: ...
 
 
-# ---------------------------------------------------------------------------
-# TF-IDF retriever (pure stdlib, always available)
-# ---------------------------------------------------------------------------
-
-
 def _tokenize(text: str) -> list[str]:
     tokens = _WORD_RE.findall(text.lower())
     return [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
@@ -206,10 +192,8 @@ class TfidfRetriever:
 
     def __init__(self, index: ArmoryIndex) -> None:
         self._chunks = index.all_chunks
-        # sklearn path (preferred when available)
         self._vectorizer: _SklearnTfidfVectorizer | None = None  # type: ignore[type-arg]
         self._matrix = None
-        # stdlib fallback
         self._idf: dict[str, float] = {}
         self._chunk_freqs: list[Counter] = []
         if self._chunks:
@@ -220,8 +204,6 @@ class TfidfRetriever:
                     self._build_idf()
             else:
                 self._build_idf()
-
-    # -- index fitting -----------------------------------------------------
 
     def _build_idf(self) -> None:
         doc_count = len(self._chunks)
@@ -237,8 +219,6 @@ class TfidfRetriever:
             term: math.log((doc_count + 1) / (count + 1)) + 1 for term, count in df.items()
         }
 
-    # -- sklearn build ---------------------------------------------------
-
     def _build_sklearn(self) -> None:
         """Build TF-IDF matrix using scikit-learn (preferred when available)."""
         assert _SklearnTfidfVectorizer is not None  # guarded by _HAS_SKLEARN
@@ -250,8 +230,6 @@ class TfidfRetriever:
             token_pattern=r"(?u)\\b[a-zA-Z0-9]{2,}\\b",
         )
         self._matrix = self._vectorizer.fit_transform(texts)  # type: ignore[union-attr]
-
-    # -- retrieval ---------------------------------------------------------
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
         """Return the top-k chunks most relevant to *query*."""
@@ -320,10 +298,6 @@ class TfidfRetriever:
 
         return dot / (math.sqrt(chunk_norm_sq) * math.sqrt(query_norm_sq))
 
-
-# ---------------------------------------------------------------------------
-# Embedding retriever (requires sentence-transformers)
-# ---------------------------------------------------------------------------
 
 _EMBED_MODEL_ENV = "HEPHAISTOS_EMBED_MODEL"
 _EMBED_MODEL_DEFAULT = "all-MiniLM-L6-v2"
@@ -394,7 +368,6 @@ class EmbeddingRetriever:
         model = self._ensure_model()
         texts = [c.text for c in self._chunks]
         vectors = model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
-        # Convert to plain Python lists for portability
         self._embeddings = [row.tolist() for row in vectors]
         return self._embeddings
 
@@ -405,12 +378,8 @@ class EmbeddingRetriever:
 
         embeddings = self._ensure_embeddings()
         model = self._ensure_model()
-
-        # Encode query
         query_vec = model.encode([query], convert_to_numpy=True, show_progress_bar=False)
         query_embedding = query_vec[0].tolist()
-
-        # Score every chunk
         scored: list[ScoredChunk] = []
         for i, chunk_embedding in enumerate(embeddings):
             sim = _cosine_similarity(query_embedding, chunk_embedding)
@@ -419,11 +388,6 @@ class EmbeddingRetriever:
 
         scored.sort(key=lambda s: s.score, reverse=True)
         return scored[:top_k]
-
-
-# ---------------------------------------------------------------------------
-# Cross-encoder re-ranker (requires sentence-transformers)
-# ---------------------------------------------------------------------------
 
 
 class CrossEncoderReranker:
@@ -474,23 +438,14 @@ class CrossEncoderReranker:
             return []
 
         model = self._ensure_model()
-
-        # Build (query, passage) pairs for the cross-encoder
         pairs = [(query, sc.chunk.text) for sc in candidates]
         scores = model.predict(pairs)
-
-        # Re-score and sort
         scored = [
             ScoredChunk(chunk=candidates[i].chunk, score=float(scores[i]))
             for i in range(len(candidates))
         ]
         scored.sort(key=lambda s: s.score, reverse=True)
         return scored[:top_k]
-
-
-# ---------------------------------------------------------------------------
-# Hybrid retriever (reciprocal rank fusion)
-# ---------------------------------------------------------------------------
 
 
 def _reciprocal_rank_fusion(
@@ -506,7 +461,6 @@ def _reciprocal_rank_fusion(
     The returned ``ScoredChunk.score`` is the RRF score.  The ``chunk``
     object comes from the first list that contained it.
     """
-    # chunk_key -> (rrf_score, ScoredChunk)
     merged: dict[tuple[str, int], tuple[float, ScoredChunk]] = {}
 
     for ranked in ranked_lists:
@@ -523,7 +477,6 @@ def _reciprocal_rank_fusion(
         ScoredChunk(chunk=sc.chunk, score=score)
         for (_, score, sc) in ((key, score, sc) for key, (score, sc) in merged.items())
     ]
-    # Sort by RRF score descending
     results.sort(key=lambda s: s.score, reverse=True)
     return results
 
@@ -633,11 +586,6 @@ class HybridRetriever:
         return _reciprocal_rank_fusion([tfidf_results, embed_results])
 
 
-# ---------------------------------------------------------------------------
-# Auto-selection factory
-# ---------------------------------------------------------------------------
-
-
 def _create_retriever(
     index: ArmoryIndex,
     embed_model: str | None = None,
@@ -669,11 +617,6 @@ def _create_retriever(
         if hybrid.has_embeddings:
             return hybrid
     return TfidfRetriever(index)
-
-
-# ---------------------------------------------------------------------------
-# Convenience function (public API)
-# ---------------------------------------------------------------------------
 
 
 def retrieve(

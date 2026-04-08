@@ -32,10 +32,6 @@ from hephaistos.logging import get_logger
 
 _log = get_logger("harness.citation")
 
-# ---------------------------------------------------------------------------
-# RAG context parsing
-# ---------------------------------------------------------------------------
-
 _RAG_PREFIX = "Source material retrieved for this question:"
 
 # Matches the attribution headers produced by context.build_context():
@@ -61,10 +57,6 @@ def _get_rag_sources(messages: list[Message]) -> set[str]:
                 sources.add(m.group(1))
     return sources
 
-
-# ---------------------------------------------------------------------------
-# Source matching helpers
-# ---------------------------------------------------------------------------
 
 _DOC_EXTENSIONS = frozenset(
     {
@@ -114,10 +106,6 @@ def _looks_like_source(text: str) -> bool:
     lower = text.lower()
     return any(lower.endswith(ext) for ext in _DOC_EXTENSIONS) or "/" in text
 
-
-# ---------------------------------------------------------------------------
-# Citation extraction
-# ---------------------------------------------------------------------------
 
 # Multiple regex patterns to catch common citation formats.
 _CITATION_PATTERNS: list[re.Pattern[str]] = [
@@ -188,12 +176,7 @@ def extract_citations(text: str) -> list[ExtractedCitation]:
     return citations
 
 
-# ---------------------------------------------------------------------------
-# Verification
-# ---------------------------------------------------------------------------
-
 # Responses shorter than this are considered conversational (hints,
-# assessments) and won't trigger the "no citations" warning.
 _NO_CITATION_CHAR_THRESHOLD = 200
 
 
@@ -236,7 +219,6 @@ def verify_citations(
         )
 
     if not has_rag:
-        # No RAG context — every citation is suspect
         return VerificationResult(
             verified=[],
             unverified=[c.raw for c in citations],
@@ -279,8 +261,6 @@ def format_verification_notice(result: VerificationResult, reply_len: int) -> st
             f"\nWarning: Unverified citation(s): {listed}. "
             "These sources were not found in the retrieved context."
         )
-
-    # Substantive answer with RAG context but zero citations
     if (
         not result.has_citations
         and result.rag_context_present
@@ -292,11 +272,6 @@ def format_verification_notice(result: VerificationResult, reply_len: int) -> st
         )
 
     return "".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
 
 
 def verify_response(reply: str, messages: list[Message]) -> str:

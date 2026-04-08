@@ -26,7 +26,6 @@ _SERVICE_PREFIX = "hephaistos"
 _USERNAME = "api_key"
 
 # Module-level volatile override cache.  Keys set via /api key live here
-# for the duration of the process and are *not* persisted to disk.
 _volatile: dict[str, str] = {}
 
 

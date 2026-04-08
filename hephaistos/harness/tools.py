@@ -21,10 +21,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Path sandboxing
-# ---------------------------------------------------------------------------
-
 
 def safe_path(workspace: Path, rel_path: str) -> Path:
     """Resolve *rel_path* inside *workspace* and ensure it doesn't escape."""
@@ -33,10 +29,6 @@ def safe_path(workspace: Path, rel_path: str) -> Path:
         raise ValueError(f"Path escapes workspace: {rel_path}")
     return resolved
 
-
-# ---------------------------------------------------------------------------
-# Tool schemas (OpenAI function-calling format)
-# ---------------------------------------------------------------------------
 
 TOOL_SCHEMAS: list[dict] = [
     {
@@ -223,22 +215,12 @@ TOOL_SCHEMAS: list[dict] = [
     },
 ]
 
-
-# ---------------------------------------------------------------------------
-# Tool handlers
-# ---------------------------------------------------------------------------
-
 _BASH_TIMEOUT = 30
 _MAX_READ_CHARS = 50_000
 _WEB_FETCH_TIMEOUT = 15
 _WEB_FETCH_MAX_CHARS = 20_000
 _WEB_USER_AGENT = "Hephaistos/0.1 (study agent)"
 _MAX_SEARCH_RESULTS = 50
-
-
-# ---------------------------------------------------------------------------
-# Structured bash result
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -420,11 +402,6 @@ def run_list_files(
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Search files tool
-# ---------------------------------------------------------------------------
-
-
 def run_search_files(
     pattern: str,
     *,
@@ -483,11 +460,6 @@ def run_search_files(
     return header + "\n" + "\n".join(matches)
 
 
-# ---------------------------------------------------------------------------
-# Web fetch tool
-# ---------------------------------------------------------------------------
-
-
 def run_web_fetch(url: str, **_kwargs: object) -> str:
     """Fetch a URL and return the text content with source attribution.
 
@@ -495,7 +467,6 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
     the armory documents.  The response always includes the source URL
     so the user can verify the information.
     """
-    # Basic URL validation
     if not url.startswith(("http://", "https://")):
         return "Error: URL must start with http:// or https://"
 
@@ -515,29 +486,17 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
         return f"Error: could not reach {url} — {exc.reason}"
     except Exception as exc:
         return f"Error fetching {url}: {exc}"
-
-    # Truncate
     if len(raw) > _WEB_FETCH_MAX_CHARS:
         raw = raw[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
-
-    # Strip HTML tags if it looks like HTML (basic)
     if "<html" in raw.lower() or "<body" in raw.lower():
-        # Remove script/style blocks
         raw = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw, flags=re.IGNORECASE)
         raw = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", raw, flags=re.IGNORECASE)
-        # Remove tags
         raw = re.sub(r"<[^>]+>", " ", raw)
-        # Collapse whitespace
         raw = re.sub(r"\s+", " ", raw).strip()
         if len(raw) > _WEB_FETCH_MAX_CHARS:
             raw = raw[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
 
     return f"--- Source: {url} ---\n{raw}\n--- End of fetched content ---"
-
-
-# ---------------------------------------------------------------------------
-# Dispatch map
-# ---------------------------------------------------------------------------
 
 
 def _mutation_wrap(path_str: str, fn: Callable[..., str], **kwargs: object) -> str:

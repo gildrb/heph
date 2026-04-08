@@ -29,10 +29,6 @@ class MenuOption:
     is_current: bool = False
 
 
-# ---------------------------------------------------------------------------
-# prompt_toolkit arrow-key selector (full-screen)
-# ---------------------------------------------------------------------------
-
 _MENU_STYLE = PtStyle.from_dict(
     {
         "title": FORGE_ASH,
@@ -55,7 +51,7 @@ def _select_with_prompt_toolkit(
     keybindings: dict[str, str | list[str]],
 ) -> int | None:
     """Arrow-key selector using prompt_toolkit (full-screen, alternate buffer)."""
-    selected = [0]  # mutable for closure
+    selected = [0]  # mutable container for closure mutation
 
     def get_text():
         parts: list[tuple[str, str]] = []
@@ -113,11 +109,6 @@ def _select_with_prompt_toolkit(
     return app.run()
 
 
-# ---------------------------------------------------------------------------
-# Fallback: numbered prompt
-# ---------------------------------------------------------------------------
-
-
 def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
     print(styled(title, STYLE_PROMPT))
     for index, option in enumerate(options, start=1):
@@ -146,11 +137,6 @@ def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
         print("Unknown option.")
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
 def select_option(
     title: str,
     options: list[MenuOption],
@@ -167,7 +153,7 @@ def select_option(
         try:
             return _select_with_prompt_toolkit(title, options, kb)
         except Exception:
-            pass  # fall through to numbered prompt
+            pass
 
     return _select_with_prompt(title, options)
 

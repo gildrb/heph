@@ -48,25 +48,21 @@ class ChatConfig:
     model: str = "gpt-4o-mini"
     max_tokens: int = 4096
     rag_context_budget: int = 2000
-    # Provider references for lazy key resolution (set by ProviderConfig)
     _provider_slug: str = field(default="", repr=False)
     _provider_env: str = field(default="", repr=False)
 
     @property
     def resolved_api_key(self) -> str:
         """Resolve the API key via keychain → env → volatile → raw fallback."""
-        # 1. If a provider slug is set, use the full resolution chain
         if self._provider_slug:
             from hephaistos.providers.keyring_store import resolve_key
 
             key = resolve_key(self._provider_slug, self._provider_env)
             if key:
                 return key
-        # 2. Check env vars directly (covers from_env() path)
         env_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
         if env_key.strip():
             return env_key.strip()
-        # 3. Fall back to the raw field (backward compat for tests)
         return self.api_key
 
     @classmethod
@@ -121,7 +117,6 @@ class RetryConfig:
         )
 
 
-# Retryable exception types from the OpenAI library
 _RETRYABLE_TYPES = (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError)
 
 
@@ -220,8 +215,6 @@ def stream_reply(
             return
 
         timer = Timer()
-
-        # --- Open the stream ---
         try:
             with timer:
                 stream = client.chat.completions.create(
@@ -243,8 +236,6 @@ def stream_reply(
                     return  # aborted during backoff
                 continue
             raise EngineError(f"LLM request failed: {exc}") from exc
-
-        # --- Consume the stream ---
         partial_content = ""
         try:
             for chunk in stream:
@@ -286,8 +277,6 @@ def stream_reply(
                     return
                 continue
             raise EngineError(f"LLM stream failed: {exc}") from exc
-
-        # Stream completed successfully
         _log.info(
             "stream_reply complete",
             extra={
@@ -299,8 +288,6 @@ def stream_reply(
             },
         )
         return
-
-    # All retries exhausted (only reached on pre-stream failures)
     raise EngineError(
         f"LLM request failed after {retry.max_retries + 1} attempts: {last_error}"
     ) from last_error

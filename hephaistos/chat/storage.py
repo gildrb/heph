@@ -76,8 +76,6 @@ def save(
         "updated_at": datetime.now(UTC).isoformat(),
         "messages": [_message_to_dict(m) for m in conversation.messages],
     }
-
-    # Preserve created_at if the file already exists
     if file_path.exists():
         existing = json.loads(file_path.read_text(encoding="utf-8"))
         data["created_at"] = existing.get("created_at", datetime.now(UTC).isoformat())

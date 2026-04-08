@@ -20,7 +20,6 @@ from hephaistos.logging import Timer, get_logger
 
 _log = get_logger("harness.mutation_queue")
 
-
 # Type for mutation functions: takes kwargs, returns result string
 MutationFn = Callable[..., str]
 
@@ -115,10 +114,6 @@ class FileMutationQueue:
         with self._global_lock:
             self._locks.clear()
 
-
-# ---------------------------------------------------------------------------
-# Per-workspace queues
-# ---------------------------------------------------------------------------
 
 _queues: dict[str, FileMutationQueue] = {}
 _queues_lock = threading.Lock()

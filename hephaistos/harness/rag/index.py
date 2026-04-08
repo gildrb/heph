@@ -142,8 +142,6 @@ class ArmoryIndex:
         version = data.get("version", 1)
         if version not in (1, 2):
             return False
-
-        # Recover strategy from persisted index (v2+)
         if version >= 2 and "strategy" in data:
             with contextlib.suppress(ValueError):
                 self.strategy = ChunkStrategy(data["strategy"])

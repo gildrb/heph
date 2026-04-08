@@ -120,7 +120,7 @@ reportMissingImports = "none"
 reportUnusedImport = "warning"
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q"
+addopts = "--tb=short -q --cov=hephaistos --cov-report=term-missing"
 testpaths = ["tests"]
 
 [dependency-groups]

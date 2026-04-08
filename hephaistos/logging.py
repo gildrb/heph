@@ -35,10 +35,6 @@ from hephaistos.app.palette import (
     ansi_fg,
 )
 
-# ---------------------------------------------------------------------------
-# JSON formatter
-# ---------------------------------------------------------------------------
-
 
 class _JsonFormatter(logging.Formatter):
     """Emit one JSON object per log line."""
@@ -50,12 +46,9 @@ class _JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": record.getMessage(),
         }
-        # Merge structured fields attached via extra={"fields": {...}}
         fields = getattr(record, "fields", None)
         if fields and isinstance(fields, dict):
             entry.update(fields)
-
-        # Attach exception info
         if record.exc_info and record.exc_info[1] is not None:
             entry["exc"] = self.formatException(record.exc_info)
 
@@ -92,10 +85,6 @@ class _TextFormatter(logging.Formatter):
         return "\n".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Logger factory
-# ---------------------------------------------------------------------------
-
 _LOG_LEVEL_ENV = "HEPHAISTOS_LOG_LEVEL"
 _LOG_FILE_ENV = "HEPHAISTOS_LOG_FILE"
 _LOG_FORMAT_ENV = "HEPHAISTOS_LOG_FORMAT"
@@ -116,29 +105,20 @@ def _ensure_root() -> None:
 
     root = logging.getLogger("hephaistos")
     root.setLevel(level)
-
-    # Prevent double-handlers if init is called again in tests
     if root.handlers:
         return
-
-    # Stderr handler (always active)
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setLevel(level)
     stderr_handler.setFormatter(_JsonFormatter() if fmt == "json" else _TextFormatter())
     root.addHandler(stderr_handler)
-
-    # Optional file handler
     log_file = os.environ.get(_LOG_FILE_ENV)
     if log_file:
         path = Path(log_file)
         path.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(path, encoding="utf-8")
         file_handler.setLevel(level)
-        # Files always get JSON for easy parsing
         file_handler.setFormatter(_JsonFormatter())
         root.addHandler(file_handler)
-
-    # Quiet the OpenAI / httpx noise
     for noisy in ("openai", "httpx", "httpcore", "urllib3", "sentence_transformers"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
@@ -159,11 +139,6 @@ def get_logger(name: str) -> logging.Logger:
     if not name.startswith("hephaistos"):
         name = f"hephaistos.{name}"
     return logging.getLogger(name)
-
-
-# ---------------------------------------------------------------------------
-# Latency helper (context manager / decorator)
-# ---------------------------------------------------------------------------
 
 
 class Timer:
@@ -197,10 +172,6 @@ class Timer:
     def ms(self) -> float:
         return (self._end - self._start) * 1000
 
-
-# ---------------------------------------------------------------------------
-# Session trace writer
-# ---------------------------------------------------------------------------
 
 _TRACES_DIR = "traces"
 
@@ -257,8 +228,6 @@ class TraceWriter:
     @staticmethod
     def _ts() -> str:
         return datetime.now(UTC).isoformat()
-
-    # -- Event helpers -------------------------------------------------------
 
     def record_user_message(self, content: str) -> None:
         self._write({"type": "user_message", "ts": self._ts(), "content": content})
@@ -346,9 +315,5 @@ class TraceWriter:
                 self._file_handle.close()
             self._file_handle = None
 
-
-# ---------------------------------------------------------------------------
-# Module-level convenience logger
-# ---------------------------------------------------------------------------
 
 logger = get_logger("hephaistos")

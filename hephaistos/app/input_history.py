@@ -11,7 +11,7 @@ class InputHistory:
 
     def __init__(self, entries: list[str] | None = None) -> None:
         self._entries: list[str] = entries or []
-        self._index = -1  # -1 means "not navigating"
+        self._index = -1
 
     @property
     def entries(self) -> list[str]:
@@ -21,12 +21,10 @@ class InputHistory:
         line = line.strip()
         if not line:
             return
-        # Deduplicate: if the same line was the last entry, skip
         if self._entries and self._entries[-1] == line:
             self._index = -1
             return
         self._entries.append(line)
-        # Cap at 1000 entries
         if len(self._entries) > 1000:
             self._entries = self._entries[-1000:]
         self._index = -1

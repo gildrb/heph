@@ -27,12 +27,10 @@ def _parse_toml_simple(path: Path) -> dict[str, str]:
         key, _, value = line.partition("=")
         key = key.strip()
         value = value.strip()
-        # Remove inline comments
         if value.startswith('"'):
             end = value.find('"', 1)
             if end != -1:
                 value = value[1:end]
-        # Unquoted value: strip trailing comment
         elif "#" in value:
             value = value[: value.index("#")].strip()
         result[key] = value
@@ -45,8 +43,6 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
     Priority: env vars > provider config > TOML file > ChatConfig defaults.
     """
     config = ChatConfig()
-
-    # Read TOML defaults
     toml_path = _DEFAULTS_FILE
     if toml_path.is_file():
         toml = _parse_toml_simple(toml_path)
@@ -57,8 +53,6 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         if toml.get("max_tokens"):
             with contextlib.suppress(ValueError):
                 config.max_tokens = int(toml["max_tokens"])
-
-    # Apply provider config (overrides TOML defaults)
     try:
         from hephaistos.providers.config import ProviderConfig
 
@@ -68,8 +62,6 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         import sys
 
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
-
-    # Environment variable overrides (highest priority for non-key settings)
     api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
     # Do NOT store raw key in config.api_key. The resolved_api_key property
     # will pick it up from env vars at call time.

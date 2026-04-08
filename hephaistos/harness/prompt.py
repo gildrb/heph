@@ -19,11 +19,6 @@ from hephaistos.logging import get_logger
 
 _log = get_logger("harness.prompt")
 
-
-# ---------------------------------------------------------------------------
-# Tool documentation (embedded in system prompt)
-# ---------------------------------------------------------------------------
-
 _TOOL_DOCS = """\
 ## Tools
 
@@ -68,11 +63,6 @@ Fetch a web page. Use ONLY when the answer is not in armory documents.
 Compress conversation context. Use when you notice the conversation getting long.
 """
 
-
-# ---------------------------------------------------------------------------
-# Anti-hallucination directives
-# ---------------------------------------------------------------------------
-
 _ANTI_HALLUCINATION = """\
 ## Accuracy Rules (CRITICAL — violation is the worst possible outcome)
 
@@ -90,11 +80,6 @@ _ANTI_HALLUCINATION = """\
 7. **When describing diagrams/figures, be precise.** Every label, axis, unit, and value must
    come from the actual image — never approximate or invent details.
 """
-
-
-# ---------------------------------------------------------------------------
-# Study loop
-# ---------------------------------------------------------------------------
 
 _STUDY_LOOP = """\
 ## Study Loop
@@ -115,11 +100,6 @@ If the student asks to skip, present the next question.
 If the student asks for the answer, remind them to try recalling first.
 """
 
-
-# ---------------------------------------------------------------------------
-# Core role prompt
-# ---------------------------------------------------------------------------
-
 _CORE_ROLE = """\
 Hephaistos. A drill instructor for exam preparation.
 Your job: make the student recall and reproduce solutions from past exam papers.
@@ -136,11 +116,6 @@ Your job: make the student recall and reproduce solutions from past exam papers.
 - Cite source filename for every answer.
 """
 
-
-# ---------------------------------------------------------------------------
-# Format rules
-# ---------------------------------------------------------------------------
-
 _FORMAT_RULES = """\
 ## Format
 
@@ -151,11 +126,6 @@ _FORMAT_RULES = """\
 - Keep responses short. One idea per response when possible.
 - Tables: reproduce structure with exact values from source.
 """
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 
 def build_system_prompt(

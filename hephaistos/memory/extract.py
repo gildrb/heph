@@ -102,10 +102,7 @@ def extract_from_exchange(
             },
         )
         return []
-
-    # Parse the response
     try:
-        # Strip markdown code fences if present
         raw = raw.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1]
@@ -116,8 +113,6 @@ def extract_from_exchange(
         entries = json.loads(raw)
         if not isinstance(entries, list):
             return []
-
-        # Validate each entry
         valid: list[dict[str, str]] = []
         for entry in entries:
             if not isinstance(entry, dict):

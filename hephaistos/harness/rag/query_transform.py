@@ -38,11 +38,6 @@ from hephaistos.logging import get_logger
 _log = get_logger("rag.query_transform")
 
 
-# ---------------------------------------------------------------------------
-# Public types
-# ---------------------------------------------------------------------------
-
-
 class TransformStrategy(Enum):
     """Selects which query transformation strategy to apply."""
 
@@ -71,11 +66,6 @@ class QueryTransformerProtocol(Protocol):
 PromptFn = Callable[[str], str]
 
 
-# ---------------------------------------------------------------------------
-# Identity transformer (passthrough — always available)
-# ---------------------------------------------------------------------------
-
-
 class IdentityTransformer:
     """Returns the original query unchanged.
 
@@ -85,11 +75,6 @@ class IdentityTransformer:
 
     def transform(self, query: str) -> list[str]:
         return [query]
-
-
-# ---------------------------------------------------------------------------
-# Query expansion (no LLM — keyword-based)
-# ---------------------------------------------------------------------------
 
 
 _WORD_RE = re.compile(r"[a-zA-Z]{3,}")
@@ -147,7 +132,6 @@ def _expand_with_wordnet(word: str) -> list[str]:
     except ImportError:
         return []
     except Exception:
-        # WordNet data may not be downloaded
         return []
 
 
@@ -176,19 +160,14 @@ class QueryExpander:
 
         expansions: set[str] = set()
         for word in words:
-            # Built-in synonym map
             if word in _SYNONYM_MAP:
                 expansions.update(_SYNONYM_MAP[word][:3])
-
-            # WordNet expansion (optional)
             if self._use_wordnet:
                 wn_synonyms = _expand_with_wordnet(word)
                 expansions.update(wn_synonyms[:3])
 
         if not expansions:
             return [query]
-
-        # Build the expanded query: original + top expansion terms
         expanded_terms = list(expansions)[:8]  # cap to avoid query bloat
         expanded_query = f"{query} {' '.join(expanded_terms)}"
 
@@ -203,11 +182,6 @@ class QueryExpander:
         )
 
         return [query, expanded_query]
-
-
-# ---------------------------------------------------------------------------
-# HyDE — Hypothetical Document Embeddings (requires LLM)
-# ---------------------------------------------------------------------------
 
 
 _HYDE_SYSTEM_PROMPT = (
@@ -267,11 +241,6 @@ class HyDETransformer:
         return [hypothetical_doc.strip(), query]
 
 
-# ---------------------------------------------------------------------------
-# Multi-Query (requires LLM)
-# ---------------------------------------------------------------------------
-
-
 _MULTI_QUERY_PROMPT = (
     "You are an AI assistant that helps generate multiple versions of a "
     "search query to improve document retrieval.  Given the original query, "
@@ -320,25 +289,17 @@ class MultiQueryTransformer:
 
         if not response or not response.strip():
             return [query]
-
-        # Parse the response into individual queries
         alternatives = [line.strip() for line in response.strip().splitlines() if line.strip()]
-
-        # Filter out lines that look like numbering or labels
         cleaned: list[str] = []
         for alt in alternatives:
             # Strip leading numbering like "1. " or "- " or "* "
             alt = re.sub(r"^[\d\-\*]+\.\s*", "", alt).strip()
             if alt and len(alt) > 5:  # skip very short fragments
                 cleaned.append(alt)
-
-        # Cap to max_alternatives
         cleaned = cleaned[: self._max_alternatives]
 
         if not cleaned:
             return [query]
-
-        # Always include the original query
         queries = [query, *cleaned]
 
         _log.debug(
@@ -353,11 +314,6 @@ class MultiQueryTransformer:
         )
 
         return queries
-
-
-# ---------------------------------------------------------------------------
-# Composite transformer (chains multiple transformers)
-# ---------------------------------------------------------------------------
 
 
 class CompositeTransformer:
@@ -375,8 +331,6 @@ class CompositeTransformer:
         """Apply all transformers in sequence, collecting unique queries."""
         seen: set[str] = set()
         result: list[str] = []
-
-        # Start with the initial query from the first transformer
         current_queries = [query]
 
         for transformer in self._transformers:
@@ -389,17 +343,10 @@ class CompositeTransformer:
                         next_queries.append(t)
                         result.append(t)
             current_queries = next_queries or current_queries
-
-        # Ensure at least the original query is present
         if query not in seen:
             result.insert(0, query)
 
         return result or [query]
-
-
-# ---------------------------------------------------------------------------
-# Factory function
-# ---------------------------------------------------------------------------
 
 
 def create_transformer(
@@ -421,13 +368,7 @@ def create_transformer(
         return HyDETransformer(prompt_fn=prompt_fn)
     if strategy == TransformStrategy.MULTI_QUERY:
         return MultiQueryTransformer(prompt_fn=prompt_fn)
-    # Fallback
     return IdentityTransformer()
-
-
-# ---------------------------------------------------------------------------
-# Convenience function (public API)
-# ---------------------------------------------------------------------------
 
 
 def transform_query(

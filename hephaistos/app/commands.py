@@ -49,11 +49,6 @@ class Command:
         raise NotImplementedError
 
 
-# ---------------------------------------------------------------------------
-# Command implementations
-# ---------------------------------------------------------------------------
-
-
 class HelpCommand(Command):
     name = "help"
     description = "Show available commands"
@@ -200,8 +195,6 @@ class ModelCommand(Command):
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = _ensure_session(session)
-
-        # Direct set: /model <model-name>
         if args.strip():
             model_name = args.strip()
             if not is_supported_model_for_endpoint(model_name, s.config.base_url):
@@ -211,13 +204,9 @@ class ModelCommand(Command):
             s.config.model = model_name
             print_success(f"Model: {old} -> {s.config.model}")
             return CommandResult()
-
-        # No args: show unified model picker
         pc = ProviderConfig.load()
         active = pc.get_active()
         current_model = s.config.model
-
-        # Build flat list of (provider_slug, model_name) across all providers
         options: list[MenuOption] = []
         model_map: list[tuple[str, str]] = []  # parallel to options: (slug, model)
 
@@ -251,8 +240,6 @@ class ModelCommand(Command):
             return CommandResult()
 
         slug, model = model_map[selected]
-
-        # Switch provider and model
         pc.set_active(slug)
         p = pc.providers[slug]
         p.current_model = model
@@ -279,7 +266,6 @@ class ApiCommand(Command):
         parts = args.strip().split(maxsplit=1)
 
         if not parts:
-            # Show current status — never reveal the raw key
             pc = ProviderConfig.load()
             active = pc.get_active()
             slug = active.slug if active else ""
@@ -322,16 +308,12 @@ class ApiCommand(Command):
             pc = ProviderConfig.load()
             active = pc.get_active()
             slug = active.slug if active else "custom"
-
-            # Try keychain first; fall back to volatile
             try:
                 store_key(slug, raw_key)
                 print_success(f"API key saved to keychain for '{slug}'.")
             except Exception:
                 set_volatile(slug, raw_key)
                 print_success("API key set for this session only (keychain unavailable).")
-
-            # Also set volatile so the current session picks it up immediately
             set_volatile(slug, raw_key)
             return CommandResult()
 
@@ -461,8 +443,6 @@ class EditCommand(Command):
         if not new_text:
             print_info("Cancelled.")
             return CommandResult()
-
-        # Remove messages from last_user_idx onward
         s.conversation.messages = s.conversation.messages[:last_user_idx]
         s.dirty = True
 
@@ -578,8 +558,6 @@ class ModelsCommand(Command):
         if not models:
             print_info("No models in registry.")
             return CommandResult()
-
-        # Group by provider
         current_provider = ""
         for m in models:
             if m.provider != current_provider:
@@ -615,11 +593,6 @@ class UsageCommand(Command):
         ]
         print("\n".join(lines))
         return CommandResult()
-
-
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
 
 
 def _ensure_session(session: object):

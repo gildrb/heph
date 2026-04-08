@@ -76,11 +76,6 @@ ARMORY_MENU_OPTIONS = [
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 
-
-# ---------------------------------------------------------------------------
-# prompt_toolkit configuration
-# ---------------------------------------------------------------------------
-
 _PT_STYLE = PtStyle.from_dict(
     {
         "armory": f"bold {FORGE_EMBER}",
@@ -136,15 +131,11 @@ def _build_keybindings(
     def _(event):
         buf = event.current_buffer
         line = buf.document.current_line_before_cursor
-
-        # Backslash continuation → replace \ with newline
         if line.rstrip().endswith("\\"):
             stripped = line.rstrip()
             buf.delete_before_cursor(count=len(line) - len(stripped) + 1)
             buf.insert_text("\n")
             return
-
-        # Ignore empty input
         if not buf.text.strip():
             return
 
@@ -213,11 +204,6 @@ def _refresh_bottom_toolbar(session: ChatSession, toolbar_ref: list[str]) -> Non
 def _get_bottom_toolbar(toolbar_ref: list[str]):
     """Return the cached bottom-toolbar text for prompt_toolkit redraws."""
     return FormattedText([("class:bottom-toolbar", toolbar_ref[0])])
-
-
-# ---------------------------------------------------------------------------
-# Armory management (used by commands.py too)
-# ---------------------------------------------------------------------------
 
 
 def _discover_startup_armory() -> Path | None:
@@ -387,11 +373,6 @@ def _handle_armory_command(session: ChatSession) -> ChatSession:
     return session
 
 
-# ---------------------------------------------------------------------------
-# Shell command execution
-# ---------------------------------------------------------------------------
-
-
 def _run_shell_command(cmd: str) -> None:
     """Execute a shell command and display output."""
     print(styled(f"$ {cmd}", STYLE_DIM))
@@ -399,11 +380,6 @@ def _run_shell_command(cmd: str) -> None:
         subprocess.run(cmd, shell=True, capture_output=False, text=True, check=False)
     except Exception as exc:
         print_error(str(exc))
-
-
-# ---------------------------------------------------------------------------
-# Input processing
-# ---------------------------------------------------------------------------
 
 
 def _handle_input(
@@ -419,16 +395,12 @@ def _handle_input(
     """
     if not user_input or not user_input.strip():
         return session, True
-
-    # If the agent is currently streaming, enqueue as steering message
     if streaming:
         from hephaistos.harness.dispatch import SteeringQueue
 
         if isinstance(session.steering, SteeringQueue):
             session.steering.enqueue(user_input)
         return session, True
-
-    # Shell mode: !command
     if user_input.startswith("!"):
         cmd = user_input[1:].strip()
         if cmd:
@@ -442,8 +414,6 @@ def _handle_input(
             else:
                 _run_shell_command(cmd)
         return session, True
-
-    # Slash commands
     if user_input.startswith("/"):
         history.add(user_input)
         stripped = user_input.strip()
@@ -475,8 +445,6 @@ def _handle_input(
 
         if result.new_session is not None:
             session = result.new_session  # type: ignore[assignment]
-
-        # Handle /edit resend
         if result.output and result.output.startswith("__RESEND__:"):
             new_input = result.output[len("__RESEND__:") :]
             history.add(new_input)
@@ -498,8 +466,6 @@ def _handle_input(
                 print()
 
         return session, True
-
-    # Normal LLM prompt
     history.add(user_input)
     print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
     abort = threading.Event()
@@ -518,11 +484,6 @@ def _handle_input(
     else:
         print()
     return session, True
-
-
-# ---------------------------------------------------------------------------
-# Session lifecycle
-# ---------------------------------------------------------------------------
 
 
 def _print_shell_intro(session: ChatSession) -> None:
@@ -553,11 +514,6 @@ def _save_on_exit(session: ChatSession) -> None:
     session.trace.close()
 
 
-# ---------------------------------------------------------------------------
-# Main shell loop (prompt_toolkit)
-# ---------------------------------------------------------------------------
-
-
 def run_chat_shell(
     session: ChatSession | None = None,
     *,
@@ -581,8 +537,6 @@ def run_chat_shell(
 
     session_ref = [session]
     toolbar_ref = [_build_bottom_toolbar_status(session)]
-
-    # Set up prompt_toolkit session
     history_path = _get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -603,8 +557,6 @@ def run_chat_shell(
     def _sigint_handler(signum: int, frame: object) -> None:
         abort_event.set()
 
-    # History for the _handle_input function (tracks InputHistory entries
-    # for the /edit command and similar operations).
     history = InputHistory()
 
     while True:
@@ -632,11 +584,6 @@ def run_chat_shell(
             break
 
     _save_on_exit(session)
-
-
-# ---------------------------------------------------------------------------
-# Fallback shell (non-TTY / basic mode)
-# ---------------------------------------------------------------------------
 
 
 def _run_fallback_shell(session: ChatSession | None = None) -> None:

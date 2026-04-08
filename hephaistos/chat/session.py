@@ -91,7 +91,6 @@ def _list_source_file_names(armory_path: Path) -> list[str]:
 
 _RAG_CONTEXT_PREFIX = "Source material retrieved for this question:\n\n"
 
-
 _SYSTEM_PROMPT_FALLBACK = (
     "Hephaistos. A drill instructor for exam preparation.\n"
     "Ask the student to attach an armory with source documents first.\n"
@@ -142,20 +141,13 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         )
 
     conversation = Conversation()
-
-    # List source files for the prompt builder
     source_files = _list_source_file_names(armory_path)
-
-    # Build memory context
     memory_ctx = ""
     try:
         mem = load_memory(armory_path)
         memory_ctx = mem.build_system_context()
     except Exception:
         pass
-
-    # Build the rich system prompt with tool docs, anti-hallucination directives,
-    # source file list, date, and memory context
     system_prompt = build_system_prompt(
         armory_path=armory_path,
         source_files=source_files,
@@ -171,7 +163,6 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         armory_path=armory_path,
         source_file_count=source_file_count,
     )
-    # Load memory for this session
     session._memory = load_memory(armory_path)
     _log.info(
         "session created",
@@ -274,8 +265,6 @@ def send_user_message(
     try:
         if session.armory_path is not None:
             _inject_rag_context(session, user_input)
-
-            # Agent loop with tools — workspace is the armory
             parts: list[str] = []
             for chunk in agent_loop(
                 session.config,
@@ -291,7 +280,6 @@ def send_user_message(
             sys.stdout.flush()
             reply = "".join(parts)
         else:
-            # Fallback: plain streaming without tools
             reply = get_reply(session.config, session.conversation, abort=abort)
     except StreamRecoveryError as rec:
         # Partial content was streamed before the connection dropped.
@@ -323,8 +311,6 @@ def send_user_message(
         )
         session.conversation.messages = original_messages
         raise
-
-    # Citation verification: flag fabricated source references
     if session.armory_path is not None and reply:
         try:
             from hephaistos.harness.citation import verify_response
@@ -335,8 +321,6 @@ def send_user_message(
                 sys.stdout.flush()
         except Exception:
             _log.warning("citation verification failed", exc_info=True)
-
-    # Add assistant reply to conversation if the agent loop didn't already.
     if session.conversation.messages and session.conversation.messages[-1].role != "assistant":
         session.conversation.add("assistant", reply)
 
@@ -357,14 +341,11 @@ def send_user_message(
     session.trace.record_session_event(
         "reply", latency_ms=round(timer.ms, 1), reply_len=len(reply)
     )
-
-    # Extract and store memory from this exchange
     if session._memory is not None and len(reply) >= 100:
         try:
             from hephaistos.memory.extract import extract_and_store
 
             sources_used = ""
-            # Find RAG context that was injected to identify sources
             for msg in session.conversation.messages:
                 if msg.role == "system" and msg.content.startswith(_RAG_CONTEXT_PREFIX):
                     sources_used = msg.content[:200]
@@ -387,8 +368,6 @@ def send_user_message(
                 )
         except Exception:
             _log.warning("memory extraction failed", exc_info=True)
-
-    # Persist usage
     if session.armory_path is not None:
         with contextlib.suppress(Exception):
             save_usage(session.armory_path, session.session_id, session.usage)
@@ -474,8 +453,6 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
             return 0
 
         full_context = _RAG_CONTEXT_PREFIX + context_text
-
-        # Insert just before the last message (which is the user message)
         last_idx = len(session.conversation.messages) - 1
         session.conversation.messages.insert(
             last_idx,

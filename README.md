@@ -1,6 +1,6 @@
 # Hephaistos
 
-Hephaistos is a terminal-first study CLI. It attaches to an "armory" workspace that holds source material, retrieves relevant context from that material, runs a guarded tool loop inside the workspace, verifies citations after each answer, and stores per-armory memory so repeated sessions stay grounded.
+Hephaistos is an armory-first study CLI. It attaches to an "armory" workspace that holds source material, retrieves relevant context via RAG, runs a guarded agent loop with tool access inside the workspace, verifies citations after each answer, and stores per-armory memory so repeated sessions stay grounded.
 
 ## Quickstart
 
@@ -16,7 +16,7 @@ Hephaistos is a terminal-first study CLI. It attaches to an "armory" workspace t
 uv sync
 ```
 
-To enable denser retrieval and reranking, install the optional RAG group too:
+To enable embedding retrieval and cross-encoder re-ranking:
 
 ```bash
 uv sync --group rag
@@ -54,24 +54,29 @@ heph
 1. Create or open an armory workspace.
 2. Put study material in `source/` or `library/`.
 3. Start a chat in that armory.
-4. For each question, Hephaistos builds or loads the RAG index, retrieves relevant chunks, injects them into the prompt, and lets the model answer or call tools inside the workspace.
-5. After the reply, it verifies cited sources, tracks usage/cost, and extracts durable memory entries from substantive exchanges.
+4. For each question, Hephaistos builds or loads the RAG index, retrieves relevant chunks, injects them into the prompt, and runs the agent loop (LLM + tools).
+5. After the reply, it verifies cited sources against what was actually retrieved, tracks usage/cost, and extracts durable memory entries from substantive exchanges.
 
 If an armory has no source files, `chat start` will fail until you add material to `source/` or `library/`.
 
 ## Features
 
-- Interactive TTY shell built on `prompt_toolkit`
+- Interactive TTY shell built on `prompt_toolkit` with a forge-inspired colour palette and live bottom toolbar
 - Slash commands for armory/session/model/provider management
-- Shell mode via `!command`, gated by autonomy tiers
+- Shell mode via `!command`, gated by autonomy tiers that classify the actual command
 - Armory auto-discovery from the current directory or `./armory`
-- Tool loop with `bash`, `read_file`, `write_file`, `edit_file`, `list_files`, `search_files`, `web_fetch`, and `compact`
+- Agent loop with `bash`, `read_file`, `write_file`, `edit_file`, `list_files`, `search_files`, `web_fetch`, and `compact`
+- Steering — type while the agent is working to inject follow-up messages mid-loop
+- Three-layer context compaction: silent micro-compact every turn, auto-compact at token thresholds, and manual `/compact`
 - Citation verification against the sources actually retrieved for the answer
 - Per-armory memory extraction stored in `.hephaistos/memory.json`
-- Session usage and estimated cost tracking
+- Session usage and estimated cost tracking with model-specific pricing
+- Context window budget management with compaction urgency warnings
 - Structured logging plus per-session JSONL traces
-- Multi-provider model switching with a built-in provider catalog
-- TF-IDF retrieval by default, with optional embedding/hybrid retrieval when extra dependencies are installed
+- Multi-provider model switching with a built-in model registry (context windows, pricing, capabilities)
+- TF-IDF retrieval by default; optional embedding/hybrid retrieval, cross-encoder re-ranking, and query transformation (HyDE, multi-query, keyword expansion) when extra dependencies are installed
+- Mutation queue serialising concurrent file writes per-path
+- Keychain-based API key storage with lazy resolution
 
 ## Commands
 
@@ -128,6 +133,7 @@ An armory is a normal directory with a fixed layout:
 my-armory/
   .hephaistos/
     armory.toml         # armory marker and metadata
+    config.toml         # optional autonomy and permission overrides
     history             # shell history for this armory (created on use)
     memory.json         # extracted study memory
     rag_index.json      # persisted retrieval index
@@ -154,6 +160,23 @@ Provider definitions live in `~/.config/hephaistos/providers.toml`. On first loa
 - `custom`
 
 The default active provider is `zai`. Switch providers in the shell with `/provider`, or switch models with `/model`.
+
+### Autonomy tiers
+
+Shell commands (`!`) and tool calls are gated by autonomy tiers. The system classifies each command by what it actually does rather than by tool name:
+
+| Tier | Allows | Example |
+|------|--------|---------|
+| `none` | Read-only operations | `ls`, `cat`, `grep`, `git status` |
+| `low` | Low-risk file ops | `touch`, `mkdir`, `cp`, `mv` |
+| `medium` | Dev operations | `pip install`, `git commit`, `pytest` |
+| `high` | Production / privileged | `sudo`, `git push`, `rm -rf` |
+
+The default autonomy level is `low`. Override per-armory in `.hephaistos/config.toml`:
+
+```toml
+autonomy = "medium"
+```
 
 ### Environment variables
 
@@ -183,13 +206,13 @@ Defaults are stored in [`hephaistos/parameters/default.toml`](hephaistos/paramet
 
 ```text
 hephaistos/
-  app/            CLI entrypoint, shell, commands, menus, display
+  app/            CLI entrypoint, shell, commands, menus, display, palette
   armory/         armory creation and validation
   chat/           session lifecycle, engine, usage, persistence
   harness/        tool loop, permissions, compaction, citations, RAG
   memory/         learned-concept extraction and persistence
   parameters/     default parameter loading and env overrides
-  providers/      provider config, model support, keyring integration
+  providers/      provider config, model registry, keyring integration
 tests/            unit and integration tests
 ```
 

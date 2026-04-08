@@ -23,11 +23,6 @@ from hephaistos.providers.model_support import is_supported_model_for_provider
 _log = get_logger("providers.registry")
 
 
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class ModelInfo:
     """Metadata for a single model."""
@@ -48,13 +43,6 @@ class ModelInfo:
     def is_free(self) -> bool:
         return self.prompt_price_per_1k == 0 and self.completion_price_per_1k == 0
 
-
-# ---------------------------------------------------------------------------
-# Built-in model catalog
-# ---------------------------------------------------------------------------
-
-# Prices are approximate. Update periodically.
-# Format: (name, provider, display, ctx, max_out, p_price, c_price, tools, vision, reasoning, tags)
 
 _BUILTIN_MODELS: list[ModelInfo] = [
     # --- OpenAI ---
@@ -239,11 +227,6 @@ _BUILTIN_MODELS: list[ModelInfo] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
-
-
 class ModelRegistry:
     """Lookup table for model metadata."""
 
@@ -300,10 +283,6 @@ class ModelRegistry:
             return
         self._models[model.name] = model
 
-
-# ---------------------------------------------------------------------------
-# Singleton
-# ---------------------------------------------------------------------------
 
 _registry: ModelRegistry | None = None
 

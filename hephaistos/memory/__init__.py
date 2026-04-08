@@ -39,11 +39,6 @@ _log = get_logger("memory")
 _MEMORY_FILE = "memory.json"
 
 
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class MemoryEntry:
     """A single learned concept or fact."""
@@ -82,11 +77,6 @@ class MemoryEntry:
             access_count=data.get("access_count", 0),
             tags=data.get("tags", []),
         )
-
-
-# ---------------------------------------------------------------------------
-# Memory store
-# ---------------------------------------------------------------------------
 
 
 class MemoryStore:
@@ -157,8 +147,6 @@ class MemoryStore:
         )
         return self._path
 
-    # -- Querying ----------------------------------------------------------
-
     def topics_covered(self) -> list[str]:
         """Return all topics the user has already studied."""
         return [e.topic for e in self.entries if e.topic]
@@ -185,13 +173,10 @@ class MemoryStore:
 
         scored.sort(key=lambda x: x[0], reverse=True)
         results = [e for _, e in scored[:limit]]
-        # Increment access count
         for e in results:
             e.access_count += 1
         self._dirty = True
         return results
-
-    # -- Adding entries ----------------------------------------------------
 
     def add(
         self,
@@ -203,12 +188,10 @@ class MemoryStore:
         tags: list[str] | None = None,
     ) -> MemoryEntry | None:
         """Add a memory entry. Returns None if it duplicates an existing entry."""
-        # Deduplication: check if we already have this exact topic
         topic_lower = topic.lower().strip()
 
         for existing in self.entries:
             if existing.topic.lower().strip() == topic_lower:
-                # Same topic — upgrade confidence if the new one is higher
                 confidence_order = {"extracted": 1, "discussed": 2, "verified": 3}
                 if confidence_order.get(confidence, 0) > confidence_order.get(
                     existing.confidence, 0
@@ -225,7 +208,6 @@ class MemoryStore:
                         },
                     )
                     return existing
-                # Already covered at equal or higher confidence — skip
                 return None
 
         entry = MemoryEntry(
@@ -274,8 +256,6 @@ class MemoryStore:
                 added += 1
         return added
 
-    # -- Building context for injection ------------------------------------
-
     def build_system_context(self, *, max_entries: int = 20, max_chars: int = 3000) -> str:
         """Build a system-prompt section summarizing what the user already knows.
 
@@ -319,11 +299,6 @@ class MemoryStore:
         if not topics:
             return ""
         return "Already covered topics: " + ", ".join(topics)
-
-
-# ---------------------------------------------------------------------------
-# Convenience functions
-# ---------------------------------------------------------------------------
 
 
 def load_memory(armory_path: Path) -> MemoryStore:

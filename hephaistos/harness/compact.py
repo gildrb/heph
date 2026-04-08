@@ -25,19 +25,10 @@ from hephaistos.logging import get_logger
 
 _log = get_logger("harness.compact")
 
-# ---------------------------------------------------------------------------
-# Tunables (module-level so tests / callers can override)
-# ---------------------------------------------------------------------------
-
 KEEP_RECENT: int = 3  # tool results left untouched by micro_compact
 PLACEHOLDER_THRESHOLD: int = 100  # only replace results longer than this (chars)
 TOKEN_THRESHOLD: int = 50_000  # auto_compact trigger
 TRANSCRIPTS_DIR: str = ".transcripts"
-
-
-# ---------------------------------------------------------------------------
-# Token estimation for message lists
-# ---------------------------------------------------------------------------
 
 
 def estimate_messages_tokens(messages: list[dict]) -> int:
@@ -48,22 +39,15 @@ def estimate_messages_tokens(messages: list[dict]) -> int:
         if isinstance(content, str):
             total += estimate_tokens(content)
         elif isinstance(content, list):
-            # Structured content blocks from multimodal/chat APIs
             for part in content:
                 if isinstance(part, dict):
                     text = part.get("text", "") or part.get("content", "")
                     total += estimate_tokens(str(text))
-        # tool_calls in assistant messages
         for tc in msg.get("tool_calls", []):
             fn = tc.get("function", {})
             total += estimate_tokens(fn.get("name", ""))
             total += estimate_tokens(fn.get("arguments", ""))
     return total
-
-
-# ---------------------------------------------------------------------------
-# Layer 1: micro_compact
-# ---------------------------------------------------------------------------
 
 
 def micro_compact(messages: list[dict], *, keep_recent: int = KEEP_RECENT) -> int:
@@ -101,11 +85,6 @@ def _find_tool_name(messages: list[dict], tool_result_idx: int) -> str:
             if tc.get("id") == call_id:
                 return tc.get("function", {}).get("name", "tool")
     return "tool"
-
-
-# ---------------------------------------------------------------------------
-# Layer 2 & 3: auto_compact (also used by the manual compact tool)
-# ---------------------------------------------------------------------------
 
 
 def auto_compact(

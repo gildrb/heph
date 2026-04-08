@@ -47,11 +47,6 @@ _MAX_RESULT_DISPLAY = 200
 _MAX_TOOL_CALLS_PER_TURN = 5  # strict limit: study agent doesn't need many
 
 
-# ---------------------------------------------------------------------------
-# Steering message queue
-# ---------------------------------------------------------------------------
-
-
 class SteeringQueue:
     """Thread-safe queue for steering messages typed while the agent works.
 
@@ -97,11 +92,6 @@ class SteeringQueue:
             return len(self._messages)
 
 
-# ---------------------------------------------------------------------------
-# Tool call execution
-# ---------------------------------------------------------------------------
-
-
 def execute_tool_calls(
     tool_calls: list[dict],
     workspace: Path,
@@ -130,8 +120,6 @@ def execute_tool_calls(
     for i, tc in enumerate(tool_calls):
         call_id = tc.get("id", "")
         name = tc["function"]["name"]
-
-        # Enforce per-turn tool call limit
         if i >= max_calls:
             results.append(
                 {
@@ -227,11 +215,6 @@ def execute_tool_calls(
     return results
 
 
-# ---------------------------------------------------------------------------
-# Helpers for streaming collection
-# ---------------------------------------------------------------------------
-
-
 def _merge_tool_call_deltas(
     accumulated: list[dict],
     deltas: list[dict],
@@ -239,7 +222,6 @@ def _merge_tool_call_deltas(
     """Merge streaming tool-call deltas into accumulated list in-place."""
     for delta in deltas:
         idx = delta.get("index", 0)
-        # Extend the list if needed
         while len(accumulated) <= idx:
             accumulated.append(
                 {
@@ -256,11 +238,6 @@ def _merge_tool_call_deltas(
             entry["function"]["name"] += fn["name"]
         if fn.get("arguments"):
             entry["function"]["arguments"] += fn["arguments"]
-
-
-# ---------------------------------------------------------------------------
-# Formatting helpers
-# ---------------------------------------------------------------------------
 
 
 def _summarise_args(name: str, args: dict) -> dict:
@@ -302,11 +279,6 @@ def _summarize_result(content: str) -> str:
     return f"  -> {first_line} ... ({len(lines)} lines)"
 
 
-# ---------------------------------------------------------------------------
-# Conversation sync (after compaction)
-# ---------------------------------------------------------------------------
-
-
 def _sync_conversation(conversation: Conversation, api_messages: list[dict]) -> None:
     """Rebuild *conversation* messages from the (possibly compacted) API messages."""
     conversation.messages.clear()
@@ -315,11 +287,6 @@ def _sync_conversation(conversation: Conversation, api_messages: list[dict]) -> 
         content = msg.get("content")
         if role in ("system", "user", "assistant") and content:
             conversation.add(role, content)
-
-
-# ---------------------------------------------------------------------------
-# Agent loop (streaming)
-# ---------------------------------------------------------------------------
 
 
 def agent_loop(
@@ -440,8 +407,6 @@ def agent_loop(
                     },
                 )
                 raise EngineError(f"LLM request failed: {exc}") from exc
-
-            # Collect streamed response
             collected_text = ""
             collected_tool_calls: list[dict] = []
             finish_reason = ""
@@ -452,8 +417,6 @@ def agent_loop(
                     if abort is not None and abort.is_set():
                         response.close()
                         return
-
-                    # Check for usage in non-choice chunks (final chunk)
                     if not chunk.choices:
                         if hasattr(chunk, "usage") and chunk.usage:
                             stream_usage = {
@@ -468,17 +431,11 @@ def agent_loop(
                     choice = chunk.choices[0]
                     delta = choice.delta
                     finish_reason = choice.finish_reason or finish_reason
-
-                    # Stream text content immediately
                     if delta.content:
                         collected_text += delta.content
                         yield delta.content
-
-                    # Accumulate tool-call deltas
                     if delta.tool_calls:
                         _merge_tool_call_deltas(collected_tool_calls, delta.tool_calls)
-
-                    # Check for usage in the final choice chunk
                     if finish_reason and hasattr(chunk, "usage") and chunk.usage:
                         stream_usage = {
                             "prompt_tokens": (getattr(chunk.usage, "prompt_tokens", 0) or 0),
@@ -504,26 +461,20 @@ def agent_loop(
                         return
                     continue
                 raise EngineError(f"LLM stream failed: {exc}") from exc
-
-            # Stream consumed successfully — break retry loop
             break
         else:
-            # All retries exhausted
             raise EngineError(
                 f"LLM request failed after {retry.max_retries + 1} attempts: {last_api_error}"
             ) from last_api_error
 
         # --- No tool calls: we're done ---
         if not collected_tool_calls:
-            # Record usage
             if usage is not None:
                 if stream_usage:
                     usage.record(TokenUsage.from_api_response(stream_usage), config.model)
                 else:
                     prompt_chars = sum(len(m.get("content", "") or "") for m in api_messages)
                     usage.estimate_from_chars(prompt_chars, len(collected_text), config.model)
-
-            # Append final assistant message to conversation
             conversation.add("assistant", collected_text)
             _log.info(
                 "agent_loop complete",
@@ -541,7 +492,6 @@ def agent_loop(
             return
 
         # --- Tool calls: execute and continue ---
-        # Build the assistant message with tool calls for history
         assistant_content = collected_text or None
         tool_calls_api = [
             {
@@ -562,13 +512,10 @@ def agent_loop(
                 "tool_calls": tool_calls_api,
             }
         )
-        # Store a simplified version in our Conversation
         conversation.add(
             "assistant",
             collected_text or "[tool calls]",
         )
-
-        # Display tool activity
         tool_names = []
         for tc in collected_tool_calls:
             name = tc["function"]["name"]
@@ -589,19 +536,13 @@ def agent_loop(
                 }
             },
         )
-
-        # Execute
         tool_results = execute_tool_calls(collected_tool_calls, workspace)
-
-        # Record usage for this turn
         if usage is not None:
             if stream_usage:
                 usage.record(TokenUsage.from_api_response(stream_usage), config.model)
             else:
                 prompt_chars = sum(len(m.get("content", "") or "") for m in api_messages)
                 usage.estimate_from_chars(prompt_chars, len(collected_text), config.model)
-
-        # Check context budget — warn if running low
         urgency = budget.compaction_urgency(api_messages)
         if urgency in ("medium", "high"):
             remaining = budget.tokens_remaining(api_messages)
@@ -619,8 +560,6 @@ def agent_loop(
                     }
                 },
             )
-
-        # Append results
         for tr in tool_results:
             api_messages.append(tr)
             summary = _summarize_result(tr.get("content", ""))
@@ -649,8 +588,6 @@ def agent_loop(
             api_messages[:] = auto_compact(api_messages, config, workspace)
             _sync_conversation(conversation, api_messages)
             continue
-
-    # Max turns reached
     yield "\n[Agent loop reached maximum turns]"
     _log.warning(
         "agent loop max turns reached",
