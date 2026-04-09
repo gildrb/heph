@@ -49,17 +49,6 @@ def retrieve_key(slug: str) -> str | None:
         return None
 
 
-def delete_key(slug: str) -> bool:
-    """Remove an API key from the OS keychain.
-
-    Returns ``True`` if the key was deleted, ``False`` if it was not found.
-    """
-    try:
-        keyring.delete_password(_service_name(slug), _USERNAME)
-        return True
-    except KeyringError:
-        return False
-
 
 def has_key(slug: str) -> bool:
     """Return ``True`` if a key exists in the OS keychain for this slug."""
@@ -79,10 +68,6 @@ def get_volatile(slug: str) -> str | None:
     """Return a volatile (in-memory) key, or ``None``."""
     return _volatile.get(slug)
 
-
-def clear_volatile(slug: str) -> None:
-    """Remove a volatile key."""
-    _volatile.pop(slug, None)
 
 
 def resolve_key(slug: str, env_var: str = "") -> str:

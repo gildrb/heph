@@ -11,7 +11,6 @@ class InputHistory:
 
     def __init__(self, entries: list[str] | None = None) -> None:
         self._entries: list[str] = entries or []
-        self._index = -1
 
     @property
     def entries(self) -> list[str]:
@@ -22,35 +21,10 @@ class InputHistory:
         if not line:
             return
         if self._entries and self._entries[-1] == line:
-            self._index = -1
             return
         self._entries.append(line)
         if len(self._entries) > 1000:
             self._entries = self._entries[-1000:]
-        self._index = -1
-
-    def up(self, current: str) -> str:
-        """Move up in history. Returns the entry at the new position."""
-        if not self._entries:
-            return current
-        if self._index == -1:
-            self._index = len(self._entries) - 1
-        elif self._index > 0:
-            self._index -= 1
-        return self._entries[self._index]
-
-    def down(self, current: str) -> str:
-        """Move down in history. Returns the entry or current if at bottom."""
-        if self._index == -1:
-            return current
-        if self._index < len(self._entries) - 1:
-            self._index += 1
-            return self._entries[self._index]
-        self._index = -1
-        return current
-
-    def reset_nav(self) -> None:
-        self._index = -1
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

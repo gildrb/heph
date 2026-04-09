@@ -223,11 +223,6 @@ class ContextBudget:
         used = estimate_conversation_tokens(current_messages)
         return max(0, self.prompt_budget - used)
 
-    def needs_compaction(self, current_messages: list[dict], threshold: float = 0.8) -> bool:
-        """Check if the conversation is consuming too much of the context window."""
-        used = estimate_conversation_tokens(current_messages)
-        return used > self.prompt_budget * threshold
-
     def compaction_urgency(self, current_messages: list[dict]) -> str:
         """Return urgency level: 'none', 'low', 'medium', 'high'."""
         used = estimate_conversation_tokens(current_messages)
@@ -267,21 +262,3 @@ def save_usage(
         encoding="utf-8",
     )
     return path
-
-
-def load_usage(armory_path: Path, session_id: str) -> SessionUsage | None:
-    """Load saved usage for a session."""
-    path = armory_path / ".hephaistos" / _USAGE_DIR / f"{session_id}.json"
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return SessionUsage(
-            total_prompt_tokens=data.get("prompt_tokens", 0),
-            total_completion_tokens=data.get("completion_tokens", 0),
-            total_tokens=data.get("total_tokens", 0),
-            total_cost_usd=data.get("cost_usd", 0.0),
-            api_calls=data.get("api_calls", 0),
-        )
-    except (json.JSONDecodeError, KeyError):
-        return None

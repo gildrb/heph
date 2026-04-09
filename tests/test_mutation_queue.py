@@ -33,37 +33,6 @@ class TestFileMutationQueue:
         assert "Error:" in result
         assert "disk full" in result
 
-    def test_pending_count_tracks_active(self) -> None:
-        queue = FileMutationQueue()
-        entered = threading.Event()
-        release = threading.Event()
-        results: list[str] = []
-
-        def slow_handler(**kwargs):
-            entered.set()
-            release.wait(timeout=5)
-            return "done"
-
-        t = threading.Thread(
-            target=lambda: results.append(queue.execute(Path("/tmp/slow.txt"), slow_handler))
-        )
-        t.start()
-
-        # Wait for the handler to enter, then check pending
-        entered.wait(timeout=5)
-        assert queue.pending_count >= 1
-
-        release.set()
-        t.join(timeout=5)
-        assert results[0] == "done"
-        assert queue.pending_count == 0
-
-    def test_pending_count_returns_zero_when_idle(self) -> None:
-        queue = FileMutationQueue()
-        assert queue.pending_count == 0
-        queue.execute(Path("/tmp/test.txt"), lambda: "ok")
-        assert queue.pending_count == 0
-
     def test_clear_removes_locks(self) -> None:
         queue = FileMutationQueue()
         queue.execute(Path("/tmp/a.txt"), lambda: "a")

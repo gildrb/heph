@@ -477,20 +477,6 @@ class TestTransformQueryConvenience:
 
 
 class TestHybridRetrieverWithTransformation:
-    def test_has_query_transformer_property(self) -> None:
-        chunks = [_make_chunk("hello", "a.md", 0)]
-        index = _make_index_with_chunks(chunks)
-
-        mock_transformer = MagicMock(spec=QueryTransformerProtocol)
-        hybrid = HybridRetriever(index, query_transformer=mock_transformer)
-        assert hybrid.has_query_transformer
-
-    def test_no_query_transformer_property(self) -> None:
-        chunks = [_make_chunk("hello", "a.md", 0)]
-        index = _make_index_with_chunks(chunks)
-        hybrid = HybridRetriever(index)
-        assert not hybrid.has_query_transformer
-
     def test_single_transformed_query(self) -> None:
         """When transformer returns one query, standard path is used."""
         chunks = [

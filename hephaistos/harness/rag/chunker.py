@@ -161,7 +161,6 @@ def _chunk_markdown_section(
     heading_level: int,
     char_offset: int,
     chunk_size: int,
-    overlap: int,
 ) -> list[Chunk]:
     """Chunk a single markdown section, possibly splitting large sections."""
     text = text.strip()
@@ -255,7 +254,6 @@ def chunk_markdown(
             heading_level,
             start,
             chunk_size,
-            overlap,
         )
         chunks.extend(new_chunks)
         idx += len(new_chunks)

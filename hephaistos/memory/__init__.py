@@ -151,33 +151,6 @@ class MemoryStore:
         """Return all topics the user has already studied."""
         return [e.topic for e in self.entries if e.topic]
 
-    def has_topic(self, topic: str) -> bool:
-        """Check if a topic has already been covered."""
-        topic_lower = topic.lower().strip()
-        return any(e.topic.lower().strip() == topic_lower for e in self.entries)
-
-    def find_related(self, query: str, *, limit: int = 10) -> list[MemoryEntry]:
-        """Find memory entries related to a query.
-
-        Simple keyword matching — good enough for a study agent.
-        """
-        query_words = set(query.lower().split())
-        scored: list[tuple[float, MemoryEntry]] = []
-        for entry in self.entries:
-            entry_words = set(
-                (entry.topic + " " + entry.content + " " + " ".join(entry.tags)).lower().split()
-            )
-            overlap = len(query_words & entry_words)
-            if overlap > 0:
-                scored.append((overlap, entry))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        results = [e for _, e in scored[:limit]]
-        for e in results:
-            e.access_count += 1
-        self._dirty = True
-        return results
-
     def add(
         self,
         topic: str,
@@ -291,14 +264,6 @@ class MemoryStore:
         )
         return header + "\n" + "\n".join(parts)
 
-    def build_topic_dedup_context(self) -> str:
-        """Build a short context string listing covered topics for dedup."""
-        if not self.entries:
-            return ""
-        topics = self.topics_covered()
-        if not topics:
-            return ""
-        return "Already covered topics: " + ", ".join(topics)
 
 
 def load_memory(armory_path: Path) -> MemoryStore:

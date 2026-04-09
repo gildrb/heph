@@ -64,20 +64,3 @@ def read_marker(path: Path) -> dict[str, object]:
     with marker_path.open("rb") as f:
         return tomllib.load(f)
 
-
-def discover_startup_armory() -> Path | None:
-    """Look for an armory at CWD or CWD/armory.
-
-    Returns the validated Path or None if no valid armory is found.
-    """
-    candidates = [Path.cwd(), Path.cwd() / "armory"]
-    for candidate in candidates:
-        try:
-            validate(candidate)
-            read_marker(candidate)
-            return candidate
-        except ArmoryError:
-            continue
-        except (OSError, ValueError):
-            continue
-    return None

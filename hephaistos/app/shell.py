@@ -491,9 +491,7 @@ def _print_shell_intro(session: ChatSession) -> None:
         version=__version__,
         armory_path=str(session.armory_path or "none"),
         source_file_count=session.source_file_count or 0,
-        session_id=session.session_id,
         model=session.config.model,
-        base_url=session.config.base_url,
         has_api_key=bool(session.config.resolved_api_key),
     )
 

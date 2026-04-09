@@ -103,12 +103,6 @@ class FileMutationQueue:
         )
         return result
 
-    @property
-    def pending_count(self) -> int:
-        """Number of mutations currently queued or executing."""
-        with self._pending_lock:
-            return self._pending
-
     def clear(self) -> None:
         """Remove all cached locks (for testing / cleanup)."""
         with self._global_lock:

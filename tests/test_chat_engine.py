@@ -5,39 +5,6 @@ from __future__ import annotations
 from hephaistos.chat.engine import ChatConfig, Conversation, Message
 
 
-def test_chat_config_from_env(monkeypatch) -> None:
-    monkeypatch.setenv("HEPHAISTOS_API_KEY", "test-key")
-    monkeypatch.setenv("HEPHAISTOS_BASE_URL", "http://localhost:1234/v1")
-    monkeypatch.setenv("HEPHAISTOS_MODEL", "local-model")
-
-    config = ChatConfig.from_env()
-    # api_key field is no longer populated directly; resolved lazily
-    assert config.resolved_api_key == "test-key"
-    assert config.base_url == "http://localhost:1234/v1"
-    assert config.model == "local-model"
-
-
-def test_chat_config_falls_back_to_openai_key(monkeypatch) -> None:
-    monkeypatch.delenv("HEPHAISTOS_API_KEY", raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "openai-fallback")
-
-    config = ChatConfig.from_env()
-    assert config.resolved_api_key == "openai-fallback"
-
-
-def test_chat_config_defaults_no_key(monkeypatch) -> None:
-    monkeypatch.delenv("HEPHAISTOS_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("HEPHAISTOS_BASE_URL", raising=False)
-    monkeypatch.delenv("HEPHAISTOS_MODEL", raising=False)
-
-    # No API key → resolved_api_key is empty (error deferred to call time)
-    config = ChatConfig.from_env()
-    assert config.resolved_api_key == ""
-    assert config.base_url == "https://api.openai.com/v1"
-    assert config.model == "gpt-4o-mini"
-
-
 def test_build_client_raises_without_api_key(monkeypatch) -> None:
     import pytest
 

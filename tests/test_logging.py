@@ -220,7 +220,6 @@ class TestTimer:
         with Timer() as t:
             time.sleep(0.01)
         assert t.ms > 0
-        assert t.seconds > 0
 
     def test_zero_work(self) -> None:
         with Timer() as t:
@@ -258,73 +257,6 @@ class TestTraceWriter:
         assert data["type"] == "user_message"
         assert data["content"] == "hello world"
         assert "ts" in data
-
-    def test_record_llm_request(self, trace_dir: Path) -> None:
-        tw = TraceWriter("sess2", armory_path=trace_dir)
-        tw.record_llm_request(
-            model="gpt-4o",
-            latency_ms=340.5,
-            prompt_tokens=100,
-            completion_tokens=50,
-            finish_reason="stop",
-        )
-        tw.close()
-
-        trace_path = trace_dir / ".hephaistos" / "traces" / "sess2.jsonl"
-        data = json.loads(trace_path.read_text().strip())
-        assert data["type"] == "llm_request"
-        assert data["model"] == "gpt-4o"
-        assert data["latency_ms"] == 340.5
-        assert data["prompt_tokens"] == 100
-        assert data["completion_tokens"] == 50
-        assert data["finish_reason"] == "stop"
-
-    def test_record_llm_request_error(self, trace_dir: Path) -> None:
-        tw = TraceWriter("sess3", armory_path=trace_dir)
-        tw.record_llm_request(
-            model="gpt-4o",
-            latency_ms=5000,
-            error="connection timeout",
-        )
-        tw.close()
-
-        data = json.loads(
-            (trace_dir / ".hephaistos" / "traces" / "sess3.jsonl").read_text().strip()
-        )
-        assert data["error"] == "connection timeout"
-
-    def test_record_tool_call(self, trace_dir: Path) -> None:
-        tw = TraceWriter("sess4", armory_path=trace_dir)
-        tw.record_tool_call(
-            tool="bash",
-            args={"command": "ls -la"},
-            result="file1.py\nfile2.py",
-            latency_ms=45.2,
-        )
-        tw.close()
-
-        data = json.loads(
-            (trace_dir / ".hephaistos" / "traces" / "sess4.jsonl").read_text().strip()
-        )
-        assert data["type"] == "tool_call"
-        assert data["tool"] == "bash"
-        assert data["args"]["command"] == "ls -la"
-        assert data["latency_ms"] == 45.2
-
-    def test_tool_call_result_truncated(self, trace_dir: Path) -> None:
-        tw = TraceWriter("sess5", armory_path=trace_dir)
-        tw.record_tool_call(
-            tool="read_file",
-            args={"path": "big.txt"},
-            result="x" * 1000,
-            latency_ms=10,
-        )
-        tw.close()
-
-        data = json.loads(
-            (trace_dir / ".hephaistos" / "traces" / "sess5.jsonl").read_text().strip()
-        )
-        assert len(data["result_preview"]) == 500
 
     def test_record_rag_retrieve(self, trace_dir: Path) -> None:
         tw = TraceWriter("sess6", armory_path=trace_dir)

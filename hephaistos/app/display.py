@@ -1,22 +1,19 @@
-"""ANSI terminal helpers: styling, prompt rendering, spinner."""
+"""ANSI terminal helpers: styling, prompt rendering."""
 
 from __future__ import annotations
 
 import os
 import re
 import sys
-import threading
 
 from hephaistos.app import palette
 from hephaistos.app.palette import (
     BOLD,
     FORGE_EMBER,
-    ITALIC,
     RESET,
     STYLE_ACCENT,
     STYLE_DIM,
     STYLE_ERROR,
-    STYLE_MODE,
     STYLE_PROMPT,
     STYLE_WARNING,
     ansi_fg,
@@ -29,31 +26,7 @@ def styled(text: str, style: str) -> str:
     return f"{style}{text}{RESET}"
 
 
-def clear_line() -> None:
-    sys.stdout.write("\r\033[K")
-    sys.stdout.flush()
 
-
-def clear_screen() -> None:
-    sys.stdout.write("\033[2J\033[H")
-    sys.stdout.flush()
-
-
-def move_cursor_up(n: int) -> None:
-    if n > 0:
-        sys.stdout.write(f"\033[{n}A")
-        sys.stdout.flush()
-
-
-def move_cursor_down(n: int) -> None:
-    if n > 0:
-        sys.stdout.write(f"\033[{n}B")
-        sys.stdout.flush()
-
-
-def move_cursor_to_column(col: int) -> None:
-    sys.stdout.write(f"\r\033[{col + 1}C")
-    sys.stdout.flush()
 
 
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
@@ -64,85 +37,11 @@ def visible_len(text: str) -> int:
     return len(_ANSI_RE.sub("", text))
 
 
-def build_prompt(armory_name: str, mode: str = "prompt") -> tuple[str, int]:
-    """Build the styled prompt string. Returns (prompt_with_ansi, visible_length)."""
-    prefix = styled("!", STYLE_MODE) if mode == "bash" else styled(">", STYLE_PROMPT)
 
-    label = styled(armory_name, STYLE_ACCENT)
-
-    prompt = f"{label} {prefix} "
-    return prompt, visible_len(prompt)
-
-
-def render_markdown_lite(text: str) -> str:
-    """Render basic markdown to ANSI-styled terminal output.
-
-    Handles: **bold**, *italic*, `code`, ```code blocks```.
-    """
-    result = text
-
-    def _code_block(m: re.Match[str]) -> str:
-        lang = m.group(1) or ""
-        code = m.group(2)
-        header = styled(f"  {lang}", STYLE_DIM) if lang else ""
-        lines = [styled(f"  {line}", STYLE_DIM) for line in code.rstrip("\n").split("\n")]
-        body = "\n".join(lines)
-        return f"{header}\n{body}"
-
-    result = re.sub(r"```(\w*)\n(.*?)```", _code_block, result, flags=re.DOTALL)
-
-    result = re.sub(r"`([^`]+)`", lambda m: styled(m.group(1), STYLE_DIM), result)
-
-    result = re.sub(r"\*\*(.+?)\*\*", lambda m: styled(m.group(1), BOLD), result)
-
-    return re.sub(
-        r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
-        lambda m: styled(m.group(1), ITALIC),
-        result,
-    )
-
-
-class Spinner:
-    """A simple terminal spinner that runs in a background thread."""
-
-    FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-
-    def __init__(self, message: str = "Thinking") -> None:
-        self._message = message
-        self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
-
-    def start(self) -> None:
-        if self._thread is not None:
-            return
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._spin, daemon=True)
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join()
-            self._thread = None
-            clear_line()
-
-    def _spin(self) -> None:
-        idx = 0
-        while not self._stop_event.is_set():
-            frame = self.FRAMES[idx % len(self.FRAMES)]
-            clear_line()
-            sys.stdout.write(f"\r{styled(frame, STYLE_PROMPT)} {self._message}")
-            sys.stdout.flush()
-            idx += 1
-            self._stop_event.wait(0.08)
 
 
 def print_error(msg: str) -> None:
     print(f"{styled('error:', STYLE_ERROR)} {msg}")
-
-
-def print_warning(msg: str) -> None:
-    print(f"{styled('warning:', STYLE_WARNING)} {msg}")
 
 
 def print_info(msg: str) -> None:
@@ -192,9 +91,7 @@ def print_shell_intro(
     version: str,
     armory_path: str,
     source_file_count: int,
-    session_id: str,
     model: str,
-    base_url: str,
     has_api_key: bool,
 ) -> None:
     """Print the full startup screen with banner, status, and tips."""

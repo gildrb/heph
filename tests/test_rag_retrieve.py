@@ -706,20 +706,6 @@ class TestCrossEncoderReranker:
 
 
 class TestHybridRetrieverWithReranker:
-    def test_reranker_property(self) -> None:
-        chunks = [_make_chunk("hello", "a.md", 0)]
-        index = _make_index_with_chunks(chunks)
-
-        mock_reranker = MagicMock(spec=CrossEncoderReranker)
-        hybrid = HybridRetriever(index, reranker=mock_reranker)
-        assert hybrid.has_reranker
-
-    def test_no_reranker_property(self) -> None:
-        chunks = [_make_chunk("hello", "a.md", 0)]
-        index = _make_index_with_chunks(chunks)
-        hybrid = HybridRetriever(index)
-        assert not hybrid.has_reranker
-
     def test_reranker_applied_after_rrf_fusion(self) -> None:
         """Full pipeline: TF-IDF + embeddings → RRF → cross-encoder re-rank."""
         chunks = [
@@ -889,17 +875,6 @@ class TestCreateRetriever:
             assert isinstance(r, HybridRetriever)
             assert r.has_embeddings
 
-    def test_hybrid_has_reranker_when_st_available(self) -> None:
-        """Factory auto-creates a CrossEncoderReranker alongside the hybrid retriever."""
-        index = _make_index_with_chunks([_make_chunk("hello")])
-        with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
-            return_value=True,
-        ):
-            r = _create_retriever(index)
-            assert isinstance(r, HybridRetriever)
-            assert r.has_reranker
-
     def test_reranker_creation_failure_still_returns_hybrid(self) -> None:
         """If CrossEncoderReranker fails, hybrid still works without it."""
         index = _make_index_with_chunks([_make_chunk("hello")])
@@ -916,7 +891,6 @@ class TestCreateRetriever:
             r = _create_retriever(index)
             assert isinstance(r, HybridRetriever)
             assert r.has_embeddings
-            assert not r.has_reranker
 
     def test_falls_back_to_tfidf_if_hybrid_init_fails(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])

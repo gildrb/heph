@@ -65,18 +65,6 @@ class ChatConfig:
             return env_key.strip()
         return self.api_key
 
-    @classmethod
-    def from_env(cls) -> ChatConfig:
-        """Build config from environment variables."""
-        base_url = os.environ.get("HEPHAISTOS_BASE_URL", "https://api.openai.com/v1")
-        model = os.environ.get("HEPHAISTOS_MODEL", "gpt-4o-mini")
-        max_tokens = int(os.environ.get("HEPHAISTOS_MAX_TOKENS", "4096"))
-        return cls(
-            api_key="",  # Key resolved lazily via resolved_api_key
-            base_url=base_url,
-            model=model,
-            max_tokens=max_tokens,
-        )
 
 
 class EngineError(Exception):
@@ -107,14 +95,6 @@ class RetryConfig:
     base_delay: float = 1.0  # seconds
     max_delay: float = 30.0  # seconds
 
-    @classmethod
-    def from_env(cls) -> RetryConfig:
-        """Build config from environment variables."""
-        return cls(
-            max_retries=int(os.environ.get("HEPHAISTOS_MAX_RETRIES", "3")),
-            base_delay=float(os.environ.get("HEPHAISTOS_RETRY_BASE_DELAY", "1.0")),
-            max_delay=float(os.environ.get("HEPHAISTOS_RETRY_MAX_DELAY", "30.0")),
-        )
 
 
 _RETRYABLE_TYPES = (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError)

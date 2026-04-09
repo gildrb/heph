@@ -105,30 +105,6 @@ class TestMemoryStore:
         store.add("UDP", "def2")
         assert store.topics_covered() == ["TCP", "UDP"]
 
-    def test_has_topic(self, tmp_path: Path):
-        store = MemoryStore(tmp_path)
-        store.add("TCP", "definition")
-        assert store.has_topic("TCP")
-        assert store.has_topic("tcp")
-        assert not store.has_topic("HTTP")
-
-    def test_find_related(self, tmp_path: Path):
-        store = MemoryStore(tmp_path)
-        store.add("TCP handshake", "SYN SYN-ACK ACK", tags=["networking"])
-        store.add("HTTP methods", "GET POST PUT DELETE", tags=["web"])
-        store.add("UDP protocol", "Connectionless datagram", tags=["networking"])
-
-        results = store.find_related("network protocol TCP")
-        assert len(results) >= 1
-        # TCP should rank higher than HTTP
-        assert any("TCP" in r.topic for r in results)
-
-    def test_find_related_increments_access_count(self, tmp_path: Path):
-        store = MemoryStore(tmp_path)
-        store.add("TCP", "definition")
-        results = store.find_related("TCP")
-        assert results[0].access_count == 1
-
     def test_build_system_context_empty(self, tmp_path: Path):
         store = MemoryStore(tmp_path)
         assert store.build_system_context() == ""

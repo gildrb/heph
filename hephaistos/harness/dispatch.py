@@ -86,11 +86,6 @@ class SteeringQueue:
             self._messages.clear()
         return msgs
 
-    @property
-    def pending(self) -> int:
-        with self._lock:
-            return len(self._messages)
-
 
 def execute_tool_calls(
     tool_calls: list[dict],

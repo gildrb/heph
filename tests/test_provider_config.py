@@ -112,11 +112,6 @@ current_model = "my-custom-model"
     assert config.model == "my-custom-model"
 
 
-def test_set_model_rejects_unknown_name() -> None:
-    config = _default_config()
-
-    assert not config.set_model("openrouter", "legacy/vendor-model")
-
 
 def test_supported_model_for_zai_endpoint_accepts_trailing_slash_variants() -> None:
     assert is_supported_model_for_endpoint("glm-5-turbo", "https://api.z.ai/api/paas/v4")

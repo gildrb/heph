@@ -516,16 +516,6 @@ class HybridRetriever:
         """Whether the embedding backend is active."""
         return self._embedding is not None
 
-    @property
-    def has_reranker(self) -> bool:
-        """Whether a re-ranker is attached."""
-        return self._reranker is not None
-
-    @property
-    def has_query_transformer(self) -> bool:
-        """Whether a query transformer is attached."""
-        return self._query_transformer is not None
-
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
         """Retrieve via TF-IDF + embeddings, fused with RRF, then re-ranked.
 

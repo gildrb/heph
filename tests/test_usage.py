@@ -12,7 +12,6 @@ from hephaistos.chat.usage import (
     estimate_conversation_tokens,
     estimate_message_tokens,
     get_context_window,
-    load_usage,
     save_usage,
 )
 
@@ -202,20 +201,6 @@ class TestContextBudget:
         assert remaining > 0
         assert remaining < budget.prompt_budget
 
-    def test_needs_compaction_small_conversation(self):
-        budget = ContextBudget(model="gpt-4o", max_tokens=4096)
-        messages = [{"role": "user", "content": "hello"}]
-        assert not budget.needs_compaction(messages)
-
-    def test_needs_compaction_large_conversation(self):
-        budget = ContextBudget(model="gpt-4o", max_tokens=4096)
-        # Create a conversation that exceeds 80% of prompt budget
-        # estimate_conversation_tokens uses 4 chars per token, so we need
-        # prompt_budget * 4 * 0.8 chars to hit the threshold
-        big_msg = "x" * int(budget.prompt_budget * 4 * 0.85)
-        messages = [{"role": "user", "content": big_msg}]
-        assert budget.needs_compaction(messages)
-
     def test_compaction_urgency(self):
         budget = ContextBudget(model="gpt-4o", max_tokens=4096)
         assert budget.compaction_urgency([{"role": "user", "content": "hi"}]) == "none"
@@ -231,28 +216,10 @@ class TestContextBudget:
 
 
 class TestUsagePersistence:
-    def test_save_and_load(self, tmp_path: Path):
+    def test_save(self, tmp_path: Path):
         session = SessionUsage()
         session.record(TokenUsage(100, 50, 150), "gpt-4o-mini")
 
         path = save_usage(tmp_path, "test-session", session)
         assert path is not None
         assert path.exists()
-
-        loaded = load_usage(tmp_path, "test-session")
-        assert loaded is not None
-        assert loaded.total_prompt_tokens == 100
-        assert loaded.total_completion_tokens == 50
-        assert loaded.api_calls == 1
-
-    def test_load_nonexistent(self, tmp_path: Path):
-        loaded = load_usage(tmp_path, "nonexistent")
-        assert loaded is None
-
-    def test_load_corrupt_file(self, tmp_path: Path):
-        usage_dir = tmp_path / ".hephaistos" / "usage"
-        usage_dir.mkdir(parents=True)
-        bad_file = usage_dir / "bad.json"
-        bad_file.write_text("not valid json{{{")
-        loaded = load_usage(tmp_path, "bad")
-        assert loaded is None

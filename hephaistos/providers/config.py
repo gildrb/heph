@@ -30,13 +30,6 @@ class Provider:
     current_model: str = ""
 
     @property
-    def is_authenticated(self) -> bool:
-        """Check if a key is available via any resolution path."""
-        from hephaistos.providers.keyring_store import resolve_key
-
-        return bool(resolve_key(self.slug, self.api_key_env))
-
-    @property
     def api_key(self) -> str:
         """Resolve the API key from keychain → env var → volatile store."""
         from hephaistos.providers.keyring_store import resolve_key
@@ -68,15 +61,6 @@ class ProviderConfig:
         for p in self.providers.values():
             p.active = False
         self.providers[slug].active = True
-        return True
-
-    def set_model(self, slug: str, model: str) -> bool:
-        if slug not in self.providers:
-            return False
-        p = self.providers[slug]
-        if model not in p.models:
-            return False
-        p.current_model = model
         return True
 
     def apply_to_config(self, config) -> None:

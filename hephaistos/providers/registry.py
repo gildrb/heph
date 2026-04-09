@@ -34,9 +34,6 @@ class ModelInfo:
     max_output: int  # max completion tokens
     prompt_price_per_1k: float  # USD per 1K prompt tokens
     completion_price_per_1k: float  # USD per 1K completion tokens
-    supports_tools: bool = True
-    supports_vision: bool = False
-    supports_reasoning: bool = False
     tags: tuple[str, ...] = ()
 
     @property
@@ -254,28 +251,12 @@ class ModelRegistry:
         info = self.get(model_name)
         return info.context_window if info else 128_000
 
-    def get_pricing(self, model_name: str) -> tuple[float, float]:
-        """Get (prompt_price_per_1k, completion_price_per_1k)."""
-        info = self.get(model_name)
-        if info:
-            return info.prompt_price_per_1k, info.completion_price_per_1k
-        return 0.002, 0.008  # conservative default
-
-    def get_max_output(self, model_name: str) -> int:
-        """Get max output tokens for a model."""
-        info = self.get(model_name)
-        return info.max_output if info else 4096
-
     def list_models(self, provider: str | None = None) -> list[ModelInfo]:
         """List all known models, optionally filtered by provider."""
         models = list(self._models.values())
         if provider:
             models = [m for m in models if m.provider == provider]
         return sorted(models, key=lambda m: (m.provider, m.name))
-
-    def list_providers(self) -> list[str]:
-        """List all known provider slugs."""
-        return sorted({m.provider for m in self._models.values()})
 
     def register(self, model: ModelInfo) -> None:
         """Add or replace a model in the registry."""

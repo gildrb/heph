@@ -165,10 +165,6 @@ class Timer:
         self._end = time.perf_counter()
 
     @property
-    def seconds(self) -> float:
-        return self._end - self._start
-
-    @property
     def ms(self) -> float:
         return (self._end - self._start) * 1000
 
@@ -232,53 +228,6 @@ class TraceWriter:
     def record_user_message(self, content: str) -> None:
         self._write({"type": "user_message", "ts": self._ts(), "content": content})
 
-    def record_llm_request(
-        self,
-        *,
-        model: str,
-        latency_ms: float,
-        prompt_tokens: int | None = None,
-        completion_tokens: int | None = None,
-        finish_reason: str | None = None,
-        error: str | None = None,
-    ) -> None:
-        event: dict[str, Any] = {
-            "type": "llm_request",
-            "ts": self._ts(),
-            "model": model,
-            "latency_ms": round(latency_ms, 1),
-        }
-        if prompt_tokens is not None:
-            event["prompt_tokens"] = prompt_tokens
-        if completion_tokens is not None:
-            event["completion_tokens"] = completion_tokens
-        if finish_reason is not None:
-            event["finish_reason"] = finish_reason
-        if error is not None:
-            event["error"] = error
-        self._write(event)
-
-    def record_tool_call(
-        self,
-        *,
-        tool: str,
-        args: dict[str, Any],
-        result: str,
-        latency_ms: float,
-        error: str | None = None,
-    ) -> None:
-        event: dict[str, Any] = {
-            "type": "tool_call",
-            "ts": self._ts(),
-            "tool": tool,
-            "args": args,
-            "result_preview": result[:500],
-            "latency_ms": round(latency_ms, 1),
-        }
-        if error is not None:
-            event["error"] = error
-        self._write(event)
-
     def record_rag_retrieve(
         self,
         *,
@@ -314,6 +263,3 @@ class TraceWriter:
             with contextlib.suppress(OSError):
                 self._file_handle.close()
             self._file_handle = None
-
-
-logger = get_logger("hephaistos")

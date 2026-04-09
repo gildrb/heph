@@ -18,10 +18,6 @@ from __future__ import annotations
 
 import re
 import shlex
-import sys
-from pathlib import Path
-
-from hephaistos.app.display import STYLE_DIM, STYLE_PROMPT, styled
 
 _TIER_ORDER: dict[str, int] = {
     "none": 0,
@@ -31,7 +27,6 @@ _TIER_ORDER: dict[str, int] = {
     "unsafe": 4,
 }
 
-VALID_TIERS = list(_TIER_ORDER)
 
 _TIER_DESCRIPTIONS = {
     "none": "Read-only — ls, cat, grep, git status. No writes.",
@@ -394,110 +389,9 @@ _TOOL_TIER_MAP: dict[str, str] = {
 }
 
 
-def get_required_tier(tool_name: str, args: dict) -> str:
-    """Get the autonomy tier required for a tool call.
-
-    For bash/execute tools, inspects the actual command.
-    For other tools, uses the static _TOOL_TIER_MAP.
-    """
-    if tool_name in ("bash", "execute"):
-        command = args.get("command", "")
-        return classify_bash_command(command)
-
-    return _TOOL_TIER_MAP.get(tool_name, "low")
-
-
 def tier_allows(required: str, current: str) -> bool:
     """Check if the current autonomy level allows the required tier."""
     return _TIER_ORDER.get(current, 0) >= _TIER_ORDER.get(required, 0)
 
 
-def request_permission(
-    tool_name: str,
-    args: dict,
-    required_tier: str,
-    current_tier: str,
-) -> bool:
-    """Prompt the user for one-time approval of an over-tier operation.
 
-    Returns True if approved.
-    """
-    summary = _format_tool_summary(tool_name, args)
-    warn_style = "\033[1m\033[33m"
-    sys.stdout.write(
-        f"\n{styled('Permission required:', warn_style)} "
-        f"{summary}\n"
-        f"  Required: {styled(required_tier, STYLE_PROMPT)}  "
-        f"Current: {styled(current_tier, STYLE_DIM)}\n"
-        f"  {styled('[y]', STYLE_PROMPT)}es / "
-        f"{styled('[n]', STYLE_PROMPT)}o / "
-        f"{styled('[a]', STYLE_PROMPT)}lways allow this tier: "
-    )
-    sys.stdout.flush()
-    try:
-        answer = input().strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-        return False
-
-    return answer in ("y", "yes", "a", "always")
-
-
-def _format_tool_summary(name: str, args: dict) -> str:
-    """Format a brief summary of a tool call for the confirmation prompt."""
-    if name in ("bash", "execute"):
-        cmd = args.get("command", "")
-        return f"bash: {cmd[:120]}{'...' if len(cmd) > 120 else ''}"
-    if name in ("write_file", "edit_file"):
-        return f"{name}: {args.get('path', '')}"
-    if name in ("multi_edit", "apply_patch"):
-        return f"{name}: {args.get('path', '')} ({len(args.get('edits', []))} edits)"
-    return f"{name}: {args}"
-
-
-_CONFIG_PATH = ".hephaistos/config.toml"
-
-
-def load_permissions(workspace: Path | None = None) -> dict:
-    """Load permission overrides from project config.
-
-    Returns a dict with optional keys:
-      - autonomy: str — default autonomy level (default: "low")
-      - auto_approve: set[str] — tools to always allow
-      - deny: set[str] — tools to always block
-    """
-    auto_approve: set[str] = set()
-    deny: set[str] = set()
-    result: dict[str, str | set[str]] = {
-        "autonomy": "low",
-        "auto_approve": auto_approve,
-        "deny": deny,
-    }
-
-    if workspace is None:
-        return result
-
-    config_path = workspace / _CONFIG_PATH
-    if not config_path.is_file():
-        return result
-
-    try:
-        from hephaistos.parameters.cli import _parse_toml_simple
-
-        data = _parse_toml_simple(config_path)
-    except Exception:
-        return result
-    autonomy = data.get("autonomy", "").strip().strip('"').strip("'")
-    if autonomy in _TIER_ORDER:
-        result["autonomy"] = autonomy
-    for val in data.get("auto_approve", "").split(","):
-        val = val.strip().strip('"').strip("'")
-        if val:
-            auto_approve.add(val)
-    for val in data.get("deny", "").split(","):
-        val = val.strip().strip('"').strip("'")
-        if val:
-            deny.add(val)
-
-    return result

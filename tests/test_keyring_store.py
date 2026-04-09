@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
+
+import keyring
 import pytest
 
 from hephaistos.providers.keyring_store import (
-    clear_volatile,
-    delete_key,
+    _SERVICE_PREFIX,
+    _USERNAME,
     get_volatile,
     mask_key,
     resolve_key,
@@ -21,12 +24,14 @@ _TEST_SLUG = "__test_hephaistos_unit__"
 
 @pytest.fixture(autouse=True)
 def _clean_test_key():
-    """Ensure no leftover test key in keychain or volatile store."""
-    delete_key(_TEST_SLUG)
-    clear_volatile(_TEST_SLUG)
+    """Ensure no leftover test key in volatile store."""
+    set_volatile(_TEST_SLUG, "")
+    with contextlib.suppress(Exception):
+        keyring.delete_password(f"{_SERVICE_PREFIX}:{_TEST_SLUG}", _USERNAME)
     yield
-    delete_key(_TEST_SLUG)
-    clear_volatile(_TEST_SLUG)
+    set_volatile(_TEST_SLUG, "")
+    with contextlib.suppress(Exception):
+        keyring.delete_password(f"{_SERVICE_PREFIX}:{_TEST_SLUG}", _USERNAME)
 
 
 # ---------------------------------------------------------------------------
@@ -64,14 +69,6 @@ class TestVolatileStore:
     def test_get_missing_returns_none(self) -> None:
         assert get_volatile("nonexistent-slug") is None
 
-    def test_clear(self) -> None:
-        set_volatile(_TEST_SLUG, "to-clear")
-        clear_volatile(_TEST_SLUG)
-        assert get_volatile(_TEST_SLUG) is None
-
-    def test_clear_nonexistent_is_safe(self) -> None:
-        clear_volatile("no-such-slug")  # should not raise
-
 
 # ---------------------------------------------------------------------------
 # Keychain round-trip (may fail gracefully if keychain is locked)
@@ -85,17 +82,6 @@ class TestKeychainRoundTrip:
         except Exception:
             pytest.skip("keychain not available in this environment")
         assert retrieve_key(_TEST_SLUG) == "test-secret-key"
-
-    def test_delete_removes_key(self) -> None:
-        try:
-            store_key(_TEST_SLUG, "to-delete")
-        except Exception:
-            pytest.skip("keychain not available")
-        assert delete_key(_TEST_SLUG) is True
-        assert retrieve_key(_TEST_SLUG) is None
-
-    def test_delete_nonexistent_returns_false(self) -> None:
-        assert delete_key("no-such-key-xyz") is False
 
 
 # ---------------------------------------------------------------------------

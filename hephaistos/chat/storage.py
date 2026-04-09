@@ -51,8 +51,6 @@ def _message_to_dict(msg: Message) -> dict[str, str]:
     return {"role": msg.role, "content": msg.content}
 
 
-def _dict_to_message(data: dict[str, str]) -> Message:
-    return Message(role=data["role"], content=data["content"])
 
 
 def save(

@@ -142,7 +142,6 @@ class ExtractedCitation:
     """A source citation found in LLM response text."""
 
     raw: str  # matched filename / path
-    position: int  # character offset in the response
 
 
 def extract_citations(text: str) -> list[ExtractedCitation]:
@@ -169,7 +168,6 @@ def extract_citations(text: str) -> list[ExtractedCitation]:
             citations.append(
                 ExtractedCitation(
                     raw=raw,
-                    position=m.start(1),
                 )
             )
 
@@ -190,10 +188,6 @@ class VerificationResult:
     has_citations: bool
     all_verified: bool
     rag_context_present: bool  # was RAG context injected at all?
-
-    @property
-    def has_unverified(self) -> bool:
-        return len(self.unverified) > 0
 
 
 def verify_citations(

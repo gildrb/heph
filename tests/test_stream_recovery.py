@@ -147,15 +147,6 @@ class TestRetryConfig:
         assert cfg.base_delay == 1.0
         assert cfg.max_delay == 30.0
 
-    def test_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HEPHAISTOS_MAX_RETRIES", "5")
-        monkeypatch.setenv("HEPHAISTOS_RETRY_BASE_DELAY", "0.5")
-        monkeypatch.setenv("HEPHAISTOS_RETRY_MAX_DELAY", "60")
-        cfg = RetryConfig.from_env()
-        assert cfg.max_retries == 5
-        assert cfg.base_delay == 0.5
-        assert cfg.max_delay == 60.0
-
 
 # ---------------------------------------------------------------------------
 # _wait_backoff
