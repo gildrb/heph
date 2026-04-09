@@ -26,6 +26,7 @@ from hephaistos.logging import get_logger
 _log = get_logger("harness.compact")
 
 KEEP_RECENT: int = 3  # tool results left untouched by micro_compact
+KEEP_RECENT_EXCHANGES: int = 2  # complete exchanges preserved verbatim by auto_compact
 PLACEHOLDER_THRESHOLD: int = 100  # only replace results longer than this (chars)
 TOKEN_THRESHOLD: int = 50_000  # auto_compact trigger
 TRANSCRIPTS_DIR: str = ".transcripts"
@@ -91,18 +92,37 @@ def auto_compact(
     messages: list[dict],
     config: ChatConfig,
     workspace: Path,
+    *,
+    keep_recent_exchanges: int = KEEP_RECENT_EXCHANGES,
 ) -> list[dict]:
-    """Save transcript to disk, summarise via LLM, return compressed list.
+    """Save transcript to disk, summarise older turns, keep recent ones verbatim.
+
+    The most recent N exchanges (user + assistant + tool messages) are
+    preserved verbatim so the LLM can still reference them precisely.
+    Only older turns are summarized via a separate LLM call.
 
     If summarisation fails (network error, API key missing, etc.) the
     original messages are returned unchanged and the error is logged.
     """
-    # --- Save full transcript for recovery ---
     _save_transcript(messages, workspace)
 
+    system_msgs = [m for m in messages if m.get("role") == "system"]
+    non_system = [m for m in messages if m.get("role") != "system"]
+
+    user_indices = [i for i, m in enumerate(non_system) if m.get("role") == "user"]
+
+    keep_from = 0
+    if len(user_indices) > keep_recent_exchanges:
+        keep_from = user_indices[-keep_recent_exchanges]
+
+    old_messages = non_system[:keep_from]
+    recent_messages = non_system[keep_from:]
+
+    if not old_messages:
+        return messages
+
     try:
-        # --- Build summarisation prompt ---
-        serialized = json.dumps(messages, default=str, ensure_ascii=False)
+        serialized = json.dumps(old_messages, default=str, ensure_ascii=False)
         if len(serialized) > 80_000:
             serialized = serialized[:80_000] + "\n... [truncated]"
 
@@ -139,9 +159,11 @@ def auto_compact(
         )
         return messages
 
-    # --- Build compressed message list ---
-    system_msgs = [m for m in messages if m.get("role") == "system"]
-    compressed = [*system_msgs, {"role": "user", "content": f"[Compressed]\n\n{summary}"}]
+    compressed = [
+        *system_msgs,
+        {"role": "user", "content": f"[Earlier conversation summary]\n\n{summary}"},
+        *recent_messages,
+    ]
 
     _log.info(
         "auto_compact complete",
@@ -152,6 +174,9 @@ def auto_compact(
                 "before_tokens": estimate_messages_tokens(messages),
                 "after_tokens": estimate_messages_tokens(compressed),
                 "summary_len": len(summary),
+                "kept_exchanges": len(user_indices[-keep_recent_exchanges:])
+                if len(user_indices) > keep_recent_exchanges
+                else len(user_indices),
             }
         },
     )

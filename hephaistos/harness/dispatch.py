@@ -284,6 +284,25 @@ def _sync_conversation(conversation: Conversation, api_messages: list[dict]) -> 
             conversation.add(role, content)
 
 
+def _inject_rag_ephemeral(messages: list[dict], rag_context: str | None) -> list[dict]:
+    """Build a copy of *messages* with ephemeral RAG context injected.
+
+    The RAG context is inserted as a system message just before the last
+    user message.  The original *messages* list is never modified.
+    Returns *messages* unchanged if *rag_context* is ``None``.
+    """
+    if not rag_context:
+        return messages
+    msgs = list(messages)
+    last_user = next(
+        (i for i in range(len(msgs) - 1, -1, -1) if msgs[i].get("role") == "user"),
+        None,
+    )
+    if last_user is not None:
+        msgs.insert(last_user, {"role": "system", "content": rag_context})
+    return msgs
+
+
 def agent_loop(
     config: ChatConfig,
     conversation: Conversation,
@@ -294,6 +313,7 @@ def agent_loop(
     retry: RetryConfig | None = None,
     usage: SessionUsage | None = None,
     steering: SteeringQueue | None = None,
+    rag_context: str | None = None,
 ) -> Iterator[str]:
     """Run the agent loop, yielding text chunks as they stream.
 
@@ -370,9 +390,10 @@ def agent_loop(
             client = _build_client(config)
             try:
                 with turn_timer:
+                    llm_messages = _inject_rag_ephemeral(api_messages, rag_context)
                     response = client.chat.completions.create(
                         model=config.model,
-                        messages=api_messages,  # type: ignore[arg-type]
+                        messages=llm_messages,  # type: ignore[arg-type]
                         tools=TOOL_SCHEMAS,  # type: ignore[arg-type]
                         max_tokens=config.max_tokens,
                         stream=True,

@@ -154,13 +154,13 @@ class SessionUsage:
 def _get_pricing(model: str) -> tuple[float, float]:
     """Get (prompt_price_per_1k, completion_price_per_1k) for a model.
 
-    Checks exact match first, then prefix match.
+    Checks exact match first, then longest-prefix match.
     """
     if model in _MODEL_PRICING:
         return _MODEL_PRICING[model]
-    for key, pricing in _MODEL_PRICING.items():
-        if model.startswith(key) or key.startswith(model):
-            return pricing
+    for key in sorted(_MODEL_PRICING, key=len, reverse=True):
+        if model.startswith(key):
+            return _MODEL_PRICING[key]
     if "free" in model.lower():
         return (0.0, 0.0)
     return (0.002, 0.008)
@@ -169,14 +169,14 @@ def _get_pricing(model: str) -> tuple[float, float]:
 def get_context_window(model: str) -> int:
     """Get the context window size for a model.
 
-    Checks exact match, then prefix match, then default.
+    Checks exact match, then longest-prefix match, then default.
     """
     if model in _MODEL_CONTEXT_WINDOWS:
         return _MODEL_CONTEXT_WINDOWS[model]
 
-    for key, size in _MODEL_CONTEXT_WINDOWS.items():
-        if model.startswith(key) or key.startswith(model):
-            return size
+    for key in sorted(_MODEL_CONTEXT_WINDOWS, key=len, reverse=True):
+        if model.startswith(key):
+            return _MODEL_CONTEXT_WINDOWS[key]
 
     return _DEFAULT_CONTEXT_WINDOW
 

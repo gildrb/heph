@@ -52,6 +52,17 @@ def _build_messages(n_tool_results: int, result_size: int = 500) -> list[dict]:
     return messages
 
 
+def _build_multi_exchange(n_exchanges: int = 5) -> list[dict]:
+    """Build a message list with multiple user/assistant exchanges."""
+    messages: list[dict] = [
+        {"role": "system", "content": "You are helpful."},
+    ]
+    for i in range(n_exchanges):
+        messages.append({"role": "user", "content": f"exchange_{i}"})
+        messages.append({"role": "assistant", "content": f"response_{i}"})
+    return messages
+
+
 # ---------------------------------------------------------------------------
 # estimate_messages_tokens
 # ---------------------------------------------------------------------------
@@ -224,31 +235,51 @@ class TestAutoCompact:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Result has system messages + a compressed user message."""
-        messages = _build_messages(5)
+        """Result has system messages + a summary + recent exchanges."""
+        messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
 
         compressed = auto_compact(messages, config, tmp_path)
 
-        # System messages preserved
         system_msgs = [m for m in compressed if m["role"] == "system"]
         assert len(system_msgs) == 1
 
-        # One user message with the summary
+        summary_msgs = [
+            m
+            for m in compressed
+            if m["role"] == "user" and "[Earlier conversation summary]" in m["content"]
+        ]
+        assert len(summary_msgs) == 1
+
+    def test_preserves_recent_exchanges(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Recent exchanges are kept verbatim, not summarized."""
+        messages = _build_multi_exchange(n_exchanges=5)
+        config, mock_client = self._mock_config_and_client()
+        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
+
+        compressed = auto_compact(messages, config, tmp_path, keep_recent_exchanges=2)
+
         user_msgs = [m for m in compressed if m["role"] == "user"]
-        assert len(user_msgs) == 1
-        assert "[Compressed]" in user_msgs[0]["content"]
+        recent_user_contents = [
+            m["content"] for m in user_msgs if "[Earlier conversation summary]" not in m["content"]
+        ]
+        assert any("exchange_4" in c for c in recent_user_contents)
+        assert any("exchange_3" in c for c in recent_user_contents)
 
     def test_summary_content(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The mock LLM summary appears in the compressed output."""
-        messages = _build_messages(2)
+        messages = _build_multi_exchange(n_exchanges=4)
         config, mock_client = self._mock_config_and_client(summary="Key fact: the answer is 42.")
         monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
 
         compressed = auto_compact(messages, config, tmp_path)
-        user_msgs = [m for m in compressed if m["role"] == "user"]
-        assert "42" in user_msgs[0]["content"]
+        summary_msgs = [m for m in compressed if m["role"] == "user"]
+        assert any("42" in m["content"] for m in summary_msgs)
 
     def test_returns_original_on_llm_failure(
         self,
@@ -288,7 +319,7 @@ class TestSyncConversation:
 
         api_messages = [
             {"role": "system", "content": "new system"},
-            {"role": "user", "content": "[Compressed]\n\nSummary here"},
+            {"role": "user", "content": "[Earlier conversation summary]\n\nSummary here"},
         ]
         _sync_conversation(conv, api_messages)
 

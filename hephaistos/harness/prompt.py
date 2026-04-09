@@ -79,6 +79,10 @@ _ANTI_HALLUCINATION = """\
    a student they are wrong. You might be the one who's wrong.
 7. **When describing diagrams/figures, be precise.** Every label, axis, unit, and value must
    come from the actual image — never approximate or invent details.
+8. **No retrieved context for a question.** If no "Source material retrieved" section appears
+   before a question, the armory had no relevant documents. Answer from your own knowledge
+   only if you are confident, and explicitly say the answer is not from source material.
+   Do NOT fabricate source citations.
 """
 
 _STUDY_LOOP = """\

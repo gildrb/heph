@@ -13,11 +13,10 @@ from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import (
     ChatConfig,
     Conversation,
-    Message,
     StreamRecoveryError,
     get_reply,
 )
-from hephaistos.chat.usage import SessionUsage, save_usage
+from hephaistos.chat.usage import ContextBudget, SessionUsage, save_usage
 from hephaistos.harness.dispatch import agent_loop
 from hephaistos.harness.prompt import build_system_prompt
 from hephaistos.harness.rag import ArmoryIndex, build_context, load_or_build, retrieve
@@ -70,7 +69,7 @@ def _count_source_files(armory_path: Path) -> int:
         if not folder.is_dir():
             continue
         for file_path in sorted(folder.rglob("*")):
-            if file_path.is_file():
+            if file_path.is_file() and not file_path.name.startswith("."):
                 count += 1
     return count
 
@@ -83,7 +82,7 @@ def _list_source_file_names(armory_path: Path) -> list[str]:
         if not folder.is_dir():
             continue
         for file_path in sorted(folder.rglob("*")):
-            if file_path.is_file():
+            if file_path.is_file() and not file_path.name.startswith("."):
                 rel = file_path.relative_to(armory_path)
                 names.append(str(rel))
     return names
@@ -264,7 +263,7 @@ def send_user_message(
     reply = ""
     try:
         if session.armory_path is not None:
-            _inject_rag_context(session, user_input)
+            rag_context = _build_rag_context(session, user_input)
             parts: list[str] = []
             for chunk in agent_loop(
                 session.config,
@@ -272,6 +271,8 @@ def send_user_message(
                 session.armory_path,
                 abort=abort,
                 usage=session.usage,
+                rag_context=rag_context,
+                steering=session.steering,
             ):
                 sys.stdout.write(chunk)
                 sys.stdout.flush()
@@ -345,17 +346,16 @@ def send_user_message(
         try:
             from hephaistos.memory.extract import extract_and_store
 
-            sources_used = ""
-            for msg in session.conversation.messages:
-                if msg.role == "system" and msg.content.startswith(_RAG_CONTEXT_PREFIX):
-                    sources_used = msg.content[:200]
+            clean_reply = ""
+            for msg in reversed(session.conversation.messages):
+                if msg.role == "assistant":
+                    clean_reply = msg.content
                     break
             added = extract_and_store(
                 session.config,
                 session._memory,
                 user_input,
-                reply,
-                sources=sources_used,
+                clean_reply or reply,
             )
             if added:
                 _log.info(
@@ -377,26 +377,22 @@ def send_user_message(
 
 _RAG_MIN_SCORE = 0.1
 
-_NO_CONTEXT_SIGNAL = (
-    "No relevant documents were found in the armory for this question. "
-    "Answer from your own knowledge only if you are confident, and "
-    "explicitly say that the answer is not from source material. "
-    "Do NOT fabricate source citations."
-)
 
+def _build_rag_context(session: ChatSession, user_input: str) -> str | None:
+    """Build RAG context string for ephemeral injection.
 
-def _inject_rag_context(session: ChatSession, user_input: str) -> int:
-    """Build/load the RAG index, retrieve relevant chunks, and inject context.
+    Returns a context string to be injected into API messages on-the-fly,
+    or ``None`` if no relevant context was found.  Does NOT modify the
+    conversation -- RAG context is ephemeral and never persisted.
 
-    Inserts a system message with retrieved context just before the last
-    user message. Returns the number of messages inserted (0 or 1).
+    Chunks scoring below ``_RAG_MIN_SCORE`` are discarded.
 
-    Chunks scoring below ``_RAG_MIN_SCORE`` are discarded.  When all
-    chunks fall below threshold, a no-context signal is injected instead
-    so the LLM does not fabricate citations.
+    The token budget is adaptive: it shrinks when the context window is
+    nearly full, using at most 30% of remaining space (with a floor of
+    200 tokens) so RAG context never triggers premature compaction.
     """
     if session.armory_path is None:
-        return 0
+        return None
     try:
         timer = Timer()
         if session._rag_index is None:
@@ -420,13 +416,7 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
                     }
                 },
             )
-            # Inject explicit no-context signal so the LLM doesn't hallucinate sources
-            last_idx = len(session.conversation.messages) - 1
-            session.conversation.messages.insert(
-                last_idx,
-                Message(role="system", content=_NO_CONTEXT_SIGNAL),
-            )
-            return 1
+            return None
 
         scores = [sc.score for sc in scored]
         _log.info(
@@ -448,21 +438,23 @@ def _inject_rag_context(session: ChatSession, user_input: str) -> int:
             latency_ms=timer.ms,
         )
 
-        context_text = build_context(scored, max_tokens=session.config.rag_context_budget)
-        if not context_text:
-            return 0
+        budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
+        api_msgs = session.conversation.to_api_messages()
+        remaining = budget.tokens_remaining(api_msgs)
 
-        full_context = _RAG_CONTEXT_PREFIX + context_text
-        last_idx = len(session.conversation.messages) - 1
-        session.conversation.messages.insert(
-            last_idx,
-            Message(role="system", content=full_context),
+        adaptive_budget = min(
+            session.config.rag_context_budget,
+            max(200, int(remaining * 0.3)),
         )
-        return 1
+
+        context_text = build_context(scored, max_tokens=adaptive_budget)
+        if not context_text:
+            return None
+
+        return _RAG_CONTEXT_PREFIX + context_text
     except Exception:
-        # RAG failure should never block the conversation
-        _log.warning("rag context injection failed", exc_info=True)
-        return 0
+        _log.warning("rag context build failed", exc_info=True)
+        return None
 
 
 def save_session(session: ChatSession) -> Path:

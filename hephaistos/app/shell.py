@@ -357,20 +357,19 @@ def _list_saved_chats(session: ChatSession) -> None:
 
 def _handle_armory_command(session: ChatSession) -> ChatSession:
     selected = select_option("Armory", ARMORY_MENU_OPTIONS)
-    if selected is None or selected == 5:
+    handlers = [
+        _open_armory,
+        _create_armory,
+        _detach_armory,
+        _resume_saved_chat,
+        _list_saved_chats,
+    ]
+    if selected is None or selected < 0 or selected >= len(handlers):
         return session
-    if selected == 0:
-        return _open_armory(session)
-    if selected == 1:
-        return _create_armory(session)
-    if selected == 2:
-        return _detach_armory(session)
-    if selected == 3:
-        return _resume_saved_chat(session)
-    if selected == 4:
-        _list_saved_chats(session)
+    result = handlers[selected](session)
+    if result is None:
         return session
-    return session
+    return result
 
 
 def _run_shell_command(cmd: str) -> None:
