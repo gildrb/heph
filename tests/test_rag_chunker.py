@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from hephaistos.harness.rag.chunker import (
+    _DOCLING_EXTENSIONS,
     ChunkStrategy,
+    _convert_to_markdown,
+    _is_docling_available,
+    _is_docling_file,
     chunk_file,
     chunk_markdown,
     chunk_semantic,
@@ -230,3 +235,137 @@ class TestChunkStrategy:
         doc = chunk_file(txt, armory, strategy=ChunkStrategy.SEMANTIC)
         assert doc is not None
         assert len(doc.chunks) >= 1
+
+
+class TestDoclingIntegration:
+    """Tests for the Docling binary-document conversion path."""
+
+    def test_is_docling_file(self) -> None:
+        assert _is_docling_file(Path("report.pdf"))
+        assert _is_docling_file(Path("slides.PPTX"))
+        assert _is_docling_file(Path("data.Xlsx"))
+        assert not _is_docling_file(Path("notes.txt"))
+        assert not _is_docling_file(Path("code.py"))
+        assert not _is_docling_file(Path("image.png"))
+
+    def test_docling_extensions_covered(self) -> None:
+        assert ".pdf" in _DOCLING_EXTENSIONS
+        assert ".docx" in _DOCLING_EXTENSIONS
+        assert ".pptx" in _DOCLING_EXTENSIONS
+        assert ".xlsx" in _DOCLING_EXTENSIONS
+        assert ".odt" in _DOCLING_EXTENSIONS
+
+    def test_is_docling_available_without_package(self) -> None:
+        with (
+            patch.dict("sys.modules", {"docling": None}),
+            patch("builtins.__import__", side_effect=ImportError("no docling")),
+        ):
+            assert not _is_docling_available()
+
+    def test_convert_to_markdown_success(self, tmp_path: Path) -> None:
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
+
+        mock_result = MagicMock()
+        mock_result.document.export_to_markdown.return_value = (
+            "# Report\n\nSome content from the PDF.\n"
+        )
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+
+        with patch(
+            "hephaistos.harness.rag.chunker._get_docling_converter",
+            return_value=mock_converter,
+        ):
+            md = _convert_to_markdown(pdf)
+
+        assert md is not None
+        assert "# Report" in md
+
+    def test_convert_to_markdown_failure_returns_none(self, tmp_path: Path) -> None:
+        pdf = tmp_path / "bad.pdf"
+        pdf.write_bytes(b"%PDF\x00corrupt")
+
+        mock_converter = MagicMock()
+        mock_converter.convert.side_effect = RuntimeError("conversion failed")
+
+        with patch(
+            "hephaistos.harness.rag.chunker._get_docling_converter",
+            return_value=mock_converter,
+        ):
+            md = _convert_to_markdown(pdf)
+
+        assert md is None
+
+    def test_chunk_docling_file_via_chunk_file(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        src = armory / "source"
+        src.mkdir()
+        pdf = src / "report.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00binary content")
+
+        mock_result = MagicMock()
+        mock_result.document.export_to_markdown.return_value = (
+            "# Chapter 1\n\nContent from PDF.\n\n## Section\n\nMore details."
+        )
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+
+        with (
+            patch(
+                "hephaistos.harness.rag.chunker._is_docling_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.chunker._get_docling_converter",
+                return_value=mock_converter,
+            ),
+        ):
+            doc = chunk_file(pdf, armory)
+
+        assert doc is not None
+        assert doc.source == "source/report.pdf"
+        assert len(doc.chunks) >= 1
+        assert doc.content_hash != ""
+        # Markdown heading chunking should have run
+        assert any(c.heading for c in doc.chunks)
+
+    def test_chunk_file_skips_pdf_without_docling(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        pdf = armory / "doc.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00binary")
+
+        with patch(
+            "hephaistos.harness.rag.chunker._is_docling_available",
+            return_value=False,
+        ):
+            doc = chunk_file(pdf, armory)
+
+        assert doc is None
+
+    def test_chunk_docling_empty_conversion_returns_none(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        pdf = armory / "blank.pdf"
+        pdf.write_bytes(b"%PDF\x00fake")
+
+        mock_result = MagicMock()
+        mock_result.document.export_to_markdown.return_value = "   \n  \n"
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+
+        with (
+            patch(
+                "hephaistos.harness.rag.chunker._is_docling_available",
+                return_value=True,
+            ),
+            patch(
+                "hephaistos.harness.rag.chunker._get_docling_converter",
+                return_value=mock_converter,
+            ),
+        ):
+            doc = chunk_file(pdf, armory)
+
+        assert doc is None

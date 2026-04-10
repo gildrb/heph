@@ -30,6 +30,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from hephaistos.logging import get_logger
+
+_log = get_logger("rag.chunker")
+
 _TEXT_EXTENSIONS = frozenset(
     {
         ".txt",
@@ -177,6 +181,7 @@ def _convert_to_markdown(path: Path) -> str | None:
         result = converter.convert(str(path))
         return result.document.export_to_markdown()
     except Exception:
+        _log.warning("docling conversion failed", exc_info=True)
         return None
 
 
