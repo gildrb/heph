@@ -23,7 +23,7 @@ from hephaistos.logging import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_root_logger(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _reset_root_logger(monkeypatch: pytest.MonkeyPatch) -> Generator:
     """Reset the root hephaistos logger between tests."""
     import hephaistos.logging as mod
 
