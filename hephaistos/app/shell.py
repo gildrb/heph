@@ -94,7 +94,7 @@ _PT_STYLE = PtStyle.from_dict(
 class SlashCommandCompleter(Completer):
     """Tab-completion for slash commands."""
 
-    def get_completions(self, document, complete_event):
+    def get_completions(self, document, _complete_event):
         text = document.text_before_cursor
         stripped = text.lstrip()
 
@@ -551,7 +551,7 @@ def run_chat_shell(
     abort_event = threading.Event()
     original_sigint = signal.getsignal(signal.SIGINT)
 
-    def _sigint_handler(signum: int, frame: object) -> None:
+    def _sigint_handler(_signum: int, _frame: object) -> None:
         abort_event.set()
 
     history = InputHistory()

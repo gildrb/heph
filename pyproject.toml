@@ -116,7 +116,6 @@ pythonVersion = "3.13"
 typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"
-exclude = ["vulture-whitelist.py"]
 # Third-party libs that lack stubs
 reportMissingTypeStubs = "none"
 # Optional RAG dependencies (numpy, sklearn, sentence-transformers)

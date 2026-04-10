@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 import hephaistos.app.cli as app_cli
@@ -62,4 +63,5 @@ def test_main_without_args_prints_help_on_non_tty(monkeypatch) -> None:
 
     app_cli.main()
 
-    assert "usage: heph" in fake_stdout.getvalue()
+    output = re.sub(r"\x1b\[[0-9;]*m", "", fake_stdout.getvalue())
+    assert "usage: heph" in output
