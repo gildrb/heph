@@ -63,4 +63,3 @@ def read_marker(path: Path) -> dict[str, object]:
         raise ArmoryValidationError(f"missing armory marker file: {marker_path}")
     with marker_path.open("rb") as f:
         return tomllib.load(f)
-

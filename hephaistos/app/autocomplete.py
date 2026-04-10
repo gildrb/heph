@@ -9,6 +9,3 @@ from dataclasses import dataclass
 class CommandSuggestion:
     name: str
     description: str
-
-
-

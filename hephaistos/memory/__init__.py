@@ -265,7 +265,6 @@ class MemoryStore:
         return header + "\n" + "\n".join(parts)
 
 
-
 def load_memory(armory_path: Path) -> MemoryStore:
     """Load memory for an armory (creates empty store if none exists)."""
     store = MemoryStore(armory_path)

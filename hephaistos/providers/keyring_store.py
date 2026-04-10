@@ -49,7 +49,6 @@ def retrieve_key(slug: str) -> str | None:
         return None
 
 
-
 def has_key(slug: str) -> bool:
     """Return ``True`` if a key exists in the OS keychain for this slug."""
     return retrieve_key(slug) is not None
@@ -67,7 +66,6 @@ def set_volatile(slug: str, api_key: str) -> None:
 def get_volatile(slug: str) -> str | None:
     """Return a volatile (in-memory) key, or ``None``."""
     return _volatile.get(slug)
-
 
 
 def resolve_key(slug: str, env_var: str = "") -> str:

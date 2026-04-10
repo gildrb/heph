@@ -66,7 +66,6 @@ class ChatConfig:
         return self.api_key
 
 
-
 class EngineError(Exception):
     """Raised when the engine cannot communicate with the LLM."""
 
@@ -94,7 +93,6 @@ class RetryConfig:
     max_retries: int = 3
     base_delay: float = 1.0  # seconds
     max_delay: float = 30.0  # seconds
-
 
 
 _RETRYABLE_TYPES = (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError)

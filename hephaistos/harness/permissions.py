@@ -392,6 +392,3 @@ _TOOL_TIER_MAP: dict[str, str] = {
 def tier_allows(required: str, current: str) -> bool:
     """Check if the current autonomy level allows the required tier."""
     return _TIER_ORDER.get(current, 0) >= _TIER_ORDER.get(required, 0)
-
-
-

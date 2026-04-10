@@ -51,8 +51,6 @@ def _message_to_dict(msg: Message) -> dict[str, str]:
     return {"role": msg.role, "content": msg.content}
 
 
-
-
 def save(
     armory_path: Path,
     session_id: str,

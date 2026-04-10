@@ -26,18 +26,12 @@ def styled(text: str, style: str) -> str:
     return f"{style}{text}{RESET}"
 
 
-
-
-
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 
 def visible_len(text: str) -> int:
     """Return the visible (non-ANSI) character count of a string."""
     return len(_ANSI_RE.sub("", text))
-
-
-
 
 
 def print_error(msg: str) -> None:
