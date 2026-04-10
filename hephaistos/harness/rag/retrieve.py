@@ -309,7 +309,7 @@ _RERANK_MODEL_DEFAULT = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 def _is_sentence_transformers_available() -> bool:
     """Return True if sentence-transformers can be imported."""
     try:
-        import sentence_transformers  # noqa: F401, RUF100
+        import sentence_transformers  # type: ignore[UnusedImport]  # noqa: F401, RUF100
 
         return True
     except ImportError:

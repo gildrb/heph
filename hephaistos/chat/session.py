@@ -272,7 +272,7 @@ def send_user_message(
                 abort=abort,
                 usage=session.usage,
                 rag_context=rag_context,
-                steering=session.steering,
+                steering=session.steering,  # type: ignore[arg-type]
             ):
                 sys.stdout.write(chunk)
                 sys.stdout.flush()
@@ -440,7 +440,7 @@ def _build_rag_context(session: ChatSession, user_input: str) -> str | None:
 
         budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
         api_msgs = session.conversation.to_api_messages()
-        remaining = budget.tokens_remaining(api_msgs)
+        remaining = budget.tokens_remaining(api_msgs)  # type: ignore[arg-type]
 
         adaptive_budget = min(
             session.config.rag_context_budget,

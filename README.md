@@ -22,6 +22,12 @@ To enable embedding retrieval and cross-encoder re-ranking:
 uv sync --group rag
 ```
 
+To enable document conversion (PDF, DOCX, PPTX, HTML) via [docling](https://github.com/docling-project/docling):
+
+```bash
+uv sync --group docling
+```
+
 ### Create an armory and start a session
 
 ```bash
@@ -75,6 +81,7 @@ If an armory has no source files, `chat start` will fail until you add material 
 - Structured logging plus per-session JSONL traces
 - Multi-provider model switching with a built-in model registry (context windows, pricing, capabilities)
 - TF-IDF retrieval by default; optional embedding/hybrid retrieval, cross-encoder re-ranking, and query transformation (HyDE, multi-query, keyword expansion) when extra dependencies are installed
+- Document conversion for PDF, DOCX, PPTX, and HTML via optional `docling` integration
 - Mutation queue serialising concurrent file writes per-path
 - Keychain-based API key storage with lazy resolution
 
@@ -213,6 +220,8 @@ hephaistos/
   memory/         learned-concept extraction and persistence
   parameters/     default parameter loading and env overrides
   providers/      provider config, model registry, keyring integration
+  source/         public package entrypoint (re-exports CLI)
+  logging.py      structured JSON logging and per-session trace writer
 tests/            unit and integration tests
 ```
 

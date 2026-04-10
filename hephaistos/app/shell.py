@@ -94,7 +94,7 @@ _PT_STYLE = PtStyle.from_dict(
 class SlashCommandCompleter(Completer):
     """Tab-completion for slash commands."""
 
-    def get_completions(self, document, _complete_event):
+    def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         stripped = text.lstrip()
 

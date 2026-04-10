@@ -55,7 +55,7 @@ def test_run_chat_shell_armory_command_opens_existing_armory(
 
 def test_create_session_without_armory_raises(tmp_path: Path) -> None:
     with pytest.raises(SessionError, match="armory is required"):
-        create_session(ChatConfig(), None)
+        create_session(ChatConfig(), None)  # type: ignore[arg-type]
 
 
 def test_create_session_empty_armory_raises(tmp_path: Path) -> None:

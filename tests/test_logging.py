@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,7 @@ from hephaistos.logging import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_root_logger(monkeypatch: pytest.MonkeyPatch) -> None:
+def _reset_root_logger(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     """Reset the root hephaistos logger between tests."""
     import hephaistos.logging as mod
 

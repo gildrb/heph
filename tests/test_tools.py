@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 from unittest.mock import MagicMock, patch
 
 from hephaistos.harness.tools import (
@@ -123,7 +124,7 @@ class TestWebFetch:
                 "url",
                 404,
                 "Not Found",
-                {},
+                http.client.HTTPMessage(),
                 None,
             ),
         ):

@@ -152,7 +152,7 @@ def _is_docling_file(path: Path) -> bool:
 
 def _is_docling_available() -> bool:
     try:
-        import docling  # noqa: F401
+        import docling  # type: ignore[UnusedImport]  # noqa: F401
 
         return True
     except ImportError:
@@ -384,7 +384,7 @@ def chunk_text(
 
 def _is_st_available() -> bool:
     try:
-        import sentence_transformers  # noqa: F401
+        import sentence_transformers  # type: ignore[UnusedImport]  # noqa: F401
 
         return True
     except ImportError:
