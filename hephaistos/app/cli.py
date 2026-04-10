@@ -8,6 +8,13 @@ from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.cli import register as register_armory_commands
 from hephaistos.chat.cli import register as register_chat_commands
 
+try:
+    from importlib.metadata import version as _pkg_version
+
+    _VERSION = _pkg_version("hephaistos")
+except Exception:
+    _VERSION = "0.1.0"
+
 
 def _hide_subparser(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
@@ -23,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
         description="Chat-first study CLI.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_VERSION}",
     )
     subparsers = parser.add_subparsers(
         dest="command",

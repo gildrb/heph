@@ -28,6 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 _TEXT_EXTENSIONS = frozenset(
     {
@@ -77,6 +78,22 @@ _TEXT_EXTENSIONS = frozenset(
     }
 )
 
+_DOCLING_EXTENSIONS = frozenset(
+    {
+        ".pdf",
+        ".docx",
+        ".pptx",
+        ".xlsx",
+        ".doc",
+        ".ppt",
+        ".xls",
+        ".odt",
+        ".ods",
+        ".odp",
+        ".rtf",
+    }
+)
+
 _DEFAULT_CHUNK_SIZE = 500
 _DEFAULT_OVERLAP = 100
 _MAX_CHUNK_SIZE = 2000
@@ -123,6 +140,44 @@ def _is_text_file(path: Path) -> bool:
 
 def _is_markdown(path: Path) -> bool:
     return path.suffix.lower() in (".md", ".mdown", ".markdown")
+
+
+def _is_docling_file(path: Path) -> bool:
+    return path.suffix.lower() in _DOCLING_EXTENSIONS
+
+
+def _is_docling_available() -> bool:
+    try:
+        import docling  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+_docling_converter: list[Any] = []
+
+
+def _get_docling_converter() -> Any:
+    """Return a lazily-initialised, cached ``DocumentConverter``."""
+    if not _docling_converter:
+        from docling.document_converter import DocumentConverter
+
+        _docling_converter.append(DocumentConverter())
+    return _docling_converter[0]
+
+
+def _convert_to_markdown(path: Path) -> str | None:
+    """Convert a binary document to Markdown via Docling.
+
+    Returns the markdown text, or ``None`` on failure.
+    """
+    try:
+        converter = _get_docling_converter()
+        result = converter.convert(str(path))
+        return result.document.export_to_markdown()
+    except Exception:
+        return None
 
 
 def _parse_sections(text: str) -> list[tuple[str, int, int, int]]:
@@ -468,8 +523,14 @@ def chunk_file(
     - ``ChunkStrategy.SEMANTIC``: always use embedding-based chunking
       (falls back to fixed-window when *sentence-transformers* is absent).
     - ``ChunkStrategy.TEXT``: always use fixed-window chunking.
+
+    Binary documents (PDF, DOCX, PPTX, XLSX, etc.) are converted to
+    Markdown via *docling* when the optional ``docling`` extra is installed,
+    then chunked with heading-aware chunking.
     """
     if not _is_text_file(path):
+        if _is_docling_file(path) and _is_docling_available():
+            return _chunk_docling_file(path, armory_root, chunk_size, overlap)
         return None
 
     try:
@@ -485,6 +546,28 @@ def chunk_file(
     chunks = chunk_fn(text, rel, chunk_size, overlap)
 
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+    return ChunkedDocument(
+        source=rel,
+        chunks=chunks,
+        content_hash=content_hash,
+    )
+
+
+def _chunk_docling_file(
+    path: Path,
+    armory_root: Path,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    overlap: int = _DEFAULT_OVERLAP,
+) -> ChunkedDocument | None:
+    """Convert a binary document to Markdown via Docling, then chunk it."""
+    text = _convert_to_markdown(path)
+    if not text or not text.strip():
+        return None
+
+    rel = str(path.relative_to(armory_root))
+    chunks = chunk_markdown(text, rel, chunk_size, overlap)
+    content_hash = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
     return ChunkedDocument(
         source=rel,

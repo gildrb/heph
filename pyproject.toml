@@ -3,6 +3,7 @@ name = "hephaistos"
 version = "0.1.0"
 description = "Armory-first study CLI"
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Gil", email = "hi@gildrb.com" }
 ]
@@ -17,6 +18,9 @@ dependencies = [
 embeddings = [
     "sentence-transformers>=3.0.0",
     "scikit-learn>=1.0.0",
+]
+docling = [
+    "docling>=2.0.0",
 ]
 
 [project.scripts]
@@ -133,4 +137,7 @@ dev = [
 rag = [
     "sentence-transformers>=3.0.0",
     "scikit-learn>=1.0.0",
+]
+docling = [
+    "docling>=2.0.0",
 ]

@@ -7,6 +7,7 @@ incremental rebuild detection.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 from pathlib import Path
 
@@ -28,6 +29,18 @@ _OVERLAP = 100
 
 # Persisted index format version — bump when layout changes.
 _INDEX_VERSION = 2
+
+
+def _file_hash(path: Path) -> str | None:
+    """Compute a content hash for a file.
+
+    Uses ``read_bytes()`` so binary files (PDF, DOCX, etc.) are hashed
+    correctly without decode errors.
+    """
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    except OSError:
+        return None
 
 
 class ArmoryIndex:
@@ -189,15 +202,9 @@ class ArmoryIndex:
                 rel = str(file_path.relative_to(self.armory_path))
                 if rel not in self._file_hashes:
                     return True
-                import hashlib
-
-                try:
-                    content = file_path.read_text(encoding="utf-8")
-                    h = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
-                    if h != self._file_hashes[rel]:
-                        return True
-                except (UnicodeDecodeError, OSError):
-                    continue
+                h = _file_hash(file_path)
+                if h is not None and h != self._file_hashes.get(rel):
+                    return True
 
         return len(self._file_hashes) != self._count_source_files()
 
