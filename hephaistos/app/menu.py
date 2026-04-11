@@ -1,25 +1,16 @@
-"""Interactive menu helpers for TTY workflows.
+"""Inline menu helpers for TTY workflows.
 
-Uses prompt_toolkit for arrow-key navigation in full-screen mode.
-Falls back to a numbered prompt when the terminal is not a TTY.
-All keybindings are configurable via ``DEFAULT_MENU_KEYBINDINGS``.
+Selection flows render directly into the current terminal stream so they feel
+like part of the shell rather than a separate full-screen mode.
 """
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 
-from prompt_toolkit.application import Application
-from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import FormattedTextControl, HSplit, Layout, Window
-from prompt_toolkit.layout.dimension import D
-from prompt_toolkit.styles import Style as PtStyle
-
-from hephaistos.app.display import BOLD, STYLE_DIM, STYLE_PROMPT, styled, visible_len
+from hephaistos.app.display import STYLE_DIM, STYLE_PROMPT, styled, visible_len
 from hephaistos.app.keybindings import DEFAULT_MENU_KEYBINDINGS
-from hephaistos.app.palette import FORGE_ASH, FORGE_EMBER, FORGE_SMOKE
+from hephaistos.app.palette import BOLD
 
 
 @dataclass(frozen=True)
@@ -29,102 +20,24 @@ class MenuOption:
     is_current: bool = False
 
 
-_MENU_STYLE = PtStyle.from_dict(
-    {
-        "title": FORGE_ASH,
-        "selected": f"bold {FORGE_EMBER}",
-        "dim": FORGE_SMOKE,
-    }
-)
-
-
-def _add_binding(kb: KeyBindings, keys: str | list[str], handler) -> None:
-    """Register a key binding, accepting a single key or a list of aliases."""
-    key_list = [keys] if isinstance(keys, str) else keys
-    for key in key_list:
-        kb.add(*[k.strip() for k in key.split(",")])(handler)
-
-
-def _select_with_prompt_toolkit(
-    title: str,
-    options: list[MenuOption],
-    keybindings: dict[str, str | list[str]],
-) -> int | None:
-    """Arrow-key selector using prompt_toolkit (full-screen, alternate buffer)."""
-    selected = [0]  # mutable container for closure mutation
-
-    def get_text():
-        parts: list[tuple[str, str]] = []
-        parts.append(("class:title", f"\n  ⚡ Hephaistos — {title}\n\n"))
-        for i, opt in enumerate(options):
-            if i == selected[0]:
-                parts.append(("class:selected", f"  ▸ {opt.label}\n"))
-            else:
-                parts.append(("", f"    {opt.label}\n"))
-            if opt.description:
-                parts.append(("class:dim", f"      {opt.description}\n"))
-        parts.append(("", "\n"))
-        parts.append(("class:dim", "  ↑↓ navigate · Enter select · Esc cancel"))
-        return FormattedText(parts)
-
-    kb = KeyBindings()
-
-    @_add_binding(kb, keybindings["navigate_up"])  # type: ignore[misc]
-    def _(event):
-        if options:
-            selected[0] = (selected[0] - 1) % len(options)
-
-    @_add_binding(kb, keybindings["navigate_down"])  # type: ignore[misc]
-    def _(event):
-        if options:
-            selected[0] = (selected[0] + 1) % len(options)
-
-    @_add_binding(kb, keybindings["select"])  # type: ignore[misc]
-    def _(event):
-        event.app.exit(result=selected[0])
-
-    @_add_binding(kb, keybindings["cancel"])  # type: ignore[misc]
-    def _(event):
-        event.app.exit(result=None)
-
-    layout = Layout(
-        HSplit(
-            [
-                Window(height=D(min=1)),
-                Window(
-                    content=FormattedTextControl(get_text),
-                    dont_extend_height=True,
-                ),
-                Window(height=D(min=1)),
-            ]
-        )
-    )
-
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        style=_MENU_STYLE,
-        full_screen=True,
-    )
-    return app.run()
-
-
 def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
     print(styled(title, STYLE_PROMPT))
     for index, option in enumerate(options, start=1):
         label = styled(option.label, BOLD)
         desc = styled(option.description, STYLE_DIM) if option.description else ""
-        cur = styled(" *", STYLE_PROMPT) if option.is_current else ""
+        cur = styled("current", STYLE_PROMPT) if option.is_current else ""
         if desc:
             max_label = max(visible_len(o.label) for o in options)
-            padded = f"  {option.label}{cur}".ljust(max_label + 6)
-            print(f"  {index}. {padded}{desc}")
+            padded = f"{option.label}".ljust(max_label)
+            suffix = f"  {cur}" if cur else ""
+            print(f"  {index}. {padded}  {desc}{suffix}")
         else:
-            print(f"  {index}. {label}{cur}")
-    print(f"  {styled('q.', STYLE_DIM)} Cancel")
+            suffix = f"  {cur}" if cur else ""
+            print(f"  {index}. {label}{suffix}")
+    print(f"  {styled('q.', STYLE_DIM)} cancel")
 
     while True:
-        choice = input("\nSelect option: ").strip().lower()
+        choice = input("\n  select > ").strip().lower()
         if choice in {"q", "quit", "exit"}:
             return None
         try:
@@ -147,14 +60,7 @@ def select_option(
     if not options:
         return None
 
-    kb = keybindings or DEFAULT_MENU_KEYBINDINGS
-
-    if sys.stdin.isatty() and sys.stdout.isatty():
-        try:
-            return _select_with_prompt_toolkit(title, options, kb)
-        except Exception:
-            pass
-
+    _ = keybindings or DEFAULT_MENU_KEYBINDINGS
     return _select_with_prompt(title, options)
 
 

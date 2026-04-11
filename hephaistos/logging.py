@@ -7,13 +7,17 @@ Provides:
   the armory's ``.hephaistos/traces/`` directory.
 
 Configuration (environment variables):
-    HEPHAISTOS_LOG_LEVEL  — DEBUG, INFO, WARNING, ERROR (default: WARNING)
+    HEPHAISTOS_LOG_LEVEL  — DEBUG, INFO, WARNING, ERROR.
+                           Defaults to ERROR on interactive TTYs and
+                           WARNING otherwise.
     HEPHAISTOS_LOG_FILE   — Path to a log file (append mode). Disabled if unset.
-    HEPHAISTOS_LOG_FORMAT — "json" (default) or "text" for human-readable output.
+    HEPHAISTOS_LOG_FORMAT — "json" or "text".
+                           Defaults to text on interactive TTYs and
+                           json otherwise.
 
-The default level is WARNING so the CLI is silent in production unless the
-user opts in.  Library code should use ``DEBUG`` for verbose diagnostics
-and ``INFO`` for notable events (LLM request, tool call, index build).
+Interactive shells should stay readable by default. Library code should use
+``DEBUG`` for verbose diagnostics and ``INFO`` for notable events (LLM
+request, tool call, index build).
 """
 
 from __future__ import annotations
@@ -99,9 +103,13 @@ def _ensure_root() -> None:
         return
     _root_initialised = True
 
-    level_name = os.environ.get(_LOG_LEVEL_ENV, "WARNING").upper()
+    is_tty = sys.stderr.isatty()
+    default_level_name = "ERROR" if is_tty else "WARNING"
+    default_format = "text" if is_tty else "json"
+
+    level_name = os.environ.get(_LOG_LEVEL_ENV, default_level_name).upper()
     level = getattr(logging, level_name, logging.WARNING)
-    fmt = os.environ.get(_LOG_FORMAT_ENV, "json").lower()
+    fmt = os.environ.get(_LOG_FORMAT_ENV, default_format).lower()
 
     root = logging.getLogger("hephaistos")
     root.setLevel(level)

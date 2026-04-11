@@ -1,9 +1,9 @@
-"""Tests for the RAG context builder."""
+"""Tests for the typed RAG evidence builder."""
 
 from __future__ import annotations
 
 from hephaistos.harness.rag.chunker import Chunk
-from hephaistos.harness.rag.context import build_context, estimate_tokens
+from hephaistos.harness.rag.context import build_context, build_turn_evidence, estimate_tokens
 from hephaistos.harness.rag.retrieve import ScoredChunk
 
 
@@ -12,58 +12,63 @@ def _make_scored(text: str, source: str = "test.md", score: float = 1.0) -> Scor
     return ScoredChunk(chunk=chunk, score=score)
 
 
-class TestBuildContext:
+class TestBuildTurnEvidence:
     def test_empty_input(self) -> None:
-        assert build_context([]) == ""
+        evidence = build_turn_evidence([])
+        assert not evidence
+        assert evidence.items == ()
+        assert evidence.render() == ""
 
-    def test_single_chunk(self) -> None:
-        sc = _make_scored("Python is great.", "python.md", 0.95)
-        result = build_context([sc])
-        assert "python.md" in result
-        assert "Python is great." in result
-        assert "0.95" in result
+    def test_assigns_stable_ids(self) -> None:
+        evidence = build_turn_evidence(
+            [
+                _make_scored("Content A.", "a.md", 0.9),
+                _make_scored("Content B.", "b.md", 0.8),
+            ]
+        )
+        assert [item.evidence_id for item in evidence.items] == ["E1", "E2"]
 
-    def test_multiple_chunks(self) -> None:
-        chunks = [
-            _make_scored("Content A.", "a.md", 0.9),
-            _make_scored("Content B.", "b.md", 0.8),
-        ]
-        result = build_context(chunks)
-        assert "a.md" in result
-        assert "b.md" in result
-        assert "Content A." in result
-        assert "Content B." in result
-
-    def test_source_attribution_format(self) -> None:
-        sc = _make_scored("Some text.", "notes.md", 0.75)
-        result = build_context([sc])
-        assert "--- notes.md" in result
-        assert "relevance: 0.75" in result
+    def test_render_includes_instruction_and_content(self) -> None:
+        evidence = build_turn_evidence([_make_scored("Python is great.", "python.md", 0.95)])
+        rendered = evidence.render()
+        assert "Retrieved evidence for this question" in rendered
+        assert "[E1]" in rendered
+        assert "python.md" in rendered
+        assert "Python is great." in rendered
+        assert "0.95" in rendered
 
     def test_respects_token_budget(self) -> None:
-        long_chunks = [_make_scored("A" * 2000, f"doc{i}.md", 1.0 - i * 0.1) for i in range(10)]
-        result = build_context(long_chunks, max_tokens=100)
-        # 100 tokens * 4 chars = 400 chars budget
-        assert len(result) < 1000  # well within reason
+        evidence = build_turn_evidence(
+            [_make_scored("A" * 2000, f"doc{i}.md", 1.0 - i * 0.1) for i in range(10)],
+            max_tokens=100,
+        )
+        rendered = evidence.render()
+        assert len(rendered) < 1200
+        assert len(evidence.items) >= 1
 
     def test_truncation_marker(self) -> None:
-        chunks = [
-            _make_scored("A" * 3000, "big.md", 1.0),
-        ]
-        result = build_context(chunks, max_tokens=50)
-        # Should include truncation indicator
-        assert "[... truncated]" in result
+        evidence = build_turn_evidence([_make_scored("A" * 3000, "big.md", 1.0)], max_tokens=50)
+        rendered = evidence.render()
+        assert "[... truncated]" in rendered
 
     def test_ordered_by_relevance(self) -> None:
-        # build_context preserves input order; retrieve() returns highest-first
-        chunks = [
-            _make_scored("High relevance content.", "aaa_high.md", 0.9),
-            _make_scored("Low relevance content.", "zzz_low.md", 0.3),
-        ]
-        result = build_context(chunks)
-        high_pos = result.index("High relevance content")
-        low_pos = result.index("Low relevance content")
-        assert high_pos < low_pos
+        evidence = build_turn_evidence(
+            [
+                _make_scored("High relevance content.", "aaa_high.md", 0.9),
+                _make_scored("Low relevance content.", "zzz_low.md", 0.3),
+            ]
+        )
+        rendered = evidence.render()
+        assert rendered.index("[E1]") < rendered.index("[E2]")
+        assert rendered.index("High relevance content") < rendered.index("Low relevance content")
+
+
+class TestBuildContext:
+    def test_wrapper_renders_prompt_text(self) -> None:
+        rendered = build_context([_make_scored("Some text.", "notes.md", 0.75)])
+        assert "Retrieved evidence for this question" in rendered
+        assert "[E1]" in rendered
+        assert "notes.md" in rendered
 
 
 class TestEstimateTokens:

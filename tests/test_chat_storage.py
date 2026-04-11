@@ -12,6 +12,7 @@ from hephaistos.chat.storage import (
     ChatStorageError,
     list_sessions,
     load,
+    load_metadata,
     new_session_id,
     save,
 )
@@ -70,6 +71,26 @@ def test_save_preserves_created_at(tmp_path: Path) -> None:
     data2 = json.loads(path.read_text())
     assert data2["created_at"] == original_created
     assert len(data2["messages"]) == 3
+
+
+def test_save_and_load_metadata_roundtrip(tmp_path: Path) -> None:
+    armory = _init_armory(tmp_path)
+    session_id = new_session_id()
+
+    conv = Conversation()
+    conv.add("system", "sys")
+    conv.add("user", "hi")
+
+    save(
+        armory,
+        session_id,
+        conv,
+        title="meta",
+        metadata={"study_state": {"phase": "recall", "attempt_count": 2}},
+    )
+
+    metadata = load_metadata(armory, session_id)
+    assert metadata == {"study_state": {"phase": "recall", "attempt_count": 2}}
 
 
 def test_load_nonexistent_raises(tmp_path: Path) -> None:

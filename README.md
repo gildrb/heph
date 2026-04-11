@@ -67,7 +67,7 @@ If an armory has no source files, `chat start` will fail until you add material 
 
 ## Features
 
-- Interactive TTY shell built on `prompt_toolkit` with a forge-inspired colour palette and live bottom toolbar
+- Interactive TTY shell built on `prompt_toolkit` with a forge-inspired palette, borderless dynamic composer, and live status rows beneath the input
 - Slash commands for armory/session/model/provider management
 - Shell mode via `!command`, gated by autonomy tiers that classify the actual command
 - Armory auto-discovery from the current directory or `./armory`

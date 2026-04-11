@@ -12,17 +12,19 @@ All keybindings are configurable via ``DEFAULT_SHELL_KEYBINDINGS``.
 
 from __future__ import annotations
 
-import signal
 import subprocess
 import sys
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style as PtStyle
 
 from hephaistos import __version__
@@ -40,12 +42,7 @@ from hephaistos.app.display import (
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.keybindings import DEFAULT_SHELL_KEYBINDINGS
 from hephaistos.app.menu import MenuOption, select_option
-from hephaistos.app.palette import (
-    FORGE_ASH,
-    FORGE_EMBER,
-    FORGE_PANEL,
-    FORGE_SMOKE,
-)
+from hephaistos.app.palette import FORGE_ASH, FORGE_EMBER, FORGE_IRON, FORGE_PANEL, FORGE_SMOKE
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import EngineError, StreamRecoveryError
@@ -64,6 +61,7 @@ from hephaistos.chat.session import (
 from hephaistos.chat.usage import ContextBudget
 from hephaistos.harness.permissions import classify_bash_command, tier_allows
 from hephaistos.parameters.cli import load_config
+from hephaistos.providers.config import ProviderConfig
 
 ARMORY_MENU_OPTIONS = [
     MenuOption("Open existing armory", "Attach a workspace and load its study context."),
@@ -78,9 +76,14 @@ _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 
 _PT_STYLE = PtStyle.from_dict(
     {
-        "armory": f"bold {FORGE_EMBER}",
+        "armory": FORGE_ASH,
         "prompt-mark": f"bold {FORGE_EMBER}",
-        "bottom-toolbar": f"{FORGE_SMOKE}",
+        "composer": f"bg:{FORGE_PANEL} fg:{FORGE_ASH}",
+        "bottom-toolbar": f"noreverse fg:{FORGE_SMOKE}",
+        "bottom-toolbar.text": f"noreverse fg:{FORGE_SMOKE}",
+        "toolbar-location": f"noreverse fg:{FORGE_ASH}",
+        "toolbar-accent": f"noreverse bold fg:{FORGE_ASH}",
+        "toolbar-error": f"noreverse bold fg:{FORGE_IRON}",
         "completion-menu.completion.current": f"bg:{FORGE_EMBER} fg:{FORGE_ASH} bold",
         "completion-menu.completion": f"bg:{FORGE_PANEL} fg:{FORGE_ASH}",
         "completion-menu.meta.completion.current": f"bg:{FORGE_EMBER} fg:{FORGE_ASH}",
@@ -90,27 +93,123 @@ _PT_STYLE = PtStyle.from_dict(
     }
 )
 
+@dataclass
+class ShellRuntime:
+    busy: bool = False
+    steering_count: int = 0
+    abort_event: threading.Event = field(default_factory=threading.Event)
+    worker: threading.Thread | None = None
+
 
 class SlashCommandCompleter(Completer):
-    """Tab-completion for slash commands."""
+    """Context-aware completion for slash commands and their common arguments."""
 
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         stripped = text.lstrip()
 
-        if not stripped.startswith("/") or " " in stripped:
+        if not stripped.startswith("/") or "\n" in stripped:
             return
 
-        prefix = stripped[1:].lower()
+        body = stripped[1:]
         registry = get_registry()
 
-        for cmd in registry.suggestions():
-            if cmd.name.lower().startswith(prefix):
+        if not body or " " not in body:
+            prefix = body.lower()
+            seen: set[str] = set()
+            for cmd in registry.commands:
+                if cmd.hidden:
+                    continue
+                matches_name = cmd.name.lower().startswith(prefix)
+                matches_alias = any(alias.lower().startswith(prefix) for alias in cmd.aliases)
+                if not (matches_name or matches_alias) or cmd.name in seen:
+                    continue
+                seen.add(cmd.name)
                 yield Completion(
                     text=cmd.name + " ",
-                    start_position=-(len(stripped) - 1),
+                    start_position=-len(body),
                     display_meta=cmd.description,
                 )
+            return
+
+        parts = body.split()
+        if not parts:
+            return
+
+        ends_with_space = stripped.endswith(" ")
+        cmd_name = parts[0].lower()
+        arg_parts = parts[1:]
+        if ends_with_space:
+            arg_parts.append("")
+
+        for suggestion, description in self._argument_suggestions(cmd_name, arg_parts):
+            current = arg_parts[-1] if arg_parts else ""
+            if current and not suggestion.lower().startswith(current.lower()):
+                continue
+            suffix = "" if suggestion.endswith(" ") else " "
+            yield Completion(
+                text=suggestion + suffix,
+                start_position=-len(current),
+                display_meta=description,
+            )
+
+    def _argument_suggestions(
+        self,
+        cmd_name: str,
+        arg_parts: list[str],
+    ) -> list[tuple[str, str]]:
+        if cmd_name == "api":
+            if len(arg_parts) <= 1:
+                return [
+                    ("key", "Store an API key for the active provider"),
+                    ("url", "Override the provider base URL"),
+                ]
+            return []
+
+        if cmd_name == "provider":
+            return self._provider_suggestions(arg_parts)
+
+        if cmd_name == "model":
+            return [(model, f"via {slug}") for slug, model in self._all_models()]
+
+        return []
+
+    def _provider_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
+        if len(arg_parts) <= 1:
+            return [
+                ("use", "Switch active provider (and optional model)"),
+                ("model", "Switch model within the active provider"),
+            ]
+
+        subcmd = arg_parts[0].lower()
+        providers = ProviderConfig.load().providers
+
+        if subcmd == "use":
+            if len(arg_parts) == 2:
+                return [
+                    (slug, provider.display_name)
+                    for slug, provider in providers.items()
+                ]
+            if len(arg_parts) == 3:
+                provider = providers.get(arg_parts[1].lower())
+                if provider is None:
+                    return []
+                return [(model, provider.display_name) for model in provider.models]
+
+        if subcmd == "model":
+            active = ProviderConfig.load().get_active()
+            if active is None:
+                return []
+            return [(model, active.display_name) for model in active.models]
+
+        return []
+
+    def _all_models(self) -> list[tuple[str, str]]:
+        providers = ProviderConfig.load().providers
+        models: list[tuple[str, str]] = []
+        for slug, provider in providers.items():
+            models.extend((slug, model) for model in provider.models)
+        return models
 
 
 def _build_keybindings(
@@ -155,18 +254,20 @@ def _build_keybindings(
     return kb
 
 
-def _session_label(session: ChatSession) -> str:
-    return session.armory_path.name if session.armory_path is not None else "chat"
-
-
-def _get_prompt_message(session_ref: list[ChatSession]):
-    """Return a callable that builds the prompt for each iteration."""
+def _get_prompt_message(runtime: ShellRuntime | None = None):
+    """Return the compact composer prefix used for every prompt line."""
 
     def message():
-        name = _session_label(session_ref[0])
-        return FormattedText([("class:armory", name), ("class:prompt-mark", " > ")])
+        marker = "+ " if runtime is not None and runtime.busy else "> "
+        return FormattedText([("class:prompt-mark", marker)])
 
     return message
+
+
+def _get_prompt_continuation(width: int, line_number: int, wrap_count: int):
+    """Indent wrapped and multi-line composer rows under the prompt mark."""
+    _ = line_number, wrap_count
+    return FormattedText([("class:bottom-toolbar", " " * width)])
 
 
 def _display_path(path: Path) -> str:
@@ -187,23 +288,75 @@ def _context_left(session: ChatSession) -> int:
     return max(0, min(100, round((remaining / prompt_budget) * 100)))
 
 
-def _build_bottom_toolbar_status(session: ChatSession) -> str:
-    """Build the compact status line shown directly below the input."""
+def _source_label(session: ChatSession) -> str:
+    count = session.source_file_count
+    if count <= 0:
+        return "none"
+    return f"{count} file{'s' if count != 1 else ''}"
+
+
+def _build_bottom_toolbar_status(
+    session: ChatSession,
+    runtime: ShellRuntime | None = None,
+) -> str:
+    """Build the multi-line status block shown below the composer."""
     location = session.armory_path or Path.cwd()
+    mode = "armory attached" if session.armory_path is not None else "plain chat"
+    api_state = "configured" if session.config.resolved_api_key else "missing"
+    if runtime is not None and runtime.busy:
+        steering_suffix = (
+            f" · queued {runtime.steering_count}"
+            if runtime.steering_count
+            else ""
+        )
+        input_hint = (
+            "assistant working · enter queues follow-up"
+            f" · ctrl+c interrupt{steering_suffix}"
+        )
+    else:
+        input_hint = "enter send · alt+enter newline · / commands · ! shell"
     return (
-        f"  {session.config.model} · {session.autonomy}"
-        f" · {_context_left(session)}% left · {_display_path(location)}"
+        f"{_display_path(location)} · {mode}\n"
+        f"model {session.config.model} · autonomy {session.autonomy}"
+        f" · context {_context_left(session)}% left"
+        f" · api {api_state} · source {_source_label(session)}\n"
+        f"{input_hint}"
     )
 
 
-def _refresh_bottom_toolbar(session: ChatSession, toolbar_ref: list[str]) -> None:
+def _refresh_bottom_toolbar(
+    session: ChatSession,
+    toolbar_ref: list[str],
+    runtime: ShellRuntime | None = None,
+) -> None:
     """Refresh the cached prompt_toolkit toolbar text for the active session."""
-    toolbar_ref[0] = _build_bottom_toolbar_status(session)
+    toolbar_ref[0] = _build_bottom_toolbar_status(session, runtime)
 
 
 def _get_bottom_toolbar(toolbar_ref: list[str]):
-    """Return the cached bottom-toolbar text for prompt_toolkit redraws."""
-    return FormattedText([("class:bottom-toolbar", toolbar_ref[0])])
+    """Return the cached metadata shown below the composer."""
+    status = toolbar_ref[0]
+    lines = status.splitlines()
+    fragments: list[tuple[str, str]] = []
+    if not lines:
+        return FormattedText([])
+    fragments.append(("class:toolbar-location", lines[0]))
+    for line in lines[1:]:
+        fragments.append(("", "\n"))
+        if "api missing" in line:
+            prefix, suffix = line.split("api missing", 1)
+            fragments.append(("class:bottom-toolbar", prefix))
+            fragments.append(("class:toolbar-error", "api missing"))
+            fragments.append(("class:bottom-toolbar", suffix))
+            continue
+        if line.startswith("assistant working"):
+            prefix, suffix = line.split("assistant working", 1)
+            fragments.append(("class:bottom-toolbar", prefix))
+            fragments.append(("class:toolbar-accent", "assistant working"))
+            fragments.append(("class:bottom-toolbar", suffix))
+            continue
+        fragments.append(("class:bottom-toolbar", line))
+    return FormattedText(fragments)
 
 
 def _discover_startup_armory() -> Path | None:
@@ -381,6 +534,56 @@ def _run_shell_command(cmd: str) -> None:
         print_error(str(exc))
 
 
+def _invalidate_prompt(pt_session: PromptSession | None) -> None:
+    if pt_session is None:
+        return
+    try:
+        pt_session.app.invalidate()
+    except Exception:
+        return
+
+
+def _start_background_reply(
+    session: ChatSession,
+    user_input: str,
+    history: InputHistory,
+    runtime: ShellRuntime,
+    toolbar_ref: list[str],
+    pt_session: PromptSession,
+) -> None:
+    history.add(user_input)
+    runtime.busy = True
+    runtime.steering_count = 0
+    runtime.abort_event.clear()
+    _refresh_bottom_toolbar(session, toolbar_ref, runtime)
+    _invalidate_prompt(pt_session)
+
+    print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
+
+    def _worker() -> None:
+        try:
+            send_user_message(session, user_input, abort=runtime.abort_event)
+        except StreamRecoveryError as rec:
+            msg = (
+                f"{styled('warning:', STYLE_ERROR)} "
+                f"Stream interrupted — connection lost after partial reply."
+            )
+            if rec.partial_content:
+                msg += f" ({len(rec.partial_content)} chars received)"
+            print(msg)
+        except EngineError as exc:
+            print_error(str(exc))
+        finally:
+            runtime.busy = False
+            runtime.abort_event.clear()
+            runtime.worker = None
+            _refresh_bottom_toolbar(session, toolbar_ref, runtime)
+            _invalidate_prompt(pt_session)
+
+    runtime.worker = threading.Thread(target=_worker, name="hephaistos-shell-reply", daemon=True)
+    runtime.worker.start()
+
+
 def _handle_input(
     session: ChatSession,
     user_input: str,
@@ -461,9 +664,6 @@ def _handle_input(
                 print(msg)
             except EngineError as exc:
                 print_error(str(exc))
-            else:
-                print()
-
         return session, True
     history.add(user_input)
     print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
@@ -480,8 +680,6 @@ def _handle_input(
         print(msg)
     except EngineError as exc:
         print_error(str(exc))
-    else:
-        print()
     return session, True
 
 
@@ -532,53 +730,67 @@ def run_chat_shell(
 
     kb = keybindings or DEFAULT_SHELL_KEYBINDINGS
 
-    session_ref = [session]
-    toolbar_ref = [_build_bottom_toolbar_status(session)]
+    runtime = ShellRuntime()
+    toolbar_ref = [_build_bottom_toolbar_status(session, runtime)]
     history_path = _get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
 
     pt_session = PromptSession(
-        message=_get_prompt_message(session_ref),
+        message=_get_prompt_message(runtime),
         style=_PT_STYLE,
         history=FileHistory(str(history_path)),
+        auto_suggest=AutoSuggestFromHistory(),
         completer=SlashCommandCompleter(),
         key_bindings=_build_keybindings(kb),
         bottom_toolbar=lambda: _get_bottom_toolbar(toolbar_ref),
         multiline=True,
         complete_while_typing=True,
+        show_frame=False,
     )
-
-    abort_event = threading.Event()
-    original_sigint = signal.getsignal(signal.SIGINT)
-
-    def _sigint_handler(_signum: int, _frame: object) -> None:
-        abort_event.set()
 
     history = InputHistory()
 
-    while True:
-        try:
-            signal.signal(signal.SIGINT, original_sigint)
-            user_input = pt_session.prompt()
-        except KeyboardInterrupt:
-            continue
-        except EOFError:
-            break
+    with patch_stdout():
+        while True:
+            try:
+                user_input = pt_session.prompt(prompt_continuation=_get_prompt_continuation)
+            except KeyboardInterrupt:
+                if runtime.busy:
+                    runtime.abort_event.set()
+                    print_info("Interrupt requested.")
+                continue
+            except EOFError:
+                if runtime.busy:
+                    runtime.abort_event.set()
+                    if runtime.worker is not None:
+                        runtime.worker.join(timeout=5.0)
+                break
 
-        if not user_input or not user_input.strip():
-            continue
+            if not user_input or not user_input.strip():
+                continue
 
-        signal.signal(signal.SIGINT, _sigint_handler)
-        abort_event.clear()
+            stripped = user_input.strip().lower()
+            if runtime.busy and stripped in {"/exit", "/quit", "/q"}:
+                runtime.abort_event.set()
+                if runtime.worker is not None:
+                    runtime.worker.join(timeout=5.0)
+                break
 
-        session, should_continue = _handle_input(session, user_input, history)
-        session_ref[0] = session
-        _refresh_bottom_toolbar(session, toolbar_ref)
+            if runtime.busy:
+                session, _ = _handle_input(session, user_input, history, streaming=True)
+                runtime.steering_count += 1
+                _refresh_bottom_toolbar(session, toolbar_ref, runtime)
+                _invalidate_prompt(pt_session)
+                continue
 
-        signal.signal(signal.SIGINT, original_sigint)
+            if user_input.startswith(("/", "!")):
+                session, should_continue = _handle_input(session, user_input, history)
+                _refresh_bottom_toolbar(session, toolbar_ref, runtime)
+                if not should_continue:
+                    break
+                continue
 
-        if not should_continue:
-            break
+            _start_background_reply(session, user_input, history, runtime, toolbar_ref, pt_session)
 
     _save_on_exit(session)
 
@@ -597,7 +809,7 @@ def _run_fallback_shell(session: ChatSession | None = None) -> None:
 
     while True:
         try:
-            user_input = input(f"{_session_label(session)}> ").strip()
+            user_input = input("> ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break

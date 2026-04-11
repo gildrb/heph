@@ -5,8 +5,6 @@ from hephaistos.app.menu import MenuOption
 
 
 def test_select_option_uses_prompt_fallback(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(menu.sys.stdin, "isatty", lambda: False)
-    monkeypatch.setattr(menu.sys.stdout, "isatty", lambda: False)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "2")
 
     selected = menu.select_option(
@@ -24,8 +22,6 @@ def test_select_option_uses_prompt_fallback(monkeypatch, capsys) -> None:
 
 
 def test_select_option_returns_none_for_cancel(monkeypatch) -> None:
-    monkeypatch.setattr(menu.sys.stdin, "isatty", lambda: False)
-    monkeypatch.setattr(menu.sys.stdout, "isatty", lambda: False)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
 
     selected = menu.select_option(
@@ -54,8 +50,6 @@ def test_select_option_empty_list() -> None:
 
 
 def test_confirm_yes(monkeypatch) -> None:
-    monkeypatch.setattr(menu.sys.stdin, "isatty", lambda: False)
-    monkeypatch.setattr(menu.sys.stdout, "isatty", lambda: False)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "1")
 
     result = menu.confirm("Proceed?")
@@ -63,8 +57,6 @@ def test_confirm_yes(monkeypatch) -> None:
 
 
 def test_confirm_no(monkeypatch) -> None:
-    monkeypatch.setattr(menu.sys.stdin, "isatty", lambda: False)
-    monkeypatch.setattr(menu.sys.stdout, "isatty", lambda: False)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "2")
 
     result = menu.confirm("Proceed?")
@@ -72,8 +64,6 @@ def test_confirm_no(monkeypatch) -> None:
 
 
 def test_confirm_cancel(monkeypatch) -> None:
-    monkeypatch.setattr(menu.sys.stdin, "isatty", lambda: False)
-    monkeypatch.setattr(menu.sys.stdout, "isatty", lambda: False)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
 
     result = menu.confirm("Proceed?")

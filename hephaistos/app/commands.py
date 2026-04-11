@@ -59,18 +59,20 @@ class HelpCommand(Command):
         visible = [c for c in registry.commands if not c.hidden]
         max_name = max(len(c.name) for c in visible)
         lines = []
-        lines.append(styled("Commands:", STYLE_PROMPT))
+        lines.append(styled("Commands", STYLE_PROMPT))
         for cmd in sorted(visible, key=lambda c: c.name):
             padded = f"  /{cmd.name}".ljust(max_name + 4)
             lines.append(f"{padded} {cmd.description}")
         lines.append("")
-        lines.append(styled("Modes:", STYLE_PROMPT))
+        lines.append(styled("Input", STYLE_PROMPT))
         pad = max_name + 2
         lines.append(f"  !{'command'.ljust(pad)} Run a shell command")
+        lines.append("  /help           Show command reference")
         lines.append("")
-        lines.append(styled("Shortcuts:", STYLE_PROMPT))
+        lines.append(styled("Shortcuts", STYLE_PROMPT))
         lines.append("  Up/Down         Browse input history")
         lines.append("  Tab             Autocomplete slash commands")
+        lines.append("  Alt+Enter       Insert newline")
         lines.append("  Ctrl+C          Cancel current response")
         lines.append("  Ctrl+D          Exit shell")
         lines.append("")
@@ -154,6 +156,7 @@ class ClearCommand(Command):
     def handle(self, session: object, args: str) -> CommandResult:
         from hephaistos.chat import storage as chat_storage
         from hephaistos.chat.session import (
+            create_plain_session,
             create_session,
             save_session,
             session_has_messages,
@@ -171,8 +174,11 @@ class ClearCommand(Command):
                 print_info("Previous session saved.")
             except chat_storage.ChatStorageError:
                 pass
-        assert s.armory_path is not None
-        new = create_session(s.config, s.armory_path)
+        new = (
+            create_plain_session(s.config)
+            if s.armory_path is None
+            else create_session(s.config, s.armory_path)
+        )
         print_success("Started fresh session.")
         return CommandResult(new_session=new)
 

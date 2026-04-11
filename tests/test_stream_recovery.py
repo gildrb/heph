@@ -400,7 +400,14 @@ class TestConversationConsistency:
         assert len(conv.messages) == 1
 
         with (
-            patch("hephaistos.chat.session.agent_loop", side_effect=EngineError("boom")),
+            patch(
+                "hephaistos.chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "hephaistos.chat.orchestrator.TurnOrchestrator._iter_study_events",
+                side_effect=EngineError("boom"),
+            ),
             pytest.raises(EngineError),
         ):
             send_user_message(session, "hello")
@@ -426,7 +433,11 @@ class TestConversationConsistency:
 
         with (
             patch(
-                "hephaistos.chat.session.agent_loop",
+                "hephaistos.chat.orchestrator.TurnOrchestrator._resolve_turn_plan",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "hephaistos.chat.orchestrator.TurnOrchestrator._iter_study_events",
                 side_effect=StreamRecoveryError("Partial reply"),
             ),
             pytest.raises(StreamRecoveryError) as exc_info,
@@ -454,7 +465,18 @@ class TestConversationConsistency:
             armory_path=_workspace(),
         )
 
-        with patch("hephaistos.chat.session.agent_loop", return_value=iter(["Hello!"])):
+        from hephaistos.chat.events import AssistantDeltaEvent
+
+        def fake_iter_events(self, user_input: str, *, abort=None):
+            self.session.conversation.add("user", user_input)
+            self.session.conversation.add("assistant", "Hello!")
+            self.last_reply = "Hello!"
+            yield AssistantDeltaEvent("Hello!")
+
+        with patch(
+            "hephaistos.chat.orchestrator.TurnOrchestrator.iter_events",
+            fake_iter_events,
+        ):
             result = send_user_message(session, "Hi")
 
         assert result == "Hello!"

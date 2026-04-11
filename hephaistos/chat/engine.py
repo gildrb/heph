@@ -21,7 +21,7 @@ import random
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
 from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI, RateLimitError
@@ -154,38 +154,57 @@ def _wait_backoff(
     return True
 
 
-def stream_reply(
+@dataclass(frozen=True, slots=True)
+class CompletionDelta:
+    """A streamed completion delta from the model."""
+
+    content: str | None = None
+    tool_calls: list[dict] | None = None
+    finish_reason: str = ""
+    usage: dict[str, int] | None = None
+
+
+
+def _extract_usage(chunk: object) -> dict[str, int] | None:
+    usage = getattr(chunk, "usage", None)
+    if not usage:
+        return None
+    return {
+        "prompt_tokens": (getattr(usage, "prompt_tokens", 0) or 0),
+        "completion_tokens": (getattr(usage, "completion_tokens", 0) or 0),
+        "total_tokens": (getattr(usage, "total_tokens", 0) or 0),
+    }
+
+
+
+def stream_completion(
     config: ChatConfig,
-    conversation: Conversation,
+    messages: Conversation | list[ChatCompletionMessageParam],
     *,
+    tools: list[dict] | None = None,
     abort: threading.Event | None = None,
     retry: RetryConfig | None = None,
-) -> Iterator[str]:
-    """Send the conversation to the LLM and yield response chunks.
-
-    Each yielded string is a text delta from the streamed response.
-    If *abort* is provided and becomes set, the iterator stops early.
-
-    Transient errors (connection drops, timeouts, server errors) are
-    retried automatically with exponential backoff.  If a failure occurs
-    *after* content has already been yielded, a
-    :class:`StreamRecoveryError` is raised carrying the partial text.
-    """
+    client_factory: Callable[[ChatConfig], OpenAI] | None = None,
+) -> Iterator[CompletionDelta]:
+    """Stream raw completion deltas with shared retry/recovery handling."""
     retry = retry or RetryConfig()
-    msg_count = len(conversation.messages)
+    client_factory = client_factory or _build_client
+    api_messages = messages.to_api_messages() if isinstance(messages, Conversation) else messages
+    msg_count = len(api_messages)
     _log.debug(
-        "stream_reply start",
+        "stream_completion start",
         extra={
             "fields": {
                 "model": config.model,
                 "message_count": msg_count,
                 "max_tokens": config.max_tokens,
                 "max_retries": retry.max_retries,
+                "tool_count": len(tools or []),
             }
         },
     )
 
-    client = _build_client(config)
+    client = client_factory(config)
     last_error: Exception | None = None
 
     for attempt in range(retry.max_retries + 1):
@@ -193,34 +212,45 @@ def stream_reply(
             return
 
         timer = Timer()
+        request_kwargs = {
+            "model": config.model,
+            "messages": api_messages,
+            "max_tokens": config.max_tokens,
+            "stream": True,
+        }
+        if tools:
+            request_kwargs["tools"] = tools
+
         try:
             with timer:
-                stream = client.chat.completions.create(
-                    model=config.model,
-                    messages=conversation.to_api_messages(),
-                    max_tokens=config.max_tokens,
-                    stream=True,
-                )
+                stream = client.chat.completions.create(**request_kwargs)
         except Exception as exc:
             last_error = exc
-            _log.warning(
-                "stream_reply request failed (attempt %d/%d)",
+            log = (
+                _log.info
+                if is_retryable_error(exc) and attempt < retry.max_retries
+                else _log.warning
+            )
+            log(
+                "stream_completion request failed (attempt %d/%d)",
                 attempt + 1,
                 retry.max_retries + 1,
                 extra={"fields": {"error": str(exc), "latency_ms": timer.ms}},
             )
             if is_retryable_error(exc) and attempt < retry.max_retries:
                 if not _wait_backoff(attempt, retry, abort):
-                    return  # aborted during backoff
+                    return
                 continue
             raise EngineError(f"LLM request failed: {exc}") from exc
+
         partial_content = ""
+        saw_output = False
         try:
             for chunk in stream:
                 if abort is not None and abort.is_set():
                     stream.close()
                     _log.info(
-                        "stream_reply aborted",
+                        "stream_completion aborted",
                         extra={
                             "fields": {
                                 "model": config.model,
@@ -229,46 +259,85 @@ def stream_reply(
                         },
                     )
                     return
+
+                usage = _extract_usage(chunk)
                 if not chunk.choices:
+                    if usage is not None:
+                        yield CompletionDelta(usage=usage)
                     continue
-                delta = chunk.choices[0].delta
+
+                choice = chunk.choices[0]
+                delta = choice.delta
+                finish_reason = choice.finish_reason or ""
                 if delta.content:
                     partial_content += delta.content
-                    yield delta.content
+                if delta.content or delta.tool_calls:
+                    saw_output = True
+                if delta.content or delta.tool_calls or finish_reason or usage is not None:
+                    yield CompletionDelta(
+                        content=delta.content or None,
+                        tool_calls=delta.tool_calls,
+                        finish_reason=finish_reason,
+                        usage=usage,
+                    )
         except Exception as exc:
-            _log.error(
-                "stream_reply mid-stream failure (attempt %d/%d, %d chars received)",
+            log = (
+                _log.info
+                if is_retryable_error(exc) and not saw_output and attempt < retry.max_retries
+                else _log.error
+            )
+            log(
+                "stream_completion mid-stream failure (attempt %d/%d, %d chars received)",
                 attempt + 1,
                 retry.max_retries + 1,
                 len(partial_content),
                 extra={"fields": {"error": str(exc), "latency_ms": timer.ms}},
             )
-            # If we already streamed content, we cannot cleanly retry
-            # (the caller has already received partial output).  Raise
-            # a recovery error so the caller can decide what to do.
-            if partial_content:
+            if saw_output:
                 raise StreamRecoveryError(partial_content, exc) from exc
-            # No content yet — safe to retry
             last_error = exc
             if is_retryable_error(exc) and attempt < retry.max_retries:
                 if not _wait_backoff(attempt, retry, abort):
                     return
                 continue
             raise EngineError(f"LLM stream failed: {exc}") from exc
+
         _log.info(
-            "stream_reply complete",
+            "stream_completion complete",
             extra={
                 "fields": {
                     "model": config.model,
                     "latency_ms": timer.ms,
                     "message_count": msg_count,
+                    "tool_count": len(tools or []),
                 }
             },
         )
         return
+
     raise EngineError(
         f"LLM request failed after {retry.max_retries + 1} attempts: {last_error}"
     ) from last_error
+
+
+
+def stream_reply(
+    config: ChatConfig,
+    conversation: Conversation,
+    *,
+    abort: threading.Event | None = None,
+    retry: RetryConfig | None = None,
+) -> Iterator[str]:
+    """Send the conversation to the LLM and yield response chunks."""
+    for delta in stream_completion(
+        config,
+        conversation,
+        abort=abort,
+        retry=retry,
+        client_factory=_build_client,
+    ):
+        if delta.content:
+            yield delta.content
 
 
 def get_reply(

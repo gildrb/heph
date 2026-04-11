@@ -57,6 +57,7 @@ def save(
     conversation: Conversation,
     *,
     title: str = "",
+    metadata: dict[str, object] | None = None,
 ) -> Path:
     """Save a conversation to disk. Returns the path of the saved file."""
     _validate_session_path(armory_path, session_id)
@@ -72,11 +73,16 @@ def save(
         "updated_at": datetime.now(UTC).isoformat(),
         "messages": [_message_to_dict(m) for m in conversation.messages],
     }
+    existing: dict[str, object] = {}
     if file_path.exists():
         existing = json.loads(file_path.read_text(encoding="utf-8"))
         data["created_at"] = existing.get("created_at", datetime.now(UTC).isoformat())
     else:
         data["created_at"] = datetime.now(UTC).isoformat()
+    if metadata is not None:
+        data["metadata"] = metadata
+    elif isinstance(existing.get("metadata"), dict):
+        data["metadata"] = existing["metadata"]
 
     file_path.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
@@ -95,18 +101,29 @@ def save(
     return file_path
 
 
-def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
-    """Load a conversation from disk.
-
-    Returns (conversation, title).
-    """
+def _load_session_data(armory_path: Path, session_id: str) -> dict[str, object]:
+    """Load the raw JSON payload for a saved chat session."""
     _validate_session_path(armory_path, session_id)
 
     file_path = _session_path(armory_path, session_id)
     if not file_path.exists():
         raise ChatStorageError(f"chat session not found: {session_id}")
 
-    data = json.loads(file_path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(file_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ChatStorageError(f"corrupt session file {session_id}") from exc
+    if not isinstance(data, dict):
+        raise ChatStorageError(f"corrupt session file {session_id}")
+    return data
+
+
+def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
+    """Load a conversation from disk.
+
+    Returns (conversation, title).
+    """
+    data = _load_session_data(armory_path, session_id)
     conversation = Conversation()
     try:
         for msg_data in data.get("messages", []):
@@ -132,6 +149,13 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
         },
     )
     return conversation, data.get("title", "")
+
+
+def load_metadata(armory_path: Path, session_id: str) -> dict[str, object]:
+    """Load optional session metadata stored alongside the conversation."""
+    data = _load_session_data(armory_path, session_id)
+    metadata = data.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
 
 
 def list_sessions(armory_path: Path) -> list[dict[str, str]]:

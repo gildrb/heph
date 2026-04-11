@@ -8,7 +8,13 @@ from hephaistos.harness.rag.chunker import (
     chunk_semantic,
     chunk_text,
 )
-from hephaistos.harness.rag.context import build_context, estimate_tokens
+from hephaistos.harness.rag.context import (
+    EvidenceChunk,
+    TurnEvidence,
+    build_context,
+    build_turn_evidence,
+    estimate_tokens,
+)
 from hephaistos.harness.rag.index import ArmoryIndex, build_index, load_or_build
 from hephaistos.harness.rag.query_transform import (
     CompositeTransformer,
@@ -40,6 +46,7 @@ __all__ = [
     "CompositeTransformer",
     "CrossEncoderReranker",
     "EmbeddingRetriever",
+    "EvidenceChunk",
     "HyDETransformer",
     "HybridRetriever",
     "IdentityTransformer",
@@ -52,7 +59,9 @@ __all__ = [
     "ScoredChunk",
     "TfidfRetriever",
     "TransformStrategy",
+    "TurnEvidence",
     "build_context",
+    "build_turn_evidence",
     "build_index",
     "chunk_file",
     "chunk_markdown",

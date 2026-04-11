@@ -10,18 +10,15 @@ from pathlib import Path
 
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import (
-    ChatConfig,
-    Conversation,
-    StreamRecoveryError,
-    get_reply,
-)
-from hephaistos.chat.usage import ContextBudget, SessionUsage, save_usage
-from hephaistos.harness.dispatch import agent_loop
+from hephaistos.chat.engine import ChatConfig, Conversation
+from hephaistos.chat.events import render_turn_event
+from hephaistos.chat.orchestrator import TurnOrchestrator
+from hephaistos.chat.usage import SessionUsage
 from hephaistos.harness.prompt import build_system_prompt
-from hephaistos.harness.rag import ArmoryIndex, build_context, load_or_build, retrieve
-from hephaistos.logging import Timer, TraceWriter, get_logger
+from hephaistos.harness.rag import ArmoryIndex
+from hephaistos.logging import TraceWriter, get_logger
 from hephaistos.memory import MemoryStore, load_memory
+from hephaistos.study import StudyState
 
 _log = get_logger("chat.session")
 
@@ -43,6 +40,7 @@ class ChatSession:
     steering: object = field(
         default=None, init=False, repr=False
     )  # SteeringQueue, typed as object to avoid circular import
+    study_state: StudyState = field(default_factory=StudyState)
 
     def __post_init__(self) -> None:
         if self.trace is None:
@@ -53,6 +51,17 @@ class ChatSession:
             object.__setattr__(self, "steering", SteeringQueue())
 
 
+class SessionError(Exception):
+    """Raised when a session cannot be created or used."""
+
+
+_SYSTEM_PROMPT_FALLBACK = (
+    "Hephaistos. A drill instructor for exam preparation.\n"
+    "Ask the student to attach an armory with source documents first.\n"
+    "Be concise. Never fabricate information."
+)
+
+
 def validate_armory_path(path_str: str) -> Path:
     """Validate and return the resolved armory path."""
     armory_path = normalize_path(path_str)
@@ -61,8 +70,9 @@ def validate_armory_path(path_str: str) -> Path:
     return armory_path
 
 
+
 def _count_source_files(armory_path: Path) -> int:
-    """Count source files in armory (for display only; no stuffing)."""
+    """Count source files in armory."""
     count = 0
     for dirname in ("source", "library"):
         folder = armory_path / dirname
@@ -74,6 +84,7 @@ def _count_source_files(armory_path: Path) -> int:
     return count
 
 
+
 def _list_source_file_names(armory_path: Path) -> list[str]:
     """Return relative paths of source files for the system prompt."""
     names: list[str] = []
@@ -81,31 +92,19 @@ def _list_source_file_names(armory_path: Path) -> list[str]:
         folder = armory_path / dirname
         if not folder.is_dir():
             continue
-        for file_path in sorted(folder.rglob("*")):
-            if file_path.is_file() and not file_path.name.startswith("."):
-                rel = file_path.relative_to(armory_path)
-                names.append(str(rel))
+        names.extend(
+            str(file_path.relative_to(armory_path))
+            for file_path in sorted(folder.rglob("*"))
+            if file_path.is_file() and not file_path.name.startswith(".")
+        )
     return names
 
-
-_RAG_CONTEXT_PREFIX = "Source material retrieved for this question:\n\n"
-
-_SYSTEM_PROMPT_FALLBACK = (
-    "Hephaistos. A drill instructor for exam preparation.\n"
-    "Ask the student to attach an armory with source documents first.\n"
-    "Be concise. Cite sources for every answer. Never fabricate information."
-)
-
-
-class SessionError(Exception):
-    """Raised when a session cannot be created or used."""
 
 
 def create_plain_session(config: ChatConfig) -> ChatSession:
     """Create a fresh chat session without an attached armory."""
     conversation = Conversation()
     conversation.add("system", _SYSTEM_PROMPT_FALLBACK)
-
     session = ChatSession(
         config=config,
         conversation=conversation,
@@ -113,22 +112,15 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
     )
     _log.info(
         "plain session created",
-        extra={
-            "fields": {
-                "session_id": session.session_id,
-                "model": config.model,
-            }
-        },
+        extra={"fields": {"session_id": session.session_id, "model": config.model}},
     )
     session.trace.record_session_event("created", model=config.model, mode="plain")
     return session
 
 
-def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
-    """Create a fresh chat session scoped to an armory.
 
-    Raises SessionError if armory_path is None or has no source documents.
-    """
+def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
+    """Create a fresh chat session scoped to an armory."""
     if armory_path is None:
         raise SessionError("An armory is required. Create one with: hephaistos armory init <path>")
 
@@ -142,18 +134,16 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     conversation = Conversation()
     source_files = _list_source_file_names(armory_path)
     memory_ctx = ""
-    try:
-        mem = load_memory(armory_path)
-        memory_ctx = mem.build_system_context()
-    except Exception:
-        pass
-    system_prompt = build_system_prompt(
-        armory_path=armory_path,
-        source_files=source_files,
-        memory_context=memory_ctx,
+    with contextlib.suppress(Exception):
+        memory_ctx = load_memory(armory_path).build_system_context()
+    conversation.add(
+        "system",
+        build_system_prompt(
+            armory_path=armory_path,
+            source_files=source_files,
+            memory_context=memory_ctx,
+        ),
     )
-
-    conversation.add("system", system_prompt)
 
     session = ChatSession(
         config=config,
@@ -179,13 +169,11 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     return session
 
 
-def resume_session(
-    config: ChatConfig,
-    armory_path: Path,
-    session_id: str,
-) -> ChatSession:
+
+def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> ChatSession:
     """Load a saved session from an armory."""
     conversation, title = chat_storage.load(armory_path, session_id)
+    metadata = chat_storage.load_metadata(armory_path, session_id)
     source_file_count = _count_source_files(armory_path)
     session = ChatSession(
         config=config,
@@ -194,6 +182,7 @@ def resume_session(
         title=title,
         armory_path=armory_path,
         source_file_count=source_file_count,
+        study_state=StudyState.from_dict(metadata.get("study_state")),
     )
     session._memory = load_memory(armory_path)
     _log.info(
@@ -211,9 +200,11 @@ def resume_session(
     return session
 
 
+
 def session_has_messages(session: ChatSession) -> bool:
-    """Return ``True`` when the session contains user or assistant messages."""
+    """Return ``True`` when the session contains non-system messages."""
     return any(message.role != "system" for message in session.conversation.messages)
+
 
 
 def _derive_title(conversation: Conversation) -> str:
@@ -235,226 +226,27 @@ def _derive_title(conversation: Conversation) -> str:
     return prefix
 
 
+
 def send_user_message(
     session: ChatSession,
     user_input: str,
     *,
     abort: threading.Event | None = None,
 ) -> str:
-    """Append a user message, run the agent loop, stream output, return reply."""
-    # Snapshot original messages so rollback is always correct,
-    # even if auto_compact rebuilt the message list mid-loop.
-    original_messages = list(session.conversation.messages)
-    session.conversation.add("user", user_input)
-    session.trace.record_user_message(user_input)
+    """Run one user turn via the orchestrator and mirror events to stdout."""
+    orchestrator = TurnOrchestrator(session)
+    for event in orchestrator.iter_events(user_input, abort=abort):
+        rendered = render_turn_event(event)
+        if not rendered:
+            continue
+        sys.stdout.write(rendered)
+        sys.stdout.flush()
 
-    _log.info(
-        "user message",
-        extra={
-            "fields": {
-                "session_id": session.session_id,
-                "input_len": len(user_input),
-                "message_count": len(session.conversation.messages),
-            }
-        },
-    )
+    if orchestrator.last_reply:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    return orchestrator.last_reply
 
-    timer = Timer()
-    reply = ""
-    try:
-        if session.armory_path is not None:
-            rag_context = _build_rag_context(session, user_input)
-            parts: list[str] = []
-            for chunk in agent_loop(
-                session.config,
-                session.conversation,
-                session.armory_path,
-                abort=abort,
-                usage=session.usage,
-                rag_context=rag_context,
-                steering=session.steering,  # type: ignore[arg-type]
-            ):
-                sys.stdout.write(chunk)
-                sys.stdout.flush()
-                parts.append(chunk)
-            sys.stdout.write("\n")
-            sys.stdout.flush()
-            reply = "".join(parts)
-        else:
-            reply = get_reply(session.config, session.conversation, abort=abort)
-    except StreamRecoveryError as rec:
-        # Partial content was streamed before the connection dropped.
-        # Roll back the conversation to keep it consistent, but preserve
-        # the partial reply in the exception for the caller to inspect.
-        _log.warning(
-            "stream interrupted, rolling back",
-            extra={
-                "fields": {
-                    "session_id": session.session_id,
-                    "partial_len": len(rec.partial_content),
-                    "latency_ms": timer.ms,
-                }
-            },
-        )
-        session.conversation.messages = original_messages
-        session.dirty = True
-        raise
-    except Exception:
-        _log.error(
-            "send_user_message failed",
-            extra={
-                "fields": {
-                    "session_id": session.session_id,
-                    "latency_ms": timer.ms,
-                }
-            },
-            exc_info=True,
-        )
-        session.conversation.messages = original_messages
-        raise
-    if session.armory_path is not None and reply:
-        try:
-            from hephaistos.harness.citation import verify_response
-
-            notice = verify_response(reply, session.conversation.messages)
-            if notice:
-                sys.stdout.write(notice)
-                sys.stdout.flush()
-        except Exception:
-            _log.warning("citation verification failed", exc_info=True)
-    if session.conversation.messages and session.conversation.messages[-1].role != "assistant":
-        session.conversation.add("assistant", reply)
-
-    if not session.title:
-        session.title = _derive_title(session.conversation)
-    session.dirty = True
-
-    _log.info(
-        "reply complete",
-        extra={
-            "fields": {
-                "session_id": session.session_id,
-                "reply_len": len(reply),
-                "latency_ms": timer.ms,
-            }
-        },
-    )
-    session.trace.record_session_event(
-        "reply", latency_ms=round(timer.ms, 1), reply_len=len(reply)
-    )
-    if session._memory is not None and len(reply) >= 100:
-        try:
-            from hephaistos.memory.extract import extract_and_store
-
-            clean_reply = ""
-            for msg in reversed(session.conversation.messages):
-                if msg.role == "assistant":
-                    clean_reply = msg.content
-                    break
-            added = extract_and_store(
-                session.config,
-                session._memory,
-                user_input,
-                clean_reply or reply,
-            )
-            if added:
-                _log.info(
-                    "memory updated",
-                    extra={
-                        "fields": {
-                            "new_entries": added,
-                        }
-                    },
-                )
-        except Exception:
-            _log.warning("memory extraction failed", exc_info=True)
-    if session.armory_path is not None:
-        with contextlib.suppress(Exception):
-            save_usage(session.armory_path, session.session_id, session.usage)
-
-    return reply
-
-
-_RAG_MIN_SCORE = 0.1
-
-
-def _build_rag_context(session: ChatSession, user_input: str) -> str | None:
-    """Build RAG context string for ephemeral injection.
-
-    Returns a context string to be injected into API messages on-the-fly,
-    or ``None`` if no relevant context was found.  Does NOT modify the
-    conversation -- RAG context is ephemeral and never persisted.
-
-    Chunks scoring below ``_RAG_MIN_SCORE`` are discarded.
-
-    The token budget is adaptive: it shrinks when the context window is
-    nearly full, using at most 30% of remaining space (with a floor of
-    200 tokens) so RAG context never triggers premature compaction.
-    """
-    if session.armory_path is None:
-        return None
-    try:
-        timer = Timer()
-        if session._rag_index is None:
-            session._rag_index = load_or_build(session.armory_path)
-
-        with timer:
-            scored = retrieve(
-                user_input,
-                session._rag_index,
-                top_k=5,
-                min_score=_RAG_MIN_SCORE,
-            )
-        if not scored:
-            _log.info(
-                "rag retrieve: no relevant results",
-                extra={
-                    "fields": {
-                        "query_len": len(user_input),
-                        "latency_ms": timer.ms,
-                        "min_score": _RAG_MIN_SCORE,
-                    }
-                },
-            )
-            return None
-
-        scores = [sc.score for sc in scored]
-        _log.info(
-            "rag retrieve",
-            extra={
-                "fields": {
-                    "query_len": len(user_input),
-                    "retrieved": len(scored),
-                    "top_score": round(scores[0], 4) if scores else 0,
-                    "latency_ms": round(timer.ms, 1),
-                }
-            },
-        )
-        session.trace.record_rag_retrieve(
-            query=user_input,
-            top_k=5,
-            retrieved=len(scored),
-            scores=scores,
-            latency_ms=timer.ms,
-        )
-
-        budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
-        api_msgs = session.conversation.to_api_messages()
-        remaining = budget.tokens_remaining(api_msgs)  # type: ignore[arg-type]
-
-        adaptive_budget = min(
-            session.config.rag_context_budget,
-            max(200, int(remaining * 0.3)),
-        )
-
-        context_text = build_context(scored, max_tokens=adaptive_budget)
-        if not context_text:
-            return None
-
-        return _RAG_CONTEXT_PREFIX + context_text
-    except Exception:
-        _log.warning("rag context build failed", exc_info=True)
-        return None
 
 
 def save_session(session: ChatSession) -> Path:
@@ -469,6 +261,7 @@ def save_session(session: ChatSession) -> Path:
         session.session_id,
         session.conversation,
         title=title,
+        metadata={"study_state": session.study_state.to_dict()},
     )
     session.dirty = False
     _log.info(
@@ -483,6 +276,7 @@ def save_session(session: ChatSession) -> Path:
     )
     session.trace.record_session_event("saved", path=str(path))
     return path
+
 
 
 def list_armory_sessions(armory_path: Path) -> list[dict[str, str]]:

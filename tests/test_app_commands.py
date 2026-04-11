@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from hephaistos.app import commands
 from hephaistos.chat.engine import ChatConfig, Conversation
-from hephaistos.chat.session import ChatSession
+from hephaistos.chat.session import ChatSession, create_plain_session
 from hephaistos.providers.config import _default_config
 
 
@@ -51,6 +51,20 @@ def test_model_command_validates_against_session_endpoint(monkeypatch) -> None:
     assert result.output is None
     assert session.config.model == "gpt-4o-mini"
     assert messages == [("success", "Model: gpt-5.4 -> gpt-4o-mini")]
+
+
+def test_clear_command_supports_plain_chat(monkeypatch) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+    session.conversation.add("user", "hello")
+
+    monkeypatch.setattr(commands, "confirm", lambda *_args, **_kwargs: True)
+
+    result = commands.ClearCommand().handle(session, "")
+
+    assert result.new_session is not None
+    assert result.new_session.armory_path is None
+    assert result.new_session.conversation.messages[0].role == "system"
+    assert len(result.new_session.conversation.messages) == 1
 
 
 def test_model_command_rejects_unsupported_model_for_known_endpoint(monkeypatch) -> None:
