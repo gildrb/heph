@@ -1,4 +1,4 @@
-"""Shared forge-inspired palette for Hephaistos terminal surfaces."""
+"""Shared monochrome palette for Hephaistos terminal surfaces."""
 
 from __future__ import annotations
 
@@ -6,13 +6,14 @@ BOLD = "\033[1m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
-FORGE_PANEL = "#261112"
-FORGE_GRAPHITE = "#3B3736"
-FORGE_STONE = "#5A5351"
-FORGE_ASH = "#F4DED8"
-FORGE_SMOKE = "#B8948D"
-FORGE_EMBER = "#D94A2B"
-FORGE_IRON = "#8E241E"
+FORGE_PANEL = "#1C1C1C"
+FORGE_GRAPHITE = "#333333"
+FORGE_STONE = "#555555"
+FORGE_ASH = "#E0E0E0"
+FORGE_SMOKE = "#808080"
+FORGE_EMBER = "#C8C8C8"
+FORGE_IRON = "#CC3333"
+FORGE_GREEN = "#66BB6A"
 
 
 def ansi_fg(hex_color: str) -> str:
@@ -28,5 +29,6 @@ STYLE_PROMPT = f"{BOLD}{ansi_fg(FORGE_EMBER)}"
 STYLE_ACCENT = STYLE_PROMPT
 STYLE_DIM = f"{DIM}{ansi_fg(FORGE_SMOKE)}"
 STYLE_ERROR = f"{BOLD}{ansi_fg(FORGE_IRON)}"
+STYLE_SUCCESS = f"{BOLD}{ansi_fg(FORGE_GREEN)}"
 STYLE_WARNING = STYLE_PROMPT
 STYLE_ASSISTANT = STYLE_PROMPT

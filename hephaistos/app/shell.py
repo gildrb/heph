@@ -43,7 +43,14 @@ from hephaistos.app.display import (
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.keybindings import DEFAULT_SHELL_KEYBINDINGS
 from hephaistos.app.menu import MenuOption, select_option
-from hephaistos.app.palette import FORGE_ASH, FORGE_EMBER, FORGE_IRON, FORGE_PANEL, FORGE_SMOKE
+from hephaistos.app.palette import (
+    FORGE_ASH,
+    FORGE_EMBER,
+    FORGE_IRON,
+    FORGE_PANEL,
+    FORGE_SMOKE,
+    FORGE_STONE,
+)
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, EngineError, StreamRecoveryError
@@ -84,12 +91,12 @@ _PT_STYLE = PtStyle.from_dict(
         "toolbar-location": f"noreverse fg:{FORGE_ASH}",
         "toolbar-accent": f"noreverse bold fg:{FORGE_ASH}",
         "toolbar-error": f"noreverse bold fg:{FORGE_IRON}",
-        "completion-menu.completion.current": f"bg:{FORGE_EMBER} fg:{FORGE_ASH} bold",
+        "completion-menu.completion.current": f"bg:{FORGE_STONE} fg:{FORGE_ASH} bold",
         "completion-menu.completion": f"bg:{FORGE_PANEL} fg:{FORGE_ASH}",
-        "completion-menu.meta.completion.current": f"bg:{FORGE_EMBER} fg:{FORGE_ASH}",
+        "completion-menu.meta.completion.current": f"bg:{FORGE_STONE} fg:{FORGE_ASH}",
         "completion-menu.meta.completion": f"bg:{FORGE_PANEL} fg:{FORGE_SMOKE}",
         "scrollbar.background": f"bg:{FORGE_PANEL}",
-        "scrollbar.button": f"bg:{FORGE_EMBER}",
+        "scrollbar.button": f"bg:{FORGE_STONE}",
     }
 )
 

@@ -13,6 +13,7 @@ from hephaistos.app.palette import (
     STYLE_DIM,
     STYLE_ERROR,
     STYLE_PROMPT,
+    STYLE_SUCCESS,
     STYLE_WARNING,
 )
 
@@ -40,7 +41,7 @@ def print_info(msg: str) -> None:
 
 
 def print_success(msg: str) -> None:
-    print(f"{styled(msg, STYLE_ACCENT)}")
+    print(f"{styled(msg, STYLE_SUCCESS)}")
 
 
 def print_shell_intro(
@@ -52,7 +53,7 @@ def print_shell_intro(
 ) -> None:
     """Print a compact startup screen with essential status and input hints."""
     api_status = (
-        styled("configured", STYLE_ACCENT) if has_api_key else styled("missing", STYLE_ERROR)
+        styled("configured", STYLE_SUCCESS) if has_api_key else styled("missing", STYLE_ERROR)
     )
     source_status = (
         styled(f"{source_file_count} file{'s' if source_file_count != 1 else ''}", STYLE_ACCENT)
