@@ -60,7 +60,13 @@ def chat_session(tmp_path: Path):
     (armory_path / "source" / "exam.md").write_text(
         "# Past Exam\n## Q1\nWhat is 2+2?\n\nAnswer: 4\n"
     )
-    return create_session(ChatConfig(), armory_path)
+    return create_session(
+        ChatConfig(
+            base_url="https://api.openai.com/v1",
+            model="gpt-4o-mini",
+        ),
+        armory_path,
+    )
 
 
 @pytest.fixture

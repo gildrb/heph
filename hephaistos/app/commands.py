@@ -541,6 +541,7 @@ class ProviderCommand(Command):
             elif p.models:
                 print_error(f"Model '{model}' not found in {slug}")
                 print_info(f"Available: {', '.join(p.models)}")
+                pc.apply_to_config(session.config)
                 pc.save()
                 return CommandResult()
         elif not p.current_model and p.models:

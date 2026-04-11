@@ -162,7 +162,6 @@ class TurnOrchestrator:
         assert plan is not None
 
         raw_reply = ""
-        buffered_reply = ""
         for event in iter_agent_events(
             session.config,
             session.conversation,
@@ -178,10 +177,8 @@ class TurnOrchestrator:
         ):
             if isinstance(event, AssistantDeltaEvent):
                 raw_reply += event.delta
-                if plan.buffer_response:
-                    buffered_reply += event.delta
-                    continue
-                self.last_reply += event.delta
+                if not plan.buffer_response:
+                    self.last_reply += event.delta
             yield event
 
         if raw_reply:

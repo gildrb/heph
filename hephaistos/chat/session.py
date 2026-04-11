@@ -157,7 +157,7 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
 
 def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     """Create a fresh chat session scoped to an armory."""
-    if armory_path is None:
+    if armory_path is None:  # runtime guard for untyped callers
         raise SessionError("An armory is required. Create one with: hephaistos armory init <path>")
 
     source_file_count = _count_source_files(armory_path)

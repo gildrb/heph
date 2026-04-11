@@ -1,8 +1,7 @@
-provider = "Z.AI"
-model_id = "glm-5"
-api_key = ""
+# Default parameters for Hephaistos.
+# Provider, model, and API key are configured via /provider, /model, /api,
+# or environment variables — not here.
 
-base_url = "https://api.z.ai/api/paas/v4/"
 max_tokens = 4096
 
 # Logging configuration (overridden by HEPHAISTOS_LOG_* env vars)

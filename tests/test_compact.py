@@ -211,14 +211,14 @@ class TestAutoCompact:
         return config, mock_client
 
     def test_saves_transcript(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A JSONL transcript file is created under .transcripts/."""
+        """A JSONL transcript file is created under .hephaistos/transcripts/."""
         messages = _build_messages(3)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
 
         auto_compact(messages, config, tmp_path)
 
-        transcript_dir = tmp_path / ".transcripts"
+        transcript_dir = tmp_path / ".hephaistos" / "transcripts"
         assert transcript_dir.is_dir()
         files = list(transcript_dir.glob("transcript_*.jsonl"))
         assert len(files) == 1
@@ -301,7 +301,7 @@ class TestAutoCompact:
         assert len(result) == len(messages)
 
         # Transcript still saved even though summarisation failed
-        transcript_dir = tmp_path / ".transcripts"
+        transcript_dir = tmp_path / ".hephaistos" / "transcripts"
         assert transcript_dir.is_dir()
         assert len(list(transcript_dir.glob("transcript_*.jsonl"))) == 1
 

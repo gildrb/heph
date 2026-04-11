@@ -380,7 +380,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
     """Execute a shell command and return structured output."""
     import time as _time
 
-    actual_timeout = timeout or _BASH_TIMEOUT
+    actual_timeout = _BASH_TIMEOUT if timeout is None else timeout
     start = _time.monotonic()
     try:
         result = subprocess.run(

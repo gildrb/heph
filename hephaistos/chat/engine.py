@@ -2,9 +2,9 @@
 
 Supports any OpenAI-compatible API endpoint, making it LLM-agnostic.
 Configure via environment variables:
-    HEPHAISTOS_API_KEY   - API key (falls back to OPENAI_API_KEY)
-    HEPHAISTOS_BASE_URL  - Base URL for the API (default: https://api.openai.com/v1)
-    HEPHAISTOS_MODEL     - Model name (default: gpt-4o-mini)
+    HEPHAISTOS_API_KEY   - API key override (applies to any provider)
+    HEPHAISTOS_BASE_URL  - Base URL for the API
+    HEPHAISTOS_MODEL     - Model name
 
 Streaming error recovery:
     Transient failures (connection drops, timeouts, server errors) are
@@ -16,7 +16,6 @@ Streaming error recovery:
 
 from __future__ import annotations
 
-import os
 import random
 import sys
 import threading
@@ -44,8 +43,8 @@ class ChatConfig:
     """
 
     api_key: str = ""
-    base_url: str = "https://api.openai.com/v1"
-    model: str = "gpt-4o-mini"
+    base_url: str = ""
+    model: str = ""
     max_tokens: int = 4096
     rag_context_budget: int = 2000
     _provider_slug: str = field(default="", repr=False)
@@ -53,16 +52,11 @@ class ChatConfig:
 
     @property
     def resolved_api_key(self) -> str:
-        """Resolve the API key via keychain → env → volatile → raw fallback."""
+        """Resolve the API key via keychain → env → volatile."""
         if self._provider_slug:
             from hephaistos.providers.keyring_store import resolve_key
 
-            key = resolve_key(self._provider_slug, self._provider_env)
-            if key:
-                return key
-        env_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
-        if env_key.strip():
-            return env_key.strip()
+            return resolve_key(self._provider_slug, self._provider_env)
         return self.api_key
 
 
@@ -125,6 +119,10 @@ class Conversation:
 
 def _build_client(config: ChatConfig) -> OpenAI:
     """Create an OpenAI client from the given config."""
+    if not config.base_url:
+        raise EngineError("No provider configured. Use /provider use <slug> to select one.")
+    if not config.model:
+        raise EngineError("No model configured. Use /model to select one.")
     if not is_supported_model_for_endpoint(config.model, config.base_url):
         raise EngineError(f"Model unavailable for endpoint: {config.model}")
     api_key = config.resolved_api_key
@@ -162,6 +160,22 @@ class CompletionDelta:
     tool_calls: list[dict] | None = None
     finish_reason: str = ""
     usage: dict[str, int] | None = None
+
+
+def _normalize_tool_calls(tool_calls: list[object]) -> list[dict]:
+    """Convert Pydantic tool-call delta objects to plain dicts."""
+    result: list[dict] = []
+    for tc in tool_calls:
+        if isinstance(tc, dict):
+            result.append(tc)
+            continue
+        # OpenAI SDK returns Pydantic v2 models; .model_dump() gives plain dicts.
+        tc_dict: dict = tc.model_dump(exclude_none=True)  # type: ignore[union-attr]
+        fn = tc_dict.get("function")
+        if fn is not None and not isinstance(fn, dict):
+            tc_dict["function"] = fn.model_dump(exclude_none=True)  # type: ignore[union-attr]
+        result.append(tc_dict)
+    return result
 
 
 def _extract_usage(chunk: object) -> dict[str, int] | None:
@@ -274,7 +288,7 @@ def stream_completion(
                 if delta.content or delta.tool_calls or finish_reason or usage is not None:
                     yield CompletionDelta(
                         content=delta.content or None,
-                        tool_calls=delta.tool_calls,
+                        tool_calls=_normalize_tool_calls(delta.tool_calls) if delta.tool_calls else None,
                         finish_reason=finish_reason,
                         usage=usage,
                     )

@@ -21,6 +21,14 @@ from hephaistos.chat.session import SessionError, create_session
 from hephaistos.providers.config import _default_config
 
 
+def _test_config() -> ChatConfig:
+    """Create a ChatConfig with explicit endpoint/model for tests."""
+    return ChatConfig(
+        base_url="https://api.openai.com/v1",
+        model="gpt-4o-mini",
+    )
+
+
 def _make_armory(tmp_path: Path) -> Path:
     """Create a valid armory with one source file."""
     armory_path = tmp_path / "test-armory"
@@ -35,7 +43,7 @@ def _make_armory(tmp_path: Path) -> Path:
 def _make_session(tmp_path: Path):
     """Create a session attached to a valid armory."""
     armory_path = _make_armory(tmp_path)
-    return create_session(ChatConfig(), armory_path)
+    return create_session(_test_config(), armory_path)
 
 
 def test_run_chat_shell_armory_command_opens_existing_armory(
@@ -51,7 +59,7 @@ def test_run_chat_shell_armory_command_opens_existing_armory(
     monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": str(new_armory))
     monkeypatch.setattr(shell, "select_option", lambda *_args, **_kwargs: 0)
 
-    session = create_session(ChatConfig(), old_armory)
+    session = create_session(_test_config(), old_armory)
     with (
         patch.object(shell.sys.stdin, "isatty", return_value=False),
         patch.object(shell.sys.stdout, "isatty", return_value=False),
@@ -64,7 +72,7 @@ def test_run_chat_shell_armory_command_opens_existing_armory(
 
 def test_create_session_without_armory_raises(tmp_path: Path) -> None:
     with pytest.raises(SessionError, match="armory is required"):
-        create_session(ChatConfig(), None)  # type: ignore[arg-type]
+        create_session(_test_config(), None)  # type: ignore[arg-type]
 
 
 def test_create_session_empty_armory_raises(tmp_path: Path) -> None:
@@ -72,7 +80,7 @@ def test_create_session_empty_armory_raises(tmp_path: Path) -> None:
     initialize(armory_path)
     # No source files
     with pytest.raises(SessionError, match="no source documents"):
-        create_session(ChatConfig(), armory_path)
+        create_session(_test_config(), armory_path)
 
 
 def test_fallback_shell_exits_on_quit(monkeypatch, capsys, tmp_path: Path) -> None:

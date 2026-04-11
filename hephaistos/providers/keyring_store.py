@@ -72,14 +72,20 @@ def resolve_key(slug: str, env_var: str = "") -> str:
     """Resolve an API key using the full fallback chain.
 
     Priority:
+    0. HEPHAISTOS_API_KEY environment variable (global override)
     1. OS keychain
     2. OAuth credentials (auto-refreshed access token)
-    3. Environment variable (if ``env_var`` is provided)
+    3. Provider-specific environment variable (if ``env_var`` is provided)
     4. Volatile in-memory store
 
     Returns the key string, or ``""`` if none found.
     """
     import os
+
+    # 0. Global override — takes precedence over everything
+    override = os.environ.get("HEPHAISTOS_API_KEY", "").strip()
+    if override:
+        return override
 
     # 1. Keychain
     key = retrieve_key(slug)
@@ -93,7 +99,7 @@ def resolve_key(slug: str, env_var: str = "") -> str:
     if oauth_key:
         return oauth_key
 
-    # 3. Environment variable
+    # 3. Provider-specific environment variable
     if env_var:
         env_val = os.environ.get(env_var, "").strip()
         if env_val:

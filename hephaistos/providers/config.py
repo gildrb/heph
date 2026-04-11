@@ -40,8 +40,6 @@ class Provider:
     def resolved_model(self) -> str:
         if self.current_model:
             return self.current_model
-        if self.models:
-            return self.models[0]
         return ""
 
 
@@ -69,6 +67,8 @@ class ProviderConfig:
         Sets base_url and model directly, but stores only a *reference*
         (provider slug) for the API key so the raw key is not held in
         the config object.  The engine resolves the key lazily at call time.
+
+        Does nothing if no provider is active.
         """
         active = self.get_active()
         if active is None:
@@ -177,8 +177,7 @@ def _default_config() -> ProviderConfig:
                 display_name="Z.AI / GLM",
                 endpoint="https://api.z.ai/api/paas/v4/",
                 api_key_env="ZAI_API_KEY",
-                active=True,
-                current_model="glm-5-turbo",
+                active=False,
                 models=[
                     "glm-5",
                     "glm-5-turbo",

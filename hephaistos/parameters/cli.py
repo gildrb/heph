@@ -62,13 +62,6 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         import sys
 
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
-    api_key = os.environ.get("HEPHAISTOS_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
-    # Do NOT store raw key in config.api_key. The resolved_api_key property
-    # will pick it up from env vars at call time.
-    # We only set api_key field for backward-compat tests that check it directly.
-    # Real code should use config.resolved_api_key.
-    if api_key:
-        config.api_key = "(env)"  # sentinel — actual key resolved lazily
 
     base_url = os.environ.get("HEPHAISTOS_BASE_URL")
     if base_url:

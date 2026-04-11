@@ -255,11 +255,24 @@ def _summarize_result(content: str) -> str:
 
 
 def _sync_conversation(conversation: Conversation, api_messages: list[dict]) -> None:
-    """Rebuild *conversation* messages from the compacted API messages."""
+    """Rebuild *conversation* messages from the compacted API messages.
+
+    ``Conversation`` only stores ``role`` + ``content``, so tool messages
+    (``role="tool"``) and structured ``tool_calls`` fields cannot be
+    represented.  The full ``api_messages`` list remains the authoritative
+    source for the API; this mirror is used for persistence and title
+    derivation.
+
+    Assistant messages whose content is ``None`` (tool-call-only turns)
+    are preserved with a ``"[tool calls]"`` placeholder so they are not
+    silently dropped.
+    """
     conversation.messages.clear()
     for msg in api_messages:
         role = msg.get("role", "")
         content = msg.get("content")
+        if role == "assistant" and not content and msg.get("tool_calls"):
+            content = "[tool calls]"
         if role in ("system", "user", "assistant") and content:
             conversation.add(role, content)
 
@@ -361,7 +374,6 @@ def iter_agent_events(
 
         # Account for turn evidence and extra system prompt in budget checks
         # so injected context doesn't silently push past the context window.
-        pre_inject_messages = api_messages
         llm_messages = _inject_turn_context(api_messages, turn_evidence, extra_system_prompt)
         budget_messages = llm_messages
 
@@ -478,7 +490,7 @@ def iter_agent_events(
         tool_results = execute_tool_calls(collected_tool_calls, workspace, registry=registry)
         # Append tool results before recording usage so the char-based
         # estimation fallback counts prompt tokens accurately.
-        for tc, tr in zip(collected_tool_calls, tool_results, strict=False):
+        for _tc, tr in zip(collected_tool_calls, tool_results, strict=False):
             api_messages.append(tr)
 
         _record_usage(usage, stream_usage, api_messages, collected_text, config.model)

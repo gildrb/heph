@@ -587,9 +587,9 @@ def _start_background_reply(
         except EngineError as exc:
             print_error(str(exc))
         finally:
-            runtime.busy = False
-            runtime.abort_event.clear()
             runtime.worker = None
+            runtime.abort_event.clear()
+            runtime.busy = False
             _refresh_bottom_toolbar(session, toolbar_ref, runtime)
             _invalidate_prompt(pt_session)
 
@@ -792,6 +792,11 @@ def run_chat_shell(
                 break
 
             if runtime.busy:
+                if user_input.startswith("/"):
+                    session, _ = _handle_input(session, user_input, history)
+                    _refresh_bottom_toolbar(session, toolbar_ref, runtime)
+                    _invalidate_prompt(pt_session)
+                    continue
                 session, _ = _handle_input(session, user_input, history, streaming=True)
                 runtime.steering_count += 1
                 _refresh_bottom_toolbar(session, toolbar_ref, runtime)

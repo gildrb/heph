@@ -235,13 +235,19 @@ class ModelRegistry:
             self._models[m.name] = m
 
     def get(self, model_name: str) -> ModelInfo | None:
-        """Look up a model by exact name, then prefix match."""
+        """Look up a model by exact name, then provider-prefix match."""
         if model_name in self._models:
             return self._models[model_name]
 
-        # Prefix match: "gpt-5.4-mini" matches "openai/gpt-5.4-mini"
+        # Try stripping provider prefix: "openai/gpt-5.4" -> "gpt-5.4"
+        if "/" in model_name:
+            _, short = model_name.rsplit("/", 1)
+            if short in self._models:
+                return self._models[short]
+
+        # Try adding provider prefixes: "gpt-5.4" -> "openai/gpt-5.4"
         for key, info in self._models.items():
-            if key.endswith(model_name) or model_name.endswith(key):
+            if "/" in key and key.rsplit("/", 1)[1] == model_name:
                 return info
 
         return None

@@ -10,7 +10,7 @@ Layer 3 (compact tool): The agent explicitly calls the ``compact`` tool,
     which triggers the same summarisation as Layer 2.
 
 Nothing is truly lost — full transcripts are persisted under
-``<workspace>/.transcripts/`` as JSONL files.
+``<workspace>/.hephaistos/transcripts/`` as JSONL files.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ KEEP_RECENT: int = 3  # tool results left untouched by micro_compact
 KEEP_RECENT_EXCHANGES: int = 2  # complete exchanges preserved verbatim by auto_compact
 PLACEHOLDER_THRESHOLD: int = 100  # only replace results longer than this (chars)
 TOKEN_THRESHOLD: int = 50_000  # auto_compact trigger
-TRANSCRIPTS_DIR: str = ".transcripts"
+TRANSCRIPTS_DIR: str = ".hephaistos/transcripts"
 
 
 def estimate_messages_tokens(messages: list[dict]) -> int:
@@ -124,7 +124,12 @@ def auto_compact(
     try:
         serialized = json.dumps(old_messages, default=str, ensure_ascii=False)
         if len(serialized) > 80_000:
-            serialized = serialized[:80_000] + "\n... [truncated]"
+            # Truncate at the last newline boundary to avoid splitting
+            # mid-escape-sequence (e.g. "\u00" -> "\u0").
+            cut = serialized.rfind("\n", 0, 80_000)
+            if cut == -1:
+                cut = 80_000
+            serialized = serialized[:cut] + "\n... [truncated]"
 
         summary_prompt = (
             "Summarize the following conversation for continuity. "

@@ -20,7 +20,10 @@ def _make_armory(tmp_path: Path) -> Path:
 
 def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     armory = _make_armory(tmp_path)
-    session = create_session(ChatConfig(), armory)
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
     session.study_state.phase = StudyPhase.RECALL
     session.study_state.current_item = "Q1"
     session.study_state.retrieval_query = "Q1"

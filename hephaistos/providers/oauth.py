@@ -50,6 +50,12 @@ _ERROR_HTML_TEMPLATE = (
     "<p>{error}</p></body></html>"
 )
 
+# Shared mutable state for the OAuth callback handler.
+# Using a module-level dict instead of class variables avoids
+# stale state if the handler class is subclassed or if tests
+# run concurrently.
+_callback_state: dict[str, str | None] = {}
+
 
 # --- Data classes -----------------------------------------------------------
 
@@ -110,10 +116,6 @@ def _extract_account_id(access_token: str) -> str | None:
 class _CallbackHandler(BaseHTTPRequestHandler):
     """Receives the OAuth redirect on localhost."""
 
-    code: str | None = None
-    received_state: str | None = None
-    error: str | None = None
-
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
@@ -124,7 +126,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         err = params.get("error", [None])[0]
         if err:
-            _CallbackHandler.error = err
+            _callback_state["error"] = err
             self._respond(400, err)
             return
 
@@ -132,12 +134,12 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         state = params.get("state", [None])[0]
 
         if not code or not state:
-            _CallbackHandler.error = "Missing code or state"
+            _callback_state["error"] = "Missing code or state"
             self._respond(400, "Missing code or state")
             return
 
-        _CallbackHandler.code = code
-        _CallbackHandler.received_state = state
+        _callback_state["code"] = code
+        _callback_state["received_state"] = state
         self._respond(200, "")
 
     def _respond(self, status: int, error: str) -> None:
@@ -155,9 +157,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
 def _start_callback_server() -> HTTPServer | None:
     """Start the local callback server.  Returns ``None`` on bind failure."""
-    _CallbackHandler.code = None
-    _CallbackHandler.received_state = None
-    _CallbackHandler.error = None
+    _callback_state.clear()
     try:
         server = HTTPServer(("127.0.0.1", _CALLBACK_PORT), _CallbackHandler)
         server.timeout = 120
@@ -276,11 +276,11 @@ def login_openai_codex() -> OAuthCredentials:
         server.handle_request()
         server.server_close()
 
-        if _CallbackHandler.error:
-            raise RuntimeError(f"OAuth error: {_CallbackHandler.error}")
-        if _CallbackHandler.received_state != state:
+        if _callback_state.get("error"):
+            raise RuntimeError(f"OAuth error: {_callback_state['error']}")
+        if _callback_state.get("received_state") != state:
             raise RuntimeError("OAuth state mismatch.")
-        code = _CallbackHandler.code
+        code = _callback_state.get("code")
         if not code:
             raise RuntimeError("No authorization code received.")
 
