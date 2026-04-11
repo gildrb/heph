@@ -13,7 +13,6 @@ from hephaistos.harness.rag.chunker import Chunk
 from hephaistos.harness.rag.context import TurnEvidence, build_turn_evidence
 from hephaistos.harness.rag.retrieve import ScoredChunk
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

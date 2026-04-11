@@ -284,12 +284,10 @@ class TurnOrchestrator:
                 return
 
 
-
 def _evidence_refs(turn_evidence: TurnEvidence | None) -> list[str]:
     if not turn_evidence:
         return []
     return [f"{item.source}#chunk={item.chunk_index}" for item in turn_evidence.items]
-
 
 
 def _parse_source_ref(ref: str) -> tuple[str, int] | None:
@@ -302,7 +300,6 @@ def _parse_source_ref(ref: str) -> tuple[str, int] | None:
         return None
 
 
-
 def _ensure_rag_index(session: ChatSession) -> ArmoryIndex | None:
     if session.armory_path is None:
         return None
@@ -311,13 +308,11 @@ def _ensure_rag_index(session: ChatSession) -> ArmoryIndex | None:
     return session._rag_index
 
 
-
 def _adaptive_rag_budget(session: ChatSession) -> int:
     budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
     api_msgs = session.conversation.to_api_messages()
     remaining = budget.tokens_remaining(api_msgs)  # type: ignore[arg-type]
     return min(session.config.rag_context_budget, max(200, int(remaining * 0.3)))
-
 
 
 def _build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvidence | None:
@@ -374,7 +369,6 @@ def _build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvi
         return None
 
 
-
 def _build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> TurnEvidence | None:
     try:
         index = _ensure_rag_index(session)
@@ -398,7 +392,6 @@ def _build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> Tur
     except Exception:
         _log.warning("turn evidence rebuild from refs failed", exc_info=True)
         return None
-
 
 
 def _resolve_turn_evidence(session: ChatSession, plan: StudyTurnPlan) -> TurnEvidence | None:

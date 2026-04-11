@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.input import create_pipe_input
@@ -45,8 +46,9 @@ def test_run_chat_shell_armory_command_opens_existing_armory(
     old_armory = _make_armory(tmp_path / "old")
     new_armory = _make_armory(tmp_path / "new")
 
-    responses = iter(["/armory", str(new_armory), "/exit"])
+    responses = iter(["/armory", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": str(new_armory))
     monkeypatch.setattr(shell, "select_option", lambda *_args, **_kwargs: 0)
 
     session = create_session(ChatConfig(), old_armory)
@@ -218,10 +220,10 @@ def test_bottom_toolbar_shows_multiline_status(tmp_path: Path) -> None:
 
     status = shell._build_bottom_toolbar_status(session)
 
+    assert session.armory_path is not None
     assert shell._display_path(session.armory_path) in status
     assert "armory attached" in status
     assert "model" in status
-    assert "autonomy" in status
     assert "context" in status
     assert "api " in status
     assert "source 1 file" in status
@@ -254,11 +256,11 @@ def test_slash_completer_suggests_provider_subcommands(monkeypatch) -> None:
     monkeypatch.setattr(shell.ProviderConfig, "load", classmethod(lambda cls: _default_config()))
     completer = shell.SlashCommandCompleter()
 
-    completions = list(completer.get_completions(Document("/provider u"), None))
+    completions = list(completer.get_completions(Document("/provider u"), CompleteEvent()))
 
     assert any(completion.text == "use " for completion in completions)
 
-    completions = list(completer.get_completions(Document("/provider use za"), None))
+    completions = list(completer.get_completions(Document("/provider use za"), CompleteEvent()))
 
     assert any(completion.text == "zai " for completion in completions)
 
@@ -266,10 +268,9 @@ def test_slash_completer_suggests_provider_subcommands(monkeypatch) -> None:
 def test_slash_completer_matches_command_aliases() -> None:
     completer = shell.SlashCommandCompleter()
 
-    completions = list(completer.get_completions(Document("/qui"), None))
+    completions = list(completer.get_completions(Document("/qui"), CompleteEvent()))
 
-    assert any(completion.text == "exit " for completion in completions)
-
+    assert any(completion.text == "quit " for completion in completions)
 
 
 def test_shell_intro_uses_compact_header(capsys) -> None:
@@ -295,33 +296,51 @@ def test_shell_intro_uses_compact_header(capsys) -> None:
 
 
 def test_prompt_path_returns_none_on_q(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
     result = shell._prompt_path("Path", "/default")
     assert result is None
 
 
 def test_prompt_path_returns_none_on_cancel(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "cancel")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "cancel")
     result = shell._prompt_path("Path", "/default")
     assert result is None
 
 
 def test_prompt_path_returns_none_on_back(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "back")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "back")
     result = shell._prompt_path("Path", "/default")
     assert result is None
 
 
 def test_prompt_path_returns_default_on_empty(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "")
     result = shell._prompt_path("Path", "/default")
     assert result == "/default"
 
 
 def test_prompt_path_returns_value_when_provided(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "/my/path")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "/my/path")
     result = shell._prompt_path("Path", "/default")
     assert result == "/my/path"
+
+
+def test_prompt_path_returns_none_on_keyboard_interrupt(monkeypatch) -> None:
+    def _raise(_: str = "") -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", _raise)
+    result = shell._prompt_path("Path", "/default")
+    assert result is None
+
+
+def test_prompt_path_returns_none_on_eof(monkeypatch) -> None:
+    def _raise(_: str = "") -> str:
+        raise EOFError
+
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", _raise)
+    result = shell._prompt_path("Path", "/default")
+    assert result is None
 
 
 def test_open_armory_cancelled_returns_session_unchanged(
@@ -329,7 +348,7 @@ def test_open_armory_cancelled_returns_session_unchanged(
 ) -> None:
     session = _make_session(tmp_path)
 
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
     new_session = shell._open_armory(session)
 
     assert new_session is session
@@ -342,7 +361,7 @@ def test_create_armory_cancelled_returns_session_unchanged(
 ) -> None:
     session = _make_session(tmp_path)
 
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
     new_session = shell._create_armory(session)
 
     assert new_session is session
@@ -372,7 +391,7 @@ def test_prompt_armory_for_sessions_cancelled_returns_none(
 ) -> None:
     session = _make_session(tmp_path)
 
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
     result = shell._prompt_armory_for_sessions(session)
 
     assert result is None
@@ -386,7 +405,7 @@ def test_resume_saved_chat_cancelled_returns_session_unchanged(
     session = _make_session(tmp_path)
 
     # Cancel at the path prompt
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
     new_session = shell._resume_saved_chat(session)
 
     assert new_session is session
@@ -396,7 +415,7 @@ def test_list_saved_chats_cancelled_returns_early(monkeypatch, capsys, tmp_path:
     session = _make_session(tmp_path)
 
     # Cancel at the path prompt
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
     shell._list_saved_chats(session)
 
     out = capsys.readouterr().out

@@ -5,7 +5,7 @@ from hephaistos.app.menu import MenuOption
 
 
 def test_select_option_uses_prompt_fallback(monkeypatch, capsys) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "2")
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "2")
 
     selected = menu.select_option(
         "Armory",
@@ -22,7 +22,7 @@ def test_select_option_uses_prompt_fallback(monkeypatch, capsys) -> None:
 
 
 def test_select_option_returns_none_for_cancel(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "q")
 
     selected = menu.select_option(
         "Armory",
@@ -50,21 +50,21 @@ def test_select_option_empty_list() -> None:
 
 
 def test_confirm_yes(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "1")
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "1")
 
     result = menu.confirm("Proceed?")
     assert result is True
 
 
 def test_confirm_no(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "2")
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "2")
 
     result = menu.confirm("Proceed?")
     assert result is False
 
 
 def test_confirm_cancel(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "q")
 
     result = menu.confirm("Proceed?")
     assert result is False
@@ -88,3 +88,75 @@ def test_menu_option_dataclass() -> None:
     opt2 = MenuOption(label="Test")
     assert opt2.description == ""
     assert opt2.is_current is False
+
+
+# ---------------------------------------------------------------------------
+# Slash-prefixed exit commands
+# ---------------------------------------------------------------------------
+
+
+def test_select_option_slash_exit_cancels(monkeypatch) -> None:
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "/exit")
+
+    selected = menu.select_option(
+        "Armory",
+        [MenuOption("Open existing armory", "Attach a workspace.")],
+    )
+    assert selected is None
+
+
+def test_select_option_slash_quit_cancels(monkeypatch) -> None:
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "/quit")
+
+    selected = menu.select_option(
+        "Armory",
+        [MenuOption("Open existing armory", "Attach a workspace.")],
+    )
+    assert selected is None
+
+
+def test_select_option_slash_q_cancels(monkeypatch) -> None:
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "/q")
+
+    selected = menu.select_option(
+        "Armory",
+        [MenuOption("Open existing armory", "Attach a workspace.")],
+    )
+    assert selected is None
+
+
+def test_select_option_exit_cancels(monkeypatch) -> None:
+    """Bare 'exit' still works (pre-existing behavior)."""
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "exit")
+
+    selected = menu.select_option(
+        "Armory",
+        [MenuOption("Open existing armory", "Attach a workspace.")],
+    )
+    assert selected is None
+
+
+def test_select_option_keyboard_interrupt_returns_none(monkeypatch) -> None:
+    def _raise(_: str = "") -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", _raise)
+
+    selected = menu.select_option(
+        "Armory",
+        [MenuOption("Open existing armory", "Attach a workspace.")],
+    )
+    assert selected is None
+
+
+def test_select_option_eof_returns_none(monkeypatch) -> None:
+    def _raise(_: str = "") -> str:
+        raise EOFError
+
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", _raise)
+
+    selected = menu.select_option(
+        "Armory",
+        [MenuOption("Open existing armory", "Attach a workspace.")],
+    )
+    assert selected is None

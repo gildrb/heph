@@ -73,8 +73,9 @@ def resolve_key(slug: str, env_var: str = "") -> str:
 
     Priority:
     1. OS keychain
-    2. Environment variable (if ``env_var`` is provided)
-    3. Volatile in-memory store
+    2. OAuth credentials (auto-refreshed access token)
+    3. Environment variable (if ``env_var`` is provided)
+    4. Volatile in-memory store
 
     Returns the key string, or ``""`` if none found.
     """
@@ -85,13 +86,20 @@ def resolve_key(slug: str, env_var: str = "") -> str:
     if key:
         return key
 
-    # 2. Environment variable
+    # 2. OAuth
+    from hephaistos.providers.oauth import resolve_oauth_key
+
+    oauth_key = resolve_oauth_key(slug)
+    if oauth_key:
+        return oauth_key
+
+    # 3. Environment variable
     if env_var:
         env_val = os.environ.get(env_var, "").strip()
         if env_val:
             return env_val
 
-    # 3. Volatile
+    # 4. Volatile
     vol = get_volatile(slug)
     if vol:
         return vol

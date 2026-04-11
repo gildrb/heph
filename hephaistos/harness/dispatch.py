@@ -69,7 +69,6 @@ class SteeringQueue:
         return msgs
 
 
-
 def execute_tool_calls(
     tool_calls: list[dict],
     workspace: Path,
@@ -187,7 +186,6 @@ def execute_tool_calls(
     return results
 
 
-
 def _merge_tool_call_deltas(
     accumulated: list[dict],
     deltas: list[dict],
@@ -213,7 +211,6 @@ def _merge_tool_call_deltas(
             entry["function"]["arguments"] += fn["arguments"]
 
 
-
 def _summarise_args(name: str, args: dict) -> dict:
     """Summarise tool args for logging (truncate large content)."""
     if name == "bash":
@@ -223,7 +220,6 @@ def _summarise_args(name: str, args: dict) -> dict:
     return {
         k: (str(v)[:100] if isinstance(v, str) and len(v) > 100 else v) for k, v in args.items()
     }
-
 
 
 def _format_tool_args(name: str, args: dict) -> str:
@@ -245,7 +241,6 @@ def _format_tool_args(name: str, args: dict) -> str:
     return f"  [{name}] {args}"
 
 
-
 def _summarize_result(content: str) -> str:
     """Brief summary of tool result for display."""
     lines = content.splitlines()
@@ -253,7 +248,6 @@ def _summarize_result(content: str) -> str:
         return f"  -> {content}"
     first_line = lines[0] if lines else content[:80]
     return f"  -> {first_line} ... ({len(lines)} lines)"
-
 
 
 def _sync_conversation(conversation: Conversation, api_messages: list[dict]) -> None:
@@ -264,7 +258,6 @@ def _sync_conversation(conversation: Conversation, api_messages: list[dict]) -> 
         content = msg.get("content")
         if role in ("system", "user", "assistant") and content:
             conversation.add(role, content)
-
 
 
 def _inject_turn_context(
@@ -294,7 +287,6 @@ def _inject_turn_context(
     return msgs
 
 
-
 def _record_usage(
     usage: SessionUsage | None,
     stream_usage: dict | None,
@@ -309,7 +301,6 @@ def _record_usage(
         return
     prompt_chars = sum(len(m.get("content", "") or "") for m in api_messages)
     usage.estimate_from_chars(prompt_chars, len(text), model)
-
 
 
 def iter_agent_events(
@@ -528,7 +519,6 @@ def iter_agent_events(
             }
         },
     )
-
 
 
 def agent_loop(

@@ -69,7 +69,7 @@ If an armory has no source files, `chat start` will fail until you add material 
 
 - Interactive TTY shell built on `prompt_toolkit` with a forge-inspired palette, borderless dynamic composer, and live status rows beneath the input
 - Slash commands for armory/session/model/provider management
-- Shell mode via `!command`, gated by autonomy tiers that classify the actual command
+- Shell mode via `!command`
 - Armory auto-discovery from the current directory or `./armory`
 - Agent loop with `bash`, `read_file`, `write_file`, `edit_file`, `list_files`, `search_files`, `web_fetch`, and `compact`
 - Steering — type while the agent is working to inject follow-up messages mid-loop
@@ -140,7 +140,7 @@ An armory is a normal directory with a fixed layout:
 my-armory/
   .hephaistos/
     armory.toml         # armory marker and metadata
-    config.toml         # optional autonomy and permission overrides
+    config.toml         # optional configuration overrides
     history             # shell history for this armory (created on use)
     memory.json         # extracted study memory
     rag_index.json      # persisted retrieval index
@@ -167,23 +167,6 @@ Provider definitions live in `~/.config/hephaistos/providers.toml`. On first loa
 - `custom`
 
 The default active provider is `zai`. Switch providers in the shell with `/provider`, or switch models with `/model`.
-
-### Autonomy tiers
-
-Shell commands (`!`) and tool calls are gated by autonomy tiers. The system classifies each command by what it actually does rather than by tool name:
-
-| Tier | Allows | Example |
-|------|--------|---------|
-| `none` | Read-only operations | `ls`, `cat`, `grep`, `git status` |
-| `low` | Low-risk file ops | `touch`, `mkdir`, `cp`, `mv` |
-| `medium` | Dev operations | `pip install`, `git commit`, `pytest` |
-| `high` | Production / privileged | `sudo`, `git push`, `rm -rf` |
-
-The default autonomy level is `low`. Override per-armory in `.hephaistos/config.toml`:
-
-```toml
-autonomy = "medium"
-```
 
 ### Environment variables
 
@@ -216,7 +199,7 @@ hephaistos/
   app/            CLI entrypoint, shell, commands, menus, display, palette
   armory/         armory creation and validation
   chat/           session lifecycle, engine, usage, persistence
-  harness/        tool loop, permissions, compaction, citations, RAG
+  harness/        tool loop, compaction, citations, RAG
   memory/         learned-concept extraction and persistence
   parameters/     default parameter loading and env overrides
   providers/      provider config, model registry, keyring integration

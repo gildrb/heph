@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import re
+import sys
 
 from hephaistos.app import palette
 from hephaistos.app.palette import (
@@ -50,9 +52,7 @@ def print_shell_intro(
 ) -> None:
     """Print a compact startup screen with essential status and input hints."""
     api_status = (
-        styled("configured", STYLE_ACCENT)
-        if has_api_key
-        else styled("missing", STYLE_ERROR)
+        styled("configured", STYLE_ACCENT) if has_api_key else styled("missing", STYLE_ERROR)
     )
     source_status = (
         styled(f"{source_file_count} file{'s' if source_file_count != 1 else ''}", STYLE_ACCENT)
@@ -100,3 +100,28 @@ def print_shell_intro(
             f"{styled('/api key <your-key>', STYLE_ACCENT)}"
         )
     print()
+
+
+def _real_stdout() -> io.TextIOWrapper:
+    """Return the real terminal stdout, bypassing any ``patch_stdout`` proxy."""
+    out = sys.stdout
+    while hasattr(out, "original_stdout"):
+        out = out.original_stdout  # type: ignore[attr-defined]
+    return out  # type: ignore[return-value]
+
+
+def direct_print(text: str, end: str = "\n") -> None:
+    """Write directly to the real terminal, bypassing ``patch_stdout``."""
+    out = _real_stdout()
+    out.write(text + end)
+    out.flush()
+
+
+def direct_input(prompt: str = "") -> str:
+    """Read a line from stdin, bypassing any ``patch_stdout`` proxy."""
+    original = sys.stdout
+    sys.stdout = _real_stdout()
+    try:
+        return input(prompt)
+    finally:
+        sys.stdout = original

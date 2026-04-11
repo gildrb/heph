@@ -10,6 +10,7 @@ from hephaistos.app.autocomplete import CommandSuggestion
 from hephaistos.app.display import (
     STYLE_DIM,
     STYLE_PROMPT,
+    direct_input,
     print_error,
     print_info,
     print_success,
@@ -30,7 +31,7 @@ class CommandResult:
         self,
         output: str | None = None,
         should_exit: bool = False,
-        new_session: object | None = None,
+        new_session: ChatSession | None = None,
     ) -> None:
         self.output = output
         self.should_exit = should_exit
@@ -83,9 +84,19 @@ class HelpCommand(Command):
 class ExitCommand(Command):
     name = "exit"
     description = "Leave the shell"
-    aliases = ("quit", "q")
+    aliases = ()
 
     def handle(self, session: object, args: str) -> CommandResult:
+        return CommandResult(should_exit=True)
+
+
+class QuitCommand(Command):
+    name = "quit"
+    description = "Leave the shell"
+    aliases = ("q",)
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        print_info(f"Exiting... (/{self.name} \u2192 /exit)")
         return CommandResult(should_exit=True)
 
 
@@ -441,7 +452,7 @@ class EditCommand(Command):
         print_info(f"Last message: {original[:100]}{'...' if len(original) > 100 else ''}")
         print(styled("Enter new message (empty to cancel):", STYLE_PROMPT))
         try:
-            new_text = input("  ").strip()
+            new_text = direct_input("  ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return CommandResult()
@@ -583,6 +594,72 @@ class ModelsCommand(Command):
         return CommandResult()
 
 
+class LoginCommand(Command):
+    name = "login"
+    description = "Authenticate with an LLM provider via OAuth"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.providers.oauth import login_openai_codex
+
+        options = [
+            MenuOption("OpenAI Codex", "ChatGPT Plus/Pro subscription"),
+        ]
+
+        selected = select_option("Login to provider", options)
+        if selected is None:
+            return CommandResult()
+
+        try:
+            creds = login_openai_codex()
+            from hephaistos.providers.keyring_store import set_volatile
+
+            set_volatile("openai-codex", creds.access_token)
+            print_success(f"Logged in to OpenAI Codex (account: {creds.account_id or 'unknown'})")
+        except RuntimeError as exc:
+            print_error(str(exc))
+        except Exception as exc:
+            print_error(f"Login failed: {exc}")
+        return CommandResult()
+
+
+class LogoutCommand(Command):
+    name = "logout"
+    description = "Clear stored OAuth credentials"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.providers.oauth import clear_credentials, list_providers
+
+        providers = list_providers()
+        if not providers:
+            print_info("No OAuth sessions found.")
+            return CommandResult()
+
+        if len(providers) == 1:
+            slug = providers[0]
+            if confirm(f"Log out of {slug}?", default=True):
+                clear_credentials(slug)
+                print_success(f"Logged out of {slug}.")
+            else:
+                print_info("Cancelled.")
+            return CommandResult()
+
+        options = [MenuOption(p, "") for p in providers]
+        options.append(MenuOption("All", "Log out of every provider"))
+        selected = select_option("Log out of", options)
+        if selected is None:
+            return CommandResult()
+
+        if selected == len(options) - 1:
+            for p in providers:
+                clear_credentials(p)
+            print_success("Logged out of all providers.")
+        else:
+            slug = providers[selected]
+            clear_credentials(slug)
+            print_success(f"Logged out of {slug}.")
+        return CommandResult()
+
+
 class UsageCommand(Command):
     name = "usage"
     description = "Show token usage and cost for this session"
@@ -641,6 +718,9 @@ def get_registry() -> CommandRegistry:
         for cmd_class in (
             HelpCommand,
             ExitCommand,
+            QuitCommand,
+            LoginCommand,
+            LogoutCommand,
             StatusCommand,
             SaveCommand,
             ClearCommand,

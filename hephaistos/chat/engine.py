@@ -164,7 +164,6 @@ class CompletionDelta:
     usage: dict[str, int] | None = None
 
 
-
 def _extract_usage(chunk: object) -> dict[str, int] | None:
     usage = getattr(chunk, "usage", None)
     if not usage:
@@ -174,7 +173,6 @@ def _extract_usage(chunk: object) -> dict[str, int] | None:
         "completion_tokens": (getattr(usage, "completion_tokens", 0) or 0),
         "total_tokens": (getattr(usage, "total_tokens", 0) or 0),
     }
-
 
 
 def stream_completion(
@@ -318,7 +316,6 @@ def stream_completion(
     raise EngineError(
         f"LLM request failed after {retry.max_retries + 1} attempts: {last_error}"
     ) from last_error
-
 
 
 def stream_reply(

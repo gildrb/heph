@@ -68,10 +68,7 @@ class TurnEvidence:
             return ""
 
         parts = [_EVIDENCE_PROMPT_PREFIX]
-        rendered_items = [
-            _render_evidence_item(item)
-            for item in self.items
-        ]
+        rendered_items = [_render_evidence_item(item) for item in self.items]
         parts.append("\n\n".join(rendered_items))
         return "".join(parts)
 

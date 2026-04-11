@@ -6,15 +6,15 @@ from hephaistos.chat.session import ChatSession, create_plain_session
 from hephaistos.providers.config import _default_config
 
 
-def test_command_registry_excludes_oauth_commands() -> None:
+def test_command_registry_includes_login_logout() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()
     names = {suggestion.name for suggestion in suggestions}
 
-    assert registry.find("login") is None
-    assert registry.find("logout") is None
-    assert "login" not in names
-    assert "logout" not in names
+    assert registry.find("login") is not None
+    assert registry.find("logout") is not None
+    assert "login" in names
+    assert "logout" in names
 
 
 def test_model_command_validates_against_session_endpoint(monkeypatch) -> None:

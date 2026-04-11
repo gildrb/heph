@@ -33,6 +33,7 @@ from hephaistos.app.display import (
     STYLE_ASSISTANT,
     STYLE_DIM,
     STYLE_ERROR,
+    direct_input,
     print_error,
     print_info,
     print_shell_intro,
@@ -59,7 +60,6 @@ from hephaistos.chat.session import (
     validate_armory_path,
 )
 from hephaistos.chat.usage import ContextBudget
-from hephaistos.harness.permissions import classify_bash_command, tier_allows
 from hephaistos.parameters.cli import load_config
 from hephaistos.providers.config import ProviderConfig
 
@@ -92,6 +92,7 @@ _PT_STYLE = PtStyle.from_dict(
         "scrollbar.button": f"bg:{FORGE_EMBER}",
     }
 )
+
 
 @dataclass
 class ShellRuntime:
@@ -186,10 +187,7 @@ class SlashCommandCompleter(Completer):
 
         if subcmd == "use":
             if len(arg_parts) == 2:
-                return [
-                    (slug, provider.display_name)
-                    for slug, provider in providers.items()
-                ]
+                return [(slug, provider.display_name) for slug, provider in providers.items()]
             if len(arg_parts) == 3:
                 provider = providers.get(arg_parts[1].lower())
                 if provider is None:
@@ -304,20 +302,15 @@ def _build_bottom_toolbar_status(
     mode = "armory attached" if session.armory_path is not None else "plain chat"
     api_state = "configured" if session.config.resolved_api_key else "missing"
     if runtime is not None and runtime.busy:
-        steering_suffix = (
-            f" · queued {runtime.steering_count}"
-            if runtime.steering_count
-            else ""
-        )
+        steering_suffix = f" · queued {runtime.steering_count}" if runtime.steering_count else ""
         input_hint = (
-            "assistant working · enter queues follow-up"
-            f" · ctrl+c interrupt{steering_suffix}"
+            f"assistant working · enter queues follow-up · ctrl+c interrupt{steering_suffix}"
         )
     else:
         input_hint = "enter send · alt+enter newline · / commands · ! shell"
     return (
         f"{_display_path(location)} · {mode}\n"
-        f"model {session.config.model} · autonomy {session.autonomy}"
+        f"model {session.config.model}"
         f" · context {_context_left(session)}% left"
         f" · api {api_state} · source {_source_label(session)}\n"
         f"{input_hint}"
@@ -375,7 +368,10 @@ def _default_armory_input(session: ChatSession) -> str:
 
 def _prompt_path(label: str, default: str) -> str | None:
     """Prompt the user for a path.  Returns *None* on cancel (empty or 'q')."""
-    raw = input(f"{label} [{default}] (q to cancel): ").strip()
+    try:
+        raw = direct_input(f"{label} [{default}] (q to cancel): ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return None
     if raw.lower() in ("q", "quit", "cancel", "back"):
         return None
     return raw or default
@@ -607,14 +603,7 @@ def _handle_input(
         cmd = user_input[1:].strip()
         if cmd:
             history.add(user_input)
-            required_tier = classify_bash_command(cmd)
-            if not tier_allows(required_tier, session.autonomy):
-                print_error(
-                    f"Permission denied: command requires '{required_tier}' autonomy "
-                    f"(current: '{session.autonomy}')"
-                )
-            else:
-                _run_shell_command(cmd)
+            _run_shell_command(cmd)
         return session, True
     if user_input.startswith("/"):
         history.add(user_input)
@@ -750,7 +739,7 @@ def run_chat_shell(
 
     history = InputHistory()
 
-    with patch_stdout():
+    with patch_stdout(raw=True):
         while True:
             try:
                 user_input = pt_session.prompt(prompt_continuation=_get_prompt_continuation)
@@ -783,14 +772,20 @@ def run_chat_shell(
                 _invalidate_prompt(pt_session)
                 continue
 
-            if user_input.startswith(("/", "!")):
-                session, should_continue = _handle_input(session, user_input, history)
-                _refresh_bottom_toolbar(session, toolbar_ref, runtime)
-                if not should_continue:
-                    break
-                continue
+            try:
+                if user_input.startswith(("/", "!")):
+                    session, should_continue = _handle_input(session, user_input, history)
+                    _refresh_bottom_toolbar(session, toolbar_ref, runtime)
+                    if not should_continue:
+                        break
+                    continue
 
-            _start_background_reply(session, user_input, history, runtime, toolbar_ref, pt_session)
+                _start_background_reply(
+                    session, user_input, history, runtime, toolbar_ref, pt_session
+                )
+            except KeyboardInterrupt:
+                print_info("Cancelled.")
+                continue
 
     _save_on_exit(session)
 

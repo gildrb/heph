@@ -8,7 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hephaistos.app.display import STYLE_DIM, STYLE_PROMPT, styled, visible_len
+from hephaistos.app.display import (
+    STYLE_DIM,
+    STYLE_PROMPT,
+    direct_input,
+    direct_print,
+    styled,
+    visible_len,
+)
 from hephaistos.app.keybindings import DEFAULT_MENU_KEYBINDINGS
 from hephaistos.app.palette import BOLD
 
@@ -21,7 +28,7 @@ class MenuOption:
 
 
 def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
-    print(styled(title, STYLE_PROMPT))
+    direct_print(styled(title, STYLE_PROMPT))
     for index, option in enumerate(options, start=1):
         label = styled(option.label, BOLD)
         desc = styled(option.description, STYLE_DIM) if option.description else ""
@@ -30,24 +37,28 @@ def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
             max_label = max(visible_len(o.label) for o in options)
             padded = f"{option.label}".ljust(max_label)
             suffix = f"  {cur}" if cur else ""
-            print(f"  {index}. {padded}  {desc}{suffix}")
+            direct_print(f"  {index}. {padded}  {desc}{suffix}")
         else:
             suffix = f"  {cur}" if cur else ""
-            print(f"  {index}. {label}{suffix}")
-    print(f"  {styled('q.', STYLE_DIM)} cancel")
+            direct_print(f"  {index}. {label}{suffix}")
+    direct_print(f"  {styled('q.', STYLE_DIM)} cancel")
 
     while True:
-        choice = input("\n  select > ").strip().lower()
+        try:
+            choice = direct_input("\n  select > ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            return None
+        choice = choice.removeprefix("/")
         if choice in {"q", "quit", "exit"}:
             return None
         try:
             idx = int(choice) - 1
         except ValueError:
-            print("Unknown option.")
+            direct_print("Unknown option.")
             continue
         if 0 <= idx < len(options):
             return idx
-        print("Unknown option.")
+        direct_print("Unknown option.")
 
 
 def select_option(

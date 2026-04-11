@@ -69,7 +69,7 @@ class StudyState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, object] | None) -> StudyState:
+    def from_dict(cls, data: object | None) -> StudyState:
         """Deserialize persisted state, falling back safely on bad input."""
         if not isinstance(data, dict):
             return cls()
@@ -92,9 +92,7 @@ class StudyState:
 
         refs = data.get("expected_source_refs")
         expected_source_refs = (
-            [ref for ref in refs if isinstance(ref, str)]
-            if isinstance(refs, list)
-            else []
+            [ref for ref in refs if isinstance(ref, str)] if isinstance(refs, list) else []
         )
 
         attempt_count = data.get("attempt_count", 0)

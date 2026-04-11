@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Interactive TTY shell built on `prompt_toolkit` with a forge-inspired palette, borderless dynamic composer, and live status rows beneath the input.
 - Slash commands for armory/session/model/provider management (`/help`, `/status`, `/save`, `/clear`, `/armory`, `/model`, `/provider`, `/models`, `/api`, `/compact`, `/history`, `/usage`, `/edit`, `/exit`).
-- Shell mode via `!command`, gated by autonomy tiers.
+- Shell mode via `!command`.
 - Armory auto-discovery from the current directory or `./armory`.
 - Agent loop with `bash`, `read_file`, `write_file`, `edit_file`, `list_files`, `search_files`, `web_fetch`, and `compact` tools.
 - Steering — type while the agent is working to inject follow-up messages mid-loop.

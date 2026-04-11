@@ -126,7 +126,10 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
     data = _load_session_data(armory_path, session_id)
     conversation = Conversation()
     try:
-        for msg_data in data.get("messages", []):
+        raw_messages = data.get("messages", [])
+        if not isinstance(raw_messages, list):
+            raw_messages = []
+        for msg_data in raw_messages:
             conversation.add(msg_data["role"], msg_data["content"])
     except KeyError as exc:
         _log.error(
@@ -148,7 +151,8 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
             }
         },
     )
-    return conversation, data.get("title", "")
+    title = data.get("title", "")
+    return conversation, title if isinstance(title, str) else ""
 
 
 def load_metadata(armory_path: Path, session_id: str) -> dict[str, object]:

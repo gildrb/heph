@@ -32,7 +32,6 @@ class ChatSession:
     armory_path: Path | None = None
     source_file_count: int = 0
     dirty: bool = False
-    autonomy: str = "low"
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
     usage: SessionUsage = field(default_factory=SessionUsage)
@@ -70,7 +69,6 @@ def validate_armory_path(path_str: str) -> Path:
     return armory_path
 
 
-
 def _count_source_files(armory_path: Path) -> int:
     """Count source files in armory."""
     count = 0
@@ -82,7 +80,6 @@ def _count_source_files(armory_path: Path) -> int:
             if file_path.is_file() and not file_path.name.startswith("."):
                 count += 1
     return count
-
 
 
 def _list_source_file_names(armory_path: Path) -> list[str]:
@@ -100,7 +97,6 @@ def _list_source_file_names(armory_path: Path) -> list[str]:
     return names
 
 
-
 def create_plain_session(config: ChatConfig) -> ChatSession:
     """Create a fresh chat session without an attached armory."""
     conversation = Conversation()
@@ -116,7 +112,6 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
     )
     session.trace.record_session_event("created", model=config.model, mode="plain")
     return session
-
 
 
 def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
@@ -169,7 +164,6 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     return session
 
 
-
 def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> ChatSession:
     """Load a saved session from an armory."""
     conversation, title = chat_storage.load(armory_path, session_id)
@@ -200,11 +194,9 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
     return session
 
 
-
 def session_has_messages(session: ChatSession) -> bool:
     """Return ``True`` when the session contains non-system messages."""
     return any(message.role != "system" for message in session.conversation.messages)
-
 
 
 def _derive_title(conversation: Conversation) -> str:
@@ -226,7 +218,6 @@ def _derive_title(conversation: Conversation) -> str:
     return prefix
 
 
-
 def send_user_message(
     session: ChatSession,
     user_input: str,
@@ -246,7 +237,6 @@ def send_user_message(
         sys.stdout.write("\n")
         sys.stdout.flush()
     return orchestrator.last_reply
-
 
 
 def save_session(session: ChatSession) -> Path:
@@ -276,7 +266,6 @@ def save_session(session: ChatSession) -> Path:
     )
     session.trace.record_session_event("saved", path=str(path))
     return path
-
 
 
 def list_armory_sessions(armory_path: Path) -> list[dict[str, str]]:
