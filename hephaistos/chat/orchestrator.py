@@ -51,7 +51,6 @@ class TurnOrchestrator:
     session: ChatSession
     retry: RetryConfig | None = None
     last_reply: str = field(default="", init=False)
-    last_verification_notice: str = field(default="", init=False)
 
     def iter_events(
         self,
@@ -64,7 +63,6 @@ class TurnOrchestrator:
         original_study_state = session.study_state.clone()
         timer = Timer()
         self.last_reply = ""
-        self.last_verification_notice = ""
 
         session.conversation.add("user", user_input)
         session.trace.record_user_message(user_input)
@@ -97,7 +95,6 @@ class TurnOrchestrator:
 
             notice = self._finalize_successful_turn(user_input, resolved, latency_ms=timer.ms)
             if notice:
-                self.last_verification_notice = notice
                 yield NoticeEvent(notice, code="verification")
         except StreamRecoveryError as rec:
             _log.warning(

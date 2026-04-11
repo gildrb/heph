@@ -563,6 +563,20 @@ def _invalidate_prompt(pt_session: PromptSession | None) -> None:
         return
 
 
+def _preflight_config_check(session: ChatSession) -> str | None:
+    """Return an error message if the session config is unusable, else None."""
+    if not session.config.base_url:
+        return "No provider configured. Use /provider use <slug> to select one."
+    if not session.config.model:
+        return "No model configured. Use /model to select one."
+    if not session.config.resolved_api_key:
+        return (
+            "No API key found. "
+            "Configure one via /api key, environment variable, or OAuth (/login)."
+        )
+    return None
+
+
 def _start_background_reply(
     session: ChatSession,
     user_input: str,
@@ -572,6 +586,12 @@ def _start_background_reply(
     pt_session: PromptSession,
 ) -> None:
     history.add(user_input)
+
+    config_error = _preflight_config_check(session)
+    if config_error:
+        print_error(config_error)
+        return
+
     runtime.busy = True
     runtime.steering_count = 0
     runtime.abort_event.clear()
@@ -663,6 +683,10 @@ def _handle_input(
         if result.output and result.output.startswith("__RESEND__:"):
             new_input = result.output[len("__RESEND__:") :]
             history.add(new_input)
+            config_error = _preflight_config_check(session)
+            if config_error:
+                print_error(config_error)
+                return session, True
             print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
             abort = threading.Event()
             try:
@@ -679,6 +703,10 @@ def _handle_input(
                 print_error(str(exc))
         return session, True
     history.add(user_input)
+    config_error = _preflight_config_check(session)
+    if config_error:
+        print_error(config_error)
+        return session, True
     print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
     abort = threading.Event()
     try:

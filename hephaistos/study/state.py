@@ -24,7 +24,6 @@ class StudyAction(StrEnum):
     ASSESS = "assess"
     REFUSE_REVEAL = "refuse_reveal"
     HINT = "hint"
-    DELEGATE = "delegate"
 
 
 class StudyFeedbackType(StrEnum):

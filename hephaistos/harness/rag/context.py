@@ -51,10 +51,6 @@ class TurnEvidence:
     def __bool__(self) -> bool:
         return bool(self.items)
 
-    @property
-    def ids(self) -> set[str]:
-        return {item.evidence_id for item in self.items}
-
     def get(self, evidence_id: str) -> EvidenceChunk | None:
         normalized = evidence_id.strip().upper()
         for item in self.items:
