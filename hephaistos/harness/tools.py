@@ -1,7 +1,14 @@
-"""Tool definitions and handlers for the agent harness.
+"""Tool definitions, handlers, and registry for the agent harness.
 
-Each tool has a JSON schema (for the OpenAI tools= param) and a handler
-function.  Handlers receive the workspace root for path sandboxing.
+Each tool has a JSON schema (for the OpenAI ``tools=`` param) and a
+handler function.  Handlers receive the workspace root for path sandboxing.
+
+**Registry protocol** — ``ToolRegistry`` is the single source of truth.
+A global ``default_registry`` is pre-loaded with all built-in tools.
+Armories can contribute extra tools by dropping ``*.py`` files into
+``.hephaistos/tools/``.  Each plugin module must expose a top-level
+``register(registry: ToolRegistry) -> None`` function that calls
+``registry.register(...)`` for every tool it wants to add.
 
 Tool philosophy for a study RAG agent:
 - Read/write tools are primary — the agent works with documents.
@@ -13,6 +20,7 @@ Tool philosophy for a study RAG agent:
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import subprocess
 import urllib.error
@@ -30,7 +38,128 @@ def safe_path(workspace: Path, rel_path: str) -> Path:
     return resolved
 
 
-TOOL_SCHEMAS: list[dict] = [
+# ---------------------------------------------------------------------------
+# ToolSpec and ToolRegistry
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSpec:
+    """A single tool: its JSON schema and its handler function."""
+
+    schema: dict
+
+    handler: Callable[..., str]
+
+    @property
+    def name(self) -> str:
+        return self.schema["function"]["name"]
+
+
+class ToolRegistry:
+    """Extensible registry of :class:`ToolSpec` entries.
+
+    Supports hierarchical scoping via :meth:`child` — a child registry
+    inherits everything from its parent and can override or add tools
+    without mutating the parent.  This is the mechanism used for
+    per-armory tool loading.
+    """
+
+    def __init__(self, parent: ToolRegistry | None = None) -> None:
+        self._tools: dict[str, ToolSpec] = {}
+        self._parent = parent
+
+    # -- mutation -----------------------------------------------------------
+
+    def register(self, spec: ToolSpec) -> None:
+        """Add or replace a tool by name."""
+        self._tools[spec.name] = spec
+
+    def unregister(self, name: str) -> None:
+        """Remove a locally-registered tool (does not affect parent)."""
+        self._tools.pop(name, None)
+
+    # -- query --------------------------------------------------------------
+
+    def get(self, name: str) -> ToolSpec | None:
+        """Look up a tool by name, checking local then parent."""
+        spec = self._tools.get(name)
+        if spec is not None:
+            return spec
+        if self._parent is not None:
+            return self._parent.get(name)
+        return None
+
+    def get_handler(self, name: str) -> Callable[..., str] | None:
+        """Return the handler for *name*, or ``None``."""
+        spec = self.get(name)
+        return spec.handler if spec else None
+
+    @property
+    def schemas(self) -> list[dict]:
+        """All visible tool schemas (local + inherited, local overrides first)."""
+        seen: set[str] = set()
+        result: list[dict] = []
+        for spec in self._tools.values():
+            seen.add(spec.name)
+            result.append(spec.schema)
+        if self._parent is not None:
+            for spec in self._parent._tools.values():
+                if spec.name not in seen:
+                    seen.add(spec.name)
+                    result.append(spec.schema)
+        return result
+
+    @property
+    def tool_names(self) -> list[str]:
+        return [s["function"]["name"] for s in self.schemas]
+
+    # -- hierarchy ----------------------------------------------------------
+
+    def child(self) -> ToolRegistry:
+        """Create a child registry that inherits from this one."""
+        return ToolRegistry(parent=self)
+
+    # -- armory plugin discovery --------------------------------------------
+
+    def load_plugins(self, tools_dir: Path) -> int:
+        """Load ``*.py`` plugin modules from *tools_dir*.
+
+        Each module may define a ``register(registry: ToolRegistry) -> None``
+        function.  Returns the number of plugins loaded.
+        """
+        if not tools_dir.is_dir():
+            return 0
+        loaded = 0
+        for py_file in sorted(tools_dir.glob("*.py")):
+            if py_file.name.startswith("_"):
+                continue
+            module_name = f"hephaistos_armory_plugin_{py_file.stem}"
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, py_file)
+                if spec is None or spec.loader is None:
+                    continue
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                register_fn = getattr(module, "register", None)
+                if callable(register_fn):
+                    register_fn(self)
+                    loaded += 1
+            except Exception as exc:
+                import sys
+
+                print(
+                    f"warning: failed to load tool plugin {py_file.name}: {exc}",
+                    file=sys.stderr,
+                )
+        return loaded
+
+
+# ---------------------------------------------------------------------------
+# Built-in tool definitions
+# ---------------------------------------------------------------------------
+
+_BUILTIN_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
@@ -515,8 +644,11 @@ def _mutation_wrap(path_str: str, fn: Callable[..., str], **kwargs: object) -> s
 
 
 def get_handler(name: str):
-    """Return the handler function for a tool name, or None."""
-    return _HANDLERS.get(name)
+    """Return the handler function for a tool name, or None.
+
+    Delegates to the global :data:`default_registry`.
+    """
+    return default_registry.get_handler(name)
 
 
 def _dispatch_read_file(**kw: object) -> str:
@@ -580,6 +712,20 @@ _HANDLERS: dict[str, Callable[..., str]] = {
     "search_files": _dispatch_search_files,
     "web_fetch": _dispatch_web_fetch,
 }
+
+# ---------------------------------------------------------------------------
+# Global default registry — pre-loaded with all built-in tools
+# ---------------------------------------------------------------------------
+
+default_registry = ToolRegistry()
+
+for _schema in _BUILTIN_SCHEMAS:
+    _name = _schema["function"]["name"]
+    _handler = _HANDLERS[_name]
+    default_registry.register(ToolSpec(schema=_schema, handler=_handler))
+
+# Backward-compatible alias: TOOL_SCHEMAS delegates to the registry.
+TOOL_SCHEMAS: list[dict] = default_registry.schemas
 
 
 def _workspace_kw(kw: dict) -> dict:

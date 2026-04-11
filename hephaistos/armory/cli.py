@@ -18,7 +18,7 @@ def _cmd_armory_init(args: argparse.Namespace) -> None:
     try:
         armory_path = normalize_path(args.path)
         initialize(armory_path)
-    except ArmoryError as exc:
+    except (ArmoryError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
     print(f"Initialized armory at {armory_path}")
@@ -29,7 +29,7 @@ def _cmd_armory_open(args: argparse.Namespace) -> None:
         armory_path = normalize_path(args.path)
         validate(armory_path)
         marker = read_marker(armory_path)
-    except ArmoryError as exc:
+    except (ArmoryError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
     print(f"Opened armory {armory_path} (created {marker.get('created_at', 'unknown')})")

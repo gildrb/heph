@@ -80,6 +80,7 @@ If an armory has no source files, `chat start` will fail until you add material 
 - Context window budget management with compaction urgency warnings
 - Structured logging plus per-session JSONL traces
 - Multi-provider model switching with a built-in model registry (context windows, pricing, capabilities)
+- Persona switching — change agent tone per session (drill instructor, tutor, examiner, summarizer, debater) via `/persona`
 - TF-IDF retrieval by default; optional embedding/hybrid retrieval, cross-encoder re-ranking, and query transformation (HyDE, multi-query, keyword expansion) when extra dependencies are installed
 - Document conversion for PDF, DOCX, PPTX, and HTML via optional `docling` integration
 - Mutation queue serialising concurrent file writes per-path
@@ -114,6 +115,7 @@ The top-level CLI is shell-first, so `chat` is implemented but hidden from `heph
 | `/api` | Inspect or set the API key / base URL |
 | `/compact` | Summarize the conversation to free context |
 | `/history` | Show turn counts and a token estimate |
+| `/persona` | Show or switch the agent persona |
 | `/usage` | Show tracked token usage and estimated cost |
 | `/edit` | Edit and resend the last user message |
 | `/exit` | Leave the shell |
@@ -141,6 +143,7 @@ my-armory/
   .hephaistos/
     armory.toml         # armory marker and metadata
     config.toml         # optional configuration overrides
+    system_prompt.md    # optional custom system prompt (replaces default persona)
     history             # shell history for this armory (created on use)
     memory.json         # extracted study memory
     rag_index.json      # persisted retrieval index
@@ -167,6 +170,23 @@ Provider definitions live in `~/.config/hephaistos/providers.toml`. On first loa
 - `custom`
 
 The default active provider is `zai`. Switch providers in the shell with `/provider`, or switch models with `/model`.
+
+### System prompt
+
+By default, every armory uses the built-in drill-instructor persona (study loop, recall-first rules, etc.). To override it, create `.hephaistos/system_prompt.md` in the armory:
+
+```text
+my-armory/.hephaistos/system_prompt.md
+```
+
+The file contents replace the hardcoded core role and study loop. Use it to define a different mode without touching Python:
+
+- **Quiz mode** — pose questions, score answers
+- **Debate mode** — argue opposing sides, demand evidence
+- **Socratic mode** — guide with questions, never give answers
+- **Lecture mode** — explain topics from source material in depth
+
+Anti-hallucination rules, tool documentation, format rules, and dynamic context (date, source files, memory) are always appended regardless of the custom prompt. This means you only write the persona; the structural guardrails come for free.
 
 ### Environment variables
 
@@ -216,6 +236,10 @@ uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 ```
+
+## Known Limitations
+
+5. **Programmatic API / SDK** — Everything goes through the interactive shell. There's no way to drive the agent loop programmatically (e.g., for batch study workflows, testing, or embedding in another tool).
 
 ## License
 

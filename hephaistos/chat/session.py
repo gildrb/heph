@@ -10,12 +10,14 @@ from pathlib import Path
 
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig, Conversation
+from hephaistos.chat.engine import ChatConfig, Conversation, Message
 from hephaistos.chat.events import render_turn_event
 from hephaistos.chat.orchestrator import TurnOrchestrator
 from hephaistos.chat.usage import SessionUsage
+from hephaistos.harness.persona import Persona, resolve_persona
 from hephaistos.harness.prompt import build_system_prompt
 from hephaistos.harness.rag import ArmoryIndex
+from hephaistos.harness.tools import ToolRegistry, default_registry
 from hephaistos.logging import TraceWriter, get_logger
 from hephaistos.memory import MemoryStore, load_memory
 from hephaistos.study import StudyState
@@ -34,12 +36,14 @@ class ChatSession:
     dirty: bool = False
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
+    _tool_registry: ToolRegistry = field(default=None, init=False, repr=False)  # type: ignore[assignment]
     usage: SessionUsage = field(default_factory=SessionUsage)
     trace: TraceWriter = field(default=None, init=False, repr=False)  # type: ignore[assignment]
     steering: object = field(
         default=None, init=False, repr=False
     )  # SteeringQueue, typed as object to avoid circular import
     study_state: StudyState = field(default_factory=StudyState)
+    persona: Persona = field(default_factory=lambda: resolve_persona(None))
 
     def __post_init__(self) -> None:
         if self.trace is None:
@@ -48,6 +52,8 @@ class ChatSession:
             from hephaistos.harness.dispatch import SteeringQueue
 
             object.__setattr__(self, "steering", SteeringQueue())
+        if self._tool_registry is None:
+            object.__setattr__(self, "_tool_registry", default_registry.child())
 
 
 class SessionError(Exception):
@@ -97,6 +103,41 @@ def _list_source_file_names(armory_path: Path) -> list[str]:
     return names
 
 
+def _load_armory_tools(armory_path: Path) -> ToolRegistry:
+    """Create a child registry and load any armory tool plugins."""
+    registry = default_registry.child()
+    tools_dir = armory_path / ".hephaistos" / "tools"
+    loaded = registry.load_plugins(tools_dir)
+    if loaded:
+        _log.info(
+            "armory tools loaded",
+            extra={"fields": {"armory": str(armory_path), "plugins": loaded}},
+        )
+    return registry
+
+
+def _replace_system_prompt(session: ChatSession) -> None:
+    """Replace the system prompt in the conversation with the current persona."""
+    if not session.armory_path:
+        return
+    source_files = _list_source_file_names(session.armory_path)
+    memory_ctx = ""
+    with contextlib.suppress(Exception):
+        memory_ctx = load_memory(session.armory_path).build_system_context()
+    new_prompt = build_system_prompt(
+        armory_path=session.armory_path,
+        source_files=source_files or None,
+        memory_context=memory_ctx,
+        persona=session.persona,
+    )
+    for msg in session.conversation.messages:
+        if msg.role == "system" and not msg.content.startswith("[Conversation summary]"):
+            msg.content = new_prompt
+            return
+    # No system message found (shouldn't happen), prepend one
+    session.conversation.messages.insert(0, Message(role="system", content=new_prompt))
+
+
 def create_plain_session(config: ChatConfig) -> ChatSession:
     """Create a fresh chat session without an attached armory."""
     conversation = Conversation()
@@ -137,6 +178,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
             armory_path=armory_path,
             source_files=source_files,
             memory_context=memory_ctx,
+            persona=None,
         ),
     )
 
@@ -148,6 +190,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         source_file_count=source_file_count,
     )
     session._memory = load_memory(armory_path)
+    object.__setattr__(session, "_tool_registry", _load_armory_tools(armory_path))
     _log.info(
         "session created",
         extra={
@@ -157,6 +200,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
                 "source_files": source_file_count,
                 "model": config.model,
                 "memory_entries": len(session._memory.entries) if session._memory else 0,
+                "tools": len(session._tool_registry.schemas),
             }
         },
     )
@@ -179,6 +223,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         study_state=StudyState.from_dict(metadata.get("study_state")),
     )
     session._memory = load_memory(armory_path)
+    object.__setattr__(session, "_tool_registry", _load_armory_tools(armory_path))
     _log.info(
         "session resumed",
         extra={
@@ -187,6 +232,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
                 "armory": str(armory_path),
                 "message_count": len(conversation.messages),
                 "memory_entries": len(session._memory.entries) if session._memory else 0,
+                "tools": len(session._tool_registry.schemas),
             }
         },
     )

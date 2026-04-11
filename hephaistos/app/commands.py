@@ -119,6 +119,7 @@ class StatusCommand(Command):
             f"  Session:   {s.session_id}",
             f"  Title:     {title}",
             f"  Model:     {s.config.model}",
+            f"  Persona:   {s.persona.display_name}",
             f"  API:       {s.config.base_url}",
             (
                 "  Key:       configured"
@@ -167,6 +168,7 @@ class ClearCommand(Command):
     def handle(self, session: object, args: str) -> CommandResult:
         from hephaistos.chat import storage as chat_storage
         from hephaistos.chat.session import (
+            SessionError,
             create_plain_session,
             create_session,
             save_session,
@@ -185,11 +187,16 @@ class ClearCommand(Command):
                 print_info("Previous session saved.")
             except chat_storage.ChatStorageError:
                 pass
-        new = (
-            create_plain_session(s.config)
-            if s.armory_path is None
-            else create_session(s.config, s.armory_path)
-        )
+        new: ChatSession
+        try:
+            new = (
+                create_plain_session(s.config)
+                if s.armory_path is None
+                else create_session(s.config, s.armory_path)
+            )
+        except SessionError as exc:
+            print_error(str(exc))
+            return CommandResult()
         print_success("Started fresh session.")
         return CommandResult(new_session=new)
 
@@ -660,6 +667,54 @@ class LogoutCommand(Command):
         return CommandResult()
 
 
+class PersonaCommand(Command):
+    name = "persona"
+    description = "Show or switch the agent persona"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.chat.session import _replace_system_prompt
+        from hephaistos.harness.persona import get_persona, list_personas
+
+        s = _ensure_session(session)
+        slug = args.strip().lower()
+
+        if slug:
+            persona = get_persona(slug)
+            if persona is None:
+                available = ", ".join(p.slug for p in list_personas())
+                print_error(f"Unknown persona: {slug}")
+                print_info(f"Available: {available}")
+                return CommandResult()
+            old_name = s.persona.display_name
+            s.persona = persona
+            _replace_system_prompt(s)
+            s.dirty = True
+            print_success(f"Persona: {old_name} -> {persona.display_name}")
+            return CommandResult()
+
+        personas = list_personas()
+        options = [
+            MenuOption(
+                p.display_name,
+                f"{p.description} {'← current' if p.slug == s.persona.slug else ''}".strip(),
+                is_current=(p.slug == s.persona.slug),
+            )
+            for p in personas
+        ]
+
+        selected = select_option("Persona", options)
+        if selected is None:
+            return CommandResult()
+
+        persona = personas[selected]
+        old_name = s.persona.display_name
+        s.persona = persona
+        _replace_system_prompt(s)
+        s.dirty = True
+        print_success(f"Persona: {old_name} -> {persona.display_name}")
+        return CommandResult()
+
+
 class UsageCommand(Command):
     name = "usage"
     description = "Show token usage and cost for this session"
@@ -732,6 +787,7 @@ def get_registry() -> CommandRegistry:
             EditCommand,
             ProviderCommand,
             ModelsCommand,
+            PersonaCommand,
             UsageCommand,
         ):
             _registry.register(cmd_class())

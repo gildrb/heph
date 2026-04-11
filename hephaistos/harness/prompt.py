@@ -15,6 +15,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from hephaistos.harness.persona import DEFAULT as _DEFAULT_PERSONA
+from hephaistos.harness.persona import Persona
 from hephaistos.logging import get_logger
 
 _log = get_logger("harness.prompt")
@@ -138,58 +140,97 @@ _FORMAT_RULES = """\
 """
 
 
+_CUSTOM_PROMPT_FILE = Path(".hephaistos/system_prompt.md")
+
+
+def _load_custom_prompt(armory_path: Path) -> str | None:
+    """Load a custom system prompt from the armory, if one exists.
+
+    Looks for ``.hephaistos/system_prompt.md`` in the armory root.
+    Returns its contents stripped, or ``None`` if the file is absent.
+    """
+    prompt_file = armory_path / _CUSTOM_PROMPT_FILE
+    if prompt_file.is_file():
+        content = prompt_file.read_text(encoding="utf-8").strip()
+        if content:
+            _log.info(
+                "using custom system prompt",
+                extra={"fields": {"armory": str(armory_path), "file": str(_CUSTOM_PROMPT_FILE)}},
+            )
+            return content
+    return None
+
+
 def build_system_prompt(
     *,
     armory_path: Path | None = None,
     source_files: list[str] | None = None,
     memory_context: str = "",
+    persona: Persona | None = None,
 ) -> str:
     """Build the complete system prompt.
 
     Parameters
     ----------
     armory_path :
-        Path to the armory workspace (for context).
+        Path to the armory workspace (for context and custom prompt).
     source_files :
         List of source file names available in the armory.
     memory_context :
         Pre-built memory context string (from MemoryStore.build_system_context).
+    persona :
+        The active persona.  Falls back to the default drill instructor.
 
     Returns
     -------
     str
         The complete system prompt.
+
+    Notes
+    -----
+    If the armory contains ``.hephaistos/system_prompt.md``, its contents
+        replace the hardcoded core role and study loop sections.  This lets an
+    armory define its own persona (quiz mode, debate mode, etc.) without
+    touching Python code.
     """
+    if persona is None:
+        persona = _DEFAULT_PERSONA
     date = datetime.now(UTC).strftime("%Y-%m-%d")
 
     parts: list[str] = []
 
-    # 1. Core role
-    parts.append(_CORE_ROLE)
+    # 1. Persona role block (custom prompt file takes priority)
+    if armory_path is not None:
+        custom = _load_custom_prompt(armory_path)
+        if custom is not None:
+            parts.append(custom)
+        else:
+            parts.append(persona.role_block)
+            parts.append(_STUDY_LOOP)
+    else:
+        parts.append(persona.role_block)
+        parts.append(_STUDY_LOOP)
 
-    # 2. Study loop
-    parts.append(_STUDY_LOOP)
-
-    # 3. Anti-hallucination (most critical for study accuracy)
+    # 2. Anti-hallucination (most critical for study accuracy)
     parts.append(_ANTI_HALLUCINATION)
 
-    # 4. Tool documentation
+    # 3. Tool documentation
     parts.append(_TOOL_DOCS)
 
-    # 5. Format rules
+    # 4. Format rules
     parts.append(_FORMAT_RULES)
 
-    # 6. Context: date
+    # 5. Context: date
     parts.append(f"Current date: {date}")
 
-    # 7. Context: armory info
+    # 6. Context: armory info
     if armory_path is not None:
         parts.append(f"Armory workspace: {armory_path}")
         if source_files:
             file_list = "\n".join(f"  - {f}" for f in source_files[:50])
             parts.append(f"Available source files:\n{file_list}")
 
-    # 8. Memory context (what the user has already studied)
+    # 7. Memory context (what the user has already studied)
     if memory_context:
         parts.append(memory_context)
 

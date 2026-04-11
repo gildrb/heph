@@ -30,7 +30,7 @@ from hephaistos.harness.compact import (
     micro_compact,
 )
 from hephaistos.harness.rag.context import TurnEvidence
-from hephaistos.harness.tools import TOOL_SCHEMAS, get_handler
+from hephaistos.harness.tools import ToolRegistry, default_registry
 from hephaistos.logging import Timer, get_logger
 
 _log = get_logger("harness.dispatch")
@@ -73,9 +73,12 @@ def execute_tool_calls(
     tool_calls: list[dict],
     workspace: Path,
     *,
+    registry: ToolRegistry | None = None,
     max_calls: int = _MAX_TOOL_CALLS_PER_TURN,
 ) -> list[dict]:
     """Execute each tool call and return tool-result messages."""
+    if registry is None:
+        registry = default_registry
     if len(tool_calls) > max_calls:
         _log.warning(
             "tool call limit exceeded",
@@ -126,7 +129,8 @@ def execute_tool_calls(
             )
             continue
 
-        handler = get_handler(name)
+        arguments.pop("workspace", None)
+        handler = registry.get_handler(name)
         if handler is None:
             _log.warning(
                 "unknown tool",
@@ -316,9 +320,12 @@ def iter_agent_events(
     turn_evidence: TurnEvidence | None = None,
     extra_system_prompt: str | None = None,
     tool_schemas: list[dict] | None = None,
+    registry: ToolRegistry | None = None,
 ) -> Iterator[TurnEvent]:
     """Run the model/tool loop and emit structured turn events."""
     retry = retry or RetryConfig()
+    if registry is None:
+        registry = default_registry
     api_messages: list[dict] = conversation.to_api_messages()  # type: ignore[assignment]
     loop_timer = Timer()
     budget = ContextBudget(model=config.model, max_tokens=config.max_tokens)
@@ -352,13 +359,20 @@ def iter_agent_events(
 
         micro_compact(api_messages)
 
-        if estimate_messages_tokens(api_messages) > TOKEN_THRESHOLD:
+        # Account for turn evidence and extra system prompt in budget checks
+        # so injected context doesn't silently push past the context window.
+        pre_inject_messages = api_messages
+        llm_messages = _inject_turn_context(api_messages, turn_evidence, extra_system_prompt)
+        budget_messages = llm_messages
+
+        if estimate_messages_tokens(budget_messages) > TOKEN_THRESHOLD:
             yield NoticeEvent(
                 "Auto-compacting conversation (context threshold reached)...",
                 code="auto_compact",
             )
             api_messages[:] = auto_compact(api_messages, config, workspace)
             _sync_conversation(conversation, api_messages)
+            llm_messages = _inject_turn_context(api_messages, turn_evidence, extra_system_prompt)
 
         collected_text = ""
         collected_tool_calls: list[dict] = []
@@ -367,8 +381,7 @@ def iter_agent_events(
         turn_timer = Timer()
 
         with turn_timer:
-            llm_messages = _inject_turn_context(api_messages, turn_evidence, extra_system_prompt)
-            schemas = TOOL_SCHEMAS if tool_schemas is None else tool_schemas
+            schemas = registry.schemas if tool_schemas is None else tool_schemas
             for delta in stream_completion(
                 config,
                 llm_messages,  # type: ignore[arg-type]
@@ -390,6 +403,16 @@ def iter_agent_events(
         if not collected_tool_calls:
             _record_usage(usage, stream_usage, api_messages, collected_text, config.model)
             conversation.add("assistant", collected_text)
+
+            # Drain steering messages even on text-only turns so they are
+            # not stuck indefinitely in the queue.
+            if steering is not None:
+                queued = steering.drain()
+                for msg in queued:
+                    api_messages.append({"role": "user", "content": msg})
+                    conversation.add("user", msg)
+                    yield NoticeEvent(f"Steering: {msg[:100]}", code="steering")
+
             _log.info(
                 "agent_loop complete",
                 extra={
@@ -452,7 +475,12 @@ def iter_agent_events(
             },
         )
 
-        tool_results = execute_tool_calls(collected_tool_calls, workspace)
+        tool_results = execute_tool_calls(collected_tool_calls, workspace, registry=registry)
+        # Append tool results before recording usage so the char-based
+        # estimation fallback counts prompt tokens accurately.
+        for tc, tr in zip(collected_tool_calls, tool_results, strict=False):
+            api_messages.append(tr)
+
         _record_usage(usage, stream_usage, api_messages, collected_text, config.model)
 
         urgency = budget.compaction_urgency(api_messages)
@@ -477,7 +505,6 @@ def iter_agent_events(
             )
 
         for tc, tr in zip(collected_tool_calls, tool_results, strict=False):
-            api_messages.append(tr)
             name = tc["function"]["name"]
             content = tr.get("content", "")
             yield ToolResultEvent(
@@ -534,6 +561,7 @@ def agent_loop(
     turn_evidence: TurnEvidence | None = None,
     extra_system_prompt: str | None = None,
     tool_schemas: list[dict] | None = None,
+    registry: ToolRegistry | None = None,
 ) -> Iterator[str]:
     """Backward-compatible string stream wrapper over ``iter_agent_events``."""
     for event in iter_agent_events(
@@ -548,5 +576,6 @@ def agent_loop(
         turn_evidence=turn_evidence,
         extra_system_prompt=extra_system_prompt,
         tool_schemas=tool_schemas,
+        registry=registry,
     ):
         yield render_turn_event(event)

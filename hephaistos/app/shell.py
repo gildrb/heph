@@ -46,7 +46,7 @@ from hephaistos.app.menu import MenuOption, select_option
 from hephaistos.app.palette import FORGE_ASH, FORGE_EMBER, FORGE_IRON, FORGE_PANEL, FORGE_SMOKE
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import EngineError, StreamRecoveryError
+from hephaistos.chat.engine import ChatConfig, EngineError, StreamRecoveryError
 from hephaistos.chat.session import (
     ChatSession,
     SessionError,
@@ -173,6 +173,9 @@ class SlashCommandCompleter(Completer):
         if cmd_name == "model":
             return [(model, f"via {slug}") for slug, model in self._all_models()]
 
+        if cmd_name == "persona":
+            return self._persona_suggestions(arg_parts)
+
         return []
 
     def _provider_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
@@ -208,6 +211,13 @@ class SlashCommandCompleter(Completer):
         for slug, provider in providers.items():
             models.extend((slug, model) for model in provider.models)
         return models
+
+    def _persona_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
+        if len(arg_parts) > 1:
+            return []
+        from hephaistos.harness.persona import list_personas
+
+        return [(p.slug, p.description) for p in list_personas()]
 
 
 def _build_keybindings(
@@ -301,6 +311,7 @@ def _build_bottom_toolbar_status(
     location = session.armory_path or Path.cwd()
     mode = "armory attached" if session.armory_path is not None else "plain chat"
     api_state = "configured" if session.config.resolved_api_key else "missing"
+    persona_tag = session.persona.display_name if session.persona.slug != "drill" else ""
     if runtime is not None and runtime.busy:
         steering_suffix = f" · queued {runtime.steering_count}" if runtime.steering_count else ""
         input_hint = (
@@ -312,7 +323,8 @@ def _build_bottom_toolbar_status(
         f"{_display_path(location)} · {mode}\n"
         f"model {session.config.model}"
         f" · context {_context_left(session)}% left"
-        f" · api {api_state} · source {_source_label(session)}\n"
+        f" · api {api_state} · source {_source_label(session)}"
+        f"{f' · persona {persona_tag}' if persona_tag else ''}\n"
         f"{input_hint}"
     )
 
@@ -443,7 +455,12 @@ def _create_armory(session: ChatSession) -> ChatSession:
         print_error(str(exc))
         return session
     print_success(f"Initialized armory at {armory_path}")
-    return _start_fresh_session(session, armory_path)
+    try:
+        return _start_fresh_session(session, armory_path)
+    except SessionError as exc:
+        print_error(str(exc))
+        print_info("Add source files and use /armory to attach it.")
+        return session
 
 
 def _prompt_armory_for_sessions(session: ChatSession) -> Path | None:
@@ -698,6 +715,19 @@ def _save_on_exit(session: ChatSession) -> None:
     session.trace.close()
 
 
+def _create_startup_session(config: ChatConfig) -> ChatSession:
+    """Try to create a session with the auto-discovered armory, fall back to plain."""
+    armory = _discover_startup_armory()
+    if armory is None:
+        return create_plain_session(config)
+    try:
+        return create_session(config, armory)
+    except SessionError as exc:
+        print_error(f"Auto-discovered armory unusable: {exc}")
+        print_info("Falling back to plain chat mode.")
+        return create_plain_session(config)
+
+
 def run_chat_shell(
     session: ChatSession | None = None,
     *,
@@ -709,11 +739,7 @@ def run_chat_shell(
         return
 
     if session is None:
-        config = load_config()
-        armory = _discover_startup_armory()
-        session = (
-            create_plain_session(config) if armory is None else create_session(config, armory)
-        )
+        session = _create_startup_session(load_config())
 
     _print_shell_intro(session)
 
@@ -793,11 +819,7 @@ def run_chat_shell(
 def _run_fallback_shell(session: ChatSession | None = None) -> None:
     """Simple fallback shell when the terminal is not a TTY."""
     if session is None:
-        config = load_config()
-        armory = _discover_startup_armory()
-        session = (
-            create_plain_session(config) if armory is None else create_session(config, armory)
-        )
+        session = _create_startup_session(load_config())
 
     print("Hephaistos (basic mode)")
     history = InputHistory()

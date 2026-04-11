@@ -174,6 +174,7 @@ class TurnOrchestrator:
             turn_evidence=resolved.turn_evidence,
             extra_system_prompt=plan.prompt,
             tool_schemas=None if plan.allow_tools else [],
+            registry=session._tool_registry,
         ):
             if isinstance(event, AssistantDeltaEvent):
                 raw_reply += event.delta
