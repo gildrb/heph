@@ -289,21 +289,23 @@ class TestBackwardCompat:
 class TestDispatchWithRegistry:
     def test_execute_with_custom_registry(self, tmp_path: Path) -> None:
         reg = ToolRegistry()
-        reg.register(ToolSpec(
-            schema={
-                "type": "function",
-                "function": {
-                    "name": "echo_tool",
-                    "description": "",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"msg": {"type": "string"}},
-                        "required": ["msg"],
+        reg.register(
+            ToolSpec(
+                schema={
+                    "type": "function",
+                    "function": {
+                        "name": "echo_tool",
+                        "description": "",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"msg": {"type": "string"}},
+                            "required": ["msg"],
+                        },
                     },
                 },
-            },
-            handler=lambda msg, **kw: f"echo: {msg}",
-        ))
+                handler=lambda msg, **kw: f"echo: {msg}",
+            )
+        )
         tool_calls = [
             {
                 "id": "call_1",
