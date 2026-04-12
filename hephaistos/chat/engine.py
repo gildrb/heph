@@ -288,7 +288,9 @@ def stream_completion(
                 if delta.content or delta.tool_calls or finish_reason or usage is not None:
                     yield CompletionDelta(
                         content=delta.content or None,
-                        tool_calls=_normalize_tool_calls(delta.tool_calls) if delta.tool_calls else None,
+                        tool_calls=(
+                            _normalize_tool_calls(delta.tool_calls) if delta.tool_calls else None
+                        ),
                         finish_reason=finish_reason,
                         usage=usage,
                     )

@@ -3,4 +3,4 @@
 from hephaistos.harness.dispatch import agent_loop
 from hephaistos.harness.tools import ToolRegistry, ToolSpec, default_registry
 
-__all__ = ["agent_loop", "default_registry", "ToolRegistry", "ToolSpec"]
+__all__ = ["ToolRegistry", "ToolSpec", "agent_loop", "default_registry"]

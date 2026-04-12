@@ -107,6 +107,7 @@ line-ending = "lf"
 
 [tool.ruff.lint.per-file-ignores]
 "hephaistos/providers/registry.py" = ["E501"]  # model data definitions are inherently long
+"vulture-whitelist.py" = ["E501", "B018", "F821"]  # bare names are intentional vulture hints
 
 [tool.uv.build-backend]
 module-root = ""
@@ -116,7 +117,7 @@ pythonVersion = "3.13"
 typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"
-exclude = ["vulture-whitelist.py"]
+exclude = ["vulture-whitelist.py", ".venv"]
 # Third-party libs that lack stubs
 reportMissingTypeStubs = "none"
 # Optional RAG dependencies (numpy, sklearn, sentence-transformers)

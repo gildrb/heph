@@ -252,10 +252,10 @@ def test_bottom_toolbar_shows_busy_hint(tmp_path: Path) -> None:
 def test_shell_style_overrides_default_reversed_toolbar() -> None:
     style_rules = dict(shell._PT_STYLE.style_rules)
 
-    assert style_rules["bottom-toolbar"] == "noreverse fg:#B8948D"
-    assert style_rules["bottom-toolbar.text"] == "noreverse fg:#B8948D"
-    assert style_rules["composer"] == "bg:#261112 fg:#F4DED8"
-    assert style_rules["prompt-mark"] == "bold #D94A2B"
+    assert style_rules["bottom-toolbar"] == "noreverse fg:#808080"
+    assert style_rules["bottom-toolbar.text"] == "noreverse fg:#808080"
+    assert style_rules["composer"] == "bg:#1C1C1C fg:#E0E0E0"
+    assert style_rules["prompt-mark"] == "bold #C8C8C8"
     assert "frame" not in style_rules
     assert "frame.border" not in style_rules
 
