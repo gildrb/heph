@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 from hephaistos.harness.rag.chunker import (
@@ -28,7 +29,7 @@ _CHUNK_SIZE = 500
 _OVERLAP = 100
 
 # Persisted index format version — bump when layout changes.
-_INDEX_VERSION = 2
+_INDEX_VERSION = 3
 
 
 def _file_hash(path: Path) -> str | None:
@@ -75,25 +76,21 @@ class ArmoryIndex:
         self._file_hashes = {}
 
         with timer:
-            for dirname in _SOURCE_DIRS:
-                folder = self.armory_path / dirname
-                if not folder.is_dir():
-                    continue
-                for file_path in sorted(folder.rglob("*")):
-                    if not file_path.is_file():
-                        continue
-                    if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
-                        continue
-                    doc = chunk_file(
-                        file_path,
-                        self.armory_path,
-                        _CHUNK_SIZE,
-                        _OVERLAP,
-                        strategy=self.strategy,
-                    )
-                    if doc is not None and doc.chunks:
-                        self.documents.append(doc)
-                        self._file_hashes[doc.source] = doc.content_hash
+            for file_path in self._iter_source_files():
+                rel = str(file_path.relative_to(self.armory_path))
+                content_hash = _file_hash(file_path)
+                if content_hash is not None:
+                    self._file_hashes[rel] = content_hash
+
+                doc = chunk_file(
+                    file_path,
+                    self.armory_path,
+                    _CHUNK_SIZE,
+                    _OVERLAP,
+                    strategy=self.strategy,
+                )
+                if doc is not None and doc.chunks:
+                    self.documents.append(doc)
 
         _log.info(
             "index built",
@@ -118,6 +115,7 @@ class ArmoryIndex:
             "chunk_size": _CHUNK_SIZE,
             "overlap": _OVERLAP,
             "strategy": self.strategy.value,
+            "file_hashes": self._file_hashes,
             "documents": [
                 {
                     "source": doc.source,
@@ -153,7 +151,7 @@ class ArmoryIndex:
             return False
 
         version = data.get("version", 1)
-        if version not in (1, 2):
+        if version not in (1, 2, 3):
             return False
         if version >= 2 and "strategy" in data:
             with contextlib.suppress(ValueError):
@@ -161,6 +159,13 @@ class ArmoryIndex:
 
         self.documents = []
         self._file_hashes = {}
+        file_hashes = data.get("file_hashes", {})
+        if isinstance(file_hashes, dict):
+            self._file_hashes = {
+                key: value
+                for key, value in file_hashes.items()
+                if isinstance(key, str) and isinstance(value, str)
+            }
         for doc_data in data.get("documents", []):
             chunks = [
                 Chunk(
@@ -180,7 +185,7 @@ class ArmoryIndex:
                 content_hash=doc_data.get("content_hash", ""),
             )
             self.documents.append(doc)
-            if doc.content_hash:
+            if doc.content_hash and doc.source not in self._file_hashes:
                 self._file_hashes[doc.source] = doc.content_hash
 
         return True
@@ -190,26 +195,23 @@ class ArmoryIndex:
         if not self._file_hashes:
             return True
 
-        for dirname in _SOURCE_DIRS:
-            folder = self.armory_path / dirname
-            if not folder.is_dir():
-                continue
-            for file_path in sorted(folder.rglob("*")):
-                if not file_path.is_file():
-                    continue
-                if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
-                    continue
-                rel = str(file_path.relative_to(self.armory_path))
-                if rel not in self._file_hashes:
-                    return True
-                h = _file_hash(file_path)
-                if h is not None and h != self._file_hashes.get(rel):
-                    return True
+        for file_path in self._iter_source_files():
+            rel = str(file_path.relative_to(self.armory_path))
+            if rel not in self._file_hashes:
+                return True
+            h = _file_hash(file_path)
+            if h is None or h != self._file_hashes.get(rel):
+                return True
 
         return len(self._file_hashes) != self._count_source_files()
 
     def _count_source_files(self) -> int:
         count = 0
+        for _file_path in self._iter_source_files():
+            count += 1
+        return count
+
+    def _iter_source_files(self) -> Iterator[Path]:
         for dirname in _SOURCE_DIRS:
             folder = self.armory_path / dirname
             if not folder.is_dir():
@@ -219,8 +221,7 @@ class ArmoryIndex:
                     continue
                 if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
                     continue
-                count += 1
-        return count
+                yield file_path
 
 
 def build_index(

@@ -67,6 +67,22 @@ def test_clear_command_supports_plain_chat(monkeypatch) -> None:
     assert len(result.new_session.conversation.messages) == 1
 
 
+def test_persona_command_updates_plain_chat_system_prompt(monkeypatch) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+    before = session.conversation.messages[0].content
+
+    monkeypatch.setattr(commands, "print_success", lambda _msg: None)
+
+    result = commands.PersonaCommand().handle(session, "tutor")
+
+    after = session.conversation.messages[0].content
+    assert result.output is None
+    assert session.persona.slug == "tutor"
+    assert after != before
+    assert "patient tutor" in after
+    assert "Plain chat mode" in after
+
+
 def test_model_command_rejects_unsupported_model_for_known_endpoint(monkeypatch) -> None:
     cfg = ChatConfig(
         api_key="test-key",

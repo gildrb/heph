@@ -177,7 +177,8 @@ def _default_config() -> ProviderConfig:
                 display_name="Z.AI / GLM",
                 endpoint="https://api.z.ai/api/paas/v4/",
                 api_key_env="ZAI_API_KEY",
-                active=False,
+                active=True,
+                current_model="glm-5",
                 models=[
                     "glm-5",
                     "glm-5-turbo",

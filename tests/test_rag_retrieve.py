@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -157,6 +158,30 @@ class TestTfidfRetriever:
         retriever = TfidfRetriever(index)
         results = retriever.retrieve("quantum physics astronomy")
         assert results == []
+
+    def test_sklearn_token_pattern_matches_words(self) -> None:
+        captured: dict[str, str] = {}
+
+        class FakeVectorizer:
+            def __init__(self, **kwargs) -> None:
+                captured["token_pattern"] = kwargs["token_pattern"]
+
+            def fit_transform(self, _texts):
+                return object()
+
+        chunks = [_make_chunk("Python programming language", "python.md", 0)]
+        index = _make_index_with_chunks(chunks)
+
+        with (
+            patch("hephaistos.harness.rag.retrieve._HAS_SKLEARN", True),
+            patch("hephaistos.harness.rag.retrieve._SklearnTfidfVectorizer", FakeVectorizer),
+        ):
+            TfidfRetriever(index)
+
+        assert re.findall(captured["token_pattern"], "Python programming") == [
+            "Python",
+            "programming",
+        ]
 
 
 # ---------------------------------------------------------------------------

@@ -117,6 +117,19 @@ class TestArmoryIndexStaleness:
         (armory / "source" / "python.md").write_text("# Changed content\n")
         assert index.is_stale()
 
+    def test_unsupported_file_does_not_make_fresh_index_stale(self, armory: Path) -> None:
+        (armory / "source" / "data.bin").write_bytes(b"\x00\x01\x02\x03")
+
+        index = ArmoryIndex(armory)
+        index.build()
+
+        assert not index.is_stale()
+
+        index.save()
+        loaded = ArmoryIndex(armory)
+        assert loaded.load()
+        assert not loaded.is_stale()
+
 
 class TestBuildIndex:
     def test_build_index_returns_index(self, armory: Path) -> None:

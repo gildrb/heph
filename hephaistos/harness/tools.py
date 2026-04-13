@@ -104,10 +104,11 @@ class ToolRegistry:
             seen.add(spec.name)
             result.append(spec.schema)
         if self._parent is not None:
-            for spec in self._parent._tools.values():
-                if spec.name not in seen:
-                    seen.add(spec.name)
-                    result.append(spec.schema)
+            for schema in self._parent.schemas:
+                name = schema["function"]["name"]
+                if name not in seen:
+                    seen.add(name)
+                    result.append(schema)
         return result
 
     @property

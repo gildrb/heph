@@ -139,6 +139,17 @@ class TestChildRegistry:
         assert "b" in names
         assert len(parent.tool_names) == 1
 
+    def test_schemas_include_full_ancestor_chain(self) -> None:
+        grandparent = ToolRegistry()
+        grandparent.register(_make_spec("grandparent_tool"))
+        parent = grandparent.child()
+        parent.register(_make_spec("parent_tool"))
+        child = parent.child()
+        child.register(_make_spec("child_tool"))
+
+        assert child.get_handler("grandparent_tool") is not None
+        assert child.tool_names == ["child_tool", "parent_tool", "grandparent_tool"]
+
     def test_unregister_in_child_does_not_affect_parent(self) -> None:
         parent = ToolRegistry()
         parent.register(_make_spec("shared"))

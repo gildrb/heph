@@ -66,6 +66,12 @@ _SYSTEM_PROMPT_FALLBACK = (
     "Be concise. Never fabricate information."
 )
 
+_PLAIN_CHAT_CONTEXT = (
+    "Plain chat mode: no armory or source documents are attached, and workspace "
+    "tools are unavailable. Do not claim to have retrieved armory evidence. "
+    "Ask the user to attach an armory for source-grounded study."
+)
+
 
 def validate_armory_path(path_str: str) -> Path:
     """Validate and return the resolved armory path."""
@@ -116,20 +122,27 @@ def _load_armory_tools(armory_path: Path) -> ToolRegistry:
     return registry
 
 
+def _build_plain_system_prompt(persona: Persona) -> str:
+    if persona.slug == "drill":
+        return _SYSTEM_PROMPT_FALLBACK
+    return f"{persona.role_block}\n\n{_PLAIN_CHAT_CONTEXT}"
+
+
 def _replace_system_prompt(session: ChatSession) -> None:
     """Replace the system prompt in the conversation with the current persona."""
-    if not session.armory_path:
-        return
-    source_files = _list_source_file_names(session.armory_path)
-    memory_ctx = ""
-    with contextlib.suppress(Exception):
-        memory_ctx = load_memory(session.armory_path).build_system_context()
-    new_prompt = build_system_prompt(
-        armory_path=session.armory_path,
-        source_files=source_files or None,
-        memory_context=memory_ctx,
-        persona=session.persona,
-    )
+    if session.armory_path is None:
+        new_prompt = _build_plain_system_prompt(session.persona)
+    else:
+        source_files = _list_source_file_names(session.armory_path)
+        memory_ctx = ""
+        with contextlib.suppress(Exception):
+            memory_ctx = load_memory(session.armory_path).build_system_context()
+        new_prompt = build_system_prompt(
+            armory_path=session.armory_path,
+            source_files=source_files or None,
+            memory_context=memory_ctx,
+            persona=session.persona,
+        )
     for msg in session.conversation.messages:
         if msg.role == "system" and not msg.content.startswith("[Conversation summary]"):
             msg.content = new_prompt
@@ -141,7 +154,7 @@ def _replace_system_prompt(session: ChatSession) -> None:
 def create_plain_session(config: ChatConfig) -> ChatSession:
     """Create a fresh chat session without an attached armory."""
     conversation = Conversation()
-    conversation.add("system", _SYSTEM_PROMPT_FALLBACK)
+    conversation.add("system", _build_plain_system_prompt(resolve_persona(None)))
     session = ChatSession(
         config=config,
         conversation=conversation,

@@ -31,6 +31,18 @@ def test_default_openrouter_models_match_supported_families() -> None:
     )
 
 
+def test_default_config_activates_zai_with_model() -> None:
+    config = _default_config()
+    chat_config = SimpleNamespace(base_url="", model="", _provider_slug="", _provider_env="")
+
+    config.apply_to_config(chat_config)
+
+    assert config.get_active() is config.providers["zai"]
+    assert chat_config.base_url == "https://api.z.ai/api/paas/v4/"
+    assert chat_config.model == "glm-5"
+    assert chat_config._provider_slug == "zai"
+
+
 def test_load_filters_unsupported_models(tmp_path) -> None:
     config_path = tmp_path / "providers.toml"
     config_path.write_text(

@@ -227,7 +227,7 @@ class TfidfRetriever:
             stop_words="english",
             sublinear_tf=True,
             max_features=10000,
-            token_pattern=r"(?u)\\b[a-zA-Z0-9]{2,}\\b",
+            token_pattern=r"(?u)\b[a-zA-Z0-9]{2,}\b",
         )
         self._matrix = self._vectorizer.fit_transform(texts)  # type: ignore[union-attr]
 
