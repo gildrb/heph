@@ -160,189 +160,130 @@ class ToolRegistry:
 # Built-in tool definitions
 # ---------------------------------------------------------------------------
 
+
+def _param(json_type: str, description: str) -> dict[str, object]:
+    """Build a JSON-schema property for a tool parameter."""
+    return {"type": json_type, "description": description}
+
+
+def _string(description: str) -> dict[str, object]:
+    return _param("string", description)
+
+
+def _integer(description: str) -> dict[str, object]:
+    return _param("integer", description)
+
+
+def _boolean(description: str) -> dict[str, object]:
+    return _param("boolean", description)
+
+
+def _tool(
+    name: str,
+    description: str,
+    properties: dict[str, dict[str, object]] | None = None,
+    *,
+    required: tuple[str, ...] = (),
+) -> dict:
+    """Build the OpenAI-compatible function tool schema."""
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties if properties is not None else {},
+                "required": list(required),
+            },
+        },
+    }
+
+
 _BUILTIN_SCHEMAS: list[dict] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "compact",
-            "description": (
-                "Compress the conversation context to free up space. "
-                "Use when you notice the conversation is getting long or "
-                "you are running low on context."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
+    _tool(
+        "compact",
+        (
+            "Compress the conversation context to free up space. "
+            "Use when you notice the conversation is getting long or "
+            "you are running low on context."
+        ),
+    ),
+    _tool(
+        "bash",
+        "Run a shell command and return structured output with exit code.",
+        {
+            "command": _string("The shell command to run."),
+            "timeout": _integer("Timeout in seconds (default: 30)."),
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "bash",
-            "description": "Run a shell command and return structured output with exit code.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to run.",
-                    },
-                    "timeout": {
-                        "type": "integer",
-                        "description": "Timeout in seconds (default: 30).",
-                    },
-                },
-                "required": ["command"],
-            },
+        required=("command",),
+    ),
+    _tool(
+        "read_file",
+        "Read the contents of a file in the workspace.",
+        {
+            "path": _string("Relative path from workspace root."),
+            "offset": _integer("Line number to start reading from (0-based)."),
+            "limit": _integer("Maximum number of lines to read."),
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read the contents of a file in the workspace.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Relative path from workspace root.",
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Line number to start reading from (0-based).",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of lines to read.",
-                    },
-                },
-                "required": ["path"],
-            },
+        required=("path",),
+    ),
+    _tool(
+        "write_file",
+        "Create or overwrite a file in the workspace.",
+        {
+            "path": _string("Relative path from workspace root."),
+            "content": _string("The content to write."),
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Create or overwrite a file in the workspace.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Relative path from workspace root.",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "The content to write.",
-                    },
-                },
-                "required": ["path", "content"],
-            },
+        required=("path", "content"),
+    ),
+    _tool(
+        "edit_file",
+        "Replace an exact text match in a file.",
+        {
+            "path": _string("Relative path from workspace root."),
+            "old_text": _string("The exact text to find."),
+            "new_text": _string("The replacement text."),
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "edit_file",
-            "description": "Replace an exact text match in a file.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Relative path from workspace root.",
-                    },
-                    "old_text": {
-                        "type": "string",
-                        "description": "The exact text to find.",
-                    },
-                    "new_text": {
-                        "type": "string",
-                        "description": "The replacement text.",
-                    },
-                },
-                "required": ["path", "old_text", "new_text"],
-            },
+        required=("path", "old_text", "new_text"),
+    ),
+    _tool(
+        "list_files",
+        "List files in a workspace directory.",
+        {
+            "path": _string("Relative directory path. Defaults to workspace root."),
+            "pattern": _string("Glob pattern to filter files (e.g. '*.py')."),
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_files",
-            "description": "List files in a workspace directory.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Relative directory path. Defaults to workspace root.",
-                    },
-                    "pattern": {
-                        "type": "string",
-                        "description": "Glob pattern to filter files (e.g. '*.py').",
-                    },
-                },
-                "required": [],
-            },
+    ),
+    _tool(
+        "search_files",
+        (
+            "Search for a text pattern across files in the workspace. "
+            "Returns matching lines with file paths and line numbers. "
+            "Use this to find where a topic, term, or formula is discussed "
+            "in source documents before answering."
+        ),
+        {
+            "pattern": _string("Text or regex pattern to search for."),
+            "path": _string("Directory to search in. Defaults to workspace root."),
+            "case_sensitive": _boolean("Whether the search is case-sensitive. Default: false."),
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_files",
-            "description": (
-                "Search for a text pattern across files in the workspace. "
-                "Returns matching lines with file paths and line numbers. "
-                "Use this to find where a topic, term, or formula is discussed "
-                "in source documents before answering."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Text or regex pattern to search for.",
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Directory to search in. Defaults to workspace root.",
-                    },
-                    "case_sensitive": {
-                        "type": "boolean",
-                        "description": "Whether the search is case-sensitive. Default: false.",
-                    },
-                },
-                "required": ["pattern"],
-            },
+        required=("pattern",),
+    ),
+    _tool(
+        "web_fetch",
+        (
+            "Fetch a web page and return its text content. "
+            "Use ONLY when the answer cannot be found in the armory documents. "
+            "The response always includes the source URL for verification. "
+            "Do NOT guess or fabricate information — if the fetch fails or "
+            "doesn't contain the answer, say so explicitly."
+        ),
+        {
+            "url": _string("The URL to fetch (must start with http:// or https://)."),
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_fetch",
-            "description": (
-                "Fetch a web page and return its text content. "
-                "Use ONLY when the answer cannot be found in the armory documents. "
-                "The response always includes the source URL for verification. "
-                "Do NOT guess or fabricate information — if the fetch fails or "
-                "doesn't contain the answer, say so explicitly."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to fetch (must start with http:// or https://).",
-                    },
-                },
-                "required": ["url"],
-            },
-        },
-    },
+        required=("url",),
+    ),
 ]
 
 _BASH_TIMEOUT = 30
@@ -652,66 +593,51 @@ def get_handler(name: str):
     return default_registry.get_handler(name)
 
 
-def _dispatch_read_file(**kw: object) -> str:
-    return run_read_file(
-        kw["path"],  # type: ignore[index]
-        offset=kw.get("offset"),  # type: ignore[attr-defined]
-        limit=kw.get("limit"),  # type: ignore[attr-defined]
-        **_workspace_kw(kw),
-    )
-
-
-def _dispatch_write_file(**kw: object) -> str:
+def _queued_write_file(
+    path: str,
+    content: str,
+    *,
+    workspace: Path,
+    **kwargs: object,
+) -> str:
     return _mutation_wrap(
-        kw["path"],  # type: ignore[index]
+        path,
         run_write_file,
-        path=kw["path"],  # type: ignore[index]
-        content=kw["content"],  # type: ignore[index]
-        **_workspace_kw(kw),
+        path=path,
+        content=content,
+        workspace=workspace,
+        **kwargs,
     )
 
 
-def _dispatch_edit_file(**kw: object) -> str:
+def _queued_edit_file(
+    path: str,
+    old_text: str,
+    new_text: str,
+    *,
+    workspace: Path,
+    **kwargs: object,
+) -> str:
     return _mutation_wrap(
-        kw["path"],  # type: ignore[index]
+        path,
         run_edit_file,
-        path=kw["path"],  # type: ignore[index]
-        old_text=kw["old_text"],  # type: ignore[index]
-        new_text=kw["new_text"],  # type: ignore[index]
-        **_workspace_kw(kw),
+        path=path,
+        old_text=old_text,
+        new_text=new_text,
+        workspace=workspace,
+        **kwargs,
     )
-
-
-def _dispatch_list_files(**kw: object) -> str:
-    return run_list_files(
-        path=kw.get("path", ""),  # type: ignore[attr-defined]
-        pattern=kw.get("pattern", "*"),  # type: ignore[attr-defined]
-        **_workspace_kw(kw),
-    )
-
-
-def _dispatch_search_files(**kw: object) -> str:
-    return run_search_files(
-        kw["pattern"],  # type: ignore[index]
-        path=kw.get("path", ""),  # type: ignore[attr-defined]
-        case_sensitive=kw.get("case_sensitive", False),  # type: ignore[attr-defined]
-        **_workspace_kw(kw),
-    )
-
-
-def _dispatch_web_fetch(**kw: object) -> str:
-    return run_web_fetch(kw["url"])  # type: ignore[index]
 
 
 _HANDLERS: dict[str, Callable[..., str]] = {
     "compact": lambda **_kw: "[compact triggered]",
-    "bash": lambda **kw: run_bash(kw["command"], timeout=kw.get("timeout")),
-    "read_file": _dispatch_read_file,
-    "write_file": _dispatch_write_file,
-    "edit_file": _dispatch_edit_file,
-    "list_files": _dispatch_list_files,
-    "search_files": _dispatch_search_files,
-    "web_fetch": _dispatch_web_fetch,
+    "bash": run_bash,
+    "read_file": run_read_file,
+    "write_file": _queued_write_file,
+    "edit_file": _queued_edit_file,
+    "list_files": run_list_files,
+    "search_files": run_search_files,
+    "web_fetch": run_web_fetch,
 }
 
 # ---------------------------------------------------------------------------
@@ -727,9 +653,3 @@ for _schema in _BUILTIN_SCHEMAS:
 
 # Backward-compatible alias: TOOL_SCHEMAS delegates to the registry.
 TOOL_SCHEMAS: list[dict] = default_registry.schemas
-
-
-def _workspace_kw(kw: dict) -> dict:
-    """Extract workspace from kwargs if present."""
-    ws = kw.get("workspace")
-    return {"workspace": ws} if ws is not None else {}
