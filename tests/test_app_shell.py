@@ -16,7 +16,7 @@ from prompt_toolkit.output import DummyOutput
 from hephaistos.app import shell
 from hephaistos.app.display import print_shell_intro
 from hephaistos.armory.storage import initialize
-from hephaistos.chat.engine import ChatConfig
+from hephaistos.chat.engine import ChatConfig, EngineError
 from hephaistos.chat.session import SessionError, create_session
 from hephaistos.providers.config import _default_config
 
@@ -168,6 +168,28 @@ def test_handle_input_unknown_command(capsys, tmp_path: Path) -> None:
     assert cont is True
     out = capsys.readouterr().out
     assert "Unknown command" in out
+
+
+def test_handle_input_engine_error_does_not_print_assistant_placeholder(
+    capsys,
+    tmp_path: Path,
+) -> None:
+    from hephaistos.app.input_history import InputHistory
+
+    session = _make_session(tmp_path)
+    session.config.api_key = "test-key"
+    history = InputHistory()
+
+    with patch(
+        "hephaistos.app.shell.send_user_message",
+        side_effect=EngineError("Provider rejected the request. Configure /api key or /login."),
+    ):
+        session, cont = shell._handle_input(session, "hello", history)
+
+    assert cont is True
+    out = capsys.readouterr().out
+    assert "Provider rejected the request" in out
+    assert "Assistant:" not in out
 
 
 def test_bottom_toolbar_uses_cached_status(monkeypatch, tmp_path: Path) -> None:

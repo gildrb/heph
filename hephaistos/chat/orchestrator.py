@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from hephaistos.chat.engine import (
+    EngineError,
     RetryConfig,
     StreamRecoveryError,
     _build_client,
@@ -110,6 +111,20 @@ class TurnOrchestrator:
             session.conversation.messages = original_messages
             session.study_state = original_study_state
             session.dirty = True
+            raise
+        except EngineError as exc:
+            _log.warning(
+                "turn orchestration failed: %s",
+                exc,
+                extra={
+                    "fields": {
+                        "session_id": session.session_id,
+                        "latency_ms": timer.ms,
+                    }
+                },
+            )
+            session.conversation.messages = original_messages
+            session.study_state = original_study_state
             raise
         except Exception:
             _log.error(

@@ -282,13 +282,18 @@ def send_user_message(
     user_input: str,
     *,
     abort: threading.Event | None = None,
+    reply_prefix: str = "",
 ) -> str:
     """Run one user turn via the orchestrator and mirror events to stdout."""
     orchestrator = TurnOrchestrator(session)
+    printed_prefix = False
     for event in orchestrator.iter_events(user_input, abort=abort):
         rendered = render_turn_event(event)
         if not rendered:
             continue
+        if reply_prefix and not printed_prefix:
+            sys.stdout.write(reply_prefix)
+            printed_prefix = True
         sys.stdout.write(rendered)
         sys.stdout.flush()
 

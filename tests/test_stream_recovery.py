@@ -50,6 +50,18 @@ def _rate_limit_error() -> RateLimitError:
     return RateLimitError("rate limited", response=resp, body=None)
 
 
+def _insufficient_balance_error() -> RateLimitError:
+    body = {
+        "error": {
+            "code": "1113",
+            "message": "Insufficient balance or no resource package. Please recharge.",
+        }
+    }
+    req = _make_request()
+    resp = httpx.Response(429, request=req, json=body)
+    return RateLimitError("rate limited", response=resp, body=body)
+
+
 def _config() -> ChatConfig:
     return ChatConfig(api_key="test-key", base_url="http://localhost/v1", model="test")
 
@@ -127,6 +139,9 @@ class TestIsRetryableError:
 
     def test_rate_limit_is_retryable(self) -> None:
         assert is_retryable_error(_rate_limit_error()) is True
+
+    def test_account_setup_rate_limit_is_not_retryable(self) -> None:
+        assert is_retryable_error(_insufficient_balance_error()) is False
 
     def test_generic_exception_not_retryable(self) -> None:
         assert is_retryable_error(RuntimeError("boom")) is False
@@ -270,6 +285,25 @@ class TestStreamReplyRetry:
             list(stream_reply(_config(), _conv(), retry=retry))
 
         assert mock_client.chat.completions.create.call_count == 1
+
+    def test_account_setup_rate_limit_raises_immediately_with_hint(self) -> None:
+        """Account/quota 429s need user action, not retry backoff."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = _insufficient_balance_error()
+
+        retry = RetryConfig(max_retries=3, base_delay=0.01)
+        with (
+            patch("hephaistos.chat.engine._build_client", return_value=mock_client),
+            pytest.raises(EngineError) as exc_info,
+        ):
+            list(stream_reply(_config(), _conv(), retry=retry))
+
+        msg = str(exc_info.value)
+        assert mock_client.chat.completions.create.call_count == 1
+        assert "Insufficient balance or no resource package. Please recharge." in msg
+        assert "/api key" in msg
+        assert "/login" in msg
+        assert "{'error'" not in msg
 
     def test_mid_stream_failure_with_partial_raises_recovery(self) -> None:
         """Stream drops AFTER content -> StreamRecoveryError with partial."""
@@ -484,6 +518,36 @@ class TestConversationConsistency:
         assert conv.messages[0].role == "user"
         assert conv.messages[1].role == "assistant"
         assert conv.messages[1].content == "Hello!"
+
+    def test_send_user_message_prints_reply_prefix_on_first_output(self, capsys) -> None:
+        """Reply labels are printed only when a turn emits output."""
+        from hephaistos.chat.session import ChatSession, send_user_message
+
+        config = _config()
+        conv = Conversation()
+        session = ChatSession(
+            config=config,
+            conversation=conv,
+            session_id="test-prefix",
+            armory_path=_workspace(),
+        )
+
+        from hephaistos.chat.events import AssistantDeltaEvent
+
+        def fake_iter_events(self, user_input: str, *, abort=None):
+            self.session.conversation.add("user", user_input)
+            self.session.conversation.add("assistant", "Hello!")
+            self.last_reply = "Hello!"
+            yield AssistantDeltaEvent("Hello!")
+
+        with patch(
+            "hephaistos.chat.orchestrator.TurnOrchestrator.iter_events",
+            fake_iter_events,
+        ):
+            result = send_user_message(session, "Hi", reply_prefix="Assistant: ")
+
+        assert result == "Hello!"
+        assert capsys.readouterr().out == "Assistant: Hello!\n"
 
 
 # ---------------------------------------------------------------------------

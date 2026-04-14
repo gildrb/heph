@@ -598,11 +598,16 @@ def _start_background_reply(
     _refresh_bottom_toolbar(session, toolbar_ref, runtime)
     _invalidate_prompt(pt_session)
 
-    print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
+    reply_prefix = f"\r{styled('Assistant:', STYLE_ASSISTANT)} "
 
     def _worker() -> None:
         try:
-            send_user_message(session, user_input, abort=runtime.abort_event)
+            send_user_message(
+                session,
+                user_input,
+                abort=runtime.abort_event,
+                reply_prefix=reply_prefix,
+            )
         except StreamRecoveryError as rec:
             msg = (
                 f"{styled('warning:', STYLE_ERROR)} "
@@ -687,10 +692,10 @@ def _handle_input(
             if config_error:
                 print_error(config_error)
                 return session, True
-            print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
             abort = threading.Event()
+            reply_prefix = f"\r{styled('Assistant:', STYLE_ASSISTANT)} "
             try:
-                send_user_message(session, new_input, abort=abort)
+                send_user_message(session, new_input, abort=abort, reply_prefix=reply_prefix)
             except StreamRecoveryError as rec:
                 msg = (
                     f"{styled('warning:', STYLE_ERROR)} "
@@ -707,10 +712,10 @@ def _handle_input(
     if config_error:
         print_error(config_error)
         return session, True
-    print(f"\r{styled('Assistant:', STYLE_ASSISTANT)} ", end="", flush=True)
     abort = threading.Event()
+    reply_prefix = f"\r{styled('Assistant:', STYLE_ASSISTANT)} "
     try:
-        send_user_message(session, user_input, abort=abort)
+        send_user_message(session, user_input, abort=abort, reply_prefix=reply_prefix)
     except StreamRecoveryError as rec:
         msg = (
             f"{styled('warning:', STYLE_ERROR)} "
