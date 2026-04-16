@@ -483,25 +483,69 @@ def _prompt_armory_for_sessions(session: ChatSession) -> Path | None:
         return None
 
 
-def _resume_saved_chat(session: ChatSession) -> ChatSession:
-    armory_path = _prompt_armory_for_sessions(session)
+def _session_armory(session: ChatSession) -> Path | None:
+    """Return the active armory, or prompt for one in plain chat mode."""
+    if session.armory_path is not None:
+        return session.armory_path
+    return _prompt_armory_for_sessions(session)
+
+
+def _recent_sessions(sessions: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Return saved sessions with the most recently updated first."""
+    return sorted(sessions, key=lambda entry: entry.get("updated_at", ""), reverse=True)
+
+
+def _match_saved_session(
+    sessions: list[dict[str, str]],
+    selector: str,
+) -> dict[str, str] | None:
+    """Return a saved session by exact ID or unique ID prefix."""
+    session_id = selector.strip()
+    if not session_id:
+        return None
+
+    exact = [entry for entry in sessions if entry["session_id"] == session_id]
+    if exact:
+        return exact[0]
+
+    matches = [entry for entry in sessions if entry["session_id"].startswith(session_id)]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        print_error(f"No saved chat matches '{session_id}'.")
+        return None
+
+    print_error(f"Multiple saved chats match '{session_id}':")
+    for entry in matches:
+        title = entry["title"] or "(untitled)"
+        print(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
+    return None
+
+
+def _resume_saved_chat(session: ChatSession, selector: str = "") -> ChatSession:
+    armory_path = _session_armory(session)
     if armory_path is None:
         return session
-    sessions = list_armory_sessions(armory_path)
+    sessions = _recent_sessions(list_armory_sessions(armory_path))
     if not sessions:
         print_info("No saved chats found.")
         return session
-    options = [
-        MenuOption(
-            entry["title"] or entry["session_id"],
-            f"{entry['session_id']}  {entry['updated_at']}",
-        )
-        for entry in sessions
-    ]
-    selected = select_option("Resume Saved Chat", options)
-    if selected is None:
-        return session
-    entry = sessions[selected]
+    if selector.strip():
+        entry = _match_saved_session(sessions, selector)
+        if entry is None:
+            return session
+    else:
+        options = [
+            MenuOption(
+                entry["title"] or entry["session_id"],
+                f"{entry['session_id']}  {entry['updated_at']}",
+            )
+            for entry in sessions
+        ]
+        selected = select_option("Resume Saved Chat", options)
+        if selected is None:
+            return session
+        entry = sessions[selected]
     _save_before_switch(session)
     try:
         resumed = resume_session(session.config, armory_path, entry["session_id"])
@@ -515,10 +559,10 @@ def _resume_saved_chat(session: ChatSession) -> ChatSession:
 
 
 def _list_saved_chats(session: ChatSession) -> None:
-    armory_path = _prompt_armory_for_sessions(session)
+    armory_path = _session_armory(session)
     if armory_path is None:
         return
-    sessions = list_armory_sessions(armory_path)
+    sessions = _recent_sessions(list_armory_sessions(armory_path))
     if not sessions:
         print_info("No saved chats found.")
         return

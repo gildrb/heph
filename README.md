@@ -109,6 +109,8 @@ The top-level CLI is shell-first, so `chat` is implemented but hidden from `heph
 | `/save` | Save the current chat to the active armory |
 | `/clear` | Start a fresh chat session |
 | `/armory` | Open the armory management menu |
+| `/chats` | List saved chats in the active armory |
+| `/resume [id-prefix]` | Resume a saved chat by menu or session ID prefix |
 | `/model` | Show or switch the active model |
 | `/provider` | Show or switch the active provider and model |
 | `/models` | List the built-in model catalog across providers |

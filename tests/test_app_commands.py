@@ -17,6 +17,18 @@ def test_command_registry_includes_login_logout() -> None:
     assert "logout" in names
 
 
+def test_command_registry_includes_saved_chat_shortcuts() -> None:
+    registry = commands.get_registry()
+    suggestions = registry.suggestions()
+    names = {suggestion.name for suggestion in suggestions}
+
+    assert registry.find("chats") is not None
+    assert registry.find("sessions") is not None
+    assert registry.find("resume") is not None
+    assert "chats" in names
+    assert "resume" in names
+
+
 def test_model_command_validates_against_session_endpoint(monkeypatch) -> None:
     cfg = ChatConfig(
         api_key="test-key",

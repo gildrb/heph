@@ -213,6 +213,31 @@ class ArmoryCommand(Command):
         return CommandResult(new_session=new)
 
 
+class ChatsCommand(Command):
+    name = "chats"
+    description = "List saved chats in the active armory"
+    aliases = ("sessions",)
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.app.shell import _list_saved_chats
+
+        s = _ensure_session(session)
+        _list_saved_chats(s)
+        return CommandResult()
+
+
+class ResumeCommand(Command):
+    name = "resume"
+    description = "Resume a saved chat by menu or session ID prefix"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.app.shell import _resume_saved_chat
+
+        s = _ensure_session(session)
+        new = _resume_saved_chat(s, args.strip())
+        return CommandResult(new_session=new)
+
+
 class ModelCommand(Command):
     name = "model"
     description = "Show or switch the active model"
@@ -781,6 +806,8 @@ def get_registry() -> CommandRegistry:
             SaveCommand,
             ClearCommand,
             ArmoryCommand,
+            ChatsCommand,
+            ResumeCommand,
             ModelCommand,
             ApiCommand,
             CompactCommand,

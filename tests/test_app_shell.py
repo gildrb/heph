@@ -16,8 +16,9 @@ from prompt_toolkit.output import DummyOutput
 from hephaistos.app import shell
 from hephaistos.app.display import print_shell_intro
 from hephaistos.armory.storage import initialize
-from hephaistos.chat.engine import ChatConfig, EngineError
-from hephaistos.chat.session import SessionError, create_session
+from hephaistos.chat import storage as chat_storage
+from hephaistos.chat.engine import ChatConfig, Conversation, EngineError
+from hephaistos.chat.session import SessionError, create_plain_session, create_session
 from hephaistos.providers.config import _default_config
 
 
@@ -429,20 +430,20 @@ def test_prompt_armory_for_sessions_cancelled_returns_none(
     assert "Cancelled" in out
 
 
-def test_resume_saved_chat_cancelled_returns_session_unchanged(
-    monkeypatch, capsys, tmp_path: Path
-) -> None:
-    session = _make_session(tmp_path)
+def test_resume_saved_chat_cancelled_returns_session_unchanged(monkeypatch, capsys) -> None:
+    session = create_plain_session(_test_config())
 
     # Cancel at the path prompt
     monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
     new_session = shell._resume_saved_chat(session)
 
     assert new_session is session
+    out = capsys.readouterr().out
+    assert "Cancelled" in out
 
 
 def test_list_saved_chats_cancelled_returns_early(monkeypatch, capsys, tmp_path: Path) -> None:
-    session = _make_session(tmp_path)
+    session = create_plain_session(_test_config())
 
     # Cancel at the path prompt
     monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
@@ -450,3 +451,74 @@ def test_list_saved_chats_cancelled_returns_early(monkeypatch, capsys, tmp_path:
 
     out = capsys.readouterr().out
     assert "Cancelled" in out
+
+
+def test_list_saved_chats_uses_active_armory_without_prompt(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    session = _make_session(tmp_path)
+    assert session.armory_path is not None
+
+    conv = Conversation()
+    conv.add("system", "sys")
+    conv.add("user", "saved question")
+    chat_storage.save(session.armory_path, "saved12345678", conv, title="Saved Chat")
+
+    def fail_prompt(_prompt: str = "") -> str:
+        raise AssertionError("active armory should not prompt for a path")
+
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", fail_prompt)
+
+    shell._list_saved_chats(session)
+
+    out = capsys.readouterr().out
+    assert "Saved chats for" in out
+    assert "saved12345678" in out
+    assert "Saved Chat" in out
+
+
+def test_resume_saved_chat_accepts_unique_id_prefix(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    session = _make_session(tmp_path)
+    assert session.armory_path is not None
+
+    conv = Conversation()
+    conv.add("system", "sys")
+    conv.add("user", "saved question")
+    chat_storage.save(session.armory_path, "abcdef123456", conv, title="Saved Chat")
+
+    def fail_prompt(_prompt: str = "") -> str:
+        raise AssertionError("active armory should not prompt for a path")
+
+    monkeypatch.setattr("hephaistos.app.shell.direct_input", fail_prompt)
+
+    resumed = shell._resume_saved_chat(session, "abc")
+
+    out = capsys.readouterr().out
+    assert resumed is not session
+    assert resumed.session_id == "abcdef123456"
+    assert "Resumed session abcdef123456" in out
+
+
+def test_resume_saved_chat_reports_ambiguous_id_prefix(capsys, tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    assert session.armory_path is not None
+
+    conv = Conversation()
+    conv.add("system", "sys")
+    conv.add("user", "saved question")
+    chat_storage.save(session.armory_path, "abc111222333", conv, title="First")
+    chat_storage.save(session.armory_path, "abc999888777", conv, title="Second")
+
+    resumed = shell._resume_saved_chat(session, "abc")
+
+    out = capsys.readouterr().out
+    assert resumed is session
+    assert "Multiple saved chats match 'abc'" in out
+    assert "abc111222333" in out
+    assert "abc999888777" in out
