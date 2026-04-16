@@ -1,7 +1,23 @@
 from __future__ import annotations
 
+from prompt_toolkit.input import create_pipe_input
+from prompt_toolkit.output import DummyOutput
+
 from hephaistos.app import menu
+from hephaistos.app.keybindings import DEFAULT_MENU_KEYBINDINGS
 from hephaistos.app.menu import MenuOption
+
+
+def _select_interactively(keys: str, options: list[MenuOption]) -> int | None:
+    with create_pipe_input() as pipe_input:
+        pipe_input.send_text(keys)
+        return menu._select_with_prompt_toolkit(
+            "Armory",
+            options,
+            DEFAULT_MENU_KEYBINDINGS,
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
 
 
 def test_select_option_uses_prompt_fallback(monkeypatch, capsys) -> None:
@@ -19,6 +35,51 @@ def test_select_option_uses_prompt_fallback(monkeypatch, capsys) -> None:
     assert selected == 1
     assert "Open existing armory" in out
     assert "Create new armory" in out
+
+
+def test_prompt_toolkit_menu_uses_down_arrow_to_select_next_option() -> None:
+    selected = _select_interactively(
+        "\x1b[B\r",
+        [
+            MenuOption("Open existing armory", "Attach a workspace."),
+            MenuOption("Create new armory", "Initialize a workspace."),
+        ],
+    )
+
+    assert selected == 1
+
+
+def test_prompt_toolkit_menu_uses_up_arrow_to_wrap_to_last_option() -> None:
+    selected = _select_interactively(
+        "\x1b[A\r",
+        [
+            MenuOption("Open existing armory", "Attach a workspace."),
+            MenuOption("Create new armory", "Initialize a workspace."),
+        ],
+    )
+
+    assert selected == 1
+
+
+def test_prompt_toolkit_menu_starts_on_current_option() -> None:
+    selected = _select_interactively(
+        "\r",
+        [
+            MenuOption("Open existing armory", "Attach a workspace."),
+            MenuOption("Create new armory", "Initialize a workspace.", is_current=True),
+        ],
+    )
+
+    assert selected == 1
+
+
+def test_prompt_toolkit_menu_q_cancels() -> None:
+    selected = _select_interactively(
+        "q",
+        [MenuOption("Open existing armory", "Attach a workspace.")],
+    )
+
+    assert selected is None
 
 
 def test_select_option_returns_none_for_cancel(monkeypatch) -> None:
