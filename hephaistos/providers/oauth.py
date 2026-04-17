@@ -362,6 +362,7 @@ def clear_credentials(provider: str) -> bool:
     del data[provider]
     _AUTH_DIR.mkdir(parents=True, exist_ok=True)
     _AUTH_FILE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _AUTH_FILE.chmod(0o600)
     return True
 
 

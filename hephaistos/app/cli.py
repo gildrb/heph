@@ -7,6 +7,8 @@ from pathlib import Path
 from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.cli import register as register_armory_commands
 from hephaistos.chat.cli import register as register_chat_commands
+from hephaistos.parameters.cli import register as register_config_commands
+from hephaistos.source.cli import register as register_source_commands
 
 try:
     from importlib.metadata import version as _pkg_version
@@ -43,7 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     register_armory_commands(subparsers)
+    register_source_commands(subparsers)
     register_chat_commands(subparsers)
+    register_config_commands(subparsers)
     _hide_subparser(subparsers, "chat")
 
     return parser

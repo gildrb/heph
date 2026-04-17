@@ -590,7 +590,12 @@ def _handle_armory_command(session: ChatSession) -> ChatSession:
 
 
 def _run_shell_command(cmd: str) -> None:
-    """Execute a shell command and display output."""
+    """Execute a shell command and display output.
+
+    **Security note**: This is the user-initiated ``!`` shell escape.
+    Commands run with the full privileges of the current user.  The
+    ``!`` prefix makes this intentional and user-controlled.
+    """
     print(styled(f"$ {cmd}", STYLE_DIM))
     try:
         subprocess.run(cmd, shell=True, capture_output=False, text=True, check=False)

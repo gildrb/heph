@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import argparse
 import contextlib
+import json
 import os
+import sys
 from pathlib import Path
 
 from hephaistos.chat.engine import ChatConfig
 
 _DEFAULTS_FILE = Path(__file__).parent / "default.toml"
+_USER_CONFIG_DIR = Path.home() / ".config" / "hephaistos"
+_USER_CONFIG_FILE = _USER_CONFIG_DIR / "config.json"
 
 
 def _parse_toml_simple(path: Path) -> dict[str, str]:
@@ -37,10 +42,29 @@ def _parse_toml_simple(path: Path) -> dict[str, str]:
     return result
 
 
-def load_config(armory_path: Path | None = None) -> ChatConfig:
-    """Load ChatConfig from TOML defaults + provider config + env overrides.
+def _load_user_overrides() -> dict[str, str]:
+    """Load persisted user config overrides from ``~/.config/hephaistos/config.json``."""
+    if not _USER_CONFIG_FILE.is_file():
+        return {}
+    with contextlib.suppress(Exception):
+        data = json.loads(_USER_CONFIG_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return {k: str(v) for k, v in data.items() if k in _CONFIG_KEY_TO_ENV}
+    return {}
 
-    Priority: env vars > provider config > TOML file > ChatConfig defaults.
+
+def _save_user_override(key: str, value: str) -> None:
+    """Persist a single config override to the user config file."""
+    _USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    overrides = _load_user_overrides()
+    overrides[key] = value
+    _USER_CONFIG_FILE.write_text(json.dumps(overrides, indent=2) + "\n", encoding="utf-8")
+
+
+def load_config(armory_path: Path | None = None) -> ChatConfig:
+    """Load ChatConfig from TOML defaults + provider config + user overrides + env vars.
+
+    Priority: env vars > user config file > provider config > TOML file > ChatConfig defaults.
     """
     config = ChatConfig()
     toml_path = _DEFAULTS_FILE
@@ -63,6 +87,20 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
 
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
 
+    # Apply persisted user overrides (higher priority than provider config).
+    user_overrides = _load_user_overrides()
+    if user_overrides.get("base_url"):
+        config.base_url = user_overrides["base_url"]
+    if user_overrides.get("model"):
+        config.model = user_overrides["model"]
+    if user_overrides.get("max_tokens"):
+        with contextlib.suppress(ValueError):
+            config.max_tokens = int(user_overrides["max_tokens"])
+    if user_overrides.get("rag_context_budget"):
+        with contextlib.suppress(ValueError):
+            config.rag_context_budget = int(user_overrides["rag_context_budget"])
+
+    # Environment variables have the highest priority.
     base_url = os.environ.get("HEPHAISTOS_BASE_URL")
     if base_url:
         config.base_url = base_url
@@ -84,5 +122,50 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
     return config
 
 
-def register() -> None:
-    """Register CLI commands (placeholder for future CLI hooks)."""
+_CONFIG_KEY_TO_ENV = {
+    "base_url": "HEPHAISTOS_BASE_URL",
+    "model": "HEPHAISTOS_MODEL",
+    "max_tokens": "HEPHAISTOS_MAX_TOKENS",
+    "rag_context_budget": "HEPHAISTOS_RAG_CONTEXT_BUDGET",
+}
+
+
+def _cmd_config_show(args: argparse.Namespace) -> None:
+    """Display the current configuration."""
+    config = load_config()
+    print("Current configuration:")
+    print(f"  base_url: {config.base_url or '(not set)'}")
+    print(f"  model: {config.model or '(not set)'}")
+    print(f"  max_tokens: {config.max_tokens}")
+    print(f"  rag_context_budget: {config.rag_context_budget}")
+
+
+def _cmd_config_set(args: argparse.Namespace) -> None:
+    """Persist a configuration parameter to the user config file."""
+    key = args.key
+    value = args.value
+    if key not in _CONFIG_KEY_TO_ENV:
+        print(f"error: unknown config key '{key}'.", file=sys.stderr)
+        print(
+            f"  valid keys: {', '.join(_CONFIG_KEY_TO_ENV)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    _save_user_override(key, value)
+    print(f"Set {key} = {value} (persisted to {_USER_CONFIG_FILE})")
+
+
+def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Register config subcommands."""
+    config = subparsers.add_parser("config", help="View and set configuration values.")
+    config_sub = config.add_subparsers(dest="config_command", required=True)
+
+    show = config_sub.add_parser("show", help="Display current configuration.")
+    show.set_defaults(handler=_cmd_config_show)
+
+    set_cmd = config_sub.add_parser("set", help="Set a configuration parameter.")
+    set_cmd.add_argument(
+        "key", help="Config key (base_url, model, max_tokens, rag_context_budget)."
+    )
+    set_cmd.add_argument("value", help="Value to set.")
+    set_cmd.set_defaults(handler=_cmd_config_set)

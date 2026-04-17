@@ -21,7 +21,9 @@ Tool philosophy for a study RAG agent:
 from __future__ import annotations
 
 import importlib.util
+import ipaddress
 import re
+import socket
 import subprocess
 import urllib.error
 import urllib.request
@@ -36,6 +38,19 @@ def safe_path(workspace: Path, rel_path: str) -> Path:
     if not resolved.is_relative_to(workspace.resolve()):
         raise ValueError(f"Path escapes workspace: {rel_path}")
     return resolved
+
+
+def _is_private_host(hostname: str) -> bool:
+    """Return True if *hostname* resolves to a private or loopback address."""
+    try:
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+    for _, _, _, _, sockaddr in addr_info:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -128,12 +143,22 @@ class ToolRegistry:
 
         Each module may define a ``register(registry: ToolRegistry) -> None``
         function.  Returns the number of plugins loaded.
+
+        **Security note**: plugins are loaded from the armory's
+        ``.hephaistos/tools/`` directory.  Only trusted armories should
+        have tool plugins.  Each plugin is executed with full process
+        privileges.
         """
         if not tools_dir.is_dir():
             return 0
+        # Resolve tools directory so symlink checks below are reliable.
+        tools_dir = tools_dir.resolve()
         loaded = 0
         for py_file in sorted(tools_dir.glob("*.py")):
             if py_file.name.startswith("_"):
+                continue
+            # Ensure the file is actually inside tools_dir (no symlinks out).
+            if not py_file.resolve().is_relative_to(tools_dir):
                 continue
             module_name = f"hephaistos_armory_plugin_{py_file.stem}"
             try:
@@ -321,6 +346,20 @@ class BashResult:
 def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str:
     """Execute a shell command and return structured output."""
     import time as _time
+
+    # Block obviously destructive commands (LLM-generated).
+    _BLOCKED_PATTERNS = (
+        r"\brm\s+-rf\s+/(?:\s|$)",
+        r"\brm\s+-rf\s+~",
+        r"\bmkfs\b",
+        r"\bdd\s+.*of=/dev/",
+        r"\bshutdown\b",
+        r"\breboot\b",
+        r">/dev/sd",
+    )
+    for pat in _BLOCKED_PATTERNS:
+        if re.search(pat, command, re.IGNORECASE):
+            return f"Error: command blocked for safety: {command}"
 
     actual_timeout = _BASH_TIMEOUT if timeout is None else timeout
     start = _time.monotonic()
@@ -540,6 +579,13 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
     """
     if not url.startswith(("http://", "https://")):
         return "Error: URL must start with http:// or https://"
+
+    from urllib.parse import urlparse as _urlparse
+
+    parsed = _urlparse(url)
+    hostname = parsed.hostname
+    if hostname and _is_private_host(hostname):
+        return f"Error: blocked private/internal host ({hostname})"
 
     req = urllib.request.Request(
         url,
