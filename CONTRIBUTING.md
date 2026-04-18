@@ -36,6 +36,17 @@ uv run pytest
 - Target Python: 3.13+.
 - Use `from __future__ import annotations` at the top of every module.
 
+### Naming conventions
+
+These are enforced via ruff (the N rules):
+
+- **Classes**: PascalCase (e.g., `ChatConfig`, `EngineError`)
+- **Functions and methods**: snake_case (e.g., `build_parser()`, `stream_completion()`)
+- **Variables**: snake_case (e.g., `api_key`, `max_tokens`)
+- **Constants (module-level and class-level)**: UPPER_SNAKE_CASE (e.g., `_VERSION`, `_RETRYABLE_TYPES`)
+- **Private variables**: underscore prefix (e.g., `_tools`, `_registry`)
+- **Dataclass fields**: snake_case
+
 ## Commit messages
 
 Short, imperative mood. Examples:

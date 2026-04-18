@@ -95,6 +95,7 @@ select = [
     "TRY",  # tryceratops
     "FURB", # refurb
     "PERF", # perflint
+    "N",    # naming conventions
 ]
 ignore = [
     "PLR0913",  # too many arguments (fine for config/data classes)
@@ -135,7 +136,7 @@ module-root = ""
 
 [tool.basedpyright]
 pythonVersion = "3.13"
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
 exclude = ["vulture-whitelist.py", ".venv"]

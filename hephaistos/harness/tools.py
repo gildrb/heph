@@ -348,7 +348,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
     import time as _time
 
     # Block obviously destructive commands (LLM-generated).
-    _BLOCKED_PATTERNS = (
+    _blocked_patterns = (
         r"\brm\s+-rf\s+/(?:\s|$)",
         r"\brm\s+-rf\s+~",
         r"\bmkfs\b",
@@ -357,7 +357,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
         r"\breboot\b",
         r">/dev/sd",
     )
-    for pat in _BLOCKED_PATTERNS:
+    for pat in _blocked_patterns:
         if re.search(pat, command, re.IGNORECASE):
             return f"Error: command blocked for safety: {command}"
 
