@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_armory_commands(subparsers)
     register_source_commands(subparsers)
-    register_chat_commands(subparsers)
+    register_chat_commands(subparsers, run_shell=run_chat_shell)
     register_config_commands(subparsers)
     _hide_subparser(subparsers, "chat")
 

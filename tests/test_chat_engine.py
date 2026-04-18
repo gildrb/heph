@@ -51,3 +51,15 @@ def test_message_dataclass() -> None:
     msg = Message(role="user", content="test")
     assert msg.role == "user"
     assert msg.content == "test"
+
+
+def test_is_feature_enabled() -> None:
+    config = ChatConfig(feature_flags=frozenset({"alpha", "beta"}))
+    assert config.is_feature_enabled("alpha")
+    assert config.is_feature_enabled("beta")
+    assert not config.is_feature_enabled("gamma")
+
+
+def test_is_feature_enabled_default_empty() -> None:
+    config = ChatConfig()
+    assert not config.is_feature_enabled("anything")

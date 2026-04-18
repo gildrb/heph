@@ -234,9 +234,9 @@ class TurnOrchestrator:
         notice = verify_response(self.last_reply, resolved.turn_evidence)
 
         if not session.title:
-            from hephaistos.chat.session import _derive_title
+            from hephaistos.chat.titles import derive_title
 
-            session.title = _derive_title(session.conversation)
+            session.title = derive_title(session.conversation)
         session.dirty = True
 
         _log.info(

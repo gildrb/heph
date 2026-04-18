@@ -55,8 +55,12 @@ class ChatConfig:
     model: str = ""
     max_tokens: int = 4096
     rag_context_budget: int = 2000
+    feature_flags: frozenset[str] = field(default_factory=frozenset)
     _provider_slug: str = field(default="", repr=False)
     _provider_env: str = field(default="", repr=False)
+
+    def is_feature_enabled(self, flag: str) -> bool:
+        return flag in self.feature_flags
 
     @property
     def resolved_api_key(self) -> str:

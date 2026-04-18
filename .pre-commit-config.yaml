@@ -37,3 +37,9 @@ repos:
         entry: pylint --disable=all --enable=duplicate-code hephaistos
         types: [python]
         pass_filenames: false
+      - id: lint-imports
+        name: import-linter (architecture)
+        language: python
+        entry: lint-imports
+        types: [python]
+        pass_filenames: false

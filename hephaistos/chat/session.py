@@ -13,6 +13,7 @@ from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation, Message
 from hephaistos.chat.events import render_turn_event
 from hephaistos.chat.orchestrator import TurnOrchestrator
+from hephaistos.chat.titles import derive_title as _derive_title
 from hephaistos.chat.usage import SessionUsage
 from hephaistos.harness.persona import Persona, resolve_persona
 from hephaistos.harness.prompt import build_system_prompt
@@ -256,25 +257,6 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
 def session_has_messages(session: ChatSession) -> bool:
     """Return ``True`` when the session contains non-system messages."""
     return any(message.role != "system" for message in session.conversation.messages)
-
-
-def _derive_title(conversation: Conversation) -> str:
-    first_user_content = ""
-    for message in conversation.messages:
-        if message.role == "user":
-            first_user_content = message.content
-            break
-    if not first_user_content:
-        return ""
-    prefix = first_user_content[:60]
-    count = sum(
-        1
-        for msg in conversation.messages
-        if msg.role == "user" and msg.content.startswith(first_user_content[:20])
-    )
-    if count > 1:
-        return f"{prefix} ({count})"
-    return prefix
 
 
 def send_user_message(

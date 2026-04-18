@@ -13,7 +13,7 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from hephaistos.app import shell
+from hephaistos.app import shell, workspace
 from hephaistos.app.display import print_shell_intro
 from hephaistos.armory.storage import initialize
 from hephaistos.chat import storage as chat_storage
@@ -57,8 +57,8 @@ def test_run_chat_shell_armory_command_opens_existing_armory(
 
     responses = iter(["/armory", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": str(new_armory))
-    monkeypatch.setattr(shell, "select_option", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": str(new_armory))
+    monkeypatch.setattr(workspace, "select_option", lambda *_args, **_kwargs: 0)
 
     session = create_session(_test_config(), old_armory)
     with (
@@ -327,32 +327,32 @@ def test_shell_intro_uses_compact_header(capsys) -> None:
 
 
 def test_prompt_path_returns_none_on_q(monkeypatch) -> None:
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
-    result = shell._prompt_path("Path", "/default")
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "q")
+    result = workspace._prompt_path("Path", "/default")
     assert result is None
 
 
 def test_prompt_path_returns_none_on_cancel(monkeypatch) -> None:
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "cancel")
-    result = shell._prompt_path("Path", "/default")
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "cancel")
+    result = workspace._prompt_path("Path", "/default")
     assert result is None
 
 
 def test_prompt_path_returns_none_on_back(monkeypatch) -> None:
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "back")
-    result = shell._prompt_path("Path", "/default")
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "back")
+    result = workspace._prompt_path("Path", "/default")
     assert result is None
 
 
 def test_prompt_path_returns_default_on_empty(monkeypatch) -> None:
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "")
-    result = shell._prompt_path("Path", "/default")
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "")
+    result = workspace._prompt_path("Path", "/default")
     assert result == "/default"
 
 
 def test_prompt_path_returns_value_when_provided(monkeypatch) -> None:
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "/my/path")
-    result = shell._prompt_path("Path", "/default")
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "/my/path")
+    result = workspace._prompt_path("Path", "/default")
     assert result == "/my/path"
 
 
@@ -360,8 +360,8 @@ def test_prompt_path_returns_none_on_keyboard_interrupt(monkeypatch) -> None:
     def _raise(_: str = "") -> str:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", _raise)
-    result = shell._prompt_path("Path", "/default")
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", _raise)
+    result = workspace._prompt_path("Path", "/default")
     assert result is None
 
 
@@ -369,8 +369,8 @@ def test_prompt_path_returns_none_on_eof(monkeypatch) -> None:
     def _raise(_: str = "") -> str:
         raise EOFError
 
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", _raise)
-    result = shell._prompt_path("Path", "/default")
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", _raise)
+    result = workspace._prompt_path("Path", "/default")
     assert result is None
 
 
@@ -379,8 +379,8 @@ def test_open_armory_cancelled_returns_session_unchanged(
 ) -> None:
     session = _make_session(tmp_path)
 
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
-    new_session = shell._open_armory(session)
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "q")
+    new_session = workspace._open_armory(session)
 
     assert new_session is session
     out = capsys.readouterr().out
@@ -392,8 +392,8 @@ def test_create_armory_cancelled_returns_session_unchanged(
 ) -> None:
     session = _make_session(tmp_path)
 
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
-    new_session = shell._create_armory(session)
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "q")
+    new_session = workspace._create_armory(session)
 
     assert new_session is session
     out = capsys.readouterr().out
@@ -407,8 +407,8 @@ def test_handle_armory_command_detaches_armory(
 ) -> None:
     session = _make_session(tmp_path)
 
-    monkeypatch.setattr(shell, "select_option", lambda *_args, **_kwargs: 2)
-    new_session = shell._handle_armory_command(session)
+    monkeypatch.setattr(workspace, "select_option", lambda *_args, **_kwargs: 2)
+    new_session = workspace._handle_armory_command(session)
 
     assert new_session is not session
     assert new_session.armory_path is None
@@ -422,8 +422,8 @@ def test_prompt_armory_for_sessions_cancelled_returns_none(
 ) -> None:
     session = _make_session(tmp_path)
 
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
-    result = shell._prompt_armory_for_sessions(session)
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "q")
+    result = workspace._prompt_armory_for_sessions(session)
 
     assert result is None
     out = capsys.readouterr().out
@@ -434,8 +434,8 @@ def test_resume_saved_chat_cancelled_returns_session_unchanged(monkeypatch, caps
     session = create_plain_session(_test_config())
 
     # Cancel at the path prompt
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
-    new_session = shell._resume_saved_chat(session)
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "q")
+    new_session = workspace._resume_saved_chat(session)
 
     assert new_session is session
     out = capsys.readouterr().out
@@ -446,8 +446,8 @@ def test_list_saved_chats_cancelled_returns_early(monkeypatch, capsys, tmp_path:
     session = create_plain_session(_test_config())
 
     # Cancel at the path prompt
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", lambda _prompt="": "q")
-    shell._list_saved_chats(session)
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "q")
+    workspace._list_saved_chats(session)
 
     out = capsys.readouterr().out
     assert "Cancelled" in out
@@ -469,9 +469,9 @@ def test_list_saved_chats_uses_active_armory_without_prompt(
     def fail_prompt(_prompt: str = "") -> str:
         raise AssertionError("active armory should not prompt for a path")
 
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", fail_prompt)
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", fail_prompt)
 
-    shell._list_saved_chats(session)
+    workspace._list_saved_chats(session)
 
     out = capsys.readouterr().out
     assert "Saved chats for" in out
@@ -495,9 +495,9 @@ def test_resume_saved_chat_accepts_unique_id_prefix(
     def fail_prompt(_prompt: str = "") -> str:
         raise AssertionError("active armory should not prompt for a path")
 
-    monkeypatch.setattr("hephaistos.app.shell.direct_input", fail_prompt)
+    monkeypatch.setattr("hephaistos.app.workspace.direct_input", fail_prompt)
 
-    resumed = shell._resume_saved_chat(session, "abc")
+    resumed = workspace._resume_saved_chat(session, "abc")
 
     out = capsys.readouterr().out
     assert resumed is not session
@@ -515,7 +515,7 @@ def test_resume_saved_chat_reports_ambiguous_id_prefix(capsys, tmp_path: Path) -
     chat_storage.save(session.armory_path, "abc111222333", conv, title="First")
     chat_storage.save(session.armory_path, "abc999888777", conv, title="Second")
 
-    resumed = shell._resume_saved_chat(session, "abc")
+    resumed = workspace._resume_saved_chat(session, "abc")
 
     out = capsys.readouterr().out
     assert resumed is session

@@ -206,7 +206,7 @@ class ArmoryCommand(Command):
     description = "Open the armory management menu"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.app.shell import _handle_armory_command
+        from hephaistos.app.workspace import _handle_armory_command
 
         s = _ensure_session(session)
         new = _handle_armory_command(s)
@@ -219,7 +219,7 @@ class ChatsCommand(Command):
     aliases = ("sessions",)
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.app.shell import _list_saved_chats
+        from hephaistos.app.workspace import _list_saved_chats
 
         s = _ensure_session(session)
         _list_saved_chats(s)
@@ -231,7 +231,7 @@ class ResumeCommand(Command):
     description = "Resume a saved chat by menu or session ID prefix"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.app.shell import _resume_saved_chat
+        from hephaistos.app.workspace import _resume_saved_chat
 
         s = _ensure_session(session)
         new = _resume_saved_chat(s, args.strip())

@@ -236,3 +236,101 @@ def test_config_set_unknown_key_exits_with_code_1(capsys) -> None:
     err = capsys.readouterr().err
     assert "error: unknown config key 'unknown'." in err
     assert "valid keys:" in err
+
+
+def test_parse_feature_flags_normalizes() -> None:
+    assert params_cli._parse_feature_flags("alpha, Beta , ,GAMMA") == frozenset(
+        {"alpha", "beta", "gamma"}
+    )
+
+
+def test_parse_feature_flags_empty_string() -> None:
+    assert params_cli._parse_feature_flags("") == frozenset()
+
+
+def test_config_set_feature_flags_persists(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
+
+    run_argv(build_parser(), ["config", "set", "feature_flags", "alpha,beta"])
+
+    out = capsys.readouterr().out
+    assert "Set feature_flags = alpha,beta" in out
+    data = json.loads(config_file.read_text(encoding="utf-8"))
+    assert data["feature_flags"] == "alpha,beta"
+
+
+def test_config_show_displays_feature_flags(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        params_cli,
+        "load_config",
+        lambda _armory_path=None: ChatConfig(
+            base_url="https://example.com/v1",
+            model="test-model",
+            max_tokens=1234,
+            rag_context_budget=4321,
+            feature_flags=frozenset({"alpha", "beta"}),
+        ),
+    )
+
+    run_argv(build_parser(), ["config", "show"])
+
+    out = capsys.readouterr().out
+    assert "feature_flags: alpha, beta" in out
+
+
+def test_config_show_displays_no_feature_flags(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        params_cli,
+        "load_config",
+        lambda _armory_path=None: ChatConfig(
+            base_url="https://example.com/v1",
+            model="test-model",
+            max_tokens=1234,
+            rag_context_budget=4321,
+        ),
+    )
+
+    run_argv(build_parser(), ["config", "show"])
+
+    out = capsys.readouterr().out
+    assert "feature_flags: (none)" in out
+
+
+def test_load_config_feature_flags_env_overrides_user(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "user-config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir()
+    config_file.write_text(json.dumps({"feature_flags": "user_flag"}), encoding="utf-8")
+
+    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr(
+        "hephaistos.providers.config.ProviderConfig.load",
+        classmethod(lambda cls: SimpleNamespace(apply_to_config=lambda _config: None)),
+    )
+    monkeypatch.setenv("HEPHAISTOS_FEATURE_FLAGS", "env_flag")
+
+    config = params_cli.load_config()
+
+    assert config.feature_flags == frozenset({"env_flag"})
+
+
+def test_load_config_feature_flags_from_user_overrides(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "user-config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir()
+    config_file.write_text(json.dumps({"feature_flags": "alpha,beta"}), encoding="utf-8")
+
+    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr(
+        "hephaistos.providers.config.ProviderConfig.load",
+        classmethod(lambda cls: SimpleNamespace(apply_to_config=lambda _config: None)),
+    )
+
+    config = params_cli.load_config()
+
+    assert config.feature_flags == frozenset({"alpha", "beta"})

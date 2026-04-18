@@ -99,6 +99,8 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
     if user_overrides.get("rag_context_budget"):
         with contextlib.suppress(ValueError):
             config.rag_context_budget = int(user_overrides["rag_context_budget"])
+    if user_overrides.get("feature_flags"):
+        config.feature_flags = _parse_feature_flags(user_overrides["feature_flags"])
 
     # Environment variables have the highest priority.
     base_url = os.environ.get("HEPHAISTOS_BASE_URL")
@@ -119,6 +121,10 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         with contextlib.suppress(ValueError):
             config.rag_context_budget = int(rag_context_budget)
 
+    feature_flags = os.environ.get("HEPHAISTOS_FEATURE_FLAGS")
+    if feature_flags:
+        config.feature_flags = _parse_feature_flags(feature_flags)
+
     return config
 
 
@@ -127,7 +133,13 @@ _CONFIG_KEY_TO_ENV = {
     "model": "HEPHAISTOS_MODEL",
     "max_tokens": "HEPHAISTOS_MAX_TOKENS",
     "rag_context_budget": "HEPHAISTOS_RAG_CONTEXT_BUDGET",
+    "feature_flags": "HEPHAISTOS_FEATURE_FLAGS",
 }
+
+
+def _parse_feature_flags(raw: str) -> frozenset[str]:
+    """Parse comma-separated feature-flag slugs into a frozenset."""
+    return frozenset(slug.strip().lower() for slug in raw.split(",") if slug.strip())
 
 
 def _cmd_config_show(args: argparse.Namespace) -> None:
@@ -138,6 +150,8 @@ def _cmd_config_show(args: argparse.Namespace) -> None:
     print(f"  model: {config.model or '(not set)'}")
     print(f"  max_tokens: {config.max_tokens}")
     print(f"  rag_context_budget: {config.rag_context_budget}")
+    flags = ", ".join(sorted(config.feature_flags)) if config.feature_flags else "(none)"
+    print(f"  feature_flags: {flags}")
 
 
 def _cmd_config_set(args: argparse.Namespace) -> None:
@@ -165,7 +179,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
 
     set_cmd = config_sub.add_parser("set", help="Set a configuration parameter.")
     set_cmd.add_argument(
-        "key", help="Config key (base_url, model, max_tokens, rag_context_budget)."
+        "key", help="Config key (base_url, model, max_tokens, rag_context_budget, feature_flags)."
     )
     set_cmd.add_argument("value", help="Value to set.")
     set_cmd.set_defaults(handler=_cmd_config_set)

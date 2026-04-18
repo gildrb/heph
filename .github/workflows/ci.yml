@@ -12,38 +12,165 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --group dev
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| lint sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Ruff check
+        run: |
+          start=$(date +%s%N)
+          uv run ruff check .
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| lint ruff-check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Ruff format check
+        run: |
+          start=$(date +%s%N)
+          uv run ruff format --check .
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| lint ruff-format | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --group dev
-      - run: uv run basedpyright
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| typecheck sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Basedpyright
+        run: |
+          start=$(date +%s%N)
+          uv run basedpyright
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| typecheck basedpyright | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
 
   dead-code:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --group dev
-      - run: uv run vulture hephaistos tests vulture-whitelist.py
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| dead-code sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Vulture
+        run: |
+          start=$(date +%s%N)
+          uv run vulture hephaistos tests vulture-whitelist.py
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| dead-code vulture | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
 
   duplicate-code:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --group dev
-      - run: uv run pylint --disable=all --enable=duplicate-code hephaistos
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| duplicate-code sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Pylint duplicate-code
+        run: |
+          start=$(date +%s%N)
+          uv run pylint --disable=all --enable=duplicate-code hephaistos
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| duplicate-code pylint | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+
+  architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| architecture sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Import-linter
+        run: |
+          start=$(date +%s%N)
+          uv run lint-imports
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| architecture lint-imports | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --group dev
-      - run: uv run pytest
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| test sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Pytest
+        run: |
+          start=$(date +%s%N)
+          uv run pytest --durations=10
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| test pytest | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| build sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Build
+        run: |
+          start=$(date +%s%N)
+          uv build
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| build uv-build | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"

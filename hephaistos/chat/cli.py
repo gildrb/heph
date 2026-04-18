@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 
-from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
@@ -18,7 +18,7 @@ from hephaistos.chat.session import (
 from hephaistos.parameters.cli import load_config
 
 
-def _cmd_chat_start(args: argparse.Namespace) -> None:
+def _cmd_chat_start(args: argparse.Namespace, *, run_shell: Callable[..., None]) -> None:
     """Start a new chat session."""
     try:
         armory_path = validate_armory_path(args.path)
@@ -32,10 +32,10 @@ def _cmd_chat_start(args: argparse.Namespace) -> None:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    run_chat_shell(session)
+    run_shell(session)
 
 
-def _cmd_chat_resume(args: argparse.Namespace) -> None:
+def _cmd_chat_resume(args: argparse.Namespace, *, run_shell: Callable[..., None]) -> None:
     """Resume an existing chat session."""
     try:
         armory_path = validate_armory_path(args.path)
@@ -49,7 +49,7 @@ def _cmd_chat_resume(args: argparse.Namespace) -> None:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    run_chat_shell(session)
+    run_shell(session)
 
 
 def _cmd_chat_list(args: argparse.Namespace) -> None:
@@ -72,6 +72,8 @@ def _cmd_chat_list(args: argparse.Namespace) -> None:
 
 def register(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    *,
+    run_shell: Callable[..., None],
 ) -> None:
     """Register chat subcommands."""
     chat = subparsers.add_parser(
@@ -86,7 +88,7 @@ def register(
         help="Start a new chat session in an armory.",
     )
     start.add_argument("path", help="Path to the armory folder.")
-    start.set_defaults(handler=_cmd_chat_start)
+    start.set_defaults(handler=lambda a: _cmd_chat_start(a, run_shell=run_shell))
 
     resume = chat_sub.add_parser(
         "resume",
@@ -94,7 +96,7 @@ def register(
     )
     resume.add_argument("path", help="Path to the armory folder.")
     resume.add_argument("session_id", help="Session ID to resume.")
-    resume.set_defaults(handler=_cmd_chat_resume)
+    resume.set_defaults(handler=lambda a: _cmd_chat_resume(a, run_shell=run_shell))
 
     list_cmd = chat_sub.add_parser(
         "list",

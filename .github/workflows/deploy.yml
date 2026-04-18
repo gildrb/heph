@@ -1,0 +1,87 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  deployments: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: edge
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync dev dependencies
+        run: uv sync --group dev
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Basedpyright
+        run: uv run basedpyright
+
+      - name: Vulture
+        run: uv run vulture hephaistos tests vulture-whitelist.py
+
+      - name: Pylint duplicate-code
+        run: uv run pylint --disable=all --enable=duplicate-code hephaistos
+
+      - name: Pytest
+        run: uv run pytest
+
+      - name: Build package
+        run: uv build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+      - name: Create edge deployment
+        run: |
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/deployments" \
+            --input - <<EOF
+          {
+            "ref": "${GITHUB_SHA}",
+            "environment": "edge",
+            "description": "Deploy ${GITHUB_SHA} to edge",
+            "auto_merge": false,
+            "required_contexts": []
+          }
+          EOF
+
+      - name: Recreate edge prerelease
+        run: |
+          if gh release view edge >/dev/null 2>&1; then
+            gh release delete edge --cleanup-tag --yes
+          fi
+
+          gh release create edge \
+            --prerelease \
+            --title "Edge Build" \
+            --target "${GITHUB_SHA}" \
+            --notes "Rolling edge build for ${GITHUB_SHA}"
+
+          gh release upload edge dist/* --clobber

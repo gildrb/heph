@@ -32,7 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, Self
 
-from hephaistos.app.palette import (
+from hephaistos.palette import (
     FORGE_EMBER,
     FORGE_IRON,
     FORGE_SMOKE,
