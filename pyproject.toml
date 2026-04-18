@@ -4,15 +4,36 @@ version = "0.1.0"
 description = "Armory-first study CLI"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Gil", email = "hi@gildrb.com" }
 ]
 requires-python = ">=3.13"
+keywords = ["cli", "education", "llm", "rag", "study"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
 dependencies = [
     "keyring>=25.7.0",
     "openai>=1.0.0",
     "prompt-toolkit>=3.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/gildrb/hephaistos"
+Repository = "https://github.com/gildrb/hephaistos"
+Issues = "https://github.com/gildrb/hephaistos/issues"
+Changelog = "https://github.com/gildrb/hephaistos/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 embeddings = [

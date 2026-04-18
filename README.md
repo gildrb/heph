@@ -241,7 +241,7 @@ uv run ruff format --check .
 
 ## Known Limitations
 
-5. **Programmatic API / SDK** — Everything goes through the interactive shell. There's no way to drive the agent loop programmatically (e.g., for batch study workflows, testing, or embedding in another tool).
+1. **Programmatic API / SDK** — Everything goes through the interactive shell. There's no way to drive the agent loop programmatically (e.g., for batch study workflows, testing, or embedding in another tool).
 
 ## License
 

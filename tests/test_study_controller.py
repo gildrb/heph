@@ -120,3 +120,142 @@ def test_missing_assessment_prefix_defaults_to_partial() -> None:
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.last_feedback_type is StudyFeedbackType.PARTIAL
     assert next_state.attempt_count == 1
+
+
+def test_skip_without_current_item_requests_next_source_backed_item() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "skip")
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.retrieval_query == "next source-backed study item"
+
+
+def test_skip_with_current_item_requests_different_source_backed_item() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, "skip")
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.retrieval_query == "different source-backed item from Q1"
+
+
+def test_waiting_for_ready_reminder_keeps_waiting_state() -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, "what now?")
+    next_state, cleaned = apply_turn_result(state, plan, "Say ready when you want recall.", [])
+
+    assert plan.action is StudyAction.WAIT_READY_REMINDER
+    assert cleaned == "Say ready when you want recall."
+    assert next_state.phase is StudyPhase.WAITING_FOR_READY
+    assert next_state.last_feedback_type is StudyFeedbackType.WAITING
+
+
+def test_recall_phase_refuses_reveal_requests() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, "tell me the full answer")
+    next_state, cleaned = apply_turn_result(state, plan, "No. Attempt recall first.", [])
+
+    assert plan.action is StudyAction.REFUSE_REVEAL
+    assert plan.phase is StudyPhase.RECALL
+    assert cleaned == "No. Attempt recall first."
+    assert next_state.phase is StudyPhase.RECALL
+    assert next_state.last_feedback_type is StudyFeedbackType.REFUSED
+
+
+def test_hint_requests_require_a_prior_attempt() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        attempt_count=0,
+    )
+
+    plan = plan_turn(state, "hint please")
+
+    assert plan.action is StudyAction.ASSESS
+    assert plan.use_expected_source_refs is True
+
+
+def test_hint_requests_after_an_attempt_return_hint_plan() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        attempt_count=1,
+    )
+
+    plan = plan_turn(state, "hint please")
+
+    assert plan.action is StudyAction.HINT
+    assert plan.phase is StudyPhase.ASSESS
+    assert plan.retrieval_query == "Q1"
+    assert plan.use_expected_source_refs is True
+    assert plan.allow_tools is False
+
+
+def test_present_result_without_source_refs_resets_current_item() -> None:
+    state = StudyState()
+    plan = plan_turn(state, "Explain question 1")
+
+    next_state, cleaned = apply_turn_result(state, plan, "No grounded source found.", [])
+
+    assert cleaned == "No grounded source found."
+    assert next_state.phase is StudyPhase.PRESENTING
+    assert next_state.current_item == ""
+    assert next_state.retrieval_query == ""
+    assert next_state.expected_source_refs == []
+    assert next_state.last_feedback_type is StudyFeedbackType.NO_SOURCE
+
+
+def test_hint_result_updates_expected_source_refs_when_present() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        expected_source_refs=["old-ref"],
+        attempt_count=1,
+    )
+    plan = plan_turn(state, "need a hint")
+
+    next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        "Start with the first substitution.",
+        ["source/exam.md#chunk=1"],
+    )
+
+    assert cleaned == "Start with the first substitution."
+    assert next_state.phase is StudyPhase.RECALL
+    assert next_state.expected_source_refs == ["source/exam.md#chunk=1"]
+    assert next_state.last_feedback_type is StudyFeedbackType.HINT
+
+
+def test_empty_assessment_body_uses_feedback_fallback_message() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, "attempt")
+    next_state, cleaned = apply_turn_result(state, plan, "WRONG:", [])
+
+    assert cleaned == "Start again from the first step only."
+    assert next_state.phase is StudyPhase.RECALL
+    assert next_state.last_feedback_type is StudyFeedbackType.WRONG
+    assert next_state.attempt_count == 1

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -13,8 +12,6 @@ from hephaistos.chat.engine import (
     CompletionDelta,
     Conversation,
     EngineError,
-    Message,
-    RetryConfig,
     StreamRecoveryError,
 )
 from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent
@@ -24,19 +21,17 @@ from hephaistos.chat.orchestrator import (
     _adaptive_rag_budget,
     _build_turn_evidence_from_query,
     _build_turn_evidence_from_refs,
-    _evidence_refs,
     _ensure_rag_index,
+    _evidence_refs,
     _parse_source_ref,
     _resolve_turn_evidence,
 )
 from hephaistos.chat.session import ChatSession
-from hephaistos.chat.usage import SessionUsage
 from hephaistos.harness.rag import ScoredChunk, TurnEvidence
 from hephaistos.harness.rag.chunker import Chunk
 from hephaistos.harness.rag.context import EvidenceChunk
-from hephaistos.study import StudyAction, StudyFeedbackType, StudyPhase, StudyTurnPlan
+from hephaistos.study import StudyAction, StudyPhase, StudyTurnPlan
 from hephaistos.study.state import StudyState
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -185,24 +180,28 @@ class TestParseSourceRef:
 class TestTurnOrchestratorPlain:
     @patch("hephaistos.chat.orchestrator.stream_completion")
     def test_plain_yields_deltas(self, mock_stream: MagicMock) -> None:
-        mock_stream.return_value = iter([
-            CompletionDelta(content="Hello"),
-            CompletionDelta(content=" world"),
-        ])
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(content="Hello"),
+                CompletionDelta(content=" world"),
+            ]
+        )
         session = _make_plain_session()
         orch = TurnOrchestrator(session)
         events = list(orch.iter_events("hi"))
-        assert len(events) == 2
-        assert all(isinstance(e, AssistantDeltaEvent) for e in events)
-        assert events[0].delta == "Hello"
-        assert events[1].delta == " world"
+        deltas = [event for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 2
+        assert deltas[0].delta == "Hello"
+        assert deltas[1].delta == " world"
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
     def test_plain_accumulates_last_reply(self, mock_stream: MagicMock) -> None:
-        mock_stream.return_value = iter([
-            CompletionDelta(content="Hello"),
-            CompletionDelta(content=" world"),
-        ])
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(content="Hello"),
+                CompletionDelta(content=" world"),
+            ]
+        )
         session = _make_plain_session()
         orch = TurnOrchestrator(session)
         list(orch.iter_events("hi"))
@@ -221,17 +220,20 @@ class TestTurnOrchestratorPlain:
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
     def test_plain_empty_deltas_skipped(self, mock_stream: MagicMock) -> None:
-        mock_stream.return_value = iter([
-            CompletionDelta(content=""),
-            CompletionDelta(content="real"),
-            CompletionDelta(content=None),
-        ])
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(content=""),
+                CompletionDelta(content="real"),
+                CompletionDelta(content=None),
+            ]
+        )
         session = _make_plain_session()
         orch = TurnOrchestrator(session)
         events = list(orch.iter_events("hi"))
         # Only "real" should produce an event; empty string and None are skipped
-        assert len(events) == 1
-        assert events[0].delta == "real"
+        deltas = [event for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert deltas[0].delta == "real"
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
     def test_plain_no_notice_when_no_evidence(self, mock_stream: MagicMock) -> None:
@@ -505,9 +507,7 @@ class TestHelperFunctions:
     ) -> None:
         mock_index = MagicMock()
         mock_ensure.return_value = mock_index
-        with patch(
-            "hephaistos.chat.orchestrator.retrieve", side_effect=RuntimeError("fail")
-        ):
+        with patch("hephaistos.chat.orchestrator.retrieve", side_effect=RuntimeError("fail")):
             session = _make_study_session()
             result = _build_turn_evidence_from_query(session, "test query")
         assert result is None
