@@ -12,3 +12,6 @@ _  # unused function (hephaistos/app/shell.py)
 # BaseHTTPRequestHandler overrides — required by the HTTP server framework.
 _.do_GET  # used by http.server (hephaistos/providers/oauth.py)
 _.log_message  # used by http.server (hephaistos/providers/oauth.py)
+
+# Test handler stubs — **kw accepts arbitrary keyword arguments per handler protocol.
+kw  # unused variable (tests/test_oauth.py, tests/test_tool_registry.py)

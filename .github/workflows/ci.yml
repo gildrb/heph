@@ -24,6 +24,22 @@ jobs:
       - run: uv sync --group dev
       - run: uv run basedpyright
 
+  dead-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --group dev
+      - run: uv run vulture hephaistos tests vulture-whitelist.py
+
+  duplicate-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --group dev
+      - run: uv run pylint --disable=all --enable=duplicate-code hephaistos
+
   test:
     runs-on: ubuntu-latest
     steps:

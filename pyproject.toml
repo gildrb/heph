@@ -147,6 +147,16 @@ reportMissingImports = "none"
 # We use `from __future__ import annotations` everywhere
 reportUnusedImport = "warning"
 
+[tool.pylint.similarities]
+ignore-comments = true
+ignore-docstrings = true
+ignore-imports = true
+min-similarity-lines = 8
+
+[tool.vulture]
+min_confidence = 80
+paths = ["hephaistos", "tests", "vulture-whitelist.py"]
+
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --cov=hephaistos --cov-report=term-missing"
 testpaths = ["tests"]
@@ -156,7 +166,9 @@ dev = [
     "basedpyright>=1.39.0",
     "pytest>=9.0.2",
     "pytest-cov>=7.1.0",
+    "pylint>=3.0",
     "ruff>=0.15.8",
+    "vulture>=2.0",
 ]
 rag = [
     "sentence-transformers>=3.0.0",
