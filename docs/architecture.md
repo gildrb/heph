@@ -2,6 +2,55 @@
 
 Hephaistos follows strict import boundaries enforced by `import-linter`. Only `app` may import from other packages; all other packages are forbidden from importing `app`.
 
+## Dependency flow
+
+```mermaid
+graph TD
+    App[app] --> Chat[chat]
+    App --> Harness[harness]
+    App --> Providers[providers]
+    App --> Armory[armory]
+    App --> Study[study]
+    App --> Memory[memory]
+    App --> Parameters[parameters]
+    App --> Source[source]
+    App --> Logging[logging]
+    App --> Palette[palette]
+
+    Chat --> Harness
+    Chat --> Providers
+    Chat --> Logging
+    Chat --> Memory
+
+    Harness --> Providers
+    Harness --> Logging
+    Harness --> Memory
+
+    Providers --> Logging
+    Providers --> Palette
+
+    Study --> Logging
+
+    Armory --> Logging
+
+    Parameters --> Logging
+
+    Source --> Logging
+
+    Logging --> Palette
+
+    Providers -->|API calls| LLM[OpenAI / Anthropic / etc.]
+    Providers -->|Key storage| Keyring[OS Keyring]
+
+    Harness -->|RAG index| FileStore[Armory Files]
+    Chat -->|Session state| FileStore
+```
+
+The top layer is **app** (CLI shell, commands, workspace). Only **app** may import from
+other packages. All other packages communicate through their public APIs and must not
+import **app**. External services (LLM providers, OS keyring, armory files) are accessed
+through the **providers** and **harness** layers only.
+
 ## Package layout
 
 ```

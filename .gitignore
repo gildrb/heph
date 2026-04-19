@@ -29,6 +29,7 @@ htmlcov/
 # Build
 build/
 dist/
+node_modules/
 
 # Docs
 site/
@@ -37,6 +38,7 @@ site/
 .vscode/
 .zed/
 .superset/
+.idea/
 
 # Project-specific
 /*-armory/

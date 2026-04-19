@@ -23,6 +23,11 @@ repos:
         name: check-large-files
         args: [--maxkb=500]
 
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks
+
   - repo: local
     hooks:
       - id: vulture
@@ -41,5 +46,17 @@ repos:
         name: import-linter (architecture)
         language: python
         entry: lint-imports
+        types: [python]
+        pass_filenames: false
+      - id: deptry
+        name: deptry (unused-deps)
+        language: python
+        entry: deptry hephaistos
+        types: [python]
+        pass_filenames: false
+      - id: radon-complexity
+        name: radon (complexity)
+        language: python
+        entry: radon cc hephaistos -a -nc
         types: [python]
         pass_filenames: false

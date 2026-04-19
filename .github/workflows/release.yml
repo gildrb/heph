@@ -91,10 +91,32 @@ jobs:
           name: dist
           path: dist
 
+      - name: Generate release notes
+        id: notes
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          PREV_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$TAG" ]; then
+            RANGE="${PREV_TAG}..HEAD"
+          else
+            RANGE="HEAD~20..HEAD"
+          fi
+          {
+            echo "## What changed"
+            echo ""
+            git log "${RANGE}" --pretty=format:"- %s (%h)" --no-merges | head -50
+            echo ""
+            echo ""
+            echo "## Full diff"
+            echo ""
+            echo "https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
+          } > /tmp/release-notes.md
+          echo "path=/tmp/release-notes.md" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
           gh release create "${TAG}" \
             dist/* \
             --title "${TAG}" \
-            --notes "Release ${TAG}"
+            --notes-file "${{ steps.notes.outputs.path }}"

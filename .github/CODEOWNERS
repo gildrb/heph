@@ -1,0 +1,19 @@
+# CODEOWNERS - Assigns default reviewers for pull requests
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything
+*       @gildrb
+
+# Core CLI and shell
+/hephaistos/app/       @gildrb
+
+# LLM engine and chat
+/hephaistos/chat/      @gildrb
+/hephaistos/harness/   @gildrb
+
+# Providers and authentication
+/hephaistos/providers/ @gildrb
+
+# Infrastructure and build
+/pyproject.toml        @gildrb
+/.github/             @gildrb

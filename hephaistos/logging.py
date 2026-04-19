@@ -5,6 +5,8 @@ Provides:
   stderr and (optionally) a log file.
 - ``TraceWriter`` — per-session request/response trace files stored inside
   the armory's ``.hephaistos/traces/`` directory.
+- ``redact_value(value)`` — redact a string value if it matches a known
+  secret pattern (for use by other modules).
 
 Configuration (environment variables):
     HEPHAISTOS_LOG_LEVEL  — DEBUG, INFO, WARNING, ERROR.
@@ -26,6 +28,7 @@ import contextlib
 import json
 import logging
 import os
+import re as _re
 import sys
 import time
 from datetime import UTC, datetime
@@ -38,6 +41,50 @@ from hephaistos.palette import (
     FORGE_SMOKE,
     ansi_fg,
 )
+
+# -- Redaction / scrubbing ---------------------------------------------------
+
+# Patterns for dict keys whose values should always be redacted
+_SENSITIVE_KEY_PATTERNS: list[_re.Pattern[str]] = [
+    _re.compile(r"(?i)(api.?key|secret|token(?!s)|password|auth(orization|entication))"),
+    _re.compile(r"(?i)(bearer|credential|private.?key)"),
+]
+
+# Patterns for string values that look like secrets
+_SENSITIVE_VALUE_PATTERNS: list[_re.Pattern[str]] = [
+    _re.compile(r"^sk-[a-zA-Z0-9]{20,}$"),  # OpenAI-style API keys
+    _re.compile(r"^sk-ant-[a-zA-Z0-9\-]{20,}$"),  # Anthropic-style keys
+    _re.compile(r"^Bearer\s+\S+$", _re.IGNORECASE),  # Bearer tokens
+    _re.compile(r"^[a-f0-9]{32,}$"),  # Long hex strings (potential tokens)
+]
+
+_REDACTED = "***REDACTED***"
+
+
+def _is_sensitive_key(key: str) -> bool:
+    return any(p.search(key) for p in _SENSITIVE_KEY_PATTERNS)
+
+
+def redact_value(value: str) -> str:
+    """Redact a string value if it matches a known secret pattern."""
+    if any(p.search(value) for p in _SENSITIVE_VALUE_PATTERNS):
+        return _REDACTED
+    return value
+
+
+def _redact_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of *data* with sensitive keys and values redacted."""
+    redacted: dict[str, Any] = {}
+    for key, value in data.items():
+        if _is_sensitive_key(key):
+            redacted[key] = _REDACTED
+        elif isinstance(value, dict):
+            redacted[key] = _redact_dict(value)
+        elif isinstance(value, str):
+            redacted[key] = redact_value(value)
+        else:
+            redacted[key] = value
+    return redacted
 
 
 class _JsonFormatter(logging.Formatter):
@@ -52,11 +99,11 @@ class _JsonFormatter(logging.Formatter):
         }
         fields = getattr(record, "fields", None)
         if fields and isinstance(fields, dict):
-            entry.update(fields)
+            entry.update(_redact_dict(fields))
         if record.exc_info and record.exc_info[1] is not None:
             entry["exc"] = self.formatException(record.exc_info)
 
-        return json.dumps(entry, default=str, ensure_ascii=False)
+        return json.dumps(_redact_dict(entry), default=str, ensure_ascii=False)
 
 
 class _TextFormatter(logging.Formatter):
@@ -80,7 +127,8 @@ class _TextFormatter(logging.Formatter):
 
         parts = [f"{self._DIM}{ts}{self._RESET} {level} {record.name}: {record.getMessage()}"]
         if fields and isinstance(fields, dict):
-            for k, v in fields.items():
+            redacted_fields = _redact_dict(fields)
+            for k, v in redacted_fields.items():
                 parts.append(f"  {self._DIM}{k}={v}{self._RESET}")
 
         if record.exc_info and record.exc_info[1] is not None:
@@ -222,7 +270,7 @@ class TraceWriter:
         fh = self._ensure_handle()
         if fh is None:
             return
-        line = json.dumps(event, default=str, ensure_ascii=False)
+        line = json.dumps(_redact_dict(event), default=str, ensure_ascii=False)
         try:
             fh.write(line + "\n")
             fh.flush()
