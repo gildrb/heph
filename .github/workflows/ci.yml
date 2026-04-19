@@ -154,7 +154,7 @@ jobs:
           echo "| test pytest | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: .artifacts/pytest-junit.xml
