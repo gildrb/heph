@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 from hephaistos.app.shell import run_chat_shell
@@ -10,12 +11,15 @@ from hephaistos.chat.cli import register as register_chat_commands
 from hephaistos.parameters.cli import register as register_config_commands
 from hephaistos.source.cli import register as register_source_commands
 
-try:
-    from importlib.metadata import version as _pkg_version
 
-    _VERSION = _pkg_version("hephaistos")
-except Exception:
-    _VERSION = "0.1.0"
+def _package_version() -> str:
+    try:
+        return _pkg_version("hephaistos")
+    except Exception:
+        return "0.1.0"
+
+
+_VERSION = _package_version()
 
 
 def _hide_subparser(

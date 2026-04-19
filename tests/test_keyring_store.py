@@ -23,7 +23,7 @@ _TEST_SLUG = "__test_hephaistos_unit__"
 
 
 @pytest.fixture(autouse=True)
-def _clean_test_key():
+def _clean_test_key():  # pyright: ignore[reportUnusedFunction]
     """Ensure no leftover test key in system keyring."""
     with contextlib.suppress(Exception):
         keyring.delete_password(f"{_SERVICE_PREFIX}:{_TEST_SLUG}", _USERNAME)

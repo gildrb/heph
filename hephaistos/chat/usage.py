@@ -245,7 +245,7 @@ def save_usage(
     usage: SessionUsage,
 ) -> Path | None:
     """Persist session usage to the armory."""
-    if armory_path is None:
+    if armory_path is None:  # pyright: ignore[reportUnnecessaryComparison]
         return None
 
     usage_dir = armory_path / ".hephaistos" / _USAGE_DIR

@@ -336,11 +336,11 @@ def stream_completion(
             "stream": True,
         }
         if tools:
-            request_kwargs["tools"] = tools
+            request_kwargs["tools"] = tools  # type: ignore[assignment]
 
         try:
             with timer:
-                stream = client.chat.completions.create(**request_kwargs)
+                stream = client.chat.completions.create(**request_kwargs)  # type: ignore[call-overload]
         except Exception as exc:
             last_error = exc
             log = (

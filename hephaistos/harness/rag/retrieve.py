@@ -27,9 +27,9 @@ try:
     import numpy as np
     from sklearn.feature_extraction.text import TfidfVectorizer as _SklearnTfidfVectorizer
 
-    _HAS_SKLEARN = True
+    _has_sklearn = True
 except ImportError:
-    _HAS_SKLEARN = False
+    _has_sklearn = False
     np = None  # type: ignore[assignment]
     _SklearnTfidfVectorizer = None  # type: ignore[assignment,misc]
 
@@ -197,7 +197,7 @@ class TfidfRetriever:
         self._idf: dict[str, float] = {}
         self._chunk_freqs: list[Counter] = []
         if self._chunks:
-            if _HAS_SKLEARN:
+            if _has_sklearn:
                 try:
                     self._build_sklearn()
                 except Exception:

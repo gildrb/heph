@@ -15,7 +15,7 @@ from hephaistos.chat.session import create_session
 
 
 @pytest.fixture(autouse=True)
-def _isolate_global_state() -> Generator[None]:
+def _isolate_global_state() -> Generator[None]:  # pyright: ignore[reportUnusedFunction]
     """Reset mutable module-level globals between tests."""
     import hephaistos.logging as _log_mod
     import hephaistos.providers.keyring_store as _ks

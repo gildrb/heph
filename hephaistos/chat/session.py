@@ -47,13 +47,13 @@ class ChatSession:
     persona: Persona = field(default_factory=lambda: resolve_persona(None))
 
     def __post_init__(self) -> None:
-        if self.trace is None:
+        if self.trace is None:  # pyright: ignore[reportUnnecessaryComparison]
             object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))
-        if self.steering is None:
+        if self.steering is None:  # pyright: ignore[reportUnnecessaryComparison]
             from hephaistos.harness.dispatch import SteeringQueue
 
             object.__setattr__(self, "steering", SteeringQueue())
-        if self._tool_registry is None:
+        if self._tool_registry is None:  # pyright: ignore[reportUnnecessaryComparison]
             object.__setattr__(self, "_tool_registry", default_registry.child())
 
 
@@ -129,7 +129,7 @@ def _build_plain_system_prompt(persona: Persona) -> str:
     return f"{persona.role_block}\n\n{_PLAIN_CHAT_CONTEXT}"
 
 
-def _replace_system_prompt(session: ChatSession) -> None:
+def _replace_system_prompt(session: ChatSession) -> None:  # pyright: ignore[reportUnusedFunction]
     """Replace the system prompt in the conversation with the current persona."""
     if session.armory_path is None:
         new_prompt = _build_plain_system_prompt(session.persona)
@@ -171,7 +171,7 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
 
 def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     """Create a fresh chat session scoped to an armory."""
-    if armory_path is None:  # runtime guard for untyped callers
+    if armory_path is None:  # pyright: ignore[reportUnnecessaryComparison] runtime guard for untyped callers
         raise SessionError("An armory is required. Create one with: hephaistos armory init <path>")
 
     source_file_count = _count_source_files(armory_path)

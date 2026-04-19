@@ -6,6 +6,7 @@ import json
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any, TypedDict, cast
 
 from hephaistos.chat.engine import (
     ChatConfig,
@@ -40,6 +41,21 @@ _MAX_RESULT_DISPLAY = 200
 _MAX_TOOL_CALLS_PER_TURN = 5
 
 
+class _ToolCallFunction(TypedDict):
+    name: str
+    arguments: str
+
+
+class _ToolCall(TypedDict):
+    id: str
+    type: str
+    function: _ToolCallFunction
+
+
+def _tool_calls_view(tool_calls: list[_ToolCall] | list[dict[str, Any]]) -> list[_ToolCall]:
+    return cast("list[_ToolCall]", tool_calls)
+
+
 class SteeringQueue:
     """Thread-safe queue for steering messages typed while the agent works."""
 
@@ -70,28 +86,29 @@ class SteeringQueue:
 
 
 def execute_tool_calls(
-    tool_calls: list[dict],
+    tool_calls: list[_ToolCall] | list[dict[str, Any]],
     workspace: Path,
     *,
     registry: ToolRegistry | None = None,
     max_calls: int = _MAX_TOOL_CALLS_PER_TURN,
-) -> list[dict]:
+) -> list[dict[str, str]]:
     """Execute each tool call and return tool-result messages."""
+    parsed_tool_calls = _tool_calls_view(tool_calls)
     if registry is None:
         registry = default_registry
-    if len(tool_calls) > max_calls:
+    if len(parsed_tool_calls) > max_calls:
         _log.warning(
             "tool call limit exceeded",
             extra={
                 "fields": {
-                    "requested": len(tool_calls),
+                    "requested": len(parsed_tool_calls),
                     "max": max_calls,
                 }
             },
         )
 
-    results: list[dict] = []
-    for i, tc in enumerate(tool_calls):
+    results: list[dict[str, str]] = []
+    for i, tc in enumerate(parsed_tool_calls):
         call_id = tc.get("id", "")
         name = tc["function"]["name"]
         if i >= max_calls:
@@ -109,7 +126,7 @@ def execute_tool_calls(
             continue
 
         try:
-            arguments = json.loads(tc["function"]["arguments"])
+            arguments = cast("dict[str, Any]", json.loads(tc["function"]["arguments"]))
         except json.JSONDecodeError:
             _log.warning(
                 "tool call invalid JSON",
@@ -191,31 +208,39 @@ def execute_tool_calls(
 
 
 def _merge_tool_call_deltas(
-    accumulated: list[dict],
-    deltas: list[dict],
+    accumulated: list[_ToolCall] | list[dict[str, Any]],
+    deltas: list[dict[str, Any]],
 ) -> None:
     """Merge streaming tool-call deltas into accumulated list in-place."""
+    tool_calls = _tool_calls_view(accumulated)
     for delta in deltas:
-        idx = delta.get("index", 0)
-        while len(accumulated) <= idx:
-            accumulated.append(
+        raw_index = delta.get("index", 0)
+        idx = raw_index if isinstance(raw_index, int) else 0
+        while len(tool_calls) <= idx:
+            tool_calls.append(
                 {
                     "id": "",
                     "type": "function",
                     "function": {"name": "", "arguments": ""},
                 }
             )
-        entry = accumulated[idx]
-        if delta.get("id"):
-            entry["id"] = delta["id"]
-        fn = delta.get("function", {})
-        if fn.get("name"):
-            entry["function"]["name"] += fn["name"]
-        if fn.get("arguments"):
-            entry["function"]["arguments"] += fn["arguments"]
+        entry = tool_calls[idx]
+        raw_id = delta.get("id")
+        if isinstance(raw_id, str) and raw_id:
+            entry["id"] = raw_id
+        raw_fn = delta.get("function", {})
+        if not isinstance(raw_fn, dict):
+            continue
+        fn = cast("dict[str, Any]", raw_fn)
+        raw_name = fn.get("name")
+        if isinstance(raw_name, str) and raw_name:
+            entry["function"]["name"] += raw_name
+        raw_arguments = fn.get("arguments")
+        if isinstance(raw_arguments, str) and raw_arguments:
+            entry["function"]["arguments"] += raw_arguments
 
 
-def _summarise_args(name: str, args: dict) -> dict:
+def _summarise_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Summarise tool args for logging (truncate large content)."""
     if name == "bash":
         return {"command": args.get("command", "")[:200]}
@@ -226,7 +251,7 @@ def _summarise_args(name: str, args: dict) -> dict:
     }
 
 
-def _format_tool_args(name: str, args: dict) -> str:
+def _format_tool_args(name: str, args: dict[str, Any]) -> str:
     """Format tool call for display."""
     if name == "bash":
         return f"  $ {args.get('command', '')}"
@@ -387,9 +412,9 @@ def iter_agent_events(
             llm_messages = _inject_turn_context(api_messages, turn_evidence, extra_system_prompt)
 
         collected_text = ""
-        collected_tool_calls: list[dict] = []
+        collected_tool_calls: list[_ToolCall] = []
         finish_reason = ""
-        stream_usage: dict | None = None
+        stream_usage: dict[str, int] | None = None
         turn_timer = Timer()
 
         with turn_timer:

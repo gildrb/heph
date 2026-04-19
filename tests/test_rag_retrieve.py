@@ -173,7 +173,7 @@ class TestTfidfRetriever:
         index = _make_index_with_chunks(chunks)
 
         with (
-            patch("hephaistos.harness.rag.retrieve._HAS_SKLEARN", True),
+            patch("hephaistos.harness.rag.retrieve._has_sklearn", True),
             patch("hephaistos.harness.rag.retrieve._SklearnTfidfVectorizer", FakeVectorizer),
         ):
             TfidfRetriever(index)

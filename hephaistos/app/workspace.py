@@ -225,7 +225,7 @@ def _list_saved_chats(session: ChatSession) -> None:
         print(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
 
 
-def _handle_armory_command(session: ChatSession) -> ChatSession:
+def _handle_armory_command(session: ChatSession) -> ChatSession:  # pyright: ignore[reportUnusedFunction]
     selected = select_option("Armory", ARMORY_MENU_OPTIONS)
     handlers = [
         _open_armory,
