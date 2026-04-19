@@ -24,7 +24,7 @@ import importlib.util
 import ipaddress
 import re
 import socket
-import subprocess
+import subprocess  # nosec B404
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -364,7 +364,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
     actual_timeout = _BASH_TIMEOUT if timeout is None else timeout
     start = _time.monotonic()
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B602
             command,
             shell=True,
             capture_output=True,
@@ -592,7 +592,7 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
         headers={"User-Agent": _WEB_USER_AGENT},
     )
     try:
-        with urllib.request.urlopen(req, timeout=_WEB_FETCH_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=_WEB_FETCH_TIMEOUT) as resp:  # nosec B310
             content_type = resp.headers.get("Content-Type", "")
             if not any(ct in content_type for ct in ("text", "json", "xml")):
                 return f"Error: non-text content type ({content_type}). URL: {url}"

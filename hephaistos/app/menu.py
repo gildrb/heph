@@ -41,6 +41,7 @@ _MENU_STYLE = PtStyle.from_dict(
         "menu.option": FORGE_ASH,
         "menu.option.current": f"bg:{FORGE_PANEL} fg:{FORGE_ASH} bold",
         "menu.description": FORGE_SMOKE,
+        "menu.description.current": f"fg:{FORGE_ASH}",
         "menu.hint": FORGE_SMOKE,
     }
 )
@@ -69,11 +70,12 @@ def _format_menu(title: str, options: list[MenuOption], selected: int):
     for index, option in enumerate(options):
         is_selected = index == selected
         option_style = "class:menu.option.current" if is_selected else "class:menu.option"
+        desc_style = "class:menu.description.current" if is_selected else "class:menu.description"
         marker = ">" if is_selected else " "
         label = option.label.ljust(max_label) if option.description else option.label
         fragments.append((option_style, f"  {marker} {index + 1}. {label}"))
         if option.description:
-            fragments.append(("class:menu.description", f"  {option.description}"))
+            fragments.append((desc_style, f"  {option.description}"))
         if option.is_current:
             fragments.append(("class:menu.title", "  current"))
         fragments.append(("", "\n"))

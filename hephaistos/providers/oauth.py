@@ -15,6 +15,7 @@ import base64
 import hashlib
 import json
 import secrets
+import ssl
 import time
 import webbrowser
 from dataclasses import dataclass
@@ -169,10 +170,36 @@ def _start_callback_server() -> HTTPServer | None:
 # --- Token exchange ---------------------------------------------------------
 
 
+def _ssl_context() -> ssl.SSLContext:
+    """Build an SSL context that can verify server certificates on macOS.
+
+    On macOS Python often cannot locate the system certificate store, causing
+    ``[SSL: CERTIFICATE_VERIFY_FAILED]``.  This helper tries the default
+    context first, then falls back to the ``certifi`` CA bundle (always
+    available as a transitive dependency of ``openai``/``keyring``).
+    """
+    try:
+        ctx = ssl.create_default_context()
+        if ctx.get_ca_certs():
+            return ctx
+    except Exception:
+        pass
+    # certifi is guaranteed available (transitive dep of openai/keyring).
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    # Last resort: default context without certifi (will likely fail, but
+    # avoids crashing before the actual network call).
+    return ssl.create_default_context()
+
+
 def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
     body = urlencode(data).encode()
     req = Request(url, data=body, headers={"Content-Type": "application/x-www-form-urlencoded"})
-    with urlopen(req, timeout=30) as resp:
+    with urlopen(req, timeout=30, context=_ssl_context()) as resp:  # nosec B310
         return json.loads(resp.read())
 
 

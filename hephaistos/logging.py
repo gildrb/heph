@@ -1,5 +1,10 @@
 """Structured logging and observability for Hephaistos.
 
+This module implements **log sanitization** as a security mechanism: all
+structured log output and trace files pass through redaction functions that
+scrub API keys, Bearer tokens, and other secrets before they are written.
+See ``redact_value``, ``redact_text``, and ``_redact_dict``.
+
 Provides:
 - ``get_logger(name)`` — returns a logger that emits structured JSON to
   stderr and (optionally) a log file.
@@ -7,6 +12,8 @@ Provides:
   the armory's ``.hephaistos/traces/`` directory.
 - ``redact_value(value)`` — redact a string value if it matches a known
   secret pattern (for use by other modules).
+- ``redact_text(text)`` — redact sensitive patterns embedded within a raw
+  string (handles secrets that bypass dict-level redaction).
 
 Configuration (environment variables):
     HEPHAISTOS_LOG_LEVEL  — DEBUG, INFO, WARNING, ERROR.
@@ -58,6 +65,14 @@ _SENSITIVE_VALUE_PATTERNS: list[_re.Pattern[str]] = [
     _re.compile(r"^[a-f0-9]{32,}$"),  # Long hex strings (potential tokens)
 ]
 
+# Unanchored versions for finding secrets embedded within longer text
+_SENSITIVE_TEXT_PATTERNS: list[_re.Pattern[str]] = [
+    _re.compile(r"sk-[a-zA-Z0-9]{20,}"),  # OpenAI-style API keys
+    _re.compile(r"sk-ant-[a-zA-Z0-9\-]{20,}"),  # Anthropic-style keys
+    _re.compile(r"Bearer\s+\S+", _re.IGNORECASE),  # Bearer tokens
+    _re.compile(r"\b[a-f0-9]{32,}\b"),  # Long hex strings (potential tokens)
+]
+
 _REDACTED = "***REDACTED***"
 
 
@@ -72,6 +87,19 @@ def redact_value(value: str) -> str:
     return value
 
 
+def redact_text(text: str) -> str:
+    """Redact sensitive patterns found within a raw string.
+
+    Unlike :func:`redact_value` which only matches whole-string secrets,
+    this scans for secrets **embedded** inside longer text (e.g. a user
+    message containing an API key) and replaces each match with
+    ``[REDACTED]``.
+    """
+    for pattern in _SENSITIVE_TEXT_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
+
+
 def _redact_dict(data: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of *data* with sensitive keys and values redacted."""
     redacted: dict[str, Any] = {}
@@ -81,7 +109,7 @@ def _redact_dict(data: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(value, dict):
             redacted[key] = _redact_dict(value)
         elif isinstance(value, str):
-            redacted[key] = redact_value(value)
+            redacted[key] = redact_text(value)
         else:
             redacted[key] = value
     return redacted

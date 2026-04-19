@@ -19,6 +19,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -37,6 +44,9 @@ jobs:
 
       - name: Basedpyright
         run: uv run basedpyright
+
+      - name: Bandit
+        run: uv run bandit -r hephaistos -c pyproject.toml
 
       - name: Vulture
         run: uv run vulture hephaistos tests vulture-whitelist.py

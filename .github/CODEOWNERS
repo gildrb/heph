@@ -14,6 +14,21 @@
 # Providers and authentication
 /hephaistos/providers/ @gildrb
 
+# Armory and knowledge
+/hephaistos/armory/       @gildrb
+/hephaistos/study/        @gildrb
+/hephaistos/memory/       @gildrb
+/hephaistos/parameters/   @gildrb
+/hephaistos/source/       @gildrb
+
+# Security-critical redaction code
+/hephaistos/logging.py    @gildrb
+
+# Infrastructure
+/tests/                   @gildrb
+/docs/                    @gildrb
+/scripts/                 @gildrb
+
 # Infrastructure and build
 /pyproject.toml        @gildrb
 /.github/             @gildrb
