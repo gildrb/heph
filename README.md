@@ -46,7 +46,7 @@ You can either:
 - set a generic override with `HEPHAISTOS_API_KEY`
 - start the shell and use `/api key <your-key>`
 
-API keys are resolved from the OS keychain first, then environment variables, then a session-only in-memory override. They are not written to `providers.toml`.
+API keys are resolved in this order: `HEPHAISTOS_API_KEY`, OS keychain, OAuth credentials, provider-specific environment variable, then a session-only in-memory override. They are not written to `providers.toml`.
 
 ### Install as a tool
 
@@ -93,12 +93,17 @@ If an armory has no source files, `chat start` will fail until you add material 
 ```text
 hephaistos armory init <path>         Create a new armory workspace
 hephaistos armory open <path>         Validate an existing armory
+hephaistos source list <path>         List source documents
+hephaistos source count <path>        Count source documents
+hephaistos source index <path>        Build or refresh the RAG index
+hephaistos config show                Display current configuration
+hephaistos config set <key> <value>   Persist a configuration override
 hephaistos chat start <path>          Start a new chat session in an armory
 hephaistos chat resume <path> <id>    Resume a saved chat session
 hephaistos chat list <path>           List saved chat sessions
 ```
 
-The top-level CLI is shell-first, so `chat` is implemented but hidden from `hephaistos --help`.
+The top-level CLI is shell-first. `armory`, `source`, and `config` are visible in `hephaistos --help`; `chat` is implemented but hidden from top-level help.
 
 ### Slash Commands
 
@@ -115,12 +120,15 @@ The top-level CLI is shell-first, so `chat` is implemented but hidden from `heph
 | `/provider` | Show or switch the active provider and model |
 | `/models` | List the built-in model catalog across providers |
 | `/api` | Inspect or set the API key / base URL |
+| `/login` | Authenticate with an LLM provider via OAuth |
+| `/logout` | Clear stored OAuth credentials |
 | `/compact` | Summarize the conversation to free context |
 | `/history` | Show turn counts and a token estimate |
 | `/persona` | Show or switch the agent persona |
 | `/usage` | Show tracked token usage and estimated cost |
 | `/edit` | Edit and resend the last user message |
 | `/exit` | Leave the shell |
+| `/quit` | Leave the shell |
 
 ### Shell Shortcuts
 
@@ -144,7 +152,6 @@ An armory is a normal directory with a fixed layout:
 my-armory/
   .hephaistos/
     armory.toml         # armory marker and metadata
-    config.toml         # optional configuration overrides
     system_prompt.md    # optional custom system prompt (replaces default persona)
     history             # shell history for this armory (created on use)
     memory.json         # extracted study memory
@@ -173,6 +180,17 @@ Provider definitions live in `~/.config/hephaistos/providers.toml`. On first loa
 
 The default active provider is `zai`. Switch providers in the shell with `/provider`, or switch models with `/model`.
 
+### User configuration
+
+User overrides live in `~/.config/hephaistos/config.json`. Manage them with:
+
+```bash
+hephaistos config show
+hephaistos config set model glm-5
+```
+
+Supported keys are `base_url`, `model`, `max_tokens`, `rag_context_budget`, and `feature_flags`. Environment variables take priority over user overrides, which take priority over provider config and built-in defaults.
+
 ### System prompt
 
 By default, every armory uses the built-in drill-instructor persona (study loop, recall-first rules, etc.). To override it, create `.hephaistos/system_prompt.md` in the armory:
@@ -199,9 +217,7 @@ Anti-hallucination rules, tool documentation, format rules, and dynamic context 
 | `HEPHAISTOS_MODEL` | Override the active model |
 | `HEPHAISTOS_MAX_TOKENS` | Max output tokens per response |
 | `HEPHAISTOS_RAG_CONTEXT_BUDGET` | Token budget for injected retrieval context |
-| `HEPHAISTOS_MAX_RETRIES` | Max streaming retry attempts |
-| `HEPHAISTOS_RETRY_BASE_DELAY` | Initial retry backoff in seconds |
-| `HEPHAISTOS_RETRY_MAX_DELAY` | Max retry backoff in seconds |
+| `HEPHAISTOS_FEATURE_FLAGS` | Comma-separated feature flags |
 | `HEPHAISTOS_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
 | `HEPHAISTOS_LOG_FILE` | Optional append-only log file path |
 | `HEPHAISTOS_LOG_FORMAT` | `json` or `text` for stderr logs |
@@ -225,7 +241,7 @@ hephaistos/
   memory/         learned-concept extraction and persistence
   parameters/     default parameter loading and env overrides
   providers/      provider config, model registry, keyring integration
-  source/         public package entrypoint (re-exports CLI)
+  source/         source document management CLI
   logging.py      structured JSON logging and per-session trace writer
 tests/            unit and integration tests
 ```

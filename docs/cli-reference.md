@@ -5,12 +5,17 @@
 ```text
 hephaistos armory init <path>         Create a new armory workspace
 hephaistos armory open <path>         Validate an existing armory
+hephaistos source list <path>         List source documents
+hephaistos source count <path>        Count source documents
+hephaistos source index <path>        Build or refresh the RAG index
+hephaistos config show                Display current configuration
+hephaistos config set <key> <value>   Persist a configuration override
 hephaistos chat start <path>          Start a new chat session in an armory
 hephaistos chat resume <path> <id>    Resume a saved chat session
 hephaistos chat list <path>           List saved chat sessions
 ```
 
-The top-level CLI is shell-first, so `chat` is implemented but hidden from `hephaistos --help`.
+The top-level CLI is shell-first. `armory`, `source`, and `config` are visible in `hephaistos --help`; `chat` is implemented but hidden from top-level help.
 
 ## Slash commands
 
@@ -27,12 +32,15 @@ The top-level CLI is shell-first, so `chat` is implemented but hidden from `heph
 | `/provider` | Show or switch the active provider and model |
 | `/models` | List the built-in model catalog across providers |
 | `/api` | Inspect or set the API key / base URL |
+| `/login` | Authenticate with an LLM provider via OAuth |
+| `/logout` | Clear stored OAuth credentials |
 | `/compact` | Summarize the conversation to free context |
 | `/history` | Show turn counts and a token estimate |
 | `/persona` | Show or switch the agent persona |
 | `/usage` | Show tracked token usage and estimated cost |
 | `/edit` | Edit and resend the last user message |
 | `/exit` | Leave the shell |
+| `/quit` | Leave the shell |
 
 ## Shell shortcuts
 
@@ -57,9 +65,7 @@ The top-level CLI is shell-first, so `chat` is implemented but hidden from `heph
 | `HEPHAISTOS_MODEL` | Override the active model |
 | `HEPHAISTOS_MAX_TOKENS` | Max output tokens per response |
 | `HEPHAISTOS_RAG_CONTEXT_BUDGET` | Token budget for injected retrieval context |
-| `HEPHAISTOS_MAX_RETRIES` | Max streaming retry attempts |
-| `HEPHAISTOS_RETRY_BASE_DELAY` | Initial retry backoff in seconds |
-| `HEPHAISTOS_RETRY_MAX_DELAY` | Max retry backoff in seconds |
+| `HEPHAISTOS_FEATURE_FLAGS` | Comma-separated feature flags |
 | `HEPHAISTOS_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
 | `HEPHAISTOS_LOG_FILE` | Optional append-only log file path |
 | `HEPHAISTOS_LOG_FORMAT` | `json` or `text` for stderr logs |

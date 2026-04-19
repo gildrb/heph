@@ -46,7 +46,7 @@ You can either:
 - set a generic override with `HEPHAISTOS_API_KEY`
 - start the shell and use `/api key <your-key>`
 
-API keys are resolved from the OS keychain first, then environment variables, then a session-only in-memory override. They are not written to `providers.toml`.
+API keys are resolved in this order: `HEPHAISTOS_API_KEY`, OS keychain, OAuth credentials, provider-specific environment variable, then a session-only in-memory override. They are not written to `providers.toml`.
 
 ### Install as a tool
 

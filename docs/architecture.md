@@ -56,7 +56,6 @@ An armory is a normal directory with a fixed layout:
 my-armory/
   .hephaistos/
     armory.toml         # armory marker and metadata
-    config.toml         # optional configuration overrides
     system_prompt.md    # optional custom system prompt (replaces default persona)
     history             # shell history for this armory (created on use)
     memory.json         # extracted study memory
