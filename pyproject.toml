@@ -238,7 +238,7 @@ dev = [
     "pylint>=3.0",
     "radon>=6.0",
     "ruff>=0.15.8",
-    "vulture>=2.0",
+    "vulture>=2.16",
     "import-linter>=2.11",
 ]
 rag = [
