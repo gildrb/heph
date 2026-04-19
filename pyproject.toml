@@ -229,7 +229,7 @@ fail_under = 75
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.0",
-    "deptry>=0.22",
+    "deptry>=0.25.1",
     "pytest>=9.0.2",
     "pytest-cov>=7.1.0",
     "pytest-randomly>=0.1",
