@@ -30,6 +30,9 @@ htmlcov/
 build/
 dist/
 
+# Docs
+site/
+
 # IDE
 .vscode/
 .zed/

@@ -222,7 +222,9 @@ dev = [
     "basedpyright>=1.39.0",
     "pytest>=9.0.2",
     "pytest-cov>=7.1.0",
+    "pytest-randomly>=0.1",
     "pytest-rerunfailures>=14.0",
+    "pytest-xdist>=0.1",
     "pylint>=3.0",
     "ruff>=0.15.8",
     "vulture>=2.0",
@@ -234,4 +236,10 @@ rag = [
 ]
 docling = [
     "docling>=2.0.0",
+]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.27.0",
+    "mkdocs-autorefs>=1.2.0",
 ]

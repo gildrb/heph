@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-
-import pytest
 
 from hephaistos.providers.oauth import (
     OAuthCredentials,
@@ -138,9 +135,7 @@ class TestCredentialPersistence:
 
         assert key == ""
 
-    def test_load_auto_refreshes_expired_token(
-        self, isolated_auth_dir: SimpleNamespace
-    ) -> None:
+    def test_load_auto_refreshes_expired_token(self, isolated_auth_dir: SimpleNamespace) -> None:
         expired = OAuthCredentials(
             provider="openai-codex",
             access_token="old_at",

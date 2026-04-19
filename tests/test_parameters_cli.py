@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -33,22 +32,17 @@ def test_config_show_uses_registered_handler(monkeypatch, capsys) -> None:
     assert "rag_context_budget: 4321" in out
 
 
-def test_config_set_persists_override(monkeypatch, tmp_path: Path, capsys) -> None:
-    config_dir = tmp_path / "config"
-    config_file = config_dir / "config.json"
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
-
+def test_config_set_persists_override(isolated_config_dir, capsys) -> None:
     run_argv(build_parser(), ["config", "set", "model", "gpt-test"])
 
     out = capsys.readouterr().out
     assert "Set model = gpt-test" in out
-    assert json.loads(config_file.read_text(encoding="utf-8")) == {"model": "gpt-test"}
+    saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
+    assert saved == {"model": "gpt-test"}
 
 
-def test_load_config_precedence(monkeypatch, tmp_path: Path) -> None:
-    defaults_file = tmp_path / "default.toml"
-    defaults_file.write_text(
+def test_load_config_precedence(monkeypatch, isolated_config_dir) -> None:
+    isolated_config_dir.defaults_file.write_text(
         "\n".join(
             [
                 'base_url = "https://defaults.example/v1"',
@@ -59,10 +53,8 @@ def test_load_config_precedence(monkeypatch, tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    config_dir = tmp_path / "user-config"
-    config_file = config_dir / "config.json"
-    config_dir.mkdir()
-    config_file.write_text(
+    isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
+    isolated_config_dir.config_file.write_text(
         json.dumps(
             {
                 "base_url": "https://user.example/v1",
@@ -73,10 +65,6 @@ def test_load_config_precedence(monkeypatch, tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-
-    monkeypatch.setattr(params_cli, "_DEFAULTS_FILE", defaults_file)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
 
     class _FakeProviderConfig:
         def apply_to_config(self, config: ChatConfig) -> None:
@@ -102,18 +90,13 @@ def test_load_config_precedence(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
-    monkeypatch, tmp_path: Path
+    monkeypatch, isolated_config_dir
 ) -> None:
-    config_dir = tmp_path / "user-config"
-    config_file = config_dir / "config.json"
-    config_dir.mkdir()
-    config_file.write_text(
+    isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
+    isolated_config_dir.config_file.write_text(
         json.dumps({"model": "user-model", "rag_context_budget": "2500"}),
         encoding="utf-8",
     )
-
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
         classmethod(lambda cls: SimpleNamespace(apply_to_config=lambda _config: None)),
@@ -125,9 +108,8 @@ def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
     assert config.rag_context_budget == 2500
 
 
-def test_parse_toml_simple_handles_comments_and_literals(tmp_path: Path) -> None:
-    path = tmp_path / "default.toml"
-    path.write_text(
+def test_parse_toml_simple_handles_comments_and_literals(isolated_config_dir) -> None:
+    isolated_config_dir.defaults_file.write_text(
         "\n".join(
             [
                 "# comment",
@@ -142,7 +124,7 @@ def test_parse_toml_simple_handles_comments_and_literals(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    assert params_cli._parse_toml_simple(path) == {
+    assert params_cli._parse_toml_simple(isolated_config_dir.defaults_file) == {
         "base_url": "https://example.com/v1",
         "max_tokens": "2048",
         "enabled": "true",
@@ -150,23 +132,19 @@ def test_parse_toml_simple_handles_comments_and_literals(tmp_path: Path) -> None
     }
 
 
-def test_load_user_overrides_returns_empty_for_invalid_json(monkeypatch, tmp_path: Path) -> None:
-    config_file = tmp_path / "config.json"
-    config_file.write_text("{", encoding="utf-8")
-
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
+def test_load_user_overrides_returns_empty_for_invalid_json(isolated_config_dir) -> None:
+    isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
+    isolated_config_dir.config_file.write_text("{", encoding="utf-8")
 
     assert params_cli._load_user_overrides() == {}
 
 
-def test_load_user_overrides_filters_unknown_keys(monkeypatch, tmp_path: Path) -> None:
-    config_file = tmp_path / "config.json"
-    config_file.write_text(
+def test_load_user_overrides_filters_unknown_keys(isolated_config_dir) -> None:
+    isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
+    isolated_config_dir.config_file.write_text(
         json.dumps({"model": "user-model", "unknown": "value", "max_tokens": 1234}),
         encoding="utf-8",
     )
-
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
 
     assert params_cli._load_user_overrides() == {
         "model": "user-model",
@@ -175,16 +153,9 @@ def test_load_user_overrides_filters_unknown_keys(monkeypatch, tmp_path: Path) -
 
 
 def test_load_config_warns_when_provider_config_load_fails(
-    monkeypatch, tmp_path: Path, capsys
+    monkeypatch, isolated_config_dir, capsys
 ) -> None:
-    defaults_file = tmp_path / "default.toml"
-    defaults_file.write_text("", encoding="utf-8")
-
-    config_dir = tmp_path / "user-config"
-    config_file = config_dir / "config.json"
-    monkeypatch.setattr(params_cli, "_DEFAULTS_FILE", defaults_file)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
+    isolated_config_dir.defaults_file.write_text("", encoding="utf-8")
 
     def _raise(cls) -> None:
         raise RuntimeError("boom")
@@ -197,23 +168,16 @@ def test_load_config_warns_when_provider_config_load_fails(
     assert "warning: could not load provider config: boom" in capsys.readouterr().err
 
 
-def test_invalid_integer_overrides_are_ignored(monkeypatch, tmp_path: Path) -> None:
-    defaults_file = tmp_path / "default.toml"
-    defaults_file.write_text(
+def test_invalid_integer_overrides_are_ignored(monkeypatch, isolated_config_dir) -> None:
+    isolated_config_dir.defaults_file.write_text(
         "\n".join(['model_id = "default-model"', "max_tokens = 1234"]) + "\n",
         encoding="utf-8",
     )
-    config_dir = tmp_path / "user-config"
-    config_file = config_dir / "config.json"
-    config_dir.mkdir()
-    config_file.write_text(
+    isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
+    isolated_config_dir.config_file.write_text(
         json.dumps({"max_tokens": "invalid", "rag_context_budget": "also-invalid"}),
         encoding="utf-8",
     )
-
-    monkeypatch.setattr(params_cli, "_DEFAULTS_FILE", defaults_file)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
         classmethod(lambda cls: SimpleNamespace(apply_to_config=lambda _config: None)),
@@ -248,17 +212,12 @@ def test_parse_feature_flags_empty_string() -> None:
     assert params_cli._parse_feature_flags("") == frozenset()
 
 
-def test_config_set_feature_flags_persists(monkeypatch, tmp_path: Path, capsys) -> None:
-    config_dir = tmp_path / "config"
-    config_file = config_dir / "config.json"
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
-
+def test_config_set_feature_flags_persists(isolated_config_dir, capsys) -> None:
     run_argv(build_parser(), ["config", "set", "feature_flags", "alpha,beta"])
 
     out = capsys.readouterr().out
     assert "Set feature_flags = alpha,beta" in out
-    data = json.loads(config_file.read_text(encoding="utf-8"))
+    data = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
     assert data["feature_flags"] == "alpha,beta"
 
 
@@ -299,14 +258,11 @@ def test_config_show_displays_no_feature_flags(monkeypatch, capsys) -> None:
     assert "feature_flags: (none)" in out
 
 
-def test_load_config_feature_flags_env_overrides_user(monkeypatch, tmp_path: Path) -> None:
-    config_dir = tmp_path / "user-config"
-    config_file = config_dir / "config.json"
-    config_dir.mkdir()
-    config_file.write_text(json.dumps({"feature_flags": "user_flag"}), encoding="utf-8")
-
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
+def test_load_config_feature_flags_env_overrides_user(monkeypatch, isolated_config_dir) -> None:
+    isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
+    isolated_config_dir.config_file.write_text(
+        json.dumps({"feature_flags": "user_flag"}), encoding="utf-8"
+    )
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
         classmethod(lambda cls: SimpleNamespace(apply_to_config=lambda _config: None)),
@@ -318,17 +274,10 @@ def test_load_config_feature_flags_env_overrides_user(monkeypatch, tmp_path: Pat
     assert config.feature_flags == frozenset({"env_flag"})
 
 
-def test_load_config_feature_flags_from_user_overrides(monkeypatch, tmp_path: Path) -> None:
-    config_dir = tmp_path / "user-config"
-    config_file = config_dir / "config.json"
-    config_dir.mkdir()
-    config_file.write_text(json.dumps({"feature_flags": "alpha,beta"}), encoding="utf-8")
-
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(params_cli, "_USER_CONFIG_FILE", config_file)
-    monkeypatch.setattr(
-        "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda cls: SimpleNamespace(apply_to_config=lambda _config: None)),
+def test_load_config_feature_flags_from_user_overrides(isolated_config_dir) -> None:
+    isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
+    isolated_config_dir.config_file.write_text(
+        json.dumps({"feature_flags": "alpha,beta"}), encoding="utf-8"
     )
 
     config = params_cli.load_config()
