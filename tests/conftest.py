@@ -2,13 +2,61 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Generator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_session
+
+
+@pytest.fixture(autouse=True)
+def _isolate_global_state() -> Generator[None]:
+    """Reset mutable module-level globals between tests."""
+    import hephaistos.logging as _log_mod
+    import hephaistos.providers.keyring_store as _ks
+
+    _ks._volatile.clear()
+    _log_mod._root_initialised = False
+    root = logging.getLogger("hephaistos")
+    root.handlers.clear()
+    root.setLevel(logging.WARNING)
+
+    yield
+
+    _ks._volatile.clear()
+    _log_mod._root_initialised = False
+    root.handlers.clear()
+    root.setLevel(logging.WARNING)
+
+
+@pytest.fixture
+def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Redirect user-config paths to a temp directory."""
+    config_dir = tmp_path / "hephaistos_config"
+    config_file = config_dir / "config.json"
+    defaults_file = tmp_path / "default.toml"
+    monkeypatch.setattr("hephaistos.parameters.cli._USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr("hephaistos.parameters.cli._USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr("hephaistos.parameters.cli._DEFAULTS_FILE", defaults_file)
+    return SimpleNamespace(
+        config_dir=config_dir, config_file=config_file, defaults_file=defaults_file
+    )
+
+
+@pytest.fixture
+def isolated_auth_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Redirect auth paths to a temp directory."""
+    auth_dir = tmp_path / "auth_test"
+    auth_dir.mkdir(parents=True, exist_ok=True)
+    auth_file = auth_dir / "auth.json"
+    monkeypatch.setattr("hephaistos.providers.oauth._AUTH_DIR", auth_dir)
+    monkeypatch.setattr("hephaistos.providers.oauth._AUTH_FILE", auth_file)
+    return SimpleNamespace(auth_dir=auth_dir, auth_file=auth_file)
 
 
 @pytest.fixture

@@ -131,6 +131,13 @@ line-ending = "lf"
 "hephaistos/providers/registry.py" = ["E501"]  # model data definitions are inherently long
 "vulture-whitelist.py" = ["E501", "B018", "F821"]  # bare names are intentional vulture hints
 
+[tool.ruff.lint.flake8-pytest-style]
+parametrize-names-type = "tuple"
+parametrize-values-type = "list"
+parametrize-values-row-type = "tuple"
+mark-parentheses = false
+raises-require-match-for = ["Exception", "ValueError", "TypeError", "RuntimeError", "OSError"]
+
 [tool.uv.build-backend]
 module-root = ""
 
@@ -197,14 +204,25 @@ modules = ["hephaistos.chat.session", "hephaistos.chat.orchestrator"]
 ignore_imports = ["hephaistos.chat.session -> hephaistos.chat.orchestrator"]
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -q --cov=hephaistos --cov-report=term-missing"
+addopts = "--tb=short -q --durations=10 --strict-markers --cov=hephaistos --cov-report=term-missing --cov-fail-under=75"
 testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+python_classes = ["Test*"]
+markers = [
+    "flaky(reruns=2, reruns_delay=1): mark test as flaky — rerun on failure",
+]
+
+# Actual coverage: 77%; threshold set to 75% to buffer against flaky variations.
+[tool.coverage.report]
+fail_under = 75
 
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.0",
     "pytest>=9.0.2",
     "pytest-cov>=7.1.0",
+    "pytest-rerunfailures>=14.0",
     "pylint>=3.0",
     "ruff>=0.15.8",
     "vulture>=2.0",

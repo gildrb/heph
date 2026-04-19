@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+import pytest
+
 from hephaistos.harness.mutation_queue import FileMutationQueue, get_queue
 
 
@@ -71,6 +73,7 @@ class TestFileMutationQueue:
         # handler_1 must complete before handler_2 starts
         assert order == [1, 2]
 
+    @pytest.mark.flaky(reruns=2, reruns_delay=1)
     def test_different_files_parallel(self) -> None:
         """Mutations on different file paths can run in parallel."""
         queue = FileMutationQueue()

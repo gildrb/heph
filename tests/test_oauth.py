@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -55,17 +56,6 @@ def test_generate_pkce_unique_each_call() -> None:
 
 
 class TestCredentialPersistence:
-    @pytest.fixture(autouse=True)
-    def _setup_auth_dir(self, tmp_path: Path) -> None:
-        self._tmp = tmp_path / "auth_test"
-        self._tmp.mkdir(parents=True, exist_ok=True)
-        self._auth_file = self._tmp / "auth.json"
-
-    def _patch_auth_file(self):
-        return patch("hephaistos.providers.oauth._AUTH_DIR", self._tmp), patch(
-            "hephaistos.providers.oauth._AUTH_FILE", self._auth_file
-        )
-
     def _make_creds(self, provider: str = "openai-codex") -> OAuthCredentials:
         return OAuthCredentials(
             provider=provider,
@@ -75,60 +65,55 @@ class TestCredentialPersistence:
             account_id="acct_abc",
         )
 
-    def test_save_and_load(self) -> None:
+    def test_save_and_load(self, isolated_auth_dir: SimpleNamespace) -> None:
         creds = self._make_creds()
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            save_credentials(creds)
-            loaded = load_credentials("openai-codex")
+        save_credentials(creds)
+        loaded = load_credentials("openai-codex")
 
         assert loaded is not None
         assert loaded.access_token == "at_123"
         assert loaded.refresh_token == "rt_456"
         assert loaded.account_id == "acct_abc"
 
-    def test_load_missing_returns_none(self) -> None:
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            loaded = load_credentials("nonexistent")
+    def test_load_missing_returns_none(self, isolated_auth_dir: SimpleNamespace) -> None:
+        loaded = load_credentials("nonexistent")
 
         assert loaded is None
 
-    def test_clear_credentials(self) -> None:
+    def test_clear_credentials(self, isolated_auth_dir: SimpleNamespace) -> None:
         creds = self._make_creds()
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            save_credentials(creds)
-            assert list_providers() == ["openai-codex"]
-            removed = clear_credentials("openai-codex")
-            assert removed is True
-            assert load_credentials("openai-codex") is None
-            assert list_providers() == []
+        save_credentials(creds)
+        assert list_providers() == ["openai-codex"]
+        removed = clear_credentials("openai-codex")
+        assert removed is True
+        assert load_credentials("openai-codex") is None
+        assert list_providers() == []
 
-    def test_clear_nonexistent_returns_false(self) -> None:
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            assert clear_credentials("nope") is False
+    def test_clear_nonexistent_returns_false(self, isolated_auth_dir: SimpleNamespace) -> None:
+        assert clear_credentials("nope") is False
 
-    def test_list_providers(self) -> None:
+    def test_list_providers(self, isolated_auth_dir: SimpleNamespace) -> None:
         creds1 = self._make_creds("openai-codex")
         creds2 = self._make_creds("other-provider")
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            save_credentials(creds1)
-            save_credentials(creds2)
-            providers = list_providers()
+        save_credentials(creds1)
+        save_credentials(creds2)
+        providers = list_providers()
 
         assert set(providers) == {"openai-codex", "other-provider"}
 
-    def test_auth_file_created_with_restricted_permissions(self) -> None:
+    def test_auth_file_created_with_restricted_permissions(
+        self, isolated_auth_dir: SimpleNamespace
+    ) -> None:
         creds = self._make_creds()
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            save_credentials(creds)
-            mode = self._auth_file.stat().st_mode & 0o777
+        save_credentials(creds)
+        mode = isolated_auth_dir.auth_file.stat().st_mode & 0o777
 
         assert mode == 0o600
 
-    def test_auth_json_format(self) -> None:
+    def test_auth_json_format(self, isolated_auth_dir: SimpleNamespace) -> None:
         creds = self._make_creds()
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            save_credentials(creds)
-            data = json.loads(self._auth_file.read_text())
+        save_credentials(creds)
+        data = json.loads(isolated_auth_dir.auth_file.read_text())
 
         entry = data["openai-codex"]
         assert entry["type"] == "oauth"
@@ -137,21 +122,25 @@ class TestCredentialPersistence:
         assert entry["account_id"] == "acct_abc"
         assert isinstance(entry["expires_at"], float)
 
-    def test_resolve_oauth_key_returns_access_token(self) -> None:
+    def test_resolve_oauth_key_returns_access_token(
+        self, isolated_auth_dir: SimpleNamespace
+    ) -> None:
         creds = self._make_creds()
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            save_credentials(creds)
-            key = resolve_oauth_key("openai-codex")
+        save_credentials(creds)
+        key = resolve_oauth_key("openai-codex")
 
         assert key == "at_123"
 
-    def test_resolve_oauth_key_missing_returns_empty(self) -> None:
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            key = resolve_oauth_key("nonexistent")
+    def test_resolve_oauth_key_missing_returns_empty(
+        self, isolated_auth_dir: SimpleNamespace
+    ) -> None:
+        key = resolve_oauth_key("nonexistent")
 
         assert key == ""
 
-    def test_load_auto_refreshes_expired_token(self) -> None:
+    def test_load_auto_refreshes_expired_token(
+        self, isolated_auth_dir: SimpleNamespace
+    ) -> None:
         expired = OAuthCredentials(
             provider="openai-codex",
             access_token="old_at",
@@ -167,13 +156,12 @@ class TestCredentialPersistence:
             account_id="acct_abc",
         )
 
-        with self._patch_auth_file()[0], self._patch_auth_file()[1]:
-            save_credentials(expired)
-            with patch(
-                "hephaistos.providers.oauth.refresh_credentials",
-                return_value=refreshed,
-            ) as mock_refresh:
-                loaded = load_credentials("openai-codex")
+        save_credentials(expired)
+        with patch(
+            "hephaistos.providers.oauth.refresh_credentials",
+            return_value=refreshed,
+        ) as mock_refresh:
+            loaded = load_credentials("openai-codex")
 
         mock_refresh.assert_called_once()
         assert loaded is not None

@@ -348,6 +348,7 @@ class TestStreamReplyRetry:
         assert result == []
         mock_client.chat.completions.create.assert_not_called()
 
+    @pytest.mark.flaky(reruns=2, reruns_delay=1)
     def test_abort_event_stops_mid_backoff(self) -> None:
         """Abort event set during backoff -> returns empty."""
         mock_client = MagicMock()

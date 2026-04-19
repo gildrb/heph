@@ -57,7 +57,10 @@ def test_run_chat_shell_armory_command_opens_existing_armory(
 
     responses = iter(["/armory", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
-    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": str(new_armory))
+    monkeypatch.setattr(
+        "hephaistos.app.workspace.direct_input",
+        lambda _prompt="": str(new_armory),
+    )
     monkeypatch.setattr(workspace, "select_option", lambda *_args, **_kwargs: 0)
 
     session = create_session(_test_config(), old_armory)

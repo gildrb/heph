@@ -24,12 +24,10 @@ _TEST_SLUG = "__test_hephaistos_unit__"
 
 @pytest.fixture(autouse=True)
 def _clean_test_key():
-    """Ensure no leftover test key in volatile store."""
-    set_volatile(_TEST_SLUG, "")
+    """Ensure no leftover test key in system keyring."""
     with contextlib.suppress(Exception):
         keyring.delete_password(f"{_SERVICE_PREFIX}:{_TEST_SLUG}", _USERNAME)
     yield
-    set_volatile(_TEST_SLUG, "")
     with contextlib.suppress(Exception):
         keyring.delete_password(f"{_SERVICE_PREFIX}:{_TEST_SLUG}", _USERNAME)
 

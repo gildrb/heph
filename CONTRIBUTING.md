@@ -72,6 +72,21 @@ uv run pytest -v
 
 Tests use `pytest` with coverage via `pytest-cov`. Aim to cover new code with tests.
 
+### Test naming conventions
+
+Enforced by ruff (PT + N rules) and pytest config:
+
+- **Test files**: `test_<module>.py` (one file per source module, in `tests/`)
+- **Test classes**: `Test<FeatureOrComponent>` (PascalCase after the `Test` prefix)
+- **Test functions**: `test_<verb>_<object>_<condition_or_expectation>` (descriptive snake_case; class methods are exempt — the class name provides context)
+  - Good: `test_build_client_raises_without_api_key`
+  - Bad: `test_error`, `test_client_fail`
+- **Parametrize**: use tuple for names, list for values, tuple per row
+  - `@pytest.mark.parametrize(("key", "val"), [("a", 1), ("b", 2)])`
+- **Raises**: always include `match=` for broad exception types
+  - `pytest.raises(ValueError, match="expected")`
+- **Markers**: omit parens when no args — `@pytest.mark.slow` not `@pytest.mark.slow()`
+
 ## Reporting issues
 
 Open a GitHub issue with:

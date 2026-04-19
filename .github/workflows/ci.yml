@@ -146,11 +146,18 @@ jobs:
           echo "| test sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
       - name: Pytest
         run: |
+          mkdir -p .artifacts
           start=$(date +%s%N)
-          uv run pytest --durations=10
+          uv run pytest --junitxml=.artifacts/pytest-junit.xml
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| test pytest | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: .artifacts/pytest-junit.xml
 
   build:
     runs-on: ubuntu-latest
