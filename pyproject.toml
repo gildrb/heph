@@ -237,7 +237,7 @@ dev = [
     "pytest-xdist>=0.1",
     "pylint>=3.0",
     "radon>=6.0",
-    "ruff>=0.15.8",
+    "ruff>=0.15.11",
     "vulture>=2.0",
     "import-linter>=2.11",
 ]
