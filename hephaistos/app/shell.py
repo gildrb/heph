@@ -28,6 +28,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style as PtStyle
 
 from hephaistos import __version__
+from hephaistos.analytics import capture as analytics_capture
 from hephaistos.app.commands import get_registry
 from hephaistos.app.display import (
     STYLE_ASSISTANT,
@@ -427,6 +428,15 @@ def _report_engine_error(
                 "partial_content_length": len(exc.partial_content),
             },
         )
+        analytics_capture(
+            "llm_request_failed",
+            {
+                "error_type": "stream_recovery",
+                "model": session.config.model,
+                "provider": session.config._provider_slug,
+                "partial_content_length": len(exc.partial_content),
+            },
+        )
     else:
         print_error(str(exc))
         capture_exception(
@@ -434,6 +444,14 @@ def _report_engine_error(
             context={
                 "provider": session.config._provider_slug,
                 "model": session.config.model,
+            },
+        )
+        analytics_capture(
+            "llm_request_failed",
+            {
+                "error_type": "engine_error",
+                "model": session.config.model,
+                "provider": session.config._provider_slug,
             },
         )
 
@@ -453,6 +471,15 @@ def _start_background_reply(
         print_error(config_error)
         return
 
+    analytics_capture(
+        "message_sent",
+        {
+            "message_length": len(user_input),
+            "model": session.config.model,
+            "provider": session.config._provider_slug,
+            "has_armory": session.armory_path is not None,
+        },
+    )
     runtime.busy = True
     runtime.steering_count = 0
     runtime.abort_event.clear()
@@ -619,6 +646,15 @@ def run_chat_shell(
         session = _create_startup_session(load_config())
 
     _print_shell_intro(session)
+    analytics_capture(
+        "session_started",
+        {
+            "model": session.config.model,
+            "provider": session.config._provider_slug,
+            "has_armory": session.armory_path is not None,
+            "version": __version__,
+        },
+    )
 
     kb = keybindings or DEFAULT_SHELL_KEYBINDINGS
 

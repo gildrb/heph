@@ -6,6 +6,7 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
+from hephaistos.analytics import capture as analytics_capture
 from hephaistos.app.autocomplete import CommandSuggestion
 from hephaistos.app.display import (
     STYLE_DIM,
@@ -158,6 +159,12 @@ class SaveCommand(Command):
             print_error(str(exc))
             return CommandResult()
         print_success(f"Saved to {path}")
+        analytics_capture(
+            "session_saved",
+            {
+                "message_count": sum(1 for m in s.conversation.messages if m.role != "system"),
+            },
+        )
         return CommandResult()
 
 
@@ -198,6 +205,12 @@ class ClearCommand(Command):
             print_error(str(exc))
             return CommandResult()
         print_success("Started fresh session.")
+        analytics_capture(
+            "conversation_cleared",
+            {
+                "had_armory": s.armory_path is not None,
+            },
+        )
         return CommandResult(new_session=new)
 
 
@@ -252,6 +265,7 @@ class ModelCommand(Command):
             old = s.config.model
             s.config.model = model_name
             print_success(f"Model: {old} -> {s.config.model}")
+            analytics_capture("model_switched", {"model": s.config.model, "previous_model": old})
             return CommandResult()
         pc = ProviderConfig.load()
         active = pc.get_active()
@@ -295,6 +309,7 @@ class ModelCommand(Command):
         pc.apply_to_config(s.config)
         pc.save()
         print_success(f"Switched to {p.display_name} / {model}")
+        analytics_capture("model_switched", {"model": model, "provider": slug})
         return CommandResult()
 
 
@@ -364,6 +379,7 @@ class ApiCommand(Command):
                 set_volatile(slug, raw_key)
                 print_success("API key set for this session only (keychain unavailable).")
             set_volatile(slug, raw_key)
+            analytics_capture("api_key_configured", {"provider": slug})
             return CommandResult()
 
         if subcmd in ("url", "base-url", "baseurl"):
@@ -424,6 +440,13 @@ class CompactCommand(Command):
         ]
         s.dirty = True
         print_success("Compacted.")
+        analytics_capture(
+            "conversation_compacted",
+            {
+                "message_count": len(non_system),
+                "model": s.config.model,
+            },
+        )
         return CommandResult()
 
 
@@ -575,6 +598,13 @@ class ProviderCommand(Command):
         pc.apply_to_config(session.config)
         pc.save()
         print_success(f"Switched to {p.display_name} / {p.resolved_model}")
+        analytics_capture(
+            "provider_switched",
+            {
+                "provider": slug,
+                "model": p.resolved_model,
+            },
+        )
         return CommandResult()
 
     @staticmethod
@@ -667,6 +697,7 @@ class LoginCommand(Command):
             f"Logged in to OpenAI Codex (account: {creds.account_id or 'unknown'}) "
             f"— switched to {p.resolved_model}"
         )
+        analytics_capture("login_completed", {"provider": "openai-codex"})
         return CommandResult()
 
 
@@ -687,6 +718,7 @@ class LogoutCommand(Command):
             if confirm(f"Log out of {slug}?", default=True):
                 clear_credentials(slug)
                 print_success(f"Logged out of {slug}.")
+                analytics_capture("logout_completed", {"provider": slug})
             else:
                 print_info("Cancelled.")
             return CommandResult()
@@ -701,10 +733,12 @@ class LogoutCommand(Command):
             for p in providers:
                 clear_credentials(p)
             print_success("Logged out of all providers.")
+            analytics_capture("logout_completed", {"provider": "all"})
         else:
             slug = providers[selected]
             clear_credentials(slug)
             print_success(f"Logged out of {slug}.")
+            analytics_capture("logout_completed", {"provider": slug})
         return CommandResult()
 
 

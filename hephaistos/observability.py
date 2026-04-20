@@ -112,6 +112,15 @@ class _NoopCounter:
         pass
 
 
+class _NoopGauge:
+    """No-op gauge when OpenTelemetry is not installed."""
+
+    __slots__ = ()
+
+    def set(self, value: float, _attributes: dict[str, str] | None = None) -> None:
+        pass
+
+
 class _NoopMeter:
     """No-op meter when OpenTelemetry is not installed."""
 
@@ -125,6 +134,9 @@ class _NoopMeter:
 
     def create_up_down_counter(self, name: str, **kwargs: object) -> _NoopCounter:
         return _NoopCounter()
+
+    def create_gauge(self, name: str, **kwargs: object) -> _NoopGauge:
+        return _NoopGauge()
 
 
 # -- Sensitive-key detection (mirrors logging.py patterns) --------------------

@@ -92,6 +92,15 @@ wheels = [
 ]
 
 [[package]]
+name = "backoff"
+version = "2.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/d7/5bbeb12c44d7c4f2fb5b56abce497eb5ed9f34d85701de869acedd602619/backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba", size = 17001, upload-time = "2022-10-05T19:19:32.061Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/73/b6e24bd22e6720ca8ee9a85a0c4a2971af8497d8f3193fa05390cbd46e09/backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8", size = 15148, upload-time = "2022-10-05T19:19:30.546Z" },
+]
+
+[[package]]
 name = "backrefs"
 version = "6.2"
 source = { registry = "https://pypi.org/simple" }
@@ -788,10 +797,14 @@ dependencies = [
     { name = "certifi" },
     { name = "keyring" },
     { name = "openai" },
+    { name = "posthog" },
     { name = "prompt-toolkit" },
 ]
 
 [package.optional-dependencies]
+analytics = [
+    { name = "posthog" },
+]
 docling = [
     { name = "docling" },
 ]
@@ -848,12 +861,14 @@ requires-dist = [
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.20" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.20" },
+    { name = "posthog", specifier = ">=3.0.0" },
+    { name = "posthog", marker = "extra == 'analytics'", specifier = ">=3.0.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "scikit-learn", marker = "extra == 'embeddings'", specifier = ">=1.0.0" },
     { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=3.0.0" },
     { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["sentry", "embeddings", "docling", "otel"]
+provides-extras = ["sentry", "embeddings", "docling", "otel", "analytics"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2103,6 +2118,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/85/68/7717bd9e63ed254617a7d3dc9260904fb736d6ea203e58ffddcb186c64e4/polyfactory-3.3.0.tar.gz", hash = "sha256:237258b6ff43edf362ffd1f68086bb796466f786adfa002b0ac256dbf2246e9a", size = 348668, upload-time = "2026-02-22T09:46:28.01Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dd/34/b6f19941adcdaf415b5e8a8d577499f5b6a76b59cbae37f9b125a9ffe9f2/polyfactory-3.3.0-py3-none-any.whl", hash = "sha256:686abcaa761930d3df87b91e95b26b8d8cb9fdbbbe0b03d5f918acff5c72606e", size = 62707, upload-time = "2026-02-22T09:46:25.985Z" },
+]
+
+[[package]]
+name = "posthog"
+version = "7.12.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "backoff" },
+    { name = "distro" },
+    { name = "python-dateutil" },
+    { name = "requests" },
+    { name = "six" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1c/cc/cbebc13accaa015f733a67c74261ae13b86860cdf84e86a65e77c6125d8c/posthog-7.12.0.tar.gz", hash = "sha256:9385b207b87e642f17b784d74c18e6f28952ac7cde781d31675097d1a4dbc14e", size = 193445, upload-time = "2026-04-16T08:39:08.073Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/4b/40894963647d5044f591099cfe10fe16b688e8e6fb6ed980ccc2c784a3f5/posthog-7.12.0-py3-none-any.whl", hash = "sha256:df1444aa485b45318207f7b5100d955cde4d585e2e7f5b736ade45dcc6d2a60d", size = 226894, upload-time = "2026-04-16T08:39:05.896Z" },
 ]
 
 [[package]]

@@ -5,6 +5,7 @@ import sys
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
+from hephaistos.analytics import init_analytics, shutdown_analytics
 from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.cli import register as register_armory_commands
 from hephaistos.chat.cli import register as register_chat_commands
@@ -79,6 +80,7 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 def main() -> None:
     init_observability()
+    init_analytics()
 
     # Detect profile flags before argparse (so profiling covers argparse itself)
     _profile = "--profile" in sys.argv[1:]
@@ -117,6 +119,7 @@ def main() -> None:
             _prof.disable()
             _report_profile(_prof)
         shutdown_observability()
+        shutdown_analytics()
 
 
 def _report_memory() -> None:

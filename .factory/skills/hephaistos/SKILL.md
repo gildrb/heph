@@ -1,3 +1,8 @@
+---
+name: hephaistos
+description: Armory-first study CLI with LLM-powered interactive sessions, knowledge base management, and RAG retrieval
+---
+
 # Hephaistos Project Skill
 
 ## Overview

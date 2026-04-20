@@ -34,6 +34,7 @@ from openai import (
 )
 from openai.types.chat import ChatCompletionMessageParam
 
+from hephaistos.chat.resilience import CircuitBreaker
 from hephaistos.logging import Timer, get_logger
 from hephaistos.observability import get_meter, get_tracer
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
@@ -52,6 +53,8 @@ _llm_token_counter = _meter.create_counter(  # type: ignore[union-attr]
     "llm.token.usage",
     description="Number of tokens used in LLM requests",
 )
+
+_circuit_breaker = CircuitBreaker(name="llm-default")
 
 
 @dataclass
@@ -357,6 +360,9 @@ def stream_completion(
             span.end()
             return
 
+        if not _circuit_breaker.allow_request():
+            raise EngineError("LLM provider circuit breaker is open — too many recent failures")
+
         timer = Timer()
         request_kwargs = {
             "model": config.model,
@@ -372,6 +378,8 @@ def stream_completion(
                 stream = client.chat.completions.create(**request_kwargs)  # type: ignore[call-overload]
         except Exception as exc:
             last_error = exc
+            if is_retryable_error(exc):
+                _circuit_breaker.record_failure()
             log = (
                 _log.info
                 if is_retryable_error(exc) and attempt < retry.max_retries
@@ -454,6 +462,8 @@ def stream_completion(
                 span.end()
                 raise StreamRecoveryError(partial_content, exc) from exc
             last_error = exc
+            if is_retryable_error(exc):
+                _circuit_breaker.record_failure()
             if is_retryable_error(exc) and attempt < retry.max_retries:
                 if not _wait_backoff(attempt, retry, abort):
                     return
@@ -474,6 +484,7 @@ def stream_completion(
                 }
             },
         )
+        _circuit_breaker.record_success()
         span.set_attribute("gen_ai.response.latency_ms", timer.ms)
         _llm_duration_hist.record(timer.ms, {"model": config.model})
         span.end()

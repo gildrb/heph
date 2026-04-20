@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from hephaistos.analytics import capture as analytics_capture
 from hephaistos.app.display import (
     direct_input,
     print_error,
@@ -208,6 +209,12 @@ def _resume_saved_chat(session: ChatSession, selector: str = "") -> ChatSession:
     print_success(f"Resumed session {resumed.session_id}")
     if resumed.title:
         print_info(f"Title: {resumed.title}")
+    analytics_capture(
+        "session_resumed",
+        {
+            "message_count": sum(1 for m in resumed.conversation.messages if m.role != "system"),
+        },
+    )
     return resumed
 
 
