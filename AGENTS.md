@@ -51,6 +51,24 @@ uv build                   # build sdist + wheel
 Releases are automated via `.github/workflows/release.yml` on `v*` tags.
 Edge deploys run on every push to `main` via `.github/workflows/deploy.yml`.
 
+## Runbooks
+
+Operational playbooks for incident response:
+
+- `docs/runbooks/ci-failure.md` — CI failure triage
+- `docs/runbooks/sentry-errors.md` — Sentry error investigation
+- `docs/runbooks/slow-llm-response.md` — Debug slow LLM responses
+- `docs/runbooks/deployment-rollback.md` — Revert bad releases
+- `docs/runbooks/rag-retrieval-issues.md` — Debug RAG quality
+
+## Observability
+
+- Error tracking: `uv sync --extra sentry`, configure `SENTRY_DSN`
+- Tracing & metrics: `uv sync --extra otel`, configure `OTEL_EXPORTER_OTLP_ENDPOINT`
+- Alerting: configure `ALERT_WEBHOOK_URL` for Slack/Discord webhooks
+- Profiling: `--profile` (CPU) or `--profile-memory` (memory) CLI flags
+- Deploy notifications: configure `DEPLOY_WEBHOOK_URL` repository secret
+
 ## Project Conventions
 - Python ≥3.13, `from __future__ import annotations` in every module
 - Line length: 99 chars, double quotes, LF line endings

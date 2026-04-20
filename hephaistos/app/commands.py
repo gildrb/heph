@@ -644,14 +644,29 @@ class LoginCommand(Command):
 
         try:
             creds = login_openai_codex()
-            from hephaistos.providers.keyring_store import set_volatile
-
-            set_volatile("openai-codex", creds.access_token)
-            print_success(f"Logged in to OpenAI Codex (account: {creds.account_id or 'unknown'})")
         except RuntimeError as exc:
             print_error(str(exc))
+            return CommandResult()
         except Exception as exc:
             print_error(f"Login failed: {exc}")
+            return CommandResult()
+
+        from hephaistos.providers.keyring_store import set_volatile
+
+        set_volatile("openai-codex", creds.access_token)
+
+        s = _ensure_session(session)
+        pc = ProviderConfig.load()
+        pc.set_active("openai-codex")
+        p = pc.providers["openai-codex"]
+        if not p.current_model and p.models:
+            p.current_model = p.models[0]
+        pc.apply_to_config(s.config)
+        pc.save()
+        print_success(
+            f"Logged in to OpenAI Codex (account: {creds.account_id or 'unknown'}) "
+            f"— switched to {p.resolved_model}"
+        )
         return CommandResult()
 
 

@@ -19,11 +19,14 @@ Configuration (environment variables):
 from __future__ import annotations
 
 import contextlib
+import json as _json
 import logging
 import os
 import platform
 import re as _re
-from typing import Any
+import time as _time
+import urllib.request as _urllib_request
+from typing import Any, Self
 
 try:
     import sentry_sdk
@@ -35,9 +38,94 @@ except ImportError:  # pragma: no cover
     LoggingIntegration = None  # type: ignore[assignment,misc]
     _SENTRY_AVAILABLE = False
 
-
 from hephaistos import __version__
 from hephaistos.logging import redact_value
+
+try:
+    from opentelemetry import metrics as _metrics_mod
+    from opentelemetry import trace as _trace_mod
+    from opentelemetry.sdk.metrics import MeterProvider as _MeterProvider
+    from opentelemetry.sdk.metrics.export import (
+        PeriodicExportingMetricReader as _PeriodicExportingMetricReader,
+    )
+    from opentelemetry.sdk.trace import TracerProvider as _TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor as _BatchSpanProcessor
+
+    _OTEL_AVAILABLE: bool = True
+except ImportError:  # pragma: no cover
+    _trace_mod = None  # type: ignore[assignment]
+    _metrics_mod = None  # type: ignore[assignment]
+    _TracerProvider = None  # type: ignore[assignment]
+    _BatchSpanProcessor = None  # type: ignore[assignment]
+    _MeterProvider = None  # type: ignore[assignment]
+    _PeriodicExportingMetricReader = None  # type: ignore[assignment]
+    _OTEL_AVAILABLE = False
+
+_log = logging.getLogger("hephaistos.observability")
+
+
+class _NoopSpan:
+    """No-op span when OpenTelemetry is not installed."""
+
+    __slots__ = ()
+
+    def set_attribute(self, key: str, value: object) -> _NoopSpan:
+        return self
+
+    def end(self, _end_time: float | None = None) -> None:
+        pass
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.end()
+
+
+class _NoopTracer:
+    """No-op tracer when OpenTelemetry is not installed."""
+
+    __slots__ = ()
+
+    def start_span(self, name: str, **kwargs: object) -> _NoopSpan:
+        return _NoopSpan()
+
+    def start_as_current_span(self, name: str, **kwargs: object) -> _NoopSpan:
+        return _NoopSpan()
+
+
+class _NoopHistogram:
+    """No-op histogram when OpenTelemetry is not installed."""
+
+    __slots__ = ()
+
+    def record(self, value: float, _attributes: dict[str, str] | None = None) -> None:
+        pass
+
+
+class _NoopCounter:
+    """No-op counter when OpenTelemetry is not installed."""
+
+    __slots__ = ()
+
+    def add(self, value: float, _attributes: dict[str, str] | None = None) -> None:
+        pass
+
+
+class _NoopMeter:
+    """No-op meter when OpenTelemetry is not installed."""
+
+    __slots__ = ()
+
+    def create_histogram(self, name: str, **kwargs: object) -> _NoopHistogram:
+        return _NoopHistogram()
+
+    def create_counter(self, name: str, **kwargs: object) -> _NoopCounter:
+        return _NoopCounter()
+
+    def create_up_down_counter(self, name: str, **kwargs: object) -> _NoopCounter:
+        return _NoopCounter()
+
 
 # -- Sensitive-key detection (mirrors logging.py patterns) --------------------
 
@@ -47,6 +135,14 @@ _SENSITIVE_KEY_PATTERS: list[_re.Pattern[str]] = [
 ]
 
 _REDACTED = "***REDACTED***"
+
+_ALERT_WEBHOOK_ENV = "ALERT_WEBHOOK_URL"
+_ALERT_MIN_LEVEL_ENV = "ALERT_MIN_LEVEL"
+_ALERT_MIN_LEVEL_DEFAULT = "ERROR"
+_ALERT_COOLDOWN_SECONDS = 300  # 5 minutes
+_alert_webhook_url: str | None = None
+_alert_min_level: int = logging.ERROR
+_alert_timestamps: dict[str, float] = {}
 
 
 def _is_sensitive_key(key: str) -> bool:
@@ -202,12 +298,191 @@ def capture_exception(
 ) -> str | None:
     """Capture an exception to Sentry.  Returns the Sentry event ID.
     Returns ``None`` when ``sentry-sdk`` is not installed."""
-    if not _SENTRY_AVAILABLE:
-        return None
-    assert sentry_sdk is not None  # narrowed by _SENTRY_AVAILABLE guard
-    if context:
-        with sentry_sdk.new_scope() as scope:
-            for key, value in context.items():
-                scope.set_extra(key, _scrub_value(value))
-            return sentry_sdk.capture_exception(exc)
-    return sentry_sdk.capture_exception(exc)
+    if _SENTRY_AVAILABLE:
+        assert sentry_sdk is not None  # narrowed by _SENTRY_AVAILABLE guard
+        if context:
+            with sentry_sdk.new_scope() as scope:
+                for key, value in context.items():
+                    scope.set_extra(key, _scrub_value(value))
+                event_id = sentry_sdk.capture_exception(exc)
+        else:
+            event_id = sentry_sdk.capture_exception(exc)
+    else:
+        event_id = None
+    send_alert(logging.ERROR, "unhandled exception", str(exc or "unknown"))
+    return event_id
+
+
+# -- OpenTelemetry tracing ---------------------------------------------------
+
+
+def init_tracing() -> None:
+    """Initialise OpenTelemetry tracing.  No-op when ``opentelemetry-*``
+    packages are not installed or ``OTEL_SDK_DISABLED`` is set."""
+    if not _OTEL_AVAILABLE:
+        return
+    assert _trace_mod is not None  # narrowed by _OTEL_AVAILABLE guard
+    assert _TracerProvider is not None  # narrowed by _OTEL_AVAILABLE guard
+    assert _BatchSpanProcessor is not None  # narrowed by _OTEL_AVAILABLE guard
+
+    import os
+
+    if os.environ.get("OTEL_SDK_DISABLED", "").strip().lower() in ("true", "1"):
+        return
+
+    try:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter as _OTLPSpanExporter,
+        )
+
+        exporter = _OTLPSpanExporter()
+    except Exception:  # pragma: no cover
+        return
+
+    provider = _TracerProvider(span_processor=_BatchSpanProcessor(exporter))
+    _trace_mod.set_tracer_provider(provider)
+
+
+def get_tracer(name: str) -> _NoopTracer | object:
+    """Return a tracer for the given instrumentation scope.
+    No-op when OpenTelemetry is not installed."""
+    if not _OTEL_AVAILABLE:
+        return _NoopTracer()
+    assert _trace_mod is not None  # narrowed by _OTEL_AVAILABLE guard
+    return _trace_mod.get_tracer(name)
+
+
+# -- OpenTelemetry metrics ---------------------------------------------------
+
+
+def init_metrics() -> None:
+    """Initialise OpenTelemetry metrics.  No-op when ``opentelemetry-*``
+    packages are not installed or ``OTEL_SDK_DISABLED`` is set."""
+    if not _OTEL_AVAILABLE:
+        return
+    assert _metrics_mod is not None  # narrowed by _OTEL_AVAILABLE guard
+    assert _PeriodicExportingMetricReader is not None  # narrowed by _OTEL_AVAILABLE guard
+    assert _MeterProvider is not None  # narrowed by _OTEL_AVAILABLE guard
+
+    import os
+
+    if os.environ.get("OTEL_SDK_DISABLED", "").strip().lower() in ("true", "1"):
+        return
+
+    try:
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter as _OTLPMetricExporter,
+        )
+
+        reader = _PeriodicExportingMetricReader(_OTLPMetricExporter())
+    except Exception:  # pragma: no cover
+        return
+
+    provider = _MeterProvider(metric_readers=[reader])
+    _metrics_mod.set_meter_provider(provider)
+
+
+def get_meter(name: str) -> _NoopMeter | object:
+    """Return a meter for the given instrumentation scope.
+    No-op when OpenTelemetry is not installed."""
+    if not _OTEL_AVAILABLE:
+        return _NoopMeter()
+    assert _metrics_mod is not None  # narrowed by _OTEL_AVAILABLE guard
+    return _metrics_mod.get_meter(name)
+
+
+# -- Webhook alerting --------------------------------------------------------
+
+
+def init_alerting() -> None:
+    """Initialise webhook alerting.  No-op when ``ALERT_WEBHOOK_URL`` is not set."""
+    global _alert_webhook_url, _alert_min_level  # noqa: PLW0603
+    url = os.environ.get(_ALERT_WEBHOOK_ENV, "").strip()
+    _alert_webhook_url = url or None
+    level_name = os.environ.get(_ALERT_MIN_LEVEL_ENV, _ALERT_MIN_LEVEL_DEFAULT).upper()
+    _alert_min_level = getattr(logging, level_name, logging.ERROR)
+
+
+def send_alert(level: int, title: str, body: str) -> None:
+    """Send an alert via the configured webhook.  Rate-limited to one alert
+    per key per 5 minutes.  No-op when ``ALERT_WEBHOOK_URL`` is not set or
+    the level is below ``ALERT_MIN_LEVEL``."""
+    if _alert_webhook_url is None:
+        return
+    if level < _alert_min_level:
+        return
+    key = f"{level}:{title}"
+    now = _time.monotonic()
+    last_sent = _alert_timestamps.get(key, 0.0)
+    if now - last_sent < _ALERT_COOLDOWN_SECONDS:
+        return
+    _alert_timestamps[key] = now
+
+    from datetime import UTC, datetime
+
+    payload = _json.dumps(
+        {
+            "level": logging.getLevelName(level),
+            "title": title,
+            "body": body,
+            "source": "hephaistos",
+            "version": __version__,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    ).encode("utf-8")
+
+    try:
+        req = _urllib_request.Request(
+            _alert_webhook_url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with _urllib_request.urlopen(req, timeout=10) as resp:
+            _log.debug("alert sent", extra={"fields": {"status": resp.status}})
+    except Exception:  # nosec B110 — alert delivery is best-effort
+        _log.debug("alert delivery failed", exc_info=True)
+
+
+# -- Convenience init --------------------------------------------------------
+
+
+def init_observability() -> None:
+    """Initialise all observability subsystems (Sentry, OTel, alerting)."""
+    init_sentry()
+    init_tracing()
+    init_metrics()
+    init_alerting()
+
+
+def shutdown_observability() -> None:
+    """Flush and shut down observability subsystems."""
+    if _OTEL_AVAILABLE and _trace_mod is not None:
+        with contextlib.suppress(Exception):
+            provider = _trace_mod.get_tracer_provider()
+            if hasattr(provider, "force_flush"):
+                provider.force_flush()  # type: ignore[union-attr]
+            if hasattr(provider, "shutdown"):
+                provider.shutdown()  # type: ignore[union-attr]
+    if _OTEL_AVAILABLE and _metrics_mod is not None:
+        with contextlib.suppress(Exception):
+            provider = _metrics_mod.get_meter_provider()
+            if hasattr(provider, "force_flush"):
+                provider.force_flush()  # type: ignore[union-attr]
+            if hasattr(provider, "shutdown"):
+                provider.shutdown()  # type: ignore[union-attr]
+
+
+# -- Trace context helper ----------------------------------------------------
+
+
+def get_current_trace_id() -> str:
+    """Return the current OTel trace ID (hex), or empty string if unavailable."""
+    if not _OTEL_AVAILABLE:
+        return ""
+    assert _trace_mod is not None  # narrowed by _OTEL_AVAILABLE guard
+    span = _trace_mod.get_current_span()
+    ctx = span.get_span_context()
+    if ctx.is_valid:
+        return format(ctx.trace_id, "032x")
+    return ""

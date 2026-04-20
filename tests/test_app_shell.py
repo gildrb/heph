@@ -58,8 +58,8 @@ def test_run_chat_shell_armory_command_opens_existing_armory(
     responses = iter(["/armory", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
     monkeypatch.setattr(
-        "hephaistos.app.workspace.direct_input",
-        lambda _prompt="": str(new_armory),
+        "hephaistos.app.workspace.browse_directory",
+        lambda *_, **_kw: new_armory,
     )
     monkeypatch.setattr(workspace, "select_option", lambda *_args, **_kwargs: 0)
 
@@ -382,7 +382,7 @@ def test_open_armory_cancelled_returns_session_unchanged(
 ) -> None:
     session = _make_session(tmp_path)
 
-    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.workspace.browse_directory", lambda *_, **_kw: None)
     new_session = workspace._open_armory(session)
 
     assert new_session is session
@@ -395,7 +395,7 @@ def test_create_armory_cancelled_returns_session_unchanged(
 ) -> None:
     session = _make_session(tmp_path)
 
-    monkeypatch.setattr("hephaistos.app.workspace.direct_input", lambda _prompt="": "q")
+    monkeypatch.setattr("hephaistos.app.workspace.browse_directory", lambda *_, **_kw: None)
     new_session = workspace._create_armory(session)
 
     assert new_session is session

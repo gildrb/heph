@@ -35,9 +35,23 @@ from openai import (
 from openai.types.chat import ChatCompletionMessageParam
 
 from hephaistos.logging import Timer, get_logger
+from hephaistos.observability import get_meter, get_tracer
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
 
 _log = get_logger("chat.engine")
+
+_tracer = get_tracer("chat.engine")
+_meter = get_meter("chat.engine")
+
+_llm_duration_hist = _meter.create_histogram(  # type: ignore[union-attr]
+    "llm.request.duration",
+    unit="ms",
+    description="Duration of LLM completion requests",
+)
+_llm_token_counter = _meter.create_counter(  # type: ignore[union-attr]
+    "llm.token.usage",
+    description="Number of tokens used in LLM requests",
+)
 
 
 @dataclass
@@ -294,6 +308,16 @@ def _extract_usage(chunk: object) -> dict[str, int] | None:
     }
 
 
+def _record_usage(usage: dict[str, int], model: str, span: object) -> None:
+    """Record token usage metrics and span attributes."""
+    prompt = usage.get("prompt_tokens", 0)
+    completion = usage.get("completion_tokens", 0)
+    span.set_attribute("gen_ai.response.prompt_tokens", prompt)  # type: ignore[union-attr]
+    span.set_attribute("gen_ai.response.completion_tokens", completion)  # type: ignore[union-attr]
+    _llm_token_counter.add(prompt, {"model": model, "type": "prompt"})
+    _llm_token_counter.add(completion, {"model": model, "type": "completion"})
+
+
 def stream_completion(
     config: ChatConfig,
     messages: Conversation | list[ChatCompletionMessageParam],
@@ -304,6 +328,10 @@ def stream_completion(
     client_factory: Callable[[ChatConfig], OpenAI] | None = None,
 ) -> Iterator[CompletionDelta]:
     """Stream raw completion deltas with shared retry/recovery handling."""
+    span = _tracer.start_span("llm.completion")  # type: ignore[union-attr]
+    span.set_attribute("gen_ai.system", config.base_url)
+    span.set_attribute("gen_ai.request.model", config.model)
+    span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)
     retry = retry or RetryConfig()
     client_factory = client_factory or _build_client
     api_messages = messages.to_api_messages() if isinstance(messages, Conversation) else messages
@@ -326,6 +354,7 @@ def stream_completion(
 
     for attempt in range(retry.max_retries + 1):
         if abort is not None and abort.is_set():
+            span.end()
             return
 
         timer = Timer()
@@ -358,6 +387,9 @@ def stream_completion(
                 if not _wait_backoff(attempt, retry, abort):
                     return
                 continue
+            span.set_attribute("error", True)
+            span.set_attribute("error.type", type(exc).__name__)
+            span.end()
             raise EngineError(_request_failure_message(exc)) from exc
 
         partial_content = ""
@@ -375,11 +407,13 @@ def stream_completion(
                             }
                         },
                     )
+                    span.end()
                     return
 
                 usage = _extract_usage(chunk)
                 if not chunk.choices:
                     if usage is not None:
+                        _record_usage(usage, config.model, span)
                         yield CompletionDelta(usage=usage)
                     continue
 
@@ -391,6 +425,8 @@ def stream_completion(
                 if delta.content or delta.tool_calls:
                     saw_output = True
                 if delta.content or delta.tool_calls or finish_reason or usage is not None:
+                    if usage is not None:
+                        _record_usage(usage, config.model, span)
                     yield CompletionDelta(
                         content=delta.content or None,
                         tool_calls=(
@@ -413,12 +449,18 @@ def stream_completion(
                 extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
             )
             if saw_output:
+                span.set_attribute("error", True)
+                span.set_attribute("error.type", "StreamRecoveryError")
+                span.end()
                 raise StreamRecoveryError(partial_content, exc) from exc
             last_error = exc
             if is_retryable_error(exc) and attempt < retry.max_retries:
                 if not _wait_backoff(attempt, retry, abort):
                     return
                 continue
+            span.set_attribute("error", True)
+            span.set_attribute("error.type", type(exc).__name__)
+            span.end()
             raise EngineError(_stream_failure_message(exc)) from exc
 
         _log.info(
@@ -432,8 +474,13 @@ def stream_completion(
                 }
             },
         )
+        span.set_attribute("gen_ai.response.latency_ms", timer.ms)
+        _llm_duration_hist.record(timer.ms, {"model": config.model})
+        span.end()
         return
 
+    span.set_attribute("error", True)
+    span.end()
     raise EngineError(
         _request_failure_message(last_error)
         if last_error is not None

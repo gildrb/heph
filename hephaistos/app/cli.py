@@ -8,7 +8,7 @@ from pathlib import Path
 from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.cli import register as register_armory_commands
 from hephaistos.chat.cli import register as register_chat_commands
-from hephaistos.observability import init_sentry
+from hephaistos.observability import init_observability, shutdown_observability
 from hephaistos.parameters.cli import register as register_config_commands
 from hephaistos.source.cli import register as register_source_commands
 
@@ -43,6 +43,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {_VERSION}",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Enable CPU profiling (cProfile) for this session",
+    )
+    parser.add_argument(
+        "--profile-memory",
+        action="store_true",
+        help="Enable memory profiling (tracemalloc) for this session",
+    )
     subparsers = parser.add_subparsers(
         dest="command",
         required=True,
@@ -68,15 +78,72 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 
 def main() -> None:
-    init_sentry()
-    parser = build_parser()
-    argv = sys.argv[1:]
+    init_observability()
 
-    if not argv:
-        if sys.stdin.isatty() and sys.stdout.isatty():
-            run_chat_shell()
-        else:
-            parser.print_help()
-        return
+    # Detect profile flags before argparse (so profiling covers argparse itself)
+    _profile = "--profile" in sys.argv[1:]
+    _profile_memory = "--profile-memory" in sys.argv[1:]
 
-    run_argv(parser, argv)
+    _prof = None
+    if _profile:
+        import cProfile
+
+        _prof = cProfile.Profile()
+        _prof.enable()
+
+    if _profile_memory:
+        import tracemalloc
+
+        tracemalloc.start()
+
+    try:
+        parser = build_parser()
+        argv = sys.argv[1:]
+
+        # Launch shell if only profile flags (no real command) or no args
+        _real_args = [a for a in argv if a not in ("--profile", "--profile-memory")]
+        if not _real_args:
+            if sys.stdin.isatty() and sys.stdout.isatty():
+                run_chat_shell()
+            else:
+                parser.print_help()
+            return
+
+        run_argv(parser, argv)
+    finally:
+        if _profile_memory:
+            _report_memory()
+        if _profile and _prof is not None:
+            _prof.disable()
+            _report_profile(_prof)
+        shutdown_observability()
+
+
+def _report_memory() -> None:
+    """Print top memory allocations from tracemalloc."""
+    import tracemalloc
+
+    snapshot = tracemalloc.take_snapshot()
+    tracemalloc.stop()
+    top = snapshot.statistics("lineno")[:20]
+    sys.stderr.write("\n=== Memory Profile (top 20) ===\n")
+    for stat in top:
+        sys.stderr.write(f"  {stat}\n")
+    sys.stderr.write("\n")
+
+
+def _report_profile(prof: object) -> None:
+    """Save cProfile results and print summary."""
+    import pstats
+    from datetime import UTC, datetime
+
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    profile_dir = Path.home() / ".cache" / "hephaistos" / "profiles"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    profile_path = profile_dir / f"{ts}.prof"
+    prof.dump_stats(str(profile_path))  # type: ignore[union-attr]
+
+    sys.stderr.write(f"\n=== CPU Profile saved to {profile_path} ===\n")
+    stats = pstats.Stats(prof, stream=sys.stderr)  # type: ignore[arg-type]
+    stats.strip_dirs().sort_stats("cumulative").print_stats(20)
+    sys.stderr.write("\n")

@@ -119,3 +119,71 @@ my-armory/
 ```
 
 Only `source/` and `library/` are used for retrieval. Hidden files inside those directories are skipped by the indexer.
+
+## Observability
+
+Hephaistos uses layered observability that can be enabled incrementally:
+
+```mermaid
+graph TD
+    CLI[CLI session] -->|init| Sentry[Sentry error tracking]
+    CLI -->|init| OTel[OpenTelemetry traces + metrics]
+    CLI -->|init| Alerts[Webhook alerting]
+
+    Engine[chat.engine] -->|spans| OTel
+    Engine -->|metrics| OTel
+    Engine -->|errors| Sentry
+
+    Logging[structured logs] -->|trace_id| OTel
+    Logging -->|redacted| Sentry
+
+    Alerts -->|webhook| Slack[Slack / Discord / PagerDuty]
+    OTel -->|OTLP| Backend[Jaeger / Tempo / Datadog]
+```
+
+### Error tracking (Sentry)
+
+- Install: `uv sync --extra sentry`
+- Configure: `SENTRY_DSN` environment variable
+- All events are redacted before transmission (API keys, tokens scrubbed)
+- Session context tags: `session_id`, `armory`, `provider`, `model`
+
+### Distributed tracing (OpenTelemetry)
+
+- Install: `uv sync --extra otel`
+- Configure: `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable
+- LLM calls create `llm.completion` spans with `gen_ai.*` attributes
+- Trace IDs appear in structured logs for correlation
+- Disable: `OTEL_SDK_DISABLED=true`
+
+### Metrics (OpenTelemetry)
+
+- Same installation as tracing (`uv sync --extra otel`)
+- Metrics exported via OTLP to the same backend
+- Key instruments:
+  - `llm.request.duration` — histogram of LLM latency (ms)
+  - `llm.token.usage` — counter of prompt/completion tokens
+  - `rag.retrieval.duration` — histogram of RAG query latency
+
+### Alerting
+
+- Configure: `ALERT_WEBHOOK_URL` environment variable (Slack, Discord, PagerDuty)
+- Minimum level: `ALERT_MIN_LEVEL` (default: ERROR)
+- Rate-limited: one alert per key per 5 minutes
+- Critical errors captured by Sentry also trigger webhook alerts
+
+### Profiling
+
+- `--profile` flag: CPU profiling via cProfile (stdlib)
+- `--profile-memory` flag: memory profiling via tracemalloc (stdlib)
+- `py-spy` available in dev dependencies for flame graphs
+- Profiles saved to `~/.cache/hephaistos/profiles/`
+
+### Runbooks
+
+Operational playbooks are in `docs/runbooks/`:
+- [CI Failure](runbooks/ci-failure.md)
+- [Sentry Errors](runbooks/sentry-errors.md)
+- [Slow LLM Response](runbooks/slow-llm-response.md)
+- [Deployment Rollback](runbooks/deployment-rollback.md)
+- [RAG Retrieval Issues](runbooks/rag-retrieval-issues.md)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -204,3 +205,193 @@ def confirm(title: str, default: bool = False) -> bool:
         opts[1] = MenuOption("No", "")
     selected = select_option(title, opts)
     return selected == 0
+
+
+# --- Directory browser -------------------------------------------------------
+
+_BROWSER_STYLE = PtStyle.from_dict(
+    {
+        "browser.title": f"bold {FORGE_EMBER}",
+        "browser.path": FORGE_SMOKE,
+        "browser.entry": FORGE_ASH,
+        "browser.entry.selected": f"bg:{FORGE_PANEL} fg:{FORGE_ASH} bold",
+        "browser.parent": FORGE_SMOKE,
+        "browser.parent.selected": f"bg:{FORGE_PANEL} fg:{FORGE_SMOKE} bold",
+        "browser.hint": FORGE_SMOKE,
+    }
+)
+
+_DIR_ICON = "\U0001f4c1"  # folder icon
+_PARENT_LABEL = "..  (parent)"
+
+
+def _list_child_dirs(path: Path) -> list[Path]:
+    """Return sorted list of child directories, skipping hidden ones."""
+    try:
+        entries = sorted(path.iterdir())
+    except PermissionError:
+        return []
+    return [e for e in entries if e.is_dir() and not e.name.startswith(".")]
+
+
+def _format_browser(title: str, current: Path, entries: list[str], selected: int):
+    fragments: list[tuple[str, str]] = [
+        ("class:browser.title", title),
+        ("", "\n"),
+        ("class:browser.path", f"  {current}"),
+        ("", "\n\n"),
+    ]
+    for index, name in enumerate(entries):
+        is_selected = index == selected
+        is_parent = name == _PARENT_LABEL
+        if is_parent:
+            style = "class:browser.parent.selected" if is_selected else "class:browser.parent"
+        else:
+            style = "class:browser.entry.selected" if is_selected else "class:browser.entry"
+        marker = ">" if is_selected else " "
+        icon = "" if is_parent else f"{_DIR_ICON} "
+        fragments.append((style, f"  {marker} {icon}{name}"))
+        fragments.append(("", "\n"))
+
+    fragments.append(("", "\n"))
+    fragments.append(
+        (
+            "class:browser.hint",
+            "  up/down navigate | enter open | c choose | q/esc cancel",
+        )
+    )
+    return fragments
+
+
+def _browse_with_prompt_toolkit(
+    title: str,
+    start: Path,
+    *,
+    input_obj=None,
+    output_obj=None,
+) -> Path | None:
+    current = start.resolve()
+    selected = 0
+
+    def _entries() -> list[str]:
+        names: list[str] = [_PARENT_LABEL]
+        names.extend(child.name for child in _list_child_dirs(current))
+        return names
+
+    def _child_path(index: int) -> Path | None:
+        real_index = index - 1  # skip parent entry
+        children = _list_child_dirs(current)
+        if 0 <= real_index < len(children):
+            return children[real_index]
+        return None
+
+    entries = _entries()
+    bindings = KeyBindings()
+
+    @bindings.add("up")
+    def _(event):
+        nonlocal selected
+        selected = (selected - 1) % len(entries)
+        event.app.invalidate()
+
+    @bindings.add("down")
+    def _(event):
+        nonlocal selected
+        selected = (selected + 1) % len(entries)
+        event.app.invalidate()
+
+    @bindings.add("enter")
+    def _(event):
+        nonlocal current, selected, entries
+        if selected == 0:
+            parent = current.parent
+            if parent != current and parent.exists():
+                current = parent
+        else:
+            child = _child_path(selected)
+            if child is not None:
+                current = child
+        entries = _entries()
+        selected = 0
+        event.app.invalidate()
+
+    @bindings.add("c")
+    @bindings.add("C")
+    def _(event):
+        event.app.exit(result=current)
+
+    @bindings.add("escape")
+    @bindings.add("q")
+    @bindings.add("c-c")
+    def _(event):
+        event.app.exit(result=None)
+
+    control = FormattedTextControl(
+        lambda: _format_browser(title, current, entries, selected),
+        focusable=True,
+        show_cursor=False,
+    )
+    app = Application(
+        layout=Layout(Window(content=control, dont_extend_height=True, always_hide_cursor=True)),
+        key_bindings=bindings,
+        style=_BROWSER_STYLE,
+        full_screen=False,
+        erase_when_done=False,
+        input=input_obj,
+        output=output_obj,
+    )
+    try:
+        return app.run()
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+
+def _browse_with_prompt(title: str, start: Path) -> Path | None:
+    """Fallback directory browser for non-TTY environments."""
+    current = start.resolve()
+    while True:
+        direct_print(styled(f"{title}: {current}", STYLE_PROMPT))
+        entries = [_PARENT_LABEL] + [d.name for d in _list_child_dirs(current)]
+        for i, name in enumerate(entries, start=1):
+            prefix = "  " if name == _PARENT_LABEL else f"  {i}. "
+            direct_print(f"{prefix}{name}")
+        direct_print(styled("  c. choose this directory  q. cancel", STYLE_DIM))
+        try:
+            choice = direct_input("  > ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            return None
+        if choice in ("q", "quit", "cancel"):
+            return None
+        if choice in ("c", "choose"):
+            return current
+        try:
+            idx = int(choice) - 1
+        except ValueError:
+            direct_print("Unknown option.")
+            continue
+        if idx == 0:
+            parent = current.parent
+            if parent != current and parent.exists():
+                current = parent
+        elif 1 <= idx < len(entries):
+            children = _list_child_dirs(current)
+            child_idx = idx - 1
+            if 0 <= child_idx < len(children):
+                current = children[child_idx]
+        else:
+            direct_print("Unknown option.")
+
+
+def browse_directory(
+    title: str = "Select Directory",
+    start: Path | None = None,
+) -> Path | None:
+    """Open an interactive directory browser and return the chosen path.
+
+    Returns ``None`` when the user cancels.
+    Falls back to a text prompt when not running in a TTY.
+    """
+    root = start or Path.home()
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        return _browse_with_prompt_toolkit(title, root)
+    return _browse_with_prompt(title, root)

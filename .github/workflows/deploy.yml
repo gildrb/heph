@@ -95,3 +95,11 @@ jobs:
             --notes "Rolling edge build for ${GITHUB_SHA}"
 
           gh release upload edge dist/* --clobber
+
+      - name: Notify deploy
+        if: ${{ secrets.DEPLOY_WEBHOOK_URL != '' }}
+        run: |
+          curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"version\":\"edge\",\"commit\":\"${GITHUB_SHA}\",\"environment\":\"edge\",\"repository\":\"${GITHUB_REPOSITORY}\",\"ref\":\"main\",\"trigger\":\"push\"}" \
+            "${{ secrets.DEPLOY_WEBHOOK_URL }}" || true

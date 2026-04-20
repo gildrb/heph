@@ -115,6 +115,23 @@ def _redact_dict(data: dict[str, Any]) -> dict[str, Any]:
     return redacted
 
 
+def _get_trace_context() -> dict[str, str]:
+    """Get current OpenTelemetry trace_id and span_id if available."""
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        ctx = span.get_span_context()
+        if ctx.is_valid:
+            return {
+                "trace_id": format(ctx.trace_id, "032x"),
+                "span_id": format(ctx.span_id, "016x"),
+            }
+    except ImportError:
+        pass
+    return {}
+
+
 class _JsonFormatter(logging.Formatter):
     """Emit one JSON object per log line."""
 
@@ -130,7 +147,9 @@ class _JsonFormatter(logging.Formatter):
             entry.update(_redact_dict(fields))
         if record.exc_info and record.exc_info[1] is not None:
             entry["exc"] = self.formatException(record.exc_info)
-
+        trace_ctx = _get_trace_context()
+        if trace_ctx:
+            entry.update(trace_ctx)
         return json.dumps(_redact_dict(entry), default=str, ensure_ascii=False)
 
 
@@ -158,6 +177,10 @@ class _TextFormatter(logging.Formatter):
             redacted_fields = _redact_dict(fields)
             for k, v in redacted_fields.items():
                 parts.append(f"  {self._DIM}{k}={v}{self._RESET}")
+
+        trace_ctx = _get_trace_context()
+        if trace_ctx:
+            parts.append(f"  {self._DIM}trace_id={trace_ctx['trace_id'][:16]}…{self._RESET}")
 
         if record.exc_info and record.exc_info[1] is not None:
             parts.append(self.formatException(record.exc_info))

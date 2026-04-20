@@ -10,7 +10,7 @@ from hephaistos.app.display import (
     print_info,
     print_success,
 )
-from hephaistos.app.menu import MenuOption, select_option
+from hephaistos.app.menu import MenuOption, browse_directory, select_option
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
@@ -89,13 +89,13 @@ def _detach_armory(session: ChatSession) -> ChatSession:
 
 
 def _open_armory(session: ChatSession) -> ChatSession:
-    default_path = _default_armory_input(session)
-    raw_path = _prompt_path("Armory path", default_path)
-    if raw_path is None:
+    default_path = Path(session.armory_path or Path.cwd())
+    chosen = browse_directory("Open Armory", start=default_path)
+    if chosen is None:
         print_info("Cancelled.")
         return session
     try:
-        armory_path = validate_armory_path(raw_path)
+        armory_path = validate_armory_path(str(chosen))
     except ArmoryError as exc:
         print_error(str(exc))
         return session
@@ -103,12 +103,12 @@ def _open_armory(session: ChatSession) -> ChatSession:
 
 
 def _create_armory(session: ChatSession) -> ChatSession:
-    default_path = _default_armory_input(session)
-    raw_path = _prompt_path("New armory path", default_path)
-    if raw_path is None:
+    default_path = Path(session.armory_path or Path.cwd())
+    chosen = browse_directory("Create Armory", start=default_path)
+    if chosen is None:
         print_info("Cancelled.")
         return session
-    armory_path = normalize_path(raw_path)
+    armory_path = normalize_path(str(chosen))
     try:
         initialize(armory_path)
     except ArmoryError as exc:

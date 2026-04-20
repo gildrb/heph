@@ -28,12 +28,20 @@ from hephaistos.harness.rag import (
     retrieve,
 )
 from hephaistos.logging import Timer, get_logger
+from hephaistos.observability import get_meter, get_tracer
 from hephaistos.study import StudyTurnPlan, apply_turn_result, plan_turn
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
 
 _log = get_logger("chat.orchestrator")
+_tracer = get_tracer("chat.orchestrator")
+_meter = get_meter("chat.orchestrator")
+_rag_duration_hist = _meter.create_histogram(  # type: ignore[union-attr]
+    "rag.retrieval.duration",
+    unit="ms",
+    description="Duration of RAG retrieval queries",
+)
 _RAG_MIN_SCORE = 0.1
 
 
@@ -83,7 +91,16 @@ class TurnOrchestrator:
         try:
             with timer:
                 if session.armory_path is not None:
-                    resolved = self._resolve_turn_plan(user_input)
+                    rag_span = _tracer.start_span("rag.retrieval")  # type: ignore[union-attr]
+                    rag_timer = Timer()
+                    with rag_timer:
+                        resolved = self._resolve_turn_plan(user_input)
+                    if resolved.turn_evidence is not None:
+                        rag_span.set_attribute("rag.retrieved", len(resolved.turn_evidence.items))
+                    rag_span.end()
+                    _rag_duration_hist.record(
+                        rag_timer.ms, {"armory": str(session.armory_path or "none")}
+                    )
                     for event in self._iter_study_events(
                         resolved,
                         original_study_state,

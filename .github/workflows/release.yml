@@ -129,3 +129,12 @@ jobs:
             dist/* \
             --title "${TAG}" \
             --notes-file "${{ steps.notes.outputs.path }}"
+
+      - name: Notify release
+        if: ${{ secrets.DEPLOY_WEBHOOK_URL != '' }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"version\":\"${TAG}\",\"commit\":\"${GITHUB_SHA}\",\"environment\":\"pypi\",\"repository\":\"${GITHUB_REPOSITORY}\",\"ref\":\"${TAG}\",\"trigger\":\"release\"}" \
+            "${{ secrets.DEPLOY_WEBHOOK_URL }}" || true
