@@ -18,6 +18,7 @@ Configuration (environment variables):
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import platform
@@ -92,15 +93,13 @@ _DEFAULT_TRACES_RATE = 0.1
 
 def _detect_environment() -> str:
     """Heuristic: *production* when installed via pip, else *development*."""
-    try:
+    with contextlib.suppress(Exception):
         from importlib.metadata import distribution
 
         dist = distribution("hephaistos")
         location = str(dist.locate_file("")) if dist else ""
         if "site-packages" in location:
             return "production"
-    except Exception:
-        pass
     return "development"
 
 
