@@ -215,8 +215,10 @@ extend_exclude = ["tests"]
 # Optional RAG/docling deps are imported conditionally at runtime;
 # deptry's DEP002 (unused) flags them because it can't see conditional paths.
 # DEP003 on "hephaistos" is a false positive — the project imports its own subpackages.
+# DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
+# direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling"], DEP003 = ["hephaistos"], DEP001 = ["nltk", "numpy", "sklearn"] }
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"] }
 
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --durations=10 --strict-markers --cov=hephaistos --cov-report=term-missing --cov-fail-under=75"

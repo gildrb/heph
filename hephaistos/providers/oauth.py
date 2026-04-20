@@ -12,6 +12,7 @@ the active provider has OAuth credentials stored.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import secrets
@@ -178,19 +179,15 @@ def _ssl_context() -> ssl.SSLContext:
     context first, then falls back to the ``certifi`` CA bundle (always
     available as a transitive dependency of ``openai``/``keyring``).
     """
-    try:
+    with contextlib.suppress(Exception):
         ctx = ssl.create_default_context()
         if ctx.get_ca_certs():
             return ctx
-    except Exception:
-        pass
     # certifi is guaranteed available (transitive dep of openai/keyring).
-    try:
+    with contextlib.suppress(Exception):
         import certifi
 
         return ssl.create_default_context(cafile=certifi.where())
-    except Exception:
-        pass
     # Last resort: default context without certifi (will likely fail, but
     # avoids crashing before the actual network call).
     return ssl.create_default_context()
