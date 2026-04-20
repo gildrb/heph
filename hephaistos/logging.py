@@ -12,8 +12,7 @@ Provides:
   the armory's ``.hephaistos/traces/`` directory.
 - ``redact_value(value)`` — redact a string value if it matches a known
   secret pattern (for use by other modules).
-- ``redact_text(text)`` — redact sensitive patterns embedded within a raw
-  string (handles secrets that bypass dict-level redaction).
+- ``redact_text(text)`` — redact secrets found embedded within longer text.
 
 Configuration (environment variables):
     HEPHAISTOS_LOG_LEVEL  — DEBUG, INFO, WARNING, ERROR.
@@ -57,7 +56,7 @@ _SENSITIVE_KEY_PATTERNS: list[_re.Pattern[str]] = [
     _re.compile(r"(?i)(bearer|credential|private.?key)"),
 ]
 
-# Patterns for string values that look like secrets
+# Patterns for string values that look like secrets (anchored — value IS the secret)
 _SENSITIVE_VALUE_PATTERNS: list[_re.Pattern[str]] = [
     _re.compile(r"^sk-[a-zA-Z0-9]{20,}$"),  # OpenAI-style API keys
     _re.compile(r"^sk-ant-[a-zA-Z0-9\-]{20,}$"),  # Anthropic-style keys
@@ -65,7 +64,7 @@ _SENSITIVE_VALUE_PATTERNS: list[_re.Pattern[str]] = [
     _re.compile(r"^[a-f0-9]{32,}$"),  # Long hex strings (potential tokens)
 ]
 
-# Unanchored versions for finding secrets embedded within longer text
+# Unanchored versions — find secrets embedded within longer text
 _SENSITIVE_TEXT_PATTERNS: list[_re.Pattern[str]] = [
     _re.compile(r"sk-[a-zA-Z0-9]{20,}"),  # OpenAI-style API keys
     _re.compile(r"sk-ant-[a-zA-Z0-9\-]{20,}"),  # Anthropic-style keys
@@ -88,15 +87,16 @@ def redact_value(value: str) -> str:
 
 
 def redact_text(text: str) -> str:
-    """Redact sensitive patterns found within a raw string.
+    """Redact secrets found embedded within longer text.
 
-    Unlike :func:`redact_value` which only matches whole-string secrets,
-    this scans for secrets **embedded** inside longer text (e.g. a user
-    message containing an API key) and replaces each match with
-    ``[REDACTED]``.
+    Unlike :func:`redact_value`, which only matches when the entire value
+    is a secret, this function scans for secrets anywhere inside *text*
+    and replaces each occurrence with ``***REDACTED***``.
     """
+    if not text or not isinstance(text, str):
+        return text
     for pattern in _SENSITIVE_TEXT_PATTERNS:
-        text = pattern.sub("[REDACTED]", text)
+        text = pattern.sub(_REDACTED, text)
     return text
 
 

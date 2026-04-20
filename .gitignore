@@ -51,6 +51,17 @@ site/
 .superset/
 .idea/
 
+# Swap, backup, and log files
+*.swp
+*.swo
+*.tmp
+*.bak
+*.log
+
+# Tool caches
+.import_linter_cache/
+.cache/
+
 # Project-specific
 /*-armory/
 **/.hephaistos/

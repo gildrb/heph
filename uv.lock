@@ -773,6 +773,7 @@ name = "hephaistos"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "keyring" },
     { name = "openai" },
     { name = "prompt-toolkit" },
@@ -785,6 +786,9 @@ docling = [
 embeddings = [
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
+]
+sentry = [
+    { name = "sentry-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -819,17 +823,20 @@ rag = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2024.0.0" },
     { name = "docling", marker = "extra == 'docling'", specifier = ">=2.0.0" },
     { name = "keyring", specifier = ">=25.7.0" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "scikit-learn", marker = "extra == 'embeddings'", specifier = ">=1.0.0" },
     { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=3.0.0" },
+    { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["embeddings", "docling"]
+provides-extras = ["sentry", "embeddings", "docling"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "bandit", specifier = ">=1.9" },
     { name = "bandit", extras = ["toml"], specifier = ">=1.8" },
     { name = "basedpyright", specifier = ">=1.39.0" },
     { name = "deptry", specifier = ">=0.22" },
@@ -2903,6 +2910,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fe/26/448453925b6ce0c29d8b54327caa71ee4835511aef02070467402273079c/sentence_transformers-5.3.0.tar.gz", hash = "sha256:414a0a881f53a4df0e6cbace75f823bfcb6b94d674c42a384b498959b7c065e2", size = 403330, upload-time = "2026-03-12T14:53:40.778Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e2/9c/2fa7224058cad8df68d84bafee21716f30892cecc7ad1ad73bde61d23754/sentence_transformers-5.3.0-py3-none-any.whl", hash = "sha256:dca6b98db790274a68185d27a65801b58b4caf653a4e556b5f62827509347c7d", size = 512390, upload-time = "2026-03-12T14:53:39.035Z" },
+]
+
+[[package]]
+name = "sentry-sdk"
+version = "2.58.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/26/b3/fb8291170d0e844173164709fc0fa0c221ed75a5da740c8746f2a83b4eb1/sentry_sdk-2.58.0.tar.gz", hash = "sha256:c1144d947352d54e5b7daa63596d9f848adf684989c06c4f5a659f0c85a18f6f", size = 438764, upload-time = "2026-04-13T17:23:26.265Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/eb/d875669993b762556ae8b2efd86219943b4c0864d22204d622a9aee3052b/sentry_sdk-2.58.0-py2.py3-none-any.whl", hash = "sha256:688d1c704ddecf382ea3326f21a67453d4caa95592d722b7c780a36a9d23109e", size = 460919, upload-time = "2026-04-13T17:23:24.675Z" },
 ]
 
 [[package]]

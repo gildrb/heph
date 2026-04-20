@@ -63,6 +63,7 @@ from hephaistos.chat.session import (
     validate_armory_path,
 )
 from hephaistos.chat.usage import ContextBudget
+from hephaistos.observability import capture_exception
 from hephaistos.parameters.cli import load_config
 from hephaistos.providers.config import ProviderConfig
 
@@ -405,6 +406,38 @@ def _preflight_config_check(session: ChatSession) -> str | None:
     return None
 
 
+def _report_engine_error(
+    exc: EngineError | StreamRecoveryError,
+    session: ChatSession,
+) -> None:
+    """Display and track an engine error to Sentry and the user."""
+    if isinstance(exc, StreamRecoveryError):
+        msg = (
+            f"{styled('warning:', STYLE_ERROR)} "
+            f"Stream interrupted — connection lost after partial reply."
+        )
+        if exc.partial_content:
+            msg += f" ({len(exc.partial_content)} chars received)"
+        print(msg)
+        capture_exception(
+            exc,
+            context={
+                "provider": session.config._provider_slug,
+                "model": session.config.model,
+                "partial_content_length": len(exc.partial_content),
+            },
+        )
+    else:
+        print_error(str(exc))
+        capture_exception(
+            exc,
+            context={
+                "provider": session.config._provider_slug,
+                "model": session.config.model,
+            },
+        )
+
+
 def _start_background_reply(
     session: ChatSession,
     user_input: str,
@@ -436,16 +469,8 @@ def _start_background_reply(
                 abort=runtime.abort_event,
                 reply_prefix=reply_prefix,
             )
-        except StreamRecoveryError as rec:
-            msg = (
-                f"{styled('warning:', STYLE_ERROR)} "
-                f"Stream interrupted — connection lost after partial reply."
-            )
-            if rec.partial_content:
-                msg += f" ({len(rec.partial_content)} chars received)"
-            print(msg)
-        except EngineError as exc:
-            print_error(str(exc))
+        except (StreamRecoveryError, EngineError) as exc:
+            _report_engine_error(exc, session)
         finally:
             runtime.worker = None
             runtime.abort_event.clear()
@@ -524,16 +549,8 @@ def _handle_input(
             reply_prefix = f"\r{styled('Assistant:', STYLE_ASSISTANT)} "
             try:
                 send_user_message(session, new_input, abort=abort, reply_prefix=reply_prefix)
-            except StreamRecoveryError as rec:
-                msg = (
-                    f"{styled('warning:', STYLE_ERROR)} "
-                    f"Stream interrupted — connection lost after partial reply."
-                )
-                if rec.partial_content:
-                    msg += f" ({len(rec.partial_content)} chars received)"
-                print(msg)
-            except EngineError as exc:
-                print_error(str(exc))
+            except (StreamRecoveryError, EngineError) as exc:
+                _report_engine_error(exc, session)
         return session, True
     history.add(user_input)
     config_error = _preflight_config_check(session)
@@ -544,16 +561,8 @@ def _handle_input(
     reply_prefix = f"\r{styled('Assistant:', STYLE_ASSISTANT)} "
     try:
         send_user_message(session, user_input, abort=abort, reply_prefix=reply_prefix)
-    except StreamRecoveryError as rec:
-        msg = (
-            f"{styled('warning:', STYLE_ERROR)} "
-            f"Stream interrupted — connection lost after partial reply."
-        )
-        if rec.partial_content:
-            msg += f" ({len(rec.partial_content)} chars received)"
-        print(msg)
-    except EngineError as exc:
-        print_error(str(exc))
+    except (StreamRecoveryError, EngineError) as exc:
+        _report_engine_error(exc, session)
     return session, True
 
 

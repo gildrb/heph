@@ -1,0 +1,70 @@
+name: PR Review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: uv sync --group dev
+
+      - name: Ruff lint check
+        run: uv run ruff check . 2>&1 | tee /tmp/ruff-output.txt
+        continue-on-error: true
+
+      - name: Ruff format check
+        run: uv run ruff format --check . 2>&1 | tee /tmp/format-output.txt
+        continue-on-error: true
+
+      - name: Build and post review comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "## Automated Review"
+            echo ""
+
+            if [ -s /tmp/ruff-output.txt ]; then
+              echo "### Ruff Lint Findings"
+              echo '```'
+              cat /tmp/ruff-output.txt
+              echo '```'
+              echo ""
+            else
+              echo "- Ruff lint: **passed**"
+              echo ""
+            fi
+
+            if [ -s /tmp/format-output.txt ]; then
+              echo "### Ruff Format Findings"
+              echo '```'
+              cat /tmp/format-output.txt
+              echo '```'
+              echo ""
+            else
+              echo "- Ruff format: **passed**"
+              echo ""
+            fi
+
+            echo "---"
+            echo ""
+            DIFF=$(gh pr diff "${{ github.event.pull_request.number }}" --stat 2>/dev/null || echo "unavailable")
+            echo "### Diff Stats"
+            echo '```'
+            echo "$DIFF"
+            echo '```'
+          } > /tmp/review-comment.md
+
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/review-comment.md

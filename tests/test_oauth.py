@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from hephaistos.providers.oauth import (
     OAuthCredentials,
+    _ssl_context,
     clear_credentials,
     generate_pkce,
     list_providers,
@@ -16,6 +17,40 @@ from hephaistos.providers.oauth import (
     resolve_oauth_key,
     save_credentials,
 )
+
+# --- SSL context ------------------------------------------------------------
+
+
+def test_ssl_context_has_ca_certs() -> None:
+    """The SSL context must contain CA certificates for verification to work.
+
+    This catches the macOS python.org installer case where
+    ``create_default_context()`` returns zero certs.
+    """
+    ctx = _ssl_context()
+    assert ctx.get_ca_certs(), "SSL context has zero CA certs — HTTPS will fail"
+
+
+def test_ssl_context_certifi_fallback_when_no_default_certs(monkeypatch) -> None:
+    """When default context has zero certs, certifi bundle must be loaded."""
+    import ssl
+
+    original_create = ssl.create_default_context
+
+    def _empty_context() -> ssl.SSLContext:
+        ctx = original_create()
+        # Simulate macOS python.org Python: strip all loaded certs
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        empty = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        empty.check_hostname = True
+        empty.verify_mode = ssl.CERT_REQUIRED
+        return empty
+
+    monkeypatch.setattr(ssl, "create_default_context", _empty_context)
+    ctx = _ssl_context()
+    assert ctx.get_ca_certs(), "certifi fallback should have loaded CA certs"
+
 
 # --- PKCE -------------------------------------------------------------------
 
