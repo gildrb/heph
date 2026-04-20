@@ -37,11 +37,12 @@ def test_ssl_context_certifi_fallback_when_no_default_certs(monkeypatch) -> None
 
     original_create = ssl.create_default_context
 
-    def _empty_context() -> ssl.SSLContext:
-        ctx = original_create()
-        # Simulate macOS python.org Python: strip all loaded certs
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+    def _empty_context(*, cafile: str | None = None, **_kwargs: object) -> ssl.SSLContext:
+        # When cafile is provided (certifi fallback), pass through to the
+        # real implementation so the test can verify certs are loaded.
+        if cafile:
+            return original_create(cafile=cafile)
+        # Simulate macOS python.org Python: return context with zero certs
         empty = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         empty.check_hostname = True
         empty.verify_mode = ssl.CERT_REQUIRED
