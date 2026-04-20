@@ -60,3 +60,15 @@ repos:
         entry: radon cc hephaistos -a -nc
         types: [python]
         pass_filenames: false
+      - id: check-tech-debt
+        name: tech-debt (TODO/FIXME issue links)
+        language: python
+        entry: python scripts/check_tech_debt.py --strict
+        types: [python]
+        pass_filenames: false
+      - id: validate-agents-md
+        name: validate-agents-md (AGENTS.md commands)
+        language: python
+        entry: python scripts/validate_agents_md.py --strict
+        files: AGENTS\.md$
+        pass_filenames: false

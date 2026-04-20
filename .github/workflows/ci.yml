@@ -337,6 +337,88 @@ jobs:
             gh pr comment "${{ github.event.pull_request.number }}" --body "## Security Scan: No findings"
           fi
 
+  tech-debt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: uv sync --group dev
+      - name: Check TODO/FIXME issue links
+        run: |
+          start=$(date +%s%N)
+          uv run python scripts/check_tech_debt.py --strict --report
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| tech-debt check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+
+  agents-md-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: uv sync --group dev
+      - name: Validate AGENTS.md commands
+        run: |
+          start=$(date +%s%N)
+          uv run python scripts/validate_agents_md.py --strict
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| agents-md-validation check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+
+  agent-detection:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: uv sync --group dev
+      - name: Detect agent co-authorship
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OUTPUT=$(uv run python scripts/detect_co_author.py --pr 2>&1 || true)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -q "Agent-authored"; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body "## Agent Attribution
+          $OUTPUT"
+          fi
+
+  label-sync:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: uv sync --group dev
+      - name: Sync labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python scripts/sync_labels.py
+
   metrics:
     needs: [test]
     runs-on: ubuntu-latest
