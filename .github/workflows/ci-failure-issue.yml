@@ -1,0 +1,76 @@
+name: CI Failure Issue
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  handle-ci-result:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Manage failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          RUN_URL="${{ github.event.workflow_run.html_url }}"
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          ACTOR="${{ github.event.workflow_run.actor.login }}"
+          SEARCH_TERM="CI failure on main"
+
+          if [ "$CONCLUSION" = "failure" ] && [ "$BRANCH" = "main" ]; then
+            echo "CI failed on main -- creating/updating issue"
+            TITLE="CI failure on main (${SHA:0:7})"
+
+            EXISTING=$(gh issue list --repo "$REPO" --state open --search "$SEARCH_TERM" --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+            FAILED_JOBS=$(gh run view "$RUN_ID" --repo "$REPO" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | "- **" + .name + "**: " + (.steps | map(select(.conclusion == "failure")) | map(.name) | join(", "))' 2>/dev/null || echo "Unable to fetch job details")
+
+            BODY="## CI Failure Report
+
+          - **Commit**: \`${SHA:0:7}\`
+          - **Branch**: \`${BRANCH}\`
+          - **Run**: [View CI Run](${RUN_URL})
+          - **Triggered by**: @${ACTOR}
+          - **Time**: $(date -u '+%Y-%m-%d %H:%M UTC')
+
+          ### Failed Jobs
+
+          ${FAILED_JOBS}
+
+          ---
+          *This issue was automatically created by the CI failure workflow.*"
+
+            if [ -n "$EXISTING" ]; then
+              echo "Updating existing issue #$EXISTING"
+              gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
+            else
+              echo "Creating new issue"
+              gh issue create --repo "$REPO" \
+                --title "$TITLE" \
+                --body "$BODY" \
+                --label "bug"
+            fi
+
+          elif [ "$CONCLUSION" = "success" ] && [ "$BRANCH" = "main" ]; then
+            echo "CI passed on main -- closing any open failure issues"
+            EXISTING=$(gh issue list --repo "$REPO" --state open --search "$SEARCH_TERM" --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+            if [ -n "$EXISTING" ]; then
+              echo "Closing issue #$EXISTING -- CI is now passing"
+              gh issue close "$EXISTING" --repo "$REPO" \
+                --comment "CI is now passing on main. Closing. [Run](${RUN_URL})"
+            else
+              echo "No open failure issue to close"
+            fi
+          else
+            echo "CI $CONCLUSION on $BRANCH -- no action needed"
+          fi

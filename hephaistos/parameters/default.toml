@@ -8,3 +8,8 @@ max_tokens = 4096
 # log_level = "WARNING"     # DEBUG, INFO, WARNING, ERROR
 # log_file = ""             # Path to append-only log file
 # log_format = "json"      # "json" or "text"
+
+# Observability (Sentry error tracking)
+# SENTRY_DSN                — Sentry project DSN (enables error tracking)
+# SENTRY_ENVIRONMENT        — "production" or "development" (auto-detected if unset)
+# SENTRY_TRACES_SAMPLE_RATE — 0.0-1.0, default 0.1

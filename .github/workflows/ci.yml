@@ -289,3 +289,74 @@ jobs:
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| feature-flags check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| security sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Bandit security scan
+        continue-on-error: true
+        run: |
+          start=$(date +%s%N)
+          uv run bandit -r hephaistos -f txt -ll -ii -s B101,B602,B310
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| security bandit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post security findings on PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FINDINGS=$(uv run bandit -r hephaistos -f txt -ll -ii -s B101,B602,B310 2>&1 || true)
+          if [ -n "$FINDINGS" ]; then
+            {
+              echo "## Security Scan Findings"
+              echo ""
+              echo '```'
+              echo "$FINDINGS"
+              echo '```'
+            } > /tmp/security-comment.md
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/security-comment.md
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" --body "## Security Scan: No findings"
+          fi
+
+  metrics:
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: uv sync --group dev
+      - name: Download test results
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results
+          path: .artifacts
+      - name: Record build and test metrics
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python scripts/record_metrics.py --junit-xml .artifacts/pytest-junit.xml

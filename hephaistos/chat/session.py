@@ -21,6 +21,7 @@ from hephaistos.harness.rag import ArmoryIndex
 from hephaistos.harness.tools import ToolRegistry, default_registry
 from hephaistos.logging import TraceWriter, get_logger
 from hephaistos.memory import MemoryStore, load_memory
+from hephaistos.observability import set_session_context
 from hephaistos.study import StudyState
 
 _log = get_logger("chat.session")
@@ -166,6 +167,7 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
         extra={"fields": {"session_id": session.session_id, "model": config.model}},
     )
     session.trace.record_session_event("created", model=config.model, mode="plain")
+    set_session_context(session_id=session.session_id, model=config.model)
     return session
 
 
@@ -219,6 +221,11 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         },
     )
     session.trace.record_session_event("created", model=config.model)
+    set_session_context(
+        session_id=session.session_id,
+        armory=str(armory_path),
+        model=config.model,
+    )
     return session
 
 
@@ -251,6 +258,11 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         },
     )
     session.trace.record_session_event("resumed", title=title)
+    set_session_context(
+        session_id=session_id,
+        armory=str(armory_path),
+        model=config.model,
+    )
     return session
 
 

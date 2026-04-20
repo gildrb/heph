@@ -8,6 +8,7 @@ from pathlib import Path
 from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.cli import register as register_armory_commands
 from hephaistos.chat.cli import register as register_chat_commands
+from hephaistos.observability import init_sentry
 from hephaistos.parameters.cli import register as register_config_commands
 from hephaistos.source.cli import register as register_source_commands
 
@@ -67,6 +68,7 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 
 def main() -> None:
+    init_sentry()
     parser = build_parser()
     argv = sys.argv[1:]
 

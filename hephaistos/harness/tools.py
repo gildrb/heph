@@ -371,7 +371,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
             text=True,
             timeout=actual_timeout,
             check=False,
-        )
+        )  # nosec B602
         elapsed = _time.monotonic() - start
         br = BashResult(
             stdout=result.stdout or "",

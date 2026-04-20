@@ -27,6 +27,7 @@ dependencies = [
     "keyring>=25.7.0",
     "openai>=1.0.0",
     "prompt-toolkit>=3.0.0",
+    "certifi>=2024.0.0",
 ]
 
 [project.urls]
@@ -36,6 +37,9 @@ Issues = "https://github.com/gildrb/hephaistos/issues"
 Changelog = "https://github.com/gildrb/hephaistos/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
+sentry = [
+    "sentry-sdk>=2.0.0",
+]
 embeddings = [
     "sentence-transformers>=3.0.0",
     "scikit-learn>=1.0.0",
@@ -195,6 +199,7 @@ source_modules = [
     "hephaistos.source",
     "hephaistos.logging",
     "hephaistos.palette",
+    "hephaistos.observability",
 ]
 forbidden_modules = ["hephaistos.app"]
 
@@ -210,6 +215,12 @@ type = "independence"
 modules = ["hephaistos.chat.session", "hephaistos.chat.orchestrator"]
 ignore_imports = ["hephaistos.chat.session -> hephaistos.chat.orchestrator"]
 
+[[tool.importlinter.contracts]]
+name = "observability must not import app"
+type = "forbidden"
+source_modules = ["hephaistos.observability"]
+forbidden_modules = ["hephaistos.app"]
+
 [tool.deptry]
 extend_exclude = ["tests"]
 # Optional RAG/docling deps are imported conditionally at runtime;
@@ -218,7 +229,7 @@ extend_exclude = ["tests"]
 # DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"] }
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "sentry-sdk"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"] }
 
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --durations=10 --strict-markers --cov=hephaistos --cov-report=term-missing --cov-fail-under=75"
@@ -249,6 +260,7 @@ dev = [
     "ruff>=0.15.8",
     "vulture>=2.0",
     "import-linter>=2.11",
+    "bandit>=1.9",
 ]
 rag = [
     "sentence-transformers>=3.0.0",

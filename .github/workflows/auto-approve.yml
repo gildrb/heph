@@ -1,0 +1,39 @@
+name: Auto-approve Renovate PRs
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  auto-approve:
+    if: github.actor == 'renovate[bot]' || github.actor == 'renovate[bot][app]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check update type and approve
+        env:
+          GH_TOKEN: ${{ secrets.RENOVATE_APPROVE_TOKEN || github.token }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+
+          # Skip major updates -- these require manual review
+          if echo "$PR_TITLE" | grep -qiE "(major|breaking)"; then
+            echo "Major/breaking update detected -- skipping auto-approve"
+            exit 0
+          fi
+
+          # Also check labels for major-update
+          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "major-update"; then
+            echo "Major update label found -- skipping auto-approve"
+            exit 0
+          fi
+
+          # Auto-approve non-major Renovate PRs
+          echo "Auto-approving Renovate PR #$PR_NUMBER"
+          gh pr review "$PR_NUMBER" --approve --body "Auto-approved: minor/patch dependency update. CI checks will gate the merge."
