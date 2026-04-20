@@ -37,6 +37,20 @@ jobs:
           ms=$(( (end - start) / 1000000 ))
           echo "| lint ruff-format | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
 
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   typecheck:
     runs-on: ubuntu-latest
     steps:
@@ -59,6 +73,31 @@ jobs:
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| typecheck basedpyright | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| security sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Bandit
+        run: |
+          start=$(date +%s%N)
+          uv run bandit -r hephaistos -c pyproject.toml
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| security bandit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
 
   dead-code:
     runs-on: ubuntu-latest

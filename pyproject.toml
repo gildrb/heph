@@ -165,6 +165,12 @@ min-similarity-lines = 8
 min_confidence = 80
 paths = ["hephaistos", "tests", "vulture-whitelist.py"]
 
+[tool.bandit]
+severity = "low"
+confidence = "low"
+exclude_dirs = ["tests"]
+skips = ["B101", "B311", "B105", "B106"]
+
 [tool.importlinter]
 root_packages = ["hephaistos"]
 exclude_type_checking_imports = true
@@ -209,8 +215,10 @@ extend_exclude = ["tests"]
 # Optional RAG/docling deps are imported conditionally at runtime;
 # deptry's DEP002 (unused) flags them because it can't see conditional paths.
 # DEP003 on "hephaistos" is a false positive — the project imports its own subpackages.
+# DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
+# direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling"], DEP003 = ["hephaistos"], DEP001 = ["nltk", "numpy", "sklearn"] }
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"] }
 
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --durations=10 --strict-markers --cov=hephaistos --cov-report=term-missing --cov-fail-under=75"
@@ -228,6 +236,7 @@ fail_under = 75
 
 [dependency-groups]
 dev = [
+    "bandit[toml]>=1.8",
     "basedpyright>=1.39.0",
     "deptry>=0.22",
     "pytest>=9.0.2",

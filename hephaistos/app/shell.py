@@ -12,7 +12,7 @@ All keybindings are configurable via ``DEFAULT_SHELL_KEYBINDINGS``.
 
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404
 import sys
 import threading
 from dataclasses import dataclass, field
@@ -377,7 +377,7 @@ def _run_shell_command(cmd: str) -> None:
     """
     print(styled(f"$ {cmd}", STYLE_DIM))
     try:
-        subprocess.run(cmd, shell=True, capture_output=False, text=True, check=False)
+        subprocess.run(cmd, shell=True, capture_output=False, text=True, check=False)  # nosec B602
     except Exception as exc:
         print_error(str(exc))
 
