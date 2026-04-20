@@ -274,6 +274,6 @@ def load_memory(armory_path: Path) -> MemoryStore:
 
 def save_memory(store: MemoryStore) -> Path:
     """Save memory if it has changed."""
-    if store._dirty:
+    if store._dirty:  # type: ignore[reportPrivateUsage]
         return store.save()
-    return store._path
+    return store._path  # type: ignore[reportPrivateUsage]

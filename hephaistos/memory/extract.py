@@ -13,8 +13,9 @@ Extraction is deliberately conservative:
 from __future__ import annotations
 
 import json
+from typing import Any, cast
 
-from hephaistos.chat.engine import ChatConfig, Conversation, _build_client
+from hephaistos.chat.engine import ChatConfig, Conversation, build_client
 from hephaistos.logging import Timer, get_logger
 from hephaistos.memory import MemoryStore, save_memory
 
@@ -81,7 +82,7 @@ def extract_from_exchange(
 
     timer = Timer()
     try:
-        client = _build_client(config)
+        client = build_client(config)
         with timer:
             response = client.chat.completions.create(
                 model=config.model,
@@ -110,22 +111,21 @@ def extract_from_exchange(
             raw = raw.rsplit("```", 1)[0]
         raw = raw.strip()
 
-        entries = json.loads(raw)
-        if not isinstance(entries, list):
-            return []
+        entries = cast("list[Any]", json.loads(raw))
         valid: list[dict[str, str]] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            topic = entry.get("topic", "").strip()
-            content = entry.get("content", "").strip()
+            item = cast("dict[str, Any]", entry)
+            topic = str(item.get("topic", "")).strip()
+            content = str(item.get("content", "")).strip()
             if not topic or not content:
                 continue
             valid.append(
                 {
                     "topic": topic[:100],
                     "content": content[:500],
-                    "source": entry.get("source", "conversation"),
+                    "source": str(item.get("source", "conversation")),
                 }
             )
 

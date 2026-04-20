@@ -11,10 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from prompt_toolkit.application import Application
+from prompt_toolkit.input.base import Input
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
+from prompt_toolkit.output.base import Output
 from prompt_toolkit.styles import Style as PtStyle
 
 from hephaistos.app.display import (
@@ -90,37 +93,37 @@ def _select_with_prompt_toolkit(
     options: list[MenuOption],
     keybindings: dict[str, str | list[str]],
     *,
-    input_obj=None,
-    output_obj=None,
+    input_obj: Input | None = None,
+    output_obj: Output | None = None,
 ) -> int | None:
     selected = _initial_selection(options)
     bindings = KeyBindings()
 
     @bindings.add(*_key_list(keybindings["navigate_up"]))
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         nonlocal selected
         selected = (selected - 1) % len(options)
         event.app.invalidate()
 
     @bindings.add(*_key_list(keybindings["navigate_down"]))
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         nonlocal selected
         selected = (selected + 1) % len(options)
         event.app.invalidate()
 
     @bindings.add(*_key_list(keybindings["select"]))
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         event.app.exit(result=selected)
 
     @bindings.add(*_key_list(keybindings["cancel"]))
     @bindings.add("q")
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         event.app.exit(result=None)
 
     for index in range(min(len(options), 9)):
 
         @bindings.add(str(index + 1))
-        def _(event, option_index=index):
+        def _(event: KeyPressEvent, option_index: int = index) -> None:
             event.app.exit(result=option_index)
 
     control = FormattedTextControl(
@@ -128,7 +131,7 @@ def _select_with_prompt_toolkit(
         focusable=True,
         show_cursor=False,
     )
-    app = Application(
+    app: Application[int | None] = Application(
         layout=Layout(Window(content=control, dont_extend_height=True, always_hide_cursor=True)),
         key_bindings=bindings,
         style=_MENU_STYLE,
@@ -267,8 +270,8 @@ def _browse_with_prompt_toolkit(
     title: str,
     start: Path,
     *,
-    input_obj=None,
-    output_obj=None,
+    input_obj: Input | None = None,
+    output_obj: Output | None = None,
 ) -> Path | None:
     current = start.resolve()
     selected = 0
@@ -289,19 +292,19 @@ def _browse_with_prompt_toolkit(
     bindings = KeyBindings()
 
     @bindings.add("up")
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         nonlocal selected
         selected = (selected - 1) % len(entries)
         event.app.invalidate()
 
     @bindings.add("down")
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         nonlocal selected
         selected = (selected + 1) % len(entries)
         event.app.invalidate()
 
     @bindings.add("enter")
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         nonlocal current, selected, entries
         if selected == 0:
             parent = current.parent
@@ -317,13 +320,13 @@ def _browse_with_prompt_toolkit(
 
     @bindings.add("c")
     @bindings.add("C")
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         event.app.exit(result=current)
 
     @bindings.add("escape")
     @bindings.add("q")
     @bindings.add("c-c")
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         event.app.exit(result=None)
 
     control = FormattedTextControl(
@@ -331,7 +334,7 @@ def _browse_with_prompt_toolkit(
         focusable=True,
         show_cursor=False,
     )
-    app = Application(
+    app: Application[Path | None] = Application(
         layout=Layout(Window(content=control, dont_extend_height=True, always_hide_cursor=True)),
         key_bindings=bindings,
         style=_BROWSER_STYLE,

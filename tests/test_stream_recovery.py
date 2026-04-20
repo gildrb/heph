@@ -15,7 +15,7 @@ from hephaistos.chat.engine import (
     EngineError,
     RetryConfig,
     StreamRecoveryError,
-    _wait_backoff,
+    _wait_backoff,  # type: ignore[reportPrivateUsage]
     get_reply,
     is_retryable_error,
     stream_reply,
@@ -501,8 +501,14 @@ class TestConversationConsistency:
         )
 
         from hephaistos.chat.events import AssistantDeltaEvent
+        from hephaistos.chat.orchestrator import TurnOrchestrator
 
-        def fake_iter_events(self, user_input: str, *, abort=None):
+        def fake_iter_events(
+            self: TurnOrchestrator,
+            user_input: str,
+            *,
+            abort: threading.Event | None = None,
+        ):
             self.session.conversation.add("user", user_input)
             self.session.conversation.add("assistant", "Hello!")
             self.last_reply = "Hello!"
@@ -520,7 +526,9 @@ class TestConversationConsistency:
         assert conv.messages[1].role == "assistant"
         assert conv.messages[1].content == "Hello!"
 
-    def test_send_user_message_prints_reply_prefix_on_first_output(self, capsys) -> None:
+    def test_send_user_message_prints_reply_prefix_on_first_output(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Reply labels are printed only when a turn emits output."""
         from hephaistos.chat.session import ChatSession, send_user_message
 
@@ -534,8 +542,14 @@ class TestConversationConsistency:
         )
 
         from hephaistos.chat.events import AssistantDeltaEvent
+        from hephaistos.chat.orchestrator import TurnOrchestrator
 
-        def fake_iter_events(self, user_input: str, *, abort=None):
+        def fake_iter_events(
+            self: TurnOrchestrator,
+            user_input: str,
+            *,
+            abort: threading.Event | None = None,
+        ):
             self.session.conversation.add("user", user_input)
             self.session.conversation.add("assistant", "Hello!")
             self.last_reply = "Hello!"

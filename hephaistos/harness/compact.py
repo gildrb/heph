@@ -18,8 +18,9 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from typing import Any, cast
 
-from hephaistos.chat.engine import ChatConfig, Conversation, _build_client
+from hephaistos.chat.engine import ChatConfig, Conversation, build_client
 from hephaistos.harness.rag.context import estimate_tokens
 from hephaistos.logging import get_logger
 
@@ -32,7 +33,7 @@ TOKEN_THRESHOLD: int = 50_000  # auto_compact trigger
 TRANSCRIPTS_DIR: str = ".hephaistos/transcripts"
 
 
-def estimate_messages_tokens(messages: list[dict]) -> int:
+def estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
     """Rough token estimate for a list of API-format messages."""
     total = 0
     for msg in messages:
@@ -40,10 +41,9 @@ def estimate_messages_tokens(messages: list[dict]) -> int:
         if isinstance(content, str):
             total += estimate_tokens(content)
         elif isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict):
-                    text = part.get("text", "") or part.get("content", "")
-                    total += estimate_tokens(str(text))
+            for part in cast("list[dict[str, Any]]", content):
+                text = part.get("text", "") or part.get("content", "")
+                total += estimate_tokens(str(text))
         for tc in msg.get("tool_calls", []):
             fn = tc.get("function", {})
             total += estimate_tokens(fn.get("name", ""))
@@ -51,7 +51,7 @@ def estimate_messages_tokens(messages: list[dict]) -> int:
     return total
 
 
-def micro_compact(messages: list[dict], *, keep_recent: int = KEEP_RECENT) -> int:
+def micro_compact(messages: list[dict[str, Any]], *, keep_recent: int = KEEP_RECENT) -> int:
     """Replace old tool results with short placeholders.
 
     Operates **in-place** on *messages*.  Returns the number of results
@@ -78,7 +78,7 @@ def micro_compact(messages: list[dict], *, keep_recent: int = KEEP_RECENT) -> in
     return replaced
 
 
-def _find_tool_name(messages: list[dict], tool_result_idx: int) -> str:
+def _find_tool_name(messages: list[dict[str, Any]], tool_result_idx: int) -> str:
     """Walk backwards to find the tool-call name that produced a result."""
     call_id = messages[tool_result_idx].get("tool_call_id", "")
     for i in range(tool_result_idx - 1, -1, -1):
@@ -89,12 +89,12 @@ def _find_tool_name(messages: list[dict], tool_result_idx: int) -> str:
 
 
 def auto_compact(
-    messages: list[dict],
+    messages: list[dict[str, Any]],
     config: ChatConfig,
     workspace: Path,
     *,
     keep_recent_exchanges: int = KEEP_RECENT_EXCHANGES,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Save transcript to disk, summarise older turns, keep recent ones verbatim.
 
     The most recent N exchanges (user + assistant + tool messages) are
@@ -145,7 +145,7 @@ def auto_compact(
         )
         temp.add("user", summary_prompt)
 
-        client = _build_client(config)
+        client = build_client(config)
         response = client.chat.completions.create(
             model=config.model,
             messages=temp.to_api_messages(),
@@ -189,7 +189,7 @@ def auto_compact(
     return compressed
 
 
-def _save_transcript(messages: list[dict], workspace: Path) -> Path:
+def _save_transcript(messages: list[dict[str, Any]], workspace: Path) -> Path:
     """Persist messages as JSONL under ``<workspace>/.transcripts/``."""
     transcript_dir = workspace / TRANSCRIPTS_DIR
     transcript_dir.mkdir(parents=True, exist_ok=True)

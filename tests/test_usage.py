@@ -8,7 +8,7 @@ from hephaistos.chat.usage import (
     ContextBudget,
     SessionUsage,
     TokenUsage,
-    _get_pricing,
+    _get_pricing,  # type: ignore[reportPrivateUsage]
     estimate_conversation_tokens,
     estimate_message_tokens,
     get_context_window,

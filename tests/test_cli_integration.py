@@ -4,6 +4,8 @@ import io
 import re
 from pathlib import Path
 
+import pytest
+
 import hephaistos.app.cli as app_cli
 from hephaistos.app.cli import build_parser, run_argv
 
@@ -27,7 +29,9 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "parameters" not in help_text
 
 
-def test_run_argv_dispatches_armory_init(tmp_path: Path, capsys) -> None:
+def test_run_argv_dispatches_armory_init(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     parser = build_parser()
     armory_path = tmp_path / "integration-armory"
 
@@ -38,7 +42,7 @@ def test_run_argv_dispatches_armory_init(tmp_path: Path, capsys) -> None:
     assert armory_path.is_dir()
 
 
-def test_main_without_args_uses_chat_shell_on_tty(monkeypatch) -> None:
+def test_main_without_args_uses_chat_shell_on_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     called = False
 
     def fake_shell() -> None:
@@ -55,7 +59,7 @@ def test_main_without_args_uses_chat_shell_on_tty(monkeypatch) -> None:
     assert called
 
 
-def test_main_without_args_prints_help_on_non_tty(monkeypatch) -> None:
+def test_main_without_args_prints_help_on_non_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_stdout = _FakeTTY(False)
     monkeypatch.setattr(app_cli.sys, "argv", ["heph"])
     monkeypatch.setattr(app_cli.sys, "stdin", _FakeTTY(False))

@@ -14,22 +14,53 @@ from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_session
 
 
+def _reset_otel_module_objects() -> None:
+    """Replace module-level OTel objects with no-ops to isolate tests."""
+    import hephaistos.chat.engine as _engine_mod
+    import hephaistos.chat.orchestrator as _orch_mod
+    import hephaistos.chat.resilience as _res_mod
+    import hephaistos.observability as _otel_mod
+
+    _noop_tracer = _otel_mod._NoopTracer()  # type: ignore[reportPrivateUsage]
+    _noop_meter = _otel_mod._NoopMeter()  # type: ignore[reportPrivateUsage]
+
+    # engine.py
+    _engine_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]
+    _engine_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
+    _engine_mod._llm_duration_hist = _otel_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
+    _engine_mod._llm_token_counter = _otel_mod._NoopCounter()  # type: ignore[reportPrivateUsage]
+
+    # resilience.py
+    _res_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
+    _res_mod._state_gauge = _otel_mod._NoopGauge()  # type: ignore[reportPrivateUsage]
+
+    # orchestrator.py
+    _orch_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]
+    _orch_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
+    _orch_mod._rag_duration_hist = _otel_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
+
+
 @pytest.fixture(autouse=True)
 def _isolate_global_state() -> Generator[None]:  # pyright: ignore[reportUnusedFunction]
     """Reset mutable module-level globals between tests."""
+    import hephaistos.chat.engine as _engine_mod
     import hephaistos.logging as _log_mod
     import hephaistos.providers.keyring_store as _ks
 
-    _ks._volatile.clear()
-    _log_mod._root_initialised = False
+    _ks._volatile.clear()  # type: ignore[reportPrivateUsage]
+    _log_mod._root_initialised = False  # type: ignore[reportPrivateUsage]
+    _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
+    _reset_otel_module_objects()
     root = logging.getLogger("hephaistos")
     root.handlers.clear()
     root.setLevel(logging.WARNING)
 
     yield
 
-    _ks._volatile.clear()
-    _log_mod._root_initialised = False
+    _ks._volatile.clear()  # type: ignore[reportPrivateUsage]
+    _log_mod._root_initialised = False  # type: ignore[reportPrivateUsage]
+    _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
+    _reset_otel_module_objects()
     root.handlers.clear()
     root.setLevel(logging.WARNING)
 

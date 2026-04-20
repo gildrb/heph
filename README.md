@@ -1,6 +1,17 @@
 # Hephaistos
 
-Hephaistos is an armory-first study CLI. It attaches to an "armory" workspace that holds source material, retrieves relevant context via RAG, runs a guarded agent loop with tool access inside the workspace, verifies citations after each answer, and stores per-armory memory so repeated sessions stay grounded.
+**A local-first study agent that works with your files and any LLM.**
+
+Hephaistos helps you study from your own material. Create an armory, put your
+source files inside it, and chat with an agent that retrieves the relevant parts
+of those files before answering. After each answer, Hephaistos checks that the
+citations point to evidence it actually retrieved, then stores study memory for
+that armory so you can continue where you left off.
+
+Your workspace is just a folder on disk. Your source files, notes, saved chats,
+retrieval index, and study memory stay with the armory instead of being locked
+inside one model vendor's project format. Use OpenRouter, OpenAI, Z.AI, or any
+OpenAI-compatible endpoint you configure.
 
 ## Quickstart
 
@@ -8,256 +19,186 @@ Hephaistos is an armory-first study CLI. It attaches to an "armory" workspace th
 
 - Python 3.13+
 - [`uv`](https://docs.astral.sh/uv/)
-- An API key for the provider you want to use
+- An API key or compatible local/hosted LLM endpoint
 
-### Install dependencies
+### Install
 
 ```bash
 uv sync
 ```
 
-To enable embedding retrieval and cross-encoder re-ranking:
+Optional: enable embedding retrieval and cross-encoder re-ranking.
 
 ```bash
 uv sync --group rag
 ```
 
-To enable document conversion (PDF, DOCX, PPTX, HTML) via [docling](https://github.com/docling-project/docling):
+Optional: enable document conversion for files such as PDF, DOCX, PPTX, and
+XLSX.
 
 ```bash
 uv sync --group docling
 ```
 
-### Create an armory and start a session
+### Create An Armory
 
 ```bash
-uv run hephaistos armory init ~/armories/demo
-# add study files to ~/armories/demo/source or ~/armories/demo/library
-uv run hephaistos chat start ~/armories/demo
+uv run hephaistos armory init ~/armories/exams
+# Add study files to ~/armories/exams/source or ~/armories/exams/library
+uv run hephaistos chat start ~/armories/exams
 ```
 
-If you `cd` into a valid armory first, `uv run hephaistos` will auto-attach it. Without arguments, Hephaistos opens the interactive shell only when stdin/stdout are TTYs; otherwise it prints CLI help.
+If you `cd` into a valid armory first, `uv run hephaistos` will attach it
+automatically and open the interactive shell.
 
-### Configure an API key
+### Configure A Model
 
-You can either:
+Inside the shell:
 
-- set a provider-specific environment variable such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, or `CUSTOM_API_KEY`
-- set a generic override with `HEPHAISTOS_API_KEY`
-- start the shell and use `/api key <your-key>`
+```text
+/provider
+/model
+/api key <your-key>
+```
 
-API keys are resolved in this order: `HEPHAISTOS_API_KEY`, OS keychain, OAuth credentials, provider-specific environment variable, then a session-only in-memory override. They are not written to `providers.toml`.
+You can also use environment variables such as `OPENROUTER_API_KEY`,
+`OPENAI_API_KEY`, `ZAI_API_KEY`, `CUSTOM_API_KEY`, `HEPHAISTOS_BASE_URL`, and
+`HEPHAISTOS_MODEL`.
 
-### Install as a tool
+### Install The Shortcut
 
 ```bash
 uv tool install --force --editable .
 heph
 ```
 
+## Why Hephaistos
+
+- **Armories are portable study workspaces.** An armory is a normal directory
+  with source files, reference material, notes, saved chats, retrieval state,
+  and memory for that subject.
+- **Answers are grounded in your files.** Hephaistos indexes `source/` and
+  `library/`, retrieves relevant chunks for each question, and gives the model
+  evidence IDs to cite.
+- **Citations are checked after every answer.** The model must cite retrieved
+  evidence like `[E1]`. Hephaistos verifies those IDs against the evidence from
+  that exact turn and warns when citations are missing or invented.
+- **Each armory remembers what you studied.** After substantive exchanges,
+  Hephaistos extracts learned concepts into `.hephaistos/memory.json` and uses
+  that memory in future sessions for the same armory.
+- **The study loop is recall-first.** Hephaistos can present a source-backed
+  solution, ask you to recall it, assess your attempt against the retrieved
+  source, and give small hints instead of dumping the answer again.
+- **The model is swappable.** Your armory is not tied to one LLM. Switch
+  providers or models while keeping the same source files, chats, notes, and
+  memory.
+
 ## How It Works
 
-1. Create or open an armory workspace.
-2. Put study material in `source/` or `library/`.
-3. Start a chat in that armory.
-4. For each question, Hephaistos builds or loads the RAG index, retrieves relevant chunks, injects them into the prompt, and runs the agent loop (LLM + tools).
-5. After the reply, it verifies cited sources against what was actually retrieved, tracks usage/cost, and extracts durable memory entries from substantive exchanges.
+1. Put primary material in `source/` and reference material in `library/`.
+2. Start a chat in the armory.
+3. For each source-backed question, Hephaistos builds or loads the local RAG
+   index, retrieves relevant chunks, and passes them to the model as citable
+   evidence.
+4. The answer is checked for valid evidence citations.
+5. Useful concepts from the exchange are saved as armory memory for later
+   sessions.
 
-If an armory has no source files, `chat start` will fail until you add material to `source/` or `library/`.
-
-## Features
-
-- Interactive TTY shell built on `prompt_toolkit` with a forge-inspired palette, borderless dynamic composer, and live status rows beneath the input
-- Slash commands for armory/session/model/provider management
-- Shell mode via `!command`
-- Armory auto-discovery from the current directory or `./armory`
-- Agent loop with `bash`, `read_file`, `write_file`, `edit_file`, `list_files`, `search_files`, `web_fetch`, and `compact`
-- Steering — type while the agent is working to inject follow-up messages mid-loop
-- Three-layer context compaction: silent micro-compact every turn, auto-compact at token thresholds, and manual `/compact`
-- Citation verification against the sources actually retrieved for the answer
-- Per-armory memory extraction stored in `.hephaistos/memory.json`
-- Session usage and estimated cost tracking with model-specific pricing
-- Context window budget management with compaction urgency warnings
-- Structured logging plus per-session JSONL traces
-- Multi-provider model switching with a built-in model registry (context windows, pricing, capabilities)
-- Persona switching — change agent tone per session (drill instructor, tutor, examiner, summarizer, debater) via `/persona`
-- TF-IDF retrieval by default; optional embedding/hybrid retrieval, cross-encoder re-ranking, and query transformation (HyDE, multi-query, keyword expansion) when extra dependencies are installed
-- Document conversion for PDF, DOCX, PPTX, and HTML via optional `docling` integration
-- Mutation queue serialising concurrent file writes per-path
-- Keychain-based API key storage with lazy resolution
-
-## Commands
-
-### CLI
-
-```text
-hephaistos armory init <path>         Create a new armory workspace
-hephaistos armory open <path>         Validate an existing armory
-hephaistos source list <path>         List source documents
-hephaistos source count <path>        Count source documents
-hephaistos source index <path>        Build or refresh the RAG index
-hephaistos config show                Display current configuration
-hephaistos config set <key> <value>   Persist a configuration override
-hephaistos chat start <path>          Start a new chat session in an armory
-hephaistos chat resume <path> <id>    Resume a saved chat session
-hephaistos chat list <path>           List saved chat sessions
-```
-
-The top-level CLI is shell-first. `armory`, `source`, and `config` are visible in `hephaistos --help`; `chat` is implemented but hidden from top-level help.
-
-### Slash Commands
-
-| Command | Description |
-|---------|-------------|
-| `/help` | Show available commands |
-| `/status` | Show armory, session, model, memory, and usage state |
-| `/save` | Save the current chat to the active armory |
-| `/clear` | Start a fresh chat session |
-| `/armory` | Open the armory management menu |
-| `/chats` | List saved chats in the active armory |
-| `/resume [id-prefix]` | Resume a saved chat by menu or session ID prefix |
-| `/model` | Show or switch the active model |
-| `/provider` | Show or switch the active provider and model |
-| `/models` | List the built-in model catalog across providers |
-| `/api` | Inspect or set the API key / base URL |
-| `/login` | Authenticate with an LLM provider via OAuth |
-| `/logout` | Clear stored OAuth credentials |
-| `/compact` | Summarize the conversation to free context |
-| `/history` | Show turn counts and a token estimate |
-| `/persona` | Show or switch the agent persona |
-| `/usage` | Show tracked token usage and estimated cost |
-| `/edit` | Edit and resend the last user message |
-| `/exit` | Leave the shell |
-| `/quit` | Leave the shell |
-
-### Shell Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Enter` | Send message |
-| `Alt+Enter` / `Esc+Enter` | Insert newline |
-| `\` at end of line | Continue on the next line |
-| `Up` / `Down` | Browse prompt history |
-| `Tab` | Autocomplete slash commands |
-| `Ctrl+C` | Cancel the current response |
-| `Ctrl+D` | Exit the shell |
-| `Ctrl+A` / `Ctrl+E` | Move to start / end of line |
-| `Ctrl+U` / `Ctrl+K` | Clear to start / kill to end |
+If an armory has no source files, `chat start` asks you to add material before
+starting a study session.
 
 ## Armory Layout
 
-An armory is a normal directory with a fixed layout:
-
 ```text
 my-armory/
-  .hephaistos/
-    armory.toml         # armory marker and metadata
-    system_prompt.md    # optional custom system prompt (replaces default persona)
-    history             # shell history for this armory (created on use)
-    memory.json         # extracted study memory
-    rag_index.json      # persisted retrieval index
-    traces/             # per-session JSONL traces
-    usage/              # per-session usage/cost snapshots
-  source/               # primary study material, indexed for RAG
-  library/              # additional reference material, indexed for RAG
-  notes/                # workspace notes the agent can edit
+  source/               # primary study material, indexed for retrieval
+  library/              # extra reference material, indexed for retrieval
+  notes/                # notes and summaries the agent can write
   chats/                # saved chat sessions
-  parameters/           # reserved workspace parameters directory
+  parameters/           # armory-specific parameter files
+  .hephaistos/
+    armory.toml         # armory marker
+    system_prompt.md    # optional custom study prompt
+    memory.json         # remembered concepts for this armory
+    rag_index.json      # local retrieval index
 ```
 
-Only `source/` and `library/` are used for retrieval. Hidden files inside those directories are skipped by the indexer.
+Only `source/` and `library/` are retrieved for answers. Hidden files inside
+those folders are skipped.
 
-## Configuration
+## Retrieval
 
-### Provider configuration
+Hephaistos works with plain text, Markdown, code, config files, CSV/TSV, HTML,
+and other readable text formats out of the box. Markdown is chunked with heading
+context, and other text files use semantic chunking when the optional RAG
+dependencies are installed.
 
-Provider definitions live in `~/.config/hephaistos/providers.toml`. On first load, Hephaistos writes a default config with:
+With `uv sync --group rag`, retrieval can use hybrid TF-IDF plus embeddings,
+cross-encoder re-ranking, and query transformation.
 
-- `openrouter`
-- `openai-codex`
-- `zai`
-- `custom`
+With `uv sync --group docling`, document files such as PDF, DOCX, PPTX, XLSX,
+ODT, ODS, ODP, and RTF can be converted into Markdown before indexing.
 
-The default active provider is `zai`. Switch providers in the shell with `/provider`, or switch models with `/model`.
-
-### User configuration
-
-User overrides live in `~/.config/hephaistos/config.json`. Manage them with:
+You can prebuild or refresh the index:
 
 ```bash
-hephaistos config show
-hephaistos config set model glm-5
+uv run hephaistos source index ~/armories/exams
 ```
 
-Supported keys are `base_url`, `model`, `max_tokens`, `rag_context_budget`, and `feature_flags`. Environment variables take priority over user overrides, which take priority over provider config and built-in defaults.
+## Bring Your Own Model
 
-### System prompt
+Hephaistos is built around configurable providers, not a single required model.
+The default provider config includes:
 
-By default, every armory uses the built-in drill-instructor persona (study loop, recall-first rules, etc.). To override it, create `.hephaistos/system_prompt.md` in the armory:
+- OpenRouter
+- OpenAI
+- Z.AI
+- Custom OpenAI-compatible endpoint
+
+Switch inside the shell with `/provider` and `/model`, or set
+`HEPHAISTOS_BASE_URL` and `HEPHAISTOS_MODEL` for your own endpoint. The armory
+stays the same when the model changes.
+
+## Common Commands
+
+```text
+hephaistos armory init <path>         Create a new armory
+hephaistos armory open <path>         Validate an existing armory
+hephaistos source list <path>         List source and library files
+hephaistos source count <path>        Count source and library files
+hephaistos source index <path>        Build or refresh the retrieval index
+hephaistos chat start <path>          Start a new study session
+hephaistos chat resume <path> <id>    Resume a saved session
+hephaistos chat list <path>           List saved sessions
+```
+
+Useful shell commands:
+
+| Command | Description |
+|---------|-------------|
+| `/armory` | Open, create, detach, or browse armories |
+| `/chats` | List saved chats in the active armory |
+| `/resume [id-prefix]` | Resume a saved chat |
+| `/save` | Save the current chat |
+| `/provider` | Switch provider |
+| `/model` | Switch model |
+| `/api key <key>` | Set an API key for the active provider |
+| `/persona` | Switch study style |
+| `/compact` | Summarize a long conversation to free context |
+| `/exit` | Leave the shell |
+| `/quit` | Leave the shell |
+
+## Custom Study Prompts
+
+Every armory can define its own study behavior with:
 
 ```text
 my-armory/.hephaistos/system_prompt.md
 ```
 
-The file contents replace the hardcoded core role and study loop. Use it to define a different mode without touching Python:
-
-- **Quiz mode** — pose questions, score answers
-- **Debate mode** — argue opposing sides, demand evidence
-- **Socratic mode** — guide with questions, never give answers
-- **Lecture mode** — explain topics from source material in depth
-
-Anti-hallucination rules, tool documentation, format rules, and dynamic context (date, source files, memory) are always appended regardless of the custom prompt. This means you only write the persona; the structural guardrails come for free.
-
-### Environment variables
-
-| Variable | Description |
-|----------|-------------|
-| `HEPHAISTOS_API_KEY` | Generic API key override |
-| `HEPHAISTOS_BASE_URL` | Override the API base URL |
-| `HEPHAISTOS_MODEL` | Override the active model |
-| `HEPHAISTOS_MAX_TOKENS` | Max output tokens per response |
-| `HEPHAISTOS_RAG_CONTEXT_BUDGET` | Token budget for injected retrieval context |
-| `HEPHAISTOS_FEATURE_FLAGS` | Comma-separated feature flags |
-| `HEPHAISTOS_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
-| `HEPHAISTOS_LOG_FILE` | Optional append-only log file path |
-| `HEPHAISTOS_LOG_FORMAT` | `json` or `text` for stderr logs |
-| `HEPHAISTOS_EMBED_MODEL` | Override the embedding model used by retrieval |
-| `HEPHAISTOS_RERANK_MODEL` | Override the reranker model when available |
-| `OPENAI_API_KEY` | API key for the OpenAI-compatible provider path |
-| `OPENROUTER_API_KEY` | API key for OpenRouter |
-| `ZAI_API_KEY` | API key for Z.AI / GLM |
-| `CUSTOM_API_KEY` | API key for the custom provider entry |
-
-Defaults are stored in [`hephaistos/parameters/default.toml`](hephaistos/parameters/default.toml).
-
-## Project Layout
-
-```text
-hephaistos/
-  app/            CLI entrypoint, shell, commands, menus, display, palette
-  armory/         armory creation and validation
-  chat/           session lifecycle, engine, usage, persistence
-  harness/        tool loop, compaction, citations, RAG
-  memory/         learned-concept extraction and persistence
-  parameters/     default parameter loading and env overrides
-  providers/      provider config, model registry, keyring integration
-  source/         source document management CLI
-  logging.py      structured JSON logging and per-session trace writer
-tests/            unit and integration tests
-```
-
-## Development
-
-```bash
-uv sync --group dev
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-```
-
-## Known Limitations
-
-1. **Programmatic API / SDK** — Everything goes through the interactive shell. There's no way to drive the agent loop programmatically (e.g., for batch study workflows, testing, or embedding in another tool).
+Use it for modes like quiz practice, Socratic tutoring, exam drilling, debate,
+or lecture-style explanations. Hephaistos still appends the source-grounding and
+citation rules around the custom prompt.
 
 ## License
 

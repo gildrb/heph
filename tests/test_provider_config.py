@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from pathlib import Path
 
-from hephaistos.providers.config import ProviderConfig, _default_config
+from hephaistos.chat.engine import ChatConfig
+from hephaistos.providers.config import (
+    ProviderConfig,
+    _default_config,  # type: ignore[reportPrivateUsage]
+)
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.registry import ModelInfo, ModelRegistry
 
@@ -33,17 +37,17 @@ def test_default_openrouter_models_match_supported_families() -> None:
 
 def test_default_config_activates_zai_with_model() -> None:
     config = _default_config()
-    chat_config = SimpleNamespace(base_url="", model="", _provider_slug="", _provider_env="")
+    chat_config = ChatConfig(base_url="", model="")
 
     config.apply_to_config(chat_config)
 
     assert config.get_active() is config.providers["zai"]
     assert chat_config.base_url == "https://api.z.ai/api/paas/v4/"
     assert chat_config.model == "glm-5"
-    assert chat_config._provider_slug == "zai"
+    assert chat_config._provider_slug == "zai"  # type: ignore[reportPrivateUsage]
 
 
-def test_load_filters_unsupported_models(tmp_path) -> None:
+def test_load_filters_unsupported_models(tmp_path: Path) -> None:
     config_path = tmp_path / "providers.toml"
     config_path.write_text(
         """
@@ -73,7 +77,7 @@ models = [
     assert provider.current_model == ""
 
 
-def test_load_clears_current_model_when_all_models_are_filtered_out(tmp_path) -> None:
+def test_load_clears_current_model_when_all_models_are_filtered_out(tmp_path: Path) -> None:
     config_path = tmp_path / "providers.toml"
     config_path.write_text(
         """
@@ -98,7 +102,7 @@ models = [
     assert provider.current_model == ""
 
 
-def test_load_preserves_current_model_without_models_list(tmp_path) -> None:
+def test_load_preserves_current_model_without_models_list(tmp_path: Path) -> None:
     config_path = tmp_path / "providers.toml"
     config_path.write_text(
         """
@@ -115,7 +119,7 @@ current_model = "my-custom-model"
 
     loaded = ProviderConfig.load(config_path)
     provider = loaded.providers["custom"]
-    config = SimpleNamespace(base_url="", model="")
+    config = ChatConfig(base_url="", model="")
 
     loaded.apply_to_config(config)
 

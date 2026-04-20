@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
@@ -17,7 +18,7 @@ def test_browse_directory_choose_current(tmp_path: Path) -> None:
 
     with create_pipe_input() as pipe_input:
         pipe_input.send_text("c")
-        result = menu._browse_with_prompt_toolkit(
+        result = menu._browse_with_prompt_toolkit(  # type: ignore[reportPrivateUsage]
             "Test Browse",
             start,
             input_obj=pipe_input,
@@ -35,7 +36,7 @@ def test_browse_directory_cancel(tmp_path: Path) -> None:
 
     with create_pipe_input() as pipe_input:
         pipe_input.send_text("q")
-        result = menu._browse_with_prompt_toolkit(
+        result = menu._browse_with_prompt_toolkit(  # type: ignore[reportPrivateUsage]
             "Test Browse",
             start,
             input_obj=pipe_input,
@@ -55,7 +56,7 @@ def test_browse_directory_navigate_into_child(tmp_path: Path) -> None:
     with create_pipe_input() as pipe_input:
         # down (select child), enter (descend), c (choose)
         pipe_input.send_text("\x1b[B\r\x1b[Bc")
-        result = menu._browse_with_prompt_toolkit(
+        result = menu._browse_with_prompt_toolkit(  # type: ignore[reportPrivateUsage]
             "Test Browse",
             start,
             input_obj=pipe_input,
@@ -71,7 +72,7 @@ def test_browse_directory_parent_entry(tmp_path: Path) -> None:
     """The parent entry (..) should be listed first."""
     start = tmp_path / "start"
     start.mkdir()
-    entries = menu._format_browser("Test", start, ["..  (parent)", "child"], 0)
+    entries = menu._format_browser("Test", start, ["..  (parent)", "child"], 0)  # type: ignore[reportPrivateUsage]
     # Just verify it doesn't crash and has content
     assert any("..  (parent)" in frag[1] for frag in entries)
 
@@ -83,7 +84,7 @@ def test_list_child_dirs_skips_hidden(tmp_path: Path) -> None:
     (parent / ".hidden").mkdir()
     (parent / "visible").mkdir()
 
-    dirs = menu._list_child_dirs(parent)
+    dirs = menu._list_child_dirs(parent)  # type: ignore[reportPrivateUsage]
     names = [d.name for d in dirs]
     assert "visible" in names
     assert ".hidden" not in names
@@ -96,44 +97,57 @@ def test_list_child_dirs_handles_permission_error(tmp_path: Path) -> None:
 
     import hephaistos.app.menu as menu_mod
 
-    def _raising_iterdir(self):
+    def _raising_iterdir(self: Path):
         raise PermissionError("no access")
 
     original = menu_mod.Path.iterdir
     try:
         menu_mod.Path.iterdir = _raising_iterdir  # type: ignore[assignment]
-        dirs = menu._list_child_dirs(parent)
+        dirs = menu._list_child_dirs(parent)  # type: ignore[reportPrivateUsage]
         assert dirs == []
     finally:
         menu_mod.Path.iterdir = original  # type: ignore[assignment]
 
 
-def test_browse_with_prompt_fallback_choose(tmp_path: Path, monkeypatch) -> None:
+def test_browse_with_prompt_fallback_choose(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Non-TTY fallback: choosing the current dir returns it."""
     start = tmp_path / "start"
     start.mkdir()
 
-    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "c")
-    result = menu._browse_with_prompt("Test", start)
+    monkeypatch.setattr(
+        "hephaistos.app.menu.direct_input",
+        lambda _prompt="": "c",  # type: ignore[reportUnknownLambdaType]
+    )
+    result = menu._browse_with_prompt("Test", start)  # type: ignore[reportPrivateUsage]
     assert result is not None
     assert result.resolve() == start.resolve()
 
 
-def test_browse_with_prompt_fallback_cancel(monkeypatch) -> None:
+def test_browse_with_prompt_fallback_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
     """Non-TTY fallback: pressing q returns None."""
     start = Path("/tmp")
-    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "q")
-    result = menu._browse_with_prompt("Test", start)
+    monkeypatch.setattr(
+        "hephaistos.app.menu.direct_input",
+        lambda _prompt="": "q",  # type: ignore[reportUnknownLambdaType]
+    )
+    result = menu._browse_with_prompt("Test", start)  # type: ignore[reportPrivateUsage]
     assert result is None
 
 
-def test_browse_directory_public_api_non_tty(tmp_path: Path, monkeypatch) -> None:
+def test_browse_directory_public_api_non_tty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """browse_directory() should use text fallback when not in a TTY."""
     start = tmp_path / "start"
     start.mkdir()
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     monkeypatch.setattr("sys.stdout.isatty", lambda: False)
-    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "c")
+    monkeypatch.setattr(
+        "hephaistos.app.menu.direct_input",
+        lambda _prompt="": "c",  # type: ignore[reportUnknownLambdaType]
+    )
 
     result = menu.browse_directory("Test", start)
     assert result is not None

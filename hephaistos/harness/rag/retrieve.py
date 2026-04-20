@@ -21,11 +21,13 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 try:
     import numpy as np
-    from sklearn.feature_extraction.text import TfidfVectorizer as _SklearnTfidfVectorizer
+    from sklearn.feature_extraction.text import (
+        TfidfVectorizer as _SklearnTfidfVectorizer,  # type: ignore[import-untyped]
+    )
 
     _has_sklearn = True
 except ImportError:
@@ -192,10 +194,10 @@ class TfidfRetriever:
 
     def __init__(self, index: ArmoryIndex) -> None:
         self._chunks = index.all_chunks
-        self._vectorizer: _SklearnTfidfVectorizer | None = None  # type: ignore[type-arg]
-        self._matrix = None
+        self._vectorizer: Any | None = None
+        self._matrix: Any = None
         self._idf: dict[str, float] = {}
-        self._chunk_freqs: list[Counter] = []
+        self._chunk_freqs: list[Counter[str]] = []
         if self._chunks:
             if _has_sklearn:
                 try:
@@ -249,8 +251,11 @@ class TfidfRetriever:
         scores = (query_vec @ self._matrix.T).toarray().flatten()  # type: ignore[union-attr]
         top_indices = np.argsort(scores)[::-1][:top_k]  # type: ignore[union-attr]
         return [
-            ScoredChunk(chunk=self._chunks[idx], score=float(scores[idx]))
-            for idx in top_indices
+            ScoredChunk(
+                chunk=self._chunks[idx],  # type: ignore[reportUnknownArgumentType]
+                score=float(scores[idx]),
+            )
+            for idx in top_indices  # type: ignore[reportUnknownVariableType]
             if scores[idx] > 0
         ]
 
@@ -274,8 +279,8 @@ class TfidfRetriever:
 
     def _tfidf_score(
         self,
-        chunk_freq: Counter,
-        query_freq: Counter,
+        chunk_freq: Counter[str],
+        query_freq: Counter[str],
         query_terms: set[str],
     ) -> float:
         dot = 0.0
@@ -345,15 +350,15 @@ class EmbeddingRetriever:
             _EMBED_MODEL_DEFAULT,
         )
         self._embeddings: list[list[float]] | None = None
-        self._model = None  # lazy-loaded
+        self._model: Any = None  # lazy-loaded
 
-    def _ensure_model(self):
+    def _ensure_model(self) -> Any:
         """Lazy-load the sentence-transformers model."""
         if self._model is not None:
             return self._model
-        from sentence_transformers import SentenceTransformer
+        from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
 
-        self._model = SentenceTransformer(self._model_name)
+        self._model = cast("Any", SentenceTransformer(self._model_name))
         return self._model
 
     def _ensure_embeddings(self) -> list[list[float]]:
@@ -407,20 +412,20 @@ class CrossEncoderReranker:
             _RERANK_MODEL_ENV,
             _RERANK_MODEL_DEFAULT,
         )
-        self._model = None  # lazy-loaded
+        self._model: Any = None  # lazy-loaded
 
     @property
     def model_name(self) -> str:
         """Name of the cross-encoder model."""
         return self._model_name
 
-    def _ensure_model(self):
+    def _ensure_model(self) -> Any:
         """Lazy-load the CrossEncoder model."""
         if self._model is not None:
             return self._model
-        from sentence_transformers import CrossEncoder
+        from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 
-        self._model = CrossEncoder(self._model_name)
+        self._model = cast("Any", CrossEncoder(self._model_name))
         return self._model
 
     def rerank(

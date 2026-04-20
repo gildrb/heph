@@ -6,11 +6,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from hephaistos.harness.rag.chunker import (
-    _DOCLING_EXTENSIONS,
+    _DOCLING_EXTENSIONS,  # type: ignore[reportPrivateUsage]
     ChunkStrategy,
-    _convert_to_markdown,
-    _is_docling_available,
-    _is_docling_file,
+    _convert_to_markdown,  # type: ignore[reportPrivateUsage]
+    _is_docling_available,  # type: ignore[reportPrivateUsage]
+    _is_docling_file,  # type: ignore[reportPrivateUsage]
     chunk_file,
     chunk_markdown,
     chunk_semantic,

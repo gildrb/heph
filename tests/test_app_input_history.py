@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from hephaistos.app.input_history import InputHistory
 
@@ -26,7 +27,7 @@ def test_add_caps_history_at_1000_entries() -> None:
     assert history.entries[-1] == "item 1000"
 
 
-def test_save_creates_parent_dirs_and_truncates_to_last_500(tmp_path) -> None:
+def test_save_creates_parent_dirs_and_truncates_to_last_500(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "history.json"
     history = InputHistory([f"item {i}" for i in range(600)])
 
@@ -39,13 +40,13 @@ def test_save_creates_parent_dirs_and_truncates_to_last_500(tmp_path) -> None:
     assert data[-1] == "item 599"
 
 
-def test_load_returns_empty_history_for_missing_file(tmp_path) -> None:
+def test_load_returns_empty_history_for_missing_file(tmp_path: Path) -> None:
     history = InputHistory.load(tmp_path / "missing.json")
 
     assert history.entries == []
 
 
-def test_load_returns_empty_history_for_malformed_or_non_list_json(tmp_path) -> None:
+def test_load_returns_empty_history_for_malformed_or_non_list_json(tmp_path: Path) -> None:
     malformed = tmp_path / "malformed.json"
     malformed.write_text("{", encoding="utf-8")
     not_a_list = tmp_path / "config.json"
@@ -55,7 +56,7 @@ def test_load_returns_empty_history_for_malformed_or_non_list_json(tmp_path) -> 
     assert InputHistory.load(not_a_list).entries == []
 
 
-def test_load_coerces_loaded_values_to_strings(tmp_path) -> None:
+def test_load_coerces_loaded_values_to_strings(tmp_path: Path) -> None:
     path = tmp_path / "history.json"
     path.write_text('[1, true, "three"]', encoding="utf-8")
 

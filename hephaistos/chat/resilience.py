@@ -118,6 +118,13 @@ class CircuitBreaker:
                 )
                 _state_gauge.set(CircuitState.OPEN, {"circuit": self.name})
 
+    def reset(self) -> None:
+        """Reset to CLOSED state, clearing all failure tracking."""
+        with self._lock:
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._last_failure_time = 0.0
+
     def _maybe_transition_to_half_open(self) -> None:
         """Transition OPEN → HALF_OPEN if recovery_timeout has elapsed."""
         if self._state != CircuitState.OPEN:

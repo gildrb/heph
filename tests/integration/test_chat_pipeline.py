@@ -6,6 +6,7 @@ with mocked LLM transport to verify end-to-end behaviour without network access.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,7 +34,7 @@ def _make_config() -> ChatConfig:
 
 def _mock_chunk(
     content: str | None = None,
-    tool_calls: list | None = None,
+    tool_calls: list[object] | None = None,
     finish_reason: str | None = None,
 ) -> MagicMock:
     """Create a mock object that behaves like an OpenAI streaming chunk."""
@@ -147,7 +148,7 @@ class TestStreamCompletionPipeline:
         client = MagicMock()
         chunk1 = _mock_chunk(content="partial ")
 
-        def streaming_response(**kwargs):
+        def streaming_response(**kwargs: object) -> Iterator[MagicMock]:
             yield chunk1
             raise RuntimeError("connection lost")
 

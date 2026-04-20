@@ -121,11 +121,11 @@ def _expand_with_wordnet(word: str) -> list[str]:
     try:
         from nltk.corpus import wordnet  # type: ignore[import-untyped]
 
-        synsets = wordnet.synsets(word)
+        synsets = wordnet.synsets(word)  # type: ignore[reportUnknownMemberType]
         lemmas: set[str] = set()
-        for syn in synsets[:3]:  # limit to top synsets
-            for lemma in syn.lemmas()[:3]:  # limit lemmas per synset
-                name = lemma.name().replace("_", " ").lower()
+        for syn in synsets[:3]:  # type: ignore[reportUnknownVariableType]
+            for lemma in syn.lemmas()[:3]:  # type: ignore[reportUnknownMemberType, reportUnknownVariableType]
+                name = str(lemma.name()).replace("_", " ").lower()  # type: ignore[reportUnknownMemberType]
                 if name != word.lower() and len(name) > 2:
                     lemmas.add(name)
         return list(lemmas)[:5]  # cap expansions

@@ -60,7 +60,7 @@ class HelpCommand(Command):
         registry = get_registry()
         visible = [c for c in registry.commands if not c.hidden]
         max_name = max(len(c.name) for c in visible)
-        lines = []
+        lines: list[str] = []
         lines.append(styled("Commands", STYLE_PROMPT))
         for cmd in sorted(visible, key=lambda c: c.name):
             padded = f"  /{cmd.name}".ljust(max_name + 4)
@@ -113,7 +113,7 @@ class StatusCommand(Command):
         tool_count = 7 if s.armory_path else 0
         mode = "agent (tools)" if s.armory_path else "plain chat"
         usage_summary = s.usage.summary()
-        mem_count = len(s._memory.entries) if s._memory else 0
+        mem_count = len(s.memory.entries) if s.memory else 0
 
         lines = [
             f"  Armory:    {armory}",
@@ -219,7 +219,9 @@ class ArmoryCommand(Command):
     description = "Open the armory management menu"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.app.workspace import _handle_armory_command
+        from hephaistos.app.workspace import (
+            _handle_armory_command,  # type: ignore[reportPrivateUsage]
+        )
 
         s = _ensure_session(session)
         new = _handle_armory_command(s)
@@ -232,7 +234,7 @@ class ChatsCommand(Command):
     aliases = ("sessions",)
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.app.workspace import _list_saved_chats
+        from hephaistos.app.workspace import _list_saved_chats  # type: ignore[reportPrivateUsage]
 
         s = _ensure_session(session)
         _list_saved_chats(s)
@@ -244,7 +246,7 @@ class ResumeCommand(Command):
     description = "Resume a saved chat by menu or session ID prefix"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.app.workspace import _resume_saved_chat
+        from hephaistos.app.workspace import _resume_saved_chat  # type: ignore[reportPrivateUsage]
 
         s = _ensure_session(session)
         new = _resume_saved_chat(s, args.strip())
@@ -469,7 +471,7 @@ class HistoryCommand(Command):
         ]
         if tool_msgs:
             lines.append(f"  Tool:      {len(tool_msgs)} results")
-        mem_count = len(s._memory.entries) if s._memory else 0
+        mem_count = len(s.memory.entries) if s.memory else 0
         lines.extend(
             [
                 f"  Memory:    {mem_count} concepts learned",
@@ -747,7 +749,9 @@ class PersonaCommand(Command):
     description = "Show or switch the agent persona"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.chat.session import _replace_system_prompt
+        from hephaistos.chat.session import (
+            _replace_system_prompt,  # type: ignore[reportPrivateUsage]
+        )
         from hephaistos.harness.persona import get_persona, list_personas
 
         s = _ensure_session(session)

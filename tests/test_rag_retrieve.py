@@ -18,10 +18,10 @@ from hephaistos.harness.rag.retrieve import (
     RetrieverProtocol,
     ScoredChunk,
     TfidfRetriever,
-    _cosine_similarity,
-    _create_retriever,
-    _reciprocal_rank_fusion,
-    _tokenize,
+    _cosine_similarity,  # type: ignore[reportPrivateUsage]
+    _create_retriever,  # type: ignore[reportPrivateUsage]
+    _reciprocal_rank_fusion,  # type: ignore[reportPrivateUsage]
+    _tokenize,  # type: ignore[reportPrivateUsage]
     retrieve,
 )
 
@@ -163,10 +163,10 @@ class TestTfidfRetriever:
         captured: dict[str, str] = {}
 
         class FakeVectorizer:
-            def __init__(self, **kwargs) -> None:
+            def __init__(self, **kwargs: str) -> None:
                 captured["token_pattern"] = kwargs["token_pattern"]
 
-            def fit_transform(self, _texts):
+            def fit_transform(self, _texts: object) -> object:
                 return object()
 
         chunks = [_make_chunk("Python programming language", "python.md", 0)]
@@ -338,19 +338,19 @@ class TestEmbeddingRetriever:
         retriever = EmbeddingRetriever(index)
 
         # Pre-set embeddings so _ensure_embeddings never calls the model
-        retriever._embeddings = chunk_embeddings
+        retriever._embeddings = chunk_embeddings  # type: ignore[reportPrivateUsage]
 
         mock_model = MagicMock()
         # encode([query], ...) must return something whose [0].tolist() gives a list[float]
         mock_model.encode.return_value = _MockArray([query_embedding])
 
-        retriever._model = mock_model
+        retriever._model = mock_model  # type: ignore[reportPrivateUsage]
         return retriever
 
     def test_empty_index(self) -> None:
         index = ArmoryIndex(Path("/fake"))
         retriever = EmbeddingRetriever(index)
-        retriever._model = MagicMock()
+        retriever._model = MagicMock()  # type: ignore[reportPrivateUsage]
         results = retriever.retrieve("anything")
         assert results == []
 
@@ -398,18 +398,18 @@ class TestEmbeddingRetriever:
     def test_model_name_default(self) -> None:
         index = ArmoryIndex(Path("/fake"))
         retriever = EmbeddingRetriever(index)
-        assert retriever._model_name == "all-MiniLM-L6-v2"
+        assert retriever._model_name == "all-MiniLM-L6-v2"  # type: ignore[reportPrivateUsage]
 
     def test_model_name_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HEPHAISTOS_EMBED_MODEL", "custom-model-v2")
         index = ArmoryIndex(Path("/fake"))
         retriever = EmbeddingRetriever(index)
-        assert retriever._model_name == "custom-model-v2"
+        assert retriever._model_name == "custom-model-v2"  # type: ignore[reportPrivateUsage]
 
     def test_model_name_from_constructor(self) -> None:
         index = ArmoryIndex(Path("/fake"))
         retriever = EmbeddingRetriever(index, model_name="my-model")
-        assert retriever._model_name == "my-model"
+        assert retriever._model_name == "my-model"  # type: ignore[reportPrivateUsage]
 
     def test_embeddings_cached(self) -> None:
         c_a = _make_chunk("hello", "a.md", 0)
@@ -418,11 +418,11 @@ class TestEmbeddingRetriever:
 
         mock_model = MagicMock()
         mock_model.encode.return_value = _MockArray([[0.1, 0.2, 0.3]])
-        retriever._model = mock_model
+        retriever._model = mock_model  # type: ignore[reportPrivateUsage]
 
         # Call twice — encode should only be called once for chunks
-        retriever._ensure_embeddings()
-        retriever._ensure_embeddings()
+        retriever._ensure_embeddings()  # type: ignore[reportPrivateUsage]
+        retriever._ensure_embeddings()  # type: ignore[reportPrivateUsage]
         assert mock_model.encode.call_count == 1
 
 
@@ -462,7 +462,7 @@ class TestHybridRetriever:
             return_value=False,
         ):
             hybrid = HybridRetriever(index)
-            assert hybrid._embedding is None
+            assert hybrid._embedding is None  # type: ignore[reportPrivateUsage]
             assert not hybrid.has_embeddings
 
             results = hybrid.retrieve("python")
@@ -498,7 +498,7 @@ class TestHybridRetriever:
             ),
         ):
             hybrid = HybridRetriever(index)
-            assert hybrid._embedding is None
+            assert hybrid._embedding is None  # type: ignore[reportPrivateUsage]
             assert not hybrid.has_embeddings
 
     def test_tfidf_only_returns_results(self) -> None:
@@ -542,7 +542,7 @@ class TestHybridRetriever:
             ),
         ):
             hybrid = HybridRetriever(index)
-            assert hybrid._embedding is mock_embed
+            assert hybrid._embedding is mock_embed  # type: ignore[reportPrivateUsage]
 
             results = hybrid.retrieve("python")
             assert len(results) > 0
@@ -609,7 +609,7 @@ class TestCrossEncoderReranker:
         reranker = CrossEncoderReranker()
         mock_model = MagicMock()
         mock_model.predict.return_value = predict_scores
-        reranker._model = mock_model
+        reranker._model = mock_model  # type: ignore[reportPrivateUsage]
         return reranker
 
     def test_empty_candidates(self) -> None:
@@ -687,13 +687,13 @@ class TestCrossEncoderReranker:
     def test_model_lazy_loaded(self) -> None:
         """Model is not loaded at construction time."""
         reranker = CrossEncoderReranker()
-        assert reranker._model is None
+        assert reranker._model is None  # type: ignore[reportPrivateUsage]
 
     def test_model_cached_after_first_use(self) -> None:
         reranker = CrossEncoderReranker()
         mock_model = MagicMock()
         mock_model.predict.return_value = [0.5]
-        reranker._model = mock_model
+        reranker._model = mock_model  # type: ignore[reportPrivateUsage]
 
         c_a = _make_chunk("hello", "a.md", 0)
         candidates = [ScoredChunk(chunk=c_a, score=0.1)]
@@ -708,7 +708,7 @@ class TestCrossEncoderReranker:
         reranker = CrossEncoderReranker()
         mock_model = MagicMock()
         mock_model.predict.return_value = [0.5, 0.3]
-        reranker._model = mock_model
+        reranker._model = mock_model  # type: ignore[reportPrivateUsage]
 
         c_a = _make_chunk("Python code", "a.md", 0)
         c_b = _make_chunk("Rust code", "b.md", 0)
@@ -749,10 +749,12 @@ class TestHybridRetrieverWithReranker:
 
         # Mock cross-encoder reranker — flip the order
         mock_reranker = MagicMock(spec=CrossEncoderReranker)
-        mock_reranker.rerank.side_effect = lambda query, candidates, top_k=5: [
-            ScoredChunk(chunk=chunks[1], score=0.99),
-            ScoredChunk(chunk=chunks[0], score=0.7),
-        ][:top_k]
+        mock_reranker.rerank.side_effect = (
+            lambda query, candidates, top_k=5: [  # type: ignore[reportUnknownLambdaType]
+                ScoredChunk(chunk=chunks[1], score=0.99),
+                ScoredChunk(chunk=chunks[0], score=0.7),
+            ][:top_k]
+        )
 
         with (
             patch(

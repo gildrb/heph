@@ -8,8 +8,8 @@ import keyring
 import pytest
 
 from hephaistos.providers.keyring_store import (
-    _SERVICE_PREFIX,
-    _USERNAME,
+    _SERVICE_PREFIX,  # type: ignore[reportPrivateUsage]
+    _USERNAME,  # type: ignore[reportPrivateUsage]
     get_volatile,
     mask_key,
     resolve_key,
@@ -88,7 +88,7 @@ class TestKeychainRoundTrip:
 
 
 class TestResolveKey:
-    def test_resolves_from_keychain(self, monkeypatch) -> None:
+    def test_resolves_from_keychain(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Remove env var interference
         monkeypatch.delenv("TEST_API_KEY", raising=False)
         try:
@@ -97,24 +97,24 @@ class TestResolveKey:
             pytest.skip("keychain not available")
         assert resolve_key(_TEST_SLUG, "TEST_API_KEY") == "keychain-key"
 
-    def test_falls_back_to_env_var(self, monkeypatch) -> None:
+    def test_falls_back_to_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("TEST_API_KEY", raising=False)
         # No keychain entry (deleted by fixture)
         assert retrieve_key(_TEST_SLUG) is None
         monkeypatch.setenv("TEST_API_KEY", "env-key")
         assert resolve_key(_TEST_SLUG, "TEST_API_KEY") == "env-key"
 
-    def test_falls_back_to_volatile(self, monkeypatch) -> None:
+    def test_falls_back_to_volatile(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("TEST_API_KEY", raising=False)
         # No keychain, no env
         set_volatile(_TEST_SLUG, "volatile-key")
         assert resolve_key(_TEST_SLUG, "TEST_API_KEY") == "volatile-key"
 
-    def test_returns_empty_when_nothing_set(self, monkeypatch) -> None:
+    def test_returns_empty_when_nothing_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("TEST_API_KEY", raising=False)
         assert resolve_key(_TEST_SLUG, "TEST_API_KEY") == ""
 
-    def test_keychain_takes_priority_over_env(self, monkeypatch) -> None:
+    def test_keychain_takes_priority_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TEST_API_KEY", "env-key")
         try:
             store_key(_TEST_SLUG, "keychain-key")
@@ -122,7 +122,7 @@ class TestResolveKey:
             pytest.skip("keychain not available")
         assert resolve_key(_TEST_SLUG, "TEST_API_KEY") == "keychain-key"
 
-    def test_env_takes_priority_over_volatile(self, monkeypatch) -> None:
+    def test_env_takes_priority_over_volatile(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("TEST_API_KEY", raising=False)
         monkeypatch.setenv("TEST_API_KEY", "env-key")
         set_volatile(_TEST_SLUG, "volatile-key")

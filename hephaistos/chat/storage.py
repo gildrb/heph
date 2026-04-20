@@ -9,6 +9,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 from uuid import uuid4
 
 from hephaistos.chat.engine import Conversation, Message
@@ -67,15 +68,17 @@ def save(
 
     file_path = _session_path(armory_path, session_id)
 
-    data: dict[str, object] = {
+    data: dict[str, Any] = {
         "session_id": session_id,
         "title": title,
         "updated_at": datetime.now(UTC).isoformat(),
         "messages": [_message_to_dict(m) for m in conversation.messages],
     }
-    existing: dict[str, object] = {}
+    existing: dict[str, Any] = {}
     if file_path.exists():
-        existing = json.loads(file_path.read_text(encoding="utf-8"))
+        raw_existing: object = json.loads(file_path.read_text(encoding="utf-8"))
+        if isinstance(raw_existing, dict):
+            existing = raw_existing  # type: ignore[assignment]
         data["created_at"] = existing.get("created_at", datetime.now(UTC).isoformat())
     else:
         data["created_at"] = datetime.now(UTC).isoformat()
@@ -101,7 +104,7 @@ def save(
     return file_path
 
 
-def _load_session_data(armory_path: Path, session_id: str) -> dict[str, object]:
+def _load_session_data(armory_path: Path, session_id: str) -> dict[str, Any]:
     """Load the raw JSON payload for a saved chat session."""
     _validate_session_path(armory_path, session_id)
 
@@ -110,11 +113,12 @@ def _load_session_data(armory_path: Path, session_id: str) -> dict[str, object]:
         raise ChatStorageError(f"chat session not found: {session_id}")
 
     try:
-        data = json.loads(file_path.read_text(encoding="utf-8"))
+        raw_data: object = json.loads(file_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         raise ChatStorageError(f"corrupt session file {session_id}") from exc
-    if not isinstance(data, dict):
+    if not isinstance(raw_data, dict):
         raise ChatStorageError(f"corrupt session file {session_id}")
+    data: dict[str, Any] = raw_data  # type: ignore[assignment]
     return data
 
 
@@ -129,8 +133,13 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
         raw_messages = data.get("messages", [])
         if not isinstance(raw_messages, list):
             raw_messages = []
-        for msg_data in raw_messages:
-            conversation.add(msg_data["role"], msg_data["content"])
+        typed_messages = cast("list[dict[str, Any]]", raw_messages)
+        for msg in typed_messages:
+            role_val: object = msg.get("role")
+            content_val: object = msg.get("content")
+            if role_val is None or content_val is None:
+                continue
+            conversation.add(str(role_val), str(content_val))
     except KeyError as exc:
         _log.error(
             "corrupt session file",
@@ -155,11 +164,14 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
     return conversation, title if isinstance(title, str) else ""
 
 
-def load_metadata(armory_path: Path, session_id: str) -> dict[str, object]:
+def load_metadata(armory_path: Path, session_id: str) -> dict[str, Any]:
     """Load optional session metadata stored alongside the conversation."""
     data = _load_session_data(armory_path, session_id)
-    metadata = data.get("metadata")
-    return metadata if isinstance(metadata, dict) else {}
+    metadata: object = data.get("metadata")
+    if isinstance(metadata, dict):
+        result: dict[str, Any] = metadata  # type: ignore[assignment]
+        return result
+    return {}
 
 
 def list_sessions(armory_path: Path) -> list[dict[str, str]]:

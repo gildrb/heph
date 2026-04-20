@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 from hephaistos.chat.engine import ChatConfig
 
@@ -47,9 +48,10 @@ def _load_user_overrides() -> dict[str, str]:
     if not _USER_CONFIG_FILE.is_file():
         return {}
     with contextlib.suppress(Exception):
-        data = json.loads(_USER_CONFIG_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return {k: str(v) for k, v in data.items() if k in _CONFIG_KEY_TO_ENV}
+        raw = json.loads(_USER_CONFIG_FILE.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            data = cast("dict[str, Any]", raw)
+            return {str(k): str(v) for k, v in data.items() if k in _CONFIG_KEY_TO_ENV}
     return {}
 
 
@@ -169,7 +171,7 @@ def _cmd_config_set(args: argparse.Namespace) -> None:
     print(f"Set {key} = {value} (persisted to {_USER_CONFIG_FILE})")
 
 
-def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:  # type: ignore[reportPrivateUsage]
     """Register config subcommands."""
     config = subparsers.add_parser("config", help="View and set configuration values.")
     config_sub = config.add_subparsers(dest="config_command", required=True)

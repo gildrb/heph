@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from hephaistos.harness.dispatch import (
-    _format_tool_args,
-    _merge_tool_call_deltas,
-    _summarize_result,
+    _format_tool_args,  # type: ignore[reportPrivateUsage]
+    _merge_tool_call_deltas,  # type: ignore[reportPrivateUsage]
+    _summarize_result,  # type: ignore[reportPrivateUsage]
     execute_tool_calls,
 )
 from hephaistos.harness.tools import (
@@ -202,7 +203,7 @@ class TestToolSchemas:
 
 class TestMergeToolCallDeltas:
     def test_single_delta(self) -> None:
-        accumulated: list[dict] = []
+        accumulated: list[dict[str, Any]] = []
         _merge_tool_call_deltas(
             accumulated,
             [{"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"com'}}],
@@ -212,7 +213,7 @@ class TestMergeToolCallDeltas:
         assert accumulated[0]["function"]["name"] == "bash"
 
     def test_multi_chunk_args(self) -> None:
-        accumulated: list[dict] = []
+        accumulated: list[dict[str, Any]] = []
         _merge_tool_call_deltas(
             accumulated,
             [{"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"com'}}],
@@ -223,7 +224,7 @@ class TestMergeToolCallDeltas:
         assert accumulated[0]["function"]["arguments"] == '{"command": "ls"}'
 
     def test_multiple_tool_calls(self) -> None:
-        accumulated: list[dict] = []
+        accumulated: list[dict[str, Any]] = []
         _merge_tool_call_deltas(
             accumulated,
             [{"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"co'}}],

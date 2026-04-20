@@ -57,6 +57,22 @@ class ChatSession:
         if self._tool_registry is None:  # pyright: ignore[reportUnnecessaryComparison]
             object.__setattr__(self, "_tool_registry", default_registry.child())
 
+    @property
+    def tool_registry(self) -> ToolRegistry:
+        return self._tool_registry
+
+    @property
+    def memory(self) -> MemoryStore | None:
+        return self._memory
+
+    @property
+    def rag_index(self) -> ArmoryIndex | None:
+        return self._rag_index
+
+    @rag_index.setter
+    def rag_index(self, value: ArmoryIndex | None) -> None:
+        object.__setattr__(self, "_rag_index", value)
+
 
 class SessionError(Exception):
     """Raised when a session cannot be created or used."""
@@ -205,7 +221,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         armory_path=armory_path,
         source_file_count=source_file_count,
     )
-    session._memory = load_memory(armory_path)
+    session._memory = load_memory(armory_path)  # type: ignore[reportPrivateUsage]
     object.__setattr__(session, "_tool_registry", _load_armory_tools(armory_path))
     _log.info(
         "session created",
@@ -215,8 +231,8 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
                 "armory": str(armory_path),
                 "source_files": source_file_count,
                 "model": config.model,
-                "memory_entries": len(session._memory.entries) if session._memory else 0,
-                "tools": len(session._tool_registry.schemas),
+                "memory_entries": len(session._memory.entries) if session._memory else 0,  # type: ignore[reportPrivateUsage]
+                "tools": len(session._tool_registry.schemas),  # type: ignore[reportPrivateUsage]
             }
         },
     )
@@ -243,7 +259,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         source_file_count=source_file_count,
         study_state=StudyState.from_dict(metadata.get("study_state")),
     )
-    session._memory = load_memory(armory_path)
+    session._memory = load_memory(armory_path)  # type: ignore[reportPrivateUsage]
     object.__setattr__(session, "_tool_registry", _load_armory_tools(armory_path))
     _log.info(
         "session resumed",
@@ -252,8 +268,8 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
                 "session_id": session_id,
                 "armory": str(armory_path),
                 "message_count": len(conversation.messages),
-                "memory_entries": len(session._memory.entries) if session._memory else 0,
-                "tools": len(session._tool_registry.schemas),
+                "memory_entries": len(session._memory.entries) if session._memory else 0,  # type: ignore[reportPrivateUsage]
+                "tools": len(session._tool_registry.schemas),  # type: ignore[reportPrivateUsage]
             }
         },
     )

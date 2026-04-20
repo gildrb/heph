@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from hephaistos.app import commands
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession, create_plain_session
-from hephaistos.providers.config import _default_config
+from hephaistos.providers.config import _default_config  # type: ignore[reportPrivateUsage]
 
 
 def test_command_registry_includes_login_logout() -> None:
@@ -29,7 +31,9 @@ def test_command_registry_includes_saved_chat_shortcuts() -> None:
     assert "resume" in names
 
 
-def test_model_command_validates_against_session_endpoint(monkeypatch) -> None:
+def test_model_command_validates_against_session_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cfg = ChatConfig(
         api_key="test-key",
         base_url="https://api.openai.com/v1",
@@ -45,17 +49,17 @@ def test_model_command_validates_against_session_endpoint(monkeypatch) -> None:
     monkeypatch.setattr(
         commands.ProviderConfig,
         "load",
-        classmethod(lambda cls: _default_config()),
+        classmethod(lambda cls: _default_config()),  # type: ignore[reportUnknownLambdaType]
     )
     monkeypatch.setattr(
         commands,
         "print_success",
-        lambda msg: messages.append(("success", msg)),
+        lambda msg: messages.append(("success", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
     monkeypatch.setattr(
         commands,
         "print_error",
-        lambda msg: messages.append(("error", msg)),
+        lambda msg: messages.append(("error", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
 
     result = commands.ModelCommand().handle(session, "gpt-4o-mini")
@@ -65,11 +69,15 @@ def test_model_command_validates_against_session_endpoint(monkeypatch) -> None:
     assert messages == [("success", "Model: gpt-5.4 -> gpt-4o-mini")]
 
 
-def test_clear_command_supports_plain_chat(monkeypatch) -> None:
+def test_clear_command_supports_plain_chat(monkeypatch: pytest.MonkeyPatch) -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
     session.conversation.add("user", "hello")
 
-    monkeypatch.setattr(commands, "confirm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        commands,
+        "confirm",
+        lambda *_args, **_kwargs: True,  # type: ignore[reportUnknownLambdaType]
+    )
 
     result = commands.ClearCommand().handle(session, "")
 
@@ -79,11 +87,17 @@ def test_clear_command_supports_plain_chat(monkeypatch) -> None:
     assert len(result.new_session.conversation.messages) == 1
 
 
-def test_persona_command_updates_plain_chat_system_prompt(monkeypatch) -> None:
+def test_persona_command_updates_plain_chat_system_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
     before = session.conversation.messages[0].content
 
-    monkeypatch.setattr(commands, "print_success", lambda _msg: None)
+    monkeypatch.setattr(
+        commands,
+        "print_success",
+        lambda _msg: None,  # type: ignore[reportUnknownLambdaType]
+    )
 
     result = commands.PersonaCommand().handle(session, "tutor")
 
@@ -95,7 +109,9 @@ def test_persona_command_updates_plain_chat_system_prompt(monkeypatch) -> None:
     assert "Plain chat mode" in after
 
 
-def test_model_command_rejects_unsupported_model_for_known_endpoint(monkeypatch) -> None:
+def test_model_command_rejects_unsupported_model_for_known_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cfg = ChatConfig(
         api_key="test-key",
         base_url="https://api.openai.com/v1",
@@ -111,17 +127,17 @@ def test_model_command_rejects_unsupported_model_for_known_endpoint(monkeypatch)
     monkeypatch.setattr(
         commands.ProviderConfig,
         "load",
-        classmethod(lambda cls: _default_config()),
+        classmethod(lambda cls: _default_config()),  # type: ignore[reportUnknownLambdaType]
     )
     monkeypatch.setattr(
         commands,
         "print_success",
-        lambda msg: messages.append(("success", msg)),
+        lambda msg: messages.append(("success", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
     monkeypatch.setattr(
         commands,
         "print_error",
-        lambda msg: messages.append(("error", msg)),
+        lambda msg: messages.append(("error", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
 
     result = commands.ModelCommand().handle(session, "glm-5-turbo")

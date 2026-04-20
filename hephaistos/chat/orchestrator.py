@@ -12,7 +12,7 @@ from hephaistos.chat.engine import (
     EngineError,
     RetryConfig,
     StreamRecoveryError,
-    _build_client,
+    _build_client,  # type: ignore[reportPrivateUsage]
     stream_completion,
 )
 from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
@@ -29,7 +29,7 @@ from hephaistos.harness.rag import (
 )
 from hephaistos.logging import Timer, get_logger
 from hephaistos.observability import get_meter, get_tracer
-from hephaistos.study import StudyTurnPlan, apply_turn_result, plan_turn
+from hephaistos.study import StudyState, StudyTurnPlan, apply_turn_result, plan_turn
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 _log = get_logger("chat.orchestrator")
 _tracer = get_tracer("chat.orchestrator")
 _meter = get_meter("chat.orchestrator")
-_rag_duration_hist = _meter.create_histogram(  # type: ignore[union-attr]
+_rag_duration_hist = _meter.create_histogram(
     "rag.retrieval.duration",
     unit="ms",
     description="Duration of RAG retrieval queries",
@@ -91,7 +91,7 @@ class TurnOrchestrator:
         try:
             with timer:
                 if session.armory_path is not None:
-                    rag_span = _tracer.start_span("rag.retrieval")  # type: ignore[union-attr]
+                    rag_span = _tracer.start_span("rag.retrieval")
                     rag_timer = Timer()
                     with rag_timer:
                         resolved = self._resolve_turn_plan(user_input)
@@ -181,7 +181,7 @@ class TurnOrchestrator:
     def _iter_study_events(
         self,
         resolved: ResolvedTurnPlan,
-        original_study_state,
+        original_study_state: StudyState,
         *,
         abort: threading.Event | None,
     ) -> Iterator[TurnEvent]:
@@ -202,7 +202,7 @@ class TurnOrchestrator:
             turn_evidence=resolved.turn_evidence,
             extra_system_prompt=plan.prompt,
             tool_schemas=None if plan.allow_tools else [],
-            registry=session._tool_registry,
+            registry=session.tool_registry,
         ):
             if isinstance(event, AssistantDeltaEvent):
                 raw_reply += event.delta
@@ -279,13 +279,13 @@ class TurnOrchestrator:
             study_feedback=session.study_state.last_feedback_type.value,
         )
 
-        if session._memory is not None and len(self.last_reply) >= 100:
+        if session.memory is not None and len(self.last_reply) >= 100:
             try:
                 from hephaistos.memory.extract import extract_and_store
 
                 added = extract_and_store(
                     session.config,
-                    session._memory,
+                    session.memory,
                     user_input,
                     self.last_reply,
                     ", ".join(_evidence_refs(resolved.turn_evidence)),
@@ -330,9 +330,9 @@ def _parse_source_ref(ref: str) -> tuple[str, int] | None:
 def _ensure_rag_index(session: ChatSession) -> ArmoryIndex | None:
     if session.armory_path is None:
         return None
-    if session._rag_index is None:
-        session._rag_index = load_or_build(session.armory_path)
-    return session._rag_index
+    if session.rag_index is None:
+        session.rag_index = load_or_build(session.armory_path)
+    return session.rag_index
 
 
 def _adaptive_rag_budget(session: ChatSession) -> int:

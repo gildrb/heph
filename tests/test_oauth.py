@@ -7,9 +7,11 @@ import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from hephaistos.providers.oauth import (
     OAuthCredentials,
-    _ssl_context,
+    _ssl_context,  # type: ignore[reportPrivateUsage]
     clear_credentials,
     generate_pkce,
     list_providers,
@@ -31,7 +33,9 @@ def test_ssl_context_has_ca_certs() -> None:
     assert ctx.get_ca_certs(), "SSL context has zero CA certs — HTTPS will fail"
 
 
-def test_ssl_context_certifi_fallback_when_no_default_certs(monkeypatch) -> None:
+def test_ssl_context_certifi_fallback_when_no_default_certs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """When default context has zero certs, certifi bundle must be loaded."""
     import ssl
 
@@ -220,7 +224,7 @@ def test_logout_command_registered() -> None:
     assert cmd.name == "logout"
 
 
-def test_logout_no_sessions(monkeypatch) -> None:
+def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     from hephaistos.app.commands import LogoutCommand
 
     monkeypatch.setattr(
@@ -228,9 +232,13 @@ def test_logout_no_sessions(monkeypatch) -> None:
         list,
     )
     messages: list[tuple[str, str]] = []
+
+    def _capture_info(msg: str) -> None:
+        messages.append(("info", msg))
+
     monkeypatch.setattr(
         "hephaistos.app.commands.print_info",
-        lambda msg: messages.append(("info", msg)),
+        _capture_info,
     )
     cmd = LogoutCommand()
     result = cmd.handle(None, "")
@@ -238,16 +246,20 @@ def test_logout_no_sessions(monkeypatch) -> None:
     assert any("No OAuth sessions" in m for _, m in messages)
 
 
-def test_logout_single_provider(monkeypatch) -> None:
+def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     from hephaistos.app.commands import LogoutCommand
 
     monkeypatch.setattr(
         "hephaistos.providers.oauth.list_providers",
         lambda: ["openai-codex"],
     )
+
+    def _confirm(*a: object, **kw: object) -> bool:
+        return True
+
     monkeypatch.setattr(
         "hephaistos.app.commands.confirm",
-        lambda *a, **kw: True,
+        _confirm,
     )
     cleared: list[str] = []
     monkeypatch.setattr(
@@ -255,9 +267,13 @@ def test_logout_single_provider(monkeypatch) -> None:
         cleared.append,
     )
     messages: list[tuple[str, str]] = []
+
+    def _capture_success(msg: str) -> None:
+        messages.append(("success", msg))
+
     monkeypatch.setattr(
         "hephaistos.app.commands.print_success",
-        lambda msg: messages.append(("success", msg)),
+        _capture_success,
     )
     cmd = LogoutCommand()
     result = cmd.handle(None, "")

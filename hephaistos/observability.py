@@ -26,17 +26,17 @@ import platform
 import re as _re
 import time as _time
 import urllib.request as _urllib_request
-from typing import Any, Self
+from typing import Any, Self, cast
 
 try:
     import sentry_sdk
     from sentry_sdk.integrations.logging import LoggingIntegration
 
-    _SENTRY_AVAILABLE: bool = True
+    _sentry_available: bool = True
 except ImportError:  # pragma: no cover
     sentry_sdk = None  # type: ignore[assignment]
     LoggingIntegration = None  # type: ignore[assignment,misc]
-    _SENTRY_AVAILABLE = False
+    _sentry_available = False
 
 from hephaistos import __version__
 from hephaistos.logging import redact_value
@@ -51,7 +51,7 @@ try:
     from opentelemetry.sdk.trace import TracerProvider as _TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor as _BatchSpanProcessor
 
-    _OTEL_AVAILABLE: bool = True
+    _otel_available: bool = True
 except ImportError:  # pragma: no cover
     _trace_mod = None  # type: ignore[assignment]
     _metrics_mod = None  # type: ignore[assignment]
@@ -59,7 +59,7 @@ except ImportError:  # pragma: no cover
     _BatchSpanProcessor = None  # type: ignore[assignment]
     _MeterProvider = None  # type: ignore[assignment]
     _PeriodicExportingMetricReader = None  # type: ignore[assignment]
-    _OTEL_AVAILABLE = False
+    _otel_available = False
 
 _log = logging.getLogger("hephaistos.observability")
 
@@ -167,11 +167,11 @@ def _is_sensitive_key(key: str) -> bool:
 def _scrub_value(value: object) -> object:
     """Recursively redact sensitive keys and values from nested data."""
     if isinstance(value, dict):
-        return {
-            k: _REDACTED if _is_sensitive_key(k) else _scrub_value(v) for k, v in value.items()
-        }
+        d = cast("dict[str, object]", value)
+        return {k: _REDACTED if _is_sensitive_key(k) else _scrub_value(v) for k, v in d.items()}
     if isinstance(value, list):
-        return [_scrub_value(item) for item in value]
+        items = cast("list[object]", value)
+        return [_scrub_value(item) for item in items]
     if isinstance(value, str):
         return redact_value(value)
     return value
@@ -225,10 +225,10 @@ def _parse_traces_rate() -> float:
 def init_sentry() -> None:
     """Initialise the Sentry SDK.  No-op when ``SENTRY_DSN`` is not set or
     ``sentry-sdk`` is not installed."""
-    if not _SENTRY_AVAILABLE:
+    if not _sentry_available:
         return
-    assert sentry_sdk is not None  # narrowed by _SENTRY_AVAILABLE guard
-    assert LoggingIntegration is not None  # narrowed by _SENTRY_AVAILABLE guard
+    assert sentry_sdk is not None  # narrowed by _sentry_available guard
+    assert LoggingIntegration is not None  # narrowed by _sentry_available guard
     dsn = os.environ.get(_DSN_ENV, "").strip()
     if not dsn:
         return
@@ -270,9 +270,9 @@ def set_session_context(
 ) -> None:
     """Set tags that persist for the current Sentry scope (session-level).
     No-op when ``sentry-sdk`` is not installed."""
-    if not _SENTRY_AVAILABLE:
+    if not _sentry_available:
         return
-    assert sentry_sdk is not None  # narrowed by _SENTRY_AVAILABLE guard
+    assert sentry_sdk is not None  # narrowed by _sentry_available guard
     if session_id:
         sentry_sdk.set_tag("session_id", session_id)
     if armory:
@@ -292,9 +292,9 @@ def add_breadcrumb(
 ) -> None:
     """Add a breadcrumb to the current Sentry scope.
     No-op when ``sentry-sdk`` is not installed."""
-    if not _SENTRY_AVAILABLE:
+    if not _sentry_available:
         return
-    assert sentry_sdk is not None  # narrowed by _SENTRY_AVAILABLE guard
+    assert sentry_sdk is not None  # narrowed by _sentry_available guard
     sentry_sdk.add_breadcrumb(
         category=category,
         message=message,
@@ -310,8 +310,8 @@ def capture_exception(
 ) -> str | None:
     """Capture an exception to Sentry.  Returns the Sentry event ID.
     Returns ``None`` when ``sentry-sdk`` is not installed."""
-    if _SENTRY_AVAILABLE:
-        assert sentry_sdk is not None  # narrowed by _SENTRY_AVAILABLE guard
+    if _sentry_available:
+        assert sentry_sdk is not None  # narrowed by _sentry_available guard
         if context:
             with sentry_sdk.new_scope() as scope:
                 for key, value in context.items():
@@ -331,11 +331,11 @@ def capture_exception(
 def init_tracing() -> None:
     """Initialise OpenTelemetry tracing.  No-op when ``opentelemetry-*``
     packages are not installed or ``OTEL_SDK_DISABLED`` is set."""
-    if not _OTEL_AVAILABLE:
+    if not _otel_available:
         return
-    assert _trace_mod is not None  # narrowed by _OTEL_AVAILABLE guard
-    assert _TracerProvider is not None  # narrowed by _OTEL_AVAILABLE guard
-    assert _BatchSpanProcessor is not None  # narrowed by _OTEL_AVAILABLE guard
+    assert _trace_mod is not None  # narrowed by _otel_available guard
+    assert _TracerProvider is not None  # narrowed by _otel_available guard
+    assert _BatchSpanProcessor is not None  # narrowed by _otel_available guard
 
     import os
 
@@ -351,17 +351,18 @@ def init_tracing() -> None:
     except Exception:  # pragma: no cover
         return
 
-    provider = _TracerProvider(span_processor=_BatchSpanProcessor(exporter))
+    provider = _TracerProvider()
+    provider.add_span_processor(_BatchSpanProcessor(exporter))
     _trace_mod.set_tracer_provider(provider)
 
 
-def get_tracer(name: str) -> _NoopTracer | object:
+def get_tracer(name: str) -> _NoopTracer:
     """Return a tracer for the given instrumentation scope.
     No-op when OpenTelemetry is not installed."""
-    if not _OTEL_AVAILABLE:
+    if not _otel_available:
         return _NoopTracer()
-    assert _trace_mod is not None  # narrowed by _OTEL_AVAILABLE guard
-    return _trace_mod.get_tracer(name)
+    assert _trace_mod is not None  # narrowed by _otel_available guard
+    return _trace_mod.get_tracer(name)  # type: ignore[return-value]
 
 
 # -- OpenTelemetry metrics ---------------------------------------------------
@@ -370,11 +371,11 @@ def get_tracer(name: str) -> _NoopTracer | object:
 def init_metrics() -> None:
     """Initialise OpenTelemetry metrics.  No-op when ``opentelemetry-*``
     packages are not installed or ``OTEL_SDK_DISABLED`` is set."""
-    if not _OTEL_AVAILABLE:
+    if not _otel_available:
         return
-    assert _metrics_mod is not None  # narrowed by _OTEL_AVAILABLE guard
-    assert _PeriodicExportingMetricReader is not None  # narrowed by _OTEL_AVAILABLE guard
-    assert _MeterProvider is not None  # narrowed by _OTEL_AVAILABLE guard
+    assert _metrics_mod is not None  # narrowed by _otel_available guard
+    assert _PeriodicExportingMetricReader is not None  # narrowed by _otel_available guard
+    assert _MeterProvider is not None  # narrowed by _otel_available guard
 
     import os
 
@@ -394,13 +395,13 @@ def init_metrics() -> None:
     _metrics_mod.set_meter_provider(provider)
 
 
-def get_meter(name: str) -> _NoopMeter | object:
+def get_meter(name: str) -> _NoopMeter:
     """Return a meter for the given instrumentation scope.
     No-op when OpenTelemetry is not installed."""
-    if not _OTEL_AVAILABLE:
+    if not _otel_available:
         return _NoopMeter()
-    assert _metrics_mod is not None  # narrowed by _OTEL_AVAILABLE guard
-    return _metrics_mod.get_meter(name)
+    assert _metrics_mod is not None  # narrowed by _otel_available guard
+    return _metrics_mod.get_meter(name)  # type: ignore[return-value]
 
 
 # -- Webhook alerting --------------------------------------------------------
@@ -469,14 +470,14 @@ def init_observability() -> None:
 
 def shutdown_observability() -> None:
     """Flush and shut down observability subsystems."""
-    if _OTEL_AVAILABLE and _trace_mod is not None:
+    if _otel_available and _trace_mod is not None:
         with contextlib.suppress(Exception):
             provider = _trace_mod.get_tracer_provider()
             if hasattr(provider, "force_flush"):
                 provider.force_flush()  # type: ignore[union-attr]
             if hasattr(provider, "shutdown"):
                 provider.shutdown()  # type: ignore[union-attr]
-    if _OTEL_AVAILABLE and _metrics_mod is not None:
+    if _otel_available and _metrics_mod is not None:
         with contextlib.suppress(Exception):
             provider = _metrics_mod.get_meter_provider()
             if hasattr(provider, "force_flush"):
@@ -490,9 +491,9 @@ def shutdown_observability() -> None:
 
 def get_current_trace_id() -> str:
     """Return the current OTel trace ID (hex), or empty string if unavailable."""
-    if not _OTEL_AVAILABLE:
+    if not _otel_available:
         return ""
-    assert _trace_mod is not None  # narrowed by _OTEL_AVAILABLE guard
+    assert _trace_mod is not None  # narrowed by _otel_available guard
     span = _trace_mod.get_current_span()
     ctx = span.get_span_context()
     if ctx.is_valid:

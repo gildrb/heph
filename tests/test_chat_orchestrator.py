@@ -18,13 +18,13 @@ from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent
 from hephaistos.chat.orchestrator import (
     ResolvedTurnPlan,
     TurnOrchestrator,
-    _adaptive_rag_budget,
-    _build_turn_evidence_from_query,
-    _build_turn_evidence_from_refs,
-    _ensure_rag_index,
-    _evidence_refs,
-    _parse_source_ref,
-    _resolve_turn_evidence,
+    _adaptive_rag_budget,  # type: ignore[reportPrivateUsage]
+    _build_turn_evidence_from_query,  # type: ignore[reportPrivateUsage]
+    _build_turn_evidence_from_refs,  # type: ignore[reportPrivateUsage]
+    _ensure_rag_index,  # type: ignore[reportPrivateUsage]
+    _evidence_refs,  # type: ignore[reportPrivateUsage]
+    _parse_source_ref,  # type: ignore[reportPrivateUsage]
+    _resolve_turn_evidence,  # type: ignore[reportPrivateUsage]
 )
 from hephaistos.chat.session import ChatSession
 from hephaistos.harness.rag import ScoredChunk, TurnEvidence

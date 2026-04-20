@@ -105,7 +105,7 @@ class TestWebFetch:
         mock_response = MagicMock()
         mock_response.read.return_value = b"<html><body>Test content</body></html>"
         mock_response.headers.get.return_value = "text/html"
-        mock_response.__enter__ = lambda s: s
+        mock_response.__enter__ = lambda s: s  # type: ignore[reportUnknownLambdaType]
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch("hephaistos.harness.tools.urllib.request.urlopen", return_value=mock_response):
@@ -134,7 +134,7 @@ class TestWebFetch:
     def test_fetch_non_text_content_type(self):
         mock_response = MagicMock()
         mock_response.headers.get.return_value = "image/png"
-        mock_response.__enter__ = lambda s: s
+        mock_response.__enter__ = lambda s: s  # type: ignore[reportUnknownLambdaType]
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch("hephaistos.harness.tools.urllib.request.urlopen", return_value=mock_response):

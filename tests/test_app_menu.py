@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
@@ -11,7 +12,7 @@ from hephaistos.app.menu import MenuOption
 def _select_interactively(keys: str, options: list[MenuOption]) -> int | None:
     with create_pipe_input() as pipe_input:
         pipe_input.send_text(keys)
-        return menu._select_with_prompt_toolkit(
+        return menu._select_with_prompt_toolkit(  # type: ignore[reportPrivateUsage]
             "Armory",
             options,
             DEFAULT_MENU_KEYBINDINGS,
@@ -20,7 +21,9 @@ def _select_interactively(keys: str, options: list[MenuOption]) -> int | None:
         )
 
 
-def test_select_option_uses_prompt_fallback(monkeypatch, capsys) -> None:
+def test_select_option_uses_prompt_fallback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "2")
 
     selected = menu.select_option(
@@ -82,7 +85,7 @@ def test_prompt_toolkit_menu_q_cancels() -> None:
     assert selected is None
 
 
-def test_select_option_returns_none_for_cancel(monkeypatch) -> None:
+def test_select_option_returns_none_for_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "q")
 
     selected = menu.select_option(
@@ -110,21 +113,21 @@ def test_select_option_empty_list() -> None:
     assert result is None
 
 
-def test_confirm_yes(monkeypatch) -> None:
+def test_confirm_yes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "1")
 
     result = menu.confirm("Proceed?")
     assert result is True
 
 
-def test_confirm_no(monkeypatch) -> None:
+def test_confirm_no(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "2")
 
     result = menu.confirm("Proceed?")
     assert result is False
 
 
-def test_confirm_cancel(monkeypatch) -> None:
+def test_confirm_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "q")
 
     result = menu.confirm("Proceed?")
@@ -156,7 +159,7 @@ def test_menu_option_dataclass() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_select_option_slash_exit_cancels(monkeypatch) -> None:
+def test_select_option_slash_exit_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "/exit")
 
     selected = menu.select_option(
@@ -166,7 +169,7 @@ def test_select_option_slash_exit_cancels(monkeypatch) -> None:
     assert selected is None
 
 
-def test_select_option_slash_quit_cancels(monkeypatch) -> None:
+def test_select_option_slash_quit_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "/quit")
 
     selected = menu.select_option(
@@ -176,7 +179,7 @@ def test_select_option_slash_quit_cancels(monkeypatch) -> None:
     assert selected is None
 
 
-def test_select_option_slash_q_cancels(monkeypatch) -> None:
+def test_select_option_slash_q_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "/q")
 
     selected = menu.select_option(
@@ -186,7 +189,7 @@ def test_select_option_slash_q_cancels(monkeypatch) -> None:
     assert selected is None
 
 
-def test_select_option_exit_cancels(monkeypatch) -> None:
+def test_select_option_exit_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bare 'exit' still works (pre-existing behavior)."""
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "exit")
 
@@ -197,7 +200,7 @@ def test_select_option_exit_cancels(monkeypatch) -> None:
     assert selected is None
 
 
-def test_select_option_keyboard_interrupt_returns_none(monkeypatch) -> None:
+def test_select_option_keyboard_interrupt_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     def _raise(_: str = "") -> str:
         raise KeyboardInterrupt
 
@@ -210,7 +213,7 @@ def test_select_option_keyboard_interrupt_returns_none(monkeypatch) -> None:
     assert selected is None
 
 
-def test_select_option_eof_returns_none(monkeypatch) -> None:
+def test_select_option_eof_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     def _raise(_: str = "") -> str:
         raise EOFError
 

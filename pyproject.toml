@@ -1,7 +1,7 @@
 [project]
 name = "hephaistos"
 version = "0.1.0"
-description = "Armory-first study CLI"
+description = "Local-first study agent for your files and any LLM"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -157,7 +157,7 @@ module-root = ""
 [tool.basedpyright]
 pythonVersion = "3.13"
 include = ["hephaistos", "tests"]
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
 exclude = ["vulture-whitelist.py", ".venv"]

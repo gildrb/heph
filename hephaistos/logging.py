@@ -93,7 +93,7 @@ def redact_text(text: str) -> str:
     is a secret, this function scans for secrets anywhere inside *text*
     and replaces each occurrence with ``***REDACTED***``.
     """
-    if not text or not isinstance(text, str):
+    if not text:
         return text
     for pattern in _SENSITIVE_TEXT_PATTERNS:
         text = pattern.sub(_REDACTED, text)
@@ -107,7 +107,8 @@ def _redact_dict(data: dict[str, Any]) -> dict[str, Any]:
         if _is_sensitive_key(key):
             redacted[key] = _REDACTED
         elif isinstance(value, dict):
-            redacted[key] = _redact_dict(value)
+            nested: dict[str, Any] = value  # type: ignore[assignment]
+            redacted[key] = _redact_dict(nested)
         elif isinstance(value, str):
             redacted[key] = redact_text(value)
         else:
@@ -144,7 +145,8 @@ class _JsonFormatter(logging.Formatter):
         }
         fields = getattr(record, "fields", None)
         if fields and isinstance(fields, dict):
-            entry.update(_redact_dict(fields))
+            typed_fields: dict[str, Any] = fields  # type: ignore[assignment]
+            entry.update(_redact_dict(typed_fields))
         if record.exc_info and record.exc_info[1] is not None:
             entry["exc"] = self.formatException(record.exc_info)
         trace_ctx = _get_trace_context()
@@ -174,7 +176,8 @@ class _TextFormatter(logging.Formatter):
 
         parts = [f"{self._DIM}{ts}{self._RESET} {level} {record.name}: {record.getMessage()}"]
         if fields and isinstance(fields, dict):
-            redacted_fields = _redact_dict(fields)
+            typed_fields: dict[str, Any] = fields  # type: ignore[assignment]
+            redacted_fields = _redact_dict(typed_fields)
             for k, v in redacted_fields.items():
                 parts.append(f"  {self._DIM}{k}={v}{self._RESET}")
 

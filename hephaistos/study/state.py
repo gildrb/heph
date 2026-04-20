@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 
 class StudyPhase(StrEnum):
@@ -73,8 +74,10 @@ class StudyState:
         if not isinstance(data, dict):
             return cls()
 
+        d: dict[str, Any] = data  # type: ignore[assignment]
+
         phase = StudyPhase.PRESENTING
-        raw_phase = data.get("phase")
+        raw_phase: object = d.get("phase")
         if isinstance(raw_phase, str):
             try:
                 phase = StudyPhase(raw_phase)
@@ -82,30 +85,34 @@ class StudyState:
                 phase = StudyPhase.PRESENTING
 
         feedback = StudyFeedbackType.NONE
-        raw_feedback = data.get("last_feedback_type")
+        raw_feedback: object = d.get("last_feedback_type")
         if isinstance(raw_feedback, str):
             try:
                 feedback = StudyFeedbackType(raw_feedback)
             except ValueError:
                 feedback = StudyFeedbackType.NONE
 
-        refs = data.get("expected_source_refs")
+        raw_refs: object = d.get("expected_source_refs")
         expected_source_refs = (
-            [ref for ref in refs if isinstance(ref, str)] if isinstance(refs, list) else []
+            [ref for ref in raw_refs if isinstance(ref, str)]  # type: ignore[arg-type]
+            if isinstance(raw_refs, list)
+            else []
         )
 
-        attempt_count = data.get("attempt_count", 0)
-        if not isinstance(attempt_count, int) or attempt_count < 0:
-            attempt_count = 0
+        raw_attempt: object = d.get("attempt_count", 0)
+        attempt_count = raw_attempt if isinstance(raw_attempt, int) and raw_attempt >= 0 else 0
 
-        current_item = data.get("current_item", "")
-        retrieval_query = data.get("retrieval_query", "")
+        raw_item: object = d.get("current_item", "")
+        current_item = raw_item if isinstance(raw_item, str) else ""
+
+        raw_query: object = d.get("retrieval_query", "")
+        retrieval_query = raw_query if isinstance(raw_query, str) else ""
 
         return cls(
             phase=phase,
-            current_item=current_item if isinstance(current_item, str) else "",
+            current_item=current_item,
             expected_source_refs=expected_source_refs,
             attempt_count=attempt_count,
             last_feedback_type=feedback,
-            retrieval_query=retrieval_query if isinstance(retrieval_query, str) else "",
+            retrieval_query=retrieval_query,
         )

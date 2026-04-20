@@ -33,10 +33,13 @@ def _get_or_create_install_id() -> str:
     _INSTALL_ID_PATH.parent.mkdir(parents=True, exist_ok=True)
     if _INSTALL_ID_PATH.exists():
         with contextlib.suppress(Exception):
-            data = json.loads(_INSTALL_ID_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("install_id"):
-                _install_id = str(data["install_id"])
-                return _install_id
+            raw = json.loads(_INSTALL_ID_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                data: dict[str, Any] = raw  # type: ignore[assignment]
+                install_id_val = data.get("install_id")
+                if install_id_val:
+                    _install_id = str(install_id_val)
+                    return _install_id
     _install_id = f"heph_{uuid.uuid4().hex}"
     with contextlib.suppress(Exception):
         _INSTALL_ID_PATH.write_text(json.dumps({"install_id": _install_id}), encoding="utf-8")

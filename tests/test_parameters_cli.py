@@ -10,11 +10,13 @@ from hephaistos.chat.engine import ChatConfig
 from hephaistos.parameters import cli as params_cli
 
 
-def test_config_show_uses_registered_handler(monkeypatch, capsys) -> None:
+def test_config_show_uses_registered_handler(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(
         params_cli,
         "load_config",
-        lambda _armory_path=None: ChatConfig(
+        lambda _armory_path=None: ChatConfig(  # type: ignore[reportUnknownLambdaType]
             base_url="https://example.com/v1",
             model="test-model",
             max_tokens=1234,
@@ -32,7 +34,9 @@ def test_config_show_uses_registered_handler(monkeypatch, capsys) -> None:
     assert "rag_context_budget: 4321" in out
 
 
-def test_config_set_persists_override(isolated_config_dir, capsys) -> None:
+def test_config_set_persists_override(
+    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
     run_argv(build_parser(), ["config", "set", "model", "gpt-test"])
 
     out = capsys.readouterr().out
@@ -41,7 +45,9 @@ def test_config_set_persists_override(isolated_config_dir, capsys) -> None:
     assert saved == {"model": "gpt-test"}
 
 
-def test_load_config_precedence(monkeypatch, isolated_config_dir) -> None:
+def test_load_config_precedence(
+    monkeypatch: pytest.MonkeyPatch, isolated_config_dir: SimpleNamespace
+) -> None:
     isolated_config_dir.defaults_file.write_text(
         "\n".join(
             [
@@ -74,7 +80,7 @@ def test_load_config_precedence(monkeypatch, isolated_config_dir) -> None:
 
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda cls: _FakeProviderConfig()),
+        classmethod(lambda cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
     monkeypatch.setenv("HEPHAISTOS_BASE_URL", "https://env.example/v1")
     monkeypatch.setenv("HEPHAISTOS_MODEL", "env-model")
@@ -90,7 +96,7 @@ def test_load_config_precedence(monkeypatch, isolated_config_dir) -> None:
 
 
 def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
-    monkeypatch, isolated_config_dir
+    monkeypatch: pytest.MonkeyPatch, isolated_config_dir: SimpleNamespace
 ) -> None:
     isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
     isolated_config_dir.config_file.write_text(
@@ -99,7 +105,11 @@ def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
     )
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda cls: SimpleNamespace(apply_to_config=lambda _config: None)),
+        classmethod(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
+                apply_to_config=lambda _config: None,  # type: ignore[reportUnknownLambdaType]
+            )
+        ),
     )
 
     config = params_cli.load_config()
@@ -108,7 +118,9 @@ def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
     assert config.rag_context_budget == 2500
 
 
-def test_parse_toml_simple_handles_comments_and_literals(isolated_config_dir) -> None:
+def test_parse_toml_simple_handles_comments_and_literals(
+    isolated_config_dir: SimpleNamespace,
+) -> None:
     isolated_config_dir.defaults_file.write_text(
         "\n".join(
             [
@@ -124,7 +136,7 @@ def test_parse_toml_simple_handles_comments_and_literals(isolated_config_dir) ->
         encoding="utf-8",
     )
 
-    assert params_cli._parse_toml_simple(isolated_config_dir.defaults_file) == {
+    assert params_cli._parse_toml_simple(isolated_config_dir.defaults_file) == {  # type: ignore[reportPrivateUsage]
         "base_url": "https://example.com/v1",
         "max_tokens": "2048",
         "enabled": "true",
@@ -132,35 +144,44 @@ def test_parse_toml_simple_handles_comments_and_literals(isolated_config_dir) ->
     }
 
 
-def test_load_user_overrides_returns_empty_for_invalid_json(isolated_config_dir) -> None:
+def test_load_user_overrides_returns_empty_for_invalid_json(
+    isolated_config_dir: SimpleNamespace,
+) -> None:
     isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
     isolated_config_dir.config_file.write_text("{", encoding="utf-8")
 
-    assert params_cli._load_user_overrides() == {}
+    assert params_cli._load_user_overrides() == {}  # type: ignore[reportPrivateUsage]
 
 
-def test_load_user_overrides_filters_unknown_keys(isolated_config_dir) -> None:
+def test_load_user_overrides_filters_unknown_keys(
+    isolated_config_dir: SimpleNamespace,
+) -> None:
     isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
     isolated_config_dir.config_file.write_text(
         json.dumps({"model": "user-model", "unknown": "value", "max_tokens": 1234}),
         encoding="utf-8",
     )
 
-    assert params_cli._load_user_overrides() == {
+    assert params_cli._load_user_overrides() == {  # type: ignore[reportPrivateUsage]
         "model": "user-model",
         "max_tokens": "1234",
     }
 
 
 def test_load_config_warns_when_provider_config_load_fails(
-    monkeypatch, isolated_config_dir, capsys
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_config_dir: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     isolated_config_dir.defaults_file.write_text("", encoding="utf-8")
 
-    def _raise(cls) -> None:
+    def _raise(cls: type) -> None:  # type: ignore[reportMissingParameterType]
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("hephaistos.providers.config.ProviderConfig.load", classmethod(_raise))
+    monkeypatch.setattr(
+        "hephaistos.providers.config.ProviderConfig.load",
+        classmethod(_raise),  # type: ignore[reportUnknownArgumentType]
+    )
 
     config = params_cli.load_config()
 
@@ -168,7 +189,9 @@ def test_load_config_warns_when_provider_config_load_fails(
     assert "warning: could not load provider config: boom" in capsys.readouterr().err
 
 
-def test_invalid_integer_overrides_are_ignored(monkeypatch, isolated_config_dir) -> None:
+def test_invalid_integer_overrides_are_ignored(
+    monkeypatch: pytest.MonkeyPatch, isolated_config_dir: SimpleNamespace
+) -> None:
     isolated_config_dir.defaults_file.write_text(
         "\n".join(['model_id = "default-model"', "max_tokens = 1234"]) + "\n",
         encoding="utf-8",
@@ -180,7 +203,11 @@ def test_invalid_integer_overrides_are_ignored(monkeypatch, isolated_config_dir)
     )
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda cls: SimpleNamespace(apply_to_config=lambda _config: None)),
+        classmethod(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
+                apply_to_config=lambda _config: None,  # type: ignore[reportUnknownLambdaType]
+            )
+        ),
     )
     monkeypatch.setenv("HEPHAISTOS_MAX_TOKENS", "not-an-int")
     monkeypatch.setenv("HEPHAISTOS_RAG_CONTEXT_BUDGET", "still-not-an-int")
@@ -192,7 +219,7 @@ def test_invalid_integer_overrides_are_ignored(monkeypatch, isolated_config_dir)
     assert config.rag_context_budget == 2000
 
 
-def test_config_set_unknown_key_exits_with_code_1(capsys) -> None:
+def test_config_set_unknown_key_exits_with_code_1(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         run_argv(build_parser(), ["config", "set", "unknown", "value"])
 
@@ -203,16 +230,18 @@ def test_config_set_unknown_key_exits_with_code_1(capsys) -> None:
 
 
 def test_parse_feature_flags_normalizes() -> None:
-    assert params_cli._parse_feature_flags("alpha, Beta , ,GAMMA") == frozenset(
+    assert params_cli._parse_feature_flags("alpha, Beta , ,GAMMA") == frozenset(  # type: ignore[reportPrivateUsage]
         {"alpha", "beta", "gamma"}
     )
 
 
 def test_parse_feature_flags_empty_string() -> None:
-    assert params_cli._parse_feature_flags("") == frozenset()
+    assert params_cli._parse_feature_flags("") == frozenset()  # type: ignore[reportPrivateUsage]
 
 
-def test_config_set_feature_flags_persists(isolated_config_dir, capsys) -> None:
+def test_config_set_feature_flags_persists(
+    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
     run_argv(build_parser(), ["config", "set", "feature_flags", "alpha,beta"])
 
     out = capsys.readouterr().out
@@ -221,11 +250,13 @@ def test_config_set_feature_flags_persists(isolated_config_dir, capsys) -> None:
     assert data["feature_flags"] == "alpha,beta"
 
 
-def test_config_show_displays_feature_flags(monkeypatch, capsys) -> None:
+def test_config_show_displays_feature_flags(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(
         params_cli,
         "load_config",
-        lambda _armory_path=None: ChatConfig(
+        lambda _armory_path=None: ChatConfig(  # type: ignore[reportUnknownLambdaType]
             base_url="https://example.com/v1",
             model="test-model",
             max_tokens=1234,
@@ -240,11 +271,13 @@ def test_config_show_displays_feature_flags(monkeypatch, capsys) -> None:
     assert "feature_flags: alpha, beta" in out
 
 
-def test_config_show_displays_no_feature_flags(monkeypatch, capsys) -> None:
+def test_config_show_displays_no_feature_flags(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(
         params_cli,
         "load_config",
-        lambda _armory_path=None: ChatConfig(
+        lambda _armory_path=None: ChatConfig(  # type: ignore[reportUnknownLambdaType]
             base_url="https://example.com/v1",
             model="test-model",
             max_tokens=1234,
@@ -258,14 +291,20 @@ def test_config_show_displays_no_feature_flags(monkeypatch, capsys) -> None:
     assert "feature_flags: (none)" in out
 
 
-def test_load_config_feature_flags_env_overrides_user(monkeypatch, isolated_config_dir) -> None:
+def test_load_config_feature_flags_env_overrides_user(
+    monkeypatch: pytest.MonkeyPatch, isolated_config_dir: SimpleNamespace
+) -> None:
     isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
     isolated_config_dir.config_file.write_text(
         json.dumps({"feature_flags": "user_flag"}), encoding="utf-8"
     )
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda cls: SimpleNamespace(apply_to_config=lambda _config: None)),
+        classmethod(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
+                apply_to_config=lambda _config: None,  # type: ignore[reportUnknownLambdaType]
+            )
+        ),
     )
     monkeypatch.setenv("HEPHAISTOS_FEATURE_FLAGS", "env_flag")
 
@@ -274,7 +313,9 @@ def test_load_config_feature_flags_env_overrides_user(monkeypatch, isolated_conf
     assert config.feature_flags == frozenset({"env_flag"})
 
 
-def test_load_config_feature_flags_from_user_overrides(isolated_config_dir) -> None:
+def test_load_config_feature_flags_from_user_overrides(
+    isolated_config_dir: SimpleNamespace,
+) -> None:
     isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
     isolated_config_dir.config_file.write_text(
         json.dumps({"feature_flags": "alpha,beta"}), encoding="utf-8"

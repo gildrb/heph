@@ -165,9 +165,10 @@ _docling_converter: list[Any] = []
 def _get_docling_converter() -> Any:
     """Return a lazily-initialised, cached ``DocumentConverter``."""
     if not _docling_converter:
-        from docling.document_converter import DocumentConverter
+        from docling.document_converter import DocumentConverter  # type: ignore[import-untyped]
 
-        _docling_converter.append(DocumentConverter())
+        converter: Any = DocumentConverter()  # type: ignore[reportUnknownVariableType]
+        _docling_converter.append(converter)
     return _docling_converter[0]
 
 
@@ -424,14 +425,14 @@ def chunk_semantic(
     if not _is_st_available():
         return chunk_text(text, source, chunk_size, overlap)
 
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
 
     sentences = _split_sentences(text)
     if len(sentences) <= 1:
         return [Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))]
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
-    emb_lists = [row.tolist() for row in embeddings]
+    model: Any = SentenceTransformer("all-MiniLM-L6-v2")  # type: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    embeddings: Any = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)  # type: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    emb_lists: list[list[float]] = [row.tolist() for row in embeddings]  # type: ignore[reportUnknownMemberType, reportUnknownVariableType]
     breakpoints: list[int] = [0]
     for i in range(1, len(emb_lists)):
         sim = _cosine_sim(emb_lists[i - 1], emb_lists[i])
@@ -491,7 +492,9 @@ def _split_sentences(text: str) -> list[str]:
     return result
 
 
-def _resolve_strategy(strategy: ChunkStrategy, path: Path) -> Callable:
+def _resolve_strategy(
+    strategy: ChunkStrategy, path: Path
+) -> Callable[[str, str, int, int], list[Chunk]]:
     """Map a ``ChunkStrategy`` + file path to the actual chunking function.
 
     AUTO picks the best algorithm for the file type:
@@ -548,7 +551,7 @@ def chunk_file(
 
     rel = str(path.relative_to(armory_root))
     chunk_fn = _resolve_strategy(strategy, path)
-    chunks = chunk_fn(text, rel, chunk_size, overlap)
+    chunks: list[Chunk] = chunk_fn(text, rel, chunk_size, overlap)
 
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 

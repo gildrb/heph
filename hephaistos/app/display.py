@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import re
 import sys
+from typing import Any
 
 from hephaistos.app import palette
 from hephaistos.app.palette import (
@@ -105,9 +106,9 @@ def print_shell_intro(
 
 def _real_stdout() -> io.TextIOWrapper:
     """Return the real terminal stdout, bypassing any ``patch_stdout`` proxy."""
-    out = sys.stdout
+    out: Any = sys.stdout
     while hasattr(out, "original_stdout"):
-        out = out.original_stdout  # type: ignore[attr-defined]
+        out = out.original_stdout
     return out  # type: ignore[return-value]
 
 

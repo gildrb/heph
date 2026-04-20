@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from hephaistos.harness.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.harness.rag.index import ArmoryIndex
 from hephaistos.harness.rag.query_transform import (
-    _SYNONYM_MAP,
+    _SYNONYM_MAP,  # type: ignore[reportPrivateUsage]
     CompositeTransformer,
     HyDETransformer,
     IdentityTransformer,
@@ -16,7 +16,7 @@ from hephaistos.harness.rag.query_transform import (
     QueryExpander,
     QueryTransformerProtocol,
     TransformStrategy,
-    _expand_with_wordnet,
+    _expand_with_wordnet,  # type: ignore[reportPrivateUsage]
     create_transformer,
     transform_query,
 )
@@ -326,7 +326,7 @@ class TestMultiQueryTransformer:
 
     def test_default_max_alternatives(self) -> None:
         t = MultiQueryTransformer()
-        assert t._max_alternatives == 3
+        assert t._max_alternatives == 3  # type: ignore[reportPrivateUsage]
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +351,7 @@ class TestCompositeTransformer:
         mock1.transform.return_value = ["query A", "query B"]
 
         mock2 = MagicMock()
-        mock2.transform.side_effect = lambda q: [f"expanded: {q}"]
+        mock2.transform.side_effect = lambda q: [f"expanded: {q}"]  # type: ignore[reportUnknownLambdaType]
 
         ct = CompositeTransformer([mock1, mock2])
         ct.transform("original")
@@ -419,7 +419,7 @@ class TestCreateTransformer:
         mock_fn = MagicMock(return_value="answer")
         t = create_transformer(TransformStrategy.HYDE, prompt_fn=mock_fn)
         assert isinstance(t, HyDETransformer)
-        assert t._prompt_fn is mock_fn
+        assert t._prompt_fn is mock_fn  # type: ignore[reportPrivateUsage]
 
     def test_multi_query_strategy(self) -> None:
         t = create_transformer(TransformStrategy.MULTI_QUERY)
@@ -429,7 +429,7 @@ class TestCreateTransformer:
         mock_fn = MagicMock(return_value="alt query")
         t = create_transformer(TransformStrategy.MULTI_QUERY, prompt_fn=mock_fn)
         assert isinstance(t, MultiQueryTransformer)
-        assert t._prompt_fn is mock_fn
+        assert t._prompt_fn is mock_fn  # type: ignore[reportPrivateUsage]
 
     def test_unknown_strategy_falls_back_to_identity(self) -> None:
         # This shouldn't happen in practice but the factory should be safe

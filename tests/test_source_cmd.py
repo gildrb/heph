@@ -22,7 +22,7 @@ def _make_armory(tmp_path: Path) -> Path:
     return armory_path
 
 
-def test_source_list_shows_files(tmp_path: Path, capsys) -> None:
+def test_source_list_shows_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     armory_path = _make_armory(tmp_path)
     parser = build_parser()
 
@@ -34,7 +34,7 @@ def test_source_list_shows_files(tmp_path: Path, capsys) -> None:
     assert "source/rust.md" in out
 
 
-def test_source_list_empty_armory(tmp_path: Path, capsys) -> None:
+def test_source_list_empty_armory(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     armory_path = tmp_path / "empty-armory"
     initialize(armory_path)
     parser = build_parser()
@@ -45,7 +45,9 @@ def test_source_list_empty_armory(tmp_path: Path, capsys) -> None:
     assert "No source documents found." in out
 
 
-def test_source_count_returns_file_count(tmp_path: Path, capsys) -> None:
+def test_source_count_returns_file_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     armory_path = _make_armory(tmp_path)
     parser = build_parser()
 
@@ -55,7 +57,7 @@ def test_source_count_returns_file_count(tmp_path: Path, capsys) -> None:
     assert "3" in out
 
 
-def test_source_count_empty_armory(tmp_path: Path, capsys) -> None:
+def test_source_count_empty_armory(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     armory_path = tmp_path / "empty-armory"
     initialize(armory_path)
     parser = build_parser()
@@ -66,7 +68,9 @@ def test_source_count_empty_armory(tmp_path: Path, capsys) -> None:
     assert "0" in out
 
 
-def test_source_list_fails_for_invalid_armory(tmp_path: Path, capsys) -> None:
+def test_source_list_fails_for_invalid_armory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     parser = build_parser()
     bad_path = tmp_path / "not-an-armory"
     bad_path.mkdir(parents=True)
@@ -79,7 +83,9 @@ def test_source_list_fails_for_invalid_armory(tmp_path: Path, capsys) -> None:
     assert "error:" in err
 
 
-def test_source_count_fails_for_invalid_armory(tmp_path: Path, capsys) -> None:
+def test_source_count_fails_for_invalid_armory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     parser = build_parser()
     bad_path = tmp_path / "not-an-armory"
     bad_path.mkdir(parents=True)
@@ -92,7 +98,7 @@ def test_source_count_fails_for_invalid_armory(tmp_path: Path, capsys) -> None:
     assert "error:" in err
 
 
-def test_source_index_builds_index(tmp_path: Path, capsys) -> None:
+def test_source_index_builds_index(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     armory_path = _make_armory(tmp_path)
     parser = build_parser()
 
@@ -106,7 +112,9 @@ def test_source_index_builds_index(tmp_path: Path, capsys) -> None:
     assert (armory_path / ".hephaistos" / "rag_index.json").is_file()
 
 
-def test_source_index_fails_for_invalid_armory(tmp_path: Path, capsys) -> None:
+def test_source_index_fails_for_invalid_armory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     parser = build_parser()
     bad_path = tmp_path / "not-an-armory"
     bad_path.mkdir(parents=True)
@@ -119,7 +127,7 @@ def test_source_index_fails_for_invalid_armory(tmp_path: Path, capsys) -> None:
     assert "error:" in err
 
 
-def test_source_list_ignores_dotfiles(tmp_path: Path, capsys) -> None:
+def test_source_list_ignores_dotfiles(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     armory_path = tmp_path / "dotfile-armory"
     initialize(armory_path)
     (armory_path / "source" / "visible.md").write_text("# Visible\n")

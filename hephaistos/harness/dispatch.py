@@ -12,7 +12,7 @@ from hephaistos.chat.engine import (
     ChatConfig,
     Conversation,
     RetryConfig,
-    _build_client,
+    _build_client,  # type: ignore[reportPrivateUsage]
     stream_completion,
 )
 from hephaistos.chat.events import (
@@ -279,7 +279,7 @@ def _summarize_result(content: str) -> str:
     return f"  -> {first_line} ... ({len(lines)} lines)"
 
 
-def _sync_conversation(conversation: Conversation, api_messages: list[dict]) -> None:
+def _sync_conversation(conversation: Conversation, api_messages: list[dict[str, Any]]) -> None:
     """Rebuild *conversation* messages from the compacted API messages.
 
     ``Conversation`` only stores ``role`` + ``content``, so tool messages
@@ -303,12 +303,12 @@ def _sync_conversation(conversation: Conversation, api_messages: list[dict]) -> 
 
 
 def _inject_turn_context(
-    messages: list[dict],
+    messages: list[dict[str, Any]],
     turn_evidence: TurnEvidence | None,
     extra_system_prompt: str | None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Build a copy of *messages* with ephemeral turn context injected."""
-    inserts: list[dict] = []
+    inserts: list[dict[str, Any]] = []
     if extra_system_prompt:
         inserts.append({"role": "system", "content": extra_system_prompt})
     if turn_evidence:
@@ -331,8 +331,8 @@ def _inject_turn_context(
 
 def _record_usage(
     usage: SessionUsage | None,
-    stream_usage: dict | None,
-    api_messages: list[dict],
+    stream_usage: dict[str, Any] | None,
+    api_messages: list[dict[str, Any]],
     text: str,
     model: str,
 ) -> None:
@@ -357,14 +357,14 @@ def iter_agent_events(
     steering: SteeringQueue | None = None,
     turn_evidence: TurnEvidence | None = None,
     extra_system_prompt: str | None = None,
-    tool_schemas: list[dict] | None = None,
+    tool_schemas: list[dict[str, Any]] | None = None,
     registry: ToolRegistry | None = None,
 ) -> Iterator[TurnEvent]:
     """Run the model/tool loop and emit structured turn events."""
     retry = retry or RetryConfig()
     if registry is None:
         registry = default_registry
-    api_messages: list[dict] = conversation.to_api_messages()  # type: ignore[assignment]
+    api_messages: list[dict[str, Any]] = conversation.to_api_messages()  # type: ignore[assignment]
     loop_timer = Timer()
     budget = ContextBudget(model=config.model, max_tokens=config.max_tokens)
 
@@ -491,7 +491,7 @@ def iter_agent_events(
             name = tc["function"]["name"]
             tool_names.append(name)
             try:
-                args = json.loads(tc["function"]["arguments"])
+                args: dict[str, Any] = json.loads(tc["function"]["arguments"])
             except json.JSONDecodeError:
                 args = {}
             yield ToolCallEvent(
@@ -597,7 +597,7 @@ def agent_loop(
     steering: SteeringQueue | None = None,
     turn_evidence: TurnEvidence | None = None,
     extra_system_prompt: str | None = None,
-    tool_schemas: list[dict] | None = None,
+    tool_schemas: list[dict[str, Any]] | None = None,
     registry: ToolRegistry | None = None,
 ) -> Iterator[str]:
     """Backward-compatible string stream wrapper over ``iter_agent_events``."""

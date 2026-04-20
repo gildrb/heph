@@ -78,7 +78,7 @@ def _cmd_source_index(args: argparse.Namespace) -> None:
 
 
 def register(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
 ) -> None:
     """Register source subcommands."""
     source = subparsers.add_parser("source", help="Manage source documents in an armory.")

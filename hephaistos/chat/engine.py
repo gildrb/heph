@@ -22,6 +22,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 from openai import (
     APIConnectionError,
@@ -31,8 +32,10 @@ from openai import (
     OpenAI,
     PermissionDeniedError,
     RateLimitError,
+    Stream,
 )
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
+from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 
 from hephaistos.chat.resilience import CircuitBreaker
 from hephaistos.logging import Timer, get_logger
@@ -78,6 +81,11 @@ class ChatConfig:
 
     def is_feature_enabled(self, flag: str) -> bool:
         return flag in self.feature_flags
+
+    @property
+    def provider_slug(self) -> str:
+        """Public read-only accessor for the active provider slug."""
+        return self._provider_slug
 
     @property
     def resolved_api_key(self) -> str:
@@ -173,13 +181,15 @@ def _provider_error_fields(exc: Exception) -> tuple[str, str]:
     message = ""
 
     if isinstance(body, dict):
-        error = body.get("error", body)
-        if isinstance(error, dict):
-            raw_code = error.get("code") or error.get("type") or body.get("code")
-            raw_message = error.get("message") or body.get("message")
+        data = cast("dict[str, Any]", body)
+        error_val = data.get("error", data)
+        if isinstance(error_val, dict):
+            err = cast("dict[str, Any]", error_val)
+            raw_code: object | None = err.get("code") or err.get("type") or data.get("code")
+            raw_message: object | None = err.get("message") or data.get("message")
         else:
-            raw_code = body.get("code")
-            raw_message = body.get("message") or error
+            raw_code = data.get("code")
+            raw_message = data.get("message") or error_val
         code = str(raw_code or "").strip()
         message = str(raw_message or "").strip()
 
@@ -253,6 +263,10 @@ def _build_client(config: ChatConfig) -> OpenAI:
     return OpenAI(api_key=api_key, base_url=config.base_url)
 
 
+# Public alias so callers don't need to reference the private name.
+build_client = _build_client
+
+
 def is_retryable_error(exc: Exception) -> bool:
     """Return True if *exc* is a transient error worth retrying."""
     if _is_account_setup_error(exc):
@@ -279,21 +293,17 @@ class CompletionDelta:
     """A streamed completion delta from the model."""
 
     content: str | None = None
-    tool_calls: list[dict] | None = None
+    tool_calls: list[dict[str, Any]] | None = None
     finish_reason: str = ""
     usage: dict[str, int] | None = None
 
 
-def _normalize_tool_calls(tool_calls: list[object]) -> list[dict]:
+def _normalize_tool_calls(tool_calls: list[ChoiceDeltaToolCall]) -> list[dict[str, Any]]:
     """Convert Pydantic tool-call delta objects to plain dicts."""
-    result: list[dict] = []
+    result: list[dict[str, Any]] = []
     for tc in tool_calls:
-        if isinstance(tc, dict):
-            result.append(tc)
-            continue
-        # OpenAI SDK returns Pydantic v2 models; .model_dump() gives plain dicts.
-        tc_dict: dict = tc.model_dump(exclude_none=True)  # type: ignore[union-attr]
-        fn = tc_dict.get("function")
+        tc_dict: dict[str, Any] = tc.model_dump(exclude_none=True)
+        fn: object | None = tc_dict.get("function")
         if fn is not None and not isinstance(fn, dict):
             tc_dict["function"] = fn.model_dump(exclude_none=True)  # type: ignore[union-attr]
         result.append(tc_dict)
@@ -315,26 +325,30 @@ def _record_usage(usage: dict[str, int], model: str, span: object) -> None:
     """Record token usage metrics and span attributes."""
     prompt = usage.get("prompt_tokens", 0)
     completion = usage.get("completion_tokens", 0)
-    span.set_attribute("gen_ai.response.prompt_tokens", prompt)  # type: ignore[union-attr]
-    span.set_attribute("gen_ai.response.completion_tokens", completion)  # type: ignore[union-attr]
-    _llm_token_counter.add(prompt, {"model": model, "type": "prompt"})
-    _llm_token_counter.add(completion, {"model": model, "type": "completion"})
+    span.set_attribute(  # type: ignore[reportUnknownMemberType]
+        "gen_ai.response.prompt_tokens", prompt
+    )
+    span.set_attribute(  # type: ignore[reportUnknownMemberType]
+        "gen_ai.response.completion_tokens", completion
+    )
+    _llm_token_counter.add(prompt, {"model": model, "type": "prompt"})  # type: ignore[reportUnknownMemberType]
+    _llm_token_counter.add(completion, {"model": model, "type": "completion"})  # type: ignore[reportUnknownMemberType]
 
 
 def stream_completion(
     config: ChatConfig,
     messages: Conversation | list[ChatCompletionMessageParam],
     *,
-    tools: list[dict] | None = None,
+    tools: list[dict[str, Any]] | None = None,
     abort: threading.Event | None = None,
     retry: RetryConfig | None = None,
     client_factory: Callable[[ChatConfig], OpenAI] | None = None,
 ) -> Iterator[CompletionDelta]:
     """Stream raw completion deltas with shared retry/recovery handling."""
     span = _tracer.start_span("llm.completion")  # type: ignore[union-attr]
-    span.set_attribute("gen_ai.system", config.base_url)
-    span.set_attribute("gen_ai.request.model", config.model)
-    span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)
+    span.set_attribute("gen_ai.system", config.base_url)  # type: ignore[reportUnknownMemberType]
+    span.set_attribute("gen_ai.request.model", config.model)  # type: ignore[reportUnknownMemberType]
+    span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)  # type: ignore[reportUnknownMemberType]
     retry = retry or RetryConfig()
     client_factory = client_factory or _build_client
     api_messages = messages.to_api_messages() if isinstance(messages, Conversation) else messages
@@ -357,7 +371,7 @@ def stream_completion(
 
     for attempt in range(retry.max_retries + 1):
         if abort is not None and abort.is_set():
-            span.end()
+            span.end()  # type: ignore[reportUnknownMemberType]
             return
 
         if not _circuit_breaker.allow_request():
@@ -375,7 +389,10 @@ def stream_completion(
 
         try:
             with timer:
-                stream = client.chat.completions.create(**request_kwargs)  # type: ignore[call-overload]
+                stream = cast(
+                    "Stream[ChatCompletionChunk]",
+                    client.chat.completions.create(**request_kwargs),  # type: ignore[call-overload]
+                )
         except Exception as exc:
             last_error = exc
             if is_retryable_error(exc):
@@ -395,12 +412,12 @@ def stream_completion(
                 if not _wait_backoff(attempt, retry, abort):
                     return
                 continue
-            span.set_attribute("error", True)
-            span.set_attribute("error.type", type(exc).__name__)
-            span.end()
+            span.set_attribute("error", True)  # type: ignore[reportUnknownMemberType]
+            span.set_attribute("error.type", type(exc).__name__)  # type: ignore[reportUnknownMemberType]
+            span.end()  # type: ignore[reportUnknownMemberType]
             raise EngineError(_request_failure_message(exc)) from exc
 
-        partial_content = ""
+        partial_content: str = ""
         saw_output = False
         try:
             for chunk in stream:
@@ -415,13 +432,13 @@ def stream_completion(
                             }
                         },
                     )
-                    span.end()
+                    span.end()  # type: ignore[reportUnknownMemberType]
                     return
 
                 usage = _extract_usage(chunk)
                 if not chunk.choices:
                     if usage is not None:
-                        _record_usage(usage, config.model, span)
+                        _record_usage(usage, config.model, span)  # type: ignore[reportUnknownArgumentType]
                         yield CompletionDelta(usage=usage)
                     continue
 
@@ -434,7 +451,7 @@ def stream_completion(
                     saw_output = True
                 if delta.content or delta.tool_calls or finish_reason or usage is not None:
                     if usage is not None:
-                        _record_usage(usage, config.model, span)
+                        _record_usage(usage, config.model, span)  # type: ignore[reportUnknownArgumentType]
                     yield CompletionDelta(
                         content=delta.content or None,
                         tool_calls=(
@@ -457,9 +474,9 @@ def stream_completion(
                 extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
             )
             if saw_output:
-                span.set_attribute("error", True)
-                span.set_attribute("error.type", "StreamRecoveryError")
-                span.end()
+                span.set_attribute("error", True)  # type: ignore[reportUnknownMemberType]
+                span.set_attribute("error.type", "StreamRecoveryError")  # type: ignore[reportUnknownMemberType]
+                span.end()  # type: ignore[reportUnknownMemberType]
                 raise StreamRecoveryError(partial_content, exc) from exc
             last_error = exc
             if is_retryable_error(exc):
@@ -468,9 +485,9 @@ def stream_completion(
                 if not _wait_backoff(attempt, retry, abort):
                     return
                 continue
-            span.set_attribute("error", True)
-            span.set_attribute("error.type", type(exc).__name__)
-            span.end()
+            span.set_attribute("error", True)  # type: ignore[reportUnknownMemberType]
+            span.set_attribute("error.type", type(exc).__name__)  # type: ignore[reportUnknownMemberType]
+            span.end()  # type: ignore[reportUnknownMemberType]
             raise EngineError(_stream_failure_message(exc)) from exc
 
         _log.info(
@@ -485,13 +502,13 @@ def stream_completion(
             },
         )
         _circuit_breaker.record_success()
-        span.set_attribute("gen_ai.response.latency_ms", timer.ms)
-        _llm_duration_hist.record(timer.ms, {"model": config.model})
-        span.end()
+        span.set_attribute("gen_ai.response.latency_ms", timer.ms)  # type: ignore[reportUnknownMemberType]
+        _llm_duration_hist.record(timer.ms, {"model": config.model})  # type: ignore[reportUnknownMemberType]
+        span.end()  # type: ignore[reportUnknownMemberType]
         return
 
-    span.set_attribute("error", True)
-    span.end()
+    span.set_attribute("error", True)  # type: ignore[reportUnknownMemberType]
+    span.end()  # type: ignore[reportUnknownMemberType]
     raise EngineError(
         _request_failure_message(last_error)
         if last_error is not None

@@ -11,6 +11,7 @@ import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any, cast
 
 from hephaistos.harness.rag.chunker import (
     Chunk,
@@ -159,13 +160,10 @@ class ArmoryIndex:
 
         self.documents = []
         self._file_hashes = {}
-        file_hashes = data.get("file_hashes", {})
-        if isinstance(file_hashes, dict):
-            self._file_hashes = {
-                key: value
-                for key, value in file_hashes.items()
-                if isinstance(key, str) and isinstance(value, str)
-            }
+        file_hashes_raw: Any = data.get("file_hashes", {})
+        if isinstance(file_hashes_raw, dict):
+            file_hashes = cast("dict[str, str]", file_hashes_raw)
+            self._file_hashes = {str(key): str(value) for key, value in file_hashes.items()}
         for doc_data in data.get("documents", []):
             chunks = [
                 Chunk(

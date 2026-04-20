@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 
 class InputHistory:
@@ -35,9 +36,10 @@ class InputHistory:
         if not path.exists():
             return cls()
         try:
-            data = json.loads(path.read_text())
-            if isinstance(data, list):
-                return cls([str(e) for e in data])
+            raw = json.loads(path.read_text())
+            if isinstance(raw, list):
+                string_list = cast("list[str | int | float]", raw)
+                return cls([str(e) for e in string_list])
         except (json.JSONDecodeError, OSError):
             pass
         return cls()

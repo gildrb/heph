@@ -11,8 +11,8 @@ import pytest
 from hephaistos.logging import (
     Timer,
     TraceWriter,
-    _JsonFormatter,
-    _TextFormatter,
+    _JsonFormatter,  # type: ignore[reportPrivateUsage]
+    _TextFormatter,  # type: ignore[reportPrivateUsage]
     get_logger,
 )
 

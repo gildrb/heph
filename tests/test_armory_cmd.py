@@ -7,7 +7,9 @@ import pytest
 from hephaistos.app.cli import build_parser, run_argv
 
 
-def test_init_armory_returns_success_message(tmp_path: Path, capsys) -> None:
+def test_init_armory_returns_success_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     parser = build_parser()
     armory_path = tmp_path / "study-armory"
 
@@ -18,7 +20,9 @@ def test_init_armory_returns_success_message(tmp_path: Path, capsys) -> None:
     assert str(armory_path.resolve()) in out
 
 
-def test_open_armory_returns_success_message(tmp_path: Path, capsys) -> None:
+def test_open_armory_returns_success_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     parser = build_parser()
     armory_path = tmp_path / "study-armory"
     run_argv(parser, ["armory", "init", str(armory_path)])
@@ -30,7 +34,9 @@ def test_open_armory_returns_success_message(tmp_path: Path, capsys) -> None:
     assert str(armory_path.resolve()) in out
 
 
-def test_open_armory_fails_for_uninitialized_path(tmp_path: Path, capsys) -> None:
+def test_open_armory_fails_for_uninitialized_path(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     parser = build_parser()
     uninitialized = tmp_path / "not-initialized"
     uninitialized.mkdir(parents=True)

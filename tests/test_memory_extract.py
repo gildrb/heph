@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from hephaistos.chat.engine import ChatConfig
@@ -47,7 +48,7 @@ class TestExtractFromExchange:
         ]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -70,7 +71,7 @@ class TestExtractFromExchange:
         fenced = f"```json\n{json.dumps(entries)}\n```"
         mock_response = _mock_llm_response(fenced)
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -90,7 +91,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response("[]")
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -107,7 +108,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response("not valid json {{{")
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -120,7 +121,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response('{"topic": "not a list"}')
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -138,7 +139,7 @@ class TestExtractFromExchange:
         ]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -153,7 +154,7 @@ class TestExtractFromExchange:
         entries = ["not a dict", 42, {"topic": "ok", "content": "fine"}]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -167,7 +168,7 @@ class TestExtractFromExchange:
         entries = [{"topic": "x" * 200, "content": "y" * 1000, "source": "test"}]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -180,7 +181,7 @@ class TestExtractFromExchange:
     def test_llm_exception_returns_empty(self) -> None:
         config = _make_config()
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.side_effect = Exception("API error")
             mock_build.return_value = mock_client
@@ -193,7 +194,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response(None)
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -206,7 +207,7 @@ class TestExtractFromExchange:
         config = _make_config()
         mock_response = _mock_llm_response("[]")
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -224,13 +225,13 @@ class TestExtractFromExchange:
 
 
 class TestExtractAndStore:
-    def test_stores_entries_and_returns_count(self, tmp_path) -> None:
+    def test_stores_entries_and_returns_count(self, tmp_path: Path) -> None:
         config = _make_config()
         memory = MemoryStore(tmp_path)
         entries = [{"topic": "HTTP", "content": "HyperText Transfer Protocol", "source": "web"}]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -241,7 +242,7 @@ class TestExtractAndStore:
         assert len(memory.entries) == 1
         assert memory.entries[0].topic == "HTTP"
 
-    def test_returns_zero_when_nothing_extracted(self, tmp_path) -> None:
+    def test_returns_zero_when_nothing_extracted(self, tmp_path: Path) -> None:
         config = _make_config()
         memory = MemoryStore(tmp_path)
 
@@ -250,12 +251,12 @@ class TestExtractAndStore:
         assert added == 0
         assert len(memory.entries) == 0
 
-    def test_does_not_save_when_no_entries(self, tmp_path) -> None:
+    def test_does_not_save_when_no_entries(self, tmp_path: Path) -> None:
         config = _make_config()
         memory = MemoryStore(tmp_path)
         mock_response = _mock_llm_response("[]")
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client
@@ -266,13 +267,13 @@ class TestExtractAndStore:
         assert added == 0
         mock_save.assert_not_called()
 
-    def test_saves_memory_when_entries_added(self, tmp_path) -> None:
+    def test_saves_memory_when_entries_added(self, tmp_path: Path) -> None:
         config = _make_config()
         memory = MemoryStore(tmp_path)
         entries = [{"topic": "TLS", "content": "Transport Layer Security", "source": "crypto"}]
         mock_response = _mock_llm_response(json.dumps(entries))
 
-        with patch("hephaistos.memory.extract._build_client") as mock_build:
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
             mock_client = MagicMock()
             mock_client.chat.completions.create.return_value = mock_response
             mock_build.return_value = mock_client

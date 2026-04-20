@@ -186,7 +186,7 @@ def estimate_message_tokens(content: str) -> int:
     return len(content) // _CHARS_PER_TOKEN
 
 
-def estimate_conversation_tokens(messages: list[dict]) -> int:
+def estimate_conversation_tokens(messages: list[dict[str, Any]]) -> int:
     """Estimate total token count for a list of API messages."""
     total = 0
     for msg in messages:
@@ -218,12 +218,12 @@ class ContextBudget:
         """Tokens available for prompt (context window minus completion budget)."""
         return self.context_window - self.max_tokens
 
-    def tokens_remaining(self, current_messages: list[dict]) -> int:
+    def tokens_remaining(self, current_messages: list[dict[str, Any]]) -> int:
         """How many tokens are left before hitting the context window."""
         used = estimate_conversation_tokens(current_messages)
         return max(0, self.prompt_budget - used)
 
-    def compaction_urgency(self, current_messages: list[dict]) -> str:
+    def compaction_urgency(self, current_messages: list[dict[str, Any]]) -> str:
         """Return urgency level: 'none', 'low', 'medium', 'high'."""
         used = estimate_conversation_tokens(current_messages)
         ratio = used / max(1, self.prompt_budget)

@@ -12,8 +12,12 @@ import json
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from hephaistos.providers.model_support import filter_supported_models
+
+if TYPE_CHECKING:
+    from hephaistos.chat.engine import ChatConfig
 
 _CONFIG_DIR = Path.home() / ".config" / "hephaistos"
 _PROVIDERS_FILE = _CONFIG_DIR / "providers.toml"
@@ -61,7 +65,7 @@ class ProviderConfig:
         self.providers[slug].active = True
         return True
 
-    def apply_to_config(self, config) -> None:
+    def apply_to_config(self, config: ChatConfig) -> None:
         """Apply the active provider settings to a ChatConfig instance.
 
         Sets base_url and model directly, but stores only a *reference*
@@ -77,8 +81,8 @@ class ProviderConfig:
         config.model = active.resolved_model
         # Store provider reference for lazy key resolution instead of
         # copying the raw key into the config object.
-        config._provider_slug = active.slug
-        config._provider_env = active.api_key_env
+        config._provider_slug = active.slug  # type: ignore[reportPrivateUsage]
+        config._provider_env = active.api_key_env  # type: ignore[reportPrivateUsage]
 
     def save(self, path: Path | None = None) -> None:
         path = path or _PROVIDERS_FILE
@@ -114,7 +118,8 @@ class ProviderConfig:
         for slug, section in data.items():
             if not isinstance(section, dict):
                 continue
-            providers[slug] = _sanitize_provider(slug, section)
+            typed_section: dict[str, Any] = section  # type: ignore[assignment]
+            providers[slug] = _sanitize_provider(slug, typed_section)
         return cls(providers=providers)
 
 
@@ -200,7 +205,7 @@ def _default_config() -> ProviderConfig:
 
 def _sanitize_provider(
     slug: str,
-    section: dict,
+    section: dict[str, Any],
 ) -> Provider:
     has_models_catalog = "models" in section
     models = filter_supported_models(list(section.get("models", [])), slug)

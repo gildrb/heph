@@ -25,7 +25,7 @@ _VERSION = _package_version()
 
 
 def _hide_subparser(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
     name: str,
 ) -> None:
     subparsers._choices_actions = [

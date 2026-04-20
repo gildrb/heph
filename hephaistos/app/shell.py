@@ -20,10 +20,12 @@ from pathlib import Path
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.completion import CompleteEvent, Completer, Completion
+from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style as PtStyle
 
@@ -101,7 +103,7 @@ class ShellRuntime:
 class SlashCommandCompleter(Completer):
     """Context-aware completion for slash commands and their common arguments."""
 
-    def get_completions(self, document, complete_event):
+    def get_completions(self, document: Document, complete_event: CompleteEvent):
         text = document.text_before_cursor
         stripped = text.lstrip()
 
@@ -231,7 +233,7 @@ def _build_keybindings(
     )
 
     @kb.add(*submit_key_list)
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         buf = event.current_buffer
         line = buf.document.current_line_before_cursor
         if line.rstrip().endswith("\\"):
@@ -251,7 +253,7 @@ def _build_keybindings(
     )
 
     @kb.add(*newline_key_list)
-    def _(event):
+    def _(event: KeyPressEvent) -> None:
         """Insert a newline (e.g. Alt+Enter)."""
         event.current_buffer.insert_text("\n")
 
@@ -384,7 +386,7 @@ def _run_shell_command(cmd: str) -> None:
         print_error(str(exc))
 
 
-def _invalidate_prompt(pt_session: PromptSession | None) -> None:
+def _invalidate_prompt(pt_session: PromptSession[str] | None) -> None:
     if pt_session is None:
         return
     try:
@@ -423,7 +425,7 @@ def _report_engine_error(
         capture_exception(
             exc,
             context={
-                "provider": session.config._provider_slug,
+                "provider": session.config.provider_slug,
                 "model": session.config.model,
                 "partial_content_length": len(exc.partial_content),
             },
@@ -433,7 +435,7 @@ def _report_engine_error(
             {
                 "error_type": "stream_recovery",
                 "model": session.config.model,
-                "provider": session.config._provider_slug,
+                "provider": session.config.provider_slug,
                 "partial_content_length": len(exc.partial_content),
             },
         )
@@ -442,7 +444,7 @@ def _report_engine_error(
         capture_exception(
             exc,
             context={
-                "provider": session.config._provider_slug,
+                "provider": session.config.provider_slug,
                 "model": session.config.model,
             },
         )
@@ -451,7 +453,7 @@ def _report_engine_error(
             {
                 "error_type": "engine_error",
                 "model": session.config.model,
-                "provider": session.config._provider_slug,
+                "provider": session.config.provider_slug,
             },
         )
 
@@ -462,7 +464,7 @@ def _start_background_reply(
     history: InputHistory,
     runtime: ShellRuntime,
     toolbar_ref: list[str],
-    pt_session: PromptSession,
+    pt_session: PromptSession[str],
 ) -> None:
     history.add(user_input)
 
@@ -476,7 +478,7 @@ def _start_background_reply(
         {
             "message_length": len(user_input),
             "model": session.config.model,
-            "provider": session.config._provider_slug,
+            "provider": session.config.provider_slug,
             "has_armory": session.armory_path is not None,
         },
     )
@@ -650,7 +652,7 @@ def run_chat_shell(
         "session_started",
         {
             "model": session.config.model,
-            "provider": session.config._provider_slug,
+            "provider": session.config.provider_slug,
             "has_armory": session.armory_path is not None,
             "version": __version__,
         },
@@ -663,7 +665,7 @@ def run_chat_shell(
     history_path = _get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pt_session = PromptSession(
+    pt_session: PromptSession[str] = PromptSession(
         message=_get_prompt_message(runtime),
         style=_PT_STYLE,
         history=FileHistory(str(history_path)),

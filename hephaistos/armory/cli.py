@@ -37,7 +37,7 @@ def _cmd_armory_open(args: argparse.Namespace) -> None:
     print(f"Opened armory {armory_path} (created {marker.get('created_at', 'unknown')})")
 
 
-def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:  # type: ignore[reportPrivateUsage]
     """Register armory subcommands."""
     armory = subparsers.add_parser("armory", help="Manage armories (workspaces).")
     armory_sub = armory.add_subparsers(dest="armory_command", required=True)

@@ -30,6 +30,7 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 def safe_path(workspace: Path, rel_path: str) -> Path:
@@ -62,7 +63,7 @@ def _is_private_host(hostname: str) -> bool:
 class ToolSpec:
     """A single tool: its JSON schema and its handler function."""
 
-    schema: dict
+    schema: dict[str, Any]
 
     handler: Callable[..., str]
 
@@ -111,10 +112,10 @@ class ToolRegistry:
         return spec.handler if spec else None
 
     @property
-    def schemas(self) -> list[dict]:
+    def schemas(self) -> list[dict[str, Any]]:
         """All visible tool schemas (local + inherited, local overrides first)."""
         seen: set[str] = set()
-        result: list[dict] = []
+        result: list[dict[str, Any]] = []
         for spec in self._tools.values():
             seen.add(spec.name)
             result.append(spec.schema)
@@ -209,7 +210,7 @@ def _tool(
     properties: dict[str, dict[str, object]] | None = None,
     *,
     required: tuple[str, ...] = (),
-) -> dict:
+) -> dict[str, object]:
     """Build the OpenAI-compatible function tool schema."""
     return {
         "type": "function",
@@ -225,7 +226,7 @@ def _tool(
     }
 
 
-_BUILTIN_SCHEMAS: list[dict] = [
+_BUILTIN_SCHEMAS: list[dict[str, Any]] = [
     _tool(
         "compact",
         (
@@ -675,8 +676,12 @@ def _queued_edit_file(
     )
 
 
+def _compact_handler(**_kw: object) -> str:
+    return "[compact triggered]"
+
+
 _HANDLERS: dict[str, Callable[..., str]] = {
-    "compact": lambda **_kw: "[compact triggered]",
+    "compact": _compact_handler,
     "bash": run_bash,
     "read_file": run_read_file,
     "write_file": _queued_write_file,
@@ -698,4 +703,4 @@ for _schema in _BUILTIN_SCHEMAS:
     default_registry.register(ToolSpec(schema=_schema, handler=_handler))
 
 # Backward-compatible alias: TOOL_SCHEMAS delegates to the registry.
-TOOL_SCHEMAS: list[dict] = default_registry.schemas
+TOOL_SCHEMAS: list[dict[str, Any]] = default_registry.schemas

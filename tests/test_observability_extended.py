@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import hephaistos.observability as _obs_mod
-from hephaistos.logging import _get_trace_context
+from hephaistos.logging import _get_trace_context  # type: ignore[reportPrivateUsage]
 from hephaistos.observability import (
-    _NoopCounter,
-    _NoopHistogram,
-    _NoopMeter,
-    _NoopSpan,
-    _NoopTracer,
+    _NoopCounter,  # type: ignore[reportPrivateUsage]
+    _NoopHistogram,  # type: ignore[reportPrivateUsage]
+    _NoopMeter,  # type: ignore[reportPrivateUsage]
+    _NoopSpan,  # type: ignore[reportPrivateUsage]
+    _NoopTracer,  # type: ignore[reportPrivateUsage]
     get_current_trace_id,
     get_meter,
     get_tracer,
@@ -84,12 +84,12 @@ class TestGetTracerAndMeter:
     """get_tracer/get_meter should return no-op when OTel unavailable."""
 
     def test_get_tracer_returns_noop_without_otel(self) -> None:
-        with patch("hephaistos.observability._OTEL_AVAILABLE", False):
+        with patch("hephaistos.observability._otel_available", False):
             tracer = get_tracer("test")
             assert isinstance(tracer, _NoopTracer)
 
     def test_get_meter_returns_noop_without_otel(self) -> None:
-        with patch("hephaistos.observability._OTEL_AVAILABLE", False):
+        with patch("hephaistos.observability._otel_available", False):
             meter = get_meter("test")
             assert isinstance(meter, _NoopMeter)
 
@@ -118,7 +118,7 @@ class TestAlerting:
     @pytest.fixture(autouse=True)
     def _clear_alert_state(self) -> None:
         """Reset module-level alert timestamps between tests."""
-        _obs_mod._alert_timestamps.clear()
+        _obs_mod._alert_timestamps.clear()  # type: ignore[reportPrivateUsage]
 
     def test_send_alert_noop_without_webhook(self) -> None:
         """send_alert is a no-op when ALERT_WEBHOOK_URL is not configured."""
@@ -190,8 +190,10 @@ class TestAlerting:
             init_alerting()
             key = f"{logging.ERROR}:cooldown-test"
             # Simulate a previous alert sent long ago
-            _obs_mod._alert_timestamps[key] = (
-                _obs_mod._time.monotonic() - _obs_mod._ALERT_COOLDOWN_SECONDS - 1
+            _obs_mod._alert_timestamps[key] = (  # type: ignore[reportPrivateUsage]
+                _obs_mod._time.monotonic()  # type: ignore[reportPrivateUsage]
+                - _obs_mod._ALERT_COOLDOWN_SECONDS  # type: ignore[reportPrivateUsage]
+                - 1
             )
 
             with patch("hephaistos.observability._urllib_request.urlopen") as mock_urlopen:
@@ -225,15 +227,15 @@ class TestAlerting:
             clear=True,
         ):
             init_alerting()
-            assert _obs_mod._alert_webhook_url == "http://example.com/webhook"
-            assert _obs_mod._alert_min_level == logging.WARNING
+            assert _obs_mod._alert_webhook_url == "http://example.com/webhook"  # type: ignore[reportPrivateUsage]
+            assert _obs_mod._alert_min_level == logging.WARNING  # type: ignore[reportPrivateUsage]
 
     def test_init_alerting_defaults(self) -> None:
         """init_alerting uses sensible defaults when env vars are unset."""
         with patch.dict("os.environ", {}, clear=True):
             init_alerting()
-            assert _obs_mod._alert_webhook_url is None
-            assert _obs_mod._alert_min_level == logging.ERROR
+            assert _obs_mod._alert_webhook_url is None  # type: ignore[reportPrivateUsage]
+            assert _obs_mod._alert_min_level == logging.ERROR  # type: ignore[reportPrivateUsage]
 
     def test_init_alerting_invalid_level_defaults_to_error(self) -> None:
         """init_alerting falls back to ERROR for an unrecognized level name."""
@@ -243,7 +245,7 @@ class TestAlerting:
             clear=True,
         ):
             init_alerting()
-            assert _obs_mod._alert_min_level == logging.ERROR
+            assert _obs_mod._alert_min_level == logging.ERROR  # type: ignore[reportPrivateUsage]
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +258,7 @@ class TestTraceContext:
 
     def test_get_current_trace_id_empty_without_otel(self) -> None:
         """get_current_trace_id returns empty string when OTel not available."""
-        with patch("hephaistos.observability._OTEL_AVAILABLE", False):
+        with patch("hephaistos.observability._otel_available", False):
             result = get_current_trace_id()
             assert result == ""
 
@@ -313,5 +315,5 @@ class TestInitObservability:
 
     def test_shutdown_observability_noop_without_otel(self) -> None:
         """shutdown_observability is a safe no-op when OTel is not available."""
-        with patch("hephaistos.observability._OTEL_AVAILABLE", False):
+        with patch("hephaistos.observability._otel_available", False):
             shutdown_observability()  # Should not raise

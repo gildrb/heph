@@ -19,7 +19,7 @@ from hephaistos.harness.rag.retrieve import ScoredChunk
 
 
 def _make_turn_evidence(*sources: str) -> TurnEvidence:
-    scored = []
+    scored: list[ScoredChunk] = []
     for index, source in enumerate(sources):
         chunk = Chunk(
             text=f"Content of {source}.",

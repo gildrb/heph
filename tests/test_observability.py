@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from hephaistos.observability import (
-    _REDACTED,
-    _detect_environment,
-    _parse_traces_rate,
-    _redact_event,
-    _scrub_value,
+    _REDACTED,  # type: ignore[reportPrivateUsage]
+    _detect_environment,  # type: ignore[reportPrivateUsage]
+    _parse_traces_rate,  # type: ignore[reportPrivateUsage]
+    _redact_event,  # type: ignore[reportPrivateUsage]
+    _scrub_value,  # type: ignore[reportPrivateUsage]
     add_breadcrumb,
     capture_exception,
     init_sentry,
@@ -21,18 +20,18 @@ from hephaistos.observability import (
 
 @contextmanager
 def _mock_sentry():
-    """Patch ``sentry_sdk`` and ``_SENTRY_AVAILABLE`` so tests can mock attributes.
+    """Patch ``sentry_sdk`` and ``_sentry_available`` so tests can mock attributes.
 
     When ``sentry-sdk`` is not installed, the module-level ``sentry_sdk`` is
     ``None``, making ``patch("hephaistos.observability.sentry_sdk.init")`` fail
     with ``AttributeError: None has no attribute 'init'``.  This helper
     replaces the module-level ``sentry_sdk`` name with a fresh ``MagicMock``
-    and sets ``_SENTRY_AVAILABLE = True`` so the guard clause is bypassed.
+    and sets ``_sentry_available = True`` so the guard clause is bypassed.
     """
     mock_sdk = MagicMock()
     with (
         patch("hephaistos.observability.sentry_sdk", mock_sdk),
-        patch("hephaistos.observability._SENTRY_AVAILABLE", True),
+        patch("hephaistos.observability._sentry_available", True),
         patch("hephaistos.observability.LoggingIntegration", MagicMock()),
     ):
         yield mock_sdk
@@ -183,18 +182,20 @@ class TestInitSentry:
             mock_sdk.set_tag.assert_any_call("platform", "cli")
 
     def test_logging_integration_configured(self) -> None:
-        pytest.importorskip("sentry_sdk")
-        from sentry_sdk.integrations.logging import LoggingIntegration as _LogIntegration
-
+        li_mock = MagicMock()
         with (
             _mock_sentry() as mock_sdk,
             patch.dict(os.environ, {"SENTRY_DSN": "https://key@sentry.io/123"}),
+            patch("hephaistos.observability.LoggingIntegration", li_mock),
         ):
             init_sentry()
             call_kwargs = mock_sdk.init.call_args[1]
             integrations = call_kwargs["integrations"]
             assert len(integrations) == 1
-            assert isinstance(integrations[0], _LogIntegration)
+            li_mock.assert_called_once_with(
+                level=logging.INFO,
+                event_level=logging.CRITICAL,
+            )
 
 
 # -- _detect_environment -----------------------------------------------------
@@ -296,23 +297,23 @@ class TestNoSentryFallback:
     """Verify every public function is a safe no-op when sentry_sdk is absent."""
 
     def test_init_sentry_noop(self) -> None:
-        with patch("hephaistos.observability._SENTRY_AVAILABLE", False):
+        with patch("hephaistos.observability._sentry_available", False):
             init_sentry()  # should not raise
 
     def test_set_session_context_noop(self) -> None:
-        with patch("hephaistos.observability._SENTRY_AVAILABLE", False):
+        with patch("hephaistos.observability._sentry_available", False):
             set_session_context(session_id="abc", armory="x", provider="y", model="z")
 
     def test_add_breadcrumb_noop(self) -> None:
-        with patch("hephaistos.observability._SENTRY_AVAILABLE", False):
+        with patch("hephaistos.observability._sentry_available", False):
             add_breadcrumb("cat", "msg", extra_key="val")
 
     def test_capture_exception_noop(self) -> None:
-        with patch("hephaistos.observability._SENTRY_AVAILABLE", False):
+        with patch("hephaistos.observability._sentry_available", False):
             result = capture_exception(RuntimeError("boom"))
             assert result is None
 
     def test_capture_exception_with_context_noop(self) -> None:
-        with patch("hephaistos.observability._SENTRY_AVAILABLE", False):
+        with patch("hephaistos.observability._sentry_available", False):
             result = capture_exception(RuntimeError("boom"), context={"model": "gpt-4o"})
             assert result is None

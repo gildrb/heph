@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -19,7 +20,7 @@ class TestFileMutationQueue:
     def test_execute_passes_kwargs(self) -> None:
         queue = FileMutationQueue()
 
-        def handler(**kwargs):
+        def handler(**kwargs: Any) -> str:
             return f"{kwargs['file_path']}:{kwargs['content']}"
 
         result = queue.execute(Path("/tmp/test.txt"), handler, file_path="x", content="data")
@@ -28,7 +29,7 @@ class TestFileMutationQueue:
     def test_execute_catches_exception(self) -> None:
         queue = FileMutationQueue()
 
-        def failing_handler(**kwargs):
+        def failing_handler(**kwargs: Any) -> str:
             raise ValueError("disk full")
 
         result = queue.execute(Path("/tmp/test.txt"), failing_handler)
@@ -38,9 +39,9 @@ class TestFileMutationQueue:
     def test_clear_removes_locks(self) -> None:
         queue = FileMutationQueue()
         queue.execute(Path("/tmp/a.txt"), lambda: "a")
-        assert len(queue._locks) == 1
+        assert len(queue._locks) == 1  # type: ignore[reportPrivateUsage]
         queue.clear()
-        assert len(queue._locks) == 0
+        assert len(queue._locks) == 0  # type: ignore[reportPrivateUsage]
 
     def test_same_file_serializes(self) -> None:
         """Two mutations on the same file path must run sequentially."""
@@ -49,13 +50,13 @@ class TestFileMutationQueue:
         handler_1_entered = threading.Event()
         handler_1_release = threading.Event()
 
-        def handler_1(**kwargs):
+        def handler_1(**kwargs: Any) -> str:
             order.append(1)
             handler_1_entered.set()
             handler_1_release.wait(timeout=5)
             return "r1"
 
-        def handler_2(**kwargs):
+        def handler_2(**kwargs: Any) -> str:
             order.append(2)
             return "r2"
 
@@ -81,7 +82,7 @@ class TestFileMutationQueue:
         release = threading.Event()
         started: list[int] = []
 
-        def slow_handler(**kwargs):
+        def slow_handler(**kwargs: Any) -> str:
             started.append(1)
             entered.set()
             release.wait(timeout=5)

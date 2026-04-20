@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,20 +16,20 @@ from hephaistos.harness.compact import (
     estimate_messages_tokens,
     micro_compact,
 )
-from hephaistos.harness.dispatch import _sync_conversation
+from hephaistos.harness.dispatch import _sync_conversation  # type: ignore[reportPrivateUsage]
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _tool_result(content: str, call_id: str = "call_1") -> dict:
+def _tool_result(content: str, call_id: str = "call_1") -> dict[str, Any]:
     return {"role": "tool", "tool_call_id": call_id, "content": content}
 
 
-def _assistant_with_tools(*tool_names: str) -> dict:
+def _assistant_with_tools(*tool_names: str) -> dict[str, Any]:
     """Build an assistant message with tool_calls (call_id = call_N)."""
-    calls = []
+    calls: list[dict[str, Any]] = []
     for i, name in enumerate(tool_names):
         calls.append(
             {
@@ -40,9 +41,9 @@ def _assistant_with_tools(*tool_names: str) -> dict:
     return {"role": "assistant", "content": None, "tool_calls": calls}
 
 
-def _build_messages(n_tool_results: int, result_size: int = 500) -> list[dict]:
+def _build_messages(n_tool_results: int, result_size: int = 500) -> list[dict[str, Any]]:
     """Build a message list with *n_tool_results* tool result entries."""
-    messages: list[dict] = [
+    messages: list[dict[str, Any]] = [
         {"role": "system", "content": "You are helpful."},
         {"role": "user", "content": "Do stuff"},
     ]
@@ -52,9 +53,9 @@ def _build_messages(n_tool_results: int, result_size: int = 500) -> list[dict]:
     return messages
 
 
-def _build_multi_exchange(n_exchanges: int = 5) -> list[dict]:
+def _build_multi_exchange(n_exchanges: int = 5) -> list[dict[str, Any]]:
     """Build a message list with multiple user/assistant exchanges."""
-    messages: list[dict] = [
+    messages: list[dict[str, Any]] = [
         {"role": "system", "content": "You are helpful."},
     ]
     for i in range(n_exchanges):
@@ -109,7 +110,7 @@ class TestEstimateMessagesTokens:
 
 class TestMicroCompact:
     def test_no_tool_results(self) -> None:
-        messages = [
+        messages: list[dict[str, Any]] = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hi"},
         ]
@@ -131,11 +132,11 @@ class TestMicroCompact:
         # The last KEEP_RECENT tool results should be untouched
         tool_msgs = [m for m in messages if m.get("role") == "tool"]
         for msg in tool_msgs[-KEEP_RECENT:]:
-            assert len(msg["content"]) == 500
+            assert len(str(msg["content"])) == 500
 
         # The older ones should be placeholders
         for msg in tool_msgs[:-KEEP_RECENT]:
-            assert msg["content"].startswith("[Previous: used")
+            assert str(msg["content"]).startswith("[Previous: used")
 
     def test_preserves_short_results(self) -> None:
         """Results shorter than PLACEHOLDER_THRESHOLD are left alone."""
@@ -145,7 +146,7 @@ class TestMicroCompact:
 
     def test_finds_tool_name(self) -> None:
         """Placeholder references the correct tool name."""
-        messages: list[dict] = [
+        messages: list[dict[str, Any]] = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "go"},
             {
@@ -178,7 +179,7 @@ class TestMicroCompact:
         replaced = micro_compact(messages, keep_recent=3)
         assert replaced == 1
         tool_msgs = [m for m in messages if m.get("role") == "tool"]
-        assert "read_file" in tool_msgs[0]["content"]
+        assert "read_file" in str(tool_msgs[0]["content"])
 
     def test_custom_keep_recent(self) -> None:
         messages = _build_messages(5, result_size=500)
@@ -214,7 +215,10 @@ class TestAutoCompact:
         """A JSONL transcript file is created under .hephaistos/transcripts/."""
         messages = _build_messages(3)
         config, mock_client = self._mock_config_and_client()
-        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
+        monkeypatch.setattr(
+            "hephaistos.harness.compact.build_client",
+            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        )
 
         auto_compact(messages, config, tmp_path)
 
@@ -238,7 +242,10 @@ class TestAutoCompact:
         """Result has system messages + a summary + recent exchanges."""
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client()
-        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
+        monkeypatch.setattr(
+            "hephaistos.harness.compact.build_client",
+            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        )
 
         compressed = auto_compact(messages, config, tmp_path)
 
@@ -260,7 +267,10 @@ class TestAutoCompact:
         """Recent exchanges are kept verbatim, not summarized."""
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client()
-        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
+        monkeypatch.setattr(
+            "hephaistos.harness.compact.build_client",
+            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        )
 
         compressed = auto_compact(messages, config, tmp_path, keep_recent_exchanges=2)
 
@@ -275,7 +285,10 @@ class TestAutoCompact:
         """The mock LLM summary appears in the compressed output."""
         messages = _build_multi_exchange(n_exchanges=4)
         config, mock_client = self._mock_config_and_client(summary="Key fact: the answer is 42.")
-        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
+        monkeypatch.setattr(
+            "hephaistos.harness.compact.build_client",
+            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        )
 
         compressed = auto_compact(messages, config, tmp_path)
         summary_msgs = [m for m in compressed if m["role"] == "user"]
@@ -293,7 +306,10 @@ class TestAutoCompact:
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = RuntimeError("no API key")
-        monkeypatch.setattr("hephaistos.harness.compact._build_client", lambda c: mock_client)
+        monkeypatch.setattr(
+            "hephaistos.harness.compact.build_client",
+            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        )
 
         result = auto_compact(messages, config, tmp_path)
         # Same list returned — no crash, no compression
@@ -317,11 +333,11 @@ class TestSyncConversation:
         conv.add("system", "old system")
         conv.add("user", "old user")
 
-        api_messages = [
+        api_messages: list[dict[str, str]] = [
             {"role": "system", "content": "new system"},
             {"role": "user", "content": "[Earlier conversation summary]\n\nSummary here"},
         ]
-        _sync_conversation(conv, api_messages)
+        _sync_conversation(conv, api_messages)  # type: ignore[reportPrivateUsage]
 
         assert len(conv.messages) == 2
         assert conv.messages[0].content == "new system"
@@ -329,20 +345,20 @@ class TestSyncConversation:
 
     def test_skips_tool_messages(self) -> None:
         conv = Conversation()
-        api_messages = [
+        api_messages: list[dict[str, Any]] = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hi"},
             {"role": "tool", "tool_call_id": "c1", "content": "output"},
         ]
-        _sync_conversation(conv, api_messages)
+        _sync_conversation(conv, api_messages)  # type: ignore[reportPrivateUsage]
         assert len(conv.messages) == 2
 
     def test_skips_none_content(self) -> None:
         conv = Conversation()
-        api_messages = [
+        api_messages: list[dict[str, Any]] = [
             {"role": "assistant", "content": None, "tool_calls": []},
             {"role": "assistant", "content": "text reply"},
         ]
-        _sync_conversation(conv, api_messages)
+        _sync_conversation(conv, api_messages)  # type: ignore[reportPrivateUsage]
         assert len(conv.messages) == 1
         assert conv.messages[0].content == "text reply"

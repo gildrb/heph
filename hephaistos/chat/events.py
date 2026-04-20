@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,7 +20,7 @@ class ToolCallEvent:
 
     call_id: str
     name: str
-    arguments: dict
+    arguments: dict[str, Any]
     display: str
     kind: str = field(default="tool_call", init=False)
 
