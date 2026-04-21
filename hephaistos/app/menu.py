@@ -59,24 +59,32 @@ def _initial_selection(options: list[MenuOption]) -> int:
 def _format_menu(title: str, options: list[MenuOption], selected: int):
     max_label = max(visible_len(option.label) for option in options)
     fragments: list[tuple[str, str]] = [
-        ("class:menu.title", title),
+        ("class:inline-menu.title", title),
         ("", "\n"),
     ]
 
     for index, option in enumerate(options):
         is_selected = index == selected
-        option_style = "class:menu.option.current" if is_selected else "class:menu.option"
-        desc_style = "class:menu.description.current" if is_selected else "class:menu.description"
+        option_style = (
+            "class:inline-menu.option.current"
+            if is_selected
+            else "class:inline-menu.option"
+        )
+        desc_style = (
+            "class:inline-menu.description.current"
+            if is_selected
+            else "class:inline-menu.description"
+        )
         marker = ">" if is_selected else " "
         label = option.label.ljust(max_label) if option.description else option.label
         fragments.append((option_style, f"  {marker} {index + 1}. {label}"))
         if option.description:
             fragments.append((desc_style, f"  {option.description}"))
         if option.is_current:
-            fragments.append(("class:menu.title", "  current"))
+            fragments.append(("class:inline-menu.title", "  current"))
         fragments.append(("", "\n"))
 
-    fragments.append(("class:menu.hint", "  up/down choose | enter select | q/esc cancel"))
+    fragments.append(("class:inline-menu.hint", "  up/down choose | enter select | q/esc cancel"))
     return fragments
 
 

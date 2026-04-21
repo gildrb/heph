@@ -166,12 +166,12 @@ def shell_style_dict() -> dict[str, str]:
 def menu_style_dict() -> dict[str, str]:
     palette = current_palette()
     return {
-        "menu.title": f"bold {palette.accent}",
-        "menu.option": palette.text,
-        "menu.option.current": f"bold {palette.accent}",
-        "menu.description": palette.dim,
-        "menu.description.current": f"fg:{palette.text}",
-        "menu.hint": palette.dim,
+        "inline-menu.title": f"bold {palette.accent}",
+        "inline-menu.option": palette.text,
+        "inline-menu.option.current": f"bold {palette.accent}",
+        "inline-menu.description": palette.dim,
+        "inline-menu.description.current": f"fg:{palette.text}",
+        "inline-menu.hint": palette.dim,
     }
 
 

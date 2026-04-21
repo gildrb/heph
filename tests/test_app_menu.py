@@ -85,6 +85,28 @@ def test_prompt_toolkit_menu_q_cancels() -> None:
     assert selected is None
 
 
+def test_format_menu_uses_inline_menu_classes_only() -> None:
+    fragments = menu._format_menu(  # type: ignore[reportPrivateUsage]
+        "Settings",
+        [
+            MenuOption("Telemetry", "Usage analytics and crash reports"),
+            MenuOption("Appearance", "Theme: high_contrast", is_current=True),
+        ],
+        selected=1,
+    )
+
+    style_names = {style for style, _text in fragments if style}
+    assert style_names == {
+        "class:inline-menu.title",
+        "class:inline-menu.option",
+        "class:inline-menu.option.current",
+        "class:inline-menu.description",
+        "class:inline-menu.description.current",
+        "class:inline-menu.hint",
+    }
+    assert all(not style.startswith("class:menu") for style in style_names)
+
+
 def test_select_option_returns_none_for_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "q")
 
