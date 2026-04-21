@@ -46,9 +46,9 @@ _EXTRACTION_SYSTEM_PROMPT = (
 
 _EXTRACTION_USER_TEMPLATE = (
     "Extract learned concepts from this exchange:\n\n"
-    "User: {user_message}\n\n"
-    "Assistant: {assistant_message}\n\n"
-    "Context (sources used): {sources}\n\n"
+    "User: %s\n\n"
+    "Assistant: %s\n\n"
+    "Context (sources used): %s\n\n"
     "Return a JSON array of learned concepts, or [] if nothing substantive."
 )
 
@@ -70,10 +70,10 @@ def extract_from_exchange(
     if len(assistant_message) < _MIN_CONTENT_LENGTH:
         return []
 
-    prompt = _EXTRACTION_USER_TEMPLATE.format(
-        user_message=user_message[:_MAX_USER_CHARS],
-        assistant_message=assistant_message[:_MAX_ASSISTANT_CHARS],
-        sources=sources[:200] if sources else "(none)",
+    prompt = _EXTRACTION_USER_TEMPLATE % (
+        user_message[:_MAX_USER_CHARS],
+        assistant_message[:_MAX_ASSISTANT_CHARS],
+        sources[:200] if sources else "(none)",
     )
 
     temp = Conversation()

@@ -82,7 +82,18 @@ def sync_labels(dry_run: bool = False, prune: bool = False) -> None:
             print(f"  + {name}")
             created += 1
             if not dry_run:
-                gh("label", "create", name, "--color", color, "--description", description)
+                result = gh(
+                    "label",
+                    "create",
+                    name,
+                    "--color",
+                    color,
+                    "--description",
+                    description,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    gh("label", "edit", name, "--color", color, "--description", description)
         else:
             ex = existing[name]
             if ex["color"] != color or ex["description"] != description:

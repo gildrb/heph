@@ -228,7 +228,7 @@ def _exception_payload(
             "values": [
                 {
                     "type": exc.__class__.__name__,
-                    "value": redact_text(str(exc)),
+                    "value": _scrub_value(str(exc)),
                 }
             ]
         },

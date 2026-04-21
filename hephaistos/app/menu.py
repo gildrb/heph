@@ -66,9 +66,7 @@ def _format_menu(title: str, options: list[MenuOption], selected: int):
     for index, option in enumerate(options):
         is_selected = index == selected
         option_style = (
-            "class:inline-menu.option.current"
-            if is_selected
-            else "class:inline-menu.option"
+            "class:inline-menu.option.current" if is_selected else "class:inline-menu.option"
         )
         desc_style = (
             "class:inline-menu.description.current"
@@ -115,10 +113,13 @@ def _select_with_prompt_toolkit(
     def _(event: KeyPressEvent) -> None:
         event.app.exit(result=selected)
 
-    @bindings.add(*_key_list(keybindings["cancel"]))
-    @bindings.add("q")
-    def _(event: KeyPressEvent) -> None:
+    def _cancel(event: KeyPressEvent) -> None:
         event.app.exit(result=None)
+
+    for key in _key_list(keybindings["cancel"]):
+        bindings.add(key)(_cancel)
+
+    bindings.add("q")(_cancel)
 
     for index in range(min(len(options), 9)):
 

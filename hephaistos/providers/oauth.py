@@ -15,6 +15,7 @@ import base64
 import contextlib
 import hashlib
 import json
+import os
 import secrets
 import ssl
 import time
@@ -25,6 +26,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
+
+from hephaistos.logging import get_logger
+
+_log = get_logger("providers.oauth")
 
 _AUTH_DIR = Path.home() / ".config" / "hephaistos"
 _AUTH_FILE = _AUTH_DIR / "auth.json"
@@ -342,6 +347,7 @@ def _load_all() -> dict[str, Any]:
 
 def save_credentials(creds: OAuthCredentials) -> None:
     _AUTH_DIR.mkdir(parents=True, exist_ok=True)
+    _AUTH_DIR.chmod(0o700)
     data = _load_all()
     data[creds.provider] = {
         "type": "oauth",
@@ -350,8 +356,12 @@ def save_credentials(creds: OAuthCredentials) -> None:
         "expires_at": creds.expires_at,
         "account_id": creds.account_id,
     }
-    _AUTH_FILE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    _AUTH_FILE.chmod(0o600)
+    raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
+    fd = os.open(str(_AUTH_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, raw)
+    finally:
+        os.close(fd)
 
 
 def load_credentials(provider: str) -> OAuthCredentials | None:
@@ -372,7 +382,11 @@ def load_credentials(provider: str) -> OAuthCredentials | None:
     if creds.is_expired:
         try:
             creds = refresh_credentials(creds)
-        except Exception:
+        except Exception as exc:
+            _log.warning(
+                "OAuth auto-refresh failed",
+                extra={"fields": {"provider": provider, "error": str(exc)}},
+            )
             return None
 
     return creds
@@ -385,8 +399,13 @@ def clear_credentials(provider: str) -> bool:
         return False
     del data[provider]
     _AUTH_DIR.mkdir(parents=True, exist_ok=True)
-    _AUTH_FILE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    _AUTH_FILE.chmod(0o600)
+    _AUTH_DIR.chmod(0o700)
+    raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
+    fd = os.open(str(_AUTH_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, raw)
+    finally:
+        os.close(fd)
     return True
 
 

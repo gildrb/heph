@@ -38,7 +38,7 @@ from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
 from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 
 from hephaistos.chat.resilience import CircuitBreaker
-from hephaistos.logging import Timer, get_logger
+from hephaistos.logging import Timer, get_logger, redact_text
 from hephaistos.observability import get_meter, get_tracer
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
 
@@ -225,6 +225,7 @@ def _with_hint(message: str, hint: str) -> str:
 def _request_failure_message(exc: Exception) -> str:
     """Build a user-facing request failure message."""
     detail, _code = _provider_error_fields(exc)
+    detail = redact_text(detail)
     if _is_account_setup_error(exc):
         return _with_hint(f"Provider rejected the request: {detail}", _ACCOUNT_SETUP_HINT)
     return f"LLM request failed: {detail}"
@@ -233,6 +234,7 @@ def _request_failure_message(exc: Exception) -> str:
 def _stream_failure_message(exc: Exception) -> str:
     """Build a user-facing streaming failure message."""
     detail, _code = _provider_error_fields(exc)
+    detail = redact_text(detail)
     if _is_account_setup_error(exc):
         return _with_hint(f"Provider rejected the stream: {detail}", _ACCOUNT_SETUP_HINT)
     return f"LLM stream failed: {detail}"
@@ -346,7 +348,7 @@ def stream_completion(
 ) -> Iterator[CompletionDelta]:
     """Stream raw completion deltas with shared retry/recovery handling."""
     span = _tracer.start_span("llm.completion")  # type: ignore[union-attr]
-    span.set_attribute("gen_ai.system", config.base_url)  # type: ignore[reportUnknownMemberType]
+    span.set_attribute("gen_ai.system", config.provider_slug or "unknown")  # type: ignore[reportUnknownMemberType]
     span.set_attribute("gen_ai.request.model", config.model)  # type: ignore[reportUnknownMemberType]
     span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)  # type: ignore[reportUnknownMemberType]
     retry = retry or RetryConfig()

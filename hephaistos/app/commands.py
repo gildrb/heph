@@ -392,7 +392,6 @@ class ApiCommand(Command):
             except Exception:
                 set_volatile(slug, raw_key)
                 print_success("API key set for this session only (keychain unavailable).")
-            set_volatile(slug, raw_key)
             return CommandResult()
 
         if subcmd in ("url", "base-url", "baseurl"):

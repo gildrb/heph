@@ -41,17 +41,13 @@ def safe_path(workspace: Path, rel_path: str) -> Path:
     return resolved
 
 
-def _is_private_host(hostname: str) -> bool:
-    """Return True if *hostname* resolves to a private or loopback address."""
+def _resolve_hostname_ips(hostname: str) -> list[str]:
+    """Resolve a hostname to its IP addresses (to prevent DNS rebinding)."""
     try:
         addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
     except socket.gaierror:
-        return False
-    for _, _, _, _, sockaddr in addr_info:
-        ip = ipaddress.ip_address(sockaddr[0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-            return True
-    return False
+        return []
+    return [str(sockaddr[0]) for _, _, _, _, sockaddr in addr_info]
 
 
 # ---------------------------------------------------------------------------
@@ -348,15 +344,24 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
     """Execute a shell command and return structured output."""
     import time as _time
 
-    # Block obviously destructive commands (LLM-generated).
+    # Block destructive and dangerous commands (LLM-generated).
+    # Note: this is a safety net, not a sandbox. Trivial bypasses exist
+    # via encoding, variable expansion, etc. Treat as best-effort.
     _blocked_patterns = (
-        r"\brm\s+-rf\s+/(?:\s|$)",
-        r"\brm\s+-rf\s+~",
+        r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+-[a-zA-Z]*r[a-zA-Z]*\s+|-r[a-zA-Z]*\s+-f[a-zA-Z]*\s+)",
+        r"\brm\s+-rf\s+",
         r"\bmkfs\b",
-        r"\bdd\s+.*of=/dev/",
+        r"\bdd\s+",
         r"\bshutdown\b",
         r"\breboot\b",
         r">/dev/sd",
+        r"\bchmod\s+(777|666)\b",
+        r"\bcurl\b.*\|\s*(ba)?sh\b",
+        r"\bwget\b.*\|\s*(ba)?sh\b",
+        r"\bbase64\b.*\|\s*(ba)?sh\b",
+        r"\bpython[23]?\s+-c\b",
+        r"\bchmod\s+[0-7]*[0-7]{3}\s+/",
+        r"\bchown\b.*\s+/",
     )
     for pat in _blocked_patterns:
         if re.search(pat, command, re.IGNORECASE):
@@ -585,13 +590,32 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
 
     parsed = _urlparse(url)
     hostname = parsed.hostname
-    if hostname and _is_private_host(hostname):
-        return f"Error: blocked private/internal host ({hostname})"
+    if hostname:
+        # Resolve once and use the IP directly to prevent DNS rebinding.
+        resolved_ips = _resolve_hostname_ips(hostname)
+        if not resolved_ips:
+            return f"Error: could not resolve host ({hostname})"
+        for ip_str in resolved_ips:
+            ip = ipaddress.ip_address(ip_str)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return f"Error: blocked private/internal host ({hostname})"
+        # Replace hostname with resolved IP, set Host header for virtual hosting.
+        first_ip = resolved_ips[0]
+        # Format IPv6 addresses with brackets.
+        ip_host = f"[{first_ip}]" if ":" in first_ip else first_ip
+        netloc = parsed.netloc.replace(hostname, ip_host, 1)
+        safe_url = parsed._replace(netloc=netloc).geturl()
+        host_header = hostname if not parsed.port else f"{hostname}:{parsed.port}"
+    else:
+        safe_url = url
+        host_header = None
 
     req = urllib.request.Request(
-        url,
+        safe_url,
         headers={"User-Agent": _WEB_USER_AGENT},
     )
+    if host_header:
+        req.add_header("Host", host_header)
     try:
         with urllib.request.urlopen(req, timeout=_WEB_FETCH_TIMEOUT) as resp:  # nosec B310
             content_type = resp.headers.get("Content-Type", "")

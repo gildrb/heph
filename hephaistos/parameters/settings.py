@@ -124,23 +124,44 @@ def normalize_setting_value(key: str, value: object) -> object:
     raise KeyError(key)
 
 
+_settings_cache: dict[str, object] | None = None
+
+
+def invalidate_settings_cache() -> None:
+    """Clear the in-process settings cache (used by tests and edge cases)."""
+    global _settings_cache
+    _settings_cache = None
+
+
 def load_raw_settings() -> dict[str, object]:
-    """Load persisted settings from ``~/.config/hephaistos/config.json``."""
+    """Load persisted settings from ``~/.config/hephaistos/config.json``.
+
+    Results are cached in-process and reused until ``save_raw_settings()``
+    or ``invalidate_settings_cache()`` is called.
+    """
+    global _settings_cache
+    if _settings_cache is not None:
+        return _settings_cache
     if not _USER_CONFIG_FILE.is_file():
-        return {}
+        _settings_cache = {}
+        return _settings_cache
     with contextlib.suppress(Exception):
         raw = json.loads(_USER_CONFIG_FILE.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             data = cast("dict[str, Any]", raw)
-            return {str(k): v for k, v in data.items() if k in ALLOWED_CONFIG_KEYS}
-    return {}
+            _settings_cache = {str(k): v for k, v in data.items() if k in ALLOWED_CONFIG_KEYS}
+            return _settings_cache
+    _settings_cache = {}
+    return _settings_cache
 
 
 def save_raw_settings(settings: dict[str, object]) -> None:
-    """Persist the full settings mapping to disk."""
+    """Persist the full settings mapping to disk and update the in-process cache."""
+    global _settings_cache
     _USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     filtered = {key: settings[key] for key in sorted(settings) if key in ALLOWED_CONFIG_KEYS}
     _USER_CONFIG_FILE.write_text(json.dumps(filtered, indent=2) + "\n", encoding="utf-8")
+    _settings_cache = filtered
 
 
 def save_setting(key: str, value: object) -> None:

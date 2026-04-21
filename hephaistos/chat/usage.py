@@ -248,6 +248,14 @@ def save_usage(
     if armory_path is None:  # pyright: ignore[reportUnnecessaryComparison]
         return None
 
+    # Defense-in-depth: validate session_id has no path traversal.
+    if "/" in session_id or "\\" in session_id or ".." in session_id:
+        _log.warning(
+            "invalid session_id in save_usage",
+            extra={"fields": {"session_id": session_id}},
+        )
+        return None
+
     usage_dir = armory_path / ".hephaistos" / _USAGE_DIR
     usage_dir.mkdir(parents=True, exist_ok=True)
     path = usage_dir / f"{session_id}.json"

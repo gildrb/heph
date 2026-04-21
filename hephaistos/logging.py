@@ -286,6 +286,9 @@ class TraceWriter:
     """
 
     def __init__(self, session_id: str, armory_path: Path | None = None) -> None:
+        # Defense-in-depth: reject path traversal in session_id.
+        if "/" in session_id or "\\" in session_id or ".." in session_id:
+            raise ValueError(f"Invalid session_id: {session_id}")
         self.session_id = session_id
         self._armory_path = armory_path
         self._path: Path | None = None
