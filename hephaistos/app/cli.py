@@ -58,6 +58,24 @@ def _cmd_start(args: argparse.Namespace) -> None:
     run_chat_shell()
 
 
+def _get_subcommand_names(parser: argparse.ArgumentParser) -> set[str]:
+    """Return the set of registered subcommand names."""
+    for action in parser._actions:  # type: ignore[reportPrivateUsage]
+        if isinstance(action, argparse._SubParsersAction):  # type: ignore[reportPrivateUsage]
+            return set(action.choices.keys())  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+    return set()
+
+
+def _inject_start_if_path(argv: list[str], known_commands: set[str]) -> list[str]:
+    """Prepend 'start' if the first non-flag arg is not a known subcommand."""
+    for i, arg in enumerate(argv):
+        if not arg.startswith("-"):
+            if arg not in known_commands:
+                return [*argv[:i], "start", *argv[i:]]
+            break
+    return argv
+
+
 def build_parser() -> argparse.ArgumentParser:
     prog = Path(sys.argv[0]).name or "hephaistos"
     parser = argparse.ArgumentParser(
@@ -81,15 +99,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(
         dest="command",
-        required=True,
         metavar="command",
     )
 
+    # Hidden backwards-compatible alias: `heph start [path]`
     start = subparsers.add_parser(
         "start",
-        help="Start the interactive shell (optionally attach an armory).",
+        help=argparse.SUPPRESS,
     )
-    start.add_argument("path", nargs="?", help="Optional path to an existing armory.")
+    start.add_argument("path", nargs="?", help=argparse.SUPPRESS)
     start.set_defaults(handler=_cmd_start)
 
     register_armory_commands(subparsers)
@@ -105,7 +123,8 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
     args = parser.parse_args(argv)
     handler = getattr(args, "handler", None)
     if handler is None:
-        parser.print_help()
+        # No subcommand → launch the interactive shell directly
+        run_chat_shell()
         return
     handler(args)
 
@@ -134,14 +153,10 @@ def main() -> None:
         parser = build_parser()
         argv = sys.argv[1:]
 
-        # Launch shell if only profile flags (no real command) or no args
-        _real_args = [a for a in argv if a not in ("--profile", "--profile-memory")]
-        if not _real_args:
-            if sys.stdin.isatty() and sys.stdout.isatty():
-                run_chat_shell()
-            else:
-                parser.print_help()
-            return
+        # If the first non-flag arg isn't a known subcommand (e.g. a path),
+        # transparently inject "start" so `heph /my/armory` just works.
+        known_commands = _get_subcommand_names(parser)
+        argv = _inject_start_if_path(argv, known_commands)
 
         run_argv(parser, argv)
     finally:

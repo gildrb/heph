@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import re
 from pathlib import Path
 
 import pytest
@@ -24,7 +23,6 @@ def test_parser_includes_expected_top_level_commands() -> None:
     parser = build_parser()
     help_text = parser.format_help()
 
-    assert "start" in help_text
     assert "armory" in help_text
     assert "chat" not in help_text
     assert "source" in help_text
@@ -61,16 +59,21 @@ def test_main_without_args_uses_chat_shell_on_tty(monkeypatch: pytest.MonkeyPatc
     assert called
 
 
-def test_main_without_args_prints_help_on_non_tty(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_stdout = _FakeTTY(False)
+def test_main_without_args_starts_shell_on_non_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = False
+
+    def fake_shell(session: object | None = None) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(app_cli, "run_chat_shell", fake_shell)
     monkeypatch.setattr(app_cli.sys, "argv", ["heph"])
     monkeypatch.setattr(app_cli.sys, "stdin", _FakeTTY(False))
-    monkeypatch.setattr(app_cli.sys, "stdout", fake_stdout)
+    monkeypatch.setattr(app_cli.sys, "stdout", _FakeTTY(False))
 
     app_cli.main()
 
-    output = re.sub(r"\x1b\[[0-9;]*m", "", fake_stdout.getvalue())
-    assert "usage: heph" in output
+    assert called
 
 
 def test_start_command_launches_shell_without_path(monkeypatch: pytest.MonkeyPatch) -> None:
