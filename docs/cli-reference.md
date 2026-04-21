@@ -3,6 +3,7 @@
 ## CLI commands
 
 ```text
+hephaistos start [path]              Start the interactive shell (optional armory)
 hephaistos armory init <path>         Create a new armory workspace
 hephaistos armory open <path>         Validate an existing armory
 hephaistos source list <path>         List source documents
@@ -15,7 +16,9 @@ hephaistos chat resume <path> <id>    Resume a saved chat session
 hephaistos chat list <path>           List saved chat sessions
 ```
 
-The top-level CLI is shell-first. `armory`, `source`, and `config` are visible in `hephaistos --help`; `chat` is implemented but hidden from top-level help.
+The top-level CLI is shell-first. `start`, `armory`, `source`, and `config`
+are visible in `hephaistos --help`; `chat` is implemented but hidden from
+top-level help.
 
 ## Slash commands
 

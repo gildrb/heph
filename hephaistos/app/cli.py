@@ -8,9 +8,16 @@ from pathlib import Path
 from hephaistos.analytics import init_analytics, shutdown_analytics
 from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.cli import register as register_armory_commands
+from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat.cli import register as register_chat_commands
+from hephaistos.chat.session import SessionError, create_session, validate_armory_path
 from hephaistos.observability import init_observability, shutdown_observability
-from hephaistos.parameters.cli import register as register_config_commands
+from hephaistos.parameters.cli import (
+    load_config,
+)
+from hephaistos.parameters.cli import (
+    register as register_config_commands,
+)
 from hephaistos.source.cli import register as register_source_commands
 
 
@@ -31,6 +38,24 @@ def _hide_subparser(
     subparsers._choices_actions = [
         action for action in subparsers._choices_actions if getattr(action, "dest", None) != name
     ]
+
+
+def _cmd_start(args: argparse.Namespace) -> None:
+    """Start the interactive shell, optionally attached to a specific armory."""
+    if args.path:
+        try:
+            armory_path = validate_armory_path(args.path)
+        except ArmoryError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+        try:
+            session = create_session(load_config(armory_path), armory_path)
+        except SessionError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+        run_chat_shell(session)
+        return
+    run_chat_shell()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,6 +84,13 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="command",
     )
+
+    start = subparsers.add_parser(
+        "start",
+        help="Start the interactive shell (optionally attach an armory).",
+    )
+    start.add_argument("path", nargs="?", help="Optional path to an existing armory.")
+    start.set_defaults(handler=_cmd_start)
 
     register_armory_commands(subparsers)
     register_source_commands(subparsers)

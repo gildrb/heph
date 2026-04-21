@@ -27,6 +27,7 @@ Install the public CLI globally with `uv`:
 
 ```bash
 uv tool install hephaistos
+heph start
 heph --version
 ```
 
@@ -74,7 +75,7 @@ uv sync --group docling
 ```bash
 heph armory init ~/armories/exams
 # Add study files to ~/armories/exams/source or ~/armories/exams/library
-heph chat start ~/armories/exams
+heph start ~/armories/exams
 ```
 
 If you `cd` into a valid armory first, `heph` will attach it automatically and
@@ -143,8 +144,8 @@ the public repository only ships a safe stub.
 5. Useful concepts from the exchange are saved as armory memory for later
    sessions.
 
-If an armory has no source files, `chat start` asks you to add material before
-starting a study session.
+If an armory has no source files, `start <path>` asks you to add material
+before starting a study session.
 
 ## Armory Layout
 
@@ -206,7 +207,7 @@ heph armory open <path>         Validate an existing armory
 heph source list <path>         List source and library files
 heph source count <path>        Count source and library files
 heph source index <path>        Build or refresh the retrieval index
-heph chat start <path>          Start a new study session
+heph start [path]               Start the shell (optionally with an armory)
 heph chat resume <path> <id>    Resume a saved session
 heph chat list <path>           List saved sessions
 ```
