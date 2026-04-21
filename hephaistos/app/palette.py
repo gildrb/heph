@@ -168,7 +168,7 @@ def menu_style_dict() -> dict[str, str]:
     return {
         "menu.title": f"bold {palette.accent}",
         "menu.option": palette.text,
-        "menu.option.current": f"bg:{palette.panel} fg:{palette.text} bold",
+        "menu.option.current": f"bold fg:{palette.accent}",
         "menu.description": palette.dim,
         "menu.description.current": f"fg:{palette.text}",
         "menu.hint": palette.dim,
@@ -181,9 +181,9 @@ def browser_style_dict() -> dict[str, str]:
         "browser.title": f"bold {palette.accent}",
         "browser.path": palette.dim,
         "browser.entry": palette.text,
-        "browser.entry.selected": f"bg:{palette.panel} fg:{palette.text} bold",
+        "browser.entry.selected": f"bold fg:{palette.accent}",
         "browser.parent": palette.dim,
-        "browser.parent.selected": f"bg:{palette.panel} fg:{palette.dim} bold",
+        "browser.parent.selected": f"bold fg:{palette.accent}",
         "browser.hint": palette.dim,
     }
 

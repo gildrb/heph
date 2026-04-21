@@ -137,9 +137,14 @@ jobs:
           gh release upload edge dist/* --clobber
 
       - name: Notify deploy
-        if: ${{ secrets.DEPLOY_WEBHOOK_URL != '' }}
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
+          if [ -z "${DEPLOY_WEBHOOK_URL}" ]; then
+            echo "No webhook URL configured, skipping notification"
+            exit 0
+          fi
           curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "{\"version\":\"edge\",\"commit\":\"${GITHUB_SHA}\",\"environment\":\"edge\",\"repository\":\"${GITHUB_REPOSITORY}\",\"ref\":\"main\",\"trigger\":\"push\"}" \
-            "${{ secrets.DEPLOY_WEBHOOK_URL }}" || true
+            "${DEPLOY_WEBHOOK_URL}" || true
