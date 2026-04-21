@@ -9,6 +9,7 @@ from collections.abc import Callable
 from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
+    ChatSession,
     SessionError,
     create_session,
     list_armory_sessions,
@@ -18,20 +19,24 @@ from hephaistos.chat.session import (
 from hephaistos.parameters.cli import load_config
 
 
-def _cmd_chat_start(args: argparse.Namespace, *, run_shell: Callable[..., None]) -> None:
-    """Start a new chat session."""
+def resolve_armory_session(path: str) -> ChatSession:
+    """Validate armory path and create a session, with CLI error handling."""
     try:
-        armory_path = validate_armory_path(args.path)
+        armory_path = validate_armory_path(path)
     except ArmoryError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
     try:
-        session = create_session(load_config(armory_path), armory_path)
+        return create_session(load_config(armory_path), armory_path)
     except SessionError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
+
+def _cmd_chat_start(args: argparse.Namespace, *, run_shell: Callable[..., None]) -> None:
+    """Start a new chat session."""
+    session = resolve_armory_session(args.path)
     run_shell(session)
 
 

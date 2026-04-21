@@ -106,7 +106,7 @@ def capture(event: str, properties: Mapping[str, object] | None = None) -> None:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with contextlib.suppress(Exception), urllib.request.urlopen(request, timeout=5):
+    with contextlib.suppress(Exception), urllib.request.urlopen(request, timeout=5):  # nosec B310
         return
     _log.debug("analytics capture failed", extra={"fields": {"event": event}})
 

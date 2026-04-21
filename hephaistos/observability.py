@@ -311,7 +311,7 @@ def capture_exception(
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=5):
+        with urllib.request.urlopen(request, timeout=5):  # nosec B310
             return str(payload["event_id"])
     except Exception:  # nosec B110 - crash reporting is best effort
         _log.debug("remote crash report failed", exc_info=True)

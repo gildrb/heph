@@ -35,9 +35,8 @@ KNOWN_FLAGS: dict[str, str] = {
 
 FLAG_DEFINITION_PATTERNS = [
     re.compile(r"is_feature_enabled\(['\"](\w+)['\"]\)"),
-    re.compile(r"feature_flags.*['\"](\w+)['\"]"),
-    re.compile(r"HEPHAISTOS_FEATURE_FLAGS.*['\"](\w+)['\"]"),
-    re.compile(r"#.*flag[:\s]+(\w+)", re.IGNORECASE),
+    re.compile(r"feature_flags\s*[=:]\s*['\"]([^'\"]+)['\"]"),
+    re.compile(r"HEPHAISTOS_FEATURE_FLAGS\s*[=:]\s*['\"]([^'\"]+)['\"]"),
 ]
 
 FLAG_IN_CONFIG_PATTERN = re.compile(r"feature_flags\s*=\s*['\"]([^'\"]+)['\"]")
@@ -59,9 +58,11 @@ def _find_flag_references() -> set[str]:
         text = py_file.read_text(encoding="utf-8")
         for pattern in FLAG_DEFINITION_PATTERNS:
             for match in pattern.finditer(text):
-                flag = match.group(1)
-                if flag.isidentifier() and not flag.startswith("_"):
-                    found.add(flag)
+                value = match.group(1)
+                for flag in value.split(","):
+                    flag = flag.strip()
+                    if flag and flag.isidentifier() and not flag.startswith("_"):
+                        found.add(flag)
     found.difference_update(_SKIP_NAMES)
     return found
 
@@ -75,9 +76,11 @@ def _find_flags_in_docs() -> set[str]:
         text = md_file.read_text(encoding="utf-8")
         for pattern in FLAG_DEFINITION_PATTERNS:
             for match in pattern.finditer(text):
-                flag = match.group(1)
-                if flag.isidentifier() and not flag.startswith("_"):
-                    found.add(flag)
+                value = match.group(1)
+                for flag in value.split(","):
+                    flag = flag.strip()
+                    if flag and flag.isidentifier() and not flag.startswith("_"):
+                        found.add(flag)
         for match in FLAG_IN_CONFIG_PATTERN.finditer(text):
             for flag in match.group(1).split(","):
                 flag = flag.strip()

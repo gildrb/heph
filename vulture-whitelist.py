@@ -15,3 +15,7 @@ _.log_message  # used by http.server (hephaistos/providers/oauth.py)
 
 # Test handler stubs — **kw accepts arbitrary keyword arguments per handler protocol.
 kw  # unused variable (tests/test_oauth.py, tests/test_tool_registry.py)
+
+# Used only in string-annotated cast() — vulture cannot detect string references.
+Stream  # unused import (hephaistos/chat/engine.py)
+ChatCompletionChunk  # unused import (hephaistos/chat/engine.py)

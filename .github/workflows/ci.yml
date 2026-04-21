@@ -378,6 +378,7 @@ jobs:
     if: github.event_name == 'pull_request'
     permissions:
       pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -406,6 +407,7 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v6

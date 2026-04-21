@@ -8,13 +8,9 @@ from pathlib import Path
 from hephaistos.analytics import init_analytics, shutdown_analytics
 from hephaistos.app.shell import run_chat_shell
 from hephaistos.armory.cli import register as register_armory_commands
-from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat.cli import register as register_chat_commands
-from hephaistos.chat.session import SessionError, create_session, validate_armory_path
+from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.observability import init_observability, shutdown_observability
-from hephaistos.parameters.cli import (
-    load_config,
-)
 from hephaistos.parameters.cli import (
     register as register_config_commands,
 )
@@ -43,16 +39,7 @@ def _hide_subparser(
 def _cmd_start(args: argparse.Namespace) -> None:
     """Start the interactive shell, optionally attached to a specific armory."""
     if args.path:
-        try:
-            armory_path = validate_armory_path(args.path)
-        except ArmoryError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            raise SystemExit(2) from exc
-        try:
-            session = create_session(load_config(armory_path), armory_path)
-        except SessionError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            raise SystemExit(2) from exc
+        session = resolve_armory_session(args.path)
         run_chat_shell(session)
         return
     run_chat_shell()
