@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hephaistos.analytics import capture as analytics_capture
+from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.autocomplete import CommandSuggestion
 from hephaistos.app.display import (
     STYLE_DIM,
@@ -17,9 +18,19 @@ from hephaistos.app.display import (
     print_success,
     styled,
 )
-from hephaistos.app.menu import MenuOption, confirm, select_option
+from hephaistos.app.menu import MenuOption, browse_directory, confirm, select_option
+from hephaistos.app.palette import THEME_PRESETS, current_theme_name, set_theme
+from hephaistos.parameters.settings import clear_setting, load_app_settings, save_setting
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
+from hephaistos.telemetry import (
+    analytics_backend_available,
+    analytics_enabled,
+    analytics_env_override,
+    crash_reports_backend_available,
+    crash_reports_enabled,
+    crash_reports_env_override,
+)
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -159,12 +170,6 @@ class SaveCommand(Command):
             print_error(str(exc))
             return CommandResult()
         print_success(f"Saved to {path}")
-        analytics_capture(
-            "session_saved",
-            {
-                "message_count": sum(1 for m in s.conversation.messages if m.role != "system"),
-            },
-        )
         return CommandResult()
 
 
@@ -205,10 +210,11 @@ class ClearCommand(Command):
             print_error(str(exc))
             return CommandResult()
         print_success("Started fresh session.")
-        analytics_capture(
-            "conversation_cleared",
+        capture_analytics(
+            "session_cleared",
             {
-                "had_armory": s.armory_path is not None,
+                "mode": "armory" if new.armory_path is not None else "plain",
+                "model": new.config.model,
             },
         )
         return CommandResult(new_session=new)
@@ -267,7 +273,7 @@ class ModelCommand(Command):
             old = s.config.model
             s.config.model = model_name
             print_success(f"Model: {old} -> {s.config.model}")
-            analytics_capture("model_switched", {"model": s.config.model, "previous_model": old})
+            capture_analytics("model_changed", {"from_model": old, "to_model": s.config.model})
             return CommandResult()
         pc = ProviderConfig.load()
         active = pc.get_active()
@@ -311,7 +317,13 @@ class ModelCommand(Command):
         pc.apply_to_config(s.config)
         pc.save()
         print_success(f"Switched to {p.display_name} / {model}")
-        analytics_capture("model_switched", {"model": model, "provider": slug})
+        capture_analytics(
+            "model_changed",
+            {
+                "provider": slug,
+                "to_model": model,
+            },
+        )
         return CommandResult()
 
 
@@ -381,7 +393,6 @@ class ApiCommand(Command):
                 set_volatile(slug, raw_key)
                 print_success("API key set for this session only (keychain unavailable).")
             set_volatile(slug, raw_key)
-            analytics_capture("api_key_configured", {"provider": slug})
             return CommandResult()
 
         if subcmd in ("url", "base-url", "baseurl"):
@@ -442,11 +453,12 @@ class CompactCommand(Command):
         ]
         s.dirty = True
         print_success("Compacted.")
-        analytics_capture(
+        capture_analytics(
             "conversation_compacted",
             {
-                "message_count": len(non_system),
                 "model": s.config.model,
+                "message_count": len(non_system),
+                "summary_length": len(summary),
             },
         )
         return CommandResult()
@@ -600,8 +612,8 @@ class ProviderCommand(Command):
         pc.apply_to_config(session.config)
         pc.save()
         print_success(f"Switched to {p.display_name} / {p.resolved_model}")
-        analytics_capture(
-            "provider_switched",
+        capture_analytics(
+            "provider_changed",
             {
                 "provider": slug,
                 "model": p.resolved_model,
@@ -624,6 +636,13 @@ class ProviderCommand(Command):
         pc.apply_to_config(session.config)
         pc.save()
         print_success(f"Model: {model}")
+        capture_analytics(
+            "model_changed",
+            {
+                "provider": active.slug,
+                "to_model": model,
+            },
+        )
         return CommandResult()
 
 
@@ -699,7 +718,7 @@ class LoginCommand(Command):
             f"Logged in to OpenAI Codex (account: {creds.account_id or 'unknown'}) "
             f"— switched to {p.resolved_model}"
         )
-        analytics_capture("login_completed", {"provider": "openai-codex"})
+        capture_analytics("oauth_login", {"provider": "openai-codex", "model": p.resolved_model})
         return CommandResult()
 
 
@@ -720,7 +739,6 @@ class LogoutCommand(Command):
             if confirm(f"Log out of {slug}?", default=True):
                 clear_credentials(slug)
                 print_success(f"Logged out of {slug}.")
-                analytics_capture("logout_completed", {"provider": slug})
             else:
                 print_info("Cancelled.")
             return CommandResult()
@@ -735,12 +753,12 @@ class LogoutCommand(Command):
             for p in providers:
                 clear_credentials(p)
             print_success("Logged out of all providers.")
-            analytics_capture("logout_completed", {"provider": "all"})
+            capture_analytics("oauth_logout", {"provider": "all"})
         else:
             slug = providers[selected]
             clear_credentials(slug)
             print_success(f"Logged out of {slug}.")
-            analytics_capture("logout_completed", {"provider": slug})
+            capture_analytics("oauth_logout", {"provider": slug})
         return CommandResult()
 
 
@@ -792,6 +810,189 @@ class PersonaCommand(Command):
         s.dirty = True
         print_success(f"Persona: {old_name} -> {persona.display_name}")
         return CommandResult()
+
+
+class SettingsCommand(Command):
+    name = "settings"
+    description = "Manage cross-session preferences"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        while True:
+            settings = load_app_settings()
+            default_armory = settings.default_armory_path or "none"
+            options = [
+                MenuOption(
+                    "Telemetry",
+                    "Usage analytics and crash reports",
+                ),
+                MenuOption(
+                    "Appearance",
+                    f"Theme: {settings.theme}",
+                ),
+                MenuOption(
+                    "Startup",
+                    f"Default armory: {default_armory}",
+                ),
+                MenuOption(
+                    "Default model",
+                    f"Current: {s.config.model}",
+                ),
+                MenuOption(
+                    "Provider & credentials",
+                    "Reuse /provider, /api, /login, and /logout flows",
+                ),
+                MenuOption("Back", "Return to the chat prompt."),
+            ]
+            selected = select_option("Settings", options)
+            if selected is None or selected == len(options) - 1:
+                return CommandResult()
+            if selected == 0:
+                self._telemetry_menu()
+            elif selected == 1:
+                self._appearance_menu()
+            elif selected == 2:
+                self._startup_menu()
+            elif selected == 3:
+                ModelCommand().handle(s, "")
+            else:
+                self._provider_credentials_menu(s)
+
+    @staticmethod
+    def _telemetry_description(
+        *,
+        enabled: bool,
+        available: bool,
+        overridden: bool,
+    ) -> str:
+        status = "enabled" if enabled else "disabled"
+        availability = "available" if available else "inactive until configured"
+        suffix = " · env override active" if overridden else ""
+        return f"{status} · {availability}{suffix}"
+
+    def _telemetry_menu(self) -> None:
+        while True:
+            settings = load_app_settings()
+            options = [
+                MenuOption(
+                    f"[{'x' if analytics_enabled() else ' '}] Usage analytics",
+                    self._telemetry_description(
+                        enabled=analytics_enabled(),
+                        available=analytics_backend_available(),
+                        overridden=analytics_env_override(),
+                    ),
+                ),
+                MenuOption(
+                    f"[{'x' if crash_reports_enabled() else ' '}] Crash reports",
+                    self._telemetry_description(
+                        enabled=crash_reports_enabled(),
+                        available=crash_reports_backend_available(),
+                        overridden=crash_reports_env_override(),
+                    ),
+                ),
+                MenuOption("Back", "Return to settings."),
+            ]
+            selected = select_option("Telemetry", options)
+            if selected is None or selected == len(options) - 1:
+                return
+            if selected == 0:
+                save_setting("analytics_enabled", str(not settings.analytics_enabled).lower())
+                if analytics_env_override():
+                    print_info(
+                        "Saved analytics preference updated, but "
+                        "HEPHAISTOS_ANALYTICS_ENABLED is overriding it right now."
+                    )
+            elif selected == 1:
+                save_setting(
+                    "crash_reports_enabled",
+                    str(not settings.crash_reports_enabled).lower(),
+                )
+                if crash_reports_env_override():
+                    print_info(
+                        "Saved crash-report preference updated, but "
+                        "HEPHAISTOS_CRASH_REPORTS_ENABLED is overriding it right now."
+                    )
+
+    def _appearance_menu(self) -> None:
+        while True:
+            current = current_theme_name()
+            options = [
+                MenuOption(
+                    theme.replace("_", " ").title(),
+                    "Theme preset",
+                    is_current=(theme == current),
+                )
+                for theme in THEME_PRESETS
+            ]
+            options.append(MenuOption("Back", "Return to settings."))
+            selected = select_option("Appearance", options)
+            if selected is None or selected == len(options) - 1:
+                return
+            theme = THEME_PRESETS[selected]
+            save_setting("theme", theme)
+            set_theme(theme)
+            print_success(f"Theme: {current} -> {theme}")
+
+    def _startup_menu(self) -> None:
+        from hephaistos.chat.session import validate_armory_path
+
+        while True:
+            settings = load_app_settings()
+            default_armory = settings.default_armory_path or styled("(not set)", STYLE_DIM)
+            options = [
+                MenuOption("Set default armory", str(default_armory)),
+                MenuOption("Clear default armory", "Disable startup fallback armory"),
+                MenuOption("Back", "Return to settings."),
+            ]
+            selected = select_option("Startup", options)
+            if selected is None or selected == len(options) - 1:
+                return
+            if selected == 1:
+                clear_setting("default_armory_path")
+                print_success("Cleared default armory.")
+                continue
+
+            start_path = (
+                Path(settings.default_armory_path) if settings.default_armory_path else Path.home()
+            )
+            chosen = browse_directory("Default Armory", start=start_path)
+            if chosen is None:
+                print_info("Cancelled.")
+                continue
+            try:
+                armory_path = validate_armory_path(str(chosen))
+            except Exception as exc:
+                print_error(str(exc))
+                continue
+            save_setting("default_armory_path", str(armory_path))
+            print_success(f"Default armory: {armory_path}")
+
+    def _provider_credentials_menu(self, session: ChatSession) -> None:
+        while True:
+            active = ProviderConfig.load().get_active()
+            provider_label = active.display_name if active else "none"
+            options = [
+                MenuOption("Provider status", f"Current: {provider_label}"),
+                MenuOption("API key status", "Reuse the /api command"),
+                MenuOption("Login OAuth", "Reuse the /login flow"),
+                MenuOption("Logout OAuth", "Reuse the /logout flow"),
+                MenuOption("Back", "Return to settings."),
+            ]
+            selected = select_option("Provider & Credentials", options)
+            if selected is None or selected == len(options) - 1:
+                return
+            if selected == 0:
+                ProviderCommand().handle(session, "")
+                print_info("Use /provider use <slug> to switch providers directly.")
+            elif selected == 1:
+                ApiCommand().handle(session, "")
+                print_info(
+                    "Use /api key <key> or /api url <url> to change credentials or endpoint."
+                )
+            elif selected == 2:
+                LoginCommand().handle(session, "")
+            elif selected == 3:
+                LogoutCommand().handle(session, "")
 
 
 class UsageCommand(Command):
@@ -869,6 +1070,7 @@ def get_registry() -> CommandRegistry:
             ProviderCommand,
             ModelsCommand,
             PersonaCommand,
+            SettingsCommand,
             UsageCommand,
         ):
             _registry.register(cmd_class())

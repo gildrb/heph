@@ -79,8 +79,8 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 
 def main() -> None:
-    init_observability()
     init_analytics()
+    init_observability()
 
     # Detect profile flags before argparse (so profiling covers argparse itself)
     _profile = "--profile" in sys.argv[1:]
@@ -118,8 +118,8 @@ def main() -> None:
         if _profile and _prof is not None:
             _prof.disable()
             _report_profile(_prof)
-        shutdown_observability()
         shutdown_analytics()
+        shutdown_observability()
 
 
 def _report_memory() -> None:

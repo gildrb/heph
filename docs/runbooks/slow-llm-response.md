@@ -10,9 +10,8 @@ identify the bottleneck.
    - OpenAI: https://status.openai.com
    - Z.AI: check their dashboard
 
-2. **Check recent latency metrics** — if OpenTelemetry is configured,
-   query the `llm.request.duration` histogram in your OTel backend
-   filtered by model name.
+2. **Check recent logs and traces** — look for `latency_ms` in your structured
+   logs or the active armory trace file.
 
 3. **Check logs** — each LLM request logs latency:
    ```
@@ -26,18 +25,14 @@ identify the bottleneck.
 Run the CLI with the `--profile` flag to generate a CPU profile:
 
 ```bash
-uv run heph --profile chat
+uv run heph --profile
 # ... interact with the CLI ...
-# Profile saved to .hephaistos/profile/<timestamp>.prof on exit
+# Profile saved to ~/.cache/hephaistos/profiles/<timestamp>.prof on exit
 ```
 
 Analyze the profile:
 ```bash
-uv run python -c "
-import pstats
-p = pstats.Stats('.hephaistos/profile/latest.prof')
-p.sort_stats('cumulative').print_stats(20)
-"
+python -m pstats ~/.cache/hephaistos/profiles/<timestamp>.prof
 ```
 
 ### Memory Profiling with tracemalloc
@@ -45,7 +40,7 @@ p.sort_stats('cumulative').print_stats(20)
 Run with `--profile-memory` to track allocations:
 
 ```bash
-uv run heph --profile-memory chat
+uv run heph --profile-memory
 # Top 20 allocations printed on exit
 ```
 
@@ -55,7 +50,7 @@ For flame graphs without modifying the runtime:
 
 ```bash
 # Install py-spy (already in dev dependencies)
-uv run py-spy record -o profile.svg -- python -m hephaistos chat
+uv run py-spy record -o profile.svg -- python -m hephaistos
 ```
 
 ## Common Causes
@@ -67,12 +62,10 @@ uv run py-spy record -o profile.svg -- python -m hephaistos chat
 | High memory usage | Large conversation context | Start a new session or reduce context |
 | Timeout errors | Network or provider overload | Check `RetryConfig` settings; increase `max_delay` |
 
-## OpenTelemetry Traces
+## Local Trace Files
 
-If configured, inspect the `llm.completion` span for:
-- `gen_ai.request.model` — which model was called
-- `gen_ai.request.max_tokens` — token budget
-- `gen_ai.response.prompt_tokens` / `gen_ai.response.completion_tokens` — actual usage
-- `gen_ai.response.latency_ms` — measured latency
-
-Correlate slow requests across traces using the `trace_id` in logs.
+If the session is attached to an armory, inspect
+`<armory>/.hephaistos/traces/<session_id>.jsonl` for:
+- request timing and retrieval latency
+- tool-call timing
+- the sequence of user and assistant turns leading up to the slowdown

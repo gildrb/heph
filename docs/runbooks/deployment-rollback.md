@@ -21,8 +21,8 @@ Edge deploys run on every push to `main` via `.github/workflows/deploy.yml`.
 
 3. **Verify** — check the new edge release and confirm the app works.
 
-4. **Monitor** — watch Sentry for new errors and the deploy webhook for
-   confirmation.
+4. **Monitor** — watch the follow-up GitHub Actions run and do a quick smoke test
+   with `heph --version` plus a basic armory command.
 
 ## PyPI Release (version tags)
 
@@ -49,17 +49,16 @@ Stable releases are published to PyPI on `v*` tags via `.github/workflows/releas
    git push origin v0.1.1
    ```
 
-4. **Notify** — post to the deploy webhook channel about the rollback.
+4. **Communicate** — note the rollback in the release discussion or issue tracker.
 
 ## Where to Check Deploy Impact
 
-- **Sentry Releases** — filter errors by `hephaistos@{version}` release tag
 - **GitHub Deployments** — https://github.com/gildrb/hephaistos/deployments
 - **GitHub Actions** — check the latest deploy/release workflow run
-- **Deploy webhook** — if `DEPLOY_WEBHOOK_URL` is configured, deploy notifications include version and commit SHA
+- **Published package** — verify the expected wheel and sdist exist on the GitHub release and PyPI
 
 ## Prevention
 
 - Always test on edge before cutting a stable release
 - Use `--profile` and `--profile-memory` flags during QA
-- Monitor Sentry error rate after each deploy
+- Keep a small smoke-test checklist for install, armory init, and chat startup

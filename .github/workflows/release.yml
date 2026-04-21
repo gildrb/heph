@@ -58,6 +58,46 @@ jobs:
       - name: Pytest
         run: uv run pytest
 
+      - name: Inject release telemetry config
+        env:
+          HEPHAISTOS_POSTHOG_HOST: ${{ secrets.HEPHAISTOS_POSTHOG_HOST }}
+          HEPHAISTOS_POSTHOG_PROJECT_TOKEN: ${{ secrets.HEPHAISTOS_POSTHOG_PROJECT_TOKEN }}
+          HEPHAISTOS_SENTRY_DSN: ${{ secrets.HEPHAISTOS_SENTRY_DSN }}
+          HEPHAISTOS_RELEASE_CHANNEL: pypi
+          HEPHAISTOS_RELEASE_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def literal(value: str) -> str:
+              stripped = value.strip()
+              return json.dumps(stripped) if stripped else "None"
+
+          target = Path("hephaistos/_telemetry_release.py")
+          target.write_text(
+              "\n".join(
+                  [
+                      '"""Release-time telemetry configuration."""',
+                      "",
+                      "from __future__ import annotations",
+                      "",
+                      f"POSTHOG_HOST: str | None = {literal(os.environ.get('HEPHAISTOS_POSTHOG_HOST', ''))}",
+                      (
+                          "POSTHOG_PROJECT_TOKEN: str | None = "
+                          f"{literal(os.environ.get('HEPHAISTOS_POSTHOG_PROJECT_TOKEN', ''))}"
+                      ),
+                      f"SENTRY_DSN: str | None = {literal(os.environ.get('HEPHAISTOS_SENTRY_DSN', ''))}",
+                      f"RELEASE_CHANNEL: str | None = {literal(os.environ.get('HEPHAISTOS_RELEASE_CHANNEL', ''))}",
+                      f"RELEASE_VERSION: str | None = {literal(os.environ.get('HEPHAISTOS_RELEASE_VERSION', ''))}",
+                      "",
+                  ]
+              ),
+              encoding="utf-8",
+          )
+          PY
+
       - name: Build package
         run: uv build
 

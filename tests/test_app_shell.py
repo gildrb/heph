@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -125,6 +126,27 @@ def test_fallback_shell_without_startup_armory_uses_plain_chat(
     assert "No armory found" not in out
     assert "basic mode" in out
     assert prompts == ["> "]
+
+
+def test_create_startup_session_uses_default_armory_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    armory = _make_armory(tmp_path / "fallback")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "hephaistos.app.shell.load_app_settings",
+        lambda: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
+            theme="forge",
+            default_armory_path=str(armory),
+            analytics_enabled=False,
+            crash_reports_enabled=False,
+            telemetry_notice_seen=False,
+        ),
+    )
+
+    session = shell._create_startup_session(_test_config())  # type: ignore[reportPrivateUsage]
+
+    assert session.armory_path == armory
 
 
 def test_fallback_shell_runs_bang_command(
@@ -290,7 +312,7 @@ def test_bottom_toolbar_shows_busy_hint(tmp_path: Path) -> None:
 
 
 def test_shell_style_overrides_default_reversed_toolbar() -> None:
-    style_rules = dict(shell._PT_STYLE.style_rules)  # type: ignore[reportPrivateUsage]
+    style_rules = shell.shell_style_dict()  # type: ignore[reportPrivateUsage]
 
     assert style_rules["bottom-toolbar"] == "noreverse fg:#808080"
     assert style_rules["bottom-toolbar.text"] == "noreverse fg:#808080"
@@ -340,6 +362,7 @@ def test_shell_intro_uses_compact_header(capsys: pytest.CaptureFixture[str]) -> 
     assert "Hephaistos" in out
     assert "__  __" not in out
     assert "/help" in out
+    assert "/settings" in out
     assert "/armory" in out
     assert "configure api" in out
 

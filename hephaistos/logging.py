@@ -1,4 +1,4 @@
-"""Structured logging and observability for Hephaistos.
+"""Structured logging and local diagnostics for Hephaistos.
 
 This module implements **log sanitization** as a security mechanism: all
 structured log output and trace files pass through redaction functions that
@@ -117,19 +117,11 @@ def _redact_dict(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _get_trace_context() -> dict[str, str]:
-    """Get current OpenTelemetry trace_id and span_id if available."""
-    try:
-        from opentelemetry import trace
+    """Return local trace context.
 
-        span = trace.get_current_span()
-        ctx = span.get_span_context()
-        if ctx.is_valid:
-            return {
-                "trace_id": format(ctx.trace_id, "032x"),
-                "span_id": format(ctx.span_id, "016x"),
-            }
-    except ImportError:
-        pass
+    Remote tracing is intentionally disabled in the open-source CLI build, so
+    log records do not carry an external trace ID.
+    """
     return {}
 
 

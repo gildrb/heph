@@ -1,71 +1,33 @@
-"""Sentry-powered error tracking and observability for Hephaistos.
-
-Provides centralized error capture, breadcrumbs, and structured context
-that will serve both the CLI today and the planned mobile app tomorrow.
-All data is redacted before transmission to prevent API-key leaks.
-
-**sentry-sdk is an optional dependency.**  Install via ``uv sync --extra sentry``.
-When the package is absent, every public call in this module is a safe no-op —
-the application continues normally without telemetry.
-
-Configuration (environment variables):
-    SENTRY_DSN                - Sentry project DSN (required for tracking).
-                                 When unset, all calls are no-ops.
-    SENTRY_ENVIRONMENT        - ``"production"`` / ``"development"`` etc.
-                                 Auto-detected when unset.
-    SENTRY_TRACES_SAMPLE_RATE - Float 0.0-1.0, default 0.1.
-"""
+"""Local diagnostics plus optional maintainer-facing crash reporting."""
 
 from __future__ import annotations
 
-import contextlib
-import json as _json
-import logging
-import os
-import platform
+import json
 import re as _re
-import time as _time
-import urllib.request as _urllib_request
-from typing import Any, Self, cast
-
-try:
-    import sentry_sdk
-    from sentry_sdk.integrations.logging import LoggingIntegration
-
-    _sentry_available: bool = True
-except ImportError:  # pragma: no cover
-    sentry_sdk = None  # type: ignore[assignment]
-    LoggingIntegration = None  # type: ignore[assignment,misc]
-    _sentry_available = False
+import traceback
+import urllib.parse
+import urllib.request
+import uuid
+from collections import deque
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any, Final, Self, cast
 
 from hephaistos import __version__
-from hephaistos.logging import redact_value
+from hephaistos.logging import get_logger, redact_text
+from hephaistos.telemetry import (
+    crash_reports_backend_available,
+    crash_reports_enabled,
+    release_channel,
+    runtime_context,
+    sentry_dsn,
+)
 
-try:
-    from opentelemetry import metrics as _metrics_mod
-    from opentelemetry import trace as _trace_mod
-    from opentelemetry.sdk.metrics import MeterProvider as _MeterProvider
-    from opentelemetry.sdk.metrics.export import (
-        PeriodicExportingMetricReader as _PeriodicExportingMetricReader,
-    )
-    from opentelemetry.sdk.trace import TracerProvider as _TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor as _BatchSpanProcessor
-
-    _otel_available: bool = True
-except ImportError:  # pragma: no cover
-    _trace_mod = None  # type: ignore[assignment]
-    _metrics_mod = None  # type: ignore[assignment]
-    _TracerProvider = None  # type: ignore[assignment]
-    _BatchSpanProcessor = None  # type: ignore[assignment]
-    _MeterProvider = None  # type: ignore[assignment]
-    _PeriodicExportingMetricReader = None  # type: ignore[assignment]
-    _otel_available = False
-
-_log = logging.getLogger("hephaistos.observability")
+_log = get_logger("observability")
 
 
 class _NoopSpan:
-    """No-op span when OpenTelemetry is not installed."""
+    """No-op span for local diagnostics mode."""
 
     __slots__ = ()
 
@@ -83,7 +45,7 @@ class _NoopSpan:
 
 
 class _NoopTracer:
-    """No-op tracer when OpenTelemetry is not installed."""
+    """No-op tracer for local diagnostics mode."""
 
     __slots__ = ()
 
@@ -95,7 +57,7 @@ class _NoopTracer:
 
 
 class _NoopHistogram:
-    """No-op histogram when OpenTelemetry is not installed."""
+    """No-op histogram for local diagnostics mode."""
 
     __slots__ = ()
 
@@ -104,7 +66,7 @@ class _NoopHistogram:
 
 
 class _NoopCounter:
-    """No-op counter when OpenTelemetry is not installed."""
+    """No-op counter for local diagnostics mode."""
 
     __slots__ = ()
 
@@ -113,7 +75,7 @@ class _NoopCounter:
 
 
 class _NoopGauge:
-    """No-op gauge when OpenTelemetry is not installed."""
+    """No-op gauge for local diagnostics mode."""
 
     __slots__ = ()
 
@@ -122,7 +84,7 @@ class _NoopGauge:
 
 
 class _NoopMeter:
-    """No-op meter when OpenTelemetry is not installed."""
+    """No-op meter for local diagnostics mode."""
 
     __slots__ = ()
 
@@ -139,126 +101,145 @@ class _NoopMeter:
         return _NoopGauge()
 
 
-# -- Sensitive-key detection (mirrors logging.py patterns) --------------------
-
-_SENSITIVE_KEY_PATTERS: list[_re.Pattern[str]] = [
+_SENSITIVE_KEY_PATTERNS: Final[list[_re.Pattern[str]]] = [
     _re.compile(r"(?i)(api.?key|secret|token(?!s)|password|auth(orization|entication))"),
     _re.compile(r"(?i)(bearer|credential|private.?key)"),
 ]
-
 _REDACTED = "***REDACTED***"
-
-_ALERT_WEBHOOK_ENV = "ALERT_WEBHOOK_URL"
-_ALERT_MIN_LEVEL_ENV = "ALERT_MIN_LEVEL"
-_ALERT_MIN_LEVEL_DEFAULT = "ERROR"
-_ALERT_COOLDOWN_SECONDS = 300  # 5 minutes
-_alert_webhook_url: str | None = None
-_alert_min_level: int = logging.ERROR
-_alert_timestamps: dict[str, float] = {}
+_SCRUB_SECTIONS = frozenset({"extra", "tags", "contexts", "breadcrumbs", "request", "user"})
+_DROP_KEYS = frozenset({"prompt", "content", "message", "path", "filename", "armory", "text"})
+_BREADCRUMBS: deque[dict[str, Any]] = deque(maxlen=25)
+_SESSION_CONTEXT: dict[str, str] = {}
 
 
 def _is_sensitive_key(key: str) -> bool:
-    return any(p.search(key) for p in _SENSITIVE_KEY_PATTERS)
+    return any(p.search(key) for p in _SENSITIVE_KEY_PATTERNS)
 
 
-# -- Recursive redaction ------------------------------------------------------
+def _safe_string(key: str, value: str) -> str | None:
+    lowered = key.lower()
+    if lowered in _DROP_KEYS:
+        return None
+    if lowered.endswith(("path", "file", "filename")) and value:
+        return None
+    if len(value) > 160:
+        return None
+    return redact_text(value)
 
 
 def _scrub_value(value: object) -> object:
     """Recursively redact sensitive keys and values from nested data."""
     if isinstance(value, dict):
-        d = cast("dict[str, object]", value)
-        return {k: _REDACTED if _is_sensitive_key(k) else _scrub_value(v) for k, v in d.items()}
+        typed = cast("dict[str, object]", value)
+        cleaned: dict[str, object] = {}
+        for key, nested in typed.items():
+            lowered = key.lower()
+            if lowered in _DROP_KEYS or _is_sensitive_key(key):
+                cleaned[key] = _REDACTED
+                continue
+            if isinstance(nested, str):
+                safe = _safe_string(lowered, nested)
+                cleaned[key] = safe if safe is not None else _REDACTED
+            else:
+                cleaned[key] = _scrub_value(nested)
+        return cleaned
     if isinstance(value, list):
-        items = cast("list[object]", value)
-        return [_scrub_value(item) for item in items]
+        typed = cast("list[object]", value)
+        return [_scrub_value(item) for item in typed]
     if isinstance(value, str):
-        return redact_value(value)
+        safe = _safe_string("value", value)
+        return safe if safe is not None else _REDACTED
     return value
 
 
-# Sections of a Sentry event that may contain user-provided sensitive data.
-# Internal Sentry fields (event_id, platform, release, etc.) are never scrubbed.
-_SCRUB_SECTIONS = frozenset({"extra", "tags", "contexts", "breadcrumbs", "request", "user"})
-
-
-def _redact_event(event: dict[str, Any], _hint: dict[str, Any]) -> dict[str, Any] | None:
-    """``before_send`` hook: scrub sensitive data in user-facing sections only."""
+def _redact_event(  # pyright: ignore[reportUnusedFunction]
+    event: dict[str, Any],
+    _hint: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Compatibility hook retained for tests and future integrations."""
     for section in _SCRUB_SECTIONS:
         if section in event:
             event[section] = _scrub_value(event[section])
     return event
 
 
-# -- Environment detection ----------------------------------------------------
+def _parse_sentry_dsn(dsn: str) -> tuple[str, str]:
+    parsed = urllib.parse.urlparse(dsn)
+    if not parsed.scheme or not parsed.hostname or not parsed.username:
+        raise ValueError("Invalid Sentry DSN")
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if not path_parts:
+        raise ValueError("Invalid Sentry DSN")
+    project_id = path_parts[-1]
+    path_prefix = "/" + "/".join(path_parts[:-1]) if len(path_parts) > 1 else ""
+    auth_parts = [
+        "Sentry sentry_version=7",
+        f"sentry_client=hephaistos/{__version__}",
+        f"sentry_key={parsed.username}",
+    ]
+    if parsed.password:
+        auth_parts.append(f"sentry_secret={parsed.password}")
+    auth_header = ", ".join(auth_parts)
+    endpoint = urllib.parse.urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc.rsplit("@", 1)[-1],
+            f"{path_prefix}/api/{project_id}/store/",
+            "",
+            "",
+            "",
+        )
+    )
+    return endpoint, auth_header
 
 
-_DSN_ENV = "SENTRY_DSN"
-_ENV_ENV = "SENTRY_ENVIRONMENT"
-_TRACES_ENV = "SENTRY_TRACES_SAMPLE_RATE"
-_DEFAULT_TRACES_RATE = 0.1
+def _exception_payload(
+    exc: BaseException,
+    context: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    if context:
+        extra.update(cast("dict[str, Any]", _scrub_value(dict(context))))
 
+    tb_summary: list[traceback.FrameSummary] = (
+        list(traceback.extract_tb(exc.__traceback__)) if exc.__traceback__ is not None else []
+    )
+    if tb_summary:
+        extra["traceback"] = {
+            "frame_count": len(tb_summary),
+            "functions": [frame.name for frame in tb_summary[-8:]],
+        }
 
-def _detect_environment() -> str:
-    """Heuristic: *production* when installed via pip, else *development*."""
-    with contextlib.suppress(Exception):
-        from importlib.metadata import distribution
-
-        dist = distribution("hephaistos")
-        location = str(dist.locate_file("")) if dist else ""
-        if "site-packages" in location:
-            return "production"
-    return "development"
-
-
-def _parse_traces_rate() -> float:
-    raw = os.environ.get(_TRACES_ENV, "")
-    try:
-        return max(0.0, min(1.0, float(raw)))
-    except ValueError:
-        return _DEFAULT_TRACES_RATE
-
-
-# -- Public API ---------------------------------------------------------------
+    return {
+        "event_id": uuid.uuid4().hex,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "platform": "python",
+        "level": "error",
+        "logger": "hephaistos",
+        "release": f"hephaistos@{__version__}",
+        "environment": release_channel(),
+        "server_name": "hephaistos-cli",
+        "tags": {
+            **runtime_context(),
+            **_SESSION_CONTEXT,
+        },
+        "breadcrumbs": {"values": list(_BREADCRUMBS)},
+        "exception": {
+            "values": [
+                {
+                    "type": exc.__class__.__name__,
+                    "value": redact_text(str(exc)),
+                }
+            ]
+        },
+        "extra": extra,
+    }
 
 
 def init_sentry() -> None:
-    """Initialise the Sentry SDK.  No-op when ``SENTRY_DSN`` is not set or
-    ``sentry-sdk`` is not installed."""
-    if not _sentry_available:
-        return
-    assert sentry_sdk is not None  # narrowed by _sentry_available guard
-    assert LoggingIntegration is not None  # narrowed by _sentry_available guard
-    dsn = os.environ.get(_DSN_ENV, "").strip()
-    if not dsn:
-        return
-
-    environment = os.environ.get(_ENV_ENV, _detect_environment())
-    traces_rate = _parse_traces_rate()
-
-    sentry_sdk.init(
-        dsn=dsn,
-        release=f"hephaistos@{__version__}",
-        environment=environment,
-        traces_sample_rate=traces_rate,
-        before_send=_redact_event,  # type: ignore[arg-type]
-        before_send_transaction=_redact_event,  # type: ignore[arg-type]
-        integrations=[
-            LoggingIntegration(
-                level=logging.INFO,
-                event_level=logging.CRITICAL,
-            ),
-        ],
-    )
-    sentry_sdk.set_tag("platform", "cli")
-    sentry_sdk.set_context(
-        "runtime",
-        {
-            "python_version": platform.python_version(),
-            "os": platform.system(),
-            "os_version": platform.release(),
-        },
-    )
+    """Warm crash-reporting configuration when available."""
+    if crash_reports_backend_available():
+        _log.debug("crash reporting configured")
 
 
 def set_session_context(
@@ -268,19 +249,15 @@ def set_session_context(
     provider: str = "",
     model: str = "",
 ) -> None:
-    """Set tags that persist for the current Sentry scope (session-level).
-    No-op when ``sentry-sdk`` is not installed."""
-    if not _sentry_available:
-        return
-    assert sentry_sdk is not None  # narrowed by _sentry_available guard
+    """Set sanitized session-level context for later crash reports."""
     if session_id:
-        sentry_sdk.set_tag("session_id", session_id)
+        _SESSION_CONTEXT["session_id"] = session_id
     if armory:
-        sentry_sdk.set_tag("armory", armory)
+        _SESSION_CONTEXT["armory_state"] = armory
     if provider:
-        sentry_sdk.set_tag("provider", provider)
+        _SESSION_CONTEXT["provider"] = provider
     if model:
-        sentry_sdk.set_tag("model", model)
+        _SESSION_CONTEXT["model"] = model
 
 
 def add_breadcrumb(
@@ -290,17 +267,16 @@ def add_breadcrumb(
     level: str = "info",
     **data: Any,
 ) -> None:
-    """Add a breadcrumb to the current Sentry scope.
-    No-op when ``sentry-sdk`` is not installed."""
-    if not _sentry_available:
-        return
-    assert sentry_sdk is not None  # narrowed by _sentry_available guard
-    sentry_sdk.add_breadcrumb(
-        category=category,
-        message=message,
-        level=level,
-        data=_scrub_value(data) if data else None,  # type: ignore[arg-type]
-    )
+    """Store a redacted breadcrumb for later crash reports."""
+    breadcrumb: dict[str, Any] = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "category": redact_text(category),
+        "message": redact_text(message),
+        "level": level,
+    }
+    if data:
+        breadcrumb["data"] = _scrub_value(data)
+    _BREADCRUMBS.append(breadcrumb)
 
 
 def capture_exception(
@@ -308,194 +284,85 @@ def capture_exception(
     *,
     context: dict[str, Any] | None = None,
 ) -> str | None:
-    """Capture an exception to Sentry.  Returns the Sentry event ID.
-    Returns ``None`` when ``sentry-sdk`` is not installed."""
-    if _sentry_available:
-        assert sentry_sdk is not None  # narrowed by _sentry_available guard
-        if context:
-            with sentry_sdk.new_scope() as scope:
-                for key, value in context.items():
-                    scope.set_extra(key, _scrub_value(value))
-                event_id = sentry_sdk.capture_exception(exc)
-        else:
-            event_id = sentry_sdk.capture_exception(exc)
-    else:
-        event_id = None
-    send_alert(logging.ERROR, "unhandled exception", str(exc or "unknown"))
-    return event_id
+    """Record an exception locally and optionally send a redacted remote report."""
+    if exc is None:
+        return None
 
+    fields: dict[str, Any] = {
+        "error_type": exc.__class__.__name__,
+        "error": redact_text(str(exc)),
+    }
+    if context:
+        fields["context"] = _scrub_value(context)
+    _log.debug("exception captured", extra={"fields": fields})
 
-# -- OpenTelemetry tracing ---------------------------------------------------
+    if not crash_reports_backend_available() or not crash_reports_enabled():
+        return None
+
+    try:
+        endpoint, auth_header = _parse_sentry_dsn(sentry_dsn())
+        payload = _exception_payload(exc, context)
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "X-Sentry-Auth": auth_header,
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5):
+            return str(payload["event_id"])
+    except Exception:  # nosec B110 - crash reporting is best effort
+        _log.debug("remote crash report failed", exc_info=True)
+        return None
 
 
 def init_tracing() -> None:
-    """Initialise OpenTelemetry tracing.  No-op when ``opentelemetry-*``
-    packages are not installed or ``OTEL_SDK_DISABLED`` is set."""
-    if not _otel_available:
-        return
-    assert _trace_mod is not None  # narrowed by _otel_available guard
-    assert _TracerProvider is not None  # narrowed by _otel_available guard
-    assert _BatchSpanProcessor is not None  # narrowed by _otel_available guard
-
-    import os
-
-    if os.environ.get("OTEL_SDK_DISABLED", "").strip().lower() in ("true", "1"):
-        return
-
-    try:
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-            OTLPSpanExporter as _OTLPSpanExporter,
-        )
-
-        exporter = _OTLPSpanExporter()
-    except Exception:  # pragma: no cover
-        return
-
-    provider = _TracerProvider()
-    provider.add_span_processor(_BatchSpanProcessor(exporter))
-    _trace_mod.set_tracer_provider(provider)
+    """Compatibility no-op for remote tracing."""
 
 
 def get_tracer(name: str) -> _NoopTracer:
-    """Return a tracer for the given instrumentation scope.
-    No-op when OpenTelemetry is not installed."""
-    if not _otel_available:
-        return _NoopTracer()
-    assert _trace_mod is not None  # narrowed by _otel_available guard
-    return _trace_mod.get_tracer(name)  # type: ignore[return-value]
-
-
-# -- OpenTelemetry metrics ---------------------------------------------------
+    """Return a reusable no-op tracer."""
+    return _NOOP_TRACER
 
 
 def init_metrics() -> None:
-    """Initialise OpenTelemetry metrics.  No-op when ``opentelemetry-*``
-    packages are not installed or ``OTEL_SDK_DISABLED`` is set."""
-    if not _otel_available:
-        return
-    assert _metrics_mod is not None  # narrowed by _otel_available guard
-    assert _PeriodicExportingMetricReader is not None  # narrowed by _otel_available guard
-    assert _MeterProvider is not None  # narrowed by _otel_available guard
-
-    import os
-
-    if os.environ.get("OTEL_SDK_DISABLED", "").strip().lower() in ("true", "1"):
-        return
-
-    try:
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
-            OTLPMetricExporter as _OTLPMetricExporter,
-        )
-
-        reader = _PeriodicExportingMetricReader(_OTLPMetricExporter())
-    except Exception:  # pragma: no cover
-        return
-
-    provider = _MeterProvider(metric_readers=[reader])
-    _metrics_mod.set_meter_provider(provider)
+    """Compatibility no-op for remote metrics."""
 
 
 def get_meter(name: str) -> _NoopMeter:
-    """Return a meter for the given instrumentation scope.
-    No-op when OpenTelemetry is not installed."""
-    if not _otel_available:
-        return _NoopMeter()
-    assert _metrics_mod is not None  # narrowed by _otel_available guard
-    return _metrics_mod.get_meter(name)  # type: ignore[return-value]
-
-
-# -- Webhook alerting --------------------------------------------------------
+    """Return a reusable no-op meter."""
+    return _NOOP_METER
 
 
 def init_alerting() -> None:
-    """Initialise webhook alerting.  No-op when ``ALERT_WEBHOOK_URL`` is not set."""
-    global _alert_webhook_url, _alert_min_level  # noqa: PLW0603
-    url = os.environ.get(_ALERT_WEBHOOK_ENV, "").strip()
-    _alert_webhook_url = url or None
-    level_name = os.environ.get(_ALERT_MIN_LEVEL_ENV, _ALERT_MIN_LEVEL_DEFAULT).upper()
-    _alert_min_level = getattr(logging, level_name, logging.ERROR)
+    """Compatibility no-op for remote alerting."""
 
 
 def send_alert(level: int, title: str, body: str) -> None:
-    """Send an alert via the configured webhook.  Rate-limited to one alert
-    per key per 5 minutes.  No-op when ``ALERT_WEBHOOK_URL`` is not set or
-    the level is below ``ALERT_MIN_LEVEL``."""
-    if _alert_webhook_url is None:
-        return
-    if level < _alert_min_level:
-        return
-    key = f"{level}:{title}"
-    now = _time.monotonic()
-    last_sent = _alert_timestamps.get(key, 0.0)
-    if now - last_sent < _ALERT_COOLDOWN_SECONDS:
-        return
-    _alert_timestamps[key] = now
-
-    from datetime import UTC, datetime
-
-    payload = _json.dumps(
-        {
-            "level": logging.getLevelName(level),
-            "title": title,
-            "body": body,
-            "source": "hephaistos",
-            "version": __version__,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-    ).encode("utf-8")
-
-    try:
-        req = _urllib_request.Request(
-            _alert_webhook_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with _urllib_request.urlopen(req, timeout=10) as resp:
-            _log.debug("alert sent", extra={"fields": {"status": resp.status}})
-    except Exception:  # nosec B110 — alert delivery is best-effort
-        _log.debug("alert delivery failed", exc_info=True)
-
-
-# -- Convenience init --------------------------------------------------------
+    """Compatibility no-op retained for the public CLI."""
 
 
 def init_observability() -> None:
-    """Initialise all observability subsystems (Sentry, OTel, alerting)."""
+    """Initialise local diagnostics helpers and optional crash reporting."""
     init_sentry()
-    init_tracing()
-    init_metrics()
-    init_alerting()
 
 
 def shutdown_observability() -> None:
-    """Flush and shut down observability subsystems."""
-    if _otel_available and _trace_mod is not None:
-        with contextlib.suppress(Exception):
-            provider = _trace_mod.get_tracer_provider()
-            if hasattr(provider, "force_flush"):
-                provider.force_flush()  # type: ignore[union-attr]
-            if hasattr(provider, "shutdown"):
-                provider.shutdown()  # type: ignore[union-attr]
-    if _otel_available and _metrics_mod is not None:
-        with contextlib.suppress(Exception):
-            provider = _metrics_mod.get_meter_provider()
-            if hasattr(provider, "force_flush"):
-                provider.force_flush()  # type: ignore[union-attr]
-            if hasattr(provider, "shutdown"):
-                provider.shutdown()  # type: ignore[union-attr]
-
-
-# -- Trace context helper ----------------------------------------------------
+    """Flush local diagnostics helpers."""
 
 
 def get_current_trace_id() -> str:
-    """Return the current OTel trace ID (hex), or empty string if unavailable."""
-    if not _otel_available:
-        return ""
-    assert _trace_mod is not None  # narrowed by _otel_available guard
-    span = _trace_mod.get_current_span()
-    ctx = span.get_span_context()
-    if ctx.is_valid:
-        return format(ctx.trace_id, "032x")
+    """Return the current trace ID, which is always empty in the CLI."""
     return ""
+
+
+def reset_state() -> None:
+    """Reset process-global state for tests."""
+    _BREADCRUMBS.clear()
+    _SESSION_CONTEXT.clear()
+
+
+_NOOP_TRACER = _NoopTracer()
+_NOOP_METER = _NoopMeter()

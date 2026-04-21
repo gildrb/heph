@@ -1,6 +1,8 @@
 # OS
 .DS_Store
 **/.DS_Store
+
+# Editor swap / backup files
 *.swp
 *.swo
 *.tmp
@@ -15,52 +17,46 @@
 !.env.example
 
 # Python
-*.pyc
-*.pyo
 __pycache__/
+*.py[cod]
 *.egg-info/
 *.egg
 .venv/
 venv/
 
-# Testing
+# Testing and coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 .tox/
 
-# Type checkers and linters
+# Tool caches
 .mypy_cache/
 .ruff_cache/
 .import_linter_cache/
+.cache/
 
-# Build
+# Build outputs
 build/
 dist/
+site/
 node_modules/
 
-# Docs
-site/
-
-# Cache
-.cache/
-
-# IDE
+# IDEs
 .vscode/
 .zed/
-.superset/
 .idea/
 
-# Swap, backup, and log files
-*.swp
-*.swo
-*.tmp
-*.bak
-*.log
-
-# Tool caches
-.import_linter_cache/
-.cache/
+# Agent tooling
+.claude/
+.superset/
+.factory/*
+!.factory/skills/
+!.factory/skills/**
+.codex/*
+!.codex/skills/
+!.codex/skills/**
 
 # Project-specific
 /*-armory/

@@ -1,103 +1,80 @@
-"""Tests for hephaistos.analytics — PostHog product analytics."""
+"""Tests for hephaistos.analytics."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import json
+from pathlib import Path
+from typing import Any, Self
 
 import pytest
 
-from hephaistos.analytics import (
-    capture,
-    get_distinct_id,
-    init_analytics,
-    shutdown_analytics,
-)
+from hephaistos import telemetry
+from hephaistos.analytics import capture, get_distinct_id, init_analytics
 
 
-class TestNoOpWithoutToken:
-    """When POSTHOG_PROJECT_TOKEN is not set, all calls are no-ops."""
+def test_get_distinct_id_is_stable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(telemetry, "_INSTALL_ID_PATH", tmp_path / "install_id.json")
 
-    def test_init_is_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import hephaistos.analytics as mod
+    first = get_distinct_id()
+    second = get_distinct_id()
 
-        monkeypatch.delenv("POSTHOG_PROJECT_TOKEN", raising=False)
-        mod._posthog_client = None  # type: ignore[reportPrivateUsage]
-        init_analytics()
-        assert mod._posthog_client is None  # type: ignore[reportPrivateUsage]
-
-    def test_capture_is_noop(self) -> None:
-        import hephaistos.analytics as mod
-
-        prev = mod._posthog_client  # type: ignore[reportPrivateUsage]
-        mod._posthog_client = None  # type: ignore[reportPrivateUsage]
-        try:
-            capture("test_event", {"key": "value"})  # should not raise
-        finally:
-            mod._posthog_client = prev  # type: ignore[reportPrivateUsage]
-
-    def test_shutdown_is_noop(self) -> None:
-        import hephaistos.analytics as mod
-
-        prev = mod._posthog_client  # type: ignore[reportPrivateUsage]
-        mod._posthog_client = None  # type: ignore[reportPrivateUsage]
-        try:
-            shutdown_analytics()  # should not raise
-        finally:
-            mod._posthog_client = prev  # type: ignore[reportPrivateUsage]
+    assert first == second
+    assert first.startswith("heph_")
 
 
-class TestCaptureWithClient:
-    """When a PostHog client is set, capture forwards events."""
-
-    def test_capture_forwards_event(self) -> None:
-        import hephaistos.analytics as mod
-
-        mock_client = MagicMock()
-        prev = mod._posthog_client  # type: ignore[reportPrivateUsage]
-        mod._posthog_client = mock_client  # type: ignore[reportPrivateUsage]
-        try:
-            capture("button_clicked", {"button": "save"})
-            mock_client.capture.assert_called_once()
-            call_kwargs = mock_client.capture.call_args[1]
-            assert call_kwargs["event"] == "button_clicked"
-            assert call_kwargs["properties"] == {"button": "save"}
-        finally:
-            mod._posthog_client = prev  # type: ignore[reportPrivateUsage]
-
-    def test_shutdown_flushes_client(self) -> None:
-        import hephaistos.analytics as mod
-
-        mock_client = MagicMock()
-        prev = mod._posthog_client  # type: ignore[reportPrivateUsage]
-        mod._posthog_client = mock_client  # type: ignore[reportPrivateUsage]
-        try:
-            shutdown_analytics()
-            mock_client.shutdown.assert_called_once()
-        finally:
-            mod._posthog_client = prev  # type: ignore[reportPrivateUsage]
+def test_capture_is_noop_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("hephaistos.analytics.analytics_backend_available", lambda: False)
+    capture("test_event", {"model": "gpt-5.4"})
 
 
-class TestInitWithPosthog:
-    """Init with a real token creates a PostHog client."""
+def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses: list[dict[str, Any]] = []
 
-    def test_init_creates_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import hephaistos.analytics as mod
+    class _Response:
+        def __enter__(self) -> Self:
+            return self
 
-        monkeypatch.setenv("POSTHOG_PROJECT_TOKEN", "phc_test123")
-        mod._posthog_client = None  # type: ignore[reportPrivateUsage]
+        def __exit__(self, *args: object) -> None:
+            return None
 
-        mock_posthog = MagicMock()
-        with patch.dict("sys.modules", {"posthog": mock_posthog}):
-            init_analytics()
-            assert mod._posthog_client is not None  # type: ignore[reportPrivateUsage]
+    def _fake_urlopen(request: object, timeout: int = 0) -> _Response:
+        assert timeout == 5
+        data = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        responses.append(data)
+        return _Response()
 
-        mod._posthog_client = None  # type: ignore[reportPrivateUsage]
+    monkeypatch.setattr("hephaistos.analytics.analytics_backend_available", lambda: True)
+    monkeypatch.setattr("hephaistos.analytics.analytics_enabled", lambda: True)
+    monkeypatch.setattr("hephaistos.analytics.posthog_project_token", lambda: "phc_test")
+    monkeypatch.setattr("hephaistos.analytics.posthog_host", lambda: "https://app.posthog.com")
+    monkeypatch.setattr("hephaistos.analytics.get_distinct_id", lambda: "heph_test")
+    monkeypatch.setattr(
+        "hephaistos.analytics.runtime_context",
+        lambda: {"app_version": "0.1.0", "release_channel": "pypi"},
+    )
+    monkeypatch.setattr("hephaistos.analytics.urllib.request.urlopen", _fake_urlopen)
+
+    capture(
+        "shell_started",
+        {
+            "model": "openai/gpt-5.4",
+            "source_file_count": 3,
+            "path": "/tmp/secret",
+        },
+    )
+
+    assert responses[0]["api_key"] == "phc_test"
+    assert responses[0]["event"] == "shell_started"
+    assert responses[0]["distinct_id"] == "heph_test"
+    assert responses[0]["properties"]["model"] == "openai/gpt-5.4"
+    assert "path" not in responses[0]["properties"]
 
 
-class TestDistinctId:
-    """Install ID is stable and stored on disk."""
+def test_init_analytics_warms_install_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    warmed: list[bool] = []
+    monkeypatch.setattr("hephaistos.analytics.analytics_backend_available", lambda: True)
+    monkeypatch.setattr("hephaistos.analytics.install_id", lambda: warmed.append(True) or "heph_x")
 
-    def test_returns_string(self) -> None:
-        did = get_distinct_id()
-        assert isinstance(did, str)
-        assert did.startswith("heph_")
+    init_analytics()
+
+    assert warmed == [True]

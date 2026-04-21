@@ -27,10 +27,11 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.styles import DynamicStyle
 from prompt_toolkit.styles import Style as PtStyle
 
 from hephaistos import __version__
-from hephaistos.analytics import capture as analytics_capture
+from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.commands import get_registry
 from hephaistos.app.display import (
     STYLE_ASSISTANT,
@@ -45,12 +46,8 @@ from hephaistos.app.display import (
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.keybindings import DEFAULT_SHELL_KEYBINDINGS
 from hephaistos.app.palette import (
-    FORGE_ASH,
-    FORGE_EMBER,
-    FORGE_IRON,
-    FORGE_PANEL,
-    FORGE_SMOKE,
-    FORGE_STONE,
+    set_theme,
+    shell_style_dict,
 )
 from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat import storage as chat_storage
@@ -68,28 +65,13 @@ from hephaistos.chat.session import (
 from hephaistos.chat.usage import ContextBudget
 from hephaistos.observability import capture_exception
 from hephaistos.parameters.cli import load_config
+from hephaistos.parameters.settings import load_app_settings
 from hephaistos.providers.config import ProviderConfig
+from hephaistos.telemetry import mark_telemetry_notice_seen, should_show_telemetry_notice
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 
-_PT_STYLE = PtStyle.from_dict(
-    {
-        "armory": FORGE_ASH,
-        "prompt-mark": f"bold {FORGE_EMBER}",
-        "composer": f"bg:{FORGE_PANEL} fg:{FORGE_ASH}",
-        "bottom-toolbar": f"noreverse fg:{FORGE_SMOKE}",
-        "bottom-toolbar.text": f"noreverse fg:{FORGE_SMOKE}",
-        "toolbar-location": f"noreverse fg:{FORGE_ASH}",
-        "toolbar-accent": f"noreverse bold fg:{FORGE_ASH}",
-        "toolbar-error": f"noreverse bold fg:{FORGE_IRON}",
-        "completion-menu.completion.current": f"bg:{FORGE_STONE} fg:{FORGE_ASH} bold",
-        "completion-menu.completion": f"bg:{FORGE_PANEL} fg:{FORGE_ASH}",
-        "completion-menu.meta.completion.current": f"bg:{FORGE_STONE} fg:{FORGE_ASH}",
-        "completion-menu.meta.completion": f"bg:{FORGE_PANEL} fg:{FORGE_SMOKE}",
-        "scrollbar.background": f"bg:{FORGE_PANEL}",
-        "scrollbar.button": f"bg:{FORGE_STONE}",
-    }
-)
+_PT_STYLE = DynamicStyle(lambda: PtStyle.from_dict(shell_style_dict()))
 
 
 @dataclass
@@ -316,7 +298,7 @@ def _build_bottom_toolbar_status(
             f"assistant working · enter queues follow-up · ctrl+c interrupt{steering_suffix}"
         )
     else:
-        input_hint = "enter send · alt+enter newline · / commands · ! shell"
+        input_hint = "enter send · alt+enter newline · / commands · /settings · ! shell"
     return (
         f"{_display_path(location)} · {mode}\n"
         f"model {session.config.model}"
@@ -369,6 +351,12 @@ def _discover_startup_armory() -> Path | None:
             return validate_armory_path(str(candidate))
         except ArmoryError:
             continue
+    default_armory = load_app_settings().default_armory_path
+    if default_armory:
+        try:
+            return validate_armory_path(default_armory)
+        except ArmoryError as exc:
+            print_info(f"Saved default armory unavailable: {exc}")
     return None
 
 
@@ -413,7 +401,7 @@ def _report_engine_error(
     exc: EngineError | StreamRecoveryError,
     session: ChatSession,
 ) -> None:
-    """Display and track an engine error to Sentry and the user."""
+    """Display an engine error and capture local diagnostic context."""
     if isinstance(exc, StreamRecoveryError):
         msg = (
             f"{styled('warning:', STYLE_ERROR)} "
@@ -430,12 +418,12 @@ def _report_engine_error(
                 "partial_content_length": len(exc.partial_content),
             },
         )
-        analytics_capture(
-            "llm_request_failed",
+        capture_analytics(
+            "request_failed",
             {
-                "error_type": "stream_recovery",
+                "provider": session.config.provider_slug or "unknown",
                 "model": session.config.model,
-                "provider": session.config.provider_slug,
+                "kind": "stream_recovery",
                 "partial_content_length": len(exc.partial_content),
             },
         )
@@ -448,12 +436,12 @@ def _report_engine_error(
                 "model": session.config.model,
             },
         )
-        analytics_capture(
-            "llm_request_failed",
+        capture_analytics(
+            "request_failed",
             {
-                "error_type": "engine_error",
+                "provider": session.config.provider_slug or "unknown",
                 "model": session.config.model,
-                "provider": session.config.provider_slug,
+                "kind": "engine_error",
             },
         )
 
@@ -473,15 +461,6 @@ def _start_background_reply(
         print_error(config_error)
         return
 
-    analytics_capture(
-        "message_sent",
-        {
-            "message_length": len(user_input),
-            "model": session.config.model,
-            "provider": session.config.provider_slug,
-            "has_armory": session.armory_path is not None,
-        },
-    )
     runtime.busy = True
     runtime.steering_count = 0
     runtime.abort_event.clear()
@@ -605,6 +584,16 @@ def _print_shell_intro(session: ChatSession) -> None:
     )
 
 
+def _print_settings_hint() -> None:
+    if not should_show_telemetry_notice():
+        return
+    print_info(
+        "Optional anonymous analytics and crash reports are available for this install. "
+        "Open /settings to review and enable them."
+    )
+    mark_telemetry_notice_seen()
+
+
 def _get_history_path(session: ChatSession) -> Path:
     if session.armory_path is None:
         return _HISTORY_DIR / "plain-history"
@@ -644,17 +633,18 @@ def run_chat_shell(
         _run_fallback_shell(session)
         return
 
+    set_theme(load_app_settings().theme)
     if session is None:
         session = _create_startup_session(load_config())
 
     _print_shell_intro(session)
-    analytics_capture(
-        "session_started",
+    _print_settings_hint()
+    capture_analytics(
+        "shell_started",
         {
+            "mode": "armory" if session.armory_path is not None else "plain",
+            "source_file_count": session.source_file_count,
             "model": session.config.model,
-            "provider": session.config.provider_slug,
-            "has_armory": session.armory_path is not None,
-            "version": __version__,
         },
     )
 
@@ -738,6 +728,7 @@ def run_chat_shell(
 
 def _run_fallback_shell(session: ChatSession | None = None) -> None:
     """Simple fallback shell when the terminal is not a TTY."""
+    set_theme(load_app_settings().theme)
     if session is None:
         session = _create_startup_session(load_config())
 

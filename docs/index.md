@@ -23,11 +23,40 @@ OpenAI-compatible endpoint you configure.
 
 ### Install
 
+Install the public CLI globally with `uv`:
+
 ```bash
-uv sync
+uv tool install hephaistos
+heph --version
 ```
 
-Optional: enable embedding retrieval and cross-encoder re-ranking.
+Upgrade later with:
+
+```bash
+uv tool upgrade hephaistos
+```
+
+Or install the latest main branch directly from GitHub:
+
+```bash
+uv tool install git+https://github.com/gildrb/hephaistos
+```
+
+Official release installs can optionally enable anonymous usage analytics and
+crash reports from `/settings`. They are off by default. Source, editable, and
+Git installs stay bare by default and do not show the telemetry opt-in hint.
+
+### From Source
+
+For development or contributor workflows:
+
+```bash
+git clone https://github.com/gildrb/hephaistos
+cd hephaistos
+uv sync --group dev
+```
+
+Optional: enable embedding retrieval and cross-encoder re-ranking from a source checkout.
 
 ```bash
 uv sync --group rag
@@ -43,13 +72,13 @@ uv sync --group docling
 ### Create An Armory
 
 ```bash
-uv run hephaistos armory init ~/armories/exams
+heph armory init ~/armories/exams
 # Add study files to ~/armories/exams/source or ~/armories/exams/library
-uv run hephaistos chat start ~/armories/exams
+heph chat start ~/armories/exams
 ```
 
-If you `cd` into a valid armory first, `uv run hephaistos` will attach it
-automatically and open the interactive shell.
+If you `cd` into a valid armory first, `heph` will attach it automatically and
+open the interactive shell. From a source checkout, use `uv run heph`.
 
 ### Configure A Model
 
@@ -64,6 +93,17 @@ Inside the shell:
 You can also use environment variables such as `OPENROUTER_API_KEY`,
 `OPENAI_API_KEY`, `ZAI_API_KEY`, `CUSTOM_API_KEY`, `HEPHAISTOS_BASE_URL`, and
 `HEPHAISTOS_MODEL`.
+
+### Settings And Telemetry
+
+Use `/settings` for cross-session preferences such as telemetry opt-in, theme
+presets, a default startup armory, and the default model. Credential flows stay
+on `/provider`, `/api`, `/login`, and `/logout`.
+
+Forks and custom builds can supply their own telemetry env vars:
+`HEPHAISTOS_POSTHOG_PROJECT_TOKEN`, `HEPHAISTOS_POSTHOG_HOST`, and
+`HEPHAISTOS_SENTRY_DSN`. Official release builds inject those values during CI;
+the public repository only ships a stub module.
 
 ## Why Hephaistos
 

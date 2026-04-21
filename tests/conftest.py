@@ -14,43 +14,63 @@ from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_session
 
 
-def _reset_otel_module_objects() -> None:
-    """Replace module-level OTel objects with no-ops to isolate tests."""
+def _reset_diagnostics_module_objects() -> None:
+    """Replace module-level diagnostics objects with no-ops to isolate tests."""
     import hephaistos.chat.engine as _engine_mod
     import hephaistos.chat.orchestrator as _orch_mod
     import hephaistos.chat.resilience as _res_mod
-    import hephaistos.observability as _otel_mod
+    import hephaistos.observability as _obs_mod
 
-    _noop_tracer = _otel_mod._NoopTracer()  # type: ignore[reportPrivateUsage]
-    _noop_meter = _otel_mod._NoopMeter()  # type: ignore[reportPrivateUsage]
+    _noop_tracer = _obs_mod._NoopTracer()  # type: ignore[reportPrivateUsage]
+    _noop_meter = _obs_mod._NoopMeter()  # type: ignore[reportPrivateUsage]
 
     # engine.py
     _engine_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]
     _engine_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
-    _engine_mod._llm_duration_hist = _otel_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
-    _engine_mod._llm_token_counter = _otel_mod._NoopCounter()  # type: ignore[reportPrivateUsage]
+    _engine_mod._llm_duration_hist = _obs_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
+    _engine_mod._llm_token_counter = _obs_mod._NoopCounter()  # type: ignore[reportPrivateUsage]
 
     # resilience.py
     _res_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
-    _res_mod._state_gauge = _otel_mod._NoopGauge()  # type: ignore[reportPrivateUsage]
+    _res_mod._state_gauge = _obs_mod._NoopGauge()  # type: ignore[reportPrivateUsage]
 
     # orchestrator.py
     _orch_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]
     _orch_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
-    _orch_mod._rag_duration_hist = _otel_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
+    _orch_mod._rag_duration_hist = _obs_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
 
 
 @pytest.fixture(autouse=True)
-def _isolate_global_state() -> Generator[None]:  # pyright: ignore[reportUnusedFunction]
+def _isolate_global_state(  # pyright: ignore[reportUnusedFunction]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[None]:
     """Reset mutable module-level globals between tests."""
     import hephaistos.chat.engine as _engine_mod
     import hephaistos.logging as _log_mod
+    import hephaistos.observability as _obs_mod
+    import hephaistos.parameters.cli as _params_cli
+    import hephaistos.parameters.settings as _settings_mod
     import hephaistos.providers.keyring_store as _ks
+    import hephaistos.telemetry as _telemetry_mod
+    from hephaistos.app.palette import set_theme
 
+    config_dir = tmp_path / "hephaistos_config"
+    config_file = config_dir / "config.json"
     _ks._volatile.clear()  # type: ignore[reportPrivateUsage]
     _log_mod._root_initialised = False  # type: ignore[reportPrivateUsage]
     _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
-    _reset_otel_module_objects()
+    _reset_diagnostics_module_objects()
+    _obs_mod.reset_state()
+    set_theme("forge")
+    monkeypatch.setattr(_settings_mod, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(_settings_mod, "_USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr(_params_cli, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(_params_cli, "_USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr(
+        _telemetry_mod,
+        "_INSTALL_ID_PATH",
+        config_dir / "install_id.json",
+    )
     root = logging.getLogger("hephaistos")
     root.handlers.clear()
     root.setLevel(logging.WARNING)
@@ -60,7 +80,9 @@ def _isolate_global_state() -> Generator[None]:  # pyright: ignore[reportUnusedF
     _ks._volatile.clear()  # type: ignore[reportPrivateUsage]
     _log_mod._root_initialised = False  # type: ignore[reportPrivateUsage]
     _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
-    _reset_otel_module_objects()
+    _reset_diagnostics_module_objects()
+    _obs_mod.reset_state()
+    set_theme("forge")
     root.handlers.clear()
     root.setLevel(logging.WARNING)
 
@@ -74,6 +96,9 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Simp
     monkeypatch.setattr("hephaistos.parameters.cli._USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr("hephaistos.parameters.cli._USER_CONFIG_FILE", config_file)
     monkeypatch.setattr("hephaistos.parameters.cli._DEFAULTS_FILE", defaults_file)
+    monkeypatch.setattr("hephaistos.parameters.settings._USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr("hephaistos.parameters.settings._USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr("hephaistos.parameters.settings._DEFAULTS_FILE", defaults_file)
     return SimpleNamespace(
         config_dir=config_dir, config_file=config_file, defaults_file=defaults_file
     )

@@ -120,57 +120,36 @@ my-armory/
 
 Only `source/` and `library/` are used for retrieval. Hidden files inside those directories are skipped by the indexer.
 
-## Observability
+## Diagnostics
 
-Hephaistos uses layered observability that can be enabled incrementally:
+Hephaistos uses local diagnostics that keep debugging data inside the CLI
+workflow and armory workspace.
 
 ```mermaid
 graph TD
-    CLI[CLI session] -->|init| Sentry[Sentry error tracking]
-    CLI -->|init| OTel[OpenTelemetry traces + metrics]
-    CLI -->|init| Alerts[Webhook alerting]
+    CLI[CLI session] --> Logs[Structured logs]
+    CLI --> Traces[Armory trace files]
+    CLI --> Profiles[CPU / memory profiles]
 
-    Engine[chat.engine] -->|spans| OTel
-    Engine -->|metrics| OTel
-    Engine -->|errors| Sentry
+    Engine[chat.engine] --> Logs
+    Orchestrator[chat.orchestrator] --> Traces
+    Shell[app.shell] --> Logs
 
-    Logging[structured logs] -->|trace_id| OTel
-    Logging -->|redacted| Sentry
-
-    Alerts -->|webhook| Slack[Slack / Discord / PagerDuty]
-    OTel -->|OTLP| Backend[Jaeger / Tempo / Datadog]
+    Traces --> Armory[<armory>/.hephaistos/traces/]
+    Profiles --> Cache[~/.cache/hephaistos/profiles/]
 ```
 
-### Error tracking (Sentry)
+### Structured logging
 
-- Install: `uv sync --extra sentry`
-- Configure: `SENTRY_DSN` environment variable
-- All events are redacted before transmission (API keys, tokens scrubbed)
-- Session context tags: `session_id`, `armory`, `provider`, `model`
+- Configure with `HEPHAISTOS_LOG_LEVEL`, `HEPHAISTOS_LOG_FILE`, and `HEPHAISTOS_LOG_FORMAT`
+- Secrets are scrubbed before logs or trace files are written
+- Interactive sessions default to human-readable output; non-interactive runs default to JSON
 
-### Distributed tracing (OpenTelemetry)
+### Trace files
 
-- Install: `uv sync --extra otel`
-- Configure: `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable
-- LLM calls create `llm.completion` spans with `gen_ai.*` attributes
-- Trace IDs appear in structured logs for correlation
-- Disable: `OTEL_SDK_DISABLED=true`
-
-### Metrics (OpenTelemetry)
-
-- Same installation as tracing (`uv sync --extra otel`)
-- Metrics exported via OTLP to the same backend
-- Key instruments:
-  - `llm.request.duration` — histogram of LLM latency (ms)
-  - `llm.token.usage` — counter of prompt/completion tokens
-  - `rag.retrieval.duration` — histogram of RAG query latency
-
-### Alerting
-
-- Configure: `ALERT_WEBHOOK_URL` environment variable (Slack, Discord, PagerDuty)
-- Minimum level: `ALERT_MIN_LEVEL` (default: ERROR)
-- Rate-limited: one alert per key per 5 minutes
-- Critical errors captured by Sentry also trigger webhook alerts
+- Each armory can keep append-only JSONL traces in `.hephaistos/traces/`
+- Trace files capture session events, retrieval activity, tool calls, and LLM timing
+- Plain chat mode skips armory trace files unless a workspace is attached
 
 ### Profiling
 
@@ -183,7 +162,6 @@ graph TD
 
 Operational playbooks are in `docs/runbooks/`:
 - [CI Failure](runbooks/ci-failure.md)
-- [Sentry Errors](runbooks/sentry-errors.md)
 - [Slow LLM Response](runbooks/slow-llm-response.md)
 - [Deployment Rollback](runbooks/deployment-rollback.md)
 - [RAG Retrieval Issues](runbooks/rag-retrieval-issues.md)

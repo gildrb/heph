@@ -26,7 +26,6 @@ classifiers = [
 dependencies = [
     "keyring>=25.7.0",
     "openai>=1.0.0",
-    "posthog>=3.0.0",
     "prompt-toolkit>=3.0.0",
     "certifi>=2024.0.0",
 ]
@@ -38,23 +37,12 @@ Issues = "https://github.com/gildrb/hephaistos/issues"
 Changelog = "https://github.com/gildrb/hephaistos/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-sentry = [
-    "sentry-sdk>=2.0.0",
-]
 embeddings = [
     "sentence-transformers>=3.0.0",
     "scikit-learn>=1.0.0",
 ]
 docling = [
     "docling>=2.0.0",
-]
-otel = [
-    "opentelemetry-api>=1.20",
-    "opentelemetry-sdk>=1.20",
-    "opentelemetry-exporter-otlp-proto-http>=1.20",
-]
-analytics = [
-    "posthog>=3.0.0",
 ]
 
 [project.scripts]
@@ -238,7 +226,7 @@ extend_exclude = ["tests"]
 # DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "sentry-sdk", "opentelemetry-api", "opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-http", "py-spy"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"] }
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"] }
 
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --durations=10 --strict-markers --cov=hephaistos --cov-report=term-missing --cov-fail-under=75"

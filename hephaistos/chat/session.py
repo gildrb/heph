@@ -8,6 +8,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hephaistos.analytics import capture as capture_analytics
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation, Message
@@ -183,7 +184,13 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
         extra={"fields": {"session_id": session.session_id, "model": config.model}},
     )
     session.trace.record_session_event("created", model=config.model, mode="plain")
-    set_session_context(session_id=session.session_id, model=config.model)
+    set_session_context(
+        session_id=session.session_id,
+        armory="plain",
+        provider=config.provider_slug or "unknown",
+        model=config.model,
+    )
+    capture_analytics("session_created", {"mode": "plain", "model": config.model})
     return session
 
 
@@ -239,8 +246,17 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     session.trace.record_session_event("created", model=config.model)
     set_session_context(
         session_id=session.session_id,
-        armory=str(armory_path),
+        armory="attached",
+        provider=config.provider_slug or "unknown",
         model=config.model,
+    )
+    capture_analytics(
+        "session_created",
+        {
+            "mode": "armory",
+            "source_file_count": source_file_count,
+            "model": config.model,
+        },
     )
     return session
 
@@ -276,8 +292,16 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
     session.trace.record_session_event("resumed", title=title)
     set_session_context(
         session_id=session_id,
-        armory=str(armory_path),
+        armory="attached",
+        provider=config.provider_slug or "unknown",
         model=config.model,
+    )
+    capture_analytics(
+        "session_resumed",
+        {
+            "message_count": len(conversation.messages),
+            "model": config.model,
+        },
     )
     return session
 
@@ -328,6 +352,14 @@ def save_session(session: ChatSession) -> Path:
         metadata={"study_state": session.study_state.to_dict()},
     )
     session.dirty = False
+    capture_analytics(
+        "session_saved",
+        {
+            "message_count": len(session.conversation.messages),
+            "mode": "armory",
+            "model": session.config.model,
+        },
+    )
     _log.info(
         "session saved",
         extra={

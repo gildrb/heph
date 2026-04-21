@@ -1,75 +1,58 @@
-"""CLI parameter loading: TOML config merged with environment variables."""
+"""CLI parameter loading: TOML defaults + persisted settings + environment."""
 
 from __future__ import annotations
 
 import argparse
 import contextlib
-import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, cast
 
 from hephaistos.chat.engine import ChatConfig
+from hephaistos.parameters import settings as settings_store
+from hephaistos.telemetry import (
+    analytics_backend_available,
+    analytics_enabled,
+    analytics_env_override,
+    crash_reports_backend_available,
+    crash_reports_enabled,
+    crash_reports_env_override,
+)
 
-_DEFAULTS_FILE = Path(__file__).parent / "default.toml"
-_USER_CONFIG_DIR = Path.home() / ".config" / "hephaistos"
-_USER_CONFIG_FILE = _USER_CONFIG_DIR / "config.json"
+_DEFAULTS_FILE = settings_store._DEFAULTS_FILE  # type: ignore[reportPrivateUsage]
+_USER_CONFIG_DIR = settings_store._USER_CONFIG_DIR  # type: ignore[reportPrivateUsage]
+_USER_CONFIG_FILE = settings_store._USER_CONFIG_FILE  # type: ignore[reportPrivateUsage]
 
 
 def _parse_toml_simple(path: Path) -> dict[str, str]:
-    """Minimal TOML parser for flat key=value files.
+    return settings_store.parse_toml_simple(path)
 
-    Handles strings (quoted), integers, floats, and booleans.
-    Skips comments and blank lines.
-    """
-    result: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith(("#", "[")):
-            continue
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip()
-        if value.startswith('"'):
-            end = value.find('"', 1)
-            if end != -1:
-                value = value[1:end]
-        elif "#" in value:
-            value = value[: value.index("#")].strip()
-        result[key] = value
-    return result
+
+def _parse_feature_flags(raw: str) -> frozenset[str]:
+    return settings_store.parse_feature_flags(raw)
 
 
 def _load_user_overrides() -> dict[str, str]:
-    """Load persisted user config overrides from ``~/.config/hephaistos/config.json``."""
-    if not _USER_CONFIG_FILE.is_file():
-        return {}
-    with contextlib.suppress(Exception):
-        raw = json.loads(_USER_CONFIG_FILE.read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            data = cast("dict[str, Any]", raw)
-            return {str(k): str(v) for k, v in data.items() if k in _CONFIG_KEY_TO_ENV}
-    return {}
+    raw = settings_store.load_raw_settings()
+    result: dict[str, str] = {}
+    for key, value in raw.items():
+        if key not in _CONFIG_KEY_TO_ENV:
+            continue
+        result[str(key)] = str(value)
+    return result
 
 
-def _save_user_override(key: str, value: str) -> None:
-    """Persist a single config override to the user config file."""
-    _USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    overrides = _load_user_overrides()
-    overrides[key] = value
-    _USER_CONFIG_FILE.write_text(json.dumps(overrides, indent=2) + "\n", encoding="utf-8")
+def _save_user_override(  # pyright: ignore[reportUnusedFunction]
+    key: str, value: str
+) -> None:
+    settings_store.save_setting(key, value)
 
 
 def load_config(armory_path: Path | None = None) -> ChatConfig:
-    """Load ChatConfig from TOML defaults + provider config + user overrides + env vars.
-
-    Priority: env vars > user config file > provider config > TOML file > ChatConfig defaults.
-    """
+    """Load ChatConfig from defaults + provider config + user overrides + env vars."""
+    _ = armory_path
     config = ChatConfig()
-    toml_path = _DEFAULTS_FILE
+    toml_path = settings_store._DEFAULTS_FILE  # type: ignore[reportPrivateUsage]
     if toml_path.is_file():
         toml = _parse_toml_simple(toml_path)
         if toml.get("base_url"):
@@ -79,17 +62,15 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         if toml.get("max_tokens"):
             with contextlib.suppress(ValueError):
                 config.max_tokens = int(toml["max_tokens"])
+
     try:
         from hephaistos.providers.config import ProviderConfig
 
         pc = ProviderConfig.load()
         pc.apply_to_config(config)
     except Exception as exc:
-        import sys
-
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
 
-    # Apply persisted user overrides (higher priority than provider config).
     user_overrides = _load_user_overrides()
     if user_overrides.get("base_url"):
         config.base_url = user_overrides["base_url"]
@@ -104,7 +85,6 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
     if user_overrides.get("feature_flags"):
         config.feature_flags = _parse_feature_flags(user_overrides["feature_flags"])
 
-    # Environment variables have the highest priority.
     base_url = os.environ.get("HEPHAISTOS_BASE_URL")
     if base_url:
         config.base_url = base_url
@@ -136,16 +116,33 @@ _CONFIG_KEY_TO_ENV = {
     "max_tokens": "HEPHAISTOS_MAX_TOKENS",
     "rag_context_budget": "HEPHAISTOS_RAG_CONTEXT_BUDGET",
     "feature_flags": "HEPHAISTOS_FEATURE_FLAGS",
+    "theme": "",
+    "default_armory_path": "",
+    "analytics_enabled": "HEPHAISTOS_ANALYTICS_ENABLED",
+    "crash_reports_enabled": "HEPHAISTOS_CRASH_REPORTS_ENABLED",
 }
 
+_BOOL_KEYS = {"analytics_enabled", "crash_reports_enabled"}
 
-def _parse_feature_flags(raw: str) -> frozenset[str]:
-    """Parse comma-separated feature-flag slugs into a frozenset."""
-    return frozenset(slug.strip().lower() for slug in raw.split(",") if slug.strip())
+
+def _effective_setting_value(key: str) -> str:
+    app_settings = settings_store.load_app_settings()
+    if key == "theme":
+        return app_settings.theme
+    if key == "default_armory_path":
+        return app_settings.default_armory_path or "(not set)"
+    if key == "analytics_enabled":
+        suffix = " (env override)" if analytics_env_override() else ""
+        availability = "available" if analytics_backend_available() else "unavailable"
+        return f"{str(analytics_enabled()).lower()}{suffix} [{availability}]"
+    if key == "crash_reports_enabled":
+        suffix = " (env override)" if crash_reports_env_override() else ""
+        availability = "available" if crash_reports_backend_available() else "unavailable"
+        return f"{str(crash_reports_enabled()).lower()}{suffix} [{availability}]"
+    return "(not set)"
 
 
 def _cmd_config_show(args: argparse.Namespace) -> None:
-    """Display the current configuration."""
     config = load_config()
     print("Current configuration:")
     print(f"  base_url: {config.base_url or '(not set)'}")
@@ -154,21 +151,32 @@ def _cmd_config_show(args: argparse.Namespace) -> None:
     print(f"  rag_context_budget: {config.rag_context_budget}")
     flags = ", ".join(sorted(config.feature_flags)) if config.feature_flags else "(none)"
     print(f"  feature_flags: {flags}")
+    print(f"  theme: {_effective_setting_value('theme')}")
+    print(f"  default_armory_path: {_effective_setting_value('default_armory_path')}")
+    print(f"  analytics_enabled: {_effective_setting_value('analytics_enabled')}")
+    print(f"  crash_reports_enabled: {_effective_setting_value('crash_reports_enabled')}")
 
 
 def _cmd_config_set(args: argparse.Namespace) -> None:
-    """Persist a configuration parameter to the user config file."""
     key = args.key
     value = args.value
     if key not in _CONFIG_KEY_TO_ENV:
         print(f"error: unknown config key '{key}'.", file=sys.stderr)
-        print(
-            f"  valid keys: {', '.join(_CONFIG_KEY_TO_ENV)}",
-            file=sys.stderr,
-        )
+        print(f"  valid keys: {', '.join(_CONFIG_KEY_TO_ENV)}", file=sys.stderr)
         sys.exit(1)
-    _save_user_override(key, value)
-    print(f"Set {key} = {value} (persisted to {_USER_CONFIG_FILE})")
+
+    try:
+        if key in _BOOL_KEYS:
+            settings_store.save_setting(key, value)
+            normalized = str(getattr(settings_store.load_app_settings(), key)).lower()
+            print(f"Set {key} = {normalized} (persisted to {settings_store._USER_CONFIG_FILE})")  # type: ignore[reportPrivateUsage]
+            return
+        settings_store.save_setting(key, value)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Set {key} = {value} (persisted to {settings_store._USER_CONFIG_FILE})")  # type: ignore[reportPrivateUsage]
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:  # type: ignore[reportPrivateUsage]
@@ -181,7 +189,12 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
 
     set_cmd = config_sub.add_parser("set", help="Set a configuration parameter.")
     set_cmd.add_argument(
-        "key", help="Config key (base_url, model, max_tokens, rag_context_budget, feature_flags)."
+        "key",
+        help=(
+            "Config key "
+            "(base_url, model, max_tokens, rag_context_budget, feature_flags, theme, "
+            "default_armory_path, analytics_enabled, crash_reports_enabled)."
+        ),
     )
     set_cmd.add_argument("value", help="Value to set.")
     set_cmd.set_defaults(handler=_cmd_config_set)

@@ -19,6 +19,15 @@ def test_command_registry_includes_login_logout() -> None:
     assert "logout" in names
 
 
+def test_command_registry_includes_settings() -> None:
+    registry = commands.get_registry()
+    suggestions = registry.suggestions()
+    names = {suggestion.name for suggestion in suggestions}
+
+    assert registry.find("settings") is not None
+    assert "settings" in names
+
+
 def test_command_registry_includes_saved_chat_shortcuts() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()

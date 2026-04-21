@@ -12,7 +12,7 @@ uv sync --group docs       # install doc-building tools
 ```bash
 uv run heph                # launch interactive shell
 uv run heph chat           # start a chat session
-uv run heph armory create NAME  # create a new armory
+uv run heph armory init PATH    # create a new armory
 ```
 
 ## Lint & Format
@@ -56,24 +56,21 @@ Edge deploys run on every push to `main` via `.github/workflows/deploy.yml`.
 Operational playbooks for incident response:
 
 - `docs/runbooks/ci-failure.md` — CI failure triage
-- `docs/runbooks/sentry-errors.md` — Sentry error investigation
 - `docs/runbooks/slow-llm-response.md` — Debug slow LLM responses
 - `docs/runbooks/deployment-rollback.md` — Revert bad releases
 - `docs/runbooks/rag-retrieval-issues.md` — Debug RAG quality
 
-## Observability
+## Diagnostics
 
-- Error tracking: `uv sync --extra sentry`, configure `SENTRY_DSN`
-- Tracing & metrics: `uv sync --extra otel`, configure `OTEL_EXPORTER_OTLP_ENDPOINT`
-- Alerting: configure `ALERT_WEBHOOK_URL` for Slack/Discord webhooks
+- Structured logging: `HEPHAISTOS_LOG_LEVEL`, `HEPHAISTOS_LOG_FILE`, `HEPHAISTOS_LOG_FORMAT`
+- Session traces: per-armory JSONL files under `.hephaistos/traces/`
 - Profiling: `--profile` (CPU) or `--profile-memory` (memory) CLI flags
-- Deploy notifications: configure `DEPLOY_WEBHOOK_URL` repository secret
 
 ## Project Conventions
 - Python ≥3.13, `from __future__ import annotations` in every module
 - Line length: 99 chars, double quotes, LF line endings
 - Naming: PascalCase classes, snake_case functions/variables, UPPER_SNAKE_CASE constants (enforced by ruff N rules)
-- Type checking: basedpyright standard mode
+- Type checking: basedpyright strict mode
 - Import boundaries: only `app` may import other packages; all other packages are forbidden from importing `app` (enforced by import-linter)
 - Tests: pytest with `--cov-fail-under=75`, `@pytest.mark.flaky(reruns=2)` for flaky tests
 - Pre-commit: ruff, ruff-format, basedpyright, check-large-files, vulture, pylint, lint-imports

@@ -23,6 +23,16 @@ def test_config_show_uses_registered_handler(
             rag_context_budget=4321,
         ),
     )
+    monkeypatch.setattr(
+        params_cli,
+        "_effective_setting_value",
+        lambda key: {  # type: ignore[reportUnknownLambdaType]
+            "theme": "forge",
+            "default_armory_path": "(not set)",
+            "analytics_enabled": "false [unavailable]",
+            "crash_reports_enabled": "false [unavailable]",
+        }[key],
+    )
 
     run_argv(build_parser(), ["config", "show"])
 
@@ -32,6 +42,8 @@ def test_config_show_uses_registered_handler(
     assert "model: test-model" in out
     assert "max_tokens: 1234" in out
     assert "rag_context_budget: 4321" in out
+    assert "theme: forge" in out
+    assert "analytics_enabled: false [unavailable]" in out
 
 
 def test_config_set_persists_override(
@@ -264,6 +276,16 @@ def test_config_show_displays_feature_flags(
             feature_flags=frozenset({"alpha", "beta"}),
         ),
     )
+    monkeypatch.setattr(
+        params_cli,
+        "_effective_setting_value",
+        lambda key: {  # type: ignore[reportUnknownLambdaType]
+            "theme": "forge",
+            "default_armory_path": "(not set)",
+            "analytics_enabled": "false [unavailable]",
+            "crash_reports_enabled": "false [unavailable]",
+        }[key],
+    )
 
     run_argv(build_parser(), ["config", "show"])
 
@@ -284,11 +306,32 @@ def test_config_show_displays_no_feature_flags(
             rag_context_budget=4321,
         ),
     )
+    monkeypatch.setattr(
+        params_cli,
+        "_effective_setting_value",
+        lambda key: {  # type: ignore[reportUnknownLambdaType]
+            "theme": "forge",
+            "default_armory_path": "(not set)",
+            "analytics_enabled": "false [unavailable]",
+            "crash_reports_enabled": "false [unavailable]",
+        }[key],
+    )
 
     run_argv(build_parser(), ["config", "show"])
 
     out = capsys.readouterr().out
     assert "feature_flags: (none)" in out
+
+
+def test_config_set_bool_setting_persists_boolean(
+    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_argv(build_parser(), ["config", "set", "analytics_enabled", "true"])
+
+    out = capsys.readouterr().out
+    assert "Set analytics_enabled = true" in out
+    saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
+    assert saved["analytics_enabled"] is True
 
 
 def test_load_config_feature_flags_env_overrides_user(

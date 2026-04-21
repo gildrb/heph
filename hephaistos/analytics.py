@@ -1,89 +1,115 @@
-"""PostHog product analytics for Hephaistos.
-
-All tracking is opt-in via environment variables.  When ``POSTHOG_PROJECT_TOKEN``
-is unset, every call in this module is a safe no-op so the application works
-normally without telemetry.
-
-Configuration (environment variables):
-    POSTHOG_PROJECT_TOKEN  - PostHog project token (required for tracking).
-                             When unset, all calls are no-ops.
-    POSTHOG_HOST           - PostHog ingestion host (optional).
-"""
+"""Lightweight PostHog event capture for official or explicitly configured installs."""
 
 from __future__ import annotations
 
 import contextlib
 import json
-import os
-import uuid
-from pathlib import Path
-from typing import Any
+import urllib.request
+from collections.abc import Mapping
+from typing import Final
 
-_INSTALL_ID_PATH = Path.home() / ".cache" / "hephaistos" / "install_id"
+from hephaistos.logging import get_logger, redact_text
+from hephaistos.telemetry import (
+    analytics_backend_available,
+    analytics_enabled,
+    install_id,
+    posthog_host,
+    posthog_project_token,
+    runtime_context,
+)
 
-_posthog_client: Any = None
-_install_id: str = ""
+_log = get_logger("analytics")
+
+_SENSITIVE_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "api_key",
+        "authorization",
+        "token",
+        "secret",
+        "password",
+        "prompt",
+        "content",
+        "message",
+        "body",
+        "path",
+        "filename",
+        "armory",
+        "text",
+        "input",
+        "output",
+    }
+)
 
 
-def _get_or_create_install_id() -> str:
-    """Return a stable per-installation UUID (created on first run)."""
-    global _install_id  # noqa: PLW0603
-    if _install_id:
-        return _install_id
-    _INSTALL_ID_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if _INSTALL_ID_PATH.exists():
-        with contextlib.suppress(Exception):
-            raw = json.loads(_INSTALL_ID_PATH.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                data: dict[str, Any] = raw  # type: ignore[assignment]
-                install_id_val = data.get("install_id")
-                if install_id_val:
-                    _install_id = str(install_id_val)
-                    return _install_id
-    _install_id = f"heph_{uuid.uuid4().hex}"
-    with contextlib.suppress(Exception):
-        _INSTALL_ID_PATH.write_text(json.dumps({"install_id": _install_id}), encoding="utf-8")
-    return _install_id
+def _is_safe_scalar(value: object) -> bool:
+    return value is None or isinstance(value, bool | int | float)
+
+
+def _sanitize_string(key: str, value: str) -> str | None:
+    if key in _SENSITIVE_KEYS:
+        return None
+    if len(value) > 120:
+        return None
+    if key.endswith(("_path", "path", "filename", "file")) and value:
+        return None
+    return redact_text(value)
+
+
+def _sanitize_properties(properties: Mapping[str, object] | None) -> dict[str, object]:
+    cleaned: dict[str, object] = dict(runtime_context())
+    if not properties:
+        return cleaned
+    for key, value in properties.items():
+        lowered = key.strip().lower()
+        if lowered in _SENSITIVE_KEYS:
+            continue
+        if _is_safe_scalar(value):
+            cleaned[key] = value
+            continue
+        if isinstance(value, str):
+            safe_value = _sanitize_string(lowered, value)
+            if safe_value is not None:
+                cleaned[key] = safe_value
+    return cleaned
 
 
 def get_distinct_id() -> str:
-    """Return the stable per-installation distinct ID used for PostHog events."""
-    return _get_or_create_install_id()
+    return install_id()
 
 
 def init_analytics() -> None:
-    """Initialise the PostHog client.  No-op when ``POSTHOG_PROJECT_TOKEN`` is not set."""
-    global _posthog_client  # noqa: PLW0603
-    token = os.environ.get("POSTHOG_PROJECT_TOKEN", "").strip()
-    if not token:
+    """Warm the stable anonymous install ID when analytics are possible."""
+    if analytics_backend_available():
+        install_id()
+
+
+def capture(event: str, properties: Mapping[str, object] | None = None) -> None:
+    """Capture an anonymous event when analytics is configured and enabled."""
+    if not analytics_backend_available() or not analytics_enabled():
         return
-    try:
-        from posthog import Posthog
 
-        host = os.environ.get("POSTHOG_HOST", "")
-        kwargs: dict[str, Any] = {"enable_exception_autocapture": True}
-        if host:
-            kwargs["host"] = host
-        _posthog_client = Posthog(token, **kwargs)
-    except ImportError:  # pragma: no cover
-        pass
+    sanitized_properties = _sanitize_properties(properties)
+    payload: dict[str, object] = {
+        "api_key": posthog_project_token(),
+        "event": event,
+        "distinct_id": get_distinct_id(),
+        "properties": sanitized_properties,
+    }
+    sanitized_properties["distinct_id"] = get_distinct_id()
+    sanitized_properties["$lib"] = "hephaistos"
+    sanitized_properties["$lib_version"] = str(sanitized_properties["app_version"])
 
-
-def capture(event: str, properties: dict[str, Any] | None = None) -> None:
-    """Capture a PostHog event.  No-op when analytics are not initialised."""
-    if _posthog_client is None:
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        posthog_host().rstrip("/") + "/capture/",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with contextlib.suppress(Exception), urllib.request.urlopen(request, timeout=5):
         return
-    with contextlib.suppress(Exception):
-        _posthog_client.capture(
-            distinct_id=get_distinct_id(),
-            event=event,
-            properties=properties or {},
-        )
+    _log.debug("analytics capture failed", extra={"fields": {"event": event}})
 
 
 def shutdown_analytics() -> None:
-    """Flush and shut down the PostHog client."""
-    if _posthog_client is None:
-        return
-    with contextlib.suppress(Exception):
-        _posthog_client.shutdown()
+    """Flush hook retained for CLI symmetry. The HTTP client is stateless."""

@@ -1,22 +1,37 @@
 ---
 name: hephaistos
-description: Armory-first study CLI with LLM-powered interactive sessions, knowledge base management, and RAG retrieval
+description: Local-first study CLI with armories, source-grounded answers, and a public-facing `heph` command
 ---
 
 # Hephaistos Project Skill
 
 ## Overview
 
-Hephaistos is an armory-first study CLI built with Python 3.13+. It provides an interactive
-shell for LLM-powered study sessions, armory (knowledge base) management, and RAG-based
-retrieval.
+Hephaistos is a local-first study CLI built with Python 3.13+. It provides an
+interactive shell for source-grounded study sessions, armory management, and
+RAG-based retrieval.
+
+## Public Install
+
+```bash
+uv tool install hephaistos
+heph --version
+```
+
+For a local checkout:
+
+```bash
+uv sync --group dev
+uv run heph
+uv tool install --force --editable .
+```
 
 ## Key Commands
 
 ```bash
-uv run heph                # launch interactive shell
-uv run heph chat           # start a chat session
-uv run heph armory create NAME  # create a new armory
+heph                       # launch interactive shell
+heph chat start PATH       # start a chat session
+heph armory init PATH      # create a new armory
 ```
 
 ## Development Workflow
@@ -37,6 +52,8 @@ uv run pytest              # run tests
 - PascalCase classes, snake_case functions, UPPER_SNAKE_CASE constants
 - Import boundaries: only `app` may import other packages (enforced by import-linter)
 - Tests: pytest with `--cov-fail-under=75`
+- Keep repo-level agent context in `.factory/skills/hephaistos/` and `.codex/skills/hephaistos/`
+- Keep personal agent config and maintainer-only tooling out of the repository
 
 ## Architecture
 

@@ -21,8 +21,8 @@ from hephaistos.app.palette import (
 STYLE_ASSISTANT = palette.STYLE_ASSISTANT
 
 
-def styled(text: str, style: str) -> str:
-    return f"{style}{text}{RESET}"
+def styled(text: str, style: object) -> str:
+    return f"{style!s}{text}{RESET}"
 
 
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
@@ -90,6 +90,8 @@ def print_shell_intro(
         f"{styled('ctrl+d', STYLE_DIM)} exit"
         "  "
         f"{styled('/help', STYLE_ACCENT)} commands"
+        "  "
+        f"{styled('/settings', STYLE_ACCENT)} settings"
         "  "
         f"{styled('/armory', STYLE_ACCENT)} workspace"
         "  "

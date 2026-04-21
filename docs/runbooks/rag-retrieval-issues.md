@@ -34,8 +34,8 @@ When RAG search returns poor or missing results, follow this runbook.
    If `retrieved=0`, the query didn't match any chunks above the minimum
    score threshold (0.1).
 
-5. **Check OpenTelemetry metrics** — if configured, query the
-   `rag.retrieval.duration` histogram for latency trends.
+5. **Check recent latency in logs** — compare `latency_ms` values across
+   recent retrieval traces to spot regressions after a source or model change.
 
 ## Common Fixes
 
@@ -65,7 +65,7 @@ Large armories may take a few minutes.
 
 Hephaistos uses sentence-transformers for embeddings (optional dependency):
 ```bash
-uv sync --extra embeddings
+uv sync --group rag
 ```
 
 If embeddings fail, check:

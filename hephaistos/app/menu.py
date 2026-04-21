@@ -18,6 +18,7 @@ from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.output.base import Output
+from prompt_toolkit.styles import DynamicStyle
 from prompt_toolkit.styles import Style as PtStyle
 
 from hephaistos.app.display import (
@@ -29,7 +30,7 @@ from hephaistos.app.display import (
     visible_len,
 )
 from hephaistos.app.keybindings import DEFAULT_MENU_KEYBINDINGS
-from hephaistos.app.palette import BOLD, FORGE_ASH, FORGE_EMBER, FORGE_PANEL, FORGE_SMOKE
+from hephaistos.app.palette import BOLD, browser_style_dict, menu_style_dict
 
 
 @dataclass(frozen=True)
@@ -39,16 +40,7 @@ class MenuOption:
     is_current: bool = False
 
 
-_MENU_STYLE = PtStyle.from_dict(
-    {
-        "menu.title": f"bold {FORGE_EMBER}",
-        "menu.option": FORGE_ASH,
-        "menu.option.current": f"bg:{FORGE_PANEL} fg:{FORGE_ASH} bold",
-        "menu.description": FORGE_SMOKE,
-        "menu.description.current": f"fg:{FORGE_ASH}",
-        "menu.hint": FORGE_SMOKE,
-    }
-)
+_MENU_STYLE = DynamicStyle(lambda: PtStyle.from_dict(menu_style_dict()))
 
 
 def _key_list(keys: str | list[str]) -> list[str]:
@@ -212,17 +204,7 @@ def confirm(title: str, default: bool = False) -> bool:
 
 # --- Directory browser -------------------------------------------------------
 
-_BROWSER_STYLE = PtStyle.from_dict(
-    {
-        "browser.title": f"bold {FORGE_EMBER}",
-        "browser.path": FORGE_SMOKE,
-        "browser.entry": FORGE_ASH,
-        "browser.entry.selected": f"bg:{FORGE_PANEL} fg:{FORGE_ASH} bold",
-        "browser.parent": FORGE_SMOKE,
-        "browser.parent.selected": f"bg:{FORGE_PANEL} fg:{FORGE_SMOKE} bold",
-        "browser.hint": FORGE_SMOKE,
-    }
-)
+_BROWSER_STYLE = DynamicStyle(lambda: PtStyle.from_dict(browser_style_dict()))
 
 _DIR_ICON = "\U0001f4c1"  # folder icon
 _PARENT_LABEL = "..  (parent)"

@@ -20,7 +20,7 @@
 
 - name: "area/observability"
   color: "0075ca"
-  description: "Logging, tracing, metrics, and Sentry"
+  description: "Logging, profiling, traces, and diagnostics"
 
 - name: "area/infra"
   color: "0075ca"

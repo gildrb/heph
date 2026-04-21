@@ -2,25 +2,21 @@
 
 This document describes how AI coding agents are used in the Hephaistos project.
 
-## Factory Configuration
+## Shared Project Skills
 
-The project uses [Factory](https://factory.ai) for AI-assisted development. Configuration
-lives in two locations:
+Hephaistos keeps the shared, repo-level agent context in vendor-neutral skill folders:
 
 | Location | Purpose |
 |---|---|
-| `.factory/skills/SKILL.md` | Project-specific skill manifest with commands, conventions, and architecture |
-| `~/.factory/droids/` | Personal agent configurations (shared across all projects) |
+| `.factory/skills/hephaistos/SKILL.md` | Shared Factory skill with commands, conventions, and architecture |
+| `.codex/skills/hephaistos/SKILL.md` | Shared Codex skill with the same project context |
+| personal agent home directories | Personal prompts, helpers, or local agent config that should not be committed |
 
-### Skills
+## Why This Split
 
-The `.factory/skills/` directory contains a `SKILL.md` that teaches agents about project
-conventions, commands, and architecture. This is automatically discovered by Factory agents.
-
-### Droids
-
-Custom droids (if any) are stored in `~/.factory/droids/` for personal use. Project-level
-droids can be added to `.factory/droids/` for team-shared agent configurations.
+- Shared skills belong in the repository when they help contributors and agents understand the project.
+- Personal agent config belongs outside the repository.
+- Maintainer-only telemetry or vendor-specific setup should stay out of shared skills.
 
 ## Agent Co-Authorship
 
@@ -47,4 +43,5 @@ The `scripts/detect_co_author.py` script checks for agent signatures:
 1. **Always review** agent-generated code before merging
 2. **Tag agent commits** with co-authorship trailers
 3. **Test thoroughly** — agent code follows the same quality gates
-4. **Document decisions** — if an agent made an architectural choice, note it in the PR
+4. **Keep repo skills current** — update `.factory` and `.codex` skills when commands or architecture change
+5. **Document decisions** — if an agent made an architectural choice, note it in the PR

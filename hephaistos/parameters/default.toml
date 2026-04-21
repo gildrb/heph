@@ -1,6 +1,6 @@
 # Default parameters for Hephaistos.
-# Provider, model, and API key are configured via /provider, /model, /api,
-# or environment variables — not here.
+# Provider, model, API key, and global shell preferences are configured via
+# /provider, /model, /api, /settings, or environment variables — not here.
 
 max_tokens = 4096
 
@@ -9,7 +9,6 @@ max_tokens = 4096
 # log_file = ""             # Path to append-only log file
 # log_format = "json"      # "json" or "text"
 
-# Observability (Sentry error tracking)
-# SENTRY_DSN                — Sentry project DSN (enables error tracking)
-# SENTRY_ENVIRONMENT        — "production" or "development" (auto-detected if unset)
-# SENTRY_TRACES_SAMPLE_RATE — 0.0-1.0, default 0.1
+# Local diagnostics
+# Trace files live under <armory>/.hephaistos/traces/
+# CPU profiles are written to ~/.cache/hephaistos/profiles/

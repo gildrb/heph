@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.analytics import capture as analytics_capture
+from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.display import (
     direct_input,
     print_error,
@@ -78,10 +78,18 @@ def _start_fresh_session(
         return session
     if armory_path is None:
         print_success("Detached armory. Plain chat mode.")
+        capture_analytics("armory_detached", {"model": new_session.config.model})
         return new_session
     print_success(f"Using armory {armory_path}")
     if new_session.source_file_count:
         print_info(f"Loaded {new_session.source_file_count} file(s).")
+    capture_analytics(
+        "armory_attached",
+        {
+            "source_file_count": new_session.source_file_count,
+            "model": new_session.config.model,
+        },
+    )
     return new_session
 
 
@@ -116,6 +124,7 @@ def _create_armory(session: ChatSession) -> ChatSession:
         print_error(str(exc))
         return session
     print_success(f"Initialized armory at {armory_path}")
+    capture_analytics("armory_created", {"mode": "shell"})
     try:
         return _start_fresh_session(session, armory_path)
     except SessionError as exc:
@@ -209,12 +218,7 @@ def _resume_saved_chat(session: ChatSession, selector: str = "") -> ChatSession:
     print_success(f"Resumed session {resumed.session_id}")
     if resumed.title:
         print_info(f"Title: {resumed.title}")
-    analytics_capture(
-        "session_resumed",
-        {
-            "message_count": sum(1 for m in resumed.conversation.messages if m.role != "system"),
-        },
-    )
+    capture_analytics("session_resumed", {"message_count": len(resumed.conversation.messages)})
     return resumed
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from hephaistos.analytics import capture as analytics_capture
+from hephaistos.analytics import capture as capture_analytics
 from hephaistos.armory.storage import (
     ArmoryError,
     initialize,
@@ -23,7 +23,7 @@ def _cmd_armory_init(args: argparse.Namespace) -> None:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
     print(f"Initialized armory at {armory_path}")
-    analytics_capture("armory_initialized")
+    capture_analytics("armory_created", {"mode": "cli"})
 
 
 def _cmd_armory_open(args: argparse.Namespace) -> None:

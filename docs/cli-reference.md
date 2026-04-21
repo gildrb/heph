@@ -32,6 +32,7 @@ The top-level CLI is shell-first. `armory`, `source`, and `config` are visible i
 | `/provider` | Show or switch the active provider and model |
 | `/models` | List the built-in model catalog across providers |
 | `/api` | Inspect or set the API key / base URL |
+| `/settings` | Manage telemetry, theme, startup defaults, and the default model |
 | `/login` | Authenticate with an LLM provider via OAuth |
 | `/logout` | Clear stored OAuth credentials |
 | `/compact` | Summarize the conversation to free context |
@@ -66,6 +67,11 @@ The top-level CLI is shell-first. `armory`, `source`, and `config` are visible i
 | `HEPHAISTOS_MAX_TOKENS` | Max output tokens per response |
 | `HEPHAISTOS_RAG_CONTEXT_BUDGET` | Token budget for injected retrieval context |
 | `HEPHAISTOS_FEATURE_FLAGS` | Comma-separated feature flags |
+| `HEPHAISTOS_ANALYTICS_ENABLED` | Override the saved analytics opt-in (`true`/`false`) |
+| `HEPHAISTOS_CRASH_REPORTS_ENABLED` | Override the saved crash-report opt-in (`true`/`false`) |
+| `HEPHAISTOS_POSTHOG_PROJECT_TOKEN` | Supply a PostHog token for custom or forked builds |
+| `HEPHAISTOS_POSTHOG_HOST` | Supply a PostHog host for custom or forked builds |
+| `HEPHAISTOS_SENTRY_DSN` | Supply a Sentry DSN for custom or forked builds |
 | `HEPHAISTOS_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
 | `HEPHAISTOS_LOG_FILE` | Optional append-only log file path |
 | `HEPHAISTOS_LOG_FORMAT` | `json` or `text` for stderr logs |
