@@ -59,6 +59,37 @@ def _gh(*args: str) -> str:
         return ""
 
 
+def _json_list(output: str) -> list[dict[str, object]]:
+    """Decode JSON output and return a list of objects when possible."""
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _extract_jobs(output: str) -> list[dict[str, object]]:
+    """Decode `gh run view --json jobs` output into a list of job objects."""
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(payload, dict):
+        jobs = payload.get("jobs", [])
+        if isinstance(jobs, list):
+            return [job for job in jobs if isinstance(job, dict)]
+        return []
+    if isinstance(payload, list):
+        return [job for job in payload if isinstance(job, dict)]
+    return []
+
+
+def _as_str(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
 def _get_recent_run_durations(limit: int = 10) -> list[RunInfo]:
     """Fetch recent CI run durations from GitHub API."""
     output = _gh(
@@ -74,11 +105,7 @@ def _get_recent_run_durations(limit: int = 10) -> list[RunInfo]:
     if not output:
         return []
 
-    try:
-        runs = json.loads(output)
-    except json.JSONDecodeError:
-        return []
-
+    runs = _json_list(output)
     durations: list[RunInfo] = []
     for run in runs:
         if run.get("conclusion") != "success" or run.get("headBranch") != "main":
@@ -86,18 +113,15 @@ def _get_recent_run_durations(limit: int = 10) -> list[RunInfo]:
         run_id = run.get("databaseId")
         if not run_id:
             continue
-        try:
-            timing_output = _gh("run", "view", str(run_id), "--json", "jobs")
-            if not timing_output:
-                continue
-            jobs = json.loads(timing_output)
-        except (subprocess.TimeoutExpired, json.JSONDecodeError):
+        timing_output = _gh("run", "view", str(run_id), "--json", "jobs")
+        if not timing_output:
             continue
+        jobs = _extract_jobs(timing_output)
 
         total_ms = 0.0
         for job in jobs:
-            started = job.get("startedAt", "")
-            completed = job.get("completedAt", "")
+            started = _as_str(job.get("startedAt"))
+            completed = _as_str(job.get("completedAt"))
             if started and completed:
                 start_dt = _parse_iso(started)
                 end_dt = _parse_iso(completed)
@@ -109,7 +133,7 @@ def _get_recent_run_durations(limit: int = 10) -> list[RunInfo]:
                 {
                     "run_id": str(run_id),
                     "duration_ms": total_ms,
-                    "created_at": run.get("createdAt", ""),
+                    "created_at": _as_str(run.get("createdAt")),
                 }
             )
 

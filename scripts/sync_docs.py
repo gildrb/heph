@@ -445,8 +445,7 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
 
 def render_cli_reference(model: DocsModel) -> str:
     rows = tuple(
-        (f"`{command.command}`", command.description)
-        for command in model.cli_reference_commands
+        (f"`{command.command}`", command.description) for command in model.cli_reference_commands
     )
     replacements = {
         "GENERATED_NOTICE": GENERATED_NOTICE,

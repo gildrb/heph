@@ -32,8 +32,7 @@ def test_replace_managed_block_updates_named_section() -> None:
 def test_lint_legacy_commands_flags_stale_refs(tmp_path: Path) -> None:
     doc = tmp_path / "guide.md"
     doc.write_text(
-        "Use `heph start` if you want to launch the shell.\n"
-        "Then run `heph source reindex`.\n",
+        "Use `heph start` if you want to launch the shell.\nThen run `heph source reindex`.\n",
         encoding="utf-8",
     )
 
