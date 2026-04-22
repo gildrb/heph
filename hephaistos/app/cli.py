@@ -24,7 +24,9 @@ def _package_version() -> str:
         return "0.1.0"
 
 
-_VERSION = _package_version()
+def _version_string() -> str:
+    """Lazy version string — avoids importlib.metadata scan at import time."""
+    return f"%(prog)s {_package_version()}"
 
 
 def _hide_subparser(
@@ -72,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {_VERSION}",
+        version=_version_string(),
     )
     parser.add_argument(
         "--profile",

@@ -37,6 +37,7 @@ from hephaistos.app.display import (
     STYLE_ASSISTANT,
     STYLE_DIM,
     STYLE_ERROR,
+    STYLE_PROMPT,
     print_error,
     print_info,
     print_shell_intro,
@@ -63,13 +64,15 @@ from hephaistos.chat.session import (
     validate_armory_path,
 )
 from hephaistos.chat.usage import ContextBudget
+from hephaistos.logging import get_logger
 from hephaistos.observability import capture_exception
 from hephaistos.parameters.cli import load_config
 from hephaistos.parameters.settings import load_app_settings
-from hephaistos.providers.config import ProviderConfig
+from hephaistos.providers.config import Provider, ProviderConfig
 from hephaistos.telemetry import mark_telemetry_notice_seen, should_show_telemetry_notice
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
+_log = get_logger("app.shell")
 
 _PT_STYLE = DynamicStyle(lambda: PtStyle.from_dict(shell_style_dict()))
 
@@ -84,6 +87,14 @@ class ShellRuntime:
 
 class SlashCommandCompleter(Completer):
     """Context-aware completion for slash commands and their common arguments."""
+
+    def __init__(self) -> None:
+        self._cached_providers: dict[str, Provider] = {}
+        self._refresh_provider_cache()
+
+    def _refresh_provider_cache(self) -> None:
+        """Reload provider list from cached config."""
+        self._cached_providers = dict(ProviderConfig.load().providers)
 
     def get_completions(self, document: Document, complete_event: CompleteEvent):
         text = document.text_before_cursor
@@ -166,7 +177,7 @@ class SlashCommandCompleter(Completer):
             ]
 
         subcmd = arg_parts[0].lower()
-        providers = ProviderConfig.load().providers
+        providers = self._cached_providers
 
         if subcmd == "use":
             if len(arg_parts) == 2:
@@ -186,7 +197,7 @@ class SlashCommandCompleter(Completer):
         return []
 
     def _all_models(self) -> list[tuple[str, str]]:
-        providers = ProviderConfig.load().providers
+        providers = self._cached_providers
         models: list[tuple[str, str]] = []
         for slug, provider in providers.items():
             models.extend((slug, model) for model in provider.models)
@@ -594,6 +605,23 @@ def _print_settings_hint() -> None:
     mark_telemetry_notice_seen()
 
 
+def _print_vocab_hint(session: ChatSession) -> None:
+    """Show a hint if the armory contains vocabulary files."""
+    if session.armory_path is None:
+        return
+    try:
+        from hephaistos.vocab.parser import scan_armory
+
+        deck = scan_armory(session.armory_path)
+        if deck.cards:
+            print_info(
+                f"Vocabulary deck detected ({deck.size} words). "
+                f"Use {styled('/vocab', STYLE_PROMPT)} to start a drill."
+            )
+    except Exception:
+        _log.debug("vocabulary hint scan failed", exc_info=True)
+
+
 def _get_history_path(session: ChatSession) -> Path:
     if session.armory_path is None:
         return _HISTORY_DIR / "plain-history"
@@ -638,6 +666,7 @@ def run_chat_shell(
         session = _create_startup_session(load_config())
 
     _print_shell_intro(session)
+    _print_vocab_hint(session)
     _print_settings_hint()
     capture_analytics(
         "shell_started",

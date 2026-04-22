@@ -57,6 +57,13 @@ class AppSettings:
     telemetry_notice_seen: bool = False
 
 
+@dataclass
+class _SettingsCache:
+    path: Path | None = None
+    stamp: tuple[bool, int | None, int | None] | None = None
+    data: dict[str, object] | None = None
+
+
 def parse_toml_simple(path: Path) -> dict[str, str]:
     """Minimal TOML parser for flat key=value files."""
     result: dict[str, str] = {}
@@ -124,44 +131,66 @@ def normalize_setting_value(key: str, value: object) -> object:
     raise KeyError(key)
 
 
-_settings_cache: dict[str, object] | None = None
+_settings_cache = _SettingsCache()
+
+
+def _settings_file_stamp(path: Path) -> tuple[bool, int | None, int | None]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (False, None, None)
+    return (True, stat.st_mtime_ns, stat.st_size)
+
+
+def _cached_settings_for(path: Path) -> dict[str, object] | None:
+    if _settings_cache.data is None or _settings_cache.path != path:
+        return None
+    if _settings_cache.stamp != _settings_file_stamp(path):
+        return None
+    return _settings_cache.data
+
+
+def _update_settings_cache(path: Path, settings: dict[str, object]) -> dict[str, object]:
+    _settings_cache.path = path
+    _settings_cache.stamp = _settings_file_stamp(path)
+    _settings_cache.data = settings
+    return settings
 
 
 def invalidate_settings_cache() -> None:
     """Clear the in-process settings cache (used by tests and edge cases)."""
-    global _settings_cache
-    _settings_cache = None
+    _settings_cache.path = None
+    _settings_cache.stamp = None
+    _settings_cache.data = None
 
 
 def load_raw_settings() -> dict[str, object]:
     """Load persisted settings from ``~/.config/hephaistos/config.json``.
 
-    Results are cached in-process and reused until ``save_raw_settings()``
-    or ``invalidate_settings_cache()`` is called.
+    Results are cached in-process and refreshed automatically when the
+    config path or backing file changes.
     """
-    global _settings_cache
-    if _settings_cache is not None:
-        return _settings_cache
-    if not _USER_CONFIG_FILE.is_file():
-        _settings_cache = {}
-        return _settings_cache
+    path = _USER_CONFIG_FILE
+    cached = _cached_settings_for(path)
+    if cached is not None:
+        return cached
+    if not path.is_file():
+        return _update_settings_cache(path, {})
     with contextlib.suppress(Exception):
-        raw = json.loads(_USER_CONFIG_FILE.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             data = cast("dict[str, Any]", raw)
-            _settings_cache = {str(k): v for k, v in data.items() if k in ALLOWED_CONFIG_KEYS}
-            return _settings_cache
-    _settings_cache = {}
-    return _settings_cache
+            filtered = {str(k): v for k, v in data.items() if k in ALLOWED_CONFIG_KEYS}
+            return _update_settings_cache(path, filtered)
+    return _update_settings_cache(path, {})
 
 
 def save_raw_settings(settings: dict[str, object]) -> None:
     """Persist the full settings mapping to disk and update the in-process cache."""
-    global _settings_cache
     _USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     filtered = {key: settings[key] for key in sorted(settings) if key in ALLOWED_CONFIG_KEYS}
     _USER_CONFIG_FILE.write_text(json.dumps(filtered, indent=2) + "\n", encoding="utf-8")
-    _settings_cache = filtered
+    _update_settings_cache(_USER_CONFIG_FILE, filtered)
 
 
 def save_setting(key: str, value: object) -> None:

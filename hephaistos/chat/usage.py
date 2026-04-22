@@ -15,6 +15,7 @@ Cost estimates use a model pricing table that can be extended via env vars.
 from __future__ import annotations
 
 import json
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -96,7 +97,7 @@ class SessionUsage:
     total_tokens: int = 0
     total_cost_usd: float = 0.0
     api_calls: int = 0
-    per_call: list[TokenUsage] = field(default_factory=list)
+    per_call: deque[TokenUsage] = field(default_factory=lambda: deque(maxlen=50))
 
     def record(self, usage: TokenUsage, model: str) -> None:
         """Record a single API call's usage."""

@@ -50,6 +50,7 @@ def _isolate_global_state(  # pyright: ignore[reportUnusedFunction]
     import hephaistos.observability as _obs_mod
     import hephaistos.parameters.cli as _params_cli
     import hephaistos.parameters.settings as _settings_mod
+    import hephaistos.providers.config as _provider_config_mod
     import hephaistos.providers.keyring_store as _ks
     import hephaistos.telemetry as _telemetry_mod
     from hephaistos.app.palette import set_theme
@@ -59,6 +60,8 @@ def _isolate_global_state(  # pyright: ignore[reportUnusedFunction]
     _ks._volatile.clear()  # type: ignore[reportPrivateUsage]
     _log_mod._root_initialised = False  # type: ignore[reportPrivateUsage]
     _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
+    _settings_mod.invalidate_settings_cache()
+    _provider_config_mod.invalidate_provider_cache()
     _reset_diagnostics_module_objects()
     _obs_mod.reset_state()
     set_theme("forge")
@@ -80,6 +83,8 @@ def _isolate_global_state(  # pyright: ignore[reportUnusedFunction]
     _ks._volatile.clear()  # type: ignore[reportPrivateUsage]
     _log_mod._root_initialised = False  # type: ignore[reportPrivateUsage]
     _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
+    _settings_mod.invalidate_settings_cache()
+    _provider_config_mod.invalidate_provider_cache()
     _reset_diagnostics_module_objects()
     _obs_mod.reset_state()
     set_theme("forge")

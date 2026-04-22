@@ -10,6 +10,7 @@ import pytest
 
 from hephaistos.harness.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.harness.rag.index import ArmoryIndex
+from hephaistos.harness.rag.query_transform import TransformStrategy
 from hephaistos.harness.rag.retrieve import (
     CrossEncoderReranker,
     EmbeddingRetriever,
@@ -986,6 +987,63 @@ class TestRetrieveConvenience:
         ):
             results = retrieve("binary search", index)
             assert len(results) > 0
+
+    def test_caches_retrievers_per_transform_configuration(self) -> None:
+        index = _make_index_with_chunks([_make_chunk("Binary search runs in O(log n) time.")])
+        transformed_queries: list[list[str]] = []
+
+        class _StubTransformer:
+            def __init__(self, label: str) -> None:
+                self._label = label
+
+            def transform(self, query: str) -> list[str]:
+                return [f"{self._label}:{query}"]
+
+        class _StubRetriever:
+            def __init__(self, transformer: object | None) -> None:
+                self._transformer = transformer
+
+            def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
+                del top_k
+                if self._transformer is None:
+                    transformed_queries.append([query])
+                else:
+                    transformer = self._transformer
+                    transformed_queries.append(transformer.transform(query))  # type: ignore[attr-defined]
+                return [ScoredChunk(chunk=index.all_chunks[0], score=1.0)]
+
+        def prompt_fn(prompt: str) -> str:
+            return prompt
+
+        def fake_create_retriever(
+            armory_index: ArmoryIndex,
+            embed_model: str | None = None,
+            rerank_model: str | None = None,
+            query_transformer: object | None = None,
+        ) -> _StubRetriever:
+            del armory_index, embed_model, rerank_model
+            return _StubRetriever(query_transformer)
+
+        with (
+            patch(
+                "hephaistos.harness.rag.retrieve.create_transformer",
+                return_value=_StubTransformer("hyde"),
+            ),
+            patch(
+                "hephaistos.harness.rag.retrieve._create_retriever",
+                side_effect=fake_create_retriever,
+            ) as mock_create_retriever,
+        ):
+            retrieve("binary search", index)
+            retrieve(
+                "binary search",
+                index,
+                transform_strategy=TransformStrategy.HYDE,
+                prompt_fn=prompt_fn,
+            )
+
+        assert transformed_queries == [["binary search"], ["hyde:binary search"]]
+        assert mock_create_retriever.call_count == 2
 
 
 # ---------------------------------------------------------------------------

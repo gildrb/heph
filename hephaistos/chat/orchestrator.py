@@ -160,6 +160,7 @@ class TurnOrchestrator:
 
     def _iter_plain_events(self, *, abort: threading.Event | None) -> Iterator[TurnEvent]:
         session = self.session
+        parts: list[str] = []
         for delta in stream_completion(
             session.config,
             session.conversation,
@@ -169,8 +170,11 @@ class TurnOrchestrator:
         ):
             if not delta.content:
                 continue
-            self.last_reply += delta.content
+            parts.append(delta.content)
             yield AssistantDeltaEvent(delta.content)
+
+        if parts:
+            self.last_reply = "".join(parts)
 
         if self.last_reply and (
             not session.conversation.messages
@@ -190,7 +194,8 @@ class TurnOrchestrator:
         plan = resolved.study_plan
         assert plan is not None
 
-        raw_reply = ""
+        raw_parts: list[str] = []
+        last_reply_parts: list[str] = []
         for event in iter_agent_events(
             session.config,
             session.conversation,
@@ -205,10 +210,14 @@ class TurnOrchestrator:
             registry=session.tool_registry,
         ):
             if isinstance(event, AssistantDeltaEvent):
-                raw_reply += event.delta
+                raw_parts.append(event.delta)
                 if not plan.buffer_response:
-                    self.last_reply += event.delta
+                    last_reply_parts.append(event.delta)
             yield event
+
+        raw_reply = "".join(raw_parts)
+        if last_reply_parts:
+            self.last_reply = "".join(last_reply_parts)
 
         if raw_reply:
             session.study_state, final_reply = apply_turn_result(
@@ -283,18 +292,27 @@ class TurnOrchestrator:
             try:
                 from hephaistos.memory.extract import extract_and_store
 
-                added = extract_and_store(
-                    session.config,
-                    session.memory,
-                    user_input,
-                    self.last_reply,
-                    ", ".join(_evidence_refs(resolved.turn_evidence)),
-                )
-                if added:
-                    _log.info(
-                        "memory updated",
-                        extra={"fields": {"new_entries": added}},
-                    )
+                mem = session.memory
+                cfg = session.config
+                reply = self.last_reply
+                evidence = ", ".join(_evidence_refs(resolved.turn_evidence))
+
+                def _bg_extract() -> None:
+                    try:
+                        added = extract_and_store(cfg, mem, user_input, reply, evidence)
+                        if added:
+                            _log.info(
+                                "memory updated",
+                                extra={"fields": {"new_entries": added}},
+                            )
+                    except Exception:
+                        _log.warning("memory extraction failed", exc_info=True)
+
+                threading.Thread(
+                    target=_bg_extract,
+                    name="hephaistos-mem-extract",
+                    daemon=True,
+                ).start()
             except Exception:
                 _log.warning("memory extraction failed", exc_info=True)
 

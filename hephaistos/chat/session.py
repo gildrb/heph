@@ -51,6 +51,9 @@ class ChatSession:
     def __post_init__(self) -> None:
         if self.trace is None:  # pyright: ignore[reportUnnecessaryComparison]
             object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))
+            import atexit
+
+            atexit.register(self.trace.close)
         if self.steering is None:  # pyright: ignore[reportUnnecessaryComparison]
             from hephaistos.harness.dispatch import SteeringQueue
 
@@ -100,9 +103,10 @@ def validate_armory_path(path_str: str) -> Path:
     return armory_path
 
 
-def _count_source_files(armory_path: Path) -> int:
-    """Count source files in armory."""
+def _scan_source_files(armory_path: Path) -> tuple[int, list[str]]:
+    """Count source files and collect relative paths in a single pass."""
     count = 0
+    names: list[str] = []
     for dirname in ("source", "library"):
         folder = armory_path / dirname
         if not folder.is_dir():
@@ -110,22 +114,8 @@ def _count_source_files(armory_path: Path) -> int:
         for file_path in sorted(folder.rglob("*")):
             if file_path.is_file() and not file_path.name.startswith("."):
                 count += 1
-    return count
-
-
-def _list_source_file_names(armory_path: Path) -> list[str]:
-    """Return relative paths of source files for the system prompt."""
-    names: list[str] = []
-    for dirname in ("source", "library"):
-        folder = armory_path / dirname
-        if not folder.is_dir():
-            continue
-        names.extend(
-            str(file_path.relative_to(armory_path))
-            for file_path in sorted(folder.rglob("*"))
-            if file_path.is_file() and not file_path.name.startswith(".")
-        )
-    return names
+                names.append(str(file_path.relative_to(armory_path)))
+    return count, names
 
 
 def _load_armory_tools(armory_path: Path) -> ToolRegistry:
@@ -152,7 +142,7 @@ def _replace_system_prompt(session: ChatSession) -> None:  # pyright: ignore[rep
     if session.armory_path is None:
         new_prompt = _build_plain_system_prompt(session.persona)
     else:
-        source_files = _list_source_file_names(session.armory_path)
+        source_files = _scan_source_files(session.armory_path)[1]
         memory_ctx = ""
         with contextlib.suppress(Exception):
             memory_ctx = load_memory(session.armory_path).build_system_context()
@@ -199,7 +189,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     if armory_path is None:  # pyright: ignore[reportUnnecessaryComparison] runtime guard for untyped callers
         raise SessionError("An armory is required. Create one with: hephaistos armory init <path>")
 
-    source_file_count = _count_source_files(armory_path)
+    source_file_count, source_files = _scan_source_files(armory_path)
     if source_file_count == 0:
         raise SessionError(
             f"Armory has no source documents. Add past exams to {armory_path}/source/ "
@@ -207,7 +197,6 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         )
 
     conversation = Conversation()
-    source_files = _list_source_file_names(armory_path)
     memory_ctx = ""
     with contextlib.suppress(Exception):
         memory_ctx = load_memory(armory_path).build_system_context()
@@ -265,7 +254,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
     """Load a saved session from an armory."""
     conversation, title = chat_storage.load(armory_path, session_id)
     metadata = chat_storage.load_metadata(armory_path, session_id)
-    source_file_count = _count_source_files(armory_path)
+    source_file_count, _source_files = _scan_source_files(armory_path)
     session = ChatSession(
         config=config,
         conversation=conversation,

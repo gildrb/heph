@@ -14,7 +14,7 @@ Operational playbooks for diagnosing and resolving issues in Hephaistos.
 ## Quick Reference
 
 **Where to check deploy impact:**
-- [GitHub Deployments](https://github.com/gildrb/hephaistos/deployments) — deployment history and status
+- [GitHub Deployments](https://github.com/gildrb/hephaistos/deployments) — history for manual edge publishes and releases
 
 **Primary diagnostics:**
 - Structured logs via `HEPHAISTOS_LOG_*`

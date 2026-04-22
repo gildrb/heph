@@ -70,11 +70,15 @@ def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "path" not in responses[0]["properties"]
 
 
-def test_init_analytics_warms_install_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    warmed: list[bool] = []
+def test_init_analytics_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """init_analytics() no longer eagerly warms install_id — deferred to capture()."""
+    calls: list[str] = []
     monkeypatch.setattr("hephaistos.analytics.analytics_backend_available", lambda: True)
-    monkeypatch.setattr("hephaistos.analytics.install_id", lambda: warmed.append(True) or "heph_x")
+    monkeypatch.setattr(
+        "hephaistos.analytics.install_id",
+        lambda: calls.append("install_id") or "heph_x",
+    )
 
     init_analytics()
 
-    assert warmed == [True]
+    assert calls == []

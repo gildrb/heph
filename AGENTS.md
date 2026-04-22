@@ -49,7 +49,7 @@ uv run pytest -m flaky                     # flaky-marked tests only
 uv build                   # build sdist + wheel
 ```
 Releases are automated via `.github/workflows/release.yml` on `v*` tags.
-Edge deploys run on every push to `main` via `.github/workflows/deploy.yml`.
+Edge deploys are published manually via `.github/workflows/deploy.yml`.
 
 ## Runbooks
 

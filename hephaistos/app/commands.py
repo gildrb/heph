@@ -994,6 +994,86 @@ class SettingsCommand(Command):
                 LogoutCommand().handle(session, "")
 
 
+class VocabCommand(Command):
+    name = "vocab"
+    description = "Vocabulary drill with spaced repetition"
+    aliases = ("v",)
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        from hephaistos.vocab.drill import run_drill
+
+        s = _ensure_session(session)
+        if s.armory_path is None:
+            print_error("No armory attached. Use /armory to open one first.")
+            return CommandResult()
+
+        subcmd = args.strip().lower()
+
+        if subcmd == "status":
+            return self._status(s)
+        if subcmd == "reset":
+            return self._reset(s)
+
+        # Default: start drill.
+        result = run_drill(s.armory_path)
+        if result and result.cards_reviewed > 0:
+            capture_analytics(
+                "vocab_drill",
+                {
+                    "cards_reviewed": result.cards_reviewed,
+                    "hard": result.hard_count,
+                    "good": result.good_count,
+                    "easy": result.easy_count,
+                },
+            )
+        return CommandResult()
+
+    @staticmethod
+    def _status(session: ChatSession) -> CommandResult:
+        from hephaistos.vocab.parser import scan_armory
+        from hephaistos.vocab.state import load_schedule, save_schedule
+
+        armory_path = session.armory_path
+        if armory_path is None:
+            print_error("No armory attached. Use /armory to open one first.")
+            return CommandResult()
+
+        deck = scan_armory(armory_path)
+        store = load_schedule(armory_path)
+        store.sync_with_deck(deck)
+        save_schedule(store)
+        stats = store.stats()
+        lines = [
+            f"  Total cards:  {stats['total']}",
+            f"  New:          {stats['new']}",
+            f"  Due now:      {stats['due']}",
+            f"  Mastered:     {stats['mastered']}",
+            f"  Source files: {', '.join(deck.source_files) if deck.source_files else 'none'}",
+        ]
+        print("\n".join(lines))
+        return CommandResult()
+
+    @staticmethod
+    def _reset(session: ChatSession) -> CommandResult:
+        from hephaistos.vocab.parser import scan_armory
+        from hephaistos.vocab.state import load_schedule
+
+        armory_path = session.armory_path
+        if armory_path is None:
+            print_error("No armory attached. Use /armory to open one first.")
+            return CommandResult()
+        if not confirm("Reset all vocabulary scheduling data?", default=False):
+            print_info("Cancelled.")
+            return CommandResult()
+        deck = scan_armory(armory_path)
+        store = load_schedule(armory_path)
+        store.sync_with_deck(deck)
+        store.reset_all()
+        store.save()
+        print_success("Vocabulary schedule reset. All cards are now new.")
+        return CommandResult()
+
+
 class UsageCommand(Command):
     name = "usage"
     description = "Show token usage and cost for this session"
@@ -1071,6 +1151,7 @@ def get_registry() -> CommandRegistry:
             PersonaCommand,
             SettingsCommand,
             UsageCommand,
+            VocabCommand,
         ):
             _registry.register(cmd_class())
     return _registry

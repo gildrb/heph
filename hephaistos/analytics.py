@@ -78,9 +78,12 @@ def get_distinct_id() -> str:
 
 
 def init_analytics() -> None:
-    """Warm the stable anonymous install ID when analytics are possible."""
-    if analytics_backend_available():
-        install_id()
+    """No-op retained for CLI symmetry.
+
+    The install ID is warmed lazily on first ``capture()`` call instead of
+    at import / startup time, removing blocking file I/O from the startup
+    path.
+    """
 
 
 def capture(event: str, properties: Mapping[str, object] | None = None) -> None:

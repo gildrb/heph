@@ -47,6 +47,55 @@ def test_default_config_activates_zai_with_model() -> None:
     assert chat_config._provider_slug == "zai"  # type: ignore[reportPrivateUsage]
 
 
+def test_load_missing_config_stays_in_memory_until_saved(tmp_path: Path) -> None:
+    config_path = tmp_path / "providers.toml"
+
+    loaded = ProviderConfig.load(config_path)
+
+    assert "zai" in loaded.providers
+    assert not config_path.exists()
+
+
+def test_load_refreshes_when_provider_path_changes(tmp_path: Path) -> None:
+    first_path = tmp_path / "first-providers.toml"
+    first_path.write_text(
+        """
+[openai-codex]
+display_name = "OpenAI Codex"
+endpoint = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+active = true
+current_model = "gpt-5.4"
+models = ["gpt-5.4"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    second_path = tmp_path / "second-providers.toml"
+    second_path.write_text(
+        """
+[custom]
+display_name = "Custom"
+endpoint = "https://example.com/v1"
+api_key_env = "CUSTOM_API_KEY"
+active = true
+current_model = "custom-model"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    first = ProviderConfig.load(first_path)
+    second = ProviderConfig.load(second_path)
+    first_active = first.get_active()
+    second_active = second.get_active()
+
+    assert first_active is not None
+    assert first_active.slug == "openai-codex"
+    assert second_active is not None
+    assert second_active.slug == "custom"
+
+
 def test_load_filters_unsupported_models(tmp_path: Path) -> None:
     config_path = tmp_path / "providers.toml"
     config_path.write_text(

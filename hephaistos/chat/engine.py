@@ -22,20 +22,15 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from openai import (
-    APIConnectionError,
-    APITimeoutError,
-    AuthenticationError,
-    InternalServerError,
-    OpenAI,
-    PermissionDeniedError,
-    RateLimitError,
-    Stream,
-)
-from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
-from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
+if TYPE_CHECKING:
+    from openai import (
+        OpenAI,
+        Stream,
+    )
+    from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
+    from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 
 from hephaistos.chat.resilience import CircuitBreaker
 from hephaistos.logging import Timer, get_logger, redact_text
@@ -126,7 +121,35 @@ class RetryConfig:
     max_delay: float = 30.0  # seconds
 
 
-_RETRYABLE_TYPES = (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError)
+@dataclass
+class _RetryableTypesCache:
+    value: tuple[type[Exception], ...] | None = None
+
+
+_retryable_types_cache = _RetryableTypesCache()
+
+
+def _get_retryable_types() -> tuple[type[Exception], ...]:
+    """Lazily construct the retryable exception tuple (defers openai import)."""
+    retryable_types = _retryable_types_cache.value
+    if retryable_types is None:
+        from openai import (
+            APIConnectionError,
+            APITimeoutError,
+            InternalServerError,
+            RateLimitError,
+        )
+
+        retryable_types = (
+            APIConnectionError,
+            APITimeoutError,
+            InternalServerError,
+            RateLimitError,
+        )
+        _retryable_types_cache.value = retryable_types
+    return retryable_types
+
+
 _ACCOUNT_SETUP_RATE_LIMIT_CODES = {
     "1113",
     "billing_not_active",
@@ -162,16 +185,21 @@ class Conversation:
     """An ordered list of messages forming a conversation."""
 
     messages: list[Message] = field(default_factory=list)
+    _api_cache: list[dict[str, Any]] | None = field(default=None, init=False, repr=False)
 
     def add(self, role: str, content: str) -> None:
         self.messages.append(Message(role=role, content=content))
+        self._api_cache = None
 
     def to_api_messages(self) -> list[ChatCompletionMessageParam]:
         """Convert to the format expected by the OpenAI client."""
-        return [
+        if self._api_cache is not None:
+            return self._api_cache  # type: ignore[return-value]
+        self._api_cache = [
             {"role": msg.role, "content": msg.content}  # type: ignore[misc]
             for msg in self.messages
         ]
+        return self._api_cache  # type: ignore[return-value]
 
 
 def _provider_error_fields(exc: Exception) -> tuple[str, str]:
@@ -202,6 +230,8 @@ def _provider_error_fields(exc: Exception) -> tuple[str, str]:
 
 def _is_account_setup_error(exc: Exception) -> bool:
     """Return True when retrying cannot fix the provider/account state."""
+    from openai import AuthenticationError, PermissionDeniedError, RateLimitError
+
     if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
         return True
     if not isinstance(exc, RateLimitError):
@@ -250,6 +280,8 @@ def _log_error_summary(exc: Exception) -> str:
 
 def _build_client(config: ChatConfig) -> OpenAI:
     """Create an OpenAI client from the given config."""
+    from openai import OpenAI
+
     if not config.base_url:
         raise EngineError("No provider configured. Use /provider use <slug> to select one.")
     if not config.model:
@@ -273,7 +305,7 @@ def is_retryable_error(exc: Exception) -> bool:
     """Return True if *exc* is a transient error worth retrying."""
     if _is_account_setup_error(exc):
         return False
-    return isinstance(exc, _RETRYABLE_TYPES)
+    return isinstance(exc, _get_retryable_types())
 
 
 def _wait_backoff(
@@ -419,7 +451,7 @@ def stream_completion(
             span.end()  # type: ignore[reportUnknownMemberType]
             raise EngineError(_request_failure_message(exc)) from exc
 
-        partial_content: str = ""
+        partial_parts: list[str] = []
         saw_output = False
         try:
             for chunk in stream:
@@ -448,7 +480,7 @@ def stream_completion(
                 delta = choice.delta
                 finish_reason = choice.finish_reason or ""
                 if delta.content:
-                    partial_content += delta.content
+                    partial_parts.append(delta.content)
                 if delta.content or delta.tool_calls:
                     saw_output = True
                 if delta.content or delta.tool_calls or finish_reason or usage is not None:
@@ -463,6 +495,7 @@ def stream_completion(
                         usage=usage,
                     )
         except Exception as exc:
+            partial_content = "".join(partial_parts)
             log = (
                 _log.info
                 if is_retryable_error(exc) and not saw_output and attempt < retry.max_retries

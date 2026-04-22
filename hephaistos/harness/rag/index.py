@@ -58,6 +58,8 @@ class ArmoryIndex:
         self.strategy = strategy
         self.documents: list[ChunkedDocument] = []
         self._file_hashes: dict[str, str] = {}  # rel_path -> hash
+        self._retriever: Any = None  # cached default retriever instance
+        self._retriever_cache: dict[tuple[str, int | None], Any] = {}
 
     @property
     def all_chunks(self) -> list[Chunk]:
@@ -75,6 +77,8 @@ class ArmoryIndex:
         timer = Timer()
         self.documents = []
         self._file_hashes = {}
+        self._retriever = None
+        self._retriever_cache = {}
 
         with timer:
             for file_path in self._iter_source_files():
@@ -160,6 +164,8 @@ class ArmoryIndex:
 
         self.documents = []
         self._file_hashes = {}
+        self._retriever = None
+        self._retriever_cache = {}
         file_hashes_raw: Any = data.get("file_hashes", {})
         if isinstance(file_hashes_raw, dict):
             file_hashes = cast("dict[str, str]", file_hashes_raw)

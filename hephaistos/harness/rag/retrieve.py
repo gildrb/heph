@@ -148,6 +148,8 @@ _STOP_WORDS = frozenset(
     }
 )
 
+_IDENTITY_CACHE_KEY = (TransformStrategy.IDENTITY.value, None)
+
 
 @dataclass(frozen=True, slots=True)
 class ScoredChunk:
@@ -614,6 +616,17 @@ def _create_retriever(
     return TfidfRetriever(index)
 
 
+def _retriever_cache_key(
+    transform_strategy: TransformStrategy,
+    prompt_fn: PromptFn | None,
+) -> tuple[str, int | None]:
+    """Build a cache key for retrievers bound to a query-transform config."""
+    prompt_key: int | None = None
+    if transform_strategy in (TransformStrategy.HYDE, TransformStrategy.MULTI_QUERY):
+        prompt_key = id(prompt_fn) if prompt_fn is not None else None
+    return (transform_strategy.value, prompt_key)
+
+
 def retrieve(
     query: str,
     index: ArmoryIndex,
@@ -645,7 +658,16 @@ def retrieve(
     if transform_strategy != TransformStrategy.IDENTITY:
         transformer = create_transformer(transform_strategy, prompt_fn)
 
-    retriever = _create_retriever(index, query_transformer=transformer)
+    cache_key = _retriever_cache_key(transform_strategy, prompt_fn)
+    retriever = index._retriever_cache.get(cache_key)  # type: ignore[reportPrivateUsage]
+    if retriever is None:
+        if cache_key == _IDENTITY_CACHE_KEY:
+            retriever = index._retriever  # type: ignore[reportPrivateUsage]
+        if retriever is None:
+            retriever = _create_retriever(index, query_transformer=transformer)
+            if cache_key == _IDENTITY_CACHE_KEY:
+                index._retriever = retriever  # type: ignore[reportPrivateUsage]
+        index._retriever_cache[cache_key] = retriever  # type: ignore[reportPrivateUsage]
     results = retriever.retrieve(query, top_k)
 
     # Filter by minimum relevance score

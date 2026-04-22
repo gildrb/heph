@@ -3,9 +3,11 @@
 When a release or edge deploy causes problems, follow these steps to
 revert and restore service.
 
-## Edge Deploy (main branch)
+## Edge Deploy (manual workflow)
 
-Edge deploys run on every push to `main` via `.github/workflows/deploy.yml`.
+Edge deploys are published only when `.github/workflows/deploy.yml` is run
+manually. Routine pushes to `main` do not create a new edge deployment or
+refresh the rolling edge prerelease.
 
 ### Rollback Steps
 
@@ -17,7 +19,8 @@ Edge deploys run on every push to `main` via `.github/workflows/deploy.yml`.
    git revert <sha>
    git push origin main
    ```
-   The revert push triggers a new edge deploy automatically.
+   If you want the reverted state available on edge, run the Deploy workflow
+   manually and target `main` (or the specific ref you want to publish).
 
 3. **Verify** — check the new edge release and confirm the app works.
 
@@ -60,5 +63,6 @@ Stable releases are published to PyPI on `v*` tags via `.github/workflows/releas
 ## Prevention
 
 - Always test on edge before cutting a stable release
+- Keep edge publishes explicit so routine `main` pushes do not create deployment noise
 - Use `--profile` and `--profile-memory` flags during QA
 - Keep a small smoke-test checklist for install, armory init, and chat startup

@@ -24,6 +24,48 @@ _PROVIDERS_FILE = _CONFIG_DIR / "providers.toml"
 
 
 @dataclass
+class _ProviderConfigCache:
+    path: Path | None = None
+    stamp: tuple[bool, int | None, int | None] | None = None
+    config: ProviderConfig | None = None
+
+
+_provider_cache_ref = _ProviderConfigCache()
+
+
+def _provider_file_stamp(path: Path) -> tuple[bool, int | None, int | None]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (False, None, None)
+    return (True, stat.st_mtime_ns, stat.st_size)
+
+
+def _provider_cache(path: Path) -> ProviderConfig | None:
+    """Return the cached ProviderConfig for a path, if the file is unchanged."""
+    if _provider_cache_ref.config is None or _provider_cache_ref.path != path:
+        return None
+    if _provider_cache_ref.stamp != _provider_file_stamp(path):
+        return None
+    return _provider_cache_ref.config
+
+
+def invalidate_provider_cache(
+    replacement: ProviderConfig | None = None, *, path: Path | None = None
+) -> None:
+    """Update or clear the in-process provider config cache."""
+    if replacement is None:
+        _provider_cache_ref.path = None
+        _provider_cache_ref.stamp = None
+        _provider_cache_ref.config = None
+        return
+    cache_path = path or _PROVIDERS_FILE
+    _provider_cache_ref.path = cache_path
+    _provider_cache_ref.stamp = _provider_file_stamp(cache_path)
+    _provider_cache_ref.config = replacement
+
+
+@dataclass
 class Provider:
     slug: str
     display_name: str
@@ -102,13 +144,17 @@ class ProviderConfig:
                 lines.append(f"models = [{models_str}]")
             lines.append("")
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        invalidate_provider_cache(self, path=path)
 
     @classmethod
     def load(cls, path: Path | None = None) -> ProviderConfig:
         path = path or _PROVIDERS_FILE
+        cached = _provider_cache(path)
+        if cached is not None:
+            return cached
         if not path.is_file():
             cfg = _default_config()
-            cfg.save(path)
+            invalidate_provider_cache(cfg, path=path)
             return cfg
 
         with path.open("rb") as f:
@@ -120,7 +166,9 @@ class ProviderConfig:
                 continue
             typed_section: dict[str, Any] = section  # type: ignore[assignment]
             providers[slug] = _sanitize_provider(slug, typed_section)
-        return cls(providers=providers)
+        cfg = cls(providers=providers)
+        invalidate_provider_cache(cfg, path=path)
+        return cfg
 
 
 def providers_dir() -> Path:

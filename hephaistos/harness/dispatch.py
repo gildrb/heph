@@ -411,7 +411,7 @@ def iter_agent_events(
             _sync_conversation(conversation, api_messages)
             llm_messages = _inject_turn_context(api_messages, turn_evidence, extra_system_prompt)
 
-        collected_text = ""
+        collected_parts: list[str] = []
         collected_tool_calls: list[_ToolCall] = []
         finish_reason = ""
         stream_usage: dict[str, int] | None = None
@@ -428,7 +428,7 @@ def iter_agent_events(
                 client_factory=_build_client,
             ):
                 if delta.content:
-                    collected_text += delta.content
+                    collected_parts.append(delta.content)
                     yield AssistantDeltaEvent(delta.content)
                 if delta.tool_calls:
                     _merge_tool_call_deltas(collected_tool_calls, delta.tool_calls)
@@ -436,6 +436,8 @@ def iter_agent_events(
                     finish_reason = delta.finish_reason
                 if delta.usage:
                     stream_usage = delta.usage
+
+        collected_text = "".join(collected_parts)
 
         if not collected_tool_calls:
             _record_usage(usage, stream_usage, api_messages, collected_text, config.model)

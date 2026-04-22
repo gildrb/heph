@@ -28,6 +28,9 @@ _USERNAME = "api_key"
 # Module-level volatile override cache.  Keys set via /api key live here
 _volatile: dict[str, str] = {}
 
+# In-process cache for keychain lookups (avoids OS keychain round-trip per API call).
+_keychain_cache: dict[str, str | None] = {}
+
 
 def _service_name(slug: str) -> str:
     return f"{_SERVICE_PREFIX}:{slug}"
@@ -36,17 +39,23 @@ def _service_name(slug: str) -> str:
 def store_key(slug: str, api_key: str) -> None:
     """Persist an API key to the OS keychain for the given provider slug."""
     keyring.set_password(_service_name(slug), _USERNAME, api_key)
+    _keychain_cache[slug] = api_key
 
 
 def retrieve_key(slug: str) -> str | None:
     """Retrieve an API key from the OS keychain.
 
+    Results are cached in-process to avoid repeated OS keychain round-trips.
     Returns the key string, or ``None`` if not found (or keychain unavailable).
     """
+    if slug in _keychain_cache:
+        return _keychain_cache[slug]
     try:
-        return keyring.get_password(_service_name(slug), _USERNAME)
+        result = keyring.get_password(_service_name(slug), _USERNAME)
     except KeyringError:
         return None
+    _keychain_cache[slug] = result
+    return result
 
 
 def has_key(slug: str) -> bool:
@@ -61,6 +70,7 @@ def set_volatile(slug: str, api_key: str) -> None:
     the user explicitly wants a session-scoped key.
     """
     _volatile[slug] = api_key
+    _keychain_cache.pop(slug, None)
 
 
 def get_volatile(slug: str) -> str | None:

@@ -362,10 +362,23 @@ def save_credentials(creds: OAuthCredentials) -> None:
         os.write(fd, raw)
     finally:
         os.close(fd)
+    _creds_cache[creds.provider] = creds
+
+
+# --- In-process credentials cache -------------------------------------------
+
+_creds_cache: dict[str, OAuthCredentials] = {}
 
 
 def load_credentials(provider: str) -> OAuthCredentials | None:
-    """Load credentials, auto-refreshing if expired."""
+    """Load credentials, auto-refreshing if expired.
+
+    Results are cached in-process to avoid repeated disk reads.
+    """
+    cached = _creds_cache.get(provider)
+    if cached is not None and not cached.is_expired:
+        return cached
+
     data = _load_all()
     entry = data.get(provider)
     if not entry or entry.get("type") != "oauth":
@@ -389,6 +402,7 @@ def load_credentials(provider: str) -> OAuthCredentials | None:
             )
             return None
 
+    _creds_cache[provider] = creds
     return creds
 
 
@@ -398,6 +412,7 @@ def clear_credentials(provider: str) -> bool:
     if provider not in data:
         return False
     del data[provider]
+    _creds_cache.pop(provider, None)
     _AUTH_DIR.mkdir(parents=True, exist_ok=True)
     _AUTH_DIR.chmod(0o700)
     raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")

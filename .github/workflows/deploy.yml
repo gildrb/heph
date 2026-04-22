@@ -1,9 +1,12 @@
 name: Deploy
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy to edge"
+        required: false
+        default: main
 
 permissions:
   contents: write
@@ -20,6 +23,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.inputs.ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Gitleaks secret scan
@@ -144,7 +148,8 @@ jobs:
             echo "No webhook URL configured, skipping notification"
             exit 0
           fi
+          EDGE_REF="${{ github.event.inputs.ref || github.ref_name }}"
           curl -s -X POST \
             -H "Content-Type: application/json" \
-            -d "{\"version\":\"edge\",\"commit\":\"${GITHUB_SHA}\",\"environment\":\"edge\",\"repository\":\"${GITHUB_REPOSITORY}\",\"ref\":\"main\",\"trigger\":\"push\"}" \
+            -d "{\"version\":\"edge\",\"commit\":\"${GITHUB_SHA}\",\"environment\":\"edge\",\"repository\":\"${GITHUB_REPOSITORY}\",\"ref\":\"${EDGE_REF}\",\"trigger\":\"workflow_dispatch\"}" \
             "${DEPLOY_WEBHOOK_URL}" || true

@@ -6,10 +6,12 @@ import contextlib
 
 import keyring
 import pytest
+from keyring.errors import KeyringError
 
 from hephaistos.providers.keyring_store import (
     _SERVICE_PREFIX,  # type: ignore[reportPrivateUsage]
     _USERNAME,  # type: ignore[reportPrivateUsage]
+    _keychain_cache,  # type: ignore[reportPrivateUsage]
     get_volatile,
     mask_key,
     resolve_key,
@@ -25,9 +27,11 @@ _TEST_SLUG = "__test_hephaistos_unit__"
 @pytest.fixture(autouse=True)
 def _clean_test_key():  # pyright: ignore[reportUnusedFunction]
     """Ensure no leftover test key in system keyring."""
+    _keychain_cache.pop(_TEST_SLUG, None)
     with contextlib.suppress(Exception):
         keyring.delete_password(f"{_SERVICE_PREFIX}:{_TEST_SLUG}", _USERNAME)
     yield
+    _keychain_cache.pop(_TEST_SLUG, None)
     with contextlib.suppress(Exception):
         keyring.delete_password(f"{_SERVICE_PREFIX}:{_TEST_SLUG}", _USERNAME)
 
@@ -80,6 +84,26 @@ class TestKeychainRoundTrip:
         except Exception:
             pytest.skip("keychain not available in this environment")
         assert retrieve_key(_TEST_SLUG) == "test-secret-key"
+
+    def test_transient_keyring_errors_are_not_cached(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = 0
+
+        def flaky_get_password(service_name: str, username: str) -> str | None:
+            nonlocal calls
+            calls += 1
+            assert service_name == f"{_SERVICE_PREFIX}:{_TEST_SLUG}"
+            assert username == _USERNAME
+            if calls == 1:
+                raise KeyringError("locked")
+            return "recovered-key"
+
+        monkeypatch.setattr(keyring, "get_password", flaky_get_password)
+
+        assert retrieve_key(_TEST_SLUG) is None
+        assert retrieve_key(_TEST_SLUG) == "recovered-key"
+        assert calls == 2
 
 
 # ---------------------------------------------------------------------------

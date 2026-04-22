@@ -15,6 +15,7 @@ the model picker, and cost tracking.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 
 from hephaistos.logging import get_logger
@@ -224,12 +225,18 @@ _BUILTIN_MODELS: list[ModelInfo] = [
 ]
 
 
+@functools.lru_cache(maxsize=1)
+def builtin_models() -> list[ModelInfo]:
+    """Return the built-in model catalog (constructed lazily on first access)."""
+    return list(_BUILTIN_MODELS)
+
+
 class ModelRegistry:
     """Lookup table for model metadata."""
 
     def __init__(self, models: list[ModelInfo] | None = None) -> None:
         self._models: dict[str, ModelInfo] = {}
-        for m in models or _BUILTIN_MODELS:
+        for m in models or builtin_models():
             if not is_supported_model_for_provider(m.name, m.provider):
                 continue
             self._models[m.name] = m
