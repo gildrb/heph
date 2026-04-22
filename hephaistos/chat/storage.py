@@ -9,9 +9,10 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TypedDict
 from uuid import uuid4
 
+from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.chat.engine import Conversation, Message
 from hephaistos.logging import get_logger
 
@@ -22,6 +23,13 @@ CHATS_DIR = "chats"
 
 class ChatStorageError(Exception):
     """Raised on chat persistence failures."""
+
+
+class SessionRecord(TypedDict):
+    session_id: str
+    title: str
+    created_at: str
+    updated_at: str
 
 
 def _chats_path(armory_path: Path) -> Path:
@@ -68,23 +76,23 @@ def save(
 
     file_path = _session_path(armory_path, session_id)
 
-    data: dict[str, Any] = {
+    data: dict[str, object] = {
         "session_id": session_id,
         "title": title,
         "updated_at": datetime.now(UTC).isoformat(),
         "messages": [_message_to_dict(m) for m in conversation.messages],
     }
-    existing: dict[str, Any] = {}
+    existing: dict[str, object] = {}
     if file_path.exists():
         raw_existing: object = json.loads(file_path.read_text(encoding="utf-8"))
-        if isinstance(raw_existing, dict):
-            existing = raw_existing  # type: ignore[assignment]
+        if is_string_mapping(raw_existing):
+            existing = raw_existing
         data["created_at"] = existing.get("created_at", datetime.now(UTC).isoformat())
     else:
         data["created_at"] = datetime.now(UTC).isoformat()
     if metadata is not None:
         data["metadata"] = metadata
-    elif isinstance(existing.get("metadata"), dict):
+    elif is_string_mapping(existing.get("metadata")):
         data["metadata"] = existing["metadata"]
 
     file_path.write_text(
@@ -104,7 +112,7 @@ def save(
     return file_path
 
 
-def _load_session_data(armory_path: Path, session_id: str) -> dict[str, Any]:
+def _load_session_data(armory_path: Path, session_id: str) -> dict[str, object]:
     """Load the raw JSON payload for a saved chat session."""
     _validate_session_path(armory_path, session_id)
 
@@ -116,10 +124,9 @@ def _load_session_data(armory_path: Path, session_id: str) -> dict[str, Any]:
         raw_data: object = json.loads(file_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         raise ChatStorageError(f"corrupt session file {session_id}") from exc
-    if not isinstance(raw_data, dict):
+    if not is_string_mapping(raw_data):
         raise ChatStorageError(f"corrupt session file {session_id}")
-    data: dict[str, Any] = raw_data  # type: ignore[assignment]
-    return data
+    return raw_data
 
 
 def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
@@ -131,12 +138,13 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
     conversation = Conversation()
     try:
         raw_messages = data.get("messages", [])
-        if not isinstance(raw_messages, list):
+        if not is_object_list(raw_messages):
             raw_messages = []
-        typed_messages = cast("list[dict[str, Any]]", raw_messages)
-        for msg in typed_messages:
-            role_val: object = msg.get("role")
-            content_val: object = msg.get("content")
+        for msg in raw_messages:
+            if not is_string_mapping(msg):
+                continue
+            role_val = msg.get("role")
+            content_val = msg.get("content")
             if role_val is None or content_val is None:
                 continue
             conversation.add(str(role_val), str(content_val))
@@ -164,17 +172,16 @@ def load(armory_path: Path, session_id: str) -> tuple[Conversation, str]:
     return conversation, title if isinstance(title, str) else ""
 
 
-def load_metadata(armory_path: Path, session_id: str) -> dict[str, Any]:
+def load_metadata(armory_path: Path, session_id: str) -> dict[str, object]:
     """Load optional session metadata stored alongside the conversation."""
     data = _load_session_data(armory_path, session_id)
     metadata: object = data.get("metadata")
-    if isinstance(metadata, dict):
-        result: dict[str, Any] = metadata  # type: ignore[assignment]
-        return result
+    if is_string_mapping(metadata):
+        return metadata
     return {}
 
 
-def list_sessions(armory_path: Path) -> list[dict[str, str]]:
+def list_sessions(armory_path: Path) -> list[SessionRecord]:
     """List all chat sessions in the armory.
 
     Returns a list of dicts with keys: session_id, title, created_at, updated_at.
@@ -183,16 +190,18 @@ def list_sessions(armory_path: Path) -> list[dict[str, str]]:
     if not chats.exists():
         return []
 
-    sessions: list[dict[str, str]] = []
+    sessions: list[SessionRecord] = []
     for file_path in sorted(chats.glob("*.json")):
         try:
             data = json.loads(file_path.read_text(encoding="utf-8"))
+            if not is_string_mapping(data):
+                continue
             sessions.append(
                 {
-                    "session_id": data.get("session_id", file_path.stem),
-                    "title": data.get("title", ""),
-                    "created_at": data.get("created_at", ""),
-                    "updated_at": data.get("updated_at", ""),
+                    "session_id": str(data.get("session_id", file_path.stem)),
+                    "title": str(data.get("title", "")),
+                    "created_at": str(data.get("created_at", "")),
+                    "updated_at": str(data.get("updated_at", "")),
                 }
             )
         except (json.JSONDecodeError, KeyError):

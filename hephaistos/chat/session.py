@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import sys
 import threading
@@ -16,6 +17,7 @@ from hephaistos.chat.events import render_turn_event
 from hephaistos.chat.orchestrator import TurnOrchestrator
 from hephaistos.chat.titles import derive_title as _derive_title
 from hephaistos.chat.usage import SessionUsage
+from hephaistos.harness.dispatch import SteeringQueue
 from hephaistos.harness.persona import Persona, resolve_persona
 from hephaistos.harness.prompt import build_system_prompt
 from hephaistos.harness.rag import ArmoryIndex
@@ -39,27 +41,20 @@ class ChatSession:
     dirty: bool = False
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
-    _tool_registry: ToolRegistry = field(default=None, init=False, repr=False)  # type: ignore[assignment]
+    _tool_registry: ToolRegistry = field(
+        default_factory=default_registry.child,
+        init=False,
+        repr=False,
+    )
     usage: SessionUsage = field(default_factory=SessionUsage)
-    trace: TraceWriter = field(default=None, init=False, repr=False)  # type: ignore[assignment]
-    steering: object = field(
-        default=None, init=False, repr=False
-    )  # SteeringQueue, typed as object to avoid circular import
+    trace: TraceWriter = field(init=False, repr=False)
+    steering: SteeringQueue = field(default_factory=SteeringQueue, init=False, repr=False)
     study_state: StudyState = field(default_factory=StudyState)
     persona: Persona = field(default_factory=lambda: resolve_persona(None))
 
     def __post_init__(self) -> None:
-        if self.trace is None:  # pyright: ignore[reportUnnecessaryComparison]
-            object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))
-            import atexit
-
-            atexit.register(self.trace.close)
-        if self.steering is None:  # pyright: ignore[reportUnnecessaryComparison]
-            from hephaistos.harness.dispatch import SteeringQueue
-
-            object.__setattr__(self, "steering", SteeringQueue())
-        if self._tool_registry is None:  # pyright: ignore[reportUnnecessaryComparison]
-            object.__setattr__(self, "_tool_registry", default_registry.child())
+        object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))
+        atexit.register(self.trace.close)
 
     @property
     def tool_registry(self) -> ToolRegistry:
@@ -76,6 +71,17 @@ class ChatSession:
     @rag_index.setter
     def rag_index(self, value: ArmoryIndex | None) -> None:
         object.__setattr__(self, "_rag_index", value)
+
+    def configure_armory_context(
+        self,
+        *,
+        memory: MemoryStore | None = None,
+        tool_registry: ToolRegistry | None = None,
+    ) -> None:
+        if memory is not None:
+            object.__setattr__(self, "_memory", memory)
+        if tool_registry is not None:
+            object.__setattr__(self, "_tool_registry", tool_registry)
 
 
 class SessionError(Exception):
@@ -160,6 +166,9 @@ def _replace_system_prompt(session: ChatSession) -> None:  # pyright: ignore[rep
     session.conversation.messages.insert(0, Message(role="system", content=new_prompt))
 
 
+replace_system_prompt = _replace_system_prompt
+
+
 def create_plain_session(config: ChatConfig) -> ChatSession:
     """Create a fresh chat session without an attached armory."""
     conversation = Conversation()
@@ -217,8 +226,10 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         armory_path=armory_path,
         source_file_count=source_file_count,
     )
-    session._memory = load_memory(armory_path)  # type: ignore[reportPrivateUsage]
-    object.__setattr__(session, "_tool_registry", _load_armory_tools(armory_path))
+    session.configure_armory_context(
+        memory=load_memory(armory_path),
+        tool_registry=_load_armory_tools(armory_path),
+    )
     _log.info(
         "session created",
         extra={
@@ -227,8 +238,8 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
                 "armory": str(armory_path),
                 "source_files": source_file_count,
                 "model": config.model,
-                "memory_entries": len(session._memory.entries) if session._memory else 0,  # type: ignore[reportPrivateUsage]
-                "tools": len(session._tool_registry.schemas),  # type: ignore[reportPrivateUsage]
+                "memory_entries": len(session.memory.entries) if session.memory else 0,
+                "tools": len(session.tool_registry.schemas),
             }
         },
     )
@@ -264,8 +275,10 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         source_file_count=source_file_count,
         study_state=StudyState.from_dict(metadata.get("study_state")),
     )
-    session._memory = load_memory(armory_path)  # type: ignore[reportPrivateUsage]
-    object.__setattr__(session, "_tool_registry", _load_armory_tools(armory_path))
+    session.configure_armory_context(
+        memory=load_memory(armory_path),
+        tool_registry=_load_armory_tools(armory_path),
+    )
     _log.info(
         "session resumed",
         extra={
@@ -273,8 +286,8 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
                 "session_id": session_id,
                 "armory": str(armory_path),
                 "message_count": len(conversation.messages),
-                "memory_entries": len(session._memory.entries) if session._memory else 0,  # type: ignore[reportPrivateUsage]
-                "tools": len(session._tool_registry.schemas),  # type: ignore[reportPrivateUsage]
+                "memory_entries": len(session.memory.entries) if session.memory else 0,
+                "tools": len(session.tool_registry.schemas),
             }
         },
     )
@@ -363,6 +376,6 @@ def save_session(session: ChatSession) -> Path:
     return path
 
 
-def list_armory_sessions(armory_path: Path) -> list[dict[str, str]]:
+def list_armory_sessions(armory_path: Path) -> list[chat_storage.SessionRecord]:
     """Return saved sessions for the given armory."""
     return chat_storage.list_sessions(armory_path)

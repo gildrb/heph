@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import io
 import re
 import sys
-from typing import Any
+from typing import Protocol, runtime_checkable
 
 from hephaistos.app import palette
 from hephaistos.app.palette import (
@@ -26,6 +25,18 @@ def styled(text: str, style: object) -> str:
 
 
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+@runtime_checkable
+class _StdoutProxy(Protocol):
+    original_stdout: object
+
+
+@runtime_checkable
+class _TextOutput(Protocol):
+    def write(self, text: str, /) -> object: ...
+
+    def flush(self) -> object: ...
 
 
 def visible_len(text: str) -> int:
@@ -106,12 +117,14 @@ def print_shell_intro(
     print()
 
 
-def _real_stdout() -> io.TextIOWrapper:
+def _real_stdout() -> _TextOutput:
     """Return the real terminal stdout, bypassing any ``patch_stdout`` proxy."""
-    out: Any = sys.stdout
-    while hasattr(out, "original_stdout"):
+    out: object = sys.stdout
+    while isinstance(out, _StdoutProxy):
         out = out.original_stdout
-    return out  # type: ignore[return-value]
+    if not isinstance(out, _TextOutput):
+        raise TypeError("stdout proxy did not unwrap to a text stream")
+    return out
 
 
 def direct_print(text: str, end: str = "\n") -> None:

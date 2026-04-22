@@ -28,7 +28,21 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast, runtime_checkable
+
+try:
+    from docling.document_converter import (
+        DocumentConverter as _ImportedDocumentConverter,  # type: ignore[import-untyped]
+    )
+except ImportError:
+    _ImportedDocumentConverter = None
+
+try:
+    from sentence_transformers import (
+        SentenceTransformer as _ImportedSentenceTransformer,  # type: ignore[import-untyped]
+    )
+except ImportError:
+    _ImportedSentenceTransformer = None
 
 from hephaistos.logging import get_logger
 
@@ -105,6 +119,48 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
 
 
+class _MarkdownExportProtocol(Protocol):
+    def export_to_markdown(self) -> str: ...
+
+
+class _DoclingResultProtocol(Protocol):
+    document: _MarkdownExportProtocol
+
+
+class _DoclingConverterProtocol(Protocol):
+    def convert(self, path: str) -> _DoclingResultProtocol: ...
+
+
+@runtime_checkable
+class _ToListProtocol(Protocol):
+    def tolist(self) -> object: ...
+
+
+class _SentenceEncoderProtocol(Protocol):
+    def encode(
+        self,
+        sentences: list[str],
+        *,
+        convert_to_numpy: bool,
+        show_progress_bar: bool,
+    ) -> object: ...
+
+
+class _SentenceTransformerFactory(Protocol):
+    def __call__(self, model_name: str) -> _SentenceEncoderProtocol: ...
+
+
+if _ImportedDocumentConverter is None:
+    _DocumentConverter: type[_DoclingConverterProtocol] | None = None
+else:
+    _DocumentConverter = cast("type[_DoclingConverterProtocol]", _ImportedDocumentConverter)
+
+if _ImportedSentenceTransformer is None:
+    _SentenceTransformer: _SentenceTransformerFactory | None = None
+else:
+    _SentenceTransformer = cast("_SentenceTransformerFactory", _ImportedSentenceTransformer)
+
+
 class ChunkStrategy(Enum):
     """Selects which chunking algorithm ``chunk_file`` uses."""
 
@@ -151,24 +207,18 @@ def _is_docling_file(path: Path) -> bool:
 
 
 def _is_docling_available() -> bool:
-    try:
-        import docling  # type: ignore[UnusedImport]  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
+    return _DocumentConverter is not None
 
 
-_docling_converter: list[Any] = []
+_docling_converter: list[_DoclingConverterProtocol] = []
 
 
-def _get_docling_converter() -> Any:
+def _get_docling_converter() -> _DoclingConverterProtocol | None:
     """Return a lazily-initialised, cached ``DocumentConverter``."""
+    if _DocumentConverter is None:
+        return None
     if not _docling_converter:
-        from docling.document_converter import DocumentConverter  # type: ignore[import-untyped]
-
-        converter: Any = DocumentConverter()  # type: ignore[reportUnknownVariableType]
-        _docling_converter.append(converter)
+        _docling_converter.append(_DocumentConverter())
     return _docling_converter[0]
 
 
@@ -179,6 +229,8 @@ def _convert_to_markdown(path: Path) -> str | None:
     """
     try:
         converter = _get_docling_converter()
+        if converter is None:
+            return None
         result = converter.convert(str(path))
         return result.document.export_to_markdown()
     except Exception:
@@ -384,12 +436,35 @@ def chunk_text(
 
 
 def _is_st_available() -> bool:
-    try:
-        import sentence_transformers  # type: ignore[UnusedImport]  # noqa: F401
+    return _SentenceTransformer is not None
 
-        return True
-    except ImportError:
-        return False
+
+def _embedding_row(row: object) -> list[float] | None:
+    if isinstance(row, _ToListProtocol):
+        row = row.tolist()
+    if not isinstance(row, list):
+        return None
+    values: list[float] = []
+    typed_row = cast("list[object]", row)
+    for item in typed_row:
+        if not isinstance(item, int | float):
+            return None
+        values.append(float(item))
+    return values
+
+
+def _embedding_rows(matrix: object) -> list[list[float]]:
+    if isinstance(matrix, _ToListProtocol):
+        matrix = matrix.tolist()
+    if not isinstance(matrix, list):
+        return []
+    rows: list[list[float]] = []
+    typed_matrix = cast("list[object]", matrix)
+    for row in typed_matrix:
+        typed_row = _embedding_row(row)
+        if typed_row is not None:
+            rows.append(typed_row)
+    return rows
 
 
 def _cosine_sim(a: list[float], b: list[float]) -> float:
@@ -425,14 +500,17 @@ def chunk_semantic(
     if not _is_st_available():
         return chunk_text(text, source, chunk_size, overlap)
 
-    from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
-
     sentences = _split_sentences(text)
     if len(sentences) <= 1:
         return [Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))]
-    model: Any = SentenceTransformer("all-MiniLM-L6-v2")  # type: ignore[reportUnknownVariableType, reportUnknownMemberType]
-    embeddings: Any = model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)  # type: ignore[reportUnknownVariableType, reportUnknownMemberType]
-    emb_lists: list[list[float]] = [row.tolist() for row in embeddings]  # type: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    if _SentenceTransformer is None:
+        return chunk_text(text, source, chunk_size, overlap)
+    model = _SentenceTransformer("all-MiniLM-L6-v2")
+    emb_lists = _embedding_rows(
+        model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
+    )
+    if len(emb_lists) != len(sentences):
+        return chunk_text(text, source, chunk_size, overlap)
     breakpoints: list[int] = [0]
     for i in range(1, len(emb_lists)):
         sim = _cosine_sim(emb_lists[i - 1], emb_lists[i])

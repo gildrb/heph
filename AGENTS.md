@@ -23,7 +23,7 @@ uv run heph armory init PATH    # create a new armory
   Official release builds inject telemetry values in CI; source, editable, and
   Git installs must stay bare by default.
 - When CLI commands, telemetry surfaces, or README-adjacent docs change, run
-  `uv run python scripts/sync_docs.py` and keep `README.md`, `docs/index.md`,
+  `uv run python -m scripts.sync_docs` and keep `README.md`, `docs/index.md`,
   `docs/cli-reference.md`, `AGENTS.md`, and the architecture telemetry section
   aligned.
 <!-- sync-docs:telemetry-docs-contract:end -->
@@ -34,6 +34,7 @@ uv run ruff check .        # lint
 uv run ruff check --fix .  # lint with auto-fix
 uv run ruff format .       # format
 uv run ruff format --check .  # format check (CI mode)
+uv run python -m scripts.check_repo_policies  # no Any / no deferred imports
 ```
 
 ## Type Check
@@ -84,7 +85,9 @@ Operational playbooks for incident response:
 - Line length: 99 chars, double quotes, LF line endings
 - Naming: PascalCase classes, snake_case functions/variables, UPPER_SNAKE_CASE constants (enforced by ruff N rules)
 - Type checking: basedpyright strict mode
+- Explicit `Any` is forbidden; use concrete SDK types, `TypedDict`, dataclasses, or protocols instead
+- Standard top-level imports only; deferred imports are reserved for module-scope optional extras and armory plugin loading
 - Import boundaries: only `app` may import other packages; all other packages are forbidden from importing `app` (enforced by import-linter)
 - Tests: pytest with `--cov-fail-under=75`, `@pytest.mark.flaky(reruns=2)` for flaky tests
-- Pre-commit: ruff, ruff-format, basedpyright, check-large-files, vulture, pylint, lint-imports
+- Pre-commit: ruff, ruff-format, basedpyright, check-repo-policies, check-large-files, vulture, pylint, lint-imports
 </coding_guidelines>

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import ssl
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
+from hephaistos.app.commands import LogoutCommand, get_registry
 from hephaistos.providers.oauth import (
     OAuthCredentials,
     _ssl_context,  # type: ignore[reportPrivateUsage]
@@ -37,8 +41,6 @@ def test_ssl_context_certifi_fallback_when_no_default_certs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When default context has zero certs, certifi bundle must be loaded."""
-    import ssl
-
     original_create = ssl.create_default_context
 
     def _empty_context(*, cafile: str | None = None, **_kwargs: object) -> ssl.SSLContext:
@@ -70,9 +72,6 @@ def test_generate_pkce_returns_verifier_and_challenge() -> None:
 
 def test_generate_pkce_deterministic_challenge() -> None:
     """Same verifier should produce same challenge."""
-    import base64
-    import hashlib
-
     verifier, challenge = generate_pkce()
     expected = (
         base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest())
@@ -207,8 +206,6 @@ class TestCredentialPersistence:
 
 
 def test_login_command_registered() -> None:
-    from hephaistos.app.commands import get_registry
-
     registry = get_registry()
     cmd = registry.find("login")
     assert cmd is not None
@@ -216,8 +213,6 @@ def test_login_command_registered() -> None:
 
 
 def test_logout_command_registered() -> None:
-    from hephaistos.app.commands import get_registry
-
     registry = get_registry()
     cmd = registry.find("logout")
     assert cmd is not None
@@ -225,8 +220,6 @@ def test_logout_command_registered() -> None:
 
 
 def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hephaistos.app.commands import LogoutCommand
-
     monkeypatch.setattr(
         "hephaistos.providers.oauth.list_providers",
         list,
@@ -247,8 +240,6 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hephaistos.app.commands import LogoutCommand
-
     monkeypatch.setattr(
         "hephaistos.providers.oauth.list_providers",
         lambda: ["openai-codex"],

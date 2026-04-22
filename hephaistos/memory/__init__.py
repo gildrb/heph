@@ -28,15 +28,37 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
+from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import get_logger
 
 _log = get_logger("memory")
 
 _MEMORY_FILE = "memory.json"
+
+
+class MemoryEntryPayload(TypedDict):
+    """Serialized representation of a memory entry."""
+
+    topic: str
+    content: str
+    source: str
+    confidence: str
+    created_at: float
+    access_count: int
+    tags: list[str]
+
+
+def _normalize_tags(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [tag.strip() for tag in value.split(",") if tag.strip()]
+    if not is_object_list(value):
+        return []
+    return [tag for tag in value if isinstance(tag, str)]
 
 
 @dataclass
@@ -55,7 +77,7 @@ class MemoryEntry:
         if not self.created_at:
             self.created_at = time.time()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> MemoryEntryPayload:
         return {
             "topic": self.topic,
             "content": self.content,
@@ -67,15 +89,31 @@ class MemoryEntry:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> MemoryEntry:
+    def from_dict(cls, data: Mapping[str, object]) -> MemoryEntry:
+        raw_topic = data.get("topic", "")
+        topic = raw_topic if isinstance(raw_topic, str) else ""
+        raw_content = data.get("content", "")
+        content = raw_content if isinstance(raw_content, str) else ""
+        raw_source = data.get("source", "")
+        source = raw_source if isinstance(raw_source, str) else ""
+        raw_confidence = data.get("confidence", "discussed")
+        confidence = raw_confidence if isinstance(raw_confidence, str) else "discussed"
+        raw_created_at = data.get("created_at", 0.0)
+        created_at = (
+            float(raw_created_at)
+            if isinstance(raw_created_at, int | float)
+            else 0.0
+        )
+        raw_access_count = data.get("access_count", 0)
+        access_count = raw_access_count if isinstance(raw_access_count, int) else 0
         return cls(
-            topic=data.get("topic", ""),
-            content=data.get("content", ""),
-            source=data.get("source", ""),
-            confidence=data.get("confidence", "discussed"),
-            created_at=data.get("created_at", 0.0),
-            access_count=data.get("access_count", 0),
-            tags=data.get("tags", []),
+            topic=topic,
+            content=content,
+            source=source,
+            confidence=confidence,
+            created_at=created_at,
+            access_count=access_count,
+            tags=_normalize_tags(data.get("tags", [])),
         )
 
 
@@ -101,7 +139,16 @@ class MemoryStore:
             return False
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
-            self.entries = [MemoryEntry.from_dict(e) for e in data.get("entries", [])]
+            if not is_string_mapping(data):
+                _log.warning("memory load failed", extra={"fields": {"error": "invalid payload"}})
+                return False
+            raw_entries = data.get("entries", [])
+            entry_list = raw_entries if is_object_list(raw_entries) else []
+            self.entries = [
+                MemoryEntry.from_dict(entry)
+                for entry in entry_list
+                if is_string_mapping(entry)
+            ]
             _log.info(
                 "memory loaded",
                 extra={
@@ -206,24 +253,29 @@ class MemoryStore:
 
     def add_batch(
         self,
-        entries: list[dict[str, str]],
+        entries: Sequence[Mapping[str, object]],
         *,
         source: str = "",
         confidence: str = "discussed",
     ) -> int:
         """Add multiple entries at once. Returns the number actually added."""
         added = 0
-        for e in entries:
+        for entry in entries:
+            raw_topic = entry.get("topic", "")
+            topic = raw_topic if isinstance(raw_topic, str) else ""
+            raw_content = entry.get("content", "")
+            content = raw_content if isinstance(raw_content, str) else ""
+            raw_source = entry.get("source", source)
+            entry_source = raw_source if isinstance(raw_source, str) else source
+            raw_confidence = entry.get("confidence", confidence)
+            entry_confidence = raw_confidence if isinstance(raw_confidence, str) else confidence
+            tags = _normalize_tags(entry.get("tags", []))
             result = self.add(
-                topic=e.get("topic", ""),
-                content=e.get("content", ""),
-                source=e.get("source", source),
-                confidence=e.get("confidence", confidence),
-                tags=(
-                    e.get("tags", "").split(",")
-                    if isinstance(e.get("tags"), str)
-                    else list(e.get("tags", []) or [])
-                ),
+                topic=topic,
+                content=content,
+                source=entry_source,
+                confidence=entry_confidence,
+                tags=tags,
             )
             if result is not None:
                 added += 1

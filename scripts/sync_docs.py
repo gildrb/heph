@@ -4,18 +4,28 @@ from __future__ import annotations
 
 import argparse
 import argparse as _argparse
-import importlib
 import re
-import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-ROOT: Final[Path] = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from hephaistos.app.cli import build_parser
+from hephaistos.app.commands import get_registry
+from hephaistos.harness.rag.retrieve import _EMBED_MODEL_ENV, _RERANK_MODEL_ENV
+from hephaistos.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
+from hephaistos.parameters import cli as parameters_cli
+from hephaistos.providers.config import _default_config
+from hephaistos.providers.keyring_store import GLOBAL_API_KEY_ENV
+from hephaistos.telemetry import (
+    ANALYTICS_ENABLED_ENV,
+    CRASH_REPORTS_ENABLED_ENV,
+    POSTHOG_HOST_ENV,
+    POSTHOG_TOKEN_ENV,
+    SENTRY_DSN_ENV,
+)
 
+ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
 README_PATH: Final[Path] = ROOT / "README.md"
 DOCS_INDEX_PATH: Final[Path] = ROOT / "docs" / "index.md"
@@ -186,8 +196,6 @@ def get_subparsers_action(
 
 
 def collect_cli_commands(short_command: str, long_command: str) -> tuple[CommandLine, ...]:
-    from hephaistos.app.cli import build_parser
-
     parser = build_parser()
     subparsers = get_subparsers_action(parser)
     top_level = list(subparsers.choices.keys())
@@ -260,8 +268,6 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
 
 
 def collect_slash_commands() -> tuple[CommandLine, ...]:
-    from hephaistos.app.commands import get_registry
-
     registry = get_registry()
     return tuple(
         CommandLine(
@@ -273,23 +279,6 @@ def collect_slash_commands() -> tuple[CommandLine, ...]:
 
 
 def collect_env_vars() -> tuple[EnvVarDoc, ...]:
-    from hephaistos.logging import (
-        _LOG_FILE_ENV,
-        _LOG_FORMAT_ENV,
-        _LOG_LEVEL_ENV,
-    )
-    from hephaistos.parameters import cli as parameters_cli
-    from hephaistos.providers.config import _default_config
-    from hephaistos.providers.keyring_store import GLOBAL_API_KEY_ENV
-    from hephaistos.telemetry import (
-        ANALYTICS_ENABLED_ENV,
-        CRASH_REPORTS_ENABLED_ENV,
-        POSTHOG_HOST_ENV,
-        POSTHOG_TOKEN_ENV,
-        SENTRY_DSN_ENV,
-    )
-
-    rag_retrieve = importlib.import_module("hephaistos.harness.rag.retrieve")
     config_envs = [
         env
         for env in parameters_cli._CONFIG_KEY_TO_ENV.values()  # type: ignore[attr-defined]
@@ -308,8 +297,8 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             _LOG_LEVEL_ENV,
             _LOG_FILE_ENV,
             _LOG_FORMAT_ENV,
-            rag_retrieve._EMBED_MODEL_ENV,  # type: ignore[attr-defined]
-            rag_retrieve._RERANK_MODEL_ENV,  # type: ignore[attr-defined]
+            _EMBED_MODEL_ENV,
+            _RERANK_MODEL_ENV,
             *provider_envs,
         }
     )

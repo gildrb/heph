@@ -10,6 +10,7 @@ from pathlib import Path
 
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.parameters import settings as settings_store
+from hephaistos.providers.config import ProviderConfig
 from hephaistos.telemetry import (
     analytics_backend_available,
     analytics_enabled,
@@ -64,8 +65,6 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
                 config.max_tokens = int(toml["max_tokens"])
 
     try:
-        from hephaistos.providers.config import ProviderConfig
-
         pc = ProviderConfig.load()
         pc.apply_to_config(config)
     except Exception as exc:

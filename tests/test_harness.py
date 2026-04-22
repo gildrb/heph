@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 
+from hephaistos.chat._api_types import ApiMessage
 from hephaistos.harness.dispatch import (
     _format_tool_args,  # type: ignore[reportPrivateUsage]
     _merge_tool_call_deltas,  # type: ignore[reportPrivateUsage]
     _summarize_result,  # type: ignore[reportPrivateUsage]
+    _ToolCall,  # type: ignore[reportPrivateUsage]
     execute_tool_calls,
 )
 from hephaistos.harness.tools import (
@@ -28,6 +29,11 @@ from hephaistos.harness.tools import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+def _message_text(message: ApiMessage) -> str:
+    content = message["content"]
+    return content if isinstance(content, str) else ""
 
 
 @pytest.fixture
@@ -203,35 +209,60 @@ class TestToolSchemas:
 
 class TestMergeToolCallDeltas:
     def test_single_delta(self) -> None:
-        accumulated: list[dict[str, Any]] = []
+        accumulated: list[_ToolCall] = []
         _merge_tool_call_deltas(
             accumulated,
-            [{"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"com'}}],
+            [
+                {
+                    "index": 0,
+                    "id": "call_1",
+                    "function": {"name": "bash", "arguments": '{"com'},
+                }
+            ],
         )
         assert len(accumulated) == 1
         assert accumulated[0]["id"] == "call_1"
         assert accumulated[0]["function"]["name"] == "bash"
 
     def test_multi_chunk_args(self) -> None:
-        accumulated: list[dict[str, Any]] = []
+        accumulated: list[_ToolCall] = []
         _merge_tool_call_deltas(
             accumulated,
-            [{"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"com'}}],
+            [
+                {
+                    "index": 0,
+                    "id": "call_1",
+                    "function": {"name": "bash", "arguments": '{"com'},
+                }
+            ],
         )
         _merge_tool_call_deltas(
-            accumulated, [{"index": 0, "function": {"arguments": 'mand": "ls"}'}}]
+            accumulated,
+            [{"index": 0, "function": {"name": "", "arguments": 'mand": "ls"}'}}],
         )
         assert accumulated[0]["function"]["arguments"] == '{"command": "ls"}'
 
     def test_multiple_tool_calls(self) -> None:
-        accumulated: list[dict[str, Any]] = []
+        accumulated: list[_ToolCall] = []
         _merge_tool_call_deltas(
             accumulated,
-            [{"index": 0, "id": "call_1", "function": {"name": "bash", "arguments": '{"co'}}],
+            [
+                {
+                    "index": 0,
+                    "id": "call_1",
+                    "function": {"name": "bash", "arguments": '{"co'},
+                }
+            ],
         )
         _merge_tool_call_deltas(
             accumulated,
-            [{"index": 1, "id": "call_2", "function": {"name": "read_file", "arguments": '{"pa'}}],
+            [
+                {
+                    "index": 1,
+                    "id": "call_2",
+                    "function": {"name": "read_file", "arguments": '{"pa'},
+                }
+            ],
         )
         assert len(accumulated) == 2
 
@@ -273,7 +304,7 @@ class TestSummarizeResult:
 
 class TestExecuteToolCalls:
     def test_execute_bash(self, workspace: Path) -> None:
-        tool_calls = [
+        tool_calls: list[_ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -286,11 +317,11 @@ class TestExecuteToolCalls:
         results = execute_tool_calls(tool_calls, workspace)
         assert len(results) == 1
         assert results[0]["role"] == "tool"
-        assert results[0]["tool_call_id"] == "call_1"
-        assert "hello" in results[0]["content"]
+        assert results[0].get("tool_call_id") == "call_1"
+        assert "hello" in _message_text(results[0])
 
     def test_execute_unknown_tool(self, workspace: Path) -> None:
-        tool_calls = [
+        tool_calls: list[_ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -298,10 +329,10 @@ class TestExecuteToolCalls:
             }
         ]
         results = execute_tool_calls(tool_calls, workspace)
-        assert "Unknown tool" in results[0]["content"]
+        assert "Unknown tool" in _message_text(results[0])
 
     def test_execute_invalid_json(self, workspace: Path) -> None:
-        tool_calls = [
+        tool_calls: list[_ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -309,10 +340,10 @@ class TestExecuteToolCalls:
             }
         ]
         results = execute_tool_calls(tool_calls, workspace)
-        assert "invalid JSON" in results[0]["content"]
+        assert "invalid JSON" in _message_text(results[0])
 
     def test_execute_read_file(self, workspace: Path) -> None:
-        tool_calls = [
+        tool_calls: list[_ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -323,4 +354,4 @@ class TestExecuteToolCalls:
             }
         ]
         results = execute_tool_calls(tool_calls, workspace)
-        assert "hello" in results[0]["content"]
+        assert "hello" in _message_text(results[0])

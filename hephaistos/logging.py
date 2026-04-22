@@ -37,10 +37,12 @@ import os
 import re as _re
 import sys
 import time
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar, Self
+from typing import ClassVar, Self, TextIO
 
+from hephaistos._types import is_string_mapping
 from hephaistos.palette import (
     FORGE_EMBER,
     FORGE_IRON,
@@ -100,15 +102,14 @@ def redact_text(text: str) -> str:
     return text
 
 
-def _redact_dict(data: dict[str, Any]) -> dict[str, Any]:
+def _redact_dict(data: Mapping[str, object]) -> dict[str, object]:
     """Return a copy of *data* with sensitive keys and values redacted."""
-    redacted: dict[str, Any] = {}
+    redacted: dict[str, object] = {}
     for key, value in data.items():
         if _is_sensitive_key(key):
             redacted[key] = _REDACTED
-        elif isinstance(value, dict):
-            nested: dict[str, Any] = value  # type: ignore[assignment]
-            redacted[key] = _redact_dict(nested)
+        elif is_string_mapping(value):
+            redacted[key] = _redact_dict(value)
         elif isinstance(value, str):
             redacted[key] = redact_text(value)
         else:
@@ -129,16 +130,15 @@ class _JsonFormatter(logging.Formatter):
     """Emit one JSON object per log line."""
 
     def format(self, record: logging.LogRecord) -> str:
-        entry: dict[str, Any] = {
+        entry: dict[str, object] = {
             "ts": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
         }
         fields = getattr(record, "fields", None)
-        if fields and isinstance(fields, dict):
-            typed_fields: dict[str, Any] = fields  # type: ignore[assignment]
-            entry.update(_redact_dict(typed_fields))
+        if is_string_mapping(fields):
+            entry.update(_redact_dict(fields))
         if record.exc_info and record.exc_info[1] is not None:
             entry["exc"] = self.formatException(record.exc_info)
         trace_ctx = _get_trace_context()
@@ -167,9 +167,8 @@ class _TextFormatter(logging.Formatter):
         fields = getattr(record, "fields", None)
 
         parts = [f"{self._DIM}{ts}{self._RESET} {level} {record.name}: {record.getMessage()}"]
-        if fields and isinstance(fields, dict):
-            typed_fields: dict[str, Any] = fields  # type: ignore[assignment]
-            redacted_fields = _redact_dict(typed_fields)
+        if is_string_mapping(fields):
+            redacted_fields = _redact_dict(fields)
             for k, v in redacted_fields.items():
                 parts.append(f"  {self._DIM}{k}={v}{self._RESET}")
 
@@ -292,7 +291,7 @@ class TraceWriter:
         self.session_id = session_id
         self._armory_path = armory_path
         self._path: Path | None = None
-        self._file_handle: Any = None
+        self._file_handle: TextIO | None = None
         self._log = get_logger("trace")
 
     @property
@@ -303,7 +302,7 @@ class TraceWriter:
             )
         return self._path
 
-    def _ensure_handle(self) -> Any:
+    def _ensure_handle(self) -> TextIO | None:
         if self._file_handle is not None:
             return self._file_handle
         if self._armory_path is None:
@@ -315,7 +314,7 @@ class TraceWriter:
         self._file_handle = p.open("a", encoding="utf-8")
         return self._file_handle
 
-    def _write(self, event: dict[str, Any]) -> None:
+    def _write(self, event: Mapping[str, object]) -> None:
         fh = self._ensure_handle()
         if fh is None:
             return
@@ -354,8 +353,8 @@ class TraceWriter:
             }
         )
 
-    def record_session_event(self, event: str, **details: Any) -> None:
-        entry: dict[str, Any] = {
+    def record_session_event(self, event: str, **details: object) -> None:
+        entry: dict[str, object] = {
             "type": "session",
             "ts": self._ts(),
             "event": event,

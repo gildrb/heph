@@ -21,6 +21,8 @@ from hephaistos.harness.rag.query_transform import (
     transform_query,
 )
 from hephaistos.harness.rag.retrieve import (
+    CrossEncoderReranker,
+    EmbeddingRetriever,
     HybridRetriever,
     ScoredChunk,
     retrieve,
@@ -535,8 +537,6 @@ class TestHybridRetrieverWithTransformation:
         ]
         index = _make_index_with_chunks(chunks)
 
-        from hephaistos.harness.rag.retrieve import EmbeddingRetriever
-
         mock_embed = MagicMock(spec=EmbeddingRetriever)
         mock_embed.retrieve.return_value = [
             ScoredChunk(chunk=chunks[0], score=0.95),
@@ -592,8 +592,6 @@ class TestHybridRetrieverWithTransformation:
             _make_chunk("Rust systems", "b.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-
-        from hephaistos.harness.rag.retrieve import CrossEncoderReranker
 
         mock_transformer = MagicMock()
         mock_transformer.transform.return_value = [

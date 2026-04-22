@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
+from openai import APITimeoutError, AuthenticationError
 
 from hephaistos.chat.engine import (
     ChatConfig,
@@ -97,8 +98,6 @@ class TestStreamCompletionPipeline:
         config = _make_config()
         client = MagicMock()
 
-        from openai import APITimeoutError
-
         timeout = APITimeoutError(request=MagicMock())
         success_chunk = _mock_chunk(content="recovered", finish_reason="stop")
         client.chat.completions.create.side_effect = [
@@ -121,8 +120,6 @@ class TestStreamCompletionPipeline:
     def test_non_retryable_error_raises_immediately(self) -> None:
         config = _make_config()
         client = MagicMock()
-
-        from openai import AuthenticationError
 
         auth_error = AuthenticationError(
             message="bad key",

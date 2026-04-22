@@ -8,8 +8,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TypedDict
 
+from hephaistos._types import is_string_mapping
 from hephaistos.logging import get_logger
 from hephaistos.vocab.parser import VocabCard, VocabDeck
 
@@ -18,6 +19,17 @@ _log = get_logger("vocab.state")
 _SCHEDULE_FILE = "vocab_schedule.json"
 
 _DEFAULT_EASINESS = 2.5
+
+
+class VocabCardStatePayload(TypedDict, total=False):
+    front: str
+    back: str
+    source_file: str
+    repetitions: int
+    easiness: float
+    interval: int
+    last_review: str
+    next_review: str
 
 
 def _make_card_key(source_file: str, front: str) -> str:
@@ -45,8 +57,8 @@ class VocabCardState:
     def is_new(self) -> bool:
         return self.repetitions == 0
 
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {
+    def to_dict(self) -> VocabCardStatePayload:
+        payload: VocabCardStatePayload = {
             "front": self.front,
             "back": self.back,
             "source_file": self.source_file,
@@ -55,32 +67,48 @@ class VocabCardState:
             "interval": self.interval,
         }
         if self.last_review is not None:
-            d["last_review"] = self.last_review.isoformat()
+            payload["last_review"] = self.last_review.isoformat()
         if self.next_review is not None:
-            d["next_review"] = self.next_review.isoformat()
-        return d
+            payload["next_review"] = self.next_review.isoformat()
+        return payload
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> VocabCardState:
+    def from_dict(cls, data: Mapping[str, object]) -> VocabCardState:
         last_review: datetime | None = None
-        raw_last: object = data.get("last_review")
+        raw_last = data.get("last_review")
         if isinstance(raw_last, str):
             with contextlib.suppress(ValueError):
                 last_review = datetime.fromisoformat(raw_last)
 
         next_review: datetime | None = None
-        raw_next: object = data.get("next_review")
+        raw_next = data.get("next_review")
         if isinstance(raw_next, str):
             with contextlib.suppress(ValueError):
                 next_review = datetime.fromisoformat(raw_next)
 
+        raw_front = data.get("front", "")
+        front = raw_front if isinstance(raw_front, str) else ""
+        raw_back = data.get("back", "")
+        back = raw_back if isinstance(raw_back, str) else ""
+        raw_source_file = data.get("source_file", "")
+        source_file = raw_source_file if isinstance(raw_source_file, str) else ""
+        raw_repetitions = data.get("repetitions", 0)
+        repetitions = raw_repetitions if isinstance(raw_repetitions, int) else 0
+        raw_easiness = data.get("easiness", _DEFAULT_EASINESS)
+        easiness = (
+            float(raw_easiness)
+            if isinstance(raw_easiness, int | float)
+            else _DEFAULT_EASINESS
+        )
+        raw_interval = data.get("interval", 0)
+        interval = raw_interval if isinstance(raw_interval, int) else 0
         return cls(
-            front=str(data.get("front", "")),
-            back=str(data.get("back", "")),
-            source_file=str(data.get("source_file", "")),
-            repetitions=int(data.get("repetitions", 0)),
-            easiness=float(data.get("easiness", _DEFAULT_EASINESS)),
-            interval=int(data.get("interval", 0)),
+            front=front,
+            back=back,
+            source_file=source_file,
+            repetitions=repetitions,
+            easiness=easiness,
+            interval=interval,
             last_review=last_review,
             next_review=next_review,
         )
@@ -112,17 +140,13 @@ class VocabScheduleStore:
             return False
         try:
             raw_data = json.loads(self._path.read_text(encoding="utf-8"))
-            if not isinstance(raw_data, dict):
+            if not is_string_mapping(raw_data):
                 return False
-            data = cast("Mapping[str, object]", raw_data)
-            raw_cards = data.get("cards", {})
-            if isinstance(raw_cards, dict):
-                typed_cards = cast("dict[object, object]", raw_cards)
-                for raw_key, raw_value in typed_cards.items():
-                    if not isinstance(raw_key, str) or not isinstance(raw_value, dict):
-                        continue
-                    typed_value = cast("dict[str, Any]", raw_value)
-                    self.cards[raw_key] = VocabCardState.from_dict(typed_value)
+            raw_cards = raw_data.get("cards", {})
+            if is_string_mapping(raw_cards):
+                for raw_key, raw_value in raw_cards.items():
+                    if is_string_mapping(raw_value):
+                        self.cards[raw_key] = VocabCardState.from_dict(raw_value)
             _log.info(
                 "vocab schedule loaded",
                 extra={

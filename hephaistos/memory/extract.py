@@ -13,9 +13,17 @@ Extraction is deliberately conservative:
 from __future__ import annotations
 
 import json
-from typing import Any, cast
+from typing import TypedDict
 
-from hephaistos.chat.engine import ChatConfig, Conversation, build_client
+from openai.types.chat import ChatCompletion
+
+from hephaistos._types import is_object_list, is_string_mapping
+from hephaistos.chat.engine import (
+    ChatConfig,
+    Conversation,
+    build_client,
+    to_chat_completion_messages,
+)
 from hephaistos.logging import Timer, get_logger
 from hephaistos.memory import MemoryStore, save_memory
 
@@ -56,12 +64,18 @@ _MAX_USER_CHARS = 500
 _MAX_ASSISTANT_CHARS = 2000
 
 
+class ExtractedConcept(TypedDict):
+    topic: str
+    content: str
+    source: str
+
+
 def extract_from_exchange(
     config: ChatConfig,
     user_message: str,
     assistant_message: str,
     sources: str = "",
-) -> list[dict[str, str]]:
+) -> list[ExtractedConcept]:
     """Extract learned concepts from a single exchange.
 
     Returns a list of dicts with keys: topic, content, source.
@@ -84,14 +98,15 @@ def extract_from_exchange(
     try:
         client = build_client(config)
         with timer:
-            response = client.chat.completions.create(
+            response: ChatCompletion = client.chat.completions.create(
                 model=config.model,
-                messages=temp.to_api_messages(),
+                messages=to_chat_completion_messages(temp.to_api_messages()),
                 max_tokens=1000,
                 stream=False,
                 temperature=0.1,  # deterministic extraction
             )
-        raw = response.choices[0].message.content or "[]"
+        message_content = response.choices[0].message.content
+        raw = message_content if isinstance(message_content, str) and message_content else "[]"
     except Exception as exc:
         _log.warning(
             "memory extraction failed",
@@ -111,21 +126,22 @@ def extract_from_exchange(
             raw = raw.rsplit("```", 1)[0]
         raw = raw.strip()
 
-        entries = cast("list[Any]", json.loads(raw))
-        valid: list[dict[str, str]] = []
+        entries = json.loads(raw)
+        if not is_object_list(entries):
+            return []
+        valid: list[ExtractedConcept] = []
         for entry in entries:
-            if not isinstance(entry, dict):
+            if not is_string_mapping(entry):
                 continue
-            item = cast("dict[str, Any]", entry)
-            topic = str(item.get("topic", "")).strip()
-            content = str(item.get("content", "")).strip()
+            topic = str(entry.get("topic", "")).strip()
+            content = str(entry.get("content", "")).strip()
             if not topic or not content:
                 continue
             valid.append(
                 {
                     "topic": topic[:100],
                     "content": content[:500],
-                    "source": str(item.get("source", "conversation")),
+                    "source": str(entry.get("source", "conversation")),
                 }
             )
 

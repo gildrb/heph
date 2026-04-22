@@ -12,8 +12,10 @@ import json
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from hephaistos._types import is_object_list, is_string_mapping
+from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import filter_supported_models
 
 if TYPE_CHECKING:
@@ -78,8 +80,6 @@ class Provider:
     @property
     def api_key(self) -> str:
         """Resolve the API key from keychain → env var → volatile store."""
-        from hephaistos.providers.keyring_store import resolve_key
-
         return resolve_key(self.slug, self.api_key_env)
 
     @property
@@ -121,10 +121,7 @@ class ProviderConfig:
             return
         config.base_url = active.endpoint
         config.model = active.resolved_model
-        # Store provider reference for lazy key resolution instead of
-        # copying the raw key into the config object.
-        config._provider_slug = active.slug  # type: ignore[reportPrivateUsage]
-        config._provider_env = active.api_key_env  # type: ignore[reportPrivateUsage]
+        config.apply_provider_reference(active.slug, active.api_key_env)
 
     def save(self, path: Path | None = None) -> None:
         path = path or _PROVIDERS_FILE
@@ -162,10 +159,9 @@ class ProviderConfig:
 
         providers: dict[str, Provider] = {}
         for slug, section in data.items():
-            if not isinstance(section, dict):
+            if not is_string_mapping(section):
                 continue
-            typed_section: dict[str, Any] = section  # type: ignore[assignment]
-            providers[slug] = _sanitize_provider(slug, typed_section)
+            providers[slug] = _sanitize_provider(slug, section)
         cfg = cls(providers=providers)
         invalidate_provider_cache(cfg, path=path)
         return cfg
@@ -253,19 +249,26 @@ def _default_config() -> ProviderConfig:
 
 def _sanitize_provider(
     slug: str,
-    section: dict[str, Any],
+    section: dict[str, object],
 ) -> Provider:
     has_models_catalog = "models" in section
-    models = filter_supported_models(list(section.get("models", [])), slug)
-    current_model = section.get("current_model", "")
+    raw_models = section.get("models", [])
+    models = (
+        filter_supported_models([str(model) for model in raw_models], slug)
+        if is_object_list(raw_models)
+        else []
+    )
+    raw_current_model = section.get("current_model", "")
+    current_model = str(raw_current_model) if raw_current_model else ""
     if has_models_catalog and current_model and current_model not in models:
         current_model = ""
+    raw_active = section.get("active", False)
     return Provider(
         slug=slug,
-        display_name=section.get("display_name", slug),
-        endpoint=section.get("endpoint", ""),
-        api_key_env=section.get("api_key_env", ""),
+        display_name=str(section.get("display_name", slug)),
+        endpoint=str(section.get("endpoint", "")),
+        api_key_env=str(section.get("api_key_env", "")),
         models=models,
-        active=section.get("active", False),
+        active=bool(raw_active),
         current_model=current_model,
     )

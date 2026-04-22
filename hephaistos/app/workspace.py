@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from hephaistos.analytics import capture as capture_analytics
@@ -153,15 +154,17 @@ def _session_armory(session: ChatSession) -> Path | None:
     return _prompt_armory_for_sessions(session)
 
 
-def _recent_sessions(sessions: list[dict[str, str]]) -> list[dict[str, str]]:
+def _recent_sessions(
+    sessions: Sequence[chat_storage.SessionRecord],
+) -> list[chat_storage.SessionRecord]:
     """Return saved sessions with the most recently updated first."""
     return sorted(sessions, key=lambda entry: entry.get("updated_at", ""), reverse=True)
 
 
 def _match_saved_session(
-    sessions: list[dict[str, str]],
+    sessions: Sequence[chat_storage.SessionRecord],
     selector: str,
-) -> dict[str, str] | None:
+) -> chat_storage.SessionRecord | None:
     """Return a saved session by exact ID or unique ID prefix."""
     session_id = selector.strip()
     if not session_id:
@@ -251,3 +254,8 @@ def _handle_armory_command(session: ChatSession) -> ChatSession:  # pyright: ign
     if result is None:
         return session
     return result
+
+
+resume_saved_chat = _resume_saved_chat
+list_saved_chats = _list_saved_chats
+handle_armory_command = _handle_armory_command

@@ -31,11 +31,23 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from hephaistos.logging import get_logger
 
 _log = get_logger("rag.query_transform")
+
+
+class _WordNetProtocol(Protocol):
+    def synsets(self, word: str) -> list[object]: ...
+
+
+try:
+    from nltk.corpus import wordnet as _imported_wordnet  # type: ignore[import-untyped]
+except ImportError:
+    _wordnet: _WordNetProtocol | None = None
+else:
+    _wordnet = cast("_WordNetProtocol", _imported_wordnet)
 
 
 class TransformStrategy(Enum):
@@ -118,19 +130,27 @@ _SYNONYM_MAP: dict[str, list[str]] = {
 
 def _expand_with_wordnet(word: str) -> list[str]:
     """Try to expand a word using NLTK WordNet.  Returns empty list on failure."""
+    if _wordnet is None:
+        return []
     try:
-        from nltk.corpus import wordnet  # type: ignore[import-untyped]
-
-        synsets = wordnet.synsets(word)  # type: ignore[reportUnknownMemberType]
+        synsets = _wordnet.synsets(word)
         lemmas: set[str] = set()
-        for syn in synsets[:3]:  # type: ignore[reportUnknownVariableType]
-            for lemma in syn.lemmas()[:3]:  # type: ignore[reportUnknownMemberType, reportUnknownVariableType]
-                name = str(lemma.name()).replace("_", " ").lower()  # type: ignore[reportUnknownMemberType]
+        for syn in synsets[:3]:
+            lemma_getter = getattr(syn, "lemmas", None)
+            if not callable(lemma_getter):
+                continue
+            raw_lemmas: object = lemma_getter()
+            if not isinstance(raw_lemmas, list):
+                continue
+            typed_lemmas = cast("list[object]", raw_lemmas)
+            for lemma in typed_lemmas[:3]:
+                name_getter = getattr(lemma, "name", None)
+                if not callable(name_getter):
+                    continue
+                name = str(name_getter()).replace("_", " ").lower()
                 if name != word.lower() and len(name) > 2:
                     lemmas.add(name)
         return list(lemmas)[:5]  # cap expansions
-    except ImportError:
-        return []
     except Exception:
         return []
 

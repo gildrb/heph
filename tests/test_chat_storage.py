@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -58,8 +59,6 @@ def test_save_preserves_created_at(tmp_path: Path) -> None:
     conv.add("system", "You are helpful.")
     conv.add("user", "First message")
     save(armory, session_id, conv, title="v1")
-
-    import json
 
     path = armory / "chats" / f"{session_id}.json"
     data = json.loads(path.read_text())

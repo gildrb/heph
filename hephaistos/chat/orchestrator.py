@@ -16,9 +16,10 @@ from hephaistos.chat.engine import (
     stream_completion,
 )
 from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
+from hephaistos.chat.titles import derive_title
 from hephaistos.chat.usage import ContextBudget, save_usage
 from hephaistos.harness.citation import verify_response
-from hephaistos.harness.dispatch import SteeringQueue, iter_agent_events
+from hephaistos.harness.dispatch import iter_agent_events
 from hephaistos.harness.rag import (
     ArmoryIndex,
     ScoredChunk,
@@ -28,6 +29,7 @@ from hephaistos.harness.rag import (
     retrieve,
 )
 from hephaistos.logging import Timer, get_logger
+from hephaistos.memory.extract import extract_and_store
 from hephaistos.observability import get_meter, get_tracer
 from hephaistos.study import StudyState, StudyTurnPlan, apply_turn_result, plan_turn
 
@@ -203,7 +205,7 @@ class TurnOrchestrator:
             abort=abort,
             retry=self.retry,
             usage=session.usage,
-            steering=session.steering if isinstance(session.steering, SteeringQueue) else None,
+            steering=session.steering,
             turn_evidence=resolved.turn_evidence,
             extra_system_prompt=plan.prompt,
             tool_schemas=None if plan.allow_tools else [],
@@ -260,8 +262,6 @@ class TurnOrchestrator:
         notice = verify_response(self.last_reply, resolved.turn_evidence)
 
         if not session.title:
-            from hephaistos.chat.titles import derive_title
-
             session.title = derive_title(session.conversation)
         session.dirty = True
 
@@ -290,8 +290,6 @@ class TurnOrchestrator:
 
         if session.memory is not None and len(self.last_reply) >= 100:
             try:
-                from hephaistos.memory.extract import extract_and_store
-
                 mem = session.memory
                 cfg = session.config
                 reply = self.last_reply

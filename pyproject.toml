@@ -108,7 +108,6 @@ ignore = [
     "TRY003",   # long exception messages (fine for user-facing errors)
     "EM101",    # exception must not use string literals
     "EM102",    # exception must not use f-strings
-    "PLC0415",  # deferred imports (intentional for circular-dep avoidance)
     "TC001",    # MOVE type-only imports into type-checking block
     "TC002",    # MOVE type-only imports into type-checking block
     "TC003",    # MOVE type-only imports into type-checking block

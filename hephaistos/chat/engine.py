@@ -20,34 +20,67 @@ import random
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import Protocol, cast
 
-if TYPE_CHECKING:
-    from openai import (
-        OpenAI,
-        Stream,
-    )
-    from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
-    from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AuthenticationError,
+    InternalServerError,
+    OpenAI,
+    PermissionDeniedError,
+    RateLimitError,
+    Stream,
+)
+from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
+from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 
+from hephaistos._types import is_string_mapping
+from hephaistos.chat._api_types import ApiMessage, ToolCallDelta, UsagePayload
 from hephaistos.chat.resilience import CircuitBreaker
 from hephaistos.logging import Timer, get_logger, redact_text
 from hephaistos.observability import get_meter, get_tracer
+from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
+
+
+class _SpanProtocol(Protocol):
+    def set_attribute(self, key: str, value: object) -> object: ...
+
+    def end(self, _end_time: float | None = None) -> None: ...
+
+
+class _TracerProtocol(Protocol):
+    def start_span(self, name: str, **kwargs: object) -> _SpanProtocol: ...
+
+
+class _CounterProtocol(Protocol):
+    def add(self, value: float, _attributes: dict[str, str] | None = None) -> None: ...
+
+
+class _HistogramProtocol(Protocol):
+    def record(self, value: float, _attributes: dict[str, str] | None = None) -> None: ...
+
+
+class _MeterProtocol(Protocol):
+    def create_histogram(self, name: str, **kwargs: object) -> _HistogramProtocol: ...
+
+    def create_counter(self, name: str, **kwargs: object) -> _CounterProtocol: ...
+
 
 _log = get_logger("chat.engine")
 
-_tracer = get_tracer("chat.engine")
-_meter = get_meter("chat.engine")
+_tracer: _TracerProtocol = get_tracer("chat.engine")
+_meter: _MeterProtocol = get_meter("chat.engine")
 
-_llm_duration_hist = _meter.create_histogram(  # type: ignore[union-attr]
+_llm_duration_hist = _meter.create_histogram(
     "llm.request.duration",
     unit="ms",
     description="Duration of LLM completion requests",
 )
-_llm_token_counter = _meter.create_counter(  # type: ignore[union-attr]
+_llm_token_counter = _meter.create_counter(
     "llm.token.usage",
     description="Number of tokens used in LLM requests",
 )
@@ -86,10 +119,12 @@ class ChatConfig:
     def resolved_api_key(self) -> str:
         """Resolve the API key via keychain → env → volatile."""
         if self._provider_slug:
-            from hephaistos.providers.keyring_store import resolve_key
-
             return resolve_key(self._provider_slug, self._provider_env)
         return self.api_key
+
+    def apply_provider_reference(self, slug: str, env_var: str) -> None:
+        self._provider_slug = slug
+        self._provider_env = env_var
 
 
 class EngineError(Exception):
@@ -130,16 +165,8 @@ _retryable_types_cache = _RetryableTypesCache()
 
 
 def _get_retryable_types() -> tuple[type[Exception], ...]:
-    """Lazily construct the retryable exception tuple (defers openai import)."""
     retryable_types = _retryable_types_cache.value
     if retryable_types is None:
-        from openai import (
-            APIConnectionError,
-            APITimeoutError,
-            InternalServerError,
-            RateLimitError,
-        )
-
         retryable_types = (
             APIConnectionError,
             APITimeoutError,
@@ -185,21 +212,23 @@ class Conversation:
     """An ordered list of messages forming a conversation."""
 
     messages: list[Message] = field(default_factory=list)
-    _api_cache: list[dict[str, Any]] | None = field(default=None, init=False, repr=False)
+    _api_cache: list[ApiMessage] | None = field(default=None, init=False, repr=False)
 
     def add(self, role: str, content: str) -> None:
         self.messages.append(Message(role=role, content=content))
         self._api_cache = None
 
-    def to_api_messages(self) -> list[ChatCompletionMessageParam]:
+    def to_api_messages(self) -> list[ApiMessage]:
         """Convert to the format expected by the OpenAI client."""
         if self._api_cache is not None:
-            return self._api_cache  # type: ignore[return-value]
-        self._api_cache = [
-            {"role": msg.role, "content": msg.content}  # type: ignore[misc]
-            for msg in self.messages
-        ]
-        return self._api_cache  # type: ignore[return-value]
+            return self._api_cache
+        self._api_cache = [{"role": msg.role, "content": msg.content} for msg in self.messages]
+        return self._api_cache
+
+
+def to_chat_completion_messages(messages: list[ApiMessage]) -> list[ChatCompletionMessageParam]:
+    """Cast validated local API messages to the SDK request type."""
+    return cast("list[ChatCompletionMessageParam]", messages)
 
 
 def _provider_error_fields(exc: Exception) -> tuple[str, str]:
@@ -208,13 +237,12 @@ def _provider_error_fields(exc: Exception) -> tuple[str, str]:
     code = ""
     message = ""
 
-    if isinstance(body, dict):
-        data = cast("dict[str, Any]", body)
+    if is_string_mapping(body):
+        data = body
         error_val = data.get("error", data)
-        if isinstance(error_val, dict):
-            err = cast("dict[str, Any]", error_val)
-            raw_code: object | None = err.get("code") or err.get("type") or data.get("code")
-            raw_message: object | None = err.get("message") or data.get("message")
+        if is_string_mapping(error_val):
+            raw_code = error_val.get("code") or error_val.get("type") or data.get("code")
+            raw_message = error_val.get("message") or data.get("message")
         else:
             raw_code = data.get("code")
             raw_message = data.get("message") or error_val
@@ -230,8 +258,6 @@ def _provider_error_fields(exc: Exception) -> tuple[str, str]:
 
 def _is_account_setup_error(exc: Exception) -> bool:
     """Return True when retrying cannot fix the provider/account state."""
-    from openai import AuthenticationError, PermissionDeniedError, RateLimitError
-
     if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
         return True
     if not isinstance(exc, RateLimitError):
@@ -280,8 +306,6 @@ def _log_error_summary(exc: Exception) -> str:
 
 def _build_client(config: ChatConfig) -> OpenAI:
     """Create an OpenAI client from the given config."""
-    from openai import OpenAI
-
     if not config.base_url:
         raise EngineError("No provider configured. Use /provider use <slug> to select one.")
     if not config.model:
@@ -327,24 +351,31 @@ class CompletionDelta:
     """A streamed completion delta from the model."""
 
     content: str | None = None
-    tool_calls: list[dict[str, Any]] | None = None
+    tool_calls: list[ToolCallDelta] | None = None
     finish_reason: str = ""
-    usage: dict[str, int] | None = None
+    usage: UsagePayload | None = None
 
 
-def _normalize_tool_calls(tool_calls: list[ChoiceDeltaToolCall]) -> list[dict[str, Any]]:
-    """Convert Pydantic tool-call delta objects to plain dicts."""
-    result: list[dict[str, Any]] = []
+def _normalize_tool_calls(tool_calls: list[ChoiceDeltaToolCall]) -> list[ToolCallDelta]:
+    """Convert SDK tool-call delta objects to plain typed dicts."""
+    result: list[ToolCallDelta] = []
     for tc in tool_calls:
-        tc_dict: dict[str, Any] = tc.model_dump(exclude_none=True)
-        fn: object | None = tc_dict.get("function")
-        if fn is not None and not isinstance(fn, dict):
-            tc_dict["function"] = fn.model_dump(exclude_none=True)  # type: ignore[union-attr]
-        result.append(tc_dict)
+        tool_call: ToolCallDelta = {}
+        tool_call["index"] = tc.index
+        if tc.id:
+            tool_call["id"] = tc.id
+        if tc.type:
+            tool_call["type"] = str(tc.type)
+        if tc.function is not None:
+            tool_call["function"] = {
+                "name": tc.function.name or "",
+                "arguments": tc.function.arguments or "",
+            }
+        result.append(tool_call)
     return result
 
 
-def _extract_usage(chunk: object) -> dict[str, int] | None:
+def _extract_usage(chunk: object) -> UsagePayload | None:
     usage = getattr(chunk, "usage", None)
     if not usage:
         return None
@@ -355,34 +386,30 @@ def _extract_usage(chunk: object) -> dict[str, int] | None:
     }
 
 
-def _record_usage(usage: dict[str, int], model: str, span: object) -> None:
+def _record_usage(usage: UsagePayload, model: str, span: _SpanProtocol) -> None:
     """Record token usage metrics and span attributes."""
-    prompt = usage.get("prompt_tokens", 0)
-    completion = usage.get("completion_tokens", 0)
-    span.set_attribute(  # type: ignore[reportUnknownMemberType]
-        "gen_ai.response.prompt_tokens", prompt
-    )
-    span.set_attribute(  # type: ignore[reportUnknownMemberType]
-        "gen_ai.response.completion_tokens", completion
-    )
-    _llm_token_counter.add(prompt, {"model": model, "type": "prompt"})  # type: ignore[reportUnknownMemberType]
-    _llm_token_counter.add(completion, {"model": model, "type": "completion"})  # type: ignore[reportUnknownMemberType]
+    prompt = usage.get("prompt_tokens", 0) or 0
+    completion = usage.get("completion_tokens", 0) or 0
+    span.set_attribute("gen_ai.response.prompt_tokens", prompt)
+    span.set_attribute("gen_ai.response.completion_tokens", completion)
+    _llm_token_counter.add(prompt, {"model": model, "type": "prompt"})
+    _llm_token_counter.add(completion, {"model": model, "type": "completion"})
 
 
 def stream_completion(
     config: ChatConfig,
-    messages: Conversation | list[ChatCompletionMessageParam],
+    messages: Conversation | list[ApiMessage],
     *,
-    tools: list[dict[str, Any]] | None = None,
+    tools: Sequence[object] | None = None,
     abort: threading.Event | None = None,
     retry: RetryConfig | None = None,
     client_factory: Callable[[ChatConfig], OpenAI] | None = None,
 ) -> Iterator[CompletionDelta]:
     """Stream raw completion deltas with shared retry/recovery handling."""
-    span = _tracer.start_span("llm.completion")  # type: ignore[union-attr]
-    span.set_attribute("gen_ai.system", config.provider_slug or "unknown")  # type: ignore[reportUnknownMemberType]
-    span.set_attribute("gen_ai.request.model", config.model)  # type: ignore[reportUnknownMemberType]
-    span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)  # type: ignore[reportUnknownMemberType]
+    span = _tracer.start_span("llm.completion")
+    span.set_attribute("gen_ai.system", config.provider_slug or "unknown")
+    span.set_attribute("gen_ai.request.model", config.model)
+    span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)
     retry = retry or RetryConfig()
     client_factory = client_factory or _build_client
     api_messages = messages.to_api_messages() if isinstance(messages, Conversation) else messages
@@ -405,21 +432,21 @@ def stream_completion(
 
     for attempt in range(retry.max_retries + 1):
         if abort is not None and abort.is_set():
-            span.end()  # type: ignore[reportUnknownMemberType]
+            span.end()
             return
 
         if not _circuit_breaker.allow_request():
             raise EngineError("LLM provider circuit breaker is open — too many recent failures")
 
         timer = Timer()
-        request_kwargs = {
+        request_kwargs: dict[str, object] = {
             "model": config.model,
-            "messages": api_messages,
+            "messages": to_chat_completion_messages(api_messages),
             "max_tokens": config.max_tokens,
             "stream": True,
         }
         if tools:
-            request_kwargs["tools"] = tools  # type: ignore[assignment]
+            request_kwargs["tools"] = list(tools)
 
         try:
             with timer:
@@ -446,9 +473,9 @@ def stream_completion(
                 if not _wait_backoff(attempt, retry, abort):
                     return
                 continue
-            span.set_attribute("error", True)  # type: ignore[reportUnknownMemberType]
-            span.set_attribute("error.type", type(exc).__name__)  # type: ignore[reportUnknownMemberType]
-            span.end()  # type: ignore[reportUnknownMemberType]
+            span.set_attribute("error", True)
+            span.set_attribute("error.type", type(exc).__name__)
+            span.end()
             raise EngineError(_request_failure_message(exc)) from exc
 
         partial_parts: list[str] = []
@@ -466,13 +493,13 @@ def stream_completion(
                             }
                         },
                     )
-                    span.end()  # type: ignore[reportUnknownMemberType]
+                    span.end()
                     return
 
                 usage = _extract_usage(chunk)
                 if not chunk.choices:
                     if usage is not None:
-                        _record_usage(usage, config.model, span)  # type: ignore[reportUnknownArgumentType]
+                        _record_usage(usage, config.model, span)
                         yield CompletionDelta(usage=usage)
                     continue
 
@@ -485,7 +512,7 @@ def stream_completion(
                     saw_output = True
                 if delta.content or delta.tool_calls or finish_reason or usage is not None:
                     if usage is not None:
-                        _record_usage(usage, config.model, span)  # type: ignore[reportUnknownArgumentType]
+                        _record_usage(usage, config.model, span)
                     yield CompletionDelta(
                         content=delta.content or None,
                         tool_calls=(
@@ -509,9 +536,9 @@ def stream_completion(
                 extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
             )
             if saw_output:
-                span.set_attribute("error", True)  # type: ignore[reportUnknownMemberType]
-                span.set_attribute("error.type", "StreamRecoveryError")  # type: ignore[reportUnknownMemberType]
-                span.end()  # type: ignore[reportUnknownMemberType]
+                span.set_attribute("error", True)
+                span.set_attribute("error.type", "StreamRecoveryError")
+                span.end()
                 raise StreamRecoveryError(partial_content, exc) from exc
             last_error = exc
             if is_retryable_error(exc):
@@ -520,9 +547,9 @@ def stream_completion(
                 if not _wait_backoff(attempt, retry, abort):
                     return
                 continue
-            span.set_attribute("error", True)  # type: ignore[reportUnknownMemberType]
-            span.set_attribute("error.type", type(exc).__name__)  # type: ignore[reportUnknownMemberType]
-            span.end()  # type: ignore[reportUnknownMemberType]
+            span.set_attribute("error", True)
+            span.set_attribute("error.type", type(exc).__name__)
+            span.end()
             raise EngineError(_stream_failure_message(exc)) from exc
 
         _log.info(
@@ -537,13 +564,13 @@ def stream_completion(
             },
         )
         _circuit_breaker.record_success()
-        span.set_attribute("gen_ai.response.latency_ms", timer.ms)  # type: ignore[reportUnknownMemberType]
-        _llm_duration_hist.record(timer.ms, {"model": config.model})  # type: ignore[reportUnknownMemberType]
-        span.end()  # type: ignore[reportUnknownMemberType]
+        span.set_attribute("gen_ai.response.latency_ms", timer.ms)
+        _llm_duration_hist.record(timer.ms, {"model": config.model})
+        span.end()
         return
 
-    span.set_attribute("error", True)  # type: ignore[reportUnknownMemberType]
-    span.end()  # type: ignore[reportUnknownMemberType]
+    span.set_attribute("error", True)
+    span.end()
     raise EngineError(
         _request_failure_message(last_error)
         if last_error is not None

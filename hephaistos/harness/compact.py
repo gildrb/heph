@@ -18,9 +18,17 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, cast
 
-from hephaistos.chat.engine import ChatConfig, Conversation, build_client
+from openai.types.chat import ChatCompletion
+
+from hephaistos._types import is_object_list, is_string_mapping
+from hephaistos.chat._api_types import ApiMessage
+from hephaistos.chat.engine import (
+    ChatConfig,
+    Conversation,
+    build_client,
+    to_chat_completion_messages,
+)
 from hephaistos.harness.rag.context import estimate_tokens
 from hephaistos.logging import get_logger
 
@@ -33,15 +41,17 @@ TOKEN_THRESHOLD: int = 50_000  # auto_compact trigger
 TRANSCRIPTS_DIR: str = ".hephaistos/transcripts"
 
 
-def estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
+def estimate_messages_tokens(messages: list[ApiMessage]) -> int:
     """Rough token estimate for a list of API-format messages."""
     total = 0
     for msg in messages:
         content = msg.get("content")
         if isinstance(content, str):
             total += estimate_tokens(content)
-        elif isinstance(content, list):
-            for part in cast("list[dict[str, Any]]", content):
+        elif is_object_list(content):
+            for part in content:
+                if not is_string_mapping(part):
+                    continue
                 text = part.get("text", "") or part.get("content", "")
                 total += estimate_tokens(str(text))
         for tc in msg.get("tool_calls", []):
@@ -51,7 +61,7 @@ def estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
     return total
 
 
-def micro_compact(messages: list[dict[str, Any]], *, keep_recent: int = KEEP_RECENT) -> int:
+def micro_compact(messages: list[ApiMessage], *, keep_recent: int = KEEP_RECENT) -> int:
     """Replace old tool results with short placeholders.
 
     Operates **in-place** on *messages*.  Returns the number of results
@@ -66,8 +76,8 @@ def micro_compact(messages: list[dict[str, Any]], *, keep_recent: int = KEEP_REC
     replaced = 0
 
     for idx in to_replace:
-        content = messages[idx].get("content", "")
-        if len(content) > PLACEHOLDER_THRESHOLD:
+        content = messages[idx]["content"]
+        if isinstance(content, str) and len(content) > PLACEHOLDER_THRESHOLD:
             tool_name = _find_tool_name(messages, idx)
             messages[idx]["content"] = f"[Previous: used {tool_name}]"
             replaced += 1
@@ -78,7 +88,7 @@ def micro_compact(messages: list[dict[str, Any]], *, keep_recent: int = KEEP_REC
     return replaced
 
 
-def _find_tool_name(messages: list[dict[str, Any]], tool_result_idx: int) -> str:
+def _find_tool_name(messages: list[ApiMessage], tool_result_idx: int) -> str:
     """Walk backwards to find the tool-call name that produced a result."""
     call_id = messages[tool_result_idx].get("tool_call_id", "")
     for i in range(tool_result_idx - 1, -1, -1):
@@ -89,12 +99,12 @@ def _find_tool_name(messages: list[dict[str, Any]], tool_result_idx: int) -> str
 
 
 def auto_compact(
-    messages: list[dict[str, Any]],
+    messages: list[ApiMessage],
     config: ChatConfig,
     workspace: Path,
     *,
     keep_recent_exchanges: int = KEEP_RECENT_EXCHANGES,
-) -> list[dict[str, Any]]:
+) -> list[ApiMessage]:
     """Save transcript to disk, summarise older turns, keep recent ones verbatim.
 
     The most recent N exchanges (user + assistant + tool messages) are
@@ -146,13 +156,16 @@ def auto_compact(
         temp.add("user", summary_prompt)
 
         client = build_client(config)
-        response = client.chat.completions.create(
+        response: ChatCompletion = client.chat.completions.create(
             model=config.model,
-            messages=temp.to_api_messages(),
+            messages=to_chat_completion_messages(temp.to_api_messages()),
             max_tokens=2000,
             stream=False,
         )
-        summary = response.choices[0].message.content or "(summary unavailable)"
+        message_content = response.choices[0].message.content
+        summary = message_content if isinstance(message_content, str) and message_content else (
+            "(summary unavailable)"
+        )
     except Exception as exc:
         _log.error(
             "auto_compact summarisation failed",
@@ -164,7 +177,7 @@ def auto_compact(
         )
         return messages
 
-    compressed = [
+    compressed: list[ApiMessage] = [
         *system_msgs,
         {"role": "user", "content": f"[Earlier conversation summary]\n\n{summary}"},
         *recent_messages,
@@ -189,7 +202,7 @@ def auto_compact(
     return compressed
 
 
-def _save_transcript(messages: list[dict[str, Any]], workspace: Path) -> Path:
+def _save_transcript(messages: list[ApiMessage], workspace: Path) -> Path:
     """Persist messages as JSONL under ``<workspace>/.transcripts/``."""
     transcript_dir = workspace / TRANSCRIPTS_DIR
     transcript_dir.mkdir(parents=True, exist_ok=True)

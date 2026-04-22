@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -37,8 +38,6 @@ def get_existing_labels() -> dict[str, dict[str, str]]:
     if result.returncode != 0:
         print(f"Error listing labels: {result.stderr.strip()}", file=sys.stderr)
         sys.exit(1)
-
-    import json
 
     labels: dict[str, dict[str, str]] = {}
     for entry in json.loads(result.stdout):

@@ -28,7 +28,7 @@ jobs:
       - name: Sync docs dependencies
         run: uv sync --group docs
       - name: Verify synced docs
-        run: uv run python scripts/sync_docs.py --check
+        run: uv run python -m scripts.sync_docs --check
       - name: Build docs
         run: uv run mkdocs build --strict
       - name: Deploy to GitHub Pages

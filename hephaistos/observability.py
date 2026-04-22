@@ -11,9 +11,10 @@ import uuid
 from collections import deque
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any, Final, Self, cast
+from typing import Final, Self
 
 from hephaistos import __version__
+from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import get_logger, redact_text
 from hephaistos.telemetry import (
     crash_reports_backend_available,
@@ -108,7 +109,7 @@ _SENSITIVE_KEY_PATTERNS: Final[list[_re.Pattern[str]]] = [
 _REDACTED = "***REDACTED***"
 _SCRUB_SECTIONS = frozenset({"extra", "tags", "contexts", "breadcrumbs", "request", "user"})
 _DROP_KEYS = frozenset({"prompt", "content", "message", "path", "filename", "armory", "text"})
-_BREADCRUMBS: deque[dict[str, Any]] = deque(maxlen=25)
+_BREADCRUMBS: deque[dict[str, object]] = deque(maxlen=25)
 _SESSION_CONTEXT: dict[str, str] = {}
 
 
@@ -129,10 +130,9 @@ def _safe_string(key: str, value: str) -> str | None:
 
 def _scrub_value(value: object) -> object:
     """Recursively redact sensitive keys and values from nested data."""
-    if isinstance(value, dict):
-        typed = cast("dict[str, object]", value)
+    if is_string_mapping(value):
         cleaned: dict[str, object] = {}
-        for key, nested in typed.items():
+        for key, nested in value.items():
             lowered = key.lower()
             if lowered in _DROP_KEYS or _is_sensitive_key(key):
                 cleaned[key] = _REDACTED
@@ -143,9 +143,8 @@ def _scrub_value(value: object) -> object:
             else:
                 cleaned[key] = _scrub_value(nested)
         return cleaned
-    if isinstance(value, list):
-        typed = cast("list[object]", value)
-        return [_scrub_value(item) for item in typed]
+    if is_object_list(value):
+        return [_scrub_value(item) for item in value]
     if isinstance(value, str):
         safe = _safe_string("value", value)
         return safe if safe is not None else _REDACTED
@@ -153,14 +152,15 @@ def _scrub_value(value: object) -> object:
 
 
 def _redact_event(  # pyright: ignore[reportUnusedFunction]
-    event: dict[str, Any],
-    _hint: dict[str, Any],
-) -> dict[str, Any] | None:
+    event: Mapping[str, object],
+    _hint: Mapping[str, object],
+) -> dict[str, object] | None:
     """Compatibility hook retained for tests and future integrations."""
+    redacted = dict(event)
     for section in _SCRUB_SECTIONS:
-        if section in event:
-            event[section] = _scrub_value(event[section])
-    return event
+        if section in redacted:
+            redacted[section] = _scrub_value(redacted[section])
+    return redacted
 
 
 def _parse_sentry_dsn(dsn: str) -> tuple[str, str]:
@@ -195,11 +195,13 @@ def _parse_sentry_dsn(dsn: str) -> tuple[str, str]:
 
 def _exception_payload(
     exc: BaseException,
-    context: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    extra: dict[str, Any] = {}
+    context: Mapping[str, object] | None,
+) -> dict[str, object]:
+    extra: dict[str, object] = {}
     if context:
-        extra.update(cast("dict[str, Any]", _scrub_value(dict(context))))
+        scrubbed_context = _scrub_value(dict(context))
+        if is_string_mapping(scrubbed_context):
+            extra.update(scrubbed_context)
 
     tb_summary: list[traceback.FrameSummary] = (
         list(traceback.extract_tb(exc.__traceback__)) if exc.__traceback__ is not None else []
@@ -265,10 +267,10 @@ def add_breadcrumb(
     message: str,
     *,
     level: str = "info",
-    **data: Any,
+    **data: object,
 ) -> None:
     """Store a redacted breadcrumb for later crash reports."""
-    breadcrumb: dict[str, Any] = {
+    breadcrumb: dict[str, object] = {
         "timestamp": datetime.now(UTC).isoformat(),
         "category": redact_text(category),
         "message": redact_text(message),
@@ -282,13 +284,13 @@ def add_breadcrumb(
 def capture_exception(
     exc: BaseException | None = None,
     *,
-    context: dict[str, Any] | None = None,
+    context: dict[str, object] | None = None,
 ) -> str | None:
     """Record an exception locally and optionally send a redacted remote report."""
     if exc is None:
         return None
 
-    fields: dict[str, Any] = {
+    fields: dict[str, object] = {
         "error_type": exc.__class__.__name__,
         "error": redact_text(str(exc)),
     }

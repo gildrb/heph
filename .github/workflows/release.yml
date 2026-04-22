@@ -40,6 +40,9 @@ jobs:
       - name: Ruff check
         run: uv run ruff check .
 
+      - name: Repo policy check
+        run: uv run python -m scripts.check_repo_policies
+
       - name: Ruff format check
         run: uv run ruff format --check .
 

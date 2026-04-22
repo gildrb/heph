@@ -11,8 +11,8 @@ import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
 
+from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.harness.rag.chunker import (
     Chunk,
     ChunkedDocument,
@@ -58,8 +58,8 @@ class ArmoryIndex:
         self.strategy = strategy
         self.documents: list[ChunkedDocument] = []
         self._file_hashes: dict[str, str] = {}  # rel_path -> hash
-        self._retriever: Any = None  # cached default retriever instance
-        self._retriever_cache: dict[tuple[str, int | None], Any] = {}
+        self._retriever: object | None = None  # cached default retriever instance
+        self._retriever_cache: dict[tuple[str, int | None], object] = {}
 
     @property
     def all_chunks(self) -> list[Chunk]:
@@ -151,42 +151,76 @@ class ArmoryIndex:
             return False
 
         try:
-            data = json.loads(index_path.read_text(encoding="utf-8"))
+            data: object = json.loads(index_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return False
+        if not is_string_mapping(data):
+            return False
 
-        version = data.get("version", 1)
+        raw_version = data.get("version", 1)
+        version = raw_version if isinstance(raw_version, int) else 1
         if version not in (1, 2, 3):
             return False
         if version >= 2 and "strategy" in data:
-            with contextlib.suppress(ValueError):
-                self.strategy = ChunkStrategy(data["strategy"])
+            raw_strategy = data["strategy"]
+            if isinstance(raw_strategy, str):
+                with contextlib.suppress(ValueError):
+                    self.strategy = ChunkStrategy(raw_strategy)
 
         self.documents = []
         self._file_hashes = {}
         self._retriever = None
         self._retriever_cache = {}
-        file_hashes_raw: Any = data.get("file_hashes", {})
-        if isinstance(file_hashes_raw, dict):
-            file_hashes = cast("dict[str, str]", file_hashes_raw)
-            self._file_hashes = {str(key): str(value) for key, value in file_hashes.items()}
-        for doc_data in data.get("documents", []):
-            chunks = [
-                Chunk(
-                    text=c["text"],
-                    source=c["source"],
-                    index=c["index"],
-                    char_start=c["char_start"],
-                    char_end=c["char_end"],
-                    heading=c.get("heading", ""),
-                    heading_level=c.get("heading_level", 0),
+        file_hashes_raw = data.get("file_hashes", {})
+        if is_string_mapping(file_hashes_raw):
+            self._file_hashes = {key: str(value) for key, value in file_hashes_raw.items()}
+
+        raw_documents = data.get("documents", [])
+        if not is_object_list(raw_documents):
+            return False
+        for doc_data in raw_documents:
+            if not is_string_mapping(doc_data):
+                continue
+            raw_chunks = doc_data.get("chunks", [])
+            if not is_object_list(raw_chunks):
+                continue
+            chunks: list[Chunk] = []
+            for raw_chunk in raw_chunks:
+                if not is_string_mapping(raw_chunk):
+                    continue
+                raw_text = raw_chunk.get("text", "")
+                text = raw_text if isinstance(raw_text, str) else ""
+                raw_source = raw_chunk.get("source", "")
+                source = raw_source if isinstance(raw_source, str) else ""
+                raw_index = raw_chunk.get("index", 0)
+                index = raw_index if isinstance(raw_index, int) else 0
+                raw_char_start = raw_chunk.get("char_start", 0)
+                char_start = raw_char_start if isinstance(raw_char_start, int) else 0
+                raw_char_end = raw_chunk.get("char_end", 0)
+                char_end = raw_char_end if isinstance(raw_char_end, int) else 0
+                raw_heading = raw_chunk.get("heading", "")
+                heading = raw_heading if isinstance(raw_heading, str) else ""
+                raw_heading_level = raw_chunk.get("heading_level", 0)
+                heading_level = raw_heading_level if isinstance(raw_heading_level, int) else 0
+                chunks.append(
+                    Chunk(
+                        text=text,
+                        source=source,
+                        index=index,
+                        char_start=char_start,
+                        char_end=char_end,
+                        heading=heading,
+                        heading_level=heading_level,
+                    )
                 )
-                for c in doc_data.get("chunks", [])
-            ]
+            raw_doc_source = doc_data.get("source", "")
+            doc_source = raw_doc_source if isinstance(raw_doc_source, str) else ""
+            raw_content_hash = doc_data.get("content_hash", "")
+            content_hash = raw_content_hash if isinstance(raw_content_hash, str) else ""
             doc = ChunkedDocument(
-                source=doc_data["source"],
+                source=doc_source,
                 chunks=chunks,
-                content_hash=doc_data.get("content_hash", ""),
+                content_hash=content_hash,
             )
             self.documents.append(doc)
             if doc.content_hash and doc.source not in self._file_hashes:

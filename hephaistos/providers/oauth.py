@@ -23,10 +23,12 @@ import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
+import certifi
+
+from hephaistos._types import is_string_mapping
 from hephaistos.logging import get_logger
 
 _log = get_logger("providers.oauth")
@@ -96,7 +98,7 @@ def generate_pkce() -> tuple[str, str]:
 # --- JWT helpers ------------------------------------------------------------
 
 
-def _decode_jwt_payload(token: str) -> dict[str, Any]:
+def _decode_jwt_payload(token: str) -> dict[str, object]:
     parts = token.split(".")
     if len(parts) != 3:
         return {}
@@ -105,7 +107,10 @@ def _decode_jwt_payload(token: str) -> dict[str, Any]:
     if padding != 4:
         payload += "=" * padding
     try:
-        return json.loads(base64.urlsafe_b64decode(payload))
+        decoded: object = json.loads(base64.urlsafe_b64decode(payload))
+        if is_string_mapping(decoded):
+            return decoded
+        return {}
     except Exception:
         return {}
 
@@ -113,6 +118,8 @@ def _decode_jwt_payload(token: str) -> dict[str, Any]:
 def _extract_account_id(access_token: str) -> str | None:
     payload = _decode_jwt_payload(access_token)
     auth_info = payload.get("https://api.openai.com/auth", {})
+    if not is_string_mapping(auth_info):
+        return None
     account_id = auth_info.get("chatgpt_account_id")
     return account_id if isinstance(account_id, str) and account_id else None
 
@@ -158,7 +165,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         else:
             self.wfile.write(_SUCCESS_HTML.encode())
 
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         pass
 
 
@@ -190,22 +197,23 @@ def _ssl_context() -> ssl.SSLContext:
             return ctx
     # certifi is guaranteed available (transitive dep of openai/keyring).
     with contextlib.suppress(Exception):
-        import certifi
-
         return ssl.create_default_context(cafile=certifi.where())
     # Last resort: default context without certifi (will likely fail, but
     # avoids crashing before the actual network call).
     return ssl.create_default_context()
 
 
-def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
+def _post_form(url: str, data: dict[str, str]) -> dict[str, object]:
     body = urlencode(data).encode()
     req = Request(url, data=body, headers={"Content-Type": "application/x-www-form-urlencoded"})
     with urlopen(req, timeout=30, context=_ssl_context()) as resp:  # nosec B310
-        return json.loads(resp.read())
+        payload: object = json.loads(resp.read())
+        if is_string_mapping(payload):
+            return payload
+        return {}
 
 
-def _exchange_code(code: str, verifier: str) -> dict[str, Any]:
+def _exchange_code(code: str, verifier: str) -> dict[str, object]:
     return _post_form(
         _TOKEN_URL,
         {
@@ -218,7 +226,7 @@ def _exchange_code(code: str, verifier: str) -> dict[str, Any]:
     )
 
 
-def _refresh_access_token(refresh_token: str) -> dict[str, Any]:
+def _refresh_access_token(refresh_token: str) -> dict[str, object]:
     return _post_form(
         _TOKEN_URL,
         {
@@ -233,24 +241,27 @@ def _refresh_access_token(refresh_token: str) -> dict[str, Any]:
 
 
 def _parse_token_response(
-    token_data: dict[str, Any],
+    token_data: dict[str, object],
     provider: str,
     old_account_id: str | None = None,
 ) -> OAuthCredentials:
     access = token_data.get("access_token", "")
     refresh = token_data.get("refresh_token", "")
     expires_in = token_data.get("expires_in", 0)
+    access_token = access if isinstance(access, str) else ""
+    refresh_token = refresh if isinstance(refresh, str) else ""
+    expires_in_seconds = float(expires_in) if isinstance(expires_in, int | float) else 0.0
 
-    if not access or not refresh:
+    if not access_token or not refresh_token:
         raise RuntimeError("Token response missing required fields.")
 
-    account_id = _extract_account_id(access) or old_account_id
+    account_id = _extract_account_id(access_token) or old_account_id
 
     return OAuthCredentials(
         provider=provider,
-        access_token=access,
-        refresh_token=refresh,
-        expires_at=time.time() * 1000 + expires_in * 1000,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=time.time() * 1000 + expires_in_seconds * 1000,
         account_id=account_id,
     )
 
@@ -336,11 +347,14 @@ def refresh_credentials(creds: OAuthCredentials) -> OAuthCredentials:
 # --- Persistence ------------------------------------------------------------
 
 
-def _load_all() -> dict[str, Any]:
+def _load_all() -> dict[str, dict[str, object]]:
     if not _AUTH_FILE.is_file():
         return {}
     try:
-        return json.loads(_AUTH_FILE.read_text(encoding="utf-8"))
+        data: object = json.loads(_AUTH_FILE.read_text(encoding="utf-8"))
+        if not is_string_mapping(data):
+            return {}
+        return {key: value for key, value in data.items() if is_string_mapping(value)}
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -381,15 +395,24 @@ def load_credentials(provider: str) -> OAuthCredentials | None:
 
     data = _load_all()
     entry = data.get(provider)
-    if not entry or entry.get("type") != "oauth":
+    if entry is None or entry.get("type") != "oauth":
+        return None
+
+    access_token = entry.get("access_token", "")
+    refresh_token = entry.get("refresh_token", "")
+    expires_at = entry.get("expires_at", 0.0)
+    account_id = entry.get("account_id")
+    if not isinstance(access_token, str) or not isinstance(refresh_token, str):
+        return None
+    if not isinstance(expires_at, int | float):
         return None
 
     creds = OAuthCredentials(
         provider=provider,
-        access_token=entry["access_token"],
-        refresh_token=entry["refresh_token"],
-        expires_at=entry["expires_at"],
-        account_id=entry.get("account_id"),
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=float(expires_at),
+        account_id=account_id if isinstance(account_id, str) else None,
     )
 
     if creds.is_expired:
@@ -427,7 +450,7 @@ def clear_credentials(provider: str) -> bool:
 def list_providers() -> list[str]:
     """Return slugs with stored OAuth credentials."""
     data = _load_all()
-    return [k for k, v in data.items() if v.get("type") == "oauth"]
+    return [provider for provider, entry in data.items() if entry.get("type") == "oauth"]
 
 
 def resolve_oauth_key(slug: str) -> str:

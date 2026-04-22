@@ -9,6 +9,17 @@ from types import SimpleNamespace
 
 import pytest
 
+import hephaistos.chat.engine as _engine_mod
+import hephaistos.chat.orchestrator as _orch_mod
+import hephaistos.chat.resilience as _res_mod
+import hephaistos.logging as _log_mod
+import hephaistos.observability as _obs_mod
+import hephaistos.parameters.cli as _params_cli
+import hephaistos.parameters.settings as _settings_mod
+import hephaistos.providers.config as _provider_config_mod
+import hephaistos.providers.keyring_store as _ks
+import hephaistos.telemetry as _telemetry_mod
+from hephaistos.app.palette import set_theme
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_session
@@ -16,11 +27,6 @@ from hephaistos.chat.session import create_session
 
 def _reset_diagnostics_module_objects() -> None:
     """Replace module-level diagnostics objects with no-ops to isolate tests."""
-    import hephaistos.chat.engine as _engine_mod
-    import hephaistos.chat.orchestrator as _orch_mod
-    import hephaistos.chat.resilience as _res_mod
-    import hephaistos.observability as _obs_mod
-
     _noop_tracer = _obs_mod._NoopTracer()  # type: ignore[reportPrivateUsage]
     _noop_meter = _obs_mod._NoopMeter()  # type: ignore[reportPrivateUsage]
 
@@ -45,16 +51,6 @@ def _isolate_global_state(  # pyright: ignore[reportUnusedFunction]
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Generator[None]:
     """Reset mutable module-level globals between tests."""
-    import hephaistos.chat.engine as _engine_mod
-    import hephaistos.logging as _log_mod
-    import hephaistos.observability as _obs_mod
-    import hephaistos.parameters.cli as _params_cli
-    import hephaistos.parameters.settings as _settings_mod
-    import hephaistos.providers.config as _provider_config_mod
-    import hephaistos.providers.keyring_store as _ks
-    import hephaistos.telemetry as _telemetry_mod
-    from hephaistos.app.palette import set_theme
-
     config_dir = tmp_path / "hephaistos_config"
     config_file = config_dir / "config.json"
     _ks._volatile.clear()  # type: ignore[reportPrivateUsage]

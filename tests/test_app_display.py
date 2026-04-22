@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import sys
-from typing import Any
 
 import pytest
 
@@ -10,7 +9,7 @@ from hephaistos.app import display
 
 
 class _ProxyStdout:
-    def __init__(self, original_stdout: Any) -> None:
+    def __init__(self, original_stdout: object) -> None:
         self.original_stdout = original_stdout
 
 
@@ -34,7 +33,7 @@ def test_direct_print_writes_to_real_stdout(monkeypatch: pytest.MonkeyPatch) -> 
 def test_direct_input_swaps_stdout_and_restores_it(monkeypatch: pytest.MonkeyPatch) -> None:
     real_stdout = io.StringIO()
     proxy_stdout = _ProxyStdout(real_stdout)
-    seen: list[tuple[str, Any]] = []
+    seen: list[tuple[str, object]] = []
 
     def fake_input(prompt: str = "") -> str:
         seen.append((prompt, sys.stdout))

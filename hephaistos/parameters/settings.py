@@ -6,7 +6,9 @@ import contextlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Final
+
+from hephaistos._types import is_string_mapping
 
 _DEFAULTS_FILE = Path(__file__).parent / "default.toml"
 _USER_CONFIG_DIR = Path.home() / ".config" / "hephaistos"
@@ -178,9 +180,8 @@ def load_raw_settings() -> dict[str, object]:
         return _update_settings_cache(path, {})
     with contextlib.suppress(Exception):
         raw = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            data = cast("dict[str, Any]", raw)
-            filtered = {str(k): v for k, v in data.items() if k in ALLOWED_CONFIG_KEYS}
+        if is_string_mapping(raw):
+            filtered = {key: value for key, value in raw.items() if key in ALLOWED_CONFIG_KEYS}
             return _update_settings_cache(path, filtered)
     return _update_settings_cache(path, {})
 

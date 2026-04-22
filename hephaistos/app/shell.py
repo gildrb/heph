@@ -64,12 +64,14 @@ from hephaistos.chat.session import (
     validate_armory_path,
 )
 from hephaistos.chat.usage import ContextBudget
+from hephaistos.harness.persona import list_personas
 from hephaistos.logging import get_logger
 from hephaistos.observability import capture_exception
 from hephaistos.parameters.cli import load_config
 from hephaistos.parameters.settings import load_app_settings
 from hephaistos.providers.config import Provider, ProviderConfig
 from hephaistos.telemetry import mark_telemetry_notice_seen, should_show_telemetry_notice
+from hephaistos.vocab.parser import scan_armory
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 _log = get_logger("app.shell")
@@ -206,8 +208,6 @@ class SlashCommandCompleter(Completer):
     def _persona_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
         if len(arg_parts) > 1:
             return []
-        from hephaistos.harness.persona import list_personas
-
         return [(p.slug, p.description) for p in list_personas()]
 
 
@@ -515,10 +515,7 @@ def _handle_input(
     if not user_input or not user_input.strip():
         return session, True
     if streaming:
-        from hephaistos.harness.dispatch import SteeringQueue
-
-        if isinstance(session.steering, SteeringQueue):
-            session.steering.enqueue(user_input)
+        session.steering.enqueue(user_input)
         return session, True
     if user_input.startswith("!"):
         cmd = user_input[1:].strip()
@@ -556,7 +553,7 @@ def _handle_input(
             return session, False
 
         if result.new_session is not None:
-            session = result.new_session  # type: ignore[assignment]
+            session = result.new_session
         if result.output and result.output.startswith("__RESEND__:"):
             new_input = result.output[len("__RESEND__:") :]
             history.add(new_input)
@@ -610,8 +607,6 @@ def _print_vocab_hint(session: ChatSession) -> None:
     if session.armory_path is None:
         return
     try:
-        from hephaistos.vocab.parser import scan_armory
-
         deck = scan_armory(session.armory_path)
         if deck.cards:
             print_info(

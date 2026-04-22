@@ -25,12 +25,17 @@ import ipaddress
 import re
 import socket
 import subprocess  # nosec B404
+import sys
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Literal, NotRequired, Required, TypedDict
+from urllib.parse import urlparse
+
+from hephaistos.harness.mutation_queue import get_queue
 
 
 def safe_path(workspace: Path, rel_path: str) -> Path:
@@ -55,11 +60,33 @@ def _resolve_hostname_ips(hostname: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+class ToolParameter(TypedDict, total=False):
+    type: Required[str]
+    description: NotRequired[str]
+
+
+class ToolParameters(TypedDict):
+    type: Literal["object"]
+    properties: dict[str, ToolParameter]
+    required: list[str]
+
+
+class ToolFunction(TypedDict):
+    name: str
+    description: str
+    parameters: ToolParameters
+
+
+class ToolSchema(TypedDict):
+    type: Literal["function"]
+    function: ToolFunction
+
+
 @dataclass(frozen=True, slots=True)
 class ToolSpec:
     """A single tool: its JSON schema and its handler function."""
 
-    schema: dict[str, Any]
+    schema: ToolSchema
 
     handler: Callable[..., str]
 
@@ -108,10 +135,10 @@ class ToolRegistry:
         return spec.handler if spec else None
 
     @property
-    def schemas(self) -> list[dict[str, Any]]:
+    def schemas(self) -> list[ToolSchema]:
         """All visible tool schemas (local + inherited, local overrides first)."""
         seen: set[str] = set()
-        result: list[dict[str, Any]] = []
+        result: list[ToolSchema] = []
         for spec in self._tools.values():
             seen.add(spec.name)
             result.append(spec.schema)
@@ -169,8 +196,6 @@ class ToolRegistry:
                     register_fn(self)
                     loaded += 1
             except Exception as exc:
-                import sys
-
                 print(
                     f"warning: failed to load tool plugin {py_file.name}: {exc}",
                     file=sys.stderr,
@@ -183,30 +208,30 @@ class ToolRegistry:
 # ---------------------------------------------------------------------------
 
 
-def _param(json_type: str, description: str) -> dict[str, object]:
+def _param(json_type: str, description: str) -> ToolParameter:
     """Build a JSON-schema property for a tool parameter."""
     return {"type": json_type, "description": description}
 
 
-def _string(description: str) -> dict[str, object]:
+def _string(description: str) -> ToolParameter:
     return _param("string", description)
 
 
-def _integer(description: str) -> dict[str, object]:
+def _integer(description: str) -> ToolParameter:
     return _param("integer", description)
 
 
-def _boolean(description: str) -> dict[str, object]:
+def _boolean(description: str) -> ToolParameter:
     return _param("boolean", description)
 
 
 def _tool(
     name: str,
     description: str,
-    properties: dict[str, dict[str, object]] | None = None,
+    properties: dict[str, ToolParameter] | None = None,
     *,
     required: tuple[str, ...] = (),
-) -> dict[str, object]:
+) -> ToolSchema:
     """Build the OpenAI-compatible function tool schema."""
     return {
         "type": "function",
@@ -222,7 +247,7 @@ def _tool(
     }
 
 
-_BUILTIN_SCHEMAS: list[dict[str, Any]] = [
+_BUILTIN_SCHEMAS: list[ToolSchema] = [
     _tool(
         "compact",
         (
@@ -342,8 +367,6 @@ class BashResult:
 
 def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str:
     """Execute a shell command and return structured output."""
-    import time as _time
-
     # Block destructive and dangerous commands (LLM-generated).
     # Note: this is a safety net, not a sandbox. Trivial bypasses exist
     # via encoding, variable expansion, etc. Treat as best-effort.
@@ -368,7 +391,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
             return f"Error: command blocked for safety: {command}"
 
     actual_timeout = _BASH_TIMEOUT if timeout is None else timeout
-    start = _time.monotonic()
+    start = time.monotonic()
     try:
         result = subprocess.run(  # nosec B602
             command,
@@ -378,7 +401,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
             timeout=actual_timeout,
             check=False,
         )  # nosec B602
-        elapsed = _time.monotonic() - start
+        elapsed = time.monotonic() - start
         br = BashResult(
             stdout=result.stdout or "",
             stderr=result.stderr or "",
@@ -388,7 +411,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
         )
         output = br.to_display()
     except subprocess.TimeoutExpired:
-        elapsed = _time.monotonic() - start
+        elapsed = time.monotonic() - start
         br = BashResult(
             stdout="",
             stderr="",
@@ -586,9 +609,7 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
     if not url.startswith(("http://", "https://")):
         return "Error: URL must start with http:// or https://"
 
-    from urllib.parse import urlparse as _urlparse
-
-    parsed = _urlparse(url)
+    parsed = urlparse(url)
     hostname = parsed.hostname
     if hostname:
         # Resolve once and use the IP directly to prevent DNS rebinding.
@@ -647,8 +668,6 @@ def _mutation_wrap(path_str: str, fn: Callable[..., str], **kwargs: object) -> s
     if workspace and isinstance(workspace, Path):
         try:
             target = safe_path(workspace, str(path_str))
-            from hephaistos.harness.mutation_queue import get_queue
-
             queue = get_queue(workspace)
             return queue.execute(target, fn, **kwargs)
         except ValueError:
@@ -727,4 +746,4 @@ for _schema in _BUILTIN_SCHEMAS:
     default_registry.register(ToolSpec(schema=_schema, handler=_handler))
 
 # Backward-compatible alias: TOOL_SCHEMAS delegates to the registry.
-TOOL_SCHEMAS: list[dict[str, Any]] = default_registry.schemas
+TOOL_SCHEMAS: list[ToolSchema] = default_registry.schemas

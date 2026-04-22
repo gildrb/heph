@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+from hephaistos.chat._api_types import ApiMessage, ToolCallDelta
 from hephaistos.chat.engine import Conversation
 from hephaistos.harness.compact import (
     KEEP_RECENT,
@@ -23,13 +23,18 @@ from hephaistos.harness.dispatch import _sync_conversation  # type: ignore[repor
 # ---------------------------------------------------------------------------
 
 
-def _tool_result(content: str, call_id: str = "call_1") -> dict[str, Any]:
+def _message_text(message: ApiMessage) -> str:
+    content = message["content"]
+    return content if isinstance(content, str) else ""
+
+
+def _tool_result(content: str, call_id: str = "call_1") -> ApiMessage:
     return {"role": "tool", "tool_call_id": call_id, "content": content}
 
 
-def _assistant_with_tools(*tool_names: str) -> dict[str, Any]:
+def _assistant_with_tools(*tool_names: str) -> ApiMessage:
     """Build an assistant message with tool_calls (call_id = call_N)."""
-    calls: list[dict[str, Any]] = []
+    calls: list[ToolCallDelta] = []
     for i, name in enumerate(tool_names):
         calls.append(
             {
@@ -41,9 +46,9 @@ def _assistant_with_tools(*tool_names: str) -> dict[str, Any]:
     return {"role": "assistant", "content": None, "tool_calls": calls}
 
 
-def _build_messages(n_tool_results: int, result_size: int = 500) -> list[dict[str, Any]]:
+def _build_messages(n_tool_results: int, result_size: int = 500) -> list[ApiMessage]:
     """Build a message list with *n_tool_results* tool result entries."""
-    messages: list[dict[str, Any]] = [
+    messages: list[ApiMessage] = [
         {"role": "system", "content": "You are helpful."},
         {"role": "user", "content": "Do stuff"},
     ]
@@ -53,9 +58,9 @@ def _build_messages(n_tool_results: int, result_size: int = 500) -> list[dict[st
     return messages
 
 
-def _build_multi_exchange(n_exchanges: int = 5) -> list[dict[str, Any]]:
+def _build_multi_exchange(n_exchanges: int = 5) -> list[ApiMessage]:
     """Build a message list with multiple user/assistant exchanges."""
-    messages: list[dict[str, Any]] = [
+    messages: list[ApiMessage] = [
         {"role": "system", "content": "You are helpful."},
     ]
     for i in range(n_exchanges):
@@ -74,7 +79,7 @@ class TestEstimateMessagesTokens:
         assert estimate_messages_tokens([]) == 0
 
     def test_text_messages(self) -> None:
-        msgs = [
+        msgs: list[ApiMessage] = [
             {"role": "user", "content": "a" * 400},
             {"role": "assistant", "content": "b" * 400},
         ]
@@ -83,7 +88,7 @@ class TestEstimateMessagesTokens:
         assert tokens == 200
 
     def test_includes_tool_calls(self) -> None:
-        msgs = [
+        msgs: list[ApiMessage] = [
             {
                 "role": "assistant",
                 "content": None,
@@ -110,7 +115,7 @@ class TestEstimateMessagesTokens:
 
 class TestMicroCompact:
     def test_no_tool_results(self) -> None:
-        messages: list[dict[str, Any]] = [
+        messages: list[ApiMessage] = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hi"},
         ]
@@ -146,7 +151,7 @@ class TestMicroCompact:
 
     def test_finds_tool_name(self) -> None:
         """Placeholder references the correct tool name."""
-        messages: list[dict[str, Any]] = [
+        messages: list[ApiMessage] = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "go"},
             {
@@ -255,7 +260,7 @@ class TestAutoCompact:
         summary_msgs = [
             m
             for m in compressed
-            if m["role"] == "user" and "[Earlier conversation summary]" in m["content"]
+            if m["role"] == "user" and "[Earlier conversation summary]" in _message_text(m)
         ]
         assert len(summary_msgs) == 1
 
@@ -276,7 +281,9 @@ class TestAutoCompact:
 
         user_msgs = [m for m in compressed if m["role"] == "user"]
         recent_user_contents = [
-            m["content"] for m in user_msgs if "[Earlier conversation summary]" not in m["content"]
+            _message_text(m)
+            for m in user_msgs
+            if "[Earlier conversation summary]" not in _message_text(m)
         ]
         assert any("exchange_4" in c for c in recent_user_contents)
         assert any("exchange_3" in c for c in recent_user_contents)
@@ -292,7 +299,7 @@ class TestAutoCompact:
 
         compressed = auto_compact(messages, config, tmp_path)
         summary_msgs = [m for m in compressed if m["role"] == "user"]
-        assert any("42" in m["content"] for m in summary_msgs)
+        assert any("42" in _message_text(message) for message in summary_msgs)
 
     def test_returns_original_on_llm_failure(
         self,
@@ -333,7 +340,7 @@ class TestSyncConversation:
         conv.add("system", "old system")
         conv.add("user", "old user")
 
-        api_messages: list[dict[str, str]] = [
+        api_messages: list[ApiMessage] = [
             {"role": "system", "content": "new system"},
             {"role": "user", "content": "[Earlier conversation summary]\n\nSummary here"},
         ]
@@ -345,7 +352,7 @@ class TestSyncConversation:
 
     def test_skips_tool_messages(self) -> None:
         conv = Conversation()
-        api_messages: list[dict[str, Any]] = [
+        api_messages: list[ApiMessage] = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hi"},
             {"role": "tool", "tool_call_id": "c1", "content": "output"},
@@ -355,7 +362,7 @@ class TestSyncConversation:
 
     def test_skips_none_content(self) -> None:
         conv = Conversation()
-        api_messages: list[dict[str, Any]] = [
+        api_messages: list[ApiMessage] = [
             {"role": "assistant", "content": None, "tool_calls": []},
             {"role": "assistant", "content": "text reply"},
         ]

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+
+from hephaistos._types import is_object_list, is_string_mapping
 
 
 class StudyPhase(StrEnum):
@@ -71,13 +72,11 @@ class StudyState:
     @classmethod
     def from_dict(cls, data: object | None) -> StudyState:
         """Deserialize persisted state, falling back safely on bad input."""
-        if not isinstance(data, dict):
+        if not is_string_mapping(data):
             return cls()
 
-        d: dict[str, Any] = data  # type: ignore[assignment]
-
         phase = StudyPhase.PRESENTING
-        raw_phase: object = d.get("phase")
+        raw_phase = data.get("phase")
         if isinstance(raw_phase, str):
             try:
                 phase = StudyPhase(raw_phase)
@@ -85,27 +84,27 @@ class StudyState:
                 phase = StudyPhase.PRESENTING
 
         feedback = StudyFeedbackType.NONE
-        raw_feedback: object = d.get("last_feedback_type")
+        raw_feedback = data.get("last_feedback_type")
         if isinstance(raw_feedback, str):
             try:
                 feedback = StudyFeedbackType(raw_feedback)
             except ValueError:
                 feedback = StudyFeedbackType.NONE
 
-        raw_refs: object = d.get("expected_source_refs")
+        raw_refs = data.get("expected_source_refs")
         expected_source_refs = (
-            [ref for ref in raw_refs if isinstance(ref, str)]  # type: ignore[arg-type]
-            if isinstance(raw_refs, list)
+            [ref for ref in raw_refs if isinstance(ref, str)]
+            if is_object_list(raw_refs)
             else []
         )
 
-        raw_attempt: object = d.get("attempt_count", 0)
+        raw_attempt = data.get("attempt_count", 0)
         attempt_count = raw_attempt if isinstance(raw_attempt, int) and raw_attempt >= 0 else 0
 
-        raw_item: object = d.get("current_item", "")
+        raw_item = data.get("current_item", "")
         current_item = raw_item if isinstance(raw_item, str) else ""
 
-        raw_query: object = d.get("retrieval_query", "")
+        raw_query = data.get("retrieval_query", "")
         retrieval_query = raw_query if isinstance(raw_query, str) else ""
 
         return cls(

@@ -6,8 +6,10 @@ import json
 import threading
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import TypedDict
 
+from hephaistos._types import is_string_mapping
+from hephaistos.chat._api_types import ApiMessage, ContentPart, ToolCallDelta, UsagePayload
 from hephaistos.chat.engine import (
     ChatConfig,
     Conversation,
@@ -52,8 +54,19 @@ class _ToolCall(TypedDict):
     function: _ToolCallFunction
 
 
-def _tool_calls_view(tool_calls: list[_ToolCall] | list[dict[str, Any]]) -> list[_ToolCall]:
-    return cast("list[_ToolCall]", tool_calls)
+def _content_to_text(content: str | None | list[ContentPart]) -> str:
+    if isinstance(content, str):
+        return content
+    if content is None:
+        return ""
+    return "".join(part.get("text", "") or part.get("content", "") for part in content)
+
+
+def _parse_tool_arguments(raw_arguments: str) -> dict[str, object]:
+    parsed: object = json.loads(raw_arguments)
+    if not is_string_mapping(parsed):
+        return {}
+    return parsed
 
 
 class SteeringQueue:
@@ -86,29 +99,28 @@ class SteeringQueue:
 
 
 def execute_tool_calls(
-    tool_calls: list[_ToolCall] | list[dict[str, Any]],
+    tool_calls: list[_ToolCall],
     workspace: Path,
     *,
     registry: ToolRegistry | None = None,
     max_calls: int = _MAX_TOOL_CALLS_PER_TURN,
-) -> list[dict[str, str]]:
+) -> list[ApiMessage]:
     """Execute each tool call and return tool-result messages."""
-    parsed_tool_calls = _tool_calls_view(tool_calls)
     if registry is None:
         registry = default_registry
-    if len(parsed_tool_calls) > max_calls:
+    if len(tool_calls) > max_calls:
         _log.warning(
             "tool call limit exceeded",
             extra={
                 "fields": {
-                    "requested": len(parsed_tool_calls),
+                    "requested": len(tool_calls),
                     "max": max_calls,
                 }
             },
         )
 
-    results: list[dict[str, str]] = []
-    for i, tc in enumerate(parsed_tool_calls):
+    results: list[ApiMessage] = []
+    for i, tc in enumerate(tool_calls):
         call_id = tc.get("id", "")
         name = tc["function"]["name"]
         if i >= max_calls:
@@ -126,7 +138,7 @@ def execute_tool_calls(
             continue
 
         try:
-            arguments = cast("dict[str, Any]", json.loads(tc["function"]["arguments"]))
+            arguments = _parse_tool_arguments(tc["function"]["arguments"])
         except json.JSONDecodeError:
             _log.warning(
                 "tool call invalid JSON",
@@ -207,64 +219,68 @@ def execute_tool_calls(
     return results
 
 
-def _merge_tool_call_deltas(
-    accumulated: list[_ToolCall] | list[dict[str, Any]],
-    deltas: list[dict[str, Any]],
-) -> None:
+def _merge_tool_call_deltas(accumulated: list[_ToolCall], deltas: list[ToolCallDelta]) -> None:
     """Merge streaming tool-call deltas into accumulated list in-place."""
-    tool_calls = _tool_calls_view(accumulated)
     for delta in deltas:
-        raw_index = delta.get("index", 0)
-        idx = raw_index if isinstance(raw_index, int) else 0
-        while len(tool_calls) <= idx:
-            tool_calls.append(
+        idx = delta.get("index", 0)
+        while len(accumulated) <= idx:
+            accumulated.append(
                 {
                     "id": "",
                     "type": "function",
                     "function": {"name": "", "arguments": ""},
                 }
             )
-        entry = tool_calls[idx]
+        entry = accumulated[idx]
         raw_id = delta.get("id")
         if isinstance(raw_id, str) and raw_id:
             entry["id"] = raw_id
-        raw_fn = delta.get("function", {})
-        if not isinstance(raw_fn, dict):
+        raw_fn = delta.get("function")
+        if raw_fn is None:
             continue
-        fn = cast("dict[str, Any]", raw_fn)
-        raw_name = fn.get("name")
-        if isinstance(raw_name, str) and raw_name:
+        raw_name = raw_fn.get("name", "")
+        if raw_name:
             entry["function"]["name"] += raw_name
-        raw_arguments = fn.get("arguments")
-        if isinstance(raw_arguments, str) and raw_arguments:
+        raw_arguments = raw_fn.get("arguments", "")
+        if raw_arguments:
             entry["function"]["arguments"] += raw_arguments
 
 
-def _summarise_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
+def _string_arg(args: dict[str, object], key: str) -> str:
+    value = args.get(key, "")
+    return value if isinstance(value, str) else ""
+
+
+def _summarise_args(name: str, args: dict[str, object]) -> dict[str, object]:
     """Summarise tool args for logging (truncate large content)."""
     if name == "bash":
-        return {"command": args.get("command", "")[:200]}
+        return {"command": _string_arg(args, "command")[:200]}
     if name == "write_file":
-        return {"path": args.get("path", ""), "content_len": len(args.get("content", ""))}
+        return {
+            "path": _string_arg(args, "path"),
+            "content_len": len(_string_arg(args, "content")),
+        }
     return {
-        k: (str(v)[:100] if isinstance(v, str) and len(v) > 100 else v) for k, v in args.items()
+        key: (str(value)[:100] if isinstance(value, str) and len(value) > 100 else value)
+        for key, value in args.items()
     }
 
 
-def _format_tool_args(name: str, args: dict[str, Any]) -> str:
+def _format_tool_args(name: str, args: dict[str, object]) -> str:
     """Format tool call for display."""
     if name == "bash":
-        return f"  $ {args.get('command', '')}"
+        return f"  $ {_string_arg(args, 'command')}"
     if name == "read_file":
-        return f"  [read] {args.get('path', '')}"
+        return f"  [read] {_string_arg(args, 'path')}"
     if name == "write_file":
-        path = args.get("path", "")
-        size = len(args.get("content", ""))
+        path = _string_arg(args, "path")
+        size = len(_string_arg(args, "content"))
         return f"  [write] {path} ({size} chars)"
     if name == "edit_file":
-        return f"  [edit] {args.get('path', '')}"
+        return f"  [edit] {_string_arg(args, 'path')}"
     if name == "list_files":
-        return f"  [list] {args.get('path', '.') or '.'}"
+        path = _string_arg(args, "path") or "."
+        return f"  [list] {path}"
     if name == "compact":
         return "  [compact] compressing conversation"
     return f"  [{name}] {args}"
@@ -279,7 +295,7 @@ def _summarize_result(content: str) -> str:
     return f"  -> {first_line} ... ({len(lines)} lines)"
 
 
-def _sync_conversation(conversation: Conversation, api_messages: list[dict[str, Any]]) -> None:
+def _sync_conversation(conversation: Conversation, api_messages: list[ApiMessage]) -> None:
     """Rebuild *conversation* messages from the compacted API messages.
 
     ``Conversation`` only stores ``role`` + ``content``, so tool messages
@@ -294,8 +310,8 @@ def _sync_conversation(conversation: Conversation, api_messages: list[dict[str, 
     """
     conversation.messages.clear()
     for msg in api_messages:
-        role = msg.get("role", "")
-        content = msg.get("content")
+        role = msg["role"]
+        content = _content_to_text(msg["content"])
         if role == "assistant" and not content and msg.get("tool_calls"):
             content = "[tool calls]"
         if role in ("system", "user", "assistant") and content:
@@ -303,12 +319,12 @@ def _sync_conversation(conversation: Conversation, api_messages: list[dict[str, 
 
 
 def _inject_turn_context(
-    messages: list[dict[str, Any]],
+    messages: list[ApiMessage],
     turn_evidence: TurnEvidence | None,
     extra_system_prompt: str | None,
-) -> list[dict[str, Any]]:
+) -> list[ApiMessage]:
     """Build a copy of *messages* with ephemeral turn context injected."""
-    inserts: list[dict[str, Any]] = []
+    inserts: list[ApiMessage] = []
     if extra_system_prompt:
         inserts.append({"role": "system", "content": extra_system_prompt})
     if turn_evidence:
@@ -318,10 +334,7 @@ def _inject_turn_context(
     if not inserts:
         return messages
     msgs = list(messages)
-    last_user = next(
-        (i for i in range(len(msgs) - 1, -1, -1) if msgs[i].get("role") == "user"),
-        None,
-    )
+    last_user = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i]["role"] == "user"), None)
     if last_user is None:
         return msgs + inserts
     for pos, insert in enumerate(inserts):
@@ -331,8 +344,8 @@ def _inject_turn_context(
 
 def _record_usage(
     usage: SessionUsage | None,
-    stream_usage: dict[str, Any] | None,
-    api_messages: list[dict[str, Any]],
+    stream_usage: UsagePayload | None,
+    api_messages: list[ApiMessage],
     text: str,
     model: str,
 ) -> None:
@@ -341,7 +354,7 @@ def _record_usage(
     if stream_usage:
         usage.record(TokenUsage.from_api_response(stream_usage), model)
         return
-    prompt_chars = sum(len(m.get("content", "") or "") for m in api_messages)
+    prompt_chars = sum(len(_content_to_text(message["content"])) for message in api_messages)
     usage.estimate_from_chars(prompt_chars, len(text), model)
 
 
@@ -357,14 +370,14 @@ def iter_agent_events(
     steering: SteeringQueue | None = None,
     turn_evidence: TurnEvidence | None = None,
     extra_system_prompt: str | None = None,
-    tool_schemas: list[dict[str, Any]] | None = None,
+    tool_schemas: list[dict[str, object]] | None = None,
     registry: ToolRegistry | None = None,
 ) -> Iterator[TurnEvent]:
     """Run the model/tool loop and emit structured turn events."""
     retry = retry or RetryConfig()
     if registry is None:
         registry = default_registry
-    api_messages: list[dict[str, Any]] = conversation.to_api_messages()  # type: ignore[assignment]
+    api_messages = list(conversation.to_api_messages())
     loop_timer = Timer()
     budget = ContextBudget(model=config.model, max_tokens=config.max_tokens)
 
@@ -397,12 +410,8 @@ def iter_agent_events(
 
         micro_compact(api_messages)
 
-        # Account for turn evidence and extra system prompt in budget checks
-        # so injected context doesn't silently push past the context window.
         llm_messages = _inject_turn_context(api_messages, turn_evidence, extra_system_prompt)
-        budget_messages = llm_messages
-
-        if estimate_messages_tokens(budget_messages) > TOKEN_THRESHOLD:
+        if estimate_messages_tokens(llm_messages) > TOKEN_THRESHOLD:
             yield NoticeEvent(
                 "Auto-compacting conversation (context threshold reached)...",
                 code="auto_compact",
@@ -414,14 +423,14 @@ def iter_agent_events(
         collected_parts: list[str] = []
         collected_tool_calls: list[_ToolCall] = []
         finish_reason = ""
-        stream_usage: dict[str, int] | None = None
+        stream_usage: UsagePayload | None = None
         turn_timer = Timer()
 
         with turn_timer:
             schemas = registry.schemas if tool_schemas is None else tool_schemas
             for delta in stream_completion(
                 config,
-                llm_messages,  # type: ignore[arg-type]
+                llm_messages,
                 tools=schemas or None,
                 abort=abort,
                 retry=retry,
@@ -443,14 +452,11 @@ def iter_agent_events(
             _record_usage(usage, stream_usage, api_messages, collected_text, config.model)
             conversation.add("assistant", collected_text)
 
-            # Drain steering messages even on text-only turns so they are
-            # not stuck indefinitely in the queue.
             if steering is not None:
-                queued = steering.drain()
-                for msg in queued:
-                    api_messages.append({"role": "user", "content": msg})
-                    conversation.add("user", msg)
-                    yield NoticeEvent(f"Steering: {msg[:100]}", code="steering")
+                for message in steering.drain():
+                    api_messages.append({"role": "user", "content": message})
+                    conversation.add("user", message)
+                    yield NoticeEvent(f"Steering: {message[:100]}", code="steering")
 
             _log.info(
                 "agent_loop complete",
@@ -467,16 +473,16 @@ def iter_agent_events(
             )
             return
 
-        tool_calls_api = [
+        tool_calls_api: list[ToolCallDelta] = [
             {
-                "id": tc["id"],
+                "id": tool_call["id"],
                 "type": "function",
                 "function": {
-                    "name": tc["function"]["name"],
-                    "arguments": tc["function"]["arguments"],
+                    "name": tool_call["function"]["name"],
+                    "arguments": tool_call["function"]["arguments"],
                 },
             }
-            for tc in collected_tool_calls
+            for tool_call in collected_tool_calls
         ]
 
         api_messages.append(
@@ -489,18 +495,18 @@ def iter_agent_events(
         conversation.add("assistant", collected_text or "[tool calls]")
 
         tool_names: list[str] = []
-        for tc in collected_tool_calls:
-            name = tc["function"]["name"]
+        for tool_call in collected_tool_calls:
+            name = tool_call["function"]["name"]
             tool_names.append(name)
             try:
-                args: dict[str, Any] = json.loads(tc["function"]["arguments"])
+                arguments = _parse_tool_arguments(tool_call["function"]["arguments"])
             except json.JSONDecodeError:
-                args = {}
+                arguments = {}
             yield ToolCallEvent(
-                call_id=tc.get("id", ""),
+                call_id=tool_call.get("id", ""),
                 name=name,
-                arguments=args,
-                display=_format_tool_args(name, args),
+                arguments=arguments,
+                display=_format_tool_args(name, arguments),
             )
 
         _log.info(
@@ -515,10 +521,7 @@ def iter_agent_events(
         )
 
         tool_results = execute_tool_calls(collected_tool_calls, workspace, registry=registry)
-        # Append tool results before recording usage so the char-based
-        # estimation fallback counts prompt tokens accurately.
-        for _tc, tr in zip(collected_tool_calls, tool_results, strict=False):
-            api_messages.append(tr)
+        api_messages.extend(tool_results)
 
         _record_usage(usage, stream_usage, api_messages, collected_text, config.model)
 
@@ -543,27 +546,26 @@ def iter_agent_events(
                 },
             )
 
-        for tc, tr in zip(collected_tool_calls, tool_results, strict=False):
-            name = tc["function"]["name"]
-            content = tr.get("content", "")
+        for tool_call, tool_result in zip(collected_tool_calls, tool_results, strict=False):
+            name = tool_call["function"]["name"]
+            content = _content_to_text(tool_result["content"])
             yield ToolResultEvent(
-                call_id=tr.get("tool_call_id", ""),
+                call_id=tool_result.get("tool_call_id", ""),
                 name=name,
                 content=content,
                 summary=_summarize_result(content),
             )
 
         if steering is not None:
-            queued = steering.drain()
-            for msg in queued:
-                api_messages.append({"role": "user", "content": msg})
-                conversation.add("user", msg)
-                yield NoticeEvent(f"Steering: {msg[:100]}", code="steering")
+            for message in steering.drain():
+                api_messages.append({"role": "user", "content": message})
+                conversation.add("user", message)
+                yield NoticeEvent(f"Steering: {message[:100]}", code="steering")
                 _log.info(
                     "steering message injected",
                     extra={
                         "fields": {
-                            "message_len": len(msg),
+                            "message_len": len(message),
                             "turn": turn_idx,
                         }
                     },
@@ -599,7 +601,7 @@ def agent_loop(
     steering: SteeringQueue | None = None,
     turn_evidence: TurnEvidence | None = None,
     extra_system_prompt: str | None = None,
-    tool_schemas: list[dict[str, Any]] | None = None,
+    tool_schemas: list[dict[str, object]] | None = None,
     registry: ToolRegistry | None = None,
 ) -> Iterator[str]:
     """Backward-compatible string stream wrapper over ``iter_agent_events``."""

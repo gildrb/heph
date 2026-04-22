@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.client
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 from hephaistos.harness.tools import (
@@ -116,8 +117,6 @@ class TestWebFetch:
         assert "End of fetched content" in result
 
     def test_fetch_http_error(self):
-        import urllib.error
-
         with patch(
             "hephaistos.harness.tools.urllib.request.urlopen",
             side_effect=urllib.error.HTTPError(

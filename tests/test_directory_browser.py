@@ -8,6 +8,7 @@ import pytest
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
+import hephaistos.app.menu as menu_mod
 from hephaistos.app import menu
 
 
@@ -94,8 +95,6 @@ def test_list_child_dirs_handles_permission_error(tmp_path: Path) -> None:
     """PermissionError should return empty list instead of crashing."""
     parent = tmp_path / "parent"
     parent.mkdir()
-
-    import hephaistos.app.menu as menu_mod
 
     def _raising_iterdir(self: Path):
         raise PermissionError("no access")

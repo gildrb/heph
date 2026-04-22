@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.autocomplete import CommandSuggestion
@@ -20,9 +19,30 @@ from hephaistos.app.display import (
 )
 from hephaistos.app.menu import MenuOption, browse_directory, confirm, select_option
 from hephaistos.app.palette import THEME_PRESETS, current_theme_name, set_theme
+from hephaistos.app.workspace import (
+    handle_armory_command,
+    list_saved_chats,
+    resume_saved_chat,
+)
+from hephaistos.chat import storage as chat_storage
+from hephaistos.chat.engine import Conversation, Message, stream_reply
+from hephaistos.chat.session import (
+    ChatSession,
+    SessionError,
+    create_plain_session,
+    create_session,
+    replace_system_prompt,
+    save_session,
+    session_has_messages,
+    validate_armory_path,
+)
+from hephaistos.harness.persona import get_persona, list_personas
 from hephaistos.parameters.settings import clear_setting, load_app_settings, save_setting
+from hephaistos.providers import keyring_store, oauth
 from hephaistos.providers.config import ProviderConfig
+from hephaistos.providers.keyring_store import mask_key, resolve_key, set_volatile, store_key
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
+from hephaistos.providers.registry import get_registry as get_provider_registry
 from hephaistos.telemetry import (
     analytics_backend_available,
     analytics_enabled,
@@ -31,9 +51,9 @@ from hephaistos.telemetry import (
     crash_reports_enabled,
     crash_reports_env_override,
 )
-
-if TYPE_CHECKING:
-    from hephaistos.chat.session import ChatSession
+from hephaistos.vocab.drill import run_drill
+from hephaistos.vocab.parser import scan_armory
+from hephaistos.vocab.state import load_schedule, save_schedule
 
 
 class CommandResult:
@@ -160,9 +180,6 @@ class SaveCommand(Command):
     description = "Save current chat to armory"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.chat import storage as chat_storage
-        from hephaistos.chat.session import save_session
-
         s = _ensure_session(session)
         try:
             path = save_session(s)
@@ -178,15 +195,6 @@ class ClearCommand(Command):
     description = "Start a fresh chat session"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.chat import storage as chat_storage
-        from hephaistos.chat.session import (
-            SessionError,
-            create_plain_session,
-            create_session,
-            save_session,
-            session_has_messages,
-        )
-
         s = _ensure_session(session)
 
         if session_has_messages(s) and not confirm("Clear conversation?", default=False):
@@ -225,12 +233,8 @@ class ArmoryCommand(Command):
     description = "Open the armory management menu"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.app.workspace import (
-            _handle_armory_command,  # type: ignore[reportPrivateUsage]
-        )
-
         s = _ensure_session(session)
-        new = _handle_armory_command(s)
+        new = handle_armory_command(s)
         return CommandResult(new_session=new)
 
 
@@ -240,10 +244,8 @@ class ChatsCommand(Command):
     aliases = ("sessions",)
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.app.workspace import _list_saved_chats  # type: ignore[reportPrivateUsage]
-
         s = _ensure_session(session)
-        _list_saved_chats(s)
+        list_saved_chats(s)
         return CommandResult()
 
 
@@ -252,10 +254,8 @@ class ResumeCommand(Command):
     description = "Resume a saved chat by menu or session ID prefix"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.app.workspace import _resume_saved_chat  # type: ignore[reportPrivateUsage]
-
         s = _ensure_session(session)
-        new = _resume_saved_chat(s, args.strip())
+        new = resume_saved_chat(s, args.strip())
         return CommandResult(new_session=new)
 
 
@@ -332,14 +332,6 @@ class ApiCommand(Command):
     description = "Manage API key (keychain) or base URL"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.providers.config import ProviderConfig
-        from hephaistos.providers.keyring_store import (
-            mask_key,
-            resolve_key,
-            set_volatile,
-            store_key,
-        )
-
         s = _ensure_session(session)
         parts = args.strip().split(maxsplit=1)
 
@@ -354,13 +346,11 @@ class ApiCommand(Command):
 
             source = ""
             if key:
-                from hephaistos.providers import keyring_store as ks
-
-                if ks.retrieve_key(slug):
+                if keyring_store.retrieve_key(slug):
                     source = "keychain"
                 elif env_var and os.environ.get(env_var, "").strip():
                     source = f"env ({env_var})"
-                elif ks.get_volatile(slug):
+                elif keyring_store.get_volatile(slug):
                     source = "volatile (session-only)"
                 else:
                     source = "unknown"
@@ -412,9 +402,6 @@ class CompactCommand(Command):
     description = "Summarize conversation to reduce context size"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.chat.engine import Conversation, Message, stream_reply
-        from hephaistos.chat.session import session_has_messages
-
         s = _ensure_session(session)
         if not session_has_messages(s):
             print_info("Nothing to compact.")
@@ -650,9 +637,7 @@ class ModelsCommand(Command):
     description = "List all available models across providers"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.providers.registry import get_registry
-
-        registry = get_registry()
+        registry = get_provider_registry()
         models = registry.list_models()
 
         if not models:
@@ -682,8 +667,6 @@ class LoginCommand(Command):
     description = "Authenticate with an LLM provider via OAuth"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.providers.oauth import login_openai_codex
-
         options = [
             MenuOption("OpenAI Codex", "ChatGPT Plus/Pro subscription"),
         ]
@@ -693,15 +676,13 @@ class LoginCommand(Command):
             return CommandResult()
 
         try:
-            creds = login_openai_codex()
+            creds = oauth.login_openai_codex()
         except RuntimeError as exc:
             print_error(str(exc))
             return CommandResult()
         except Exception as exc:
             print_error(f"Login failed: {exc}")
             return CommandResult()
-
-        from hephaistos.providers.keyring_store import set_volatile
 
         set_volatile("openai-codex", creds.access_token)
 
@@ -726,9 +707,7 @@ class LogoutCommand(Command):
     description = "Clear stored OAuth credentials"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.providers.oauth import clear_credentials, list_providers
-
-        providers = list_providers()
+        providers = oauth.list_providers()
         if not providers:
             print_info("No OAuth sessions found.")
             return CommandResult()
@@ -736,7 +715,7 @@ class LogoutCommand(Command):
         if len(providers) == 1:
             slug = providers[0]
             if confirm(f"Log out of {slug}?", default=True):
-                clear_credentials(slug)
+                oauth.clear_credentials(slug)
                 print_success(f"Logged out of {slug}.")
             else:
                 print_info("Cancelled.")
@@ -750,12 +729,12 @@ class LogoutCommand(Command):
 
         if selected == len(options) - 1:
             for p in providers:
-                clear_credentials(p)
+                oauth.clear_credentials(p)
             print_success("Logged out of all providers.")
             capture_analytics("oauth_logout", {"provider": "all"})
         else:
             slug = providers[selected]
-            clear_credentials(slug)
+            oauth.clear_credentials(slug)
             print_success(f"Logged out of {slug}.")
             capture_analytics("oauth_logout", {"provider": slug})
         return CommandResult()
@@ -766,11 +745,6 @@ class PersonaCommand(Command):
     description = "Show or switch the agent persona"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.chat.session import (
-            _replace_system_prompt,  # type: ignore[reportPrivateUsage]
-        )
-        from hephaistos.harness.persona import get_persona, list_personas
-
         s = _ensure_session(session)
         slug = args.strip().lower()
 
@@ -783,7 +757,7 @@ class PersonaCommand(Command):
                 return CommandResult()
             old_name = s.persona.display_name
             s.persona = persona
-            _replace_system_prompt(s)
+            replace_system_prompt(s)
             s.dirty = True
             print_success(f"Persona: {old_name} -> {persona.display_name}")
             return CommandResult()
@@ -805,7 +779,7 @@ class PersonaCommand(Command):
         persona = personas[selected]
         old_name = s.persona.display_name
         s.persona = persona
-        _replace_system_prompt(s)
+        replace_system_prompt(s)
         s.dirty = True
         print_success(f"Persona: {old_name} -> {persona.display_name}")
         return CommandResult()
@@ -933,8 +907,6 @@ class SettingsCommand(Command):
             print_success(f"Theme: {current} -> {theme}")
 
     def _startup_menu(self) -> None:
-        from hephaistos.chat.session import validate_armory_path
-
         while True:
             settings = load_app_settings()
             default_armory = settings.default_armory_path or styled("(not set)", STYLE_DIM)
@@ -1000,8 +972,6 @@ class VocabCommand(Command):
     aliases = ("v",)
 
     def handle(self, session: object, args: str) -> CommandResult:
-        from hephaistos.vocab.drill import run_drill
-
         s = _ensure_session(session)
         if s.armory_path is None:
             print_error("No armory attached. Use /armory to open one first.")
@@ -1030,9 +1000,6 @@ class VocabCommand(Command):
 
     @staticmethod
     def _status(session: ChatSession) -> CommandResult:
-        from hephaistos.vocab.parser import scan_armory
-        from hephaistos.vocab.state import load_schedule, save_schedule
-
         armory_path = session.armory_path
         if armory_path is None:
             print_error("No armory attached. Use /armory to open one first.")
@@ -1055,9 +1022,6 @@ class VocabCommand(Command):
 
     @staticmethod
     def _reset(session: ChatSession) -> CommandResult:
-        from hephaistos.vocab.parser import scan_armory
-        from hephaistos.vocab.state import load_schedule
-
         armory_path = session.armory_path
         if armory_path is None:
             print_error("No armory attached. Use /armory to open one first.")
@@ -1093,8 +1057,6 @@ class UsageCommand(Command):
 
 
 def _ensure_session(session: object):
-    from hephaistos.chat.session import ChatSession
-
     if not isinstance(session, ChatSession):
         raise TypeError(f"Expected ChatSession, got {type(session).__name__}")
     return session

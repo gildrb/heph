@@ -14,7 +14,6 @@ import threading
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from hephaistos.logging import Timer, get_logger
 
@@ -47,7 +46,7 @@ class FileMutationQueue:
         self,
         path: Path,
         fn: MutationFn,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> str:
         """Execute a file mutation under a per-file lock.
 

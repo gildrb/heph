@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -20,7 +20,7 @@ class TestFileMutationQueue:
     def test_execute_passes_kwargs(self) -> None:
         queue = FileMutationQueue()
 
-        def handler(**kwargs: Any) -> str:
+        def handler(**kwargs: object) -> str:
             return f"{kwargs['file_path']}:{kwargs['content']}"
 
         result = queue.execute(Path("/tmp/test.txt"), handler, file_path="x", content="data")
@@ -29,7 +29,7 @@ class TestFileMutationQueue:
     def test_execute_catches_exception(self) -> None:
         queue = FileMutationQueue()
 
-        def failing_handler(**kwargs: Any) -> str:
+        def failing_handler(**kwargs: object) -> str:
             raise ValueError("disk full")
 
         result = queue.execute(Path("/tmp/test.txt"), failing_handler)
@@ -50,13 +50,13 @@ class TestFileMutationQueue:
         handler_1_entered = threading.Event()
         handler_1_release = threading.Event()
 
-        def handler_1(**kwargs: Any) -> str:
+        def handler_1(**kwargs: object) -> str:
             order.append(1)
             handler_1_entered.set()
             handler_1_release.wait(timeout=5)
             return "r1"
 
-        def handler_2(**kwargs: Any) -> str:
+        def handler_2(**kwargs: object) -> str:
             order.append(2)
             return "r2"
 
@@ -82,7 +82,7 @@ class TestFileMutationQueue:
         release = threading.Event()
         started: list[int] = []
 
-        def slow_handler(**kwargs: Any) -> str:
+        def slow_handler(**kwargs: object) -> str:
             started.append(1)
             entered.set()
             release.wait(timeout=5)
@@ -100,8 +100,6 @@ class TestFileMutationQueue:
         entered.wait(timeout=5)
         t2.start()
         # Both should have started (they ran in parallel on different files)
-        import time
-
         time.sleep(0.1)
         assert len(started) == 2
         release.set()

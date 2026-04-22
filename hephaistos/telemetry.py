@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Final
 
 from hephaistos import __version__
 from hephaistos._telemetry_release import (
@@ -29,6 +29,7 @@ from hephaistos._telemetry_release import (
 from hephaistos._telemetry_release import (
     SENTRY_DSN as _RELEASE_SENTRY_DSN,
 )
+from hephaistos._types import is_string_mapping
 from hephaistos.parameters.settings import load_app_settings, load_raw_settings, save_raw_settings
 
 _INSTALL_ID_PATH: Final[Path] = Path.home() / ".config" / "hephaistos" / "install_id.json"
@@ -163,9 +164,8 @@ def install_id() -> str:
     if _INSTALL_ID_PATH.exists():
         with contextlib.suppress(Exception):
             raw = json.loads(_INSTALL_ID_PATH.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                data = cast("dict[str, Any]", raw)
-                existing = str(data.get("install_id", "")).strip()
+            if is_string_mapping(raw):
+                existing = str(raw.get("install_id", "")).strip()
                 if existing:
                     return existing
     value = f"heph_{uuid.uuid4().hex}"

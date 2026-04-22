@@ -25,7 +25,8 @@ created or updated by the `ci-failure-issue.yml` workflow.
    uv run ruff check .          # lint
    uv run ruff format --check . # format
    uv run basedpyright          # typecheck
-   uv run python scripts/sync_docs.py --check  # docs drift
+   uv run python -m scripts.sync_docs --check  # docs drift
+   uv run python -m scripts.check_repo_policies  # repo policy drift
    uv run pytest                # tests
    ```
 
@@ -39,6 +40,7 @@ created or updated by the `ci-failure-issue.yml` workflow.
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | `ruff check` fails | New lint rule violation | `uv run ruff check --fix .` |
+| `repo policy check` fails | New `Any`, local import, or forbidden dynamic import | Replace `Any` with concrete types and move imports to module scope |
 | `basedpyright` fails | Type incompatibility | Add type annotations or narrow types |
 | `vulture` fails | Unused code detected | Remove dead code or add to `vulture-whitelist.py` |
 | `lint-imports` fails | Import boundary violation | Move import to `app` package or refactor |

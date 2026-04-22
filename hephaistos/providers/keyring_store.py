@@ -19,10 +19,13 @@ Fallback order for key resolution:
 
 from __future__ import annotations
 
+import os
 from typing import Final
 
 import keyring
 from keyring.errors import KeyringError
+
+from hephaistos.providers.oauth import resolve_oauth_key
 
 _SERVICE_PREFIX = "hephaistos"
 _USERNAME = "api_key"
@@ -93,8 +96,6 @@ def resolve_key(slug: str, env_var: str = "") -> str:
 
     Returns the key string, or ``""`` if none found.
     """
-    import os
-
     # 0. Global override — takes precedence over everything
     override = os.environ.get(GLOBAL_API_KEY_ENV, "").strip()
     if override:
@@ -106,8 +107,6 @@ def resolve_key(slug: str, env_var: str = "") -> str:
         return key
 
     # 2. OAuth
-    from hephaistos.providers.oauth import resolve_oauth_key
-
     oauth_key = resolve_oauth_key(slug)
     if oauth_key:
         return oauth_key

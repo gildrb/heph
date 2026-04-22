@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -20,6 +21,10 @@ from hephaistos.chat.engine import (
     is_retryable_error,
     stream_reply,
 )
+from hephaistos.chat.events import AssistantDeltaEvent
+from hephaistos.chat.orchestrator import TurnOrchestrator
+from hephaistos.chat.session import ChatSession, send_user_message
+from hephaistos.harness.dispatch import agent_loop
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -117,8 +122,6 @@ class EmptyFailingIterator:
 
 
 def _workspace():
-    from pathlib import Path
-
     return Path("/tmp/fake_workspace")
 
 
@@ -421,8 +424,6 @@ class TestGetReply:
 class TestConversationConsistency:
     def test_rollback_on_engine_error(self) -> None:
         """Verify conversation is rolled back on EngineError."""
-        from hephaistos.chat.session import ChatSession, send_user_message
-
         config = _config()
         conv = _conv("test prompt")
         session = ChatSession(
@@ -453,8 +454,6 @@ class TestConversationConsistency:
 
     def test_rollback_on_stream_recovery(self) -> None:
         """Verify conversation is rolled back on StreamRecoveryError."""
-        from hephaistos.chat.session import ChatSession, send_user_message
-
         config = _config()
         conv = _conv("test prompt")
         session = ChatSession(
@@ -489,8 +488,6 @@ class TestConversationConsistency:
 
     def test_successful_reply_does_not_rollback(self) -> None:
         """Successful reply adds messages without rollback."""
-        from hephaistos.chat.session import ChatSession, send_user_message
-
         config = _config()
         conv = Conversation()
         session = ChatSession(
@@ -499,9 +496,6 @@ class TestConversationConsistency:
             session_id="test-success",
             armory_path=_workspace(),
         )
-
-        from hephaistos.chat.events import AssistantDeltaEvent
-        from hephaistos.chat.orchestrator import TurnOrchestrator
 
         def fake_iter_events(
             self: TurnOrchestrator,
@@ -530,8 +524,6 @@ class TestConversationConsistency:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Reply labels are printed only when a turn emits output."""
-        from hephaistos.chat.session import ChatSession, send_user_message
-
         config = _config()
         conv = Conversation()
         session = ChatSession(
@@ -540,9 +532,6 @@ class TestConversationConsistency:
             session_id="test-prefix",
             armory_path=_workspace(),
         )
-
-        from hephaistos.chat.events import AssistantDeltaEvent
-        from hephaistos.chat.orchestrator import TurnOrchestrator
 
         def fake_iter_events(
             self: TurnOrchestrator,
@@ -573,8 +562,6 @@ class TestConversationConsistency:
 class TestAgentLoopRetry:
     def test_agent_loop_retries_on_connection_error(self) -> None:
         """Agent loop retries the API call on connection error."""
-        from hephaistos.harness.dispatch import agent_loop
-
         chunks = [_make_chunk("Done")]
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = [
@@ -591,8 +578,6 @@ class TestAgentLoopRetry:
 
     def test_agent_loop_raises_recovery_on_mid_stream_failure(self) -> None:
         """Agent loop raises StreamRecoveryError when stream drops mid-content."""
-        from hephaistos.harness.dispatch import agent_loop
-
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = FailingIterator("Partial agent ")
 
@@ -607,8 +592,6 @@ class TestAgentLoopRetry:
 
     def test_agent_loop_exhausts_retries(self) -> None:
         """Agent loop raises EngineError after all retries exhausted."""
-        from hephaistos.harness.dispatch import agent_loop
-
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = _connection_error()
 

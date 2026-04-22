@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from hephaistos.chat._api_types import ApiMessage, UsagePayload
 from hephaistos.chat.usage import (
     ContextBudget,
     SessionUsage,
@@ -28,30 +29,30 @@ class TestTokenUsage:
         assert usage.total_tokens == 0
 
     def test_from_api_response_with_data(self):
+        payload: UsagePayload = {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+        }
         usage = TokenUsage.from_api_response(
-            {
-                "prompt_tokens": 100,
-                "completion_tokens": 50,
-                "total_tokens": 150,
-            }
+            payload
         )
         assert usage.prompt_tokens == 100
         assert usage.completion_tokens == 50
         assert usage.total_tokens == 150
 
     def test_from_api_response_missing_fields(self):
-        usage = TokenUsage.from_api_response({})
+        usage = TokenUsage.from_api_response(UsagePayload())
         assert usage.prompt_tokens == 0
         assert usage.total_tokens == 0
 
     def test_from_api_response_with_none_values(self):
-        usage = TokenUsage.from_api_response(
-            {
-                "prompt_tokens": None,
-                "completion_tokens": None,
-                "total_tokens": None,
-            }
-        )
+        payload: UsagePayload = {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+        }
+        usage = TokenUsage.from_api_response(payload)
         assert usage.prompt_tokens == 0
         assert usage.completion_tokens == 0
 
@@ -160,7 +161,7 @@ class TestTokenEstimation:
         assert tokens == len("Hello world, this is a test") // 4
 
     def test_estimate_conversation_tokens(self):
-        messages = [
+        messages: list[ApiMessage] = [
             {"role": "system", "content": "You are helpful."},
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi there"},
@@ -170,7 +171,7 @@ class TestTokenEstimation:
         assert tokens > 0
 
     def test_estimate_conversation_with_tool_calls(self):
-        messages = [
+        messages: list[ApiMessage] = [
             {
                 "role": "assistant",
                 "content": None,
@@ -196,7 +197,7 @@ class TestContextBudget:
 
     def test_tokens_remaining(self):
         budget = ContextBudget(model="gpt-4o", max_tokens=4096)
-        messages = [{"role": "user", "content": "short"}]
+        messages: list[ApiMessage] = [{"role": "user", "content": "short"}]
         remaining = budget.tokens_remaining(messages)
         assert remaining > 0
         assert remaining < budget.prompt_budget

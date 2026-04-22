@@ -21,19 +21,28 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 try:
-    import numpy as np
     from sklearn.feature_extraction.text import (
-        TfidfVectorizer as _SklearnTfidfVectorizer,  # type: ignore[import-untyped]
+        TfidfVectorizer as _ImportedSklearnTfidfVectorizer,  # type: ignore[import-untyped]
     )
 
     _has_sklearn = True
 except ImportError:
     _has_sklearn = False
-    np = None  # type: ignore[assignment]
-    _SklearnTfidfVectorizer = None  # type: ignore[assignment,misc]
+    _ImportedSklearnTfidfVectorizer = None
+
+try:
+    from sentence_transformers import (
+        CrossEncoder as _ImportedCrossEncoder,  # type: ignore[import-untyped]
+    )
+    from sentence_transformers import (
+        SentenceTransformer as _ImportedSentenceTransformer,  # type: ignore[import-untyped]
+    )
+except ImportError:
+    _ImportedCrossEncoder = None
+    _ImportedSentenceTransformer = None
 
 from hephaistos.harness.rag.chunker import Chunk
 from hephaistos.harness.rag.index import ArmoryIndex
@@ -151,6 +160,66 @@ _STOP_WORDS = frozenset(
 _IDENTITY_CACHE_KEY = (TransformStrategy.IDENTITY.value, None)
 
 
+class _SklearnVectorizerProtocol(Protocol):
+    def fit_transform(self, texts: list[str]) -> object: ...
+
+    def transform(self, texts: list[str]) -> object: ...
+
+
+class _SklearnVectorizerFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        stop_words: str,
+        sublinear_tf: bool,
+        max_features: int,
+        token_pattern: str,
+    ) -> _SklearnVectorizerProtocol: ...
+
+
+class _SentenceTransformerProtocol(Protocol):
+    def encode(
+        self,
+        texts: list[str],
+        *,
+        convert_to_numpy: bool,
+        show_progress_bar: bool,
+    ) -> object: ...
+
+
+class _SentenceTransformerFactory(Protocol):
+    def __call__(self, model_name: str) -> _SentenceTransformerProtocol: ...
+
+
+class _CrossEncoderProtocol(Protocol):
+    def predict(self, pairs: list[tuple[str, str]]) -> object: ...
+
+
+@runtime_checkable
+class _ToListProtocol(Protocol):
+    def tolist(self) -> object: ...
+
+
+class _CrossEncoderFactory(Protocol):
+    def __call__(self, model_name: str) -> _CrossEncoderProtocol: ...
+
+
+if _ImportedSklearnTfidfVectorizer is None:
+    _SklearnTfidfVectorizer: _SklearnVectorizerFactory | None = None
+else:
+    _SklearnTfidfVectorizer = cast(
+        "_SklearnVectorizerFactory",
+        _ImportedSklearnTfidfVectorizer,
+    )
+
+if _ImportedCrossEncoder is None or _ImportedSentenceTransformer is None:
+    _CrossEncoder: _CrossEncoderFactory | None = None
+    _SentenceTransformer: _SentenceTransformerFactory | None = None
+else:
+    _CrossEncoder = cast("_CrossEncoderFactory", _ImportedCrossEncoder)
+    _SentenceTransformer = cast("_SentenceTransformerFactory", _ImportedSentenceTransformer)
+
+
 @dataclass(frozen=True, slots=True)
 class ScoredChunk:
     chunk: Chunk
@@ -186,6 +255,50 @@ def _tokenize(text: str) -> list[str]:
     return [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
 
 
+def _float_list(values: object) -> list[float]:
+    if isinstance(values, _ToListProtocol):
+        values = values.tolist()
+    if not isinstance(values, list):
+        return []
+    result: list[float] = []
+    typed_values = cast("list[object]", values)
+    for value in typed_values:
+        if not isinstance(value, int | float):
+            return []
+        result.append(float(value))
+    return result
+
+
+def _embedding_rows(values: object) -> list[list[float]]:
+    if isinstance(values, _ToListProtocol):
+        values = values.tolist()
+    if not isinstance(values, list):
+        return []
+    rows: list[list[float]] = []
+    typed_values = cast("list[object]", values)
+    for row in typed_values:
+        typed_row = _float_list(row)
+        if typed_row:
+            rows.append(typed_row)
+    return rows
+
+
+def _sklearn_scores(query_vector: object, matrix: object) -> list[float]:
+    transposed = getattr(matrix, "T", None)
+    matmul = getattr(query_vector, "__matmul__", None)
+    if transposed is None or not callable(matmul):
+        return []
+    raw_scores = matmul(transposed)
+    toarray = getattr(raw_scores, "toarray", None)
+    if not callable(toarray):
+        return []
+    flattened = toarray()
+    flatten = getattr(flattened, "flatten", None)
+    if callable(flatten):
+        flattened = flatten()
+    return _float_list(flattened)
+
+
 class TfidfRetriever:
     """TF-IDF cosine-similarity retriever over an ``ArmoryIndex``.
 
@@ -196,8 +309,8 @@ class TfidfRetriever:
 
     def __init__(self, index: ArmoryIndex) -> None:
         self._chunks = index.all_chunks
-        self._vectorizer: Any | None = None
-        self._matrix: Any = None
+        self._vectorizer: _SklearnVectorizerProtocol | None = None
+        self._matrix: object | None = None
         self._idf: dict[str, float] = {}
         self._chunk_freqs: list[Counter[str]] = []
         if self._chunks:
@@ -233,7 +346,7 @@ class TfidfRetriever:
             max_features=10000,
             token_pattern=r"(?u)\b[a-zA-Z0-9]{2,}\b",
         )
-        self._matrix = self._vectorizer.fit_transform(texts)  # type: ignore[union-attr]
+        self._matrix = self._vectorizer.fit_transform(texts)
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
         """Return the top-k chunks most relevant to *query*."""
@@ -248,16 +361,14 @@ class TfidfRetriever:
         assert self._vectorizer is not None
         assert self._matrix is not None
         query_vec = self._vectorizer.transform([query])
-        # TfidfVectorizer produces L2-normalized vectors by default,
-        # so dot product == cosine similarity.
-        scores = (query_vec @ self._matrix.T).toarray().flatten()  # type: ignore[union-attr]
-        top_indices = np.argsort(scores)[::-1][:top_k]  # type: ignore[union-attr]
+        scores = _sklearn_scores(query_vec, self._matrix)
+        top_indices = sorted(range(len(scores)), key=scores.__getitem__, reverse=True)[:top_k]
         return [
             ScoredChunk(
-                chunk=self._chunks[idx],  # type: ignore[reportUnknownArgumentType]
+                chunk=self._chunks[idx],
                 score=float(scores[idx]),
             )
-            for idx in top_indices  # type: ignore[reportUnknownVariableType]
+            for idx in top_indices
             if scores[idx] > 0
         ]
 
@@ -315,12 +426,7 @@ _RERANK_MODEL_DEFAULT = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 def _is_sentence_transformers_available() -> bool:
     """Return True if sentence-transformers can be imported."""
-    try:
-        import sentence_transformers  # type: ignore[UnusedImport]  # noqa: F401, RUF100
-
-        return True
-    except ImportError:
-        return False
+    return _SentenceTransformer is not None
 
 
 def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
@@ -352,15 +458,15 @@ class EmbeddingRetriever:
             _EMBED_MODEL_DEFAULT,
         )
         self._embeddings: list[list[float]] | None = None
-        self._model: Any = None  # lazy-loaded
+        self._model: _SentenceTransformerProtocol | None = None
 
-    def _ensure_model(self) -> Any:
+    def _ensure_model(self) -> _SentenceTransformerProtocol:
         """Lazy-load the sentence-transformers model."""
         if self._model is not None:
             return self._model
-        from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
-
-        self._model = cast("Any", SentenceTransformer(self._model_name))
+        if _SentenceTransformer is None:
+            raise RuntimeError("sentence-transformers is not installed")
+        self._model = _SentenceTransformer(self._model_name)
         return self._model
 
     def _ensure_embeddings(self) -> list[list[float]]:
@@ -374,8 +480,9 @@ class EmbeddingRetriever:
 
         model = self._ensure_model()
         texts = [c.text for c in self._chunks]
-        vectors = model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
-        self._embeddings = [row.tolist() for row in vectors]
+        self._embeddings = _embedding_rows(
+            model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+        )
         return self._embeddings
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
@@ -385,8 +492,12 @@ class EmbeddingRetriever:
 
         embeddings = self._ensure_embeddings()
         model = self._ensure_model()
-        query_vec = model.encode([query], convert_to_numpy=True, show_progress_bar=False)
-        query_embedding = query_vec[0].tolist()
+        query_rows = _embedding_rows(
+            model.encode([query], convert_to_numpy=True, show_progress_bar=False)
+        )
+        if not query_rows:
+            return []
+        query_embedding = query_rows[0]
         scored: list[ScoredChunk] = []
         for i, chunk_embedding in enumerate(embeddings):
             sim = _cosine_similarity(query_embedding, chunk_embedding)
@@ -414,20 +525,20 @@ class CrossEncoderReranker:
             _RERANK_MODEL_ENV,
             _RERANK_MODEL_DEFAULT,
         )
-        self._model: Any = None  # lazy-loaded
+        self._model: _CrossEncoderProtocol | None = None
 
     @property
     def model_name(self) -> str:
         """Name of the cross-encoder model."""
         return self._model_name
 
-    def _ensure_model(self) -> Any:
+    def _ensure_model(self) -> _CrossEncoderProtocol:
         """Lazy-load the CrossEncoder model."""
         if self._model is not None:
             return self._model
-        from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
-
-        self._model = cast("Any", CrossEncoder(self._model_name))
+        if _CrossEncoder is None:
+            raise RuntimeError("sentence-transformers is not installed")
+        self._model = _CrossEncoder(self._model_name)
         return self._model
 
     def rerank(
@@ -446,7 +557,7 @@ class CrossEncoderReranker:
 
         model = self._ensure_model()
         pairs = [(query, sc.chunk.text) for sc in candidates]
-        scores = model.predict(pairs)
+        scores = _float_list(model.predict(pairs))
         scored = [
             ScoredChunk(chunk=candidates[i].chunk, score=float(scores[i]))
             for i in range(len(candidates))
@@ -659,10 +770,16 @@ def retrieve(
         transformer = create_transformer(transform_strategy, prompt_fn)
 
     cache_key = _retriever_cache_key(transform_strategy, prompt_fn)
-    retriever = index._retriever_cache.get(cache_key)  # type: ignore[reportPrivateUsage]
+    retriever = cast(
+        "RetrieverProtocol | None",
+        index._retriever_cache.get(cache_key),  # type: ignore[reportPrivateUsage]
+    )
     if retriever is None:
         if cache_key == _IDENTITY_CACHE_KEY:
-            retriever = index._retriever  # type: ignore[reportPrivateUsage]
+            retriever = cast(
+                "RetrieverProtocol | None",
+                index._retriever,  # type: ignore[reportPrivateUsage]
+            )
         if retriever is None:
             retriever = _create_retriever(index, query_transformer=transformer)
             if cache_key == _IDENTITY_CACHE_KEY:

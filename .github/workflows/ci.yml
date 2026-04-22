@@ -29,6 +29,13 @@ jobs:
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| lint ruff-check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Repo policy check
+        run: |
+          start=$(date +%s%N)
+          uv run python -m scripts.check_repo_policies
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| lint repo-policies | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
       - name: Ruff format check
         run: |
           start=$(date +%s%N)
@@ -55,7 +62,7 @@ jobs:
       - name: Docs sync check
         run: |
           start=$(date +%s%N)
-          uv run python scripts/sync_docs.py --check
+          uv run python -m scripts.sync_docs --check
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| docs-sync check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"

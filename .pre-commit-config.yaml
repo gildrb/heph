@@ -33,9 +33,15 @@ repos:
       - id: sync-docs
         name: sync-docs (README/docs/AGENTS)
         language: system
-        entry: uv run python scripts/sync_docs.py
+        entry: uv run python -m scripts.sync_docs
         pass_filenames: false
         always_run: true
+      - id: check-repo-policies
+        name: repo-policies (no Any / no deferred imports)
+        language: python
+        entry: python -m scripts.check_repo_policies
+        types: [python]
+        pass_filenames: false
       - id: vulture
         name: vulture (dead-code)
         language: python

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 
 import pytest
 
@@ -28,7 +28,7 @@ def test_capture_is_noop_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    responses: list[dict[str, Any]] = []
+    responses: list[dict[str, object]] = []
 
     class _Response:
         def __enter__(self) -> Self:
@@ -63,11 +63,14 @@ def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> Non
         },
     )
 
-    assert responses[0]["api_key"] == "phc_test"
-    assert responses[0]["event"] == "shell_started"
-    assert responses[0]["distinct_id"] == "heph_test"
-    assert responses[0]["properties"]["model"] == "openai/gpt-5.4"
-    assert "path" not in responses[0]["properties"]
+    payload = responses[0]
+    assert payload["api_key"] == "phc_test"
+    assert payload["event"] == "shell_started"
+    assert payload["distinct_id"] == "heph_test"
+    properties = payload["properties"]
+    assert isinstance(properties, dict)
+    assert properties["model"] == "openai/gpt-5.4"
+    assert "path" not in properties
 
 
 def test_init_analytics_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:

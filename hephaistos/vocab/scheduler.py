@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import IntEnum
 from typing import TYPE_CHECKING
 
@@ -92,8 +93,6 @@ def select_due_cards(cards: list[VocabCardState], *, limit: int = 0) -> list[Voc
     limit :
         Maximum number of cards to return. 0 means no limit.
     """
-    from datetime import UTC, datetime
-
     now = datetime.now(UTC)
     due = [card for card in cards if card.next_review is None or card.next_review <= now]
 

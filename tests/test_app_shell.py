@@ -16,6 +16,7 @@ from prompt_toolkit.output import DummyOutput
 
 from hephaistos.app import shell, workspace
 from hephaistos.app.display import print_shell_intro
+from hephaistos.app.input_history import InputHistory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation, EngineError
@@ -165,8 +166,6 @@ def test_fallback_shell_runs_bang_command(
 def test_handle_input_slash_command(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    from hephaistos.app.input_history import InputHistory
-
     session = _make_session(tmp_path)
     history = InputHistory()
     session, cont = shell._handle_input(session, "/status", history)  # type: ignore[reportPrivateUsage]
@@ -176,8 +175,6 @@ def test_handle_input_slash_command(
 
 
 def test_handle_input_exit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from hephaistos.app.input_history import InputHistory
-
     session = _make_session(tmp_path)
     history = InputHistory()
     session, cont = shell._handle_input(session, "/exit", history)  # type: ignore[reportPrivateUsage]
@@ -187,8 +184,6 @@ def test_handle_input_exit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
 def test_handle_input_shell_mode(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    from hephaistos.app.input_history import InputHistory
-
     session = _make_session(tmp_path)
     history = InputHistory()
     session, cont = shell._handle_input(session, "!echo test-output", history)  # type: ignore[reportPrivateUsage]
@@ -198,8 +193,6 @@ def test_handle_input_shell_mode(
 
 
 def test_handle_input_unknown_command(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
-    from hephaistos.app.input_history import InputHistory
-
     session = _make_session(tmp_path)
     history = InputHistory()
     session, cont = shell._handle_input(session, "/unknown", history)  # type: ignore[reportPrivateUsage]
@@ -212,8 +205,6 @@ def test_handle_input_engine_error_does_not_print_assistant_placeholder(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    from hephaistos.app.input_history import InputHistory
-
     session = _make_session(tmp_path)
     session.config.api_key = "test-key"
     history = InputHistory()

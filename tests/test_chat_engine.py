@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from hephaistos.chat.engine import ChatConfig, Conversation, Message
+from hephaistos.chat.engine import ChatConfig, Conversation, EngineError, Message, build_client
 
 
 def test_build_client_raises_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hephaistos.chat.engine import EngineError, build_client
-
     monkeypatch.delenv("HEPHAISTOS_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     config = ChatConfig(api_key="", base_url="http://localhost/v1", model="test")
@@ -18,8 +16,6 @@ def test_build_client_raises_without_api_key(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_build_client_rejects_unavailable_model_for_known_endpoint() -> None:
-    from hephaistos.chat.engine import EngineError, build_client
-
     config = ChatConfig(
         api_key="test-key",
         base_url="https://openrouter.ai/api/v1",

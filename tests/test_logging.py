@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -75,8 +77,6 @@ class TestJsonFormatter:
         try:
             raise ValueError("boom")
         except ValueError:
-            import sys
-
             exc_info = sys.exc_info()
         record = logging.LogRecord(
             name="hephaistos.test",
@@ -200,8 +200,6 @@ class TestGetLogger:
 
 class TestTimer:
     def test_basic_timing(self) -> None:
-        import time
-
         with Timer() as t:
             time.sleep(0.01)
         assert t.ms > 0

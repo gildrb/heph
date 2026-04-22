@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import json
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
+from hephaistos.chat._api_types import ApiMessage, ContentPart, UsagePayload
 from hephaistos.logging import get_logger
 
 _log = get_logger("chat.usage")
@@ -77,7 +78,7 @@ class TokenUsage:
     total_tokens: int = 0
 
     @classmethod
-    def from_api_response(cls, usage: dict[str, Any] | None) -> TokenUsage:
+    def from_api_response(cls, usage: UsagePayload | None) -> TokenUsage:
         """Extract token usage from an OpenAI-compatible usage dict."""
         if usage is None:
             return cls()
@@ -141,7 +142,7 @@ class SessionUsage:
             model,
         )
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self) -> dict[str, int | float]:
         """Return a summary dict for display."""
         return {
             "api_calls": self.api_calls,
@@ -187,16 +188,27 @@ def estimate_message_tokens(content: str) -> int:
     return len(content) // _CHARS_PER_TOKEN
 
 
-def estimate_conversation_tokens(messages: list[dict[str, Any]]) -> int:
+def _estimate_content_tokens(content: str | None | list[ContentPart]) -> int:
+    if isinstance(content, str):
+        return estimate_message_tokens(content)
+    if content is None:
+        return 0
+    total = 0
+    for part in content:
+        text = part.get("text", "") or part.get("content", "")
+        total += estimate_message_tokens(text)
+    return total
+
+
+def estimate_conversation_tokens(messages: Sequence[ApiMessage]) -> int:
     """Estimate total token count for a list of API messages."""
     total = 0
     for msg in messages:
         total += 4
-        content = msg.get("content", "")
-        if content:
-            total += estimate_message_tokens(content)
+        total += _estimate_content_tokens(msg["content"])
         for tc in msg.get("tool_calls", []):
-            args = tc.get("function", {}).get("arguments", "")
+            function = tc.get("function", {})
+            args = function.get("arguments", "")
             if args:
                 total += estimate_message_tokens(args)
     return total
@@ -219,12 +231,12 @@ class ContextBudget:
         """Tokens available for prompt (context window minus completion budget)."""
         return self.context_window - self.max_tokens
 
-    def tokens_remaining(self, current_messages: list[dict[str, Any]]) -> int:
+    def tokens_remaining(self, current_messages: Sequence[ApiMessage]) -> int:
         """How many tokens are left before hitting the context window."""
         used = estimate_conversation_tokens(current_messages)
         return max(0, self.prompt_budget - used)
 
-    def compaction_urgency(self, current_messages: list[dict[str, Any]]) -> str:
+    def compaction_urgency(self, current_messages: Sequence[ApiMessage]) -> str:
         """Return urgency level: 'none', 'low', 'medium', 'high'."""
         used = estimate_conversation_tokens(current_messages)
         ratio = used / max(1, self.prompt_budget)

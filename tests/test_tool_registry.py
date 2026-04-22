@@ -6,6 +6,8 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from hephaistos.chat._api_types import ApiMessage
+from hephaistos.harness.dispatch import _ToolCall as ToolCall  # type: ignore[reportPrivateUsage]
 from hephaistos.harness.dispatch import execute_tool_calls
 from hephaistos.harness.tools import (
     TOOL_SCHEMAS,
@@ -18,6 +20,11 @@ from hephaistos.harness.tools import (
 
 def _default_handler(**_kw: object) -> str:
     return ""
+
+
+def _message_text(message: ApiMessage) -> str:
+    content = message["content"]
+    return content if isinstance(content, str) else ""
 
 
 def _make_spec(
@@ -317,7 +324,7 @@ class TestDispatchWithRegistry:
                 handler=lambda msg, **kw: f"echo: {msg}",  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
             )
         )
-        tool_calls = [
+        tool_calls: list[ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -329,11 +336,11 @@ class TestDispatchWithRegistry:
         ]
         results = execute_tool_calls(tool_calls, tmp_path, registry=reg)
         assert len(results) == 1
-        assert "echo: hello" in results[0]["content"]
+        assert "echo: hello" in _message_text(results[0])
 
     def test_execute_unknown_tool_with_custom_registry(self, tmp_path: Path) -> None:
         reg = ToolRegistry()  # empty registry
-        tool_calls = [
+        tool_calls: list[ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -344,4 +351,4 @@ class TestDispatchWithRegistry:
             }
         ]
         results = execute_tool_calls(tool_calls, tmp_path, registry=reg)
-        assert "Unknown tool" in results[0]["content"]
+        assert "Unknown tool" in _message_text(results[0])
