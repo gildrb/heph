@@ -146,6 +146,7 @@ def style_code(style_name: str) -> str:
 def shell_style_dict() -> dict[str, str]:
     palette = current_palette()
     return {
+        "": f"bg:{palette.panel} fg:{palette.text}",
         "armory": palette.text,
         "prompt-mark": f"bold {palette.accent}",
         "composer": f"bg:{palette.panel} fg:{palette.text}",
@@ -166,6 +167,7 @@ def shell_style_dict() -> dict[str, str]:
 def menu_style_dict() -> dict[str, str]:
     palette = current_palette()
     return {
+        "": f"bg:{palette.panel} fg:{palette.text}",
         "inline-menu.title": f"bold {palette.accent}",
         "inline-menu.option": palette.text,
         "inline-menu.option.current": f"bold {palette.accent}",
@@ -178,6 +180,7 @@ def menu_style_dict() -> dict[str, str]:
 def browser_style_dict() -> dict[str, str]:
     palette = current_palette()
     return {
+        "": f"bg:{palette.panel} fg:{palette.text}",
         "browser.title": f"bold {palette.accent}",
         "browser.path": palette.dim,
         "browser.entry": palette.text,

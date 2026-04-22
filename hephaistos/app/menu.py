@@ -137,7 +137,7 @@ def _select_with_prompt_toolkit(
         key_bindings=bindings,
         style=_MENU_STYLE,
         full_screen=False,
-        erase_when_done=False,
+        erase_when_done=True,
         input=input_obj,
         output=output_obj,
     )
@@ -330,7 +330,7 @@ def _browse_with_prompt_toolkit(
         key_bindings=bindings,
         style=_BROWSER_STYLE,
         full_screen=False,
-        erase_when_done=False,
+        erase_when_done=True,
         input=input_obj,
         output=output_obj,
     )

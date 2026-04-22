@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
@@ -83,6 +85,60 @@ def test_prompt_toolkit_menu_q_cancels() -> None:
     )
 
     assert selected is None
+
+
+def test_prompt_toolkit_menu_erases_previous_frame_when_done(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class FakeApplication:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            _ = args
+            captured_kwargs.update(kwargs)
+
+        def run(self) -> int | None:
+            return 0
+
+    monkeypatch.setattr(menu, "Application", FakeApplication)
+
+    selected = menu._select_with_prompt_toolkit(  # type: ignore[reportPrivateUsage]
+        "Armory",
+        [MenuOption("Open existing armory", "Attach a workspace.")],
+        DEFAULT_MENU_KEYBINDINGS,
+        input_obj=None,
+        output_obj=DummyOutput(),
+    )
+
+    assert selected == 0
+    assert captured_kwargs["erase_when_done"] is True
+
+
+def test_prompt_toolkit_browser_erases_previous_frame_when_done(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class FakeApplication:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            _ = args
+            captured_kwargs.update(kwargs)
+
+        def run(self) -> Path | None:
+            return tmp_path
+
+    monkeypatch.setattr(menu, "Application", FakeApplication)
+
+    selected = menu._browse_with_prompt_toolkit(  # type: ignore[reportPrivateUsage]
+        "Default Armory",
+        tmp_path,
+        input_obj=None,
+        output_obj=DummyOutput(),
+    )
+
+    assert selected == tmp_path
+    assert captured_kwargs["erase_when_done"] is True
 
 
 def test_format_menu_uses_inline_menu_classes_only() -> None:

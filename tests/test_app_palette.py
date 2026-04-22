@@ -26,14 +26,17 @@ def test_set_theme_switches_palette() -> None:
     palette.set_theme("light")
 
     style_rules = palette.shell_style_dict()
+    menu_style = palette.menu_style_dict()
 
     assert palette.current_theme_name() == "light"
+    assert style_rules[""] == "bg:#F6F2EA fg:#2C241B"
     assert style_rules["composer"] == "bg:#F6F2EA fg:#2C241B"
     assert style_rules["toolbar-error"] == "noreverse bold fg:#B03A2E"
+    assert menu_style[""] == "bg:#F6F2EA fg:#2C241B"
 
 
-def test_menu_style_dict_does_not_inherit_prompt_toolkit_menu_background() -> None:
-    palette.set_theme("high_contrast")
+def test_menu_style_dict_uses_theme_background_instead_of_prompt_toolkit_default() -> None:
+    palette.set_theme("light")
 
     merged_style = merge_styles([default_ui_style(), Style.from_dict(palette.menu_style_dict())])
 
@@ -46,4 +49,4 @@ def test_menu_style_dict_does_not_inherit_prompt_toolkit_menu_background() -> No
         "inline-menu.hint",
     ):
         attrs = merged_style.get_attrs_for_style_str(f"class:{style_name}")
-        assert attrs.bgcolor == ""
+        assert attrs.bgcolor == "F6F2EA"
