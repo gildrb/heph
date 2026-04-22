@@ -1,0 +1,20 @@
+[[GENERATED_NOTICE]]
+
+# CLI Reference
+
+## CLI commands
+
+[[CLI_COMMANDS_TABLE]]
+
+`[[SHORT_COMMAND]]` is the canonical public command. `[[LONG_COMMAND]]` is an
+equivalent long entrypoint. `[[SHORT_COMMAND]] start [path]` stays available as
+a hidden backwards-compatible alias and should not be the primary instruction in
+new docs.
+
+## Slash commands
+
+[[SLASH_COMMANDS_TABLE]]
+
+## Environment variables
+
+[[ENV_VARS_TABLE]]

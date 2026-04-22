@@ -41,7 +41,7 @@ When RAG search returns poor or missing results, follow this runbook.
 
 | Problem | Fix |
 |---------|-----|
-| Missing index | Run `heph source reindex` to rebuild |
+| Missing index | Run `heph source index <path>` to rebuild |
 | Stale index | Re-index after adding/modifying source files |
 | Low scores | Improve source document quality; split large files into focused sections |
 | No source files | Add documents to `source/` or `library/` directories |
@@ -52,10 +52,10 @@ When RAG search returns poor or missing results, follow this runbook.
 
 ```bash
 # From the armory directory
-uv run heph source reindex
+uv run heph source index .
 
 # Or from any directory
-uv run heph source reindex --armory /path/to/armory
+uv run heph source index /path/to/armory
 ```
 
 This rebuilds the RAG index from all files in `source/` and `library/`.

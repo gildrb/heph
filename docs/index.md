@@ -1,3 +1,5 @@
+<!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
+
 # Hephaistos
 
 **A local-first study agent that works with your files and any LLM.**
@@ -27,7 +29,7 @@ Install the public CLI globally with `uv`:
 
 ```bash
 uv tool install hephaistos
-heph start
+heph
 heph --version
 ```
 
@@ -75,11 +77,12 @@ uv sync --group docling
 ```bash
 heph armory init ~/armories/exams
 # Add study files to ~/armories/exams/source or ~/armories/exams/library
-heph start ~/armories/exams
+heph ~/armories/exams
 ```
 
-If you `cd` into a valid armory first, `heph` will attach it automatically and
-open the interactive shell. From a source checkout, use `uv run heph`.
+If you `cd` into a valid armory first, `heph` attaches it automatically and
+opens the interactive shell. From a source checkout, use `uv run heph`.
+`hephaistos` is an equivalent long entrypoint. `heph start [path]` remains a hidden compatibility alias.
 
 ### Configure A Model
 
@@ -97,14 +100,22 @@ You can also use environment variables such as `OPENROUTER_API_KEY`,
 
 ### Settings And Telemetry
 
-Use `/settings` for cross-session preferences such as telemetry opt-in, theme
-presets, a default startup armory, and the default model. Credential flows stay
-on `/provider`, `/api`, `/login`, and `/logout`.
+Use `/settings` for cross-session preferences such as:
 
-Forks and custom builds can supply their own telemetry env vars:
-`HEPHAISTOS_POSTHOG_PROJECT_TOKEN`, `HEPHAISTOS_POSTHOG_HOST`, and
-`HEPHAISTOS_SENTRY_DSN`. Official release builds inject those values during CI;
-the public repository only ships a stub module.
+- telemetry opt-in for anonymous analytics and crash reports
+- theme preset selection
+- default startup armory fallback
+- default model selection
+
+Credential flows stay on their existing commands: `/provider`, `/api`,
+`/login`, and `/logout`.
+
+PostHog is used only for anonymous, opt-in usage/error visibility for the
+maintainer. Sentry is used only for redacted, opt-in crash reporting. The
+public repository ships `hephaistos/_telemetry_release.py` as a safe stub;
+official release builds inject telemetry values during CI, and forks or custom
+builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
+`HEPHAISTOS_POSTHOG_HOST`, and `HEPHAISTOS_SENTRY_DSN`.
 
 ## Why Hephaistos
 
@@ -138,8 +149,8 @@ the public repository only ships a stub module.
 5. Useful concepts from the exchange are saved as armory memory for later
    sessions.
 
-If an armory has no source files, `start <path>` asks you to add material
-before starting a study session.
+If an armory has no source files, `heph <path>` asks you to add material before
+starting a study session.
 
 ## Armory Layout
 
@@ -160,15 +171,92 @@ my-armory/
 Only `source/` and `library/` are retrieved for answers. Hidden files inside
 those folders are skipped.
 
+## Retrieval
+
+Hephaistos works with plain text, Markdown, code, config files, CSV/TSV, HTML,
+and other readable text formats out of the box. Markdown is chunked with heading
+context, and other text files use semantic chunking when the optional RAG
+dependencies are installed.
+
+With `uv sync --group rag`, retrieval can use hybrid TF-IDF plus embeddings,
+cross-encoder re-ranking, and query transformation.
+
+With `uv sync --group docling`, document files such as PDF, DOCX, PPTX, XLSX,
+ODT, ODS, ODP, and RTF can be converted into Markdown before indexing.
+
+You can prebuild or refresh the index:
+
+```bash
+heph source index ~/armories/exams
+```
+
 ## Bring Your Own Model
 
 Hephaistos is built around configurable providers, not a single required model.
-The default provider config includes OpenRouter, OpenAI, Z.AI, and a custom
-OpenAI-compatible endpoint.
+The default provider config includes:
+
+- OpenRouter
+- OpenAI
+- Z.AI
+- Custom OpenAI-compatible endpoint
 
 Switch inside the shell with `/provider` and `/model`, or set
 `HEPHAISTOS_BASE_URL` and `HEPHAISTOS_MODEL` for your own endpoint. The armory
 stays the same when the model changes.
+
+## Common Commands
+
+```text
+heph                          Launch the interactive shell in plain-chat mode or attach the current armory.
+heph <path>                   Launch the shell attached to a specific armory path.
+heph armory init <path>       Create a new armory folder.
+heph armory open <path>       Open and validate an armory.
+heph source list <path>       List source documents.
+heph source count <path>      Count source documents.
+heph source index <path>      Build or refresh the RAG index.
+heph chat resume <path> <id>  Resume an existing chat session.
+heph chat list <path>         List chat sessions in an armory.
+heph start [path]             Hidden backwards-compatible alias for `heph [path]`.
+```
+
+Useful shell commands:
+
+| Command | Description |
+|---|---|
+| /help | Show available commands |
+| /exit | Leave the shell |
+| /quit | Leave the shell |
+| /login | Authenticate with an LLM provider via OAuth |
+| /logout | Clear stored OAuth credentials |
+| /status | Show armory, session, and model info |
+| /save | Save current chat to armory |
+| /clear | Start a fresh chat session |
+| /armory | Open the armory management menu |
+| /chats | List saved chats in the active armory |
+| /resume [id-prefix] | Resume a saved chat by menu or session ID prefix |
+| /model | Show or switch the active model |
+| /api | Manage API key (keychain) or base URL |
+| /compact | Summarize conversation to reduce context size |
+| /history | Show conversation turn count and token estimate |
+| /edit | Edit and resend the last user message |
+| /provider | Show or switch LLM provider and model |
+| /models | List all available models across providers |
+| /persona | Show or switch the agent persona |
+| /settings | Manage cross-session preferences |
+| /usage | Show token usage and cost for this session |
+| /vocab | Vocabulary drill with spaced repetition |
+
+## Custom Study Prompts
+
+Every armory can define its own study behavior with:
+
+```text
+my-armory/.hephaistos/system_prompt.md
+```
+
+Use it for modes like quiz practice, Socratic tutoring, exam drilling, debate,
+or lecture-style explanations. Hephaistos still appends the source-grounding and
+citation rules around the custom prompt.
 
 ## Next Steps
 

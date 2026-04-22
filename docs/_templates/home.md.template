@@ -1,4 +1,4 @@
-<!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
+[[GENERATED_NOTICE]]
 
 # Hephaistos
 
@@ -27,23 +27,15 @@ OpenAI-compatible endpoint you configure.
 
 Install the public CLI globally with `uv`:
 
-```bash
-uv tool install hephaistos
-heph
-heph --version
-```
+[[INSTALL_BLOCK]]
 
 Upgrade later with:
 
-```bash
-uv tool upgrade hephaistos
-```
+[[UPGRADE_BLOCK]]
 
 Or install the latest main branch directly from GitHub:
 
-```bash
-uv tool install git+https://github.com/gildrb/hephaistos
-```
+[[GIT_INSTALL_BLOCK]]
 
 Official release installs can optionally enable anonymous usage analytics and
 crash reports from `/settings`. They are off by default. Source, editable, and
@@ -74,15 +66,11 @@ uv sync --group docling
 
 ### Create An Armory
 
-```bash
-heph armory init ~/armories/exams
-# Add study files to ~/armories/exams/source or ~/armories/exams/library
-heph ~/armories/exams
-```
+[[CREATE_ARMORY_BLOCK]]
 
 If you `cd` into a valid armory first, `heph` attaches it automatically and
 opens the interactive shell. From a source checkout, use `uv run heph`.
-`hephaistos` is an equivalent long entrypoint. `heph start [path]` remains a hidden compatibility alias.
+[[EQUIVALENT_ENTRYPOINT_NOTE]]
 
 ### Configure A Model
 
@@ -110,12 +98,7 @@ Use `/settings` for cross-session preferences such as:
 Credential flows stay on their existing commands: `/provider`, `/api`,
 `/login`, and `/logout`.
 
-PostHog is used only for anonymous, opt-in usage/error visibility for the
-maintainer. Sentry is used only for redacted, opt-in crash reporting. The
-public repository ships `hephaistos/_telemetry_release.py` as a safe stub;
-official release builds inject telemetry values during CI, and forks or custom
-builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
-`HEPHAISTOS_POSTHOG_HOST`, and `HEPHAISTOS_SENTRY_DSN`.
+[[TELEMETRY_CONTRACT]]
 
 ## Why Hephaistos
 
@@ -206,45 +189,11 @@ stays the same when the model changes.
 
 ## Common Commands
 
-```text
-heph                          Launch the interactive shell in plain-chat mode or attach the current armory.
-heph <path>                   Launch the shell attached to a specific armory path.
-heph armory init <path>       Create a new armory folder.
-heph armory open <path>       Open and validate an armory.
-heph source list <path>       List source documents.
-heph source count <path>      Count source documents.
-heph source index <path>      Build or refresh the RAG index.
-heph chat resume <path> <id>  Resume an existing chat session.
-heph chat list <path>         List chat sessions in an armory.
-heph start [path]             Hidden backwards-compatible alias for `heph [path]`.
-```
+[[COMMON_COMMANDS_BLOCK]]
 
 Useful shell commands:
 
-| Command | Description |
-|---|---|
-| /help | Show available commands |
-| /exit | Leave the shell |
-| /quit | Leave the shell |
-| /login | Authenticate with an LLM provider via OAuth |
-| /logout | Clear stored OAuth credentials |
-| /status | Show armory, session, and model info |
-| /save | Save current chat to armory |
-| /clear | Start a fresh chat session |
-| /armory | Open the armory management menu |
-| /chats | List saved chats in the active armory |
-| /resume [id-prefix] | Resume a saved chat by menu or session ID prefix |
-| /model | Show or switch the active model |
-| /api | Manage API key (keychain) or base URL |
-| /compact | Summarize conversation to reduce context size |
-| /history | Show conversation turn count and token estimate |
-| /edit | Edit and resend the last user message |
-| /provider | Show or switch LLM provider and model |
-| /models | List all available models across providers |
-| /persona | Show or switch the agent persona |
-| /settings | Manage cross-session preferences |
-| /usage | Show token usage and cost for this session |
-| /vocab | Vocabulary drill with spaced repetition |
+[[SLASH_COMMANDS_TABLE]]
 
 ## Custom Study Prompts
 
@@ -258,6 +207,4 @@ Use it for modes like quiz practice, Socratic tutoring, exam drilling, debate,
 or lecture-style explanations. Hephaistos still appends the source-grounding and
 citation rules around the custom prompt.
 
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+[[FOOTER_SECTION]]

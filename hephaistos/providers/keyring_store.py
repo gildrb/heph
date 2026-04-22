@@ -19,11 +19,14 @@ Fallback order for key resolution:
 
 from __future__ import annotations
 
+from typing import Final
+
 import keyring
 from keyring.errors import KeyringError
 
 _SERVICE_PREFIX = "hephaistos"
 _USERNAME = "api_key"
+GLOBAL_API_KEY_ENV: Final[str] = "HEPHAISTOS_API_KEY"
 
 # Module-level volatile override cache.  Keys set via /api key live here
 _volatile: dict[str, str] = {}
@@ -93,7 +96,7 @@ def resolve_key(slug: str, env_var: str = "") -> str:
     import os
 
     # 0. Global override — takes precedence over everything
-    override = os.environ.get("HEPHAISTOS_API_KEY", "").strip()
+    override = os.environ.get(GLOBAL_API_KEY_ENV, "").strip()
     if override:
         return override
 

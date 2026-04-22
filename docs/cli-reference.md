@@ -1,86 +1,79 @@
+<!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
+
 # CLI Reference
 
 ## CLI commands
 
-```text
-hephaistos start [path]              Start the interactive shell (optional armory)
-hephaistos armory init <path>         Create a new armory workspace
-hephaistos armory open <path>         Validate an existing armory
-hephaistos source list <path>         List source documents
-hephaistos source count <path>        Count source documents
-hephaistos source index <path>        Build or refresh the RAG index
-hephaistos config show                Display current configuration
-hephaistos config set <key> <value>   Persist a configuration override
-hephaistos chat start <path>          Start a new chat session in an armory
-hephaistos chat resume <path> <id>    Resume a saved chat session
-hephaistos chat list <path>           List saved chat sessions
-```
+| Command | Description |
+|---|---|
+| `heph` | Launch the interactive shell in plain-chat mode or attach the current armory. |
+| `heph <path>` | Launch the shell attached to a specific armory path. |
+| `hephaistos [path]` | Equivalent long entrypoint for `heph`. |
+| `heph armory init <path>` | Create a new armory folder. |
+| `heph armory open <path>` | Open and validate an armory. |
+| `heph source list <path>` | List source documents. |
+| `heph source count <path>` | Count source documents. |
+| `heph source index <path>` | Build or refresh the RAG index. |
+| `heph config show` | Display current configuration. |
+| `heph config set <key> <value>` | Set a configuration parameter. |
+| `heph chat start <path>` | Start a new chat session in an armory. |
+| `heph chat resume <path> <id>` | Resume an existing chat session. |
+| `heph chat list <path>` | List chat sessions in an armory. |
+| `heph start [path]` | Hidden backwards-compatible alias for `heph [path]`. |
 
-The top-level CLI is shell-first. `start`, `armory`, `source`, and `config`
-are visible in `hephaistos --help`; `chat` is implemented but hidden from
-top-level help.
+`heph` is the canonical public command. `hephaistos` is an
+equivalent long entrypoint. `heph start [path]` stays available as
+a hidden backwards-compatible alias and should not be the primary instruction in
+new docs.
 
 ## Slash commands
 
 | Command | Description |
-|---------|-------------|
-| `/help` | Show available commands |
-| `/status` | Show armory, session, model, memory, and usage state |
-| `/save` | Save the current chat to the active armory |
-| `/clear` | Start a fresh chat session |
-| `/armory` | Open the armory management menu |
-| `/chats` | List saved chats in the active armory |
-| `/resume [id-prefix]` | Resume a saved chat by menu or session ID prefix |
-| `/model` | Show or switch the active model |
-| `/provider` | Show or switch the active provider and model |
-| `/models` | List the built-in model catalog across providers |
-| `/api` | Inspect or set the API key / base URL |
-| `/settings` | Manage telemetry, theme, startup defaults, and the default model |
-| `/login` | Authenticate with an LLM provider via OAuth |
-| `/logout` | Clear stored OAuth credentials |
-| `/compact` | Summarize the conversation to free context |
-| `/history` | Show turn counts and a token estimate |
-| `/persona` | Show or switch the agent persona |
-| `/usage` | Show tracked token usage and estimated cost |
-| `/edit` | Edit and resend the last user message |
-| `/exit` | Leave the shell |
-| `/quit` | Leave the shell |
-
-## Shell shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Enter` | Send message |
-| `Alt+Enter` / `Esc+Enter` | Insert newline |
-| `\` at end of line | Continue on the next line |
-| `Up` / `Down` | Browse prompt history |
-| `Tab` | Autocomplete slash commands |
-| `Ctrl+C` | Cancel the current response |
-| `Ctrl+D` | Exit the shell |
-| `Ctrl+A` / `Ctrl+E` | Move to start / end of line |
-| `Ctrl+U` / `Ctrl+K` | Clear to start / kill to end |
+|---|---|
+| /help | Show available commands |
+| /exit | Leave the shell |
+| /quit | Leave the shell |
+| /login | Authenticate with an LLM provider via OAuth |
+| /logout | Clear stored OAuth credentials |
+| /status | Show armory, session, and model info |
+| /save | Save current chat to armory |
+| /clear | Start a fresh chat session |
+| /armory | Open the armory management menu |
+| /chats | List saved chats in the active armory |
+| /resume [id-prefix] | Resume a saved chat by menu or session ID prefix |
+| /model | Show or switch the active model |
+| /api | Manage API key (keychain) or base URL |
+| /compact | Summarize conversation to reduce context size |
+| /history | Show conversation turn count and token estimate |
+| /edit | Edit and resend the last user message |
+| /provider | Show or switch LLM provider and model |
+| /models | List all available models across providers |
+| /persona | Show or switch the agent persona |
+| /settings | Manage cross-session preferences |
+| /usage | Show token usage and cost for this session |
+| /vocab | Vocabulary drill with spaced repetition |
 
 ## Environment variables
 
 | Variable | Description |
-|----------|-------------|
-| `HEPHAISTOS_API_KEY` | Generic API key override |
-| `HEPHAISTOS_BASE_URL` | Override the API base URL |
-| `HEPHAISTOS_MODEL` | Override the active model |
-| `HEPHAISTOS_MAX_TOKENS` | Max output tokens per response |
-| `HEPHAISTOS_RAG_CONTEXT_BUDGET` | Token budget for injected retrieval context |
-| `HEPHAISTOS_FEATURE_FLAGS` | Comma-separated feature flags |
-| `HEPHAISTOS_ANALYTICS_ENABLED` | Override the saved analytics opt-in (`true`/`false`) |
-| `HEPHAISTOS_CRASH_REPORTS_ENABLED` | Override the saved crash-report opt-in (`true`/`false`) |
-| `HEPHAISTOS_POSTHOG_PROJECT_TOKEN` | Supply a PostHog token for custom or forked builds |
-| `HEPHAISTOS_POSTHOG_HOST` | Supply a PostHog host for custom or forked builds |
-| `HEPHAISTOS_SENTRY_DSN` | Supply a Sentry DSN for custom or forked builds |
-| `HEPHAISTOS_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
-| `HEPHAISTOS_LOG_FILE` | Optional append-only log file path |
-| `HEPHAISTOS_LOG_FORMAT` | `json` or `text` for stderr logs |
-| `HEPHAISTOS_EMBED_MODEL` | Override the embedding model used by retrieval |
-| `HEPHAISTOS_RERANK_MODEL` | Override the reranker model when available |
-| `OPENAI_API_KEY` | API key for the OpenAI-compatible provider path |
-| `OPENROUTER_API_KEY` | API key for OpenRouter |
-| `ZAI_API_KEY` | API key for Z.AI / GLM |
-| `CUSTOM_API_KEY` | API key for the custom provider entry |
+|---|---|
+| `CUSTOM_API_KEY` | API key for the custom provider entry. |
+| `HEPHAISTOS_ANALYTICS_ENABLED` | Override the saved analytics opt-in (`true`/`false`). |
+| `HEPHAISTOS_API_KEY` | Global API key override that applies to any provider. |
+| `HEPHAISTOS_BASE_URL` | Override the active API base URL. |
+| `HEPHAISTOS_CRASH_REPORTS_ENABLED` | Override the saved crash-report opt-in (`true`/`false`). |
+| `HEPHAISTOS_EMBED_MODEL` | Override the embedding model used by retrieval. |
+| `HEPHAISTOS_FEATURE_FLAGS` | Comma-separated feature flags. |
+| `HEPHAISTOS_LOG_FILE` | Append structured logs to a file when set. |
+| `HEPHAISTOS_LOG_FORMAT` | Choose `json` or `text` logging output. |
+| `HEPHAISTOS_LOG_LEVEL` | Configure structured log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `HEPHAISTOS_MAX_TOKENS` | Set the max output tokens per response. |
+| `HEPHAISTOS_MODEL` | Override the active model. |
+| `HEPHAISTOS_POSTHOG_HOST` | Supply a PostHog host for a custom or forked build. |
+| `HEPHAISTOS_POSTHOG_PROJECT_TOKEN` | Supply a PostHog project token for a custom or forked build. |
+| `HEPHAISTOS_RAG_CONTEXT_BUDGET` | Set the token budget for retrieved context. |
+| `HEPHAISTOS_RERANK_MODEL` | Override the reranker model when available. |
+| `HEPHAISTOS_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
+| `OPENAI_API_KEY` | API key for the OpenAI-compatible provider path. |
+| `OPENROUTER_API_KEY` | API key for OpenRouter. |
+| `ZAI_API_KEY` | API key for Z.AI / GLM. |

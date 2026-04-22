@@ -8,8 +8,8 @@ Hephaistos keeps the shared, repo-level agent context in vendor-neutral skill fo
 
 | Location | Purpose |
 |---|---|
-| `.factory/skills/hephaistos/SKILL.md` | Shared Factory skill with commands, conventions, and architecture |
-| `.codex/skills/hephaistos/SKILL.md` | Shared Codex skill with the same project context |
+| `.factory/skills/hephaistos/SKILL.md` | Thin Factory pointer back to the repo-native docs |
+| `.codex/skills/hephaistos/SKILL.md` | Thin Codex pointer back to the repo-native docs |
 | personal agent home directories | Personal prompts, helpers, or local agent config that should not be committed |
 
 ## Why This Split
@@ -17,6 +17,9 @@ Hephaistos keeps the shared, repo-level agent context in vendor-neutral skill fo
 - Shared skills belong in the repository when they help contributors and agents understand the project.
 - Personal agent config belongs outside the repository.
 - Maintainer-only telemetry or vendor-specific setup should stay out of shared skills.
+- `AGENTS.md` and `docs/architecture.md` are the authoritative agent-facing surfaces.
+- Repo-local skill files should stay thin and point back to those repo-native docs.
+- When CLI or telemetry docs change, run `uv run python scripts/sync_docs.py`.
 
 ## Agent Co-Authorship
 
@@ -43,5 +46,5 @@ The `scripts/detect_co_author.py` script checks for agent signatures:
 1. **Always review** agent-generated code before merging
 2. **Tag agent commits** with co-authorship trailers
 3. **Test thoroughly** — agent code follows the same quality gates
-4. **Keep repo skills current** — update `.factory` and `.codex` skills when commands or architecture change
+4. **Keep repo-native docs current** — update `AGENTS.md` and `docs/architecture.md`, then run `uv run python scripts/sync_docs.py`
 5. **Document decisions** — if an agent made an architectural choice, note it in the PR

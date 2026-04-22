@@ -58,7 +58,7 @@ uv run py-spy record -o profile.svg -- python -m hephaistos
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | High first-token latency | Cold start or provider queue | Try a different model or provider |
-| Slow RAG retrieval | Large index, no caching | Rebuild index: `heph source reindex` |
+| Slow RAG retrieval | Large index, no caching | Rebuild index: `heph source index <path>` |
 | High memory usage | Large conversation context | Start a new session or reduce context |
 | Timeout errors | Network or provider overload | Check `RetryConfig` settings; increase `max_delay` |
 

@@ -37,6 +37,29 @@ jobs:
           ms=$(( (end - start) / 1000000 ))
           echo "| lint ruff-format | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
 
+  docs-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync dependencies
+        run: |
+          start=$(date +%s%N)
+          uv sync --group dev
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| docs-sync sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+      - name: Docs sync check
+        run: |
+          start=$(date +%s%N)
+          uv run python scripts/sync_docs.py --check
+          end=$(date +%s%N)
+          ms=$(( (end - start) / 1000000 ))
+          echo "| docs-sync check | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+
   secret-scan:
     runs-on: ubuntu-latest
     permissions:
