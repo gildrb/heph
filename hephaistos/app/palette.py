@@ -150,11 +150,11 @@ def shell_style_dict() -> dict[str, str]:
         "armory": palette.text,
         "prompt-mark": f"bold {palette.accent}",
         "composer": f"bg:{palette.panel} fg:{palette.text}",
-        "bottom-toolbar": f"noreverse fg:{palette.dim}",
-        "bottom-toolbar.text": f"noreverse fg:{palette.dim}",
-        "toolbar-location": f"noreverse fg:{palette.text}",
-        "toolbar-accent": f"noreverse bold fg:{palette.text}",
-        "toolbar-error": f"noreverse bold fg:{palette.error}",
+        "bottom-toolbar": f"noreverse bg:{palette.panel} fg:{palette.dim}",
+        "bottom-toolbar.text": f"noreverse bg:{palette.panel} fg:{palette.dim}",
+        "toolbar-location": f"noreverse bg:{palette.panel} fg:{palette.text}",
+        "toolbar-accent": f"noreverse bg:{palette.panel} bold fg:{palette.text}",
+        "toolbar-error": f"noreverse bg:{palette.panel} bold fg:{palette.error}",
         "completion-menu.completion.current": f"bg:{palette.stone} fg:{palette.text} bold",
         "completion-menu.completion": f"bg:{palette.panel} fg:{palette.text}",
         "completion-menu.meta.completion.current": f"bg:{palette.stone} fg:{palette.text}",
@@ -168,12 +168,12 @@ def menu_style_dict() -> dict[str, str]:
     palette = current_palette()
     return {
         "": f"bg:{palette.panel} fg:{palette.text}",
-        "inline-menu.title": f"bold {palette.accent}",
-        "inline-menu.option": palette.text,
-        "inline-menu.option.current": f"bold {palette.accent}",
-        "inline-menu.description": palette.dim,
-        "inline-menu.description.current": f"fg:{palette.text}",
-        "inline-menu.hint": palette.dim,
+        "inline-menu.title": f"bg:{palette.panel} bold fg:{palette.accent}",
+        "inline-menu.option": f"bg:{palette.panel} fg:{palette.text}",
+        "inline-menu.option.current": f"bg:{palette.panel} bold fg:{palette.accent}",
+        "inline-menu.description": f"bg:{palette.panel} fg:{palette.dim}",
+        "inline-menu.description.current": f"bg:{palette.panel} fg:{palette.text}",
+        "inline-menu.hint": f"bg:{palette.panel} fg:{palette.dim}",
     }
 
 
@@ -181,13 +181,13 @@ def browser_style_dict() -> dict[str, str]:
     palette = current_palette()
     return {
         "": f"bg:{palette.panel} fg:{palette.text}",
-        "browser.title": f"bold {palette.accent}",
-        "browser.path": palette.dim,
-        "browser.entry": palette.text,
-        "browser.entry.selected": f"bold {palette.accent}",
-        "browser.parent": palette.dim,
-        "browser.parent.selected": f"bold {palette.accent}",
-        "browser.hint": palette.dim,
+        "browser.title": f"bg:{palette.panel} bold fg:{palette.accent}",
+        "browser.path": f"bg:{palette.panel} fg:{palette.dim}",
+        "browser.entry": f"bg:{palette.panel} fg:{palette.text}",
+        "browser.entry.selected": f"bg:{palette.panel} bold fg:{palette.accent}",
+        "browser.parent": f"bg:{palette.panel} fg:{palette.dim}",
+        "browser.parent.selected": f"bg:{palette.panel} bold fg:{palette.accent}",
+        "browser.hint": f"bg:{palette.panel} fg:{palette.dim}",
     }
 
 
