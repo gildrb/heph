@@ -16,13 +16,13 @@ import shutil
 import subprocess  # nosec B404
 import sys
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from prompt_toolkit.application import Application, run_in_terminal
+from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
@@ -523,6 +523,13 @@ class _Invalidatable(Protocol):
     def invalidate(self) -> None: ...
 
 
+class _NullInvalidatable:
+    """No-op ``_Invalidatable`` for use when no Application is running."""
+
+    def invalidate(self) -> None:
+        return
+
+
 def _run_shell_command_captured(
     cmd: str,
     chat_lines: list[tuple[str, str]],
@@ -583,7 +590,13 @@ class _ChatWriter:
         return
 
     def isatty(self) -> bool:
-        return False
+        # Report ``True`` so downstream code (e.g. ``menu.select_option``)
+        # picks its interactive prompt_toolkit path rather than the plain
+        # fallback. Menu sub-apps bypass ``sys.stdout`` by reading/writing
+        # the terminal file descriptors directly, so they still render on
+        # the real terminal; non-menu ``print()`` calls continue to flow
+        # into the chat buffer via ``write``.
+        return True
 
 
 @contextmanager
@@ -696,15 +709,11 @@ def _start_background_reply_fullscreen(
     runtime.worker.start()
 
 
-async def _await_run_in_terminal(func: Callable[[], None]) -> None:
-    """Wrap ``run_in_terminal`` as a coroutine suitable for background tasks."""
-    await run_in_terminal(func, in_executor=True)
-
-
 def _build_fullscreen_keybindings(
     kb_config: dict[str, str | list[str]],
     runtime: ShellRuntime,
     chat_lines: list[tuple[str, str]],
+    should_exit: list[bool],
 ) -> KeyBindings:
     """Extend the shared composer bindings with app-level interrupt/exit keys."""
     kb = _build_keybindings(kb_config)
@@ -722,6 +731,7 @@ def _build_fullscreen_keybindings(
             runtime.abort_event.set()
             if runtime.worker is not None:
                 runtime.worker.join(timeout=5.0)
+        should_exit[0] = True
         event.app.exit()
 
     return kb
@@ -808,6 +818,12 @@ def run_chat_shell(
         return _get_bottom_toolbar(toolbar_ref)
 
     app_holder: list[Application[None] | None] = [None]
+    # When a slash command is entered, we store it here and exit the outer
+    # Application. The main loop then runs the command synchronously (so any
+    # menu sub-app like /model or /settings can open its own Application.run()
+    # without nested-event-loop issues) and re-enters the outer app.
+    pending_command: list[str | None] = [None]
+    should_exit: list[bool] = [False]
 
     def on_accept(buff: Buffer) -> bool:
         user_input = buff.text.strip()
@@ -825,6 +841,7 @@ def run_chat_shell(
             runtime.abort_event.set()
             if runtime.worker is not None:
                 runtime.worker.join(timeout=5.0)
+            should_exit[0] = True
             current_app.exit()
             return False
 
@@ -848,21 +865,17 @@ def run_chat_shell(
             return False
 
         if user_input.startswith("/"):
-            # Slash commands may invoke menu sub-applications (e.g. /model,
-            # /armory, /settings). Nested ``Application.run()`` cannot be
-            # called from the outer app's event loop, so we execute the
-            # command via ``run_in_terminal(in_executor=True)`` which runs the
-            # callback in a worker thread where a new event loop can be
-            # created for any sub-app.
-            def _exec_slash() -> None:
-                with _capture_to_chat(chat_lines, current_app):
-                    new_session, should_continue = _handle_input(active, user_input, history)
-                    session_ref[0] = new_session
-                if not should_continue:
-                    current_app.exit()
-                current_app.invalidate()
-
-            current_app.create_background_task(_await_run_in_terminal(_exec_slash))
+            # Slash commands may invoke menu sub-applications (/model,
+            # /armory, /settings, /persona, /login, /logout, ...), each of
+            # which calls ``Application.run()`` internally. Running a nested
+            # ``Application.run()`` from inside the outer app (whether via
+            # ``run_in_terminal`` or ``create_background_task``) leaves the
+            # terminal in cooked mode with the outer's input detached, so the
+            # inner menu never receives keystrokes. Instead we park the
+            # command, exit the outer app, execute it synchronously while no
+            # event loop is running, then re-enter the outer app below.
+            pending_command[0] = user_input
+            current_app.exit()
             return False
 
         _start_background_reply_fullscreen(
@@ -871,72 +884,92 @@ def run_chat_shell(
         current_app.invalidate()
         return False
 
-    input_buffer = Buffer(
-        name="input",
-        multiline=True,
-        completer=SlashCommandCompleter(),
-        complete_while_typing=True,
-        history=FileHistory(str(history_path)),
-        accept_handler=on_accept,
-    )
+    def _build_app() -> Application[None]:
+        input_buffer = Buffer(
+            name="input",
+            multiline=True,
+            completer=SlashCommandCompleter(),
+            complete_while_typing=True,
+            history=FileHistory(str(history_path)),
+            accept_handler=on_accept,
+        )
 
-    bindings = _build_fullscreen_keybindings(kb, runtime, chat_lines)
+        bindings = _build_fullscreen_keybindings(kb, runtime, chat_lines, should_exit)
 
-    layout = Layout(
-        HSplit(
-            [
-                Window(
-                    FormattedTextControl(get_header),
-                    dont_extend_height=True,
-                    height=Dimension(min=3, preferred=4),
-                    style="class:header",
-                ),
-                Window(
-                    char="─",
-                    height=1,
-                    style="class:separator",
-                    dont_extend_height=True,
-                ),
-                Window(
-                    FormattedTextControl(get_chat, focusable=False),
-                    wrap_lines=True,
-                    right_margins=[ScrollbarMargin(display_arrows=True)],
-                    style="class:chat-area",
-                ),
-                Window(
-                    char="─",
-                    height=1,
-                    style="class:separator",
-                    dont_extend_height=True,
-                ),
-                Window(
-                    BufferControl(buffer=input_buffer),
-                    height=Dimension(min=1, max=5, preferred=3),
-                    dont_extend_height=True,
-                    style="class:composer",
-                ),
-                Window(
-                    FormattedTextControl(get_status),
-                    height=1,
-                    dont_extend_height=True,
-                    style="class:bottom-toolbar",
-                ),
-            ]
-        ),
-        focused_element=input_buffer,
-    )
+        layout = Layout(
+            HSplit(
+                [
+                    Window(
+                        FormattedTextControl(get_header),
+                        dont_extend_height=True,
+                        height=Dimension(min=3, preferred=4),
+                        style="class:header",
+                    ),
+                    Window(
+                        char="─",
+                        height=1,
+                        style="class:separator",
+                        dont_extend_height=True,
+                    ),
+                    Window(
+                        FormattedTextControl(get_chat, focusable=False),
+                        wrap_lines=True,
+                        right_margins=[ScrollbarMargin(display_arrows=True)],
+                        style="class:chat-area",
+                    ),
+                    Window(
+                        char="─",
+                        height=1,
+                        style="class:separator",
+                        dont_extend_height=True,
+                    ),
+                    Window(
+                        BufferControl(buffer=input_buffer),
+                        height=Dimension(min=1, max=5, preferred=3),
+                        dont_extend_height=True,
+                        style="class:composer",
+                    ),
+                    Window(
+                        FormattedTextControl(get_status),
+                        height=1,
+                        dont_extend_height=True,
+                        style="class:bottom-toolbar",
+                    ),
+                ]
+            ),
+            focused_element=input_buffer,
+        )
 
-    app: Application[None] = Application(
-        layout=layout,
-        full_screen=True,
-        key_bindings=bindings,
-        style=_PT_STYLE,
-        mouse_support=False,
-    )
-    app_holder[0] = app
+        return Application(
+            layout=layout,
+            full_screen=True,
+            key_bindings=bindings,
+            style=_PT_STYLE,
+            mouse_support=False,
+        )
 
     try:
-        app.run()
+        while True:
+            app = _build_app()
+            app_holder[0] = app
+            app.run()
+            app_holder[0] = None
+
+            cmd = pending_command[0]
+            pending_command[0] = None
+            if cmd is None or should_exit[0]:
+                break
+
+            # No event loop is running here, so slash-command menu sub-apps
+            # (select_option, browse_directory) can call ``Application.run()``
+            # normally. ``_capture_to_chat`` redirects ``print()`` output from
+            # commands into the chat buffer; menu sub-apps use their own
+            # output objects and are unaffected.
+            with _capture_to_chat(chat_lines, _NullInvalidatable()):
+                new_session, should_continue = _handle_input(session_ref[0], cmd, history)
+                session_ref[0] = new_session
+            if not should_continue:
+                break
     finally:
         _save_on_exit(session_ref[0])
 
