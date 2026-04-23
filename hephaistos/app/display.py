@@ -117,6 +117,59 @@ def print_shell_intro(
     print()
 
 
+def format_shell_header(
+    version: str,
+    armory_path: str,
+    source_file_count: int,
+    model: str,
+    has_api_key: bool,
+) -> list[tuple[str, str]]:
+    """Return FormattedText fragments for the fullscreen header bar."""
+    api_status = "configured" if has_api_key else "missing"
+    api_style = "class:header.success" if has_api_key else "class:header.error"
+    source_text = (
+        f"{source_file_count} file{'s' if source_file_count != 1 else ''}"
+        if source_file_count
+        else "none"
+    )
+    source_style = "class:header.accent" if source_file_count else "class:header.dim"
+    armory_style = "class:header.accent" if armory_path != "none" else "class:header.dim"
+
+    fragments: list[tuple[str, str]] = [
+        ("class:header.title", "Hephaistos"),
+        ("class:header.dim", f" v{version}"),
+        ("", "\n"),
+        ("class:header.dim", "  armory "),
+        (armory_style, armory_path),
+        ("class:header.dim", "  model "),
+        ("class:header.accent", model),
+        ("class:header.dim", "  api "),
+        (api_style, api_status),
+        ("class:header.dim", "  source "),
+        (source_style, source_text),
+        ("", "\n"),
+        ("class:header.dim", "  enter "),
+        ("class:header.dim", "send  "),
+        ("class:header.dim", "alt+enter "),
+        ("class:header.dim", "newline  "),
+        ("class:header.dim", "tab "),
+        ("class:header.dim", "complete  "),
+        ("class:header.dim", "ctrl+c "),
+        ("class:header.dim", "interrupt  "),
+        ("class:header.dim", "ctrl+d "),
+        ("class:header.dim", "exit"),
+    ]
+    if not has_api_key:
+        fragments.extend(
+            [
+                ("", "\n"),
+                ("class:header.warning", "  configure api "),
+                ("class:header.accent", "/api key <your-key>"),
+            ]
+        )
+    return fragments
+
+
 def _real_stdout() -> _TextOutput:
     """Return the real terminal stdout, bypassing any ``patch_stdout`` proxy."""
     out: object = sys.stdout

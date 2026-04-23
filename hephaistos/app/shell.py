@@ -16,18 +16,25 @@ import shutil
 import subprocess  # nosec B404
 import sys
 import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
-from prompt_toolkit import PromptSession
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.application import Application, run_in_terminal
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
-from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.layout.containers import HSplit, Window
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.layout.layout import Layout
+from prompt_toolkit.layout.margins import ScrollbarMargin
 from prompt_toolkit.styles import DynamicStyle
 from prompt_toolkit.styles import Style as PtStyle
 
@@ -38,10 +45,9 @@ from hephaistos.app.display import (
     STYLE_ASSISTANT,
     STYLE_DIM,
     STYLE_ERROR,
-    STYLE_PROMPT,
+    format_shell_header,
     print_error,
     print_info,
-    print_shell_intro,
     print_success,
     styled,
 )
@@ -253,28 +259,6 @@ def _build_keybindings(
     return kb
 
 
-def _enable_full_screen_prompt_session(pt_session: PromptSession[str]) -> None:
-    """Promote the shell prompt into a full-screen alternate-screen application."""
-    pt_session.app.full_screen = True
-    pt_session.app.renderer.full_screen = True
-
-
-def _get_prompt_message(runtime: ShellRuntime | None = None):
-    """Return the compact composer prefix used for every prompt line."""
-
-    def message():
-        marker = "+ " if runtime is not None and runtime.busy else "> "
-        return FormattedText([("class:prompt-mark", marker)])
-
-    return message
-
-
-def _get_prompt_continuation(width: int, line_number: int, wrap_count: int):
-    """Indent wrapped and multi-line composer rows under the prompt mark."""
-    _ = line_number, wrap_count
-    return FormattedText([("class:bottom-toolbar", " " * width)])
-
-
 def _toolbar_columns(default: int = 80) -> int:
     """Return the active terminal width for toolbar/background padding."""
     return max(default, shutil.get_terminal_size(fallback=(default, 24)).columns)
@@ -362,15 +346,6 @@ def _run_shell_command(cmd: str) -> None:
         print_error(str(exc))
 
 
-def _invalidate_prompt(pt_session: PromptSession[str] | None) -> None:
-    if pt_session is None:
-        return
-    try:
-        pt_session.app.invalidate()
-    except Exception:
-        return
-
-
 def _preflight_config_check(session: ChatSession) -> str | None:
     """Return an error message if the session config is unusable, else None."""
     if not session.config.base_url:
@@ -432,50 +407,6 @@ def _report_engine_error(
                 "kind": "engine_error",
             },
         )
-
-
-def _start_background_reply(
-    session: ChatSession,
-    user_input: str,
-    history: InputHistory,
-    runtime: ShellRuntime,
-    toolbar_ref: list[str],
-    pt_session: PromptSession[str],
-) -> None:
-    history.add(user_input)
-
-    config_error = _preflight_config_check(session)
-    if config_error:
-        print_error(config_error)
-        return
-
-    runtime.busy = True
-    runtime.steering_count = 0
-    runtime.abort_event.clear()
-    _refresh_bottom_toolbar(session, toolbar_ref, runtime)
-    _invalidate_prompt(pt_session)
-
-    reply_prefix = f"\r{styled('Assistant:', STYLE_ASSISTANT)} "
-
-    def _worker() -> None:
-        try:
-            send_user_message(
-                session,
-                user_input,
-                abort=runtime.abort_event,
-                reply_prefix=reply_prefix,
-            )
-        except (StreamRecoveryError, EngineError) as exc:
-            _report_engine_error(exc, session)
-        finally:
-            runtime.worker = None
-            runtime.abort_event.clear()
-            runtime.busy = False
-            _refresh_bottom_toolbar(session, toolbar_ref, runtime)
-            _invalidate_prompt(pt_session)
-
-    runtime.worker = threading.Thread(target=_worker, name="hephaistos-shell-reply", daemon=True)
-    runtime.worker.start()
 
 
 def _handle_input(
@@ -559,41 +490,6 @@ def _handle_input(
     return session, True
 
 
-def _print_shell_intro(session: ChatSession) -> None:
-    print_shell_intro(
-        version=__version__,
-        armory_path=str(session.armory_path or "none"),
-        source_file_count=session.source_file_count or 0,
-        model=session.config.model,
-        has_api_key=bool(session.config.resolved_api_key),
-    )
-
-
-def _print_settings_hint() -> None:
-    if not should_show_telemetry_notice():
-        return
-    print_info(
-        "Optional anonymous analytics and crash reports are available for this install. "
-        "Open /settings to review and enable them."
-    )
-    mark_telemetry_notice_seen()
-
-
-def _print_vocab_hint(session: ChatSession) -> None:
-    """Show a hint if the armory contains vocabulary files."""
-    if session.armory_path is None:
-        return
-    try:
-        deck = scan_armory(session.armory_path)
-        if deck.cards:
-            print_info(
-                f"Vocabulary deck detected ({deck.size} words). "
-                f"Use {styled('/vocab', STYLE_PROMPT)} to start a drill."
-            )
-    except Exception:
-        _log.debug("vocabulary hint scan failed", exc_info=True)
-
-
 def _get_history_path(session: ChatSession) -> Path:
     if session.armory_path is None:
         return _HISTORY_DIR / "plain-history"
@@ -623,6 +519,214 @@ def _create_startup_session(config: ChatConfig) -> ChatSession:
         return create_plain_session(config)
 
 
+class _Invalidatable(Protocol):
+    def invalidate(self) -> None: ...
+
+
+def _run_shell_command_captured(
+    cmd: str,
+    chat_lines: list[tuple[str, str]],
+    app: _Invalidatable,
+) -> None:
+    """Execute a ``!`` shell command, routing output into the chat buffer.
+
+    **Security note**: This is the user-initiated ``!`` shell escape.
+    Commands run with the full privileges of the current user.  The
+    ``!`` prefix makes this intentional and user-controlled.
+    """
+    chat_lines.append(("class:chat-area.system", f"$ {cmd}\n"))
+    try:
+        result = subprocess.run(  # nosec B602
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.stdout:
+            chat_lines.append(("class:chat-area", result.stdout))
+            if not result.stdout.endswith("\n"):
+                chat_lines.append(("", "\n"))
+        if result.stderr:
+            chat_lines.append(("class:chat-area.error", result.stderr))
+            if not result.stderr.endswith("\n"):
+                chat_lines.append(("", "\n"))
+    except OSError as exc:
+        chat_lines.append(("class:chat-area.error", f"error: {exc}\n"))
+    app.invalidate()
+
+
+class _ChatWriter:
+    """File-like object that routes ``write`` calls into ``chat_lines``."""
+
+    encoding: str = "utf-8"
+
+    def __init__(
+        self,
+        chat_lines: list[tuple[str, str]],
+        app: _Invalidatable,
+        *,
+        style_class: str = "class:chat-area.system",
+    ) -> None:
+        self._chat_lines = chat_lines
+        self._app = app
+        self._style_class = style_class
+
+    def write(self, text: str) -> int:
+        if not text:
+            return 0
+        self._chat_lines.append((self._style_class, text))
+        self._app.invalidate()
+        return len(text)
+
+    def flush(self) -> None:  # pragma: no cover - nothing to flush
+        return
+
+    def isatty(self) -> bool:
+        return False
+
+
+@contextmanager
+def _capture_to_chat(
+    chat_lines: list[tuple[str, str]],
+    app: _Invalidatable,
+) -> Iterator[None]:
+    """Redirect ``sys.stdout`` writes to the chat history buffer."""
+    writer = _ChatWriter(chat_lines, app)
+    original = sys.stdout
+    sys.stdout = writer  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        sys.stdout = original
+
+
+def _report_engine_error_silent(
+    exc: EngineError | StreamRecoveryError,
+    session: ChatSession,
+) -> None:
+    """Capture diagnostics without printing (the caller renders its own notice)."""
+    if isinstance(exc, StreamRecoveryError):
+        capture_exception(
+            exc,
+            context={
+                "provider": session.config.provider_slug,
+                "model": session.config.model,
+                "partial_content_length": len(exc.partial_content),
+            },
+        )
+        capture_analytics(
+            "request_failed",
+            {
+                "provider": session.config.provider_slug or "unknown",
+                "model": session.config.model,
+                "kind": "stream_recovery",
+                "partial_content_length": len(exc.partial_content),
+            },
+        )
+    else:
+        capture_exception(
+            exc,
+            context={
+                "provider": session.config.provider_slug,
+                "model": session.config.model,
+            },
+        )
+        capture_analytics(
+            "request_failed",
+            {
+                "provider": session.config.provider_slug or "unknown",
+                "model": session.config.model,
+                "kind": "engine_error",
+            },
+        )
+
+
+def _start_background_reply_fullscreen(
+    session: ChatSession,
+    user_input: str,
+    history: InputHistory,
+    runtime: ShellRuntime,
+    chat_lines: list[tuple[str, str]],
+    app: _Invalidatable,
+) -> None:
+    """Dispatch a user message turn and stream events into ``chat_lines``."""
+    history.add(user_input)
+
+    config_error = _preflight_config_check(session)
+    if config_error:
+        chat_lines.append(("class:chat-area.error", f"error: {config_error}\n"))
+        app.invalidate()
+        return
+
+    runtime.busy = True
+    runtime.steering_count = 0
+    runtime.abort_event.clear()
+    app.invalidate()
+
+    chat_lines.append(("class:chat-area.assistant-label", "\nAssistant: "))
+
+    def _chat_writer(text: str) -> None:
+        if text:
+            chat_lines.append(("class:chat-area.assistant", text))
+            app.invalidate()
+
+    def _worker() -> None:
+        try:
+            send_user_message(
+                session,
+                user_input,
+                abort=runtime.abort_event,
+                writer=_chat_writer,
+            )
+        except (StreamRecoveryError, EngineError) as exc:
+            chat_lines.append(("class:chat-area.error", f"\nerror: {exc}\n"))
+            _report_engine_error_silent(exc, session)
+        finally:
+            runtime.worker = None
+            runtime.abort_event.clear()
+            runtime.busy = False
+            app.invalidate()
+
+    runtime.worker = threading.Thread(
+        target=_worker,
+        name="hephaistos-shell-reply",
+        daemon=True,
+    )
+    runtime.worker.start()
+
+
+async def _await_run_in_terminal(func: Callable[[], None]) -> None:
+    """Wrap ``run_in_terminal`` as a coroutine suitable for background tasks."""
+    await run_in_terminal(func, in_executor=True)
+
+
+def _build_fullscreen_keybindings(
+    kb_config: dict[str, str | list[str]],
+    runtime: ShellRuntime,
+    chat_lines: list[tuple[str, str]],
+) -> KeyBindings:
+    """Extend the shared composer bindings with app-level interrupt/exit keys."""
+    kb = _build_keybindings(kb_config)
+
+    @kb.add("c-c")
+    def _(event: KeyPressEvent) -> None:
+        if runtime.busy:
+            runtime.abort_event.set()
+            chat_lines.append(("class:chat-area.system", "\nInterrupt requested.\n"))
+            event.app.invalidate()
+
+    @kb.add("c-d")
+    def _(event: KeyPressEvent) -> None:
+        if runtime.busy:
+            runtime.abort_event.set()
+            if runtime.worker is not None:
+                runtime.worker.join(timeout=5.0)
+        event.app.exit()
+
+    return kb
+
+
 def run_chat_shell(
     session: ChatSession | None = None,
     *,
@@ -637,9 +741,6 @@ def run_chat_shell(
     if session is None:
         session = _create_startup_session(load_config())
 
-    _print_shell_intro(session)
-    _print_vocab_hint(session)
-    _print_settings_hint()
     capture_analytics(
         "shell_started",
         {
@@ -650,82 +751,194 @@ def run_chat_shell(
     )
 
     kb = keybindings or DEFAULT_SHELL_KEYBINDINGS
-
     runtime = ShellRuntime()
     toolbar_ref = [_build_bottom_toolbar_status(session, runtime)]
     history_path = _get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pt_session: PromptSession[str] = PromptSession(
-        message=_get_prompt_message(runtime),
-        style=_PT_STYLE,
-        history=FileHistory(str(history_path)),
-        auto_suggest=AutoSuggestFromHistory(),
-        completer=SlashCommandCompleter(),
-        key_bindings=_build_keybindings(kb),
-        bottom_toolbar=lambda: _get_bottom_toolbar(toolbar_ref),
-        multiline=True,
-        complete_while_typing=True,
-        show_frame=False,
-    )
-    _enable_full_screen_prompt_session(pt_session)
-
     history = InputHistory()
+    chat_lines: list[tuple[str, str]] = []
+    session_ref: list[ChatSession] = [session]
 
-    with patch_stdout(raw=True):
-        while True:
-            try:
-                user_input = pt_session.prompt(prompt_continuation=_get_prompt_continuation)
-            except KeyboardInterrupt:
-                if runtime.busy:
-                    runtime.abort_event.set()
-                    print_info("Interrupt requested.")
-                continue
-            except EOFError:
-                if runtime.busy:
-                    runtime.abort_event.set()
-                    if runtime.worker is not None:
-                        runtime.worker.join(timeout=5.0)
-                break
-
-            if not user_input or not user_input.strip():
-                continue
-
-            stripped = user_input.strip().lower()
-            if runtime.busy and stripped in {"/exit", "/quit", "/q"}:
-                runtime.abort_event.set()
-                if runtime.worker is not None:
-                    runtime.worker.join(timeout=5.0)
-                break
-
-            if runtime.busy:
-                if user_input.startswith("/"):
-                    session, _ = _handle_input(session, user_input, history)
-                    _refresh_bottom_toolbar(session, toolbar_ref, runtime)
-                    _invalidate_prompt(pt_session)
-                    continue
-                session, _ = _handle_input(session, user_input, history, streaming=True)
-                runtime.steering_count += 1
-                _refresh_bottom_toolbar(session, toolbar_ref, runtime)
-                _invalidate_prompt(pt_session)
-                continue
-
-            try:
-                if user_input.startswith(("/", "!")):
-                    session, should_continue = _handle_input(session, user_input, history)
-                    _refresh_bottom_toolbar(session, toolbar_ref, runtime)
-                    if not should_continue:
-                        break
-                    continue
-
-                _start_background_reply(
-                    session, user_input, history, runtime, toolbar_ref, pt_session
+    if session.armory_path is not None:
+        try:
+            deck = scan_armory(session.armory_path)
+            if deck.cards:
+                chat_lines.append(
+                    (
+                        "class:chat-area.system",
+                        (
+                            f"info: Vocabulary deck detected ({deck.size} words). "
+                            "Use /vocab to start a drill.\n"
+                        ),
+                    )
                 )
-            except KeyboardInterrupt:
-                print_info("Cancelled.")
-                continue
+        except OSError:
+            _log.debug("vocabulary hint scan failed", exc_info=True)
 
-    _save_on_exit(session)
+    if should_show_telemetry_notice():
+        chat_lines.append(
+            (
+                "class:chat-area.system",
+                (
+                    "info: Optional anonymous analytics and crash reports are available. "
+                    "Open /settings to review and enable them.\n"
+                ),
+            )
+        )
+        mark_telemetry_notice_seen()
+
+    def get_header() -> FormattedText:
+        active = session_ref[0]
+        return FormattedText(
+            format_shell_header(
+                version=__version__,
+                armory_path=str(active.armory_path or "none"),
+                source_file_count=active.source_file_count or 0,
+                model=active.config.model,
+                has_api_key=bool(active.config.resolved_api_key),
+            )
+        )
+
+    def get_chat() -> FormattedText:
+        return FormattedText(chat_lines)
+
+    def get_status() -> FormattedText:
+        _refresh_bottom_toolbar(session_ref[0], toolbar_ref, runtime)
+        return _get_bottom_toolbar(toolbar_ref)
+
+    app_holder: list[Application[None] | None] = [None]
+
+    def on_accept(buff: Buffer) -> bool:
+        user_input = buff.text.strip()
+        if not user_input:
+            return False
+        current_app = app_holder[0]
+        if current_app is None:
+            return False
+
+        chat_lines.append(("class:chat-area.user", f"\n> {user_input}\n"))
+        active = session_ref[0]
+        stripped_lower = user_input.lower()
+
+        if runtime.busy and stripped_lower in {"/exit", "/quit", "/q"}:
+            runtime.abort_event.set()
+            if runtime.worker is not None:
+                runtime.worker.join(timeout=5.0)
+            current_app.exit()
+            return False
+
+        if runtime.busy:
+            if user_input.startswith("/"):
+                with _capture_to_chat(chat_lines, current_app):
+                    new_session, _ = _handle_input(active, user_input, history)
+                    session_ref[0] = new_session
+            else:
+                new_session, _ = _handle_input(active, user_input, history, streaming=True)
+                session_ref[0] = new_session
+                runtime.steering_count += 1
+            current_app.invalidate()
+            return False
+
+        if user_input.startswith("!"):
+            cmd = user_input[1:].strip()
+            if cmd:
+                history.add(user_input)
+                _run_shell_command_captured(cmd, chat_lines, current_app)
+            return False
+
+        if user_input.startswith("/"):
+            # Slash commands may invoke menu sub-applications (e.g. /model,
+            # /armory, /settings). Nested ``Application.run()`` cannot be
+            # called from the outer app's event loop, so we execute the
+            # command via ``run_in_terminal(in_executor=True)`` which runs the
+            # callback in a worker thread where a new event loop can be
+            # created for any sub-app.
+            def _exec_slash() -> None:
+                with _capture_to_chat(chat_lines, current_app):
+                    new_session, should_continue = _handle_input(active, user_input, history)
+                    session_ref[0] = new_session
+                if not should_continue:
+                    current_app.exit()
+                current_app.invalidate()
+
+            current_app.create_background_task(_await_run_in_terminal(_exec_slash))
+            return False
+
+        _start_background_reply_fullscreen(
+            session_ref[0], user_input, history, runtime, chat_lines, current_app
+        )
+        current_app.invalidate()
+        return False
+
+    input_buffer = Buffer(
+        name="input",
+        multiline=True,
+        completer=SlashCommandCompleter(),
+        complete_while_typing=True,
+        history=FileHistory(str(history_path)),
+        accept_handler=on_accept,
+    )
+
+    bindings = _build_fullscreen_keybindings(kb, runtime, chat_lines)
+
+    layout = Layout(
+        HSplit(
+            [
+                Window(
+                    FormattedTextControl(get_header),
+                    dont_extend_height=True,
+                    height=Dimension(min=3, preferred=4),
+                    style="class:header",
+                ),
+                Window(
+                    char="─",
+                    height=1,
+                    style="class:separator",
+                    dont_extend_height=True,
+                ),
+                Window(
+                    FormattedTextControl(get_chat, focusable=False),
+                    wrap_lines=True,
+                    right_margins=[ScrollbarMargin(display_arrows=True)],
+                    style="class:chat-area",
+                ),
+                Window(
+                    char="─",
+                    height=1,
+                    style="class:separator",
+                    dont_extend_height=True,
+                ),
+                Window(
+                    BufferControl(buffer=input_buffer),
+                    height=Dimension(min=1, max=5, preferred=3),
+                    dont_extend_height=True,
+                    style="class:composer",
+                ),
+                Window(
+                    FormattedTextControl(get_status),
+                    height=1,
+                    dont_extend_height=True,
+                    style="class:bottom-toolbar",
+                ),
+            ]
+        ),
+        focused_element=input_buffer,
+    )
+
+    app: Application[None] = Application(
+        layout=layout,
+        full_screen=True,
+        key_bindings=bindings,
+        style=_PT_STYLE,
+        mouse_support=False,
+    )
+    app_holder[0] = app
+
+    try:
+        app.run()
+    finally:
+        _save_on_exit(session_ref[0])
 
 
 def _run_fallback_shell(session: ChatSession | None = None) -> None:

@@ -6,6 +6,7 @@ import atexit
 import contextlib
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -319,23 +320,35 @@ def send_user_message(
     *,
     abort: threading.Event | None = None,
     reply_prefix: str = "",
+    writer: Callable[[str], None] | None = None,
 ) -> str:
-    """Run one user turn via the orchestrator and mirror events to stdout."""
+    """Run one user turn via the orchestrator and mirror events to a writer.
+
+    When *writer* is provided, rendered output is forwarded to it instead of
+    being written to ``sys.stdout``. This keeps backward compatibility with
+    callers that still rely on stdout behaviour.
+    """
     orchestrator = TurnOrchestrator(session)
     printed_prefix = False
+
+    def _write(text: str) -> None:
+        if writer is not None:
+            writer(text)
+        else:
+            sys.stdout.write(text)
+            sys.stdout.flush()
+
     for event in orchestrator.iter_events(user_input, abort=abort):
         rendered = render_turn_event(event)
         if not rendered:
             continue
         if reply_prefix and not printed_prefix:
-            sys.stdout.write(reply_prefix)
+            _write(reply_prefix)
             printed_prefix = True
-        sys.stdout.write(rendered)
-        sys.stdout.flush()
+        _write(rendered)
 
     if orchestrator.last_reply:
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        _write("\n")
     return orchestrator.last_reply
 
 
