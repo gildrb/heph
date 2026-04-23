@@ -56,6 +56,89 @@ def print_success(msg: str) -> None:
     print(f"{styled(msg, STYLE_SUCCESS)}")
 
 
+def format_shell_header(
+    version: str,
+    armory_path: str,
+    source_file_count: int,
+    model: str,
+    has_api_key: bool,
+) -> list[tuple[str, str]]:
+    """Render the shell header as prompt_toolkit FormattedText fragments.
+
+    The returned fragments carry the same information as
+    :func:`print_shell_intro` but are styled via the ``header.*`` classes
+    defined in :func:`hephaistos.app.palette.shell_style_dict` so the
+    full-screen shell can display them inside a ``FormattedTextControl``.
+    """
+    fragments: list[tuple[str, str]] = []
+
+    fragments.append(("class:header.title", "Hephaistos"))
+    fragments.append(("class:header", " "))
+    fragments.append(("class:header.dim", f"v{version}"))
+    fragments.append(("class:header", "  "))
+
+    armory_class = "class:header.accent" if armory_path != "none" else "class:header.dim"
+    fragments.append(("class:header.dim", "armory "))
+    fragments.append((armory_class, armory_path))
+    fragments.append(("class:header", "  "))
+
+    fragments.append(("class:header.dim", "model "))
+    fragments.append(("class:header.accent", model))
+    fragments.append(("class:header", "  "))
+
+    fragments.append(("class:header.dim", "api "))
+    if has_api_key:
+        fragments.append(("class:header.success", "configured"))
+    else:
+        fragments.append(("class:header.error", "missing"))
+    fragments.append(("class:header", "  "))
+
+    fragments.append(("class:header.dim", "source "))
+    if source_file_count:
+        label = f"{source_file_count} file{'s' if source_file_count != 1 else ''}"
+        fragments.append(("class:header.accent", label))
+    else:
+        fragments.append(("class:header.dim", "none"))
+
+    fragments.append(("class:header", "\n"))
+
+    hint_pairs: list[tuple[str, str]] = [
+        ("enter", "send"),
+        ("alt+enter", "newline"),
+        ("tab", "complete"),
+        ("ctrl+c", "interrupt"),
+        ("ctrl+d", "exit"),
+    ]
+    for idx, (key, label) in enumerate(hint_pairs):
+        if idx:
+            fragments.append(("class:header", "  "))
+        fragments.append(("class:header.dim", key))
+        fragments.append(("class:header", " "))
+        fragments.append(("class:header", label))
+    fragments.append(("class:header", "  "))
+
+    command_hints = [
+        ("/help", "commands"),
+        ("/settings", "prefs"),
+        ("/armory", "workspace"),
+        ("!", "shell"),
+    ]
+    for idx, (cmd, label) in enumerate(command_hints):
+        if idx:
+            fragments.append(("class:header", "  "))
+        fragments.append(("class:header.accent", cmd))
+        fragments.append(("class:header", " "))
+        fragments.append(("class:header.dim", label))
+
+    if not has_api_key:
+        fragments.append(("class:header", "\n"))
+        fragments.append(("class:header.warning", "configure api"))
+        fragments.append(("class:header", " "))
+        fragments.append(("class:header.accent", "/api key <your-key>"))
+
+    return fragments
+
+
 def print_shell_intro(
     version: str,
     armory_path: str,

@@ -6,6 +6,7 @@ import atexit
 import contextlib
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -319,8 +320,22 @@ def send_user_message(
     *,
     abort: threading.Event | None = None,
     reply_prefix: str = "",
+    writer: Callable[[str], None] | None = None,
 ) -> str:
-    """Run one user turn via the orchestrator and mirror events to stdout."""
+    """Run one user turn via the orchestrator and mirror events to stdout.
+
+    When ``writer`` is provided it receives each rendered fragment in place of
+    ``sys.stdout.write`` + ``flush``. This lets the full-screen shell redirect
+    the stream into its own chat buffer without touching stdout.
+    """
+
+    def _emit(text: str) -> None:
+        if writer is not None:
+            writer(text)
+            return
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
     orchestrator = TurnOrchestrator(session)
     printed_prefix = False
     for event in orchestrator.iter_events(user_input, abort=abort):
@@ -328,14 +343,12 @@ def send_user_message(
         if not rendered:
             continue
         if reply_prefix and not printed_prefix:
-            sys.stdout.write(reply_prefix)
+            _emit(reply_prefix)
             printed_prefix = True
-        sys.stdout.write(rendered)
-        sys.stdout.flush()
+        _emit(rendered)
 
     if orchestrator.last_reply:
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        _emit("\n")
     return orchestrator.last_reply
 
 

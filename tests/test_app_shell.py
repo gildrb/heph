@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,12 +19,17 @@ from prompt_toolkit.styles.defaults import default_ui_style
 
 from hephaistos.app import menu, palette, shell, workspace
 from hephaistos.app.commands import SettingsCommand
-from hephaistos.app.display import print_shell_intro
+from hephaistos.app.display import STYLE_PROMPT, format_shell_header, print_shell_intro, styled
 from hephaistos.app.input_history import InputHistory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation, EngineError
-from hephaistos.chat.session import SessionError, create_plain_session, create_session
+from hephaistos.chat.session import (
+    SessionError,
+    create_plain_session,
+    create_session,
+    send_user_message,
+)
 from hephaistos.providers.config import _default_config  # type: ignore[reportPrivateUsage]
 
 
@@ -341,13 +347,168 @@ def test_dynamic_composer_accepts_pipe_input() -> None:
         assert session.prompt() == "hello"
 
 
-def test_enable_full_screen_prompt_session_promotes_underlying_application() -> None:
-    session: PromptSession[str] = PromptSession()
+def test_format_shell_header_includes_status_fragments() -> None:
+    fragments = format_shell_header(
+        version="1.2.3",
+        armory_path="/tmp/test-armory",
+        source_file_count=2,
+        model="glm-4-plus",
+        has_api_key=True,
+    )
 
-    shell._enable_full_screen_prompt_session(session)  # type: ignore[reportPrivateUsage]
+    joined = "".join(text for _style, text in fragments)
 
-    assert session.app.full_screen is True
-    assert session.app.renderer.full_screen is True
+    assert "Hephaistos" in joined
+    assert "v1.2.3" in joined
+    assert "/tmp/test-armory" in joined
+    assert "glm-4-plus" in joined
+    assert "configured" in joined
+    assert "2 files" in joined
+    # Keyboard/command hints
+    assert "alt+enter" in joined
+    assert "/help" in joined
+    assert "/settings" in joined
+
+    styles = {style for style, _text in fragments}
+    assert "class:header.title" in styles
+    assert "class:header.accent" in styles
+    assert "class:header.success" in styles
+
+
+def test_format_shell_header_shows_api_warning_when_missing() -> None:
+    fragments = format_shell_header(
+        version="0.0.1",
+        armory_path="none",
+        source_file_count=0,
+        model="gpt-4o-mini",
+        has_api_key=False,
+    )
+
+    styles = {style for style, _text in fragments}
+    assert "class:header.error" in styles
+    assert "class:header.warning" in styles
+
+    joined = "".join(text for _style, text in fragments)
+    assert "missing" in joined
+    assert "configure api" in joined
+    assert "/api key" in joined
+
+
+class _FakeTurnEvent:
+    kind: str = "text"
+    text: str = ""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _FakeTurnOrchestrator:
+    def __init__(self, _session: object, text: str = "hello world") -> None:
+        self.last_reply = text
+        self._text = text
+
+    def iter_events(
+        self,
+        _user_input: str,
+        *,
+        abort: object = None,
+    ) -> Iterator[_FakeTurnEvent]:
+        _ = abort
+        yield _FakeTurnEvent(self._text)
+
+
+def _render_fake_event(event: _FakeTurnEvent) -> str:
+    return event.text
+
+
+def _make_fake_orchestrator_factory(text: str):
+    def _factory(session: object) -> _FakeTurnOrchestrator:
+        return _FakeTurnOrchestrator(session, text)
+
+    return _factory
+
+
+def test_send_user_message_uses_custom_writer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    session = _make_session(tmp_path)
+    captured: list[str] = []
+
+    monkeypatch.setattr(
+        "hephaistos.chat.session.TurnOrchestrator",
+        _make_fake_orchestrator_factory("hello world"),
+    )
+    monkeypatch.setattr(
+        "hephaistos.chat.session.render_turn_event",
+        _render_fake_event,
+    )
+
+    result = send_user_message(
+        session,
+        "hi",
+        reply_prefix="Assistant: ",
+        writer=captured.append,
+    )
+
+    assert result == "hello world"
+    # Writer receives the prefix, the rendered text, and a trailing newline.
+    assert captured[0] == "Assistant: "
+    assert "hello world" in "".join(captured)
+    assert captured[-1] == "\n"
+
+
+def test_send_user_message_writer_bypasses_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    session = _make_session(tmp_path)
+    captured: list[str] = []
+
+    monkeypatch.setattr(
+        "hephaistos.chat.session.TurnOrchestrator",
+        _make_fake_orchestrator_factory("captured-only"),
+    )
+    monkeypatch.setattr(
+        "hephaistos.chat.session.render_turn_event",
+        _render_fake_event,
+    )
+
+    send_user_message(session, "hi", writer=captured.append)
+
+    out = capsys.readouterr().out
+    assert "captured-only" not in out
+    assert "captured-only" in "".join(captured)
+
+
+def test_append_chat_text_parses_ansi_into_fragments() -> None:
+    lines: list[tuple[str, str]] = []
+    shell._append_chat_text(lines, styled("hi", STYLE_PROMPT))  # type: ignore[reportPrivateUsage]
+
+    assert lines, "fragments should be appended"
+    joined = "".join(text for _style, text in lines)
+    assert "hi" in joined
+
+
+def test_capture_to_chat_redirects_stdout() -> None:
+    lines: list[tuple[str, str]] = []
+    with shell._capture_to_chat(lines):  # type: ignore[reportPrivateUsage]
+        print("hello captured")
+
+    joined = "".join(text for _style, text in lines)
+    assert "hello captured" in joined
+
+
+def test_run_shell_command_captured_appends_stdout(tmp_path: Path) -> None:
+    lines: list[tuple[str, str]] = []
+    shell._run_shell_command_captured(  # type: ignore[reportPrivateUsage]
+        "echo fullscreen-test",
+        lines,
+    )
+
+    joined = "".join(text for _style, text in lines)
+    assert "$ echo fullscreen-test" in joined
+    assert "fullscreen-test" in joined
 
 
 def test_bottom_toolbar_shows_compact_status(tmp_path: Path) -> None:
