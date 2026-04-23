@@ -7,18 +7,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
-from prompt_toolkit.history import InMemoryHistory
-from prompt_toolkit.input import create_pipe_input
-from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.styles import Style, merge_styles
 from prompt_toolkit.styles.defaults import default_ui_style
 
 from hephaistos.app import menu, palette, shell, workspace
 from hephaistos.app.commands import SettingsCommand
-from hephaistos.app.display import print_shell_intro
+from hephaistos.app.display import format_shell_header, print_shell_intro
 from hephaistos.app.input_history import InputHistory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat import storage as chat_storage
@@ -247,16 +243,6 @@ def test_bottom_toolbar_uses_cached_status(
     assert "queued 2" in busy_text
 
 
-def test_prompt_message_uses_visible_composer_prefix() -> None:
-    assert list(shell._get_prompt_message()()) == [("class:prompt-mark", "> ")]  # type: ignore[reportPrivateUsage]
-
-
-def test_prompt_message_switches_to_follow_up_prefix_when_busy() -> None:
-    runtime = shell.ShellRuntime(busy=True)
-
-    assert list(shell._get_prompt_message(runtime)()) == [("class:prompt-mark", "+ ")]  # type: ignore[reportPrivateUsage]
-
-
 def test_format_menu_pads_rows_and_marks_active_option(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -319,35 +305,6 @@ def test_appearance_menu_updates_theme_without_printing_status(
     assert save_calls == [("theme", "light")]
     assert theme_calls == ["light"]
     assert success_messages == []
-
-
-def test_dynamic_composer_accepts_pipe_input() -> None:
-    with create_pipe_input() as pipe_input:
-        session: PromptSession[str] = PromptSession(
-            message=shell._get_prompt_message(),  # type: ignore[reportPrivateUsage]
-            style=shell._PT_STYLE,  # type: ignore[reportPrivateUsage]
-            history=InMemoryHistory(),
-            completer=shell.SlashCommandCompleter(),
-            key_bindings=shell._build_keybindings(shell.DEFAULT_SHELL_KEYBINDINGS),  # type: ignore[reportPrivateUsage]
-            bottom_toolbar=lambda: shell._get_bottom_toolbar(["~ · plain chat"]),  # type: ignore[reportPrivateUsage]
-            multiline=True,
-            complete_while_typing=True,
-            show_frame=False,
-            input=pipe_input,
-            output=DummyOutput(),
-        )
-        pipe_input.send_text("hello\r")
-
-        assert session.prompt() == "hello"
-
-
-def test_enable_full_screen_prompt_session_promotes_underlying_application() -> None:
-    session: PromptSession[str] = PromptSession()
-
-    shell._enable_full_screen_prompt_session(session)  # type: ignore[reportPrivateUsage]
-
-    assert session.app.full_screen is True
-    assert session.app.renderer.full_screen is True
 
 
 def test_bottom_toolbar_shows_compact_status(tmp_path: Path) -> None:
@@ -659,3 +616,96 @@ def test_resume_saved_chat_reports_ambiguous_id_prefix(
     assert "Multiple saved chats match 'abc'" in out
     assert "abc111222333" in out
     assert "abc999888777" in out
+
+
+def test_format_shell_header_includes_core_metadata() -> None:
+    fragments = format_shell_header(
+        version="0.0.0-test",
+        armory_path="/home/user/armory",
+        source_file_count=3,
+        model="gpt-4o-mini",
+        has_api_key=True,
+    )
+
+    text = "".join(frag[1] for frag in fragments)
+    assert "Hephaistos" in text
+    assert "v0.0.0-test" in text
+    assert "/home/user/armory" in text
+    assert "gpt-4o-mini" in text
+    assert "configured" in text
+    assert "3 files" in text
+
+    styles = {style for style, _ in fragments if style}
+    assert "class:header.title" in styles
+    assert "class:header.success" in styles
+
+
+def test_format_shell_header_warns_when_api_key_missing() -> None:
+    fragments = format_shell_header(
+        version="0.0.0-test",
+        armory_path="none",
+        source_file_count=0,
+        model="gpt-4o-mini",
+        has_api_key=False,
+    )
+
+    text = "".join(frag[1] for frag in fragments)
+    styles = {style for style, _ in fragments if style}
+    assert "missing" in text
+    assert "/api key <your-key>" in text
+    assert "class:header.error" in styles
+    assert "class:header.warning" in styles
+
+
+def test_chat_writer_appends_styled_fragments() -> None:
+    chat_lines: list[tuple[str, str]] = []
+    calls = {"invalidate": 0}
+
+    class FakeApp:
+        def invalidate(self) -> None:
+            calls["invalidate"] += 1
+
+    writer = shell._ChatWriter(chat_lines, FakeApp())  # type: ignore[reportPrivateUsage]
+    written = writer.write("hello ")
+    writer.write("world")
+
+    assert written == len("hello ")
+    assert chat_lines == [
+        ("class:chat-area.system", "hello "),
+        ("class:chat-area.system", "world"),
+    ]
+    assert calls["invalidate"] == 2
+
+
+def test_capture_to_chat_redirects_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+    chat_lines: list[tuple[str, str]] = []
+
+    class FakeApp:
+        def invalidate(self) -> None:
+            return
+
+    with shell._capture_to_chat(chat_lines, FakeApp()):  # type: ignore[reportPrivateUsage]
+        print("captured-line")
+
+    joined = "".join(text for _, text in chat_lines)
+    assert "captured-line" in joined
+
+
+def test_run_shell_command_captured_routes_stdout_and_stderr() -> None:
+    chat_lines: list[tuple[str, str]] = []
+
+    class FakeApp:
+        def invalidate(self) -> None:
+            return
+
+    shell._run_shell_command_captured(  # type: ignore[reportPrivateUsage]
+        "printf hello; printf err 1>&2",
+        chat_lines,
+        FakeApp(),
+    )
+
+    styles = [style for style, _ in chat_lines]
+    texts = [text for _, text in chat_lines]
+    assert any(style == "class:chat-area.system" for style in styles)
+    assert any("hello" in text for text in texts)
+    assert any("err" in text for text in texts)

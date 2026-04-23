@@ -161,6 +161,22 @@ def shell_style_dict() -> dict[str, str]:
         "completion-menu.meta.completion": f"bg:{palette.panel} fg:{palette.dim}",
         "scrollbar.background": f"bg:{palette.panel}",
         "scrollbar.button": f"bg:{palette.stone}",
+        "header": f"bg:{palette.panel} fg:{palette.text}",
+        "header.title": f"bg:{palette.panel} bold fg:{palette.accent}",
+        "header.dim": f"bg:{palette.panel} fg:{palette.dim}",
+        "header.accent": f"bg:{palette.panel} fg:{palette.accent}",
+        "header.error": f"bg:{palette.panel} bold fg:{palette.error}",
+        "header.success": f"bg:{palette.panel} fg:{palette.success}",
+        "header.warning": f"bg:{palette.panel} bold fg:{palette.error}",
+        "separator": f"bg:{palette.panel} fg:{palette.stone}",
+        "chat-area": f"bg:{palette.panel} fg:{palette.text}",
+        "chat-area.user": f"bg:{palette.panel} fg:{palette.text}",
+        "chat-area.assistant": f"bg:{palette.panel} fg:{palette.accent}",
+        "chat-area.assistant-label": f"bg:{palette.panel} bold fg:{palette.accent}",
+        "chat-area.system": f"bg:{palette.panel} fg:{palette.dim}",
+        "chat-area.error": f"bg:{palette.panel} bold fg:{palette.error}",
+        "chat-area.success": f"bg:{palette.panel} fg:{palette.success}",
+        "chat-area.tool": f"bg:{palette.panel} fg:{palette.dim}",
     }
 
 
