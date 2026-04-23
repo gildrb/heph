@@ -163,8 +163,10 @@ def auto_compact(
             stream=False,
         )
         message_content = response.choices[0].message.content
-        summary = message_content if isinstance(message_content, str) and message_content else (
-            "(summary unavailable)"
+        summary = (
+            message_content
+            if isinstance(message_content, str) and message_content
+            else ("(summary unavailable)")
         )
     except Exception as exc:
         _log.error(

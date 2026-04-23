@@ -96,9 +96,7 @@ class VocabCardState:
         repetitions = raw_repetitions if isinstance(raw_repetitions, int) else 0
         raw_easiness = data.get("easiness", _DEFAULT_EASINESS)
         easiness = (
-            float(raw_easiness)
-            if isinstance(raw_easiness, int | float)
-            else _DEFAULT_EASINESS
+            float(raw_easiness) if isinstance(raw_easiness, int | float) else _DEFAULT_EASINESS
         )
         raw_interval = data.get("interval", 0)
         interval = raw_interval if isinstance(raw_interval, int) else 0

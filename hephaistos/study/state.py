@@ -93,9 +93,7 @@ class StudyState:
 
         raw_refs = data.get("expected_source_refs")
         expected_source_refs = (
-            [ref for ref in raw_refs if isinstance(ref, str)]
-            if is_object_list(raw_refs)
-            else []
+            [ref for ref in raw_refs if isinstance(ref, str)] if is_object_list(raw_refs) else []
         )
 
         raw_attempt = data.get("attempt_count", 0)

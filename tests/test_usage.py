@@ -34,9 +34,7 @@ class TestTokenUsage:
             "completion_tokens": 50,
             "total_tokens": 150,
         }
-        usage = TokenUsage.from_api_response(
-            payload
-        )
+        usage = TokenUsage.from_api_response(payload)
         assert usage.prompt_tokens == 100
         assert usage.completion_tokens == 50
         assert usage.total_tokens == 150
