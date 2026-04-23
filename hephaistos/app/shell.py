@@ -12,6 +12,7 @@ All keybindings are configurable via ``DEFAULT_SHELL_KEYBINDINGS``.
 
 from __future__ import annotations
 
+import shutil
 import subprocess  # nosec B404
 import sys
 import threading
@@ -63,7 +64,6 @@ from hephaistos.chat.session import (
     session_has_messages,
     validate_armory_path,
 )
-from hephaistos.chat.usage import ContextBudget
 from hephaistos.harness.persona import list_personas
 from hephaistos.logging import get_logger
 from hephaistos.observability import capture_exception
@@ -253,6 +253,12 @@ def _build_keybindings(
     return kb
 
 
+def _enable_full_screen_prompt_session(pt_session: PromptSession[str]) -> None:
+    """Promote the shell prompt into a full-screen alternate-screen application."""
+    pt_session.app.full_screen = True
+    pt_session.app.renderer.full_screen = True
+
+
 def _get_prompt_message(runtime: ShellRuntime | None = None):
     """Return the compact composer prefix used for every prompt line."""
 
@@ -269,55 +275,24 @@ def _get_prompt_continuation(width: int, line_number: int, wrap_count: int):
     return FormattedText([("class:bottom-toolbar", " " * width)])
 
 
-def _display_path(path: Path) -> str:
-    """Render a path relative to the user's home directory when possible."""
-    resolved = path.expanduser().resolve()
-    try:
-        rel = resolved.relative_to(Path.home())
-        return "~" if str(rel) == "." else f"~/{rel}"
-    except ValueError:
-        return str(resolved)
-
-
-def _context_left(session: ChatSession) -> int:
-    """Return the estimated prompt-budget percentage left for the session."""
-    budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
-    prompt_budget = max(1, budget.prompt_budget)
-    remaining = budget.tokens_remaining(session.conversation.to_api_messages())  # type: ignore[arg-type]
-    return max(0, min(100, round((remaining / prompt_budget) * 100)))
-
-
-def _source_label(session: ChatSession) -> str:
-    count = session.source_file_count
-    if count <= 0:
-        return "none"
-    return f"{count} file{'s' if count != 1 else ''}"
+def _toolbar_columns(default: int = 80) -> int:
+    """Return the active terminal width for toolbar/background padding."""
+    return max(default, shutil.get_terminal_size(fallback=(default, 24)).columns)
 
 
 def _build_bottom_toolbar_status(
     session: ChatSession,
     runtime: ShellRuntime | None = None,
 ) -> str:
-    """Build the multi-line status block shown below the composer."""
-    location = session.armory_path or Path.cwd()
-    mode = "armory attached" if session.armory_path is not None else "plain chat"
+    """Build the compact helper bar shown below the composer."""
     api_state = "configured" if session.config.resolved_api_key else "missing"
-    persona_tag = session.persona.display_name if session.persona.slug != "drill" else ""
     if runtime is not None and runtime.busy:
         steering_suffix = f" · queued {runtime.steering_count}" if runtime.steering_count else ""
-        input_hint = (
-            f"assistant working · enter queues follow-up · ctrl+c interrupt{steering_suffix}"
-        )
-    else:
-        input_hint = "enter send · alt+enter newline · / commands · /settings · ! shell"
-    return (
-        f"{_display_path(location)} · {mode}\n"
-        f"model {session.config.model}"
-        f" · context {_context_left(session)}% left"
-        f" · api {api_state} · source {_source_label(session)}"
-        f"{f' · persona {persona_tag}' if persona_tag else ''}\n"
-        f"{input_hint}"
-    )
+        return f"assistant working · enter queues follow-up · ctrl+c interrupt{steering_suffix}"
+    input_hint = "alt+enter newline · /help commands · /settings prefs · ! shell"
+    if api_state == "missing":
+        return f"{input_hint} · api missing"
+    return input_hint
 
 
 def _refresh_bottom_toolbar(
@@ -331,27 +306,29 @@ def _refresh_bottom_toolbar(
 
 def _get_bottom_toolbar(toolbar_ref: list[str]):
     """Return the cached metadata shown below the composer."""
-    status = toolbar_ref[0]
-    lines = status.splitlines()
+    line = toolbar_ref[0]
+    width = _toolbar_columns()
     fragments: list[tuple[str, str]] = []
-    if not lines:
+    if not line:
         return FormattedText([])
-    fragments.append(("class:toolbar-location", lines[0]))
-    for line in lines[1:]:
-        fragments.append(("", "\n"))
-        if "api missing" in line:
-            prefix, suffix = line.split("api missing", 1)
-            fragments.append(("class:bottom-toolbar", prefix))
-            fragments.append(("class:toolbar-error", "api missing"))
-            fragments.append(("class:bottom-toolbar", suffix))
-            continue
-        if line.startswith("assistant working"):
-            prefix, suffix = line.split("assistant working", 1)
-            fragments.append(("class:bottom-toolbar", prefix))
-            fragments.append(("class:toolbar-accent", "assistant working"))
-            fragments.append(("class:bottom-toolbar", suffix))
-            continue
-        fragments.append(("class:bottom-toolbar", line))
+    if "api missing" in line:
+        prefix, suffix = line.split("api missing", 1)
+        used = len(prefix) + len("api missing") + len(suffix)
+        fragments.append(("class:bottom-toolbar", prefix))
+        fragments.append(("class:toolbar-error", "api missing"))
+        fragments.append(("class:bottom-toolbar", suffix))
+        fragments.append(("class:bottom-toolbar", " " * max(0, width - used)))
+        return FormattedText(fragments)
+    if line.startswith("assistant working"):
+        prefix, suffix = line.split("assistant working", 1)
+        used = len(prefix) + len("assistant working") + len(suffix)
+        fragments.append(("class:bottom-toolbar", prefix))
+        fragments.append(("class:toolbar-accent", "assistant working"))
+        fragments.append(("class:bottom-toolbar", suffix))
+        fragments.append(("class:bottom-toolbar", " " * max(0, width - used)))
+        return FormattedText(fragments)
+    fragments.append(("class:bottom-toolbar", line))
+    fragments.append(("class:bottom-toolbar", " " * max(0, width - len(line))))
     return FormattedText(fragments)
 
 
@@ -691,6 +668,7 @@ def run_chat_shell(
         complete_while_typing=True,
         show_frame=False,
     )
+    _enable_full_screen_prompt_session(pt_session)
 
     history = InputHistory()
 

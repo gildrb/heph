@@ -16,7 +16,8 @@ from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.styles import Style, merge_styles
 from prompt_toolkit.styles.defaults import default_ui_style
 
-from hephaistos.app import palette, shell, workspace
+from hephaistos.app import menu, palette, shell, workspace
+from hephaistos.app.commands import SettingsCommand
 from hephaistos.app.display import print_shell_intro
 from hephaistos.app.input_history import InputHistory
 from hephaistos.armory.storage import initialize
@@ -227,25 +228,23 @@ def test_bottom_toolbar_uses_cached_status(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     session = _make_session(tmp_path)
-    calls = 0
-
-    def fake_context_left(_session: object) -> int:
-        nonlocal calls
-        calls += 1
-        return 73
-
-    monkeypatch.setattr(shell, "_context_left", fake_context_left)
 
     toolbar_ref = [shell._build_bottom_toolbar_status(session)]  # type: ignore[reportPrivateUsage]
 
-    shell._get_bottom_toolbar(toolbar_ref)  # type: ignore[reportPrivateUsage]
-    shell._get_bottom_toolbar(toolbar_ref)  # type: ignore[reportPrivateUsage]
+    idle_toolbar = shell._get_bottom_toolbar(toolbar_ref)  # type: ignore[reportPrivateUsage]
+    idle_text = "".join(fragment[1] for fragment in idle_toolbar)
 
-    assert calls == 1
+    assert "/settings prefs" in idle_text
+    assert "context" not in idle_text
+    assert "source" not in idle_text
 
-    shell._refresh_bottom_toolbar(session, toolbar_ref)  # type: ignore[reportPrivateUsage]
+    runtime = shell.ShellRuntime(busy=True, steering_count=2)
+    shell._refresh_bottom_toolbar(session, toolbar_ref, runtime)  # type: ignore[reportPrivateUsage]
+    busy_toolbar = shell._get_bottom_toolbar(toolbar_ref)  # type: ignore[reportPrivateUsage]
+    busy_text = "".join(fragment[1] for fragment in busy_toolbar)
 
-    assert calls == 2
+    assert "assistant working" in busy_text
+    assert "queued 2" in busy_text
 
 
 def test_prompt_message_uses_visible_composer_prefix() -> None:
@@ -256,6 +255,70 @@ def test_prompt_message_switches_to_follow_up_prefix_when_busy() -> None:
     runtime = shell.ShellRuntime(busy=True)
 
     assert list(shell._get_prompt_message(runtime)()) == [("class:prompt-mark", "+ ")]  # type: ignore[reportPrivateUsage]
+
+
+def test_format_menu_pads_rows_and_marks_active_option(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("hephaistos.app.menu._terminal_columns", lambda default=80: 80)
+
+    fragments = menu._format_menu(  # type: ignore[reportPrivateUsage]
+        "Appearance",
+        [
+            menu.MenuOption("Forge", "Theme preset", is_current=True),
+            menu.MenuOption("Light", "Theme preset"),
+        ],
+        selected=0,
+    )
+    lines = "".join(fragment[1] for fragment in fragments).splitlines()
+
+    assert "active" in lines[1]
+    assert all(len(line) == 80 for line in lines)
+
+
+def test_appearance_menu_updates_theme_without_printing_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selections = iter([1, 3])
+    save_calls: list[tuple[str, str]] = []
+    theme_calls: list[str] = []
+    success_messages: list[str] = []
+
+    def fake_select_option(*_args: object, **_kwargs: object) -> int:
+        return next(selections)
+
+    def fake_save_setting(key: str, value: str) -> None:
+        save_calls.append((key, value))
+
+    def fake_set_theme(theme: str) -> None:
+        theme_calls.append(theme)
+
+    def fake_print_success(msg: str) -> None:
+        success_messages.append(msg)
+
+    monkeypatch.setattr(
+        "hephaistos.app.commands.select_option",
+        fake_select_option,
+    )
+    monkeypatch.setattr("hephaistos.app.commands.current_theme_name", lambda: "forge")
+    monkeypatch.setattr(
+        "hephaistos.app.commands.save_setting",
+        fake_save_setting,
+    )
+    monkeypatch.setattr(
+        "hephaistos.app.commands.set_theme",
+        fake_set_theme,
+    )
+    monkeypatch.setattr(
+        "hephaistos.app.commands.print_success",
+        fake_print_success,
+    )
+
+    SettingsCommand()._appearance_menu()  # type: ignore[reportPrivateUsage]
+
+    assert save_calls == [("theme", "light")]
+    assert theme_calls == ["light"]
+    assert success_messages == []
 
 
 def test_dynamic_composer_accepts_pipe_input() -> None:
@@ -278,19 +341,26 @@ def test_dynamic_composer_accepts_pipe_input() -> None:
         assert session.prompt() == "hello"
 
 
-def test_bottom_toolbar_shows_multiline_status(tmp_path: Path) -> None:
+def test_enable_full_screen_prompt_session_promotes_underlying_application() -> None:
+    session: PromptSession[str] = PromptSession()
+
+    shell._enable_full_screen_prompt_session(session)  # type: ignore[reportPrivateUsage]
+
+    assert session.app.full_screen is True
+    assert session.app.renderer.full_screen is True
+
+
+def test_bottom_toolbar_shows_compact_status(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
 
     status = shell._build_bottom_toolbar_status(session)  # type: ignore[reportPrivateUsage]
 
-    assert session.armory_path is not None
-    assert shell._display_path(session.armory_path) in status  # type: ignore[reportPrivateUsage]
-    assert "armory attached" in status
-    assert "model" in status
-    assert "context" in status
-    assert "api " in status
-    assert "source 1 file" in status
-    assert "enter send" in status
+    assert "alt+enter newline" in status
+    assert "/help commands" in status
+    assert "/settings prefs" in status
+    assert "! shell" in status
+    assert "context" not in status
+    assert "source" not in status
 
 
 def test_bottom_toolbar_shows_busy_hint(tmp_path: Path) -> None:

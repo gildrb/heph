@@ -902,9 +902,10 @@ class SettingsCommand(Command):
             if selected is None or selected == len(options) - 1:
                 return
             theme = THEME_PRESETS[selected]
+            if theme == current:
+                continue
             save_setting("theme", theme)
             set_theme(theme)
-            print_success(f"Theme: {current} -> {theme}")
 
     def _startup_menu(self) -> None:
         while True:

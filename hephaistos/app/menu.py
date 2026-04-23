@@ -6,6 +6,7 @@ like part of the shell rather than a separate full-screen mode.
 
 from __future__ import annotations
 
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,12 +57,20 @@ def _initial_selection(options: list[MenuOption]) -> int:
     return 0
 
 
+def _terminal_columns(default: int = 80) -> int:
+    """Return the current terminal width for inline render surfaces."""
+    return max(default, shutil.get_terminal_size(fallback=(default, 24)).columns)
+
+
+def _pad_line(text: str, width: int) -> str:
+    """Pad a rendered line so redraws overwrite the previous frame cleanly."""
+    return text + (" " * max(0, width - visible_len(text)))
+
+
 def _format_menu(title: str, options: list[MenuOption], selected: int):
     max_label = max(visible_len(option.label) for option in options)
-    fragments: list[tuple[str, str]] = [
-        ("class:inline-menu.title", title),
-        ("", "\n"),
-    ]
+    lines: list[int] = [visible_len(title)]
+    rendered_rows: list[tuple[str, str, str, str, str]] = []
 
     for index, option in enumerate(options):
         is_selected = index == selected
@@ -75,14 +84,32 @@ def _format_menu(title: str, options: list[MenuOption], selected: int):
         )
         marker = ">" if is_selected else " "
         label = option.label.ljust(max_label) if option.description else option.label
-        fragments.append((option_style, f"  {marker} {index + 1}. {label}"))
-        if option.description:
-            fragments.append((desc_style, f"  {option.description}"))
-        if option.is_current:
-            fragments.append(("class:inline-menu.title", "  current"))
+        desc = f"  {option.description}" if option.description else ""
+        badge = "  active" if option.is_current else ""
+        line_width = visible_len(f"  {marker} {index + 1}. {label}{desc}{badge}")
+        lines.append(line_width)
+        row_label = f"  {marker} {index + 1}. {label}"
+        rendered_rows.append((option_style, desc_style, row_label, desc, badge))
+
+    hint = "  up/down choose | enter select | q/esc cancel"
+    lines.append(visible_len(hint))
+    width = max(_terminal_columns(), *lines)
+    fragments: list[tuple[str, str]] = [
+        ("class:inline-menu.title", _pad_line(title, width)),
+        ("", "\n"),
+    ]
+
+    for option_style, desc_style, label, desc, badge in rendered_rows:
+        fragments.append((option_style, label))
+        if desc:
+            fragments.append((desc_style, desc))
+        if badge:
+            fragments.append(("class:inline-menu.badge", badge))
+        pad_width = visible_len(label) + visible_len(desc) + visible_len(badge)
+        fragments.append((option_style, " " * max(0, width - pad_width)))
         fragments.append(("", "\n"))
 
-    fragments.append(("class:inline-menu.hint", "  up/down choose | enter select | q/esc cancel"))
+    fragments.append(("class:inline-menu.hint", _pad_line(hint, width)))
     return fragments
 
 
@@ -136,7 +163,7 @@ def _select_with_prompt_toolkit(
         layout=Layout(Window(content=control, dont_extend_height=True, always_hide_cursor=True)),
         key_bindings=bindings,
         style=_MENU_STYLE,
-        full_screen=False,
+        full_screen=True,
         erase_when_done=True,
         input=input_obj,
         output=output_obj,
@@ -229,12 +256,13 @@ def _list_child_dirs(path: Path) -> list[Path]:
 
 
 def _format_browser(title: str, current: Path, entries: list[str], selected: int):
-    fragments: list[tuple[str, str]] = [
-        ("class:browser.title", title),
-        ("", "\n"),
-        ("class:browser.path", f"  {current}"),
-        ("", "\n\n"),
+    hint = "  up/down navigate | enter open | c choose | q/esc cancel"
+    line_widths = [
+        visible_len(title),
+        visible_len(f"  {current}"),
+        visible_len(hint),
     ]
+    browser_rows: list[tuple[str, str]] = []
     for index, name in enumerate(entries):
         is_selected = index == selected
         is_parent = name == _PARENT_LABEL
@@ -244,16 +272,23 @@ def _format_browser(title: str, current: Path, entries: list[str], selected: int
             style = "class:browser.entry.selected" if is_selected else "class:browser.entry"
         marker = ">" if is_selected else " "
         icon = "" if is_parent else f"{_DIR_ICON} "
-        fragments.append((style, f"  {marker} {icon}{name}"))
+        row = f"  {marker} {icon}{name}"
+        browser_rows.append((style, row))
+        line_widths.append(visible_len(row))
+
+    width = max(_terminal_columns(), *line_widths)
+    fragments: list[tuple[str, str]] = [
+        ("class:browser.title", _pad_line(title, width)),
+        ("", "\n"),
+        ("class:browser.path", _pad_line(f"  {current}", width)),
+        ("", "\n\n"),
+    ]
+    for style, row in browser_rows:
+        fragments.append((style, _pad_line(row, width)))
         fragments.append(("", "\n"))
 
     fragments.append(("", "\n"))
-    fragments.append(
-        (
-            "class:browser.hint",
-            "  up/down navigate | enter open | c choose | q/esc cancel",
-        )
-    )
+    fragments.append(("class:browser.hint", _pad_line(hint, width)))
     return fragments
 
 
@@ -329,7 +364,7 @@ def _browse_with_prompt_toolkit(
         layout=Layout(Window(content=control, dont_extend_height=True, always_hide_cursor=True)),
         key_bindings=bindings,
         style=_BROWSER_STYLE,
-        full_screen=False,
+        full_screen=True,
         erase_when_done=True,
         input=input_obj,
         output=output_obj,
