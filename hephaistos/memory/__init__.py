@@ -99,11 +99,7 @@ class MemoryEntry:
         raw_confidence = data.get("confidence", "discussed")
         confidence = raw_confidence if isinstance(raw_confidence, str) else "discussed"
         raw_created_at = data.get("created_at", 0.0)
-        created_at = (
-            float(raw_created_at)
-            if isinstance(raw_created_at, int | float)
-            else 0.0
-        )
+        created_at = float(raw_created_at) if isinstance(raw_created_at, int | float) else 0.0
         raw_access_count = data.get("access_count", 0)
         access_count = raw_access_count if isinstance(raw_access_count, int) else 0
         return cls(
@@ -145,9 +141,7 @@ class MemoryStore:
             raw_entries = data.get("entries", [])
             entry_list = raw_entries if is_object_list(raw_entries) else []
             self.entries = [
-                MemoryEntry.from_dict(entry)
-                for entry in entry_list
-                if is_string_mapping(entry)
+                MemoryEntry.from_dict(entry) for entry in entry_list if is_string_mapping(entry)
             ]
             _log.info(
                 "memory loaded",

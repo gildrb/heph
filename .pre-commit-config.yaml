@@ -6,16 +6,6 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  - repo: https://github.com/ComPWA/tap-pre-commit
-    rev: v0.3.0
-    hooks:
-      - id: mypy
-        name: basedpyright (type-check)
-        language: python
-        entry: basedpyright
-        types: [python]
-        pass_filenames: false
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -30,6 +20,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: basedpyright
+        name: basedpyright (type-check)
+        language: python
+        entry: basedpyright
+        types: [python]
+        pass_filenames: false
+        additional_dependencies: [basedpyright]
       - id: sync-docs
         name: sync-docs (README/docs/AGENTS)
         language: system
