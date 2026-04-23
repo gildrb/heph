@@ -117,6 +117,82 @@ def print_shell_intro(
     print()
 
 
+def format_shell_header(
+    version: str,
+    armory_path: str,
+    source_file_count: int,
+    model: str,
+    has_api_key: bool,
+) -> list[tuple[str, str]]:
+    """Return ``FormattedText``-compatible fragments for the fullscreen header.
+
+    Mirrors :func:`print_shell_intro` but emits ``(style_class, text)`` tuples
+    using prompt_toolkit style classes (``class:header.*``) so the header bar
+    in the fullscreen shell renders with the same information as the classic
+    intro banner.
+    """
+    has_armory = armory_path != "none"
+    armory_label = armory_path if has_armory else "none"
+    armory_style = "class:header.accent" if has_armory else "class:header.dim"
+
+    if source_file_count:
+        source_label = f"{source_file_count} file{'s' if source_file_count != 1 else ''}"
+        source_style = "class:header.accent"
+    else:
+        source_label = "none"
+        source_style = "class:header.dim"
+
+    api_label = "configured" if has_api_key else "missing"
+    api_style = "class:header.success" if has_api_key else "class:header.error"
+
+    fragments: list[tuple[str, str]] = [
+        ("class:header.title", "Hephaistos"),
+        ("class:header", " "),
+        ("class:header.dim", f"v{version}"),
+        ("class:header", "\n  "),
+        ("class:header.dim", "armory"),
+        ("class:header", " "),
+        (armory_style, armory_label),
+        ("class:header", "  "),
+        ("class:header.dim", "model"),
+        ("class:header", " "),
+        ("class:header.accent", model or "none"),
+        ("class:header", "  "),
+        ("class:header.dim", "api"),
+        ("class:header", " "),
+        (api_style, api_label),
+        ("class:header", "  "),
+        ("class:header.dim", "source"),
+        ("class:header", " "),
+        (source_style, source_label),
+        ("class:header", "\n  "),
+        ("class:header.dim", "enter"),
+        ("class:header", " send  "),
+        ("class:header.dim", "alt+enter"),
+        ("class:header", " newline  "),
+        ("class:header.dim", "tab"),
+        ("class:header", " complete  "),
+        ("class:header.dim", "ctrl+c"),
+        ("class:header", " interrupt  "),
+        ("class:header.dim", "ctrl+d"),
+        ("class:header", " exit  "),
+        ("class:header.accent", "/help"),
+        ("class:header", " commands  "),
+        ("class:header.accent", "!"),
+        ("class:header", " shell"),
+    ]
+    if not has_api_key:
+        fragments.extend(
+            [
+                ("class:header", "\n  "),
+                ("class:header.error", "configure api"),
+                ("class:header", " "),
+                ("class:header.accent", "/api key <your-key>"),
+            ]
+        )
+    return fragments
+
+
 def _real_stdout() -> _TextOutput:
     """Return the real terminal stdout, bypassing any ``patch_stdout`` proxy."""
     out: object = sys.stdout

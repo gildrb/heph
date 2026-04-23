@@ -6,6 +6,7 @@ import atexit
 import contextlib
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -313,29 +314,40 @@ def session_has_messages(session: ChatSession) -> bool:
     return any(message.role != "system" for message in session.conversation.messages)
 
 
+def _default_stdout_writer(text: str) -> None:
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
+
 def send_user_message(
     session: ChatSession,
     user_input: str,
     *,
     abort: threading.Event | None = None,
     reply_prefix: str = "",
+    writer: Callable[[str], None] | None = None,
 ) -> str:
-    """Run one user turn via the orchestrator and mirror events to stdout."""
+    """Run one user turn via the orchestrator and mirror events to a writer.
+
+    By default the rendered output is written to ``sys.stdout`` (with flush on
+    every chunk).  Supplying ``writer`` redirects each rendered fragment to a
+    caller-provided sink, which is how the fullscreen shell pipes streamed
+    output into its chat buffer.
+    """
     orchestrator = TurnOrchestrator(session)
     printed_prefix = False
+    _write = writer if writer is not None else _default_stdout_writer
     for event in orchestrator.iter_events(user_input, abort=abort):
         rendered = render_turn_event(event)
         if not rendered:
             continue
         if reply_prefix and not printed_prefix:
-            sys.stdout.write(reply_prefix)
+            _write(reply_prefix)
             printed_prefix = True
-        sys.stdout.write(rendered)
-        sys.stdout.flush()
+        _write(rendered)
 
     if orchestrator.last_reply:
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        _write("\n")
     return orchestrator.last_reply
 
 

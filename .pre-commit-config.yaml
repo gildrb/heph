@@ -6,13 +6,12 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  - repo: https://github.com/ComPWA/taplo-pre-commit
-    rev: v0.3.0
+  - repo: local
     hooks:
-      - id: mypy
+      - id: basedpyright
         name: basedpyright (type-check)
-        language: python
-        entry: basedpyright
+        language: system
+        entry: uv run basedpyright
         types: [python]
         pass_filenames: false
 
@@ -38,49 +37,49 @@ repos:
         always_run: true
       - id: check-repo-policies
         name: repo-policies (no Any / no deferred imports)
-        language: python
-        entry: python -m scripts.check_repo_policies
+        language: system
+        entry: uv run python -m scripts.check_repo_policies
         types: [python]
         pass_filenames: false
       - id: vulture
         name: vulture (dead-code)
-        language: python
-        entry: vulture hephaistos tests vulture-whitelist.py
+        language: system
+        entry: uv run vulture hephaistos tests vulture-whitelist.py
         types: [python]
         pass_filenames: false
       - id: pylint-duplicate-code
         name: pylint (duplicate-code)
-        language: python
-        entry: pylint --disable=all --enable=duplicate-code hephaistos
+        language: system
+        entry: uv run pylint --disable=all --enable=duplicate-code hephaistos
         types: [python]
         pass_filenames: false
       - id: lint-imports
         name: import-linter (architecture)
-        language: python
-        entry: lint-imports
+        language: system
+        entry: uv run lint-imports
         types: [python]
         pass_filenames: false
       - id: deptry
         name: deptry (unused-deps)
-        language: python
-        entry: deptry hephaistos
+        language: system
+        entry: uv run deptry hephaistos
         types: [python]
         pass_filenames: false
       - id: radon-complexity
         name: radon (complexity)
-        language: python
-        entry: radon cc hephaistos -a -nc
+        language: system
+        entry: uv run radon cc hephaistos -a -nc
         types: [python]
         pass_filenames: false
       - id: check-tech-debt
         name: tech-debt (TODO/FIXME issue links)
-        language: python
-        entry: python scripts/check_tech_debt.py --strict
+        language: system
+        entry: uv run python scripts/check_tech_debt.py --strict
         types: [python]
         pass_filenames: false
       - id: validate-agents-md
         name: validate-agents-md (AGENTS.md commands)
-        language: python
-        entry: python scripts/validate_agents_md.py --strict
+        language: system
+        entry: uv run python scripts/validate_agents_md.py --strict
         files: AGENTS\.md$
         pass_filenames: false

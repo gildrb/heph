@@ -7,10 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from prompt_toolkit import PromptSession
+from prompt_toolkit.application.current import create_app_session
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
-from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.styles import Style, merge_styles
@@ -21,6 +22,7 @@ from hephaistos.app.commands import SettingsCommand
 from hephaistos.app.display import print_shell_intro
 from hephaistos.app.input_history import InputHistory
 from hephaistos.armory.storage import initialize
+from hephaistos.chat import session as chat_session
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation, EngineError
 from hephaistos.chat.session import SessionError, create_plain_session, create_session
@@ -247,16 +249,6 @@ def test_bottom_toolbar_uses_cached_status(
     assert "queued 2" in busy_text
 
 
-def test_prompt_message_uses_visible_composer_prefix() -> None:
-    assert list(shell._get_prompt_message()()) == [("class:prompt-mark", "> ")]  # type: ignore[reportPrivateUsage]
-
-
-def test_prompt_message_switches_to_follow_up_prefix_when_busy() -> None:
-    runtime = shell.ShellRuntime(busy=True)
-
-    assert list(shell._get_prompt_message(runtime)()) == [("class:prompt-mark", "+ ")]  # type: ignore[reportPrivateUsage]
-
-
 def test_format_menu_pads_rows_and_marks_active_option(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -321,33 +313,109 @@ def test_appearance_menu_updates_theme_without_printing_status(
     assert success_messages == []
 
 
-def test_dynamic_composer_accepts_pipe_input() -> None:
-    with create_pipe_input() as pipe_input:
-        session: PromptSession[str] = PromptSession(
-            message=shell._get_prompt_message(),  # type: ignore[reportPrivateUsage]
-            style=shell._PT_STYLE,  # type: ignore[reportPrivateUsage]
-            history=InMemoryHistory(),
-            completer=shell.SlashCommandCompleter(),
-            key_bindings=shell._build_keybindings(shell.DEFAULT_SHELL_KEYBINDINGS),  # type: ignore[reportPrivateUsage]
-            bottom_toolbar=lambda: shell._get_bottom_toolbar(["~ · plain chat"]),  # type: ignore[reportPrivateUsage]
-            multiline=True,
-            complete_while_typing=True,
-            show_frame=False,
-            input=pipe_input,
-            output=DummyOutput(),
+def test_format_shell_header_includes_identity_and_state() -> None:
+    fragments = shell.format_shell_header(
+        version="9.9.9",
+        armory_path="/tmp/armory",
+        source_file_count=3,
+        model="test-model",
+        has_api_key=True,
+    )
+
+    joined = "".join(text for _style, text in fragments)
+
+    assert "Hephaistos" in joined
+    assert "v9.9.9" in joined
+    assert "/tmp/armory" in joined
+    assert "test-model" in joined
+    assert "configured" in joined
+    assert "3 files" in joined
+    assert any(style == "class:header.title" for style, _text in fragments)
+    assert any(style == "class:header.success" for style, _text in fragments)
+
+
+def test_format_shell_header_surfaces_missing_api_warning() -> None:
+    fragments = shell.format_shell_header(
+        version="1.0.0",
+        armory_path="none",
+        source_file_count=0,
+        model="",
+        has_api_key=False,
+    )
+
+    styles = {style for style, _text in fragments}
+    joined = "".join(text for _style, text in fragments)
+
+    assert "class:header.error" in styles
+    assert "missing" in joined
+    assert "/api key" in joined
+
+
+def test_send_user_message_routes_through_custom_writer() -> None:
+    captured: list[str] = []
+
+    class FakeOrchestrator:
+        def __init__(self, _session: object) -> None:
+            self.last_reply = "hi"
+
+        def iter_events(self, *_args: object, **_kwargs: object) -> list[str]:
+            return ["hello", " world"]
+
+    def fake_render(event: object) -> str:
+        return str(event)
+
+    with (
+        patch.object(chat_session, "TurnOrchestrator", FakeOrchestrator),
+        patch.object(chat_session, "render_turn_event", fake_render),
+    ):
+        result = chat_session.send_user_message(
+            SimpleNamespace(),  # type: ignore[arg-type]
+            "ignored",
+            reply_prefix=">> ",
+            writer=captured.append,
         )
-        pipe_input.send_text("hello\r")
 
-        assert session.prompt() == "hello"
+    assert result == "hi"
+    assert captured == [">> ", "hello", " world", "\n"]
 
 
-def test_enable_full_screen_prompt_session_promotes_underlying_application() -> None:
-    session: PromptSession[str] = PromptSession()
+def test_fullscreen_app_can_be_constructed_with_dummy_output(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    runtime = shell.ShellRuntime()
 
-    shell._enable_full_screen_prompt_session(session)  # type: ignore[reportPrivateUsage]
+    def header_fn() -> FormattedText:
+        return FormattedText(
+            shell.format_shell_header(
+                version="0.0.0",
+                armory_path=str(session.armory_path or "none"),
+                source_file_count=session.source_file_count or 0,
+                model=session.config.model,
+                has_api_key=bool(session.config.resolved_api_key),
+            )
+        )
 
-    assert session.app.full_screen is True
-    assert session.app.renderer.full_screen is True
+    def chat_fn() -> FormattedText:
+        return FormattedText([])
+
+    def status_fn() -> FormattedText:
+        return shell._get_bottom_toolbar(  # type: ignore[reportPrivateUsage]
+            [shell._build_bottom_toolbar_status(session, runtime)]  # type: ignore[reportPrivateUsage]
+        )
+
+    with (
+        create_pipe_input() as pipe_input,
+        create_app_session(input=pipe_input, output=DummyOutput()),
+    ):
+        buffer = Buffer()
+        layout, chat_window = shell._build_fullscreen_layout(  # type: ignore[reportPrivateUsage]
+            header_fn,
+            chat_fn,
+            status_fn,
+            buffer,
+        )
+
+        assert layout.container is not None
+        assert chat_window is not None
 
 
 def test_bottom_toolbar_shows_compact_status(tmp_path: Path) -> None:
