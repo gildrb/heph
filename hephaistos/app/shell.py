@@ -16,7 +16,7 @@ import shutil
 import subprocess  # nosec B404
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,11 +30,12 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
-from prompt_toolkit.layout.containers import HSplit, Window
+from prompt_toolkit.layout.containers import Float, FloatContainer, HSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.layout.margins import ScrollbarMargin
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import DynamicStyle
 from prompt_toolkit.styles import Style as PtStyle
 
@@ -222,14 +223,7 @@ def _build_keybindings(
 ) -> KeyBindings:
     """Build prompt_toolkit key bindings from a config dict."""
     kb = KeyBindings()
-    submit_keys = keybindings["submit"]
-    newline_keys = keybindings["newline"]
-
-    submit_key_list = (
-        [k.strip() for k in submit_keys.split(",")]
-        if isinstance(submit_keys, str)
-        else submit_keys
-    )
+    submit_key_list = _binding_key_list(keybindings["submit"])
 
     @kb.add(*submit_key_list)
     def _(event: KeyPressEvent) -> None:
@@ -245,18 +239,32 @@ def _build_keybindings(
 
         buf.validate_and_handle()
 
-    newline_key_list = (
-        [k.strip() for k in newline_keys.split(",")]
-        if isinstance(newline_keys, str)
-        else newline_keys
-    )
+    newline_key_list = _binding_key_list(keybindings["newline"])
 
     @kb.add(*newline_key_list)
     def _(event: KeyPressEvent) -> None:
         """Insert a newline (e.g. Alt+Enter)."""
         event.current_buffer.insert_text("\n")
 
+    complete_key_list = _binding_key_list(keybindings["complete"])
+
+    @kb.add(*complete_key_list)
+    def _(event: KeyPressEvent) -> None:
+        """Start completions or advance the current completion menu."""
+        buffer = event.current_buffer
+        if buffer.complete_state is None:
+            buffer.start_completion(select_first=False)
+            return
+        buffer.complete_next()
+
     return kb
+
+
+def _binding_key_list(binding: str | list[str]) -> list[str]:
+    """Normalize prompt_toolkit keybinding config values into a flat list."""
+    if isinstance(binding, str):
+        return [key.strip() for key in binding.split(",")]
+    return binding
 
 
 def _toolbar_columns(default: int = 80) -> int:
@@ -737,6 +745,69 @@ def _build_fullscreen_keybindings(
     return kb
 
 
+def _build_shell_layout(
+    input_buffer: Buffer,
+    *,
+    get_header: Callable[[], FormattedText],
+    get_chat: Callable[[], FormattedText],
+    get_status: Callable[[], FormattedText],
+) -> Layout:
+    """Build the fullscreen shell layout, including the completion overlay."""
+    content = HSplit(
+        [
+            Window(
+                FormattedTextControl(get_header),
+                dont_extend_height=True,
+                height=Dimension(min=3, preferred=4),
+                style="class:header",
+            ),
+            Window(
+                char="─",
+                height=1,
+                style="class:separator",
+                dont_extend_height=True,
+            ),
+            Window(
+                FormattedTextControl(get_chat, focusable=False),
+                wrap_lines=True,
+                right_margins=[ScrollbarMargin(display_arrows=True)],
+                style="class:chat-area",
+            ),
+            Window(
+                char="─",
+                height=1,
+                style="class:separator",
+                dont_extend_height=True,
+            ),
+            Window(
+                BufferControl(buffer=input_buffer),
+                height=Dimension(min=1, max=5, preferred=3),
+                dont_extend_height=True,
+                style="class:composer",
+            ),
+            Window(
+                FormattedTextControl(get_status),
+                height=1,
+                dont_extend_height=True,
+                style="class:bottom-toolbar",
+            ),
+        ]
+    )
+    return Layout(
+        FloatContainer(
+            content=content,
+            floats=[
+                Float(
+                    xcursor=True,
+                    ycursor=True,
+                    content=CompletionsMenu(max_height=8, display_arrows=True),
+                )
+            ],
+        ),
+        focused_element=input_buffer,
+    )
+
+
 def run_chat_shell(
     session: ChatSession | None = None,
     *,
@@ -895,49 +966,11 @@ def run_chat_shell(
         )
 
         bindings = _build_fullscreen_keybindings(kb, runtime, chat_lines, should_exit)
-
-        layout = Layout(
-            HSplit(
-                [
-                    Window(
-                        FormattedTextControl(get_header),
-                        dont_extend_height=True,
-                        height=Dimension(min=3, preferred=4),
-                        style="class:header",
-                    ),
-                    Window(
-                        char="─",
-                        height=1,
-                        style="class:separator",
-                        dont_extend_height=True,
-                    ),
-                    Window(
-                        FormattedTextControl(get_chat, focusable=False),
-                        wrap_lines=True,
-                        right_margins=[ScrollbarMargin(display_arrows=True)],
-                        style="class:chat-area",
-                    ),
-                    Window(
-                        char="─",
-                        height=1,
-                        style="class:separator",
-                        dont_extend_height=True,
-                    ),
-                    Window(
-                        BufferControl(buffer=input_buffer),
-                        height=Dimension(min=1, max=5, preferred=3),
-                        dont_extend_height=True,
-                        style="class:composer",
-                    ),
-                    Window(
-                        FormattedTextControl(get_status),
-                        height=1,
-                        dont_extend_height=True,
-                        style="class:bottom-toolbar",
-                    ),
-                ]
-            ),
-            focused_element=input_buffer,
+        layout = _build_shell_layout(
+            input_buffer,
+            get_header=get_header,
+            get_chat=get_chat,
+            get_status=get_status,
         )
 
         return Application(

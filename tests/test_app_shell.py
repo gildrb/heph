@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import patch
 
 import pytest
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+from prompt_toolkit.layout.containers import FloatContainer
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style, merge_styles
 from prompt_toolkit.styles.defaults import default_ui_style
 
@@ -352,6 +358,56 @@ def test_shell_style_overrides_default_reversed_toolbar() -> None:
         assert attrs.bgcolor == "1C1C1C", f"{style_name} bgcolor mismatch"
         assert attrs.color == expected_fg, f"{style_name} fg mismatch"
         assert attrs.reverse is False, f"{style_name} should have reverse disabled"
+
+
+def test_complete_keybinding_starts_and_cycles_completions() -> None:
+    bindings = shell._build_keybindings(shell.DEFAULT_SHELL_KEYBINDINGS)  # type: ignore[reportPrivateUsage]
+    complete_binding = next(
+        binding
+        for binding in bindings.bindings
+        if tuple(str(key) for key in binding.keys) == ("Keys.ControlI",)
+    )
+
+    class _FakeBuffer:
+        def __init__(self) -> None:
+            self.complete_state: object | None = None
+            self.start_calls: list[bool] = []
+            self.next_calls = 0
+
+        def start_completion(self, *, select_first: bool = False) -> None:
+            self.start_calls.append(select_first)
+
+        def complete_next(self) -> None:
+            self.next_calls += 1
+
+    fake_buffer = _FakeBuffer()
+    event = SimpleNamespace(current_buffer=fake_buffer)
+    key_event = cast("KeyPressEvent", event)
+
+    complete_binding.handler(key_event)
+
+    assert fake_buffer.start_calls == [False]
+
+    fake_buffer.complete_state = object()
+    complete_binding.handler(key_event)
+
+    assert fake_buffer.next_calls == 1
+
+
+def test_shell_layout_includes_completion_menu() -> None:
+    input_buffer = Buffer(name="input")
+
+    layout = shell._build_shell_layout(  # type: ignore[reportPrivateUsage]
+        input_buffer,
+        get_header=lambda: FormattedText([]),
+        get_chat=lambda: FormattedText([]),
+        get_status=lambda: FormattedText([]),
+    )
+
+    assert isinstance(layout.container, FloatContainer)
+    assert any(
+        isinstance(float_item.content, CompletionsMenu) for float_item in layout.container.floats
+    )
 
 
 def test_slash_completer_suggests_provider_subcommands(
