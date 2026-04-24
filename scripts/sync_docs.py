@@ -14,6 +14,8 @@ from hephaistos.app.cli import build_parser
 from hephaistos.app.commands import get_registry
 from hephaistos.harness.rag.retrieve import _EMBED_MODEL_ENV, _RERANK_MODEL_ENV
 from hephaistos.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
+from hephaistos.memory.extract import _EXTRACTION_MODEL_ENV
+from hephaistos.memory.supermemory import SUPERMEMORY_API_KEY_ENV, SUPERMEMORY_URL_ENV
 from hephaistos.parameters import cli as parameters_cli
 from hephaistos.providers.config import _default_config
 from hephaistos.providers.keyring_store import GLOBAL_API_KEY_ENV
@@ -101,6 +103,7 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HEPHAISTOS_API_KEY": "Global API key override that applies to any provider.",
     "HEPHAISTOS_CRASH_REPORTS_ENABLED": "Override the saved crash-report opt-in (`true`/`false`).",
     "HEPHAISTOS_EMBED_MODEL": "Override the embedding model used by retrieval.",
+    "HEPHAISTOS_EXTRACTION_MODEL": "Override the model used for background memory extraction.",
     "HEPHAISTOS_LOG_FILE": "Append structured logs to a file when set.",
     "HEPHAISTOS_LOG_FORMAT": "Choose `json` or `text` logging output.",
     "HEPHAISTOS_LOG_LEVEL": (
@@ -114,6 +117,8 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HEPHAISTOS_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
     "OPENAI_API_KEY": "API key for the OpenAI-compatible provider path.",
     "OPENROUTER_API_KEY": "API key for OpenRouter.",
+    "SUPERMEMORY_API_KEY": "API key for Supermemory study memory.",
+    "SUPERMEMORY_URL": "Override the Supermemory API base URL.",
     "ZAI_API_KEY": "API key for Z.AI / GLM.",
     "CUSTOM_API_KEY": "API key for the custom provider entry.",
 }
@@ -298,7 +303,10 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             _LOG_FILE_ENV,
             _LOG_FORMAT_ENV,
             _EMBED_MODEL_ENV,
+            _EXTRACTION_MODEL_ENV,
             _RERANK_MODEL_ENV,
+            SUPERMEMORY_API_KEY_ENV,
+            SUPERMEMORY_URL_ENV,
             *provider_envs,
         }
     )

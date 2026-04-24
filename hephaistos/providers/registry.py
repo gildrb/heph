@@ -45,9 +45,27 @@ class ModelInfo:
 _BUILTIN_MODELS: list[ModelInfo] = [
     # --- OpenAI ---
     ModelInfo("gpt-5.4", "openai-codex", "GPT-5.4", 128_000, 16_384, 0.002, 0.008),
-    ModelInfo("gpt-5.4-mini", "openai-codex", "GPT-5.4 Mini", 128_000, 16_384, 0.00015, 0.0006),
+    ModelInfo(
+        "gpt-5.4-mini",
+        "openai-codex",
+        "GPT-5.4 Mini",
+        128_000,
+        16_384,
+        0.00015,
+        0.0006,
+        tags=("study",),
+    ),
     ModelInfo("gpt-5.4-pro", "openai-codex", "GPT-5.4 Pro", 128_000, 16_384, 0.005, 0.015),
-    ModelInfo("gpt-5.4-nano", "openai-codex", "GPT-5.4 Nano", 128_000, 16_384, 0.00005, 0.0002),
+    ModelInfo(
+        "gpt-5.4-nano",
+        "openai-codex",
+        "GPT-5.4 Nano",
+        128_000,
+        16_384,
+        0.00005,
+        0.0002,
+        tags=("study",),
+    ),
     ModelInfo("gpt-5.3-codex", "openai-codex", "GPT-5.3 Codex", 128_000, 16_384, 0.002, 0.008),
     ModelInfo("gpt-5.2-codex", "openai-codex", "GPT-5.2 Codex", 128_000, 16_384, 0.002, 0.008),
     ModelInfo("gpt-5.2", "openai-codex", "GPT-5.2", 128_000, 16_384, 0.002, 0.008),
@@ -89,7 +107,7 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         8_192,
         0.00125,
         0.005,
-        tags=("google",),
+        tags=("google", "study"),
     ),
     ModelInfo(
         "google/gemini-3-flash-preview",
@@ -130,7 +148,7 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         8_192,
         0.0,
         0.0,
-        tags=("qwen", "free"),
+        tags=("qwen", "free", "study"),
     ),
     ModelInfo(
         "qwen/qwen3.5-plus-02-15",
@@ -140,7 +158,7 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         8_192,
         0.0004,
         0.0012,
-        tags=("qwen",),
+        tags=("qwen", "study"),
     ),
     ModelInfo(
         "qwen/qwen3.5-35b-a3b",
@@ -157,7 +175,16 @@ _BUILTIN_MODELS: list[ModelInfo] = [
     ModelInfo("glm-5-turbo", "zai", "GLM-5 Turbo", 128_000, 8_192, 0.0001, 0.0001),
     ModelInfo("glm-4.7", "zai", "GLM-4.7", 128_000, 8_192, 0.0005, 0.0005),
     ModelInfo("glm-4.5", "zai", "GLM-4.5", 128_000, 8_192, 0.0003, 0.0003),
-    ModelInfo("glm-4.5-flash", "zai", "GLM-4.5 Flash", 128_000, 8_192, 0.00005, 0.00005),
+    ModelInfo(
+        "glm-4.5-flash",
+        "zai",
+        "GLM-4.5 Flash",
+        128_000,
+        8_192,
+        0.00005,
+        0.00005,
+        tags=("study",),
+    ),
     ModelInfo(
         "z-ai/glm-5",
         "openrouter",
@@ -210,7 +237,7 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         8_192,
         0.0,
         0.0,
-        tags=("free",),
+        tags=("free", "study"),
     ),
     ModelInfo(
         "arcee-ai/trinity-large-preview:free",

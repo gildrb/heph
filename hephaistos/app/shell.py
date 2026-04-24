@@ -75,7 +75,7 @@ from hephaistos.harness.persona import list_personas
 from hephaistos.logging import get_logger
 from hephaistos.observability import capture_exception
 from hephaistos.parameters.cli import load_config
-from hephaistos.parameters.settings import load_app_settings
+from hephaistos.parameters.settings import load_app_settings, save_setting
 from hephaistos.providers.config import Provider, ProviderConfig
 from hephaistos.telemetry import mark_telemetry_notice_seen, should_show_telemetry_notice
 from hephaistos.vocab.parser import scan_armory
@@ -172,6 +172,17 @@ class SlashCommandCompleter(Completer):
 
         if cmd_name == "model":
             return [(model, f"via {slug}") for slug, model in self._all_models()]
+
+        if cmd_name == "models":
+            return [("study", "Low-cost model recommendations for study sessions")]
+
+        if cmd_name == "memory":
+            return [
+                ("status", "Show memory backend and Supermemory setup"),
+                ("setup", "Connect Supermemory for cross-armory study memory"),
+                ("profile", "View or change the Supermemory profile"),
+                ("disable", "Use local memory only"),
+            ]
 
         if cmd_name == "persona":
             return self._persona_suggestions(arg_parts)
@@ -871,6 +882,24 @@ def run_chat_shell(
             )
         )
         mark_telemetry_notice_seen()
+
+    memory_settings = load_app_settings()
+    if (
+        session.armory_path is not None
+        and not memory_settings.supermemory_enabled
+        and not memory_settings.supermemory_onboarding_seen
+    ):
+        chat_lines.append(
+            (
+                "class:chat-area.system",
+                (
+                    "info: For cross-armory semantic study memory, run /memory setup. "
+                    "Hephaistos will use a dedicated Supermemory profile and local memory "
+                    "will remain available if you skip it.\n"
+                ),
+            )
+        )
+        save_setting("supermemory_onboarding_seen", True)
 
     def get_header() -> FormattedText:
         active = session_ref[0]

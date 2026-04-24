@@ -13,6 +13,8 @@ Extraction is deliberately conservative:
 from __future__ import annotations
 
 import json
+import os
+from dataclasses import replace
 from typing import TypedDict
 
 from openai.types.chat import ChatCompletion
@@ -26,8 +28,10 @@ from hephaistos.chat.engine import (
 )
 from hephaistos.logging import Timer, get_logger
 from hephaistos.memory import MemoryStore, save_memory
+from hephaistos.memory.supermemory import SupermemoryStore
 
 _log = get_logger("memory.extract")
+_EXTRACTION_MODEL_ENV = "HEPHAISTOS_EXTRACTION_MODEL"
 
 # Minimum characters in the assistant's response before we bother extracting
 _MIN_CONTENT_LENGTH = 100
@@ -83,6 +87,8 @@ def extract_from_exchange(
     """
     if len(assistant_message) < _MIN_CONTENT_LENGTH:
         return []
+    extraction_model = os.environ.get(_EXTRACTION_MODEL_ENV, "").strip()
+    effective_config = replace(config, model=extraction_model) if extraction_model else config
 
     prompt = _EXTRACTION_USER_TEMPLATE % (
         user_message[:_MAX_USER_CHARS],
@@ -96,10 +102,10 @@ def extract_from_exchange(
 
     timer = Timer()
     try:
-        client = build_client(config)
+        client = build_client(effective_config)
         with timer:
             response: ChatCompletion = client.chat.completions.create(
-                model=config.model,
+                model=effective_config.model,
                 messages=to_chat_completion_messages(temp.to_api_messages()),
                 max_tokens=1000,
                 stream=False,
@@ -177,6 +183,8 @@ def extract_and_store(
         return 0
 
     added = memory.add_batch(entries, source="conversation", confidence="discussed")
+    if isinstance(memory, SupermemoryStore):
+        memory.add_batch_to_profile(entries, source="conversation", confidence="discussed")
     if added > 0:
         save_memory(memory)
     return added

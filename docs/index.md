@@ -241,6 +241,8 @@ Useful shell commands:
 | /edit | Edit and resend the last user message |
 | /provider | Show or switch LLM provider and model |
 | /models | List all available models across providers |
+| /recommend | Recommend models for study sessions |
+| /memory | Manage study memory and Supermemory setup |
 | /persona | Show or switch the agent persona |
 | /settings | Manage cross-session preferences |
 | /usage | Show token usage and cost for this session |

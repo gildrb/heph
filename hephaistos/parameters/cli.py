@@ -119,9 +119,11 @@ _CONFIG_KEY_TO_ENV = {
     "default_armory_path": "",
     "analytics_enabled": "HEPHAISTOS_ANALYTICS_ENABLED",
     "crash_reports_enabled": "HEPHAISTOS_CRASH_REPORTS_ENABLED",
+    "supermemory_enabled": "",
+    "supermemory_profile": "",
 }
 
-_BOOL_KEYS = {"analytics_enabled", "crash_reports_enabled"}
+_BOOL_KEYS = {"analytics_enabled", "crash_reports_enabled", "supermemory_enabled"}
 
 
 def _effective_setting_value(key: str) -> str:
@@ -138,7 +140,18 @@ def _effective_setting_value(key: str) -> str:
         suffix = " (env override)" if crash_reports_env_override() else ""
         availability = "available" if crash_reports_backend_available() else "unavailable"
         return f"{str(crash_reports_enabled()).lower()}{suffix} [{availability}]"
+    if key == "supermemory_enabled":
+        return str(app_settings.supermemory_enabled).lower()
+    if key == "supermemory_profile":
+        return app_settings.supermemory_profile
     return "(not set)"
+
+
+def _display_setting_value(key: str) -> str:
+    try:
+        return _effective_setting_value(key)
+    except KeyError:
+        return "(not set)"
 
 
 def _cmd_config_show(args: argparse.Namespace) -> None:
@@ -150,10 +163,12 @@ def _cmd_config_show(args: argparse.Namespace) -> None:
     print(f"  rag_context_budget: {config.rag_context_budget}")
     flags = ", ".join(sorted(config.feature_flags)) if config.feature_flags else "(none)"
     print(f"  feature_flags: {flags}")
-    print(f"  theme: {_effective_setting_value('theme')}")
-    print(f"  default_armory_path: {_effective_setting_value('default_armory_path')}")
-    print(f"  analytics_enabled: {_effective_setting_value('analytics_enabled')}")
-    print(f"  crash_reports_enabled: {_effective_setting_value('crash_reports_enabled')}")
+    print(f"  theme: {_display_setting_value('theme')}")
+    print(f"  default_armory_path: {_display_setting_value('default_armory_path')}")
+    print(f"  analytics_enabled: {_display_setting_value('analytics_enabled')}")
+    print(f"  crash_reports_enabled: {_display_setting_value('crash_reports_enabled')}")
+    print(f"  supermemory_enabled: {_display_setting_value('supermemory_enabled')}")
+    print(f"  supermemory_profile: {_display_setting_value('supermemory_profile')}")
 
 
 def _cmd_config_set(args: argparse.Namespace) -> None:
@@ -192,7 +207,8 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help=(
             "Config key "
             "(base_url, model, max_tokens, rag_context_budget, feature_flags, theme, "
-            "default_armory_path, analytics_enabled, crash_reports_enabled)."
+            "default_armory_path, analytics_enabled, crash_reports_enabled, "
+            "supermemory_enabled, supermemory_profile)."
         ),
     )
     set_cmd.add_argument("value", help="Value to set.")

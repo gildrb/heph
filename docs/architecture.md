@@ -120,6 +120,19 @@ my-armory/
 
 Only `source/` and `library/` are used for retrieval. Hidden files inside those directories are skipped by the indexer.
 
+## Study memory
+
+Hephaistos is local-first by default: extracted study concepts are written to
+`<armory>/.hephaistos/memory.json` and injected into future prompts so the
+assistant can avoid repeating material the user already covered.
+
+Users can opt in to Supermemory through `/memory setup`. When enabled,
+Hephaistos writes extracted concepts to an armory-specific Supermemory
+container tag and to a dedicated global study profile tag. This gives semantic
+recall across armories while keeping setup explicit and reversible. If
+Supermemory is disabled, unconfigured, or unavailable, session creation falls
+back to the local JSON memory store.
+
 ## Diagnostics
 
 Hephaistos uses local diagnostics that keep debugging data inside the CLI

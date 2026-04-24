@@ -17,13 +17,20 @@ _USER_CONFIG_FILE = _USER_CONFIG_DIR / "config.json"
 DEFAULT_THEME: Final[str] = "forge"
 THEME_PRESETS: Final[tuple[str, ...]] = ("forge", "light", "high_contrast")
 BOOL_KEYS: Final[frozenset[str]] = frozenset(
-    {"analytics_enabled", "crash_reports_enabled", "telemetry_notice_seen"}
+    {
+        "analytics_enabled",
+        "crash_reports_enabled",
+        "supermemory_enabled",
+        "supermemory_onboarding_seen",
+        "telemetry_notice_seen",
+    }
 )
 STRING_KEYS: Final[frozenset[str]] = frozenset(
     {
         "base_url",
         "model",
         "feature_flags",
+        "supermemory_profile",
         "theme",
         "default_armory_path",
     }
@@ -35,12 +42,17 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "max_tokens",
     "rag_context_budget",
     "feature_flags",
+    "supermemory_profile",
     "theme",
     "default_armory_path",
     "analytics_enabled",
     "crash_reports_enabled",
+    "supermemory_enabled",
 )
-INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = ("telemetry_notice_seen",)
+INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
+    "supermemory_onboarding_seen",
+    "telemetry_notice_seen",
+)
 ALLOWED_CONFIG_KEYS: Final[frozenset[str]] = frozenset(
     (*PUBLIC_CONFIG_KEYS, *INTERNAL_CONFIG_KEYS)
 )
@@ -56,6 +68,9 @@ class AppSettings:
     default_armory_path: str = ""
     analytics_enabled: bool = False
     crash_reports_enabled: bool = False
+    supermemory_enabled: bool = False
+    supermemory_profile: str = "heph-study"
+    supermemory_onboarding_seen: bool = False
     telemetry_notice_seen: bool = False
 
 
@@ -96,7 +111,7 @@ def parse_feature_flags(raw: str) -> frozenset[str]:
 def _coerce_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return bool(value)
     if isinstance(value, str):
         lowered = value.strip().lower()
@@ -128,6 +143,9 @@ def normalize_setting_value(key: str, value: object) -> object:
     if key == "feature_flags":
         flags = parse_feature_flags(str(value))
         return ",".join(sorted(flags))
+    if key == "supermemory_profile":
+        profile = str(value).strip()
+        return profile or "heph-study"
     if key in STRING_KEYS:
         return str(value)
     raise KeyError(key)
@@ -220,6 +238,12 @@ def load_app_settings() -> AppSettings:
         default_armory_path=default_armory,
         analytics_enabled=_coerce_bool(raw.get("analytics_enabled"), default=False),
         crash_reports_enabled=_coerce_bool(raw.get("crash_reports_enabled"), default=False),
+        supermemory_enabled=_coerce_bool(raw.get("supermemory_enabled"), default=False),
+        supermemory_profile=str(raw.get("supermemory_profile", "heph-study")).strip()
+        or "heph-study",
+        supermemory_onboarding_seen=_coerce_bool(
+            raw.get("supermemory_onboarding_seen"), default=False
+        ),
         telemetry_notice_seen=_coerce_bool(raw.get("telemetry_notice_seen"), default=False),
     )
 

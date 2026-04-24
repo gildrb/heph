@@ -199,10 +199,10 @@ def menu_style_dict() -> dict[str, str]:
         "": f"bg:{palette.panel} fg:{palette.text}",
         "inline-menu.title": f"bg:{palette.panel} bold fg:{palette.accent}",
         "inline-menu.option": f"bg:{palette.panel} fg:{palette.text}",
-        "inline-menu.option.current": f"bg:{palette.stone} bold fg:{palette.accent}",
+        "inline-menu.option.current": f"bg:{palette.panel} bold fg:{palette.accent}",
         "inline-menu.description": f"bg:{palette.panel} fg:{palette.dim}",
-        "inline-menu.description.current": f"bg:{palette.stone} fg:{palette.text}",
-        "inline-menu.badge": f"bg:{palette.stone} bold fg:{palette.accent}",
+        "inline-menu.description.current": f"bg:{palette.panel} fg:{palette.text}",
+        "inline-menu.badge": f"bg:{palette.panel} bold fg:{palette.accent}",
         "inline-menu.hint": f"bg:{palette.panel} fg:{palette.dim}",
     }
 
@@ -214,9 +214,9 @@ def browser_style_dict() -> dict[str, str]:
         "browser.title": f"bg:{palette.panel} bold fg:{palette.accent}",
         "browser.path": f"bg:{palette.panel} fg:{palette.dim}",
         "browser.entry": f"bg:{palette.panel} fg:{palette.text}",
-        "browser.entry.selected": f"bg:{palette.stone} bold fg:{palette.accent}",
+        "browser.entry.selected": f"bg:{palette.panel} bold fg:{palette.accent}",
         "browser.parent": f"bg:{palette.panel} fg:{palette.dim}",
-        "browser.parent.selected": f"bg:{palette.stone} bold fg:{palette.accent}",
+        "browser.parent.selected": f"bg:{palette.panel} bold fg:{palette.accent}",
         "browser.hint": f"bg:{palette.panel} fg:{palette.dim}",
     }
 

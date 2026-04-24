@@ -311,8 +311,24 @@ class MemoryStore:
         return header + "\n" + "\n".join(parts)
 
 
+from hephaistos.memory.supermemory import (  # noqa: E402
+    SupermemoryStore,
+    supermemory_configured,
+)
+
+
 def load_memory(armory_path: Path) -> MemoryStore:
     """Load memory for an armory (creates empty store if none exists)."""
+    try:
+        if supermemory_configured():
+            store = SupermemoryStore(armory_path)
+            store.load()
+            return store
+    except Exception as exc:
+        _log.warning(
+            "supermemory unavailable, falling back to local memory",
+            extra={"fields": {"error": str(exc)}},
+        )
     store = MemoryStore(armory_path)
     store.load()
     return store

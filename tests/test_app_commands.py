@@ -28,6 +28,51 @@ def test_command_registry_includes_settings() -> None:
     assert "settings" in names
 
 
+def test_command_registry_includes_memory_and_recommend() -> None:
+    registry = commands.get_registry()
+    suggestions = registry.suggestions()
+    names = {suggestion.name for suggestion in suggestions}
+
+    assert registry.find("memory") is not None
+    assert registry.find("recommend") is not None
+    assert "memory" in names
+    assert "recommend" in names
+
+
+def test_memory_status_reports_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+    monkeypatch.setattr(commands, "resolve_supermemory_key", lambda: "")
+
+    result = commands.MemoryCommand().handle(session, "status")
+
+    out = capsys.readouterr().out
+    assert result.output is None
+    assert "Supermemory: disabled" in out
+    assert "Run /memory setup" in out
+
+
+def test_memory_disable_updates_settings(capsys: pytest.CaptureFixture[str]) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.MemoryCommand().handle(session, "disable")
+
+    out = capsys.readouterr().out
+    assert "Supermemory disabled" in out
+
+
+def test_recommend_command_lists_study_models(capsys: pytest.CaptureFixture[str]) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.RecommendCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "Study picks" in out
+    assert "study" in out
+
+
 def test_command_registry_includes_saved_chat_shortcuts() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()

@@ -48,6 +48,8 @@ new docs.
 | /edit | Edit and resend the last user message |
 | /provider | Show or switch LLM provider and model |
 | /models | List all available models across providers |
+| /recommend | Recommend models for study sessions |
+| /memory | Manage study memory and Supermemory setup |
 | /persona | Show or switch the agent persona |
 | /settings | Manage cross-session preferences |
 | /usage | Show token usage and cost for this session |
@@ -63,6 +65,7 @@ new docs.
 | `HEPHAISTOS_BASE_URL` | Override the active API base URL. |
 | `HEPHAISTOS_CRASH_REPORTS_ENABLED` | Override the saved crash-report opt-in (`true`/`false`). |
 | `HEPHAISTOS_EMBED_MODEL` | Override the embedding model used by retrieval. |
+| `HEPHAISTOS_EXTRACTION_MODEL` | Override the model used for background memory extraction. |
 | `HEPHAISTOS_FEATURE_FLAGS` | Comma-separated feature flags. |
 | `HEPHAISTOS_LOG_FILE` | Append structured logs to a file when set. |
 | `HEPHAISTOS_LOG_FORMAT` | Choose `json` or `text` logging output. |
@@ -76,4 +79,6 @@ new docs.
 | `HEPHAISTOS_SENTRY_DSN` | Supply a Sentry DSN for a custom or forked build. |
 | `OPENAI_API_KEY` | API key for the OpenAI-compatible provider path. |
 | `OPENROUTER_API_KEY` | API key for OpenRouter. |
+| `SUPERMEMORY_API_KEY` | API key for Supermemory study memory. |
+| `SUPERMEMORY_URL` | Override the Supermemory API base URL. |
 | `ZAI_API_KEY` | API key for Z.AI / GLM. |

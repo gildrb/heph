@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.memory import MemoryStore
 from hephaistos.memory.extract import extract_and_store, extract_from_exchange
@@ -217,6 +219,25 @@ class TestExtractFromExchange:
         call_kwargs = mock_client.chat.completions.create.call_args
         assert call_kwargs.kwargs["temperature"] == 0.1
         assert call_kwargs.kwargs["stream"] is False
+
+    def test_extraction_model_env_overrides_chat_model(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        config = _make_config()
+        monkeypatch.setenv("HEPHAISTOS_EXTRACTION_MODEL", "cheap-extractor")
+        mock_response = _mock_llm_response("[]")
+
+        with patch("hephaistos.memory.extract.build_client") as mock_build:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.return_value = mock_response
+            mock_build.return_value = mock_client
+
+            extract_from_exchange(config, "question", "a" * 200)
+
+        call_kwargs = mock_client.chat.completions.create.call_args
+        assert call_kwargs.kwargs["model"] == "cheap-extractor"
+        assert config.model == "test-model"
 
 
 # ---------------------------------------------------------------------------

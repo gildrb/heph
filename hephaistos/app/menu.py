@@ -103,7 +103,7 @@ def _format_menu(title: str, options: list[MenuOption], selected: int):
         if desc:
             fragments.append((desc_style, desc))
         if badge:
-            fragments.append(("class:inline-menu.badge", badge))
+            fragments.append((desc_style, badge))
         pad_width = visible_len(label) + visible_len(desc) + visible_len(badge)
         fragments.append((option_style, " " * max(0, width - pad_width)))
         fragments.append(("", "\n"))
