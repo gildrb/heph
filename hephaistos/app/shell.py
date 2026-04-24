@@ -272,6 +272,16 @@ def _toolbar_columns(default: int = 80) -> int:
     return max(default, shutil.get_terminal_size(fallback=(default, 24)).columns)
 
 
+def _composer_height(input_buffer: Buffer, *, min_lines: int = 2, max_lines: int = 8) -> Dimension:
+    """Size the composer to the wrapped input so typed text remains visible."""
+    wrap_width = max(1, _toolbar_columns() - 1)
+    visual_lines = 0
+    for line in input_buffer.text.split("\n"):
+        visual_lines += max(1, (len(line) + wrap_width - 1) // wrap_width)
+    preferred = min(max_lines, max(min_lines, visual_lines))
+    return Dimension(min=min_lines, preferred=preferred, max=max_lines)
+
+
 def _build_bottom_toolbar_status(
     session: ChatSession,
     runtime: ShellRuntime | None = None,
@@ -773,7 +783,8 @@ def _build_shell_layout(
             ),
             Window(
                 BufferControl(buffer=input_buffer),
-                height=Dimension(min=1, max=5, preferred=3),
+                wrap_lines=True,
+                height=lambda: _composer_height(input_buffer),
                 dont_extend_height=True,
                 style="class:composer",
             ),

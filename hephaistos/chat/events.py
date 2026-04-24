@@ -32,7 +32,32 @@ class ToolResultEvent:
     name: str
     content: str
     summary: str
+    success: bool = True
+    metadata: dict[str, object] = field(default_factory=dict)
+    error: str | None = None
     kind: str = field(default="tool_result", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class CompactRequestEvent:
+    """A model-requested conversation compaction control event."""
+
+    call_id: str
+    name: str
+    arguments: dict[str, object]
+    kind: str = field(default="compact_request", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class TurnCompleteEvent:
+    """The final completion signal for an agent turn."""
+
+    full_text: str
+    turn_index: int
+    latency_ms: float
+    finish_reason: str
+    tokens_remaining: int
+    kind: str = field(default="turn_complete", init=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +69,14 @@ class NoticeEvent:
     kind: str = field(default="notice", init=False)
 
 
-TurnEvent = AssistantDeltaEvent | ToolCallEvent | ToolResultEvent | NoticeEvent
+TurnEvent = (
+    AssistantDeltaEvent
+    | ToolCallEvent
+    | ToolResultEvent
+    | CompactRequestEvent
+    | TurnCompleteEvent
+    | NoticeEvent
+)
 
 
 def render_turn_event(event: TurnEvent) -> str:
@@ -55,6 +87,8 @@ def render_turn_event(event: TurnEvent) -> str:
         return f"\n{event.display}\n"
     if isinstance(event, ToolResultEvent):
         return f"{event.summary}\n"
+    if isinstance(event, CompactRequestEvent | TurnCompleteEvent):
+        return ""
     if event.code == "verification":
         return f"\n{event.message}\n"
     return f"\n[{event.message}]\n"

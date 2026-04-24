@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -13,7 +14,9 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
-from prompt_toolkit.layout.containers import FloatContainer
+from prompt_toolkit.layout.containers import FloatContainer, HSplit, Window
+from prompt_toolkit.layout.controls import BufferControl
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style, merge_styles
 from prompt_toolkit.styles.defaults import default_ui_style
@@ -412,6 +415,40 @@ def test_shell_layout_includes_completion_menu() -> None:
     assert any(
         isinstance(float_item.content, CompletionsMenu) for float_item in layout.container.floats
     )
+
+
+def test_shell_layout_wraps_and_grows_composer() -> None:
+    input_buffer = Buffer(name="input")
+
+    layout = shell._build_shell_layout(  # type: ignore[reportPrivateUsage]
+        input_buffer,
+        get_header=lambda: FormattedText([]),
+        get_chat=lambda: FormattedText([]),
+        get_status=lambda: FormattedText([]),
+    )
+    assert isinstance(layout.container, FloatContainer)
+    content = layout.container.content
+    assert isinstance(content, HSplit)
+    composer = next(
+        cast("Window", window)
+        for window in content.children
+        if isinstance(cast("Window", window).content, BufferControl)
+    )
+
+    assert composer.wrap_lines()
+    get_height = cast("Callable[[], Dimension]", composer.height)
+    height = get_height()
+    assert isinstance(height, Dimension)
+    assert height.min == 2
+    assert height.preferred == 2
+    assert height.max == 8
+
+    input_buffer.text = "x" * 200
+    grown_height = get_height()
+
+    assert isinstance(grown_height, Dimension)
+    assert grown_height.preferred > 2
+    assert grown_height.max == 8
 
 
 def test_slash_completer_suggests_provider_subcommands(
