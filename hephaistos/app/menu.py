@@ -24,14 +24,13 @@ from prompt_toolkit.styles import Style as PtStyle
 
 from hephaistos.app.display import (
     STYLE_DIM,
-    STYLE_PROMPT,
     direct_input,
     direct_print,
     styled,
     visible_len,
 )
 from hephaistos.app.keybindings import DEFAULT_MENU_KEYBINDINGS
-from hephaistos.app.palette import BOLD, browser_style_dict, menu_style_dict
+from hephaistos.app.palette import BOLD, STYLE_PROMPT, browser_style_dict, menu_style_dict
 
 
 @dataclass(frozen=True)

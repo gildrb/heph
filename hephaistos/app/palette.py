@@ -34,6 +34,7 @@ __all__ = [
     "STYLE_ACCENT",
     "STYLE_ASSISTANT",
     "STYLE_DIM",
+    "STYLE_EMBER",
     "STYLE_ERROR",
     "STYLE_PROMPT",
     "STYLE_SUCCESS",
@@ -58,6 +59,8 @@ class ThemePalette:
     text: str
     dim: str
     accent: str
+    ember: str
+    configured: str
     error: str
     success: str
 
@@ -70,6 +73,8 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         text="#E0E0E0",
         dim="#808080",
         accent="#C8C8C8",
+        ember="#9B4A2E",
+        configured="#7F9A6A",
         error="#CC3333",
         success="#66BB6A",
     ),
@@ -80,6 +85,8 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         text="#2C241B",
         dim="#6E655B",
         accent="#8A5A2B",
+        ember="#8E4A32",
+        configured="#687A4B",
         error="#B03A2E",
         success="#2E8B57",
     ),
@@ -90,6 +97,8 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         text="#FFFFFF",
         dim="#D0D0D0",
         accent="#FFD400",
+        ember="#C76A45",
+        configured="#A9C97A",
         error="#FF4D4D",
         success="#00FF88",
     ),
@@ -134,6 +143,8 @@ def style_code(style_name: str) -> str:
     palette = current_palette()
     if style_name in {"prompt", "accent", "warning", "assistant"}:
         return f"{BOLD}{ansi_fg(palette.accent)}"
+    if style_name == "ember":
+        return f"{BOLD}{ansi_fg(palette.ember)}"
     if style_name == "dim":
         return f"{DIM}{ansi_fg(palette.dim)}"
     if style_name == "error":
@@ -162,11 +173,13 @@ def shell_style_dict() -> dict[str, str]:
         "scrollbar.background": f"bg:{palette.panel}",
         "scrollbar.button": f"bg:{palette.stone}",
         "header": f"bg:{palette.panel} fg:{palette.text}",
-        "header.title": f"bg:{palette.panel} bold fg:{palette.accent}",
+        "header.title": f"bg:{palette.panel} bold fg:{palette.ember}",
         "header.dim": f"bg:{palette.panel} fg:{palette.dim}",
         "header.accent": f"bg:{palette.panel} fg:{palette.accent}",
+        "header.ember": f"bg:{palette.panel} bold fg:{palette.ember}",
+        "header.configured": f"bg:{palette.panel} fg:{palette.configured}",
         "header.error": f"bg:{palette.panel} bold fg:{palette.error}",
-        "header.success": f"bg:{palette.panel} fg:{palette.success}",
+        "header.success": f"bg:{palette.panel} fg:{palette.configured}",
         "header.warning": f"bg:{palette.panel} bold fg:{palette.error}",
         "separator": f"bg:{palette.panel} fg:{palette.stone}",
         "chat-area": f"bg:{palette.panel} fg:{palette.text}",
@@ -211,6 +224,7 @@ def browser_style_dict() -> dict[str, str]:
 STYLE_PROMPT = _StyleToken("prompt")
 STYLE_ACCENT = _StyleToken("accent")
 STYLE_DIM = _StyleToken("dim")
+STYLE_EMBER = _StyleToken("ember")
 STYLE_ERROR = _StyleToken("error")
 STYLE_SUCCESS = _StyleToken("success")
 STYLE_WARNING = _StyleToken("warning")

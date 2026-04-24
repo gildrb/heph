@@ -11,8 +11,8 @@ from hephaistos.app.palette import (
     RESET,
     STYLE_ACCENT,
     STYLE_DIM,
+    STYLE_EMBER,
     STYLE_ERROR,
-    STYLE_PROMPT,
     STYLE_SUCCESS,
     STYLE_WARNING,
 )
@@ -62,25 +62,28 @@ def print_shell_intro(
     source_file_count: int,
     model: str,
     has_api_key: bool,
+    source_files: tuple[str, ...] = (),
 ) -> None:
     """Print a compact startup screen with essential status and input hints."""
     api_status = (
         styled("configured", STYLE_SUCCESS) if has_api_key else styled("missing", STYLE_ERROR)
     )
     source_status = (
-        styled(f"{source_file_count} file{'s' if source_file_count != 1 else ''}", STYLE_ACCENT)
+        styled(_format_source_summary(source_file_count, source_files), STYLE_DIM)
         if source_file_count
         else styled("none", STYLE_DIM)
     )
-    armory_style = STYLE_ACCENT if armory_path != "none" else STYLE_DIM
+    armory_style = STYLE_DIM if armory_path != "none" else STYLE_EMBER
+    model_text = model or "none"
+    model_style = STYLE_SUCCESS if model else STYLE_EMBER
 
-    print(f"{styled('Hephaistos', STYLE_ACCENT)} {styled(f'v{version}', STYLE_DIM)}")
+    print(f"{styled('Hephaistos', STYLE_EMBER)} {styled(f'v{version}', STYLE_DIM)}")
     print()
     print(
         "  "
         f"{styled('armory', STYLE_DIM)} {styled(armory_path, armory_style)}"
         "  "
-        f"{styled('model', STYLE_DIM)} {styled(model, STYLE_PROMPT)}"
+        f"{styled('model', STYLE_DIM)} {styled(model_text, model_style)}"
         "  "
         f"{styled('api', STYLE_DIM)} {api_status}"
         "  "
@@ -116,17 +119,16 @@ def format_shell_header(
     source_file_count: int,
     model: str,
     has_api_key: bool,
+    source_files: tuple[str, ...] = (),
 ) -> list[tuple[str, str]]:
     """Return FormattedText fragments for the fullscreen header bar."""
     api_status = "configured" if has_api_key else "missing"
     api_style = "class:header.success" if has_api_key else "class:header.error"
-    source_text = (
-        f"{source_file_count} file{'s' if source_file_count != 1 else ''}"
-        if source_file_count
-        else "none"
-    )
-    source_style = "class:header.accent" if source_file_count else "class:header.dim"
-    armory_style = "class:header.accent" if armory_path != "none" else "class:header.dim"
+    model_text = model or "none"
+    model_style = "class:header.configured" if model else "class:header.ember"
+    source_text = _format_source_summary(source_file_count, source_files)
+    source_style = "class:header.dim" if source_file_count else "class:header.ember"
+    armory_style = "class:header.dim" if armory_path != "none" else "class:header.ember"
 
     fragments: list[tuple[str, str]] = [
         ("class:header.title", "Hephaistos"),
@@ -135,7 +137,7 @@ def format_shell_header(
         ("class:header.dim", "  armory "),
         (armory_style, armory_path),
         ("class:header.dim", "  model "),
-        ("class:header.accent", model),
+        (model_style, model_text),
         ("class:header.dim", "  api "),
         (api_style, api_status),
         ("class:header.dim", "  source "),
@@ -159,6 +161,16 @@ def format_shell_header(
             ]
         )
     return fragments
+
+
+def _format_source_summary(source_file_count: int, source_files: tuple[str, ...]) -> str:
+    if source_file_count == 0:
+        return "none"
+    visible = source_files[:3]
+    if not visible:
+        return f"{source_file_count} file{'s' if source_file_count != 1 else ''}"
+    suffix = f" +{source_file_count - len(visible)}" if source_file_count > len(visible) else ""
+    return f"{', '.join(visible)}{suffix}"
 
 
 def _real_stdout() -> _TextOutput:

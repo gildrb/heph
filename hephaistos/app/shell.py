@@ -325,18 +325,10 @@ def _get_bottom_toolbar(toolbar_ref: list[str]):
 
 
 def _discover_startup_armory() -> Path | None:
-    candidates = [Path.cwd(), Path.cwd() / "armory"]
-    for candidate in candidates:
-        try:
-            return validate_armory_path(str(candidate))
-        except ArmoryError:
-            continue
-    default_armory = load_app_settings().default_armory_path
-    if default_armory:
-        try:
-            return validate_armory_path(default_armory)
-        except ArmoryError as exc:
-            print_info(f"Saved default armory unavailable: {exc}")
+    try:
+        return validate_armory_path(str(Path.cwd()))
+    except ArmoryError:
+        pass
     return None
 
 
@@ -876,6 +868,7 @@ def run_chat_shell(
                 version=__version__,
                 armory_path=str(active.armory_path or "none"),
                 source_file_count=active.source_file_count or 0,
+                source_files=active.source_files,
                 model=active.config.model,
                 has_api_key=bool(active.config.resolved_api_key),
             )

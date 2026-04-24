@@ -134,25 +134,27 @@ def test_fallback_shell_without_startup_armory_uses_plain_chat(
     assert prompts == ["> "]
 
 
-def test_create_startup_session_uses_default_armory_fallback(
+def test_create_startup_session_only_auto_opens_current_armory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     armory = _make_armory(tmp_path / "fallback")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "hephaistos.app.shell.load_app_settings",
-        lambda: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
-            theme="forge",
-            default_armory_path=str(armory),
-            analytics_enabled=False,
-            crash_reports_enabled=False,
-            telemetry_notice_seen=False,
-        ),
-    )
+    monkeypatch.chdir(armory)
 
     session = shell._create_startup_session(_test_config())  # type: ignore[reportPrivateUsage]
 
     assert session.armory_path == armory
+    assert session.source_files == ("source/exam.md",)
+
+
+def test_create_startup_session_ignores_default_armory_outside_workspace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _make_armory(tmp_path / "fallback")
+    monkeypatch.chdir(tmp_path)
+
+    session = shell._create_startup_session(_test_config())  # type: ignore[reportPrivateUsage]
+
+    assert session.armory_path is None
 
 
 def test_fallback_shell_runs_bang_command(
@@ -682,6 +684,7 @@ def test_format_shell_header_includes_core_metadata() -> None:
         version="0.0.0-test",
         armory_path="/home/user/armory",
         source_file_count=3,
+        source_files=("source/a.md", "source/b.md", "library/c.md"),
         model="gpt-4o-mini",
         has_api_key=True,
     )
@@ -692,13 +695,27 @@ def test_format_shell_header_includes_core_metadata() -> None:
     assert "/home/user/armory" in text
     assert "gpt-4o-mini" in text
     assert "configured" in text
-    assert "3 files" in text
+    assert "source/a.md, source/b.md, library/c.md" in text
     assert "alt+enter" not in text
     assert "newline" not in text
 
     styles = {style for style, _ in fragments if style}
     assert "class:header.title" in styles
+    assert ("class:header.configured", "gpt-4o-mini") in fragments
     assert "class:header.success" in styles
+
+
+def test_format_shell_header_marks_missing_model_armory_and_sources() -> None:
+    fragments = format_shell_header(
+        version="0.0.0-test",
+        armory_path="none",
+        source_file_count=0,
+        model="",
+        has_api_key=True,
+    )
+
+    assert ("class:header.ember", "none") in fragments
+    assert fragments.count(("class:header.ember", "none")) == 3
 
 
 def test_format_shell_header_warns_when_api_key_missing() -> None:

@@ -39,6 +39,7 @@ class ChatSession:
     title: str = ""
     armory_path: Path | None = None
     source_file_count: int = 0
+    source_files: tuple[str, ...] = ()
     dirty: bool = False
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
@@ -226,6 +227,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         session_id=chat_storage.new_session_id(),
         armory_path=armory_path,
         source_file_count=source_file_count,
+        source_files=tuple(source_files),
     )
     session.configure_armory_context(
         memory=load_memory(armory_path),
@@ -266,7 +268,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
     """Load a saved session from an armory."""
     conversation, title = chat_storage.load(armory_path, session_id)
     metadata = chat_storage.load_metadata(armory_path, session_id)
-    source_file_count, _source_files = _scan_source_files(armory_path)
+    source_file_count, source_files = _scan_source_files(armory_path)
     session = ChatSession(
         config=config,
         conversation=conversation,
@@ -274,6 +276,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         title=title,
         armory_path=armory_path,
         source_file_count=source_file_count,
+        source_files=tuple(source_files),
         study_state=StudyState.from_dict(metadata.get("study_state")),
     )
     session.configure_armory_context(

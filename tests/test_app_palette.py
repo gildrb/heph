@@ -17,6 +17,7 @@ def test_style_tokens_render_from_current_theme() -> None:
     assert str(palette.STYLE_PROMPT) == f"{palette.BOLD}{palette.ansi_fg('#C8C8C8')}"
     assert str(palette.STYLE_ACCENT) == str(palette.STYLE_PROMPT)
     assert str(palette.STYLE_DIM) == f"{palette.DIM}{palette.ansi_fg('#808080')}"
+    assert str(palette.STYLE_EMBER) == f"{palette.BOLD}{palette.ansi_fg('#9B4A2E')}"
     assert str(palette.STYLE_ERROR) == f"{palette.BOLD}{palette.ansi_fg('#CC3333')}"
     assert str(palette.STYLE_SUCCESS) == f"{palette.BOLD}{palette.ansi_fg('#66BB6A')}"
     assert str(palette.STYLE_WARNING) == str(palette.STYLE_PROMPT)
@@ -32,6 +33,9 @@ def test_set_theme_switches_palette() -> None:
     assert palette.current_theme_name() == "light"
     assert style_rules[""] == "bg:#F6F2EA fg:#2C241B"
     assert style_rules["composer"] == "bg:#F6F2EA fg:#2C241B"
+    assert style_rules["header.title"] == "bg:#F6F2EA bold fg:#8E4A32"
+    assert style_rules["header.configured"] == "bg:#F6F2EA fg:#687A4B"
+    assert style_rules["header.success"] == style_rules["header.configured"]
     assert style_rules["toolbar-error"] == "noreverse bg:#F6F2EA bold fg:#B03A2E"
     assert menu_style[""] == "bg:#F6F2EA fg:#2C241B"
 

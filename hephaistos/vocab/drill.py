@@ -9,12 +9,12 @@ from pathlib import Path
 from hephaistos.app.display import (
     STYLE_ACCENT,
     STYLE_DIM,
-    STYLE_PROMPT,
     direct_input,
     direct_print,
     styled,
 )
 from hephaistos.app.menu import MenuOption, select_option
+from hephaistos.app.palette import STYLE_PROMPT
 from hephaistos.logging import get_logger
 from hephaistos.vocab.parser import scan_armory
 from hephaistos.vocab.scheduler import Rating, ScheduleResult, schedule_card, select_due_cards

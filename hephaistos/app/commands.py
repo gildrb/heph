@@ -10,7 +10,6 @@ from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.autocomplete import CommandSuggestion
 from hephaistos.app.display import (
     STYLE_DIM,
-    STYLE_PROMPT,
     direct_input,
     print_error,
     print_info,
@@ -18,7 +17,7 @@ from hephaistos.app.display import (
     styled,
 )
 from hephaistos.app.menu import MenuOption, browse_directory, confirm, select_option
-from hephaistos.app.palette import THEME_PRESETS, current_theme_name, set_theme
+from hephaistos.app.palette import STYLE_PROMPT, THEME_PRESETS, current_theme_name, set_theme
 from hephaistos.app.workspace import (
     handle_armory_command,
     list_saved_chats,
