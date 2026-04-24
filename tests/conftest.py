@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,8 +21,10 @@ import hephaistos.providers.keyring_store as _ks
 import hephaistos.telemetry as _telemetry_mod
 from hephaistos.app.palette import set_theme
 from hephaistos.armory.storage import initialize
+from hephaistos.chat._api_types import ApiMessage
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_session
+from hephaistos.harness.tools import ToolHandlerResult, ToolSpec
 
 
 def _reset_diagnostics_module_objects() -> None:
@@ -125,6 +127,39 @@ def workspace(tmp_path: Path) -> Path:
     sub.mkdir()
     (sub / "main.py").write_text("def main(): pass\n")
     return tmp_path
+
+
+def message_text(message: ApiMessage) -> str:
+    """Extract string content from an API-like message."""
+    content = message["content"]
+    return content if isinstance(content, str) else ""
+
+
+def default_tool_handler(**_kw: object) -> str:
+    return ""
+
+
+def make_tool_spec(
+    name: str,
+    handler: Callable[..., ToolHandlerResult] | None = None,
+    description: str = "",
+) -> ToolSpec:
+    """Create a minimal ToolSpec for tests."""
+    return ToolSpec(
+        schema={
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            },
+        },
+        handler=handler if handler is not None else default_tool_handler,
+    )
 
 
 @pytest.fixture

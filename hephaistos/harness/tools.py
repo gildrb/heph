@@ -26,11 +26,12 @@ import re
 import socket
 import subprocess  # nosec B404
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, NotRequired, Required, TypedDict
 from urllib.parse import urlparse
@@ -83,12 +84,27 @@ class ToolSchema(TypedDict):
 
 
 @dataclass(frozen=True, slots=True)
+class ToolResult:
+    """Structured result from a tool handler."""
+
+    success: bool
+    content: str
+    metadata: dict[str, object] = field(default_factory=dict)
+    error: str | None = None
+
+
+ToolHandlerResult = str | ToolResult
+
+
+@dataclass(frozen=True, slots=True)
 class ToolSpec:
     """A single tool: its JSON schema and its handler function."""
 
     schema: ToolSchema
 
-    handler: Callable[..., str]
+    handler: Callable[..., ToolHandlerResult]
+
+    kind: Literal["normal", "control"] = "normal"
 
     @property
     def name(self) -> str:
@@ -107,16 +123,21 @@ class ToolRegistry:
     def __init__(self, parent: ToolRegistry | None = None) -> None:
         self._tools: dict[str, ToolSpec] = {}
         self._parent = parent
+        self._generation = 0
+        self._schemas_cache: list[ToolSchema] | None = None
+        self._schemas_cache_key: tuple[int, int] | None = None
 
     # -- mutation -----------------------------------------------------------
 
     def register(self, spec: ToolSpec) -> None:
         """Add or replace a tool by name."""
         self._tools[spec.name] = spec
+        self._generation += 1
 
     def unregister(self, name: str) -> None:
         """Remove a locally-registered tool (does not affect parent)."""
         self._tools.pop(name, None)
+        self._generation += 1
 
     # -- query --------------------------------------------------------------
 
@@ -129,14 +150,28 @@ class ToolRegistry:
             return self._parent.get(name)
         return None
 
-    def get_handler(self, name: str) -> Callable[..., str] | None:
+    def get_handler(self, name: str) -> Callable[..., ToolHandlerResult] | None:
         """Return the handler for *name*, or ``None``."""
         spec = self.get(name)
         return spec.handler if spec else None
 
+    def is_control_tool(self, name: str) -> bool:
+        """Return whether *name* is a control-flow tool."""
+        spec = self.get(name)
+        return spec.kind == "control" if spec is not None else False
+
+    def _visible_generation(self) -> int:
+        parent_generation = self._parent._visible_generation() if self._parent is not None else 0
+        return self._generation + parent_generation
+
     @property
     def schemas(self) -> list[ToolSchema]:
         """All visible tool schemas (local + inherited, local overrides first)."""
+        parent_generation = self._parent._visible_generation() if self._parent is not None else 0
+        cache_key = (self._generation, parent_generation)
+        if self._schemas_cache is not None and self._schemas_cache_key == cache_key:
+            return list(self._schemas_cache)
+
         seen: set[str] = set()
         result: list[ToolSchema] = []
         for spec in self._tools.values():
@@ -148,7 +183,9 @@ class ToolRegistry:
                 if name not in seen:
                     seen.add(name)
                     result.append(schema)
-        return result
+        self._schemas_cache = result
+        self._schemas_cache_key = cache_key
+        return list(result)
 
     @property
     def tool_names(self) -> list[str]:
@@ -547,8 +584,9 @@ def run_search_files(
     workspace: Path,
     path: str = "",
     case_sensitive: bool = False,
+    abort: threading.Event | None = None,
     **_kwargs: object,
-) -> str:
+) -> ToolHandlerResult:
     """Search for text patterns across armory documents."""
     try:
         target = safe_path(workspace, path or ".")
@@ -567,6 +605,13 @@ def run_search_files(
     file_count = 0
 
     for file_path in sorted(target.rglob("*")):
+        if abort is not None and abort.is_set():
+            return ToolResult(
+                success=False,
+                content=f"Search cancelled after scanning {file_count} files.",
+                metadata={"files_scanned": file_count, "matches": len(matches)},
+                error="cancelled",
+            )
         if not file_path.is_file():
             continue
         rel = file_path.relative_to(workspace)
@@ -599,7 +644,7 @@ def run_search_files(
     return header + "\n" + "\n".join(matches)
 
 
-def run_web_fetch(url: str, **_kwargs: object) -> str:
+def run_web_fetch(url: str, timeout: int | None = None, **_kwargs: object) -> str:
     """Fetch a URL and return the text content with source attribution.
 
     This tool is for filling knowledge gaps that cannot be answered from
@@ -638,7 +683,7 @@ def run_web_fetch(url: str, **_kwargs: object) -> str:
     if host_header:
         req.add_header("Host", host_header)
     try:
-        with urllib.request.urlopen(req, timeout=_WEB_FETCH_TIMEOUT) as resp:  # nosec B310
+        with urllib.request.urlopen(req, timeout=timeout or _WEB_FETCH_TIMEOUT) as resp:  # nosec B310
             content_type = resp.headers.get("Content-Type", "")
             if not any(ct in content_type for ct in ("text", "json", "xml")):
                 return f"Error: non-text content type ({content_type}). URL: {url}"
@@ -723,7 +768,7 @@ def _compact_handler(**_kw: object) -> str:
     return "[compact triggered]"
 
 
-_HANDLERS: dict[str, Callable[..., str]] = {
+_HANDLERS: dict[str, Callable[..., ToolHandlerResult]] = {
     "compact": _compact_handler,
     "bash": run_bash,
     "read_file": run_read_file,
@@ -743,7 +788,8 @@ default_registry = ToolRegistry()
 for _schema in _BUILTIN_SCHEMAS:
     _name = _schema["function"]["name"]
     _handler = _HANDLERS[_name]
-    default_registry.register(ToolSpec(schema=_schema, handler=_handler))
+    _kind: Literal["normal", "control"] = "control" if _name == "compact" else "normal"
+    default_registry.register(ToolSpec(schema=_schema, handler=_handler, kind=_kind))
 
 # Backward-compatible alias: TOOL_SCHEMAS delegates to the registry.
 TOOL_SCHEMAS: list[ToolSchema] = default_registry.schemas

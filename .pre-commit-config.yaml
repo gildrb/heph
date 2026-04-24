@@ -41,7 +41,7 @@ repos:
       - id: pylint-duplicate-code
         name: pylint (duplicate-code)
         language: python
-        entry: pylint --disable=all --enable=duplicate-code hephaistos
+        entry: pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaistos
         types: [python]
         pass_filenames: false
       - id: lint-imports

@@ -161,6 +161,12 @@ ignore-docstrings = true
 ignore-imports = true
 min-similarity-lines = 8
 
+[tool.pylint.main]
+persistent = false
+
+[tool.pylint.reports]
+score = false
+
 [tool.vulture]
 min_confidence = 80
 paths = ["hephaistos", "tests", "vulture-whitelist.py"]

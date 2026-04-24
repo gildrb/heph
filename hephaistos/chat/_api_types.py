@@ -32,3 +32,6 @@ class ApiMessage(TypedDict, total=False):
     content: Required[str | None | list[ContentPart]]
     tool_calls: NotRequired[list[ToolCallDelta]]
     tool_call_id: NotRequired[str]
+    tool_success: NotRequired[bool]
+    tool_metadata: NotRequired[dict[str, object]]
+    tool_error: NotRequired[str | None]

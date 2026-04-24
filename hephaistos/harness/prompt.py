@@ -12,58 +12,16 @@ model with clear guardrails hallucinates far less.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from hephaistos.harness.persona import DEFAULT as _DEFAULT_PERSONA
 from hephaistos.harness.persona import Persona
+from hephaistos.harness.tools import ToolRegistry, ToolSchema, default_registry
 from hephaistos.logging import get_logger
 
 _log = get_logger("harness.prompt")
-
-_TOOL_DOCS = """\
-## Tools
-
-You have access to these tools. Use them to read source material and verify answers.
-
-### read_file
-Read a file from the armory workspace. Use this to check source documents before answering.
-- `path` (required): relative path from armory root
-- `offset` (optional): line number to start from (0-based)
-- `limit` (optional): max lines to read
-
-### list_files
-List files in a directory. Use to discover available source documents.
-- `path` (optional): directory to list (defaults to armory root)
-- `pattern` (optional): glob filter (e.g. "*.pdf")
-
-### search_files
-Search for text patterns across armory documents. Use to find where a topic is discussed.
-- `pattern` (required): text or regex to search for
-- `path` (optional): directory to search in (defaults to armory root)
-
-### write_file
-Create or overwrite a file in the armory. Use to save study notes or summaries.
-- `path` (required): relative path
-- `content` (required): content to write
-
-### edit_file
-Replace exact text in a file. Use to correct or update study notes.
-- `path` (required): file to edit
-- `old_text` (required): exact text to find
-- `new_text` (required): replacement text
-
-### bash
-Run a shell command. Use sparingly — prefer read_file and search_files.
-- `command` (required): shell command to run
-
-### web_fetch
-Fetch a web page. Use ONLY when the answer is not in armory documents.
-- `url` (required): URL to fetch
-
-### compact
-Compress conversation context. Use when you notice the conversation getting long.
-"""
 
 _ANTI_HALLUCINATION = """\
 ## Accuracy Rules (CRITICAL — violation is the worst possible outcome)
@@ -112,22 +70,6 @@ If the student asks to skip, present the next question.
 If the student asks for the answer, remind them to try recalling first.
 """
 
-_CORE_ROLE = """\
-Hephaistos. A drill instructor for exam preparation.
-Your job: make the student recall and reproduce solutions from past exam papers.
-
-## Rules
-
-- Never affirm, praise, or encourage. No "Great job!", "Good thinking!", "Almost!".
-- Never reveal the full answer when the student is stuck. Give the smallest possible nudge.
-- Never improvise solutions or draw on outside knowledge.
-  Everything comes from the source documents.
-- Be concise. No filler, no hedging, no transitional phrases,
-  no summaries of what you're about to do.
-- No emojis. No bullet-point summaries unless the student asks.
-- When retrieved evidence is present, cite evidence IDs like `[E1]` for every grounded answer.
-"""
-
 _FORMAT_RULES = """\
 ## Format
 
@@ -141,6 +83,54 @@ _FORMAT_RULES = """\
 
 
 _CUSTOM_PROMPT_FILE = Path(".hephaistos/system_prompt.md")
+
+
+@dataclass(frozen=True, slots=True)
+class SystemPrompt:
+    """Structured system prompt sections."""
+
+    role: str
+    study_loop: str
+    anti_hallucination: str
+    tool_docs: str
+    format_rules: str
+    context: str
+    memory: str = ""
+
+    def render(self) -> str:
+        """Render the prompt using the legacy section separator."""
+        return "\n\n".join(part for part in self.sections if part)
+
+    @property
+    def sections(self) -> tuple[str, ...]:
+        return (
+            self.role,
+            self.study_loop,
+            self.anti_hallucination,
+            self.tool_docs,
+            self.format_rules,
+            self.context,
+            self.memory,
+        )
+
+
+def render_tool_docs(schemas: list[ToolSchema]) -> str:
+    """Render Markdown tool documentation from OpenAI-compatible schemas."""
+    lines = [
+        "## Tools",
+        "",
+        "You have access to these tools. Use them to read source material and verify answers.",
+    ]
+    for schema in schemas:
+        function = schema["function"]
+        params = function["parameters"]
+        required = set(params["required"])
+        lines.extend(["", f"### {function['name']}", function["description"]])
+        for name, param in params["properties"].items():
+            marker = "required" if name in required else "optional"
+            description = param.get("description", "")
+            lines.append(f"- `{name}` ({marker}): {description}")
+    return "\n".join(lines)
 
 
 def _load_custom_prompt(armory_path: Path) -> str | None:
@@ -161,14 +151,15 @@ def _load_custom_prompt(armory_path: Path) -> str | None:
     return None
 
 
-def build_system_prompt(
+def build_system_prompt_sections(
     *,
     armory_path: Path | None = None,
     source_files: list[str] | None = None,
     memory_context: str = "",
     persona: Persona | None = None,
-) -> str:
-    """Build the complete system prompt.
+    registry: ToolRegistry | None = None,
+) -> SystemPrompt:
+    """Build structured system prompt sections.
 
     Parameters
     ----------
@@ -197,41 +188,51 @@ def build_system_prompt(
         persona = _DEFAULT_PERSONA
     date = datetime.now(UTC).strftime("%Y-%m-%d")
 
-    parts: list[str] = []
-
     # 1. Persona role block (custom prompt file takes priority)
+    role = persona.role_block
+    study_loop = _STUDY_LOOP
     if armory_path is not None:
         custom = _load_custom_prompt(armory_path)
         if custom is not None:
-            parts.append(custom)
-        else:
-            parts.append(persona.role_block)
-            parts.append(_STUDY_LOOP)
-    else:
-        parts.append(persona.role_block)
-        parts.append(_STUDY_LOOP)
+            role = custom
+            study_loop = ""
 
-    # 2. Anti-hallucination (most critical for study accuracy)
-    parts.append(_ANTI_HALLUCINATION)
+    tool_registry = default_registry if registry is None else registry
+    tool_docs = render_tool_docs(tool_registry.schemas)
 
-    # 3. Tool documentation
-    parts.append(_TOOL_DOCS)
+    context_parts = [f"Current date: {date}"]
 
-    # 4. Format rules
-    parts.append(_FORMAT_RULES)
-
-    # 5. Context: date
-    parts.append(f"Current date: {date}")
-
-    # 6. Context: armory info
     if armory_path is not None:
-        parts.append(f"Armory workspace: {armory_path}")
+        context_parts.append(f"Armory workspace: {armory_path}")
         if source_files:
             file_list = "\n".join(f"  - {f}" for f in source_files[:50])
-            parts.append(f"Available source files:\n{file_list}")
+            context_parts.append(f"Available source files:\n{file_list}")
 
-    # 7. Memory context (what the user has already studied)
-    if memory_context:
-        parts.append(memory_context)
+    return SystemPrompt(
+        role=role,
+        study_loop=study_loop,
+        anti_hallucination=_ANTI_HALLUCINATION,
+        tool_docs=tool_docs,
+        format_rules=_FORMAT_RULES,
+        context="\n\n".join(context_parts),
+        memory=memory_context,
+    )
 
-    return "\n\n".join(parts)
+
+def build_system_prompt(
+    *,
+    armory_path: Path | None = None,
+    source_files: list[str] | None = None,
+    memory_context: str = "",
+    persona: Persona | None = None,
+    registry: ToolRegistry | None = None,
+) -> str:
+    """Build the complete system prompt."""
+
+    return build_system_prompt_sections(
+        armory_path=armory_path,
+        source_files=source_files,
+        memory_context=memory_context,
+        persona=persona,
+        registry=registry,
+    ).render()

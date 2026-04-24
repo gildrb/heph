@@ -6,14 +6,18 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import message_text
 
+import hephaistos.harness.dispatch as dispatch_mod
 from hephaistos.chat._api_types import ApiMessage
+from hephaistos.chat.engine import ChatConfig, CompletionDelta, Conversation
+from hephaistos.chat.events import AssistantDeltaEvent, CompactRequestEvent, TurnCompleteEvent
 from hephaistos.harness.dispatch import (
-    _format_tool_args,  # type: ignore[reportPrivateUsage]
-    _merge_tool_call_deltas,  # type: ignore[reportPrivateUsage]
-    _summarize_result,  # type: ignore[reportPrivateUsage]
-    _ToolCall,  # type: ignore[reportPrivateUsage]
+    ToolCall,
     execute_tool_calls,
+    format_tool_args,
+    merge_tool_call_deltas,
+    summarize_result,
 )
 from hephaistos.harness.tools import (
     TOOL_SCHEMAS,
@@ -25,27 +29,6 @@ from hephaistos.harness.tools import (
     run_write_file,
     safe_path,
 )
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-def _message_text(message: ApiMessage) -> str:
-    content = message["content"]
-    return content if isinstance(content, str) else ""
-
-
-@pytest.fixture
-def workspace(tmp_path: Path) -> Path:
-    """Create a temporary workspace with some test files."""
-    (tmp_path / "hello.py").write_text('print("hello")\n')
-    (tmp_path / "README.md").write_text("# Test\n")
-    sub = tmp_path / "src"
-    sub.mkdir()
-    (sub / "main.py").write_text("def main(): pass\n")
-    return tmp_path
-
 
 # ---------------------------------------------------------------------------
 # safe_path
@@ -209,8 +192,8 @@ class TestToolSchemas:
 
 class TestMergeToolCallDeltas:
     def test_single_delta(self) -> None:
-        accumulated: list[_ToolCall] = []
-        _merge_tool_call_deltas(
+        accumulated: list[ToolCall] = []
+        merge_tool_call_deltas(
             accumulated,
             [
                 {
@@ -225,8 +208,8 @@ class TestMergeToolCallDeltas:
         assert accumulated[0]["function"]["name"] == "bash"
 
     def test_multi_chunk_args(self) -> None:
-        accumulated: list[_ToolCall] = []
-        _merge_tool_call_deltas(
+        accumulated: list[ToolCall] = []
+        merge_tool_call_deltas(
             accumulated,
             [
                 {
@@ -236,15 +219,15 @@ class TestMergeToolCallDeltas:
                 }
             ],
         )
-        _merge_tool_call_deltas(
+        merge_tool_call_deltas(
             accumulated,
             [{"index": 0, "function": {"name": "", "arguments": 'mand": "ls"}'}}],
         )
         assert accumulated[0]["function"]["arguments"] == '{"command": "ls"}'
 
     def test_multiple_tool_calls(self) -> None:
-        accumulated: list[_ToolCall] = []
-        _merge_tool_call_deltas(
+        accumulated: list[ToolCall] = []
+        merge_tool_call_deltas(
             accumulated,
             [
                 {
@@ -254,7 +237,7 @@ class TestMergeToolCallDeltas:
                 }
             ],
         )
-        _merge_tool_call_deltas(
+        merge_tool_call_deltas(
             accumulated,
             [
                 {
@@ -269,42 +252,42 @@ class TestMergeToolCallDeltas:
 
 class TestFormatToolArgs:
     def test_bash(self) -> None:
-        result = _format_tool_args("bash", {"command": "ls -la"})
+        result = format_tool_args("bash", {"command": "ls -la"})
         assert "$ ls -la" in result
 
     def test_read(self) -> None:
-        result = _format_tool_args("read_file", {"path": "src/main.py"})
+        result = format_tool_args("read_file", {"path": "src/main.py"})
         assert "[read] src/main.py" in result
 
     def test_write(self) -> None:
-        result = _format_tool_args("write_file", {"path": "out.txt", "content": "hi"})
+        result = format_tool_args("write_file", {"path": "out.txt", "content": "hi"})
         assert "[write] out.txt" in result
         assert "2 chars" in result
 
     def test_edit(self) -> None:
-        result = _format_tool_args("edit_file", {"path": "a.py"})
+        result = format_tool_args("edit_file", {"path": "a.py"})
         assert "[edit] a.py" in result
 
     def test_list(self) -> None:
-        result = _format_tool_args("list_files", {"path": "."})
+        result = format_tool_args("list_files", {"path": "."})
         assert "[list] ." in result
 
 
 class TestSummarizeResult:
     def test_short(self) -> None:
-        result = _summarize_result("ok")
+        result = summarize_result("ok")
         assert "-> ok" in result
 
     def test_long(self) -> None:
         content = "\n".join(f"line {i}" for i in range(100))
-        result = _summarize_result(content)
+        result = summarize_result(content)
         assert "..." in result
         assert "100 lines" in result
 
 
 class TestExecuteToolCalls:
     def test_execute_bash(self, workspace: Path) -> None:
-        tool_calls: list[_ToolCall] = [
+        tool_calls: list[ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -318,10 +301,10 @@ class TestExecuteToolCalls:
         assert len(results) == 1
         assert results[0]["role"] == "tool"
         assert results[0].get("tool_call_id") == "call_1"
-        assert "hello" in _message_text(results[0])
+        assert "hello" in message_text(results[0])
 
     def test_execute_unknown_tool(self, workspace: Path) -> None:
-        tool_calls: list[_ToolCall] = [
+        tool_calls: list[ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -329,10 +312,10 @@ class TestExecuteToolCalls:
             }
         ]
         results = execute_tool_calls(tool_calls, workspace)
-        assert "Unknown tool" in _message_text(results[0])
+        assert "Unknown tool" in message_text(results[0])
 
     def test_execute_invalid_json(self, workspace: Path) -> None:
-        tool_calls: list[_ToolCall] = [
+        tool_calls: list[ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -340,10 +323,10 @@ class TestExecuteToolCalls:
             }
         ]
         results = execute_tool_calls(tool_calls, workspace)
-        assert "invalid JSON" in _message_text(results[0])
+        assert "invalid JSON" in message_text(results[0])
 
     def test_execute_read_file(self, workspace: Path) -> None:
-        tool_calls: list[_ToolCall] = [
+        tool_calls: list[ToolCall] = [
             {
                 "id": "call_1",
                 "type": "function",
@@ -354,4 +337,100 @@ class TestExecuteToolCalls:
             }
         ]
         results = execute_tool_calls(tool_calls, workspace)
-        assert "hello" in _message_text(results[0])
+        assert "hello" in message_text(results[0])
+
+
+class TestIterAgentEvents:
+    def test_dry_run_skips_streaming(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def fail_stream(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("streaming should be skipped")
+
+        monkeypatch.setattr(dispatch_mod, "stream_completion", fail_stream)
+        events = list(
+            dispatch_mod.iter_agent_events(
+                ChatConfig(base_url="https://example.invalid", model="test-model"),
+                Conversation(),
+                workspace,
+                dry_run=True,
+            )
+        )
+
+        assert events[0].kind == "notice"
+        assert isinstance(events[-1], TurnCompleteEvent)
+        assert events[-1].finish_reason == "dry_run"
+
+    def test_turn_complete_event_after_text_reply(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def fake_stream(*_args: object, **_kwargs: object):
+            yield CompletionDelta(content="hello")
+            yield CompletionDelta(finish_reason="stop")
+
+        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+
+        events = list(
+            dispatch_mod.iter_agent_events(
+                ChatConfig(base_url="https://example.invalid", model="test-model"),
+                Conversation(),
+                workspace,
+            )
+        )
+
+        assert any(isinstance(event, AssistantDeltaEvent) for event in events)
+        complete = events[-1]
+        assert isinstance(complete, TurnCompleteEvent)
+        assert complete.full_text == "hello"
+        assert complete.finish_reason == "stop"
+
+    def test_compact_tool_emits_control_event(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls = 0
+
+        def fake_stream(*_args: object, **_kwargs: object):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                yield CompletionDelta(
+                    tool_calls=[
+                        {
+                            "index": 0,
+                            "id": "call_compact",
+                            "function": {"name": "compact", "arguments": "{}"},
+                        }
+                    ],
+                    finish_reason="tool_calls",
+                )
+                return
+            yield CompletionDelta(content="after compact")
+            yield CompletionDelta(finish_reason="stop")
+
+        def no_op_compact(
+            messages: list[ApiMessage],
+            _config: ChatConfig,
+            _workspace: Path,
+        ) -> list[ApiMessage]:
+            return messages
+
+        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(dispatch_mod, "auto_compact", no_op_compact)
+
+        events = list(
+            dispatch_mod.iter_agent_events(
+                ChatConfig(base_url="https://example.invalid", model="test-model"),
+                Conversation(),
+                workspace,
+            )
+        )
+
+        assert any(isinstance(event, CompactRequestEvent) for event in events)
+        assert isinstance(events[-1], TurnCompleteEvent)
+        assert events[-1].full_text == "after compact"

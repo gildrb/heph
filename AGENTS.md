@@ -45,7 +45,7 @@ uv run basedpyright        # type-check the project
 ## Dead Code / Architecture / Duplicates
 ```bash
 uv run vulture hephaistos tests vulture-whitelist.py  # dead-code detection
-uv run pylint --disable=all --enable=duplicate-code hephaistos  # duplicate code
+uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaistos  # duplicate code
 uv run lint-imports        # verify import boundaries
 ```
 

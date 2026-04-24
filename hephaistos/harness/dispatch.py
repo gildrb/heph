@@ -19,9 +19,11 @@ from hephaistos.chat.engine import (
 )
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
+    CompactRequestEvent,
     NoticeEvent,
     ToolCallEvent,
     ToolResultEvent,
+    TurnCompleteEvent,
     TurnEvent,
     render_turn_event,
 )
@@ -33,7 +35,7 @@ from hephaistos.harness.compact import (
     micro_compact,
 )
 from hephaistos.harness.rag.context import TurnEvidence
-from hephaistos.harness.tools import ToolRegistry, default_registry
+from hephaistos.harness.tools import ToolRegistry, ToolResult, default_registry
 from hephaistos.logging import Timer, get_logger
 
 _log = get_logger("harness.dispatch")
@@ -43,15 +45,19 @@ _MAX_RESULT_DISPLAY = 200
 _MAX_TOOL_CALLS_PER_TURN = 5
 
 
-class _ToolCallFunction(TypedDict):
+class ToolCallFunction(TypedDict):
     name: str
     arguments: str
 
 
-class _ToolCall(TypedDict):
+class ToolCall(TypedDict):
     id: str
     type: str
-    function: _ToolCallFunction
+    function: ToolCallFunction
+
+
+_ToolCallFunction = ToolCallFunction
+_ToolCall = ToolCall
 
 
 def _content_to_text(content: str | None | list[ContentPart]) -> str:
@@ -67,6 +73,12 @@ def _parse_tool_arguments(raw_arguments: str) -> dict[str, object]:
     if not is_string_mapping(parsed):
         return {}
     return parsed
+
+
+def _normalise_tool_result(output: object) -> ToolResult:
+    if isinstance(output, ToolResult):
+        return output
+    return ToolResult(success=True, content=str(output))
 
 
 class SteeringQueue:
@@ -99,11 +111,12 @@ class SteeringQueue:
 
 
 def execute_tool_calls(
-    tool_calls: list[_ToolCall],
+    tool_calls: list[ToolCall],
     workspace: Path,
     *,
     registry: ToolRegistry | None = None,
     max_calls: int = _MAX_TOOL_CALLS_PER_TURN,
+    abort: threading.Event | None = None,
 ) -> list[ApiMessage]:
     """Execute each tool call and return tool-result messages."""
     if registry is None:
@@ -124,15 +137,33 @@ def execute_tool_calls(
         call_id = tc.get("id", "")
         name = tc["function"]["name"]
         if i >= max_calls:
+            content = (
+                f"Error: tool call limit reached ({max_calls} per turn). "
+                f"Prioritize reading and writing documents. "
+                f"Tool '{name}' was not executed."
+            )
             results.append(
                 {
                     "role": "tool",
                     "tool_call_id": call_id,
-                    "content": (
-                        f"Error: tool call limit reached ({max_calls} per turn). "
-                        f"Prioritize reading and writing documents. "
-                        f"Tool '{name}' was not executed."
-                    ),
+                    "content": content,
+                    "tool_success": False,
+                    "tool_metadata": {"max_calls": max_calls},
+                    "tool_error": content,
+                }
+            )
+            continue
+
+        if registry.is_control_tool(name):
+            content = f"Control tool handled by harness: {name}"
+            results.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": content,
+                    "tool_success": True,
+                    "tool_metadata": {"control": True},
+                    "tool_error": None,
                 }
             )
             continue
@@ -149,11 +180,15 @@ def execute_tool_calls(
                     }
                 },
             )
+            content = f"Error: invalid JSON arguments for {name}"
             results.append(
                 {
                     "role": "tool",
                     "tool_call_id": call_id,
-                    "content": f"Error: invalid JSON arguments for {name}",
+                    "content": content,
+                    "tool_success": False,
+                    "tool_metadata": {},
+                    "tool_error": content,
                 }
             )
             continue
@@ -170,11 +205,34 @@ def execute_tool_calls(
                     }
                 },
             )
+            content = f"Unknown tool: {name}"
             results.append(
                 {
                     "role": "tool",
                     "tool_call_id": call_id,
-                    "content": f"Unknown tool: {name}",
+                    "content": content,
+                    "tool_success": False,
+                    "tool_metadata": {},
+                    "tool_error": content,
+                }
+            )
+            continue
+
+        if abort is not None and abort.is_set():
+            result = ToolResult(
+                success=False,
+                content=f"Tool cancelled before execution: {name}",
+                metadata={"tool": name},
+                error="cancelled",
+            )
+            results.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": result.content,
+                    "tool_success": result.success,
+                    "tool_metadata": result.metadata,
+                    "tool_error": result.error,
                 }
             )
             continue
@@ -182,9 +240,15 @@ def execute_tool_calls(
         timer = Timer()
         try:
             with timer:
-                output = handler(workspace=workspace, **arguments)
+                output = handler(workspace=workspace, abort=abort, **arguments)
+                result = _normalise_tool_result(output)
         except Exception as exc:
-            output = f"Tool error ({name}): {exc}"
+            result = ToolResult(
+                success=False,
+                content=f"Tool error ({name}): {exc}",
+                metadata={},
+                error=str(exc),
+            )
             _log.error(
                 "tool execution failed",
                 extra={
@@ -204,7 +268,8 @@ def execute_tool_calls(
                     "tool": name,
                     "args": _summarise_args(name, arguments),
                     "latency_ms": round(timer.ms, 1),
-                    "result_len": len(output),
+                    "result_len": len(result.content),
+                    "success": result.success,
                 }
             },
         )
@@ -212,14 +277,17 @@ def execute_tool_calls(
             {
                 "role": "tool",
                 "tool_call_id": call_id,
-                "content": str(output),
+                "content": result.content,
+                "tool_success": result.success,
+                "tool_metadata": result.metadata,
+                "tool_error": result.error,
             }
         )
 
     return results
 
 
-def _merge_tool_call_deltas(accumulated: list[_ToolCall], deltas: list[ToolCallDelta]) -> None:
+def merge_tool_call_deltas(accumulated: list[ToolCall], deltas: list[ToolCallDelta]) -> None:
     """Merge streaming tool-call deltas into accumulated list in-place."""
     for delta in deltas:
         idx = delta.get("index", 0)
@@ -266,7 +334,7 @@ def _summarise_args(name: str, args: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _format_tool_args(name: str, args: dict[str, object]) -> str:
+def format_tool_args(name: str, args: dict[str, object]) -> str:
     """Format tool call for display."""
     if name == "bash":
         return f"  $ {_string_arg(args, 'command')}"
@@ -286,13 +354,18 @@ def _format_tool_args(name: str, args: dict[str, object]) -> str:
     return f"  [{name}] {args}"
 
 
-def _summarize_result(content: str) -> str:
+def summarize_result(content: str) -> str:
     """Brief summary of tool result for display."""
     lines = content.splitlines()
     if len(content) <= _MAX_RESULT_DISPLAY:
         return f"  -> {content}"
     first_line = lines[0] if lines else content[:80]
     return f"  -> {first_line} ... ({len(lines)} lines)"
+
+
+_merge_tool_call_deltas = merge_tool_call_deltas
+_format_tool_args = format_tool_args
+_summarize_result = summarize_result
 
 
 def _sync_conversation(conversation: Conversation, api_messages: list[ApiMessage]) -> None:
@@ -372,6 +445,7 @@ def iter_agent_events(
     extra_system_prompt: str | None = None,
     tool_schemas: list[dict[str, object]] | None = None,
     registry: ToolRegistry | None = None,
+    dry_run: bool = False,
 ) -> Iterator[TurnEvent]:
     """Run the model/tool loop and emit structured turn events."""
     retry = retry or RetryConfig()
@@ -394,6 +468,35 @@ def iter_agent_events(
             }
         },
     )
+
+    if dry_run:
+        tokens_remaining = budget.tokens_remaining(api_messages)
+        yield NoticeEvent(
+            (
+                "Dry run: skipped model streaming and tool execution "
+                f"({len(registry.schemas)} tool schemas available)."
+            ),
+            code="dry_run",
+        )
+        yield TurnCompleteEvent(
+            full_text="",
+            turn_index=0,
+            latency_ms=loop_timer.ms,
+            finish_reason="dry_run",
+            tokens_remaining=tokens_remaining,
+        )
+        _log.info(
+            "agent_loop dry_run complete",
+            extra={
+                "fields": {
+                    "model": config.model,
+                    "message_count": len(api_messages),
+                    "tool_schema_count": len(registry.schemas),
+                    "tokens_remaining": tokens_remaining,
+                }
+            },
+        )
+        return
 
     for turn_idx in range(max_turns):
         if abort is not None and abort.is_set():
@@ -421,7 +524,7 @@ def iter_agent_events(
             llm_messages = _inject_turn_context(api_messages, turn_evidence, extra_system_prompt)
 
         collected_parts: list[str] = []
-        collected_tool_calls: list[_ToolCall] = []
+        collected_tool_calls: list[ToolCall] = []
         finish_reason = ""
         stream_usage: UsagePayload | None = None
         turn_timer = Timer()
@@ -440,7 +543,7 @@ def iter_agent_events(
                     collected_parts.append(delta.content)
                     yield AssistantDeltaEvent(delta.content)
                 if delta.tool_calls:
-                    _merge_tool_call_deltas(collected_tool_calls, delta.tool_calls)
+                    merge_tool_call_deltas(collected_tool_calls, delta.tool_calls)
                 if delta.finish_reason:
                     finish_reason = delta.finish_reason
                 if delta.usage:
@@ -451,6 +554,7 @@ def iter_agent_events(
         if not collected_tool_calls:
             _record_usage(usage, stream_usage, api_messages, collected_text, config.model)
             conversation.add("assistant", collected_text)
+            tokens_remaining = budget.tokens_remaining(api_messages)
 
             if steering is not None:
                 for message in steering.drain():
@@ -467,9 +571,16 @@ def iter_agent_events(
                         "latency_ms": loop_timer.ms,
                         "text_len": len(collected_text),
                         "finish_reason": finish_reason,
-                        "tokens_remaining": budget.tokens_remaining(api_messages),
+                        "tokens_remaining": tokens_remaining,
                     }
                 },
+            )
+            yield TurnCompleteEvent(
+                full_text=collected_text,
+                turn_index=turn_idx,
+                latency_ms=loop_timer.ms,
+                finish_reason=finish_reason,
+                tokens_remaining=tokens_remaining,
             )
             return
 
@@ -506,8 +617,14 @@ def iter_agent_events(
                 call_id=tool_call.get("id", ""),
                 name=name,
                 arguments=arguments,
-                display=_format_tool_args(name, arguments),
+                display=format_tool_args(name, arguments),
             )
+            if registry.is_control_tool(name):
+                yield CompactRequestEvent(
+                    call_id=tool_call.get("id", ""),
+                    name=name,
+                    arguments=arguments,
+                )
 
         _log.info(
             "agent_loop tool calls",
@@ -520,7 +637,12 @@ def iter_agent_events(
             },
         )
 
-        tool_results = execute_tool_calls(collected_tool_calls, workspace, registry=registry)
+        tool_results = execute_tool_calls(
+            collected_tool_calls,
+            workspace,
+            registry=registry,
+            abort=abort,
+        )
         api_messages.extend(tool_results)
 
         _record_usage(usage, stream_usage, api_messages, collected_text, config.model)
@@ -553,7 +675,10 @@ def iter_agent_events(
                 call_id=tool_result.get("tool_call_id", ""),
                 name=name,
                 content=content,
-                summary=_summarize_result(content),
+                summary=summarize_result(content),
+                success=tool_result.get("tool_success", True),
+                metadata=tool_result.get("tool_metadata", {}),
+                error=tool_result.get("tool_error"),
             )
 
         if steering is not None:
@@ -571,7 +696,7 @@ def iter_agent_events(
                     },
                 )
 
-        if "compact" in tool_names:
+        if any(registry.is_control_tool(name) for name in tool_names):
             yield NoticeEvent("Compacting conversation...", code="manual_compact")
             api_messages[:] = auto_compact(api_messages, config, workspace)
             _sync_conversation(conversation, api_messages)
@@ -603,6 +728,7 @@ def agent_loop(
     extra_system_prompt: str | None = None,
     tool_schemas: list[dict[str, object]] | None = None,
     registry: ToolRegistry | None = None,
+    dry_run: bool = False,
 ) -> Iterator[str]:
     """Backward-compatible string stream wrapper over ``iter_agent_events``."""
     for event in iter_agent_events(
@@ -618,5 +744,6 @@ def agent_loop(
         extra_system_prompt=extra_system_prompt,
         tool_schemas=tool_schemas,
         registry=registry,
+        dry_run=dry_run,
     ):
         yield render_turn_event(event)

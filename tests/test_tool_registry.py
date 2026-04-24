@@ -3,52 +3,19 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from pathlib import Path
 
-from hephaistos.chat._api_types import ApiMessage
-from hephaistos.harness.dispatch import _ToolCall as ToolCall  # type: ignore[reportPrivateUsage]
-from hephaistos.harness.dispatch import execute_tool_calls
+from conftest import make_tool_spec, message_text
+
+from hephaistos.harness.dispatch import ToolCall, execute_tool_calls
 from hephaistos.harness.tools import (
     TOOL_SCHEMAS,
     ToolRegistry,
+    ToolResult,
     ToolSpec,
     default_registry,
     get_handler,
 )
-
-
-def _default_handler(**_kw: object) -> str:
-    return ""
-
-
-def _message_text(message: ApiMessage) -> str:
-    content = message["content"]
-    return content if isinstance(content, str) else ""
-
-
-def _make_spec(
-    name: str,
-    handler: Callable[..., str] | None = None,
-    description: str = "",
-) -> ToolSpec:
-    """Create a minimal ToolSpec for testing."""
-    return ToolSpec(
-        schema={
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            },
-        },
-        handler=handler if handler is not None else _default_handler,
-    )
-
 
 # ---------------------------------------------------------------------------
 # ToolSpec
@@ -57,7 +24,7 @@ def _make_spec(
 
 class TestToolSpec:
     def test_name_extraction(self) -> None:
-        spec = _make_spec("my_tool")
+        spec = make_tool_spec("my_tool")
         assert spec.name == "my_tool"
 
 
@@ -74,7 +41,7 @@ class TestToolRegistry:
 
     def test_register_and_get(self) -> None:
         reg = ToolRegistry()
-        spec = _make_spec("custom", handler=lambda **kw: "custom result")  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        spec = make_tool_spec("custom", handler=lambda **kw: "custom result")  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         reg.register(spec)
         assert reg.get("custom") is spec
         assert reg.get_handler("custom") is spec.handler
@@ -83,7 +50,7 @@ class TestToolRegistry:
 
     def test_unregister(self) -> None:
         reg = ToolRegistry()
-        reg.register(_make_spec("temp"))
+        reg.register(make_tool_spec("temp"))
         assert reg.get("temp") is not None
         reg.unregister("temp")
         assert reg.get("temp") is None
@@ -94,8 +61,8 @@ class TestToolRegistry:
 
     def test_register_overrides(self) -> None:
         reg = ToolRegistry()
-        reg.register(_make_spec("tool", handler=lambda **kw: "v1"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-        reg.register(_make_spec("tool", handler=lambda **kw: "v2"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        reg.register(make_tool_spec("tool", handler=lambda **kw: "v1"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        reg.register(make_tool_spec("tool", handler=lambda **kw: "v2"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         handler = reg.get_handler("tool")
         assert handler is not None
         assert handler() == "v2"
@@ -110,7 +77,7 @@ class TestToolRegistry:
 class TestChildRegistry:
     def test_child_inherits_parent_tools(self) -> None:
         parent = ToolRegistry()
-        parent.register(_make_spec("parent_tool", handler=lambda **kw: "parent"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        parent.register(make_tool_spec("parent_tool", handler=lambda **kw: "parent"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         child = parent.child()
         assert child.get("parent_tool") is not None
         h = child.get_handler("parent_tool")
@@ -120,15 +87,15 @@ class TestChildRegistry:
     def test_child_can_add_tools(self) -> None:
         parent = ToolRegistry()
         child = parent.child()
-        child.register(_make_spec("child_tool", handler=lambda **kw: "child"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        child.register(make_tool_spec("child_tool", handler=lambda **kw: "child"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         assert child.get("child_tool") is not None
         assert parent.get("child_tool") is None  # parent unaffected
 
     def test_child_can_override_parent(self) -> None:
         parent = ToolRegistry()
-        parent.register(_make_spec("tool", handler=lambda **kw: "parent"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        parent.register(make_tool_spec("tool", handler=lambda **kw: "parent"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         child = parent.child()
-        child.register(_make_spec("tool", handler=lambda **kw: "child"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        child.register(make_tool_spec("tool", handler=lambda **kw: "child"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         h_child = child.get_handler("tool")
         h_parent = parent.get_handler("tool")
         assert h_child is not None
@@ -136,11 +103,20 @@ class TestChildRegistry:
         assert h_child() == "child"
         assert h_parent() == "parent"
 
+    def test_schema_cache_invalidation_after_parent_mutation(self) -> None:
+        parent = ToolRegistry()
+        child = parent.child()
+        assert child.tool_names == []
+
+        parent.register(make_tool_spec("late_parent_tool"))
+
+        assert child.tool_names == ["late_parent_tool"]
+
     def test_schemas_merges_local_and_parent(self) -> None:
         parent = ToolRegistry()
-        parent.register(_make_spec("a"))
+        parent.register(make_tool_spec("a"))
         child = parent.child()
-        child.register(_make_spec("b"))
+        child.register(make_tool_spec("b"))
         names = child.tool_names
         assert "a" in names
         assert "b" in names
@@ -148,18 +124,18 @@ class TestChildRegistry:
 
     def test_schemas_include_full_ancestor_chain(self) -> None:
         grandparent = ToolRegistry()
-        grandparent.register(_make_spec("grandparent_tool"))
+        grandparent.register(make_tool_spec("grandparent_tool"))
         parent = grandparent.child()
-        parent.register(_make_spec("parent_tool"))
+        parent.register(make_tool_spec("parent_tool"))
         child = parent.child()
-        child.register(_make_spec("child_tool"))
+        child.register(make_tool_spec("child_tool"))
 
         assert child.get_handler("grandparent_tool") is not None
         assert child.tool_names == ["child_tool", "parent_tool", "grandparent_tool"]
 
     def test_unregister_in_child_does_not_affect_parent(self) -> None:
         parent = ToolRegistry()
-        parent.register(_make_spec("shared"))
+        parent.register(make_tool_spec("shared"))
         child = parent.child()
         child.unregister("shared")
         # Child no longer has it locally, but inherits from parent
@@ -336,7 +312,48 @@ class TestDispatchWithRegistry:
         ]
         results = execute_tool_calls(tool_calls, tmp_path, registry=reg)
         assert len(results) == 1
-        assert "echo: hello" in _message_text(results[0])
+        assert "echo: hello" in message_text(results[0])
+        assert results[0].get("tool_success") is True
+
+    def test_execute_with_structured_tool_result(self, tmp_path: Path) -> None:
+        reg = ToolRegistry()
+        reg.register(
+            ToolSpec(
+                schema={
+                    "type": "function",
+                    "function": {
+                        "name": "structured",
+                        "description": "",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                        },
+                    },
+                },
+                handler=lambda **kw: ToolResult(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+                    success=False,
+                    content="temporary failure",
+                    metadata={"retryable": True},
+                    error="timeout",
+                ),
+            )
+        )
+        tool_calls: list[ToolCall] = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "structured",
+                    "arguments": "{}",
+                },
+            }
+        ]
+        results = execute_tool_calls(tool_calls, tmp_path, registry=reg)
+        assert message_text(results[0]) == "temporary failure"
+        assert results[0].get("tool_success") is False
+        assert results[0].get("tool_metadata") == {"retryable": True}
+        assert results[0].get("tool_error") == "timeout"
 
     def test_execute_unknown_tool_with_custom_registry(self, tmp_path: Path) -> None:
         reg = ToolRegistry()  # empty registry
@@ -351,4 +368,4 @@ class TestDispatchWithRegistry:
             }
         ]
         results = execute_tool_calls(tool_calls, tmp_path, registry=reg)
-        assert "Unknown tool" in _message_text(results[0])
+        assert "Unknown tool" in message_text(results[0])

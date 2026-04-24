@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from hephaistos.harness.persona import TUTOR
-from hephaistos.harness.prompt import build_system_prompt
+from hephaistos.harness.prompt import build_system_prompt, build_system_prompt_sections
 
 
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
@@ -65,3 +65,21 @@ def test_build_system_prompt_without_armory_uses_persona_study_loop_and_date() -
     assert "## Study Loop" in prompt
     assert "Current date: " in prompt
     assert "Armory workspace:" not in prompt
+
+
+def test_build_system_prompt_sections_render_matches_string_builder(armory: Path) -> None:
+    sections = build_system_prompt_sections(armory_path=armory, source_files=["source/python.md"])
+
+    assert sections.render() == build_system_prompt(
+        armory_path=armory,
+        source_files=["source/python.md"],
+    )
+    assert sections.tool_docs.startswith("## Tools")
+    assert "### read_file" in sections.tool_docs
+
+
+def test_tool_docs_are_generated_from_registry_schema() -> None:
+    prompt = build_system_prompt()
+
+    assert "### web_fetch" in prompt
+    assert "- `url` (required): The URL to fetch" in prompt
