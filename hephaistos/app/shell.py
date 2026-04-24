@@ -279,11 +279,11 @@ def _build_bottom_toolbar_status(
     """Build the compact helper bar shown below the composer."""
     api_state = "configured" if session.config.resolved_api_key else "missing"
     if runtime is not None and runtime.busy:
-        steering_suffix = f" · queued {runtime.steering_count}" if runtime.steering_count else ""
-        return f"assistant working · enter queues follow-up · ctrl+c interrupt{steering_suffix}"
-    input_hint = "alt+enter newline · /help commands · /settings prefs · ! shell"
+        steering_suffix = f"  queued {runtime.steering_count}" if runtime.steering_count else ""
+        return f"assistant working  enter queues follow-up  ctrl+c interrupt{steering_suffix}"
+    input_hint = "alt+enter newline  /help commands  /settings prefs  ! shell"
     if api_state == "missing":
-        return f"{input_hint} · api missing"
+        return f"{input_hint}  api missing"
     return input_hint
 
 

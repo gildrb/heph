@@ -322,6 +322,7 @@ def test_bottom_toolbar_shows_compact_status(tmp_path: Path) -> None:
     assert "/help commands" in status
     assert "/settings prefs" in status
     assert "! shell" in status
+    assert "·" not in status
     assert "context" not in status
     assert "source" not in status
 
@@ -335,6 +336,7 @@ def test_bottom_toolbar_shows_busy_hint(tmp_path: Path) -> None:
     assert "assistant working" in status
     assert "enter queues follow-up" in status
     assert "queued 2" in status
+    assert "·" not in status
 
 
 def test_shell_style_overrides_default_reversed_toolbar() -> None:
@@ -453,6 +455,7 @@ def test_shell_intro_uses_compact_header(capsys: pytest.CaptureFixture[str]) -> 
     assert "/settings" in out
     assert "/armory" in out
     assert "configure api" in out
+    assert "alt+enter" not in out
 
 
 # ---------------------------------------------------------------------------
@@ -690,6 +693,8 @@ def test_format_shell_header_includes_core_metadata() -> None:
     assert "gpt-4o-mini" in text
     assert "configured" in text
     assert "3 files" in text
+    assert "alt+enter" not in text
+    assert "newline" not in text
 
     styles = {style for style, _ in fragments if style}
     assert "class:header.title" in styles

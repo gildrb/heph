@@ -86,14 +86,7 @@ def print_shell_intro(
         "  "
         f"{styled('source', STYLE_DIM)} {source_status}"
     )
-    print(
-        "  "
-        f"{styled('enter', STYLE_DIM)} send"
-        "  "
-        f"{styled('alt+enter', STYLE_DIM)} newline"
-        "  "
-        f"{styled('tab', STYLE_DIM)} complete"
-    )
+    print(f"  {styled('enter', STYLE_DIM)} send  {styled('tab', STYLE_DIM)} complete")
     print(
         "  "
         f"{styled('ctrl+c', STYLE_DIM)} interrupt"
@@ -150,8 +143,6 @@ def format_shell_header(
         ("", "\n"),
         ("class:header.dim", "  enter "),
         ("class:header.dim", "send  "),
-        ("class:header.dim", "alt+enter "),
-        ("class:header.dim", "newline  "),
         ("class:header.dim", "tab "),
         ("class:header.dim", "complete  "),
         ("class:header.dim", "ctrl+c "),
