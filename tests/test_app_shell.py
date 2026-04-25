@@ -257,7 +257,7 @@ def test_bottom_toolbar_uses_cached_status(
 def test_format_menu_pads_rows_and_marks_active_option(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("hephaistos.app.menu._terminal_columns", lambda default=80: 80)
+    monkeypatch.setattr("hephaistos.app.menu._terminal_columns", lambda _default=80: 80)
 
     fragments = menu._format_menu(  # type: ignore[reportPrivateUsage]
         "Appearance",
@@ -468,7 +468,7 @@ def test_slash_completer_suggests_provider_subcommands(
     monkeypatch.setattr(
         autocomplete.ProviderConfig,
         "load",
-        classmethod(lambda cls: _default_config()),  # type: ignore[reportPrivateUsage, reportUnknownLambdaType]
+        classmethod(lambda _cls: _default_config()),  # type: ignore[reportPrivateUsage, reportUnknownLambdaType]
     )
     completer = shell.SlashCommandCompleter()
 
@@ -502,8 +502,6 @@ def test_shell_intro_uses_compact_header(capsys: pytest.CaptureFixture[str]) -> 
     assert "Hephaistos" in out
     assert "__  __" not in out
     assert "/help" in out
-    assert "/settings" in out
-    assert "/armory" in out
     assert "configure api" in out
     assert "alt+enter" not in out
 

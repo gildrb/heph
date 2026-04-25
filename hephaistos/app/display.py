@@ -16,6 +16,7 @@ from hephaistos.app.palette import (
     STYLE_SUCCESS,
     STYLE_WARNING,
 )
+from hephaistos.parameters.settings import load_app_settings
 
 STYLE_ASSISTANT = palette.STYLE_ASSISTANT
 
@@ -56,6 +57,34 @@ def print_success(msg: str) -> None:
     print(f"{styled(msg, STYLE_SUCCESS)}")
 
 
+def _progressive_hints(session_count: int) -> list[str]:
+    """Return keybind hint lines that evolve with user experience.
+
+    Tier 0 (new):     enter, tab, ctrl+c, ctrl+d, /help
+    Tier 1 (3+):      + /vocab, /model, /theme
+    Tier 2 (5+):      + ! shell, \\ continuation
+    Always:           /help
+    """
+    parts: list[str] = [f"{styled('enter', STYLE_DIM)} send  {styled('tab', STYLE_DIM)} complete"]
+    essentials = (
+        f"{styled('ctrl+c', STYLE_DIM)} interrupt"
+        f"  {styled('ctrl+d', STYLE_DIM)} exit"
+        f"  {styled('/help', STYLE_ACCENT)} commands"
+    )
+    parts.append(essentials)
+    if session_count >= 3:
+        tier1 = (
+            f"{styled('/vocab', STYLE_ACCENT)} drill"
+            f"  {styled('/model', STYLE_ACCENT)} model"
+            f"  {styled('/theme', STYLE_ACCENT)} theme"
+        )
+        parts.append(tier1)
+    if session_count >= 5:
+        tier2 = f"{styled('!', STYLE_ACCENT)} shell  {styled('\\', STYLE_DIM)} continuation"
+        parts.append(tier2)
+    return parts
+
+
 def print_shell_intro(
     version: str,
     armory_path: str,
@@ -77,6 +106,9 @@ def print_shell_intro(
     model_text = model or "none"
     model_style = STYLE_SUCCESS if model else STYLE_EMBER
 
+    settings = load_app_settings()
+    hints = _progressive_hints(settings.session_count)
+
     print(f"{styled('Hephaistos', STYLE_EMBER)} {styled(f'v{version}', STYLE_DIM)}")
     print()
     print(
@@ -89,21 +121,8 @@ def print_shell_intro(
         "  "
         f"{styled('source', STYLE_DIM)} {source_status}"
     )
-    print(f"  {styled('enter', STYLE_DIM)} send  {styled('tab', STYLE_DIM)} complete")
-    print(
-        "  "
-        f"{styled('ctrl+c', STYLE_DIM)} interrupt"
-        "  "
-        f"{styled('ctrl+d', STYLE_DIM)} exit"
-        "  "
-        f"{styled('/help', STYLE_ACCENT)} commands"
-        "  "
-        f"{styled('/settings', STYLE_ACCENT)} settings"
-        "  "
-        f"{styled('/armory', STYLE_ACCENT)} workspace"
-        "  "
-        f"{styled('!', STYLE_ACCENT)} shell"
-    )
+    for hint_line in hints:
+        print(f"  {hint_line}")
     if not has_api_key:
         print(
             "  "

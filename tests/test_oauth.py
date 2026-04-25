@@ -101,7 +101,8 @@ class TestCredentialPersistence:
             account_id="acct_abc",
         )
 
-    def test_save_and_load(self, isolated_auth_dir: SimpleNamespace) -> None:
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_save_and_load(self) -> None:
         creds = self._make_creds()
         save_credentials(creds)
         loaded = load_credentials("openai-codex")
@@ -111,12 +112,14 @@ class TestCredentialPersistence:
         assert loaded.refresh_token == "rt_456"
         assert loaded.account_id == "acct_abc"
 
-    def test_load_missing_returns_none(self, isolated_auth_dir: SimpleNamespace) -> None:
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_load_missing_returns_none(self) -> None:
         loaded = load_credentials("nonexistent")
 
         assert loaded is None
 
-    def test_clear_credentials(self, isolated_auth_dir: SimpleNamespace) -> None:
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_clear_credentials(self) -> None:
         creds = self._make_creds()
         save_credentials(creds)
         assert list_providers() == ["openai-codex"]
@@ -125,10 +128,12 @@ class TestCredentialPersistence:
         assert load_credentials("openai-codex") is None
         assert list_providers() == []
 
-    def test_clear_nonexistent_returns_false(self, isolated_auth_dir: SimpleNamespace) -> None:
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_clear_nonexistent_returns_false(self) -> None:
         assert clear_credentials("nope") is False
 
-    def test_list_providers(self, isolated_auth_dir: SimpleNamespace) -> None:
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_list_providers(self) -> None:
         creds1 = self._make_creds("openai-codex")
         creds2 = self._make_creds("other-provider")
         save_credentials(creds1)
@@ -158,23 +163,22 @@ class TestCredentialPersistence:
         assert entry["account_id"] == "acct_abc"
         assert isinstance(entry["expires_at"], float)
 
-    def test_resolve_oauth_key_returns_access_token(
-        self, isolated_auth_dir: SimpleNamespace
-    ) -> None:
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_resolve_oauth_key_returns_access_token(self) -> None:
         creds = self._make_creds()
         save_credentials(creds)
         key = resolve_oauth_key("openai-codex")
 
         assert key == "at_123"
 
-    def test_resolve_oauth_key_missing_returns_empty(
-        self, isolated_auth_dir: SimpleNamespace
-    ) -> None:
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_resolve_oauth_key_missing_returns_empty(self) -> None:
         key = resolve_oauth_key("nonexistent")
 
         assert key == ""
 
-    def test_load_auto_refreshes_expired_token(self, isolated_auth_dir: SimpleNamespace) -> None:
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_load_auto_refreshes_expired_token(self) -> None:
         expired = OAuthCredentials(
             provider="openai-codex",
             access_token="old_at",
@@ -245,7 +249,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda: ["openai-codex"],
     )
 
-    def _confirm(*a: object, **kw: object) -> bool:
+    def _confirm(*_a: object, **_kw: object) -> bool:
         return True
 
     monkeypatch.setattr(

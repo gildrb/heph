@@ -29,7 +29,7 @@ class TestFileMutationQueue:
     def test_execute_catches_exception(self) -> None:
         queue = FileMutationQueue()
 
-        def failing_handler(**kwargs: object) -> str:
+        def failing_handler(**_kwargs: object) -> str:
             raise ValueError("disk full")
 
         result = queue.execute(Path("/tmp/test.txt"), failing_handler)
@@ -50,13 +50,13 @@ class TestFileMutationQueue:
         handler_1_entered = threading.Event()
         handler_1_release = threading.Event()
 
-        def handler_1(**kwargs: object) -> str:
+        def handler_1(**_kwargs: object) -> str:
             order.append(1)
             handler_1_entered.set()
             handler_1_release.wait(timeout=5)
             return "r1"
 
-        def handler_2(**kwargs: object) -> str:
+        def handler_2(**_kwargs: object) -> str:
             order.append(2)
             return "r2"
 
@@ -82,7 +82,7 @@ class TestFileMutationQueue:
         release = threading.Event()
         started: list[int] = []
 
-        def slow_handler(**kwargs: object) -> str:
+        def slow_handler(**_kwargs: object) -> str:
             started.append(1)
             entered.set()
             release.wait(timeout=5)

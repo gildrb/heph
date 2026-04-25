@@ -63,7 +63,7 @@ def _mock_client(*chunks: MagicMock) -> MagicMock:
 def _client_factory(mock_client: MagicMock):
     """Wrap a mock client in a factory callable for the client_factory param."""
 
-    def factory(config: ChatConfig) -> MagicMock:
+    def factory(_config: ChatConfig) -> MagicMock:
         return mock_client
 
     return factory
@@ -145,7 +145,7 @@ class TestStreamCompletionPipeline:
         client = MagicMock()
         chunk1 = _mock_chunk(content="partial ")
 
-        def streaming_response(**kwargs: object) -> Iterator[MagicMock]:
+        def streaming_response(**_kwargs: object) -> Iterator[MagicMock]:
             yield chunk1
             raise RuntimeError("connection lost")
 

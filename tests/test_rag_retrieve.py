@@ -221,7 +221,7 @@ class TestBm25Retriever:
 
     def test_empty_token_corpus_is_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class ExplodingBm25:
-            def index(self, _corpus_tokens: list[list[str]], *, show_progress: bool) -> object:
+            def index(self, _corpus_tokens: list[list[str]], *, _show_progress: bool) -> object:
                 raise AssertionError("empty token corpus should not be indexed")
 
         index = _make_index_with_chunks([_make_chunk("a I to the", "empty.md", 0)])
@@ -237,7 +237,7 @@ class TestBm25Retriever:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         class FailingBm25:
-            def index(self, _corpus_tokens: list[list[str]], *, show_progress: bool) -> object:
+            def index(self, _corpus_tokens: list[list[str]], *, _show_progress: bool) -> object:
                 raise ValueError("max() iterable argument is empty")
 
         index = _make_index_with_chunks([_make_chunk("python", "python.md", 0)])
@@ -723,7 +723,6 @@ class TestCrossEncoderReranker:
         reranker = self._make_reranker_with_mock([0.4, 0.8, 0.6, 0.2])
         results = reranker.rerank("test", candidates, top_k=2)
         assert len(results) == 2
-        # b (0.8) > c (0.6)
         assert results[0].chunk.source == "b.md"
         assert results[1].chunk.source == "c.md"
 
@@ -815,7 +814,7 @@ class TestHybridRetrieverWithReranker:
         # Mock cross-encoder reranker — flip the order
         mock_reranker = MagicMock(spec=CrossEncoderReranker)
         mock_reranker.rerank.side_effect = (
-            lambda query, candidates, top_k=5: [  # type: ignore[reportUnknownLambdaType]
+            lambda _query, _candidates, top_k=5: [  # type: ignore[reportUnknownLambdaType]
                 ScoredChunk(chunk=chunks[1], score=0.99),
                 ScoredChunk(chunk=chunks[0], score=0.7),
             ][:top_k]

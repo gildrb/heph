@@ -35,9 +35,11 @@ from hephaistos.app.shell import (  # type: ignore[reportPrivateUsage]
 )
 from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.engine import EngineError, StreamRecoveryError
+from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import ChatSession, send_user_message
 from hephaistos.fuzzy import ranked_matches
 from hephaistos.parameters.cli import load_config
+from hephaistos.parameters.settings import load_app_settings
 
 try:
     from rich.markdown import Markdown
@@ -136,7 +138,13 @@ def _status_text(session: ChatSession, state: str = "ready") -> Text:
 
 def _composer_meta(session: ChatSession) -> str:  # pyright: ignore[reportUnusedFunction]
     api_hint = "api missing" if not session.config.resolved_api_key else ""
+
+    session_count = load_app_settings().session_count
     parts = ["enter send", "tab complete", "/help commands", "ctrl+c interrupt", "ctrl+d exit"]
+    if session_count >= 3:
+        parts.extend(["/vocab drill", "/model model", "/theme theme"])
+    if session_count >= 5:
+        parts.extend(["! shell", "\\ continuation"])
     if api_hint:
         parts.append(api_hint)
     return "  ".join(parts)
@@ -148,10 +156,15 @@ def _composer_meta_text(session: ChatSession) -> Text:
         raise TuiDependencyError(_tui_dependency_message())
 
     text = _RichText(plain, style="#808080")
-    for label in ("enter", "tab", "/help", "ctrl+c", "ctrl+d"):
-        start = plain.index(label)
+    for label in ("enter", "tab", "/help", "ctrl+c", "ctrl+d", "/vocab", "/model", "/theme", "!"):
+        try:
+            start = plain.index(label)
+        except ValueError:
+            continue
         text.stylize(
-            "bold #9B4A2E" if label == "/help" else "dim #808080", start, start + len(label)
+            "bold #9B4A2E" if label.startswith("/") or label == "!" else "dim #808080",
+            start,
+            start + len(label),
         )
     if "api missing" in plain:
         api_start = plain.index("api missing")
@@ -326,7 +339,7 @@ def _transparent_screen_class() -> type[Screen]:
     transparent_style = _RichStyle()
 
     class TransparentScreen(Screen[None]):  # type: ignore[index, misc]
-        def render_line(self, y: int) -> Strip:
+        def render_line(self, _y: int) -> Strip:
             return strip_class.blank(self.size.width, transparent_style)
 
     return TransparentScreen
@@ -340,7 +353,7 @@ def _transparent_vertical_class() -> type[Vertical]:
     transparent_style = _RichStyle()
 
     class TransparentVertical(Vertical):  # type: ignore[misc]
-        def render_line(self, y: int) -> Strip:
+        def render_line(self, _y: int) -> Strip:
             return strip_class.blank(self.size.width, transparent_style)
 
     return TransparentVertical
@@ -435,6 +448,16 @@ def _tui_command_suggestions() -> list[CommandSuggestion]:
         )
     )
     return suggestions
+
+
+def _command_help() -> str:  # pyright: ignore[reportUnusedFunction]
+    suggestions = _tui_command_suggestions()
+    max_name = max(len(s.name) for s in suggestions)
+    lines: list[str] = []
+    for s in sorted(suggestions, key=lambda s: s.name):
+        padded = f"  /{s.name}".ljust(max_name + 4)
+        lines.append(f"{padded} {s.description}")
+    return "\n".join(lines)
 
 
 def _command_output_text(stdout: StringIO, stderr: StringIO) -> str:
@@ -736,7 +759,11 @@ def run_tui(session: ChatSession | None = None) -> None:
                 if reply:
                     self.call_from_thread(self._append_assistant_reply, reply)
             except (StreamRecoveryError, EngineError) as exc:
-                self.call_from_thread(self._append_error, str(exc))
+                provider = self.session.config.provider_slug or "the provider"
+                if is_network_error(exc):
+                    self.call_from_thread(self._append_notice, offline_message(provider))
+                else:
+                    self.call_from_thread(self._append_error, str(exc))
             finally:
                 self.call_from_thread(self._finish_turn)
 

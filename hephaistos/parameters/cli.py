@@ -154,7 +154,7 @@ def _display_setting_value(key: str) -> str:
         return "(not set)"
 
 
-def _cmd_config_show(args: argparse.Namespace) -> None:
+def _cmd_config_show(_args: argparse.Namespace) -> None:
     config = load_config()
     print("Current configuration:")
     print(f"  base_url: {config.base_url or '(not set)'}")

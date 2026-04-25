@@ -92,7 +92,7 @@ def test_load_config_precedence(
 
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        classmethod(lambda _cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
     monkeypatch.setenv("HEPHAISTOS_BASE_URL", "https://env.example/v1")
     monkeypatch.setenv("HEPHAISTOS_MODEL", "env-model")
@@ -118,7 +118,7 @@ def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
         classmethod(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-            lambda cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
+            lambda _cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
                 apply_to_config=lambda _config: None,  # type: ignore[reportUnknownLambdaType]
             )
         ),
@@ -187,7 +187,7 @@ def test_load_config_warns_when_provider_config_load_fails(
 ) -> None:
     isolated_config_dir.defaults_file.write_text("", encoding="utf-8")
 
-    def _raise(cls: type) -> None:  # type: ignore[reportMissingParameterType]
+    def _raise(_cls: type) -> None:  # type: ignore[reportMissingParameterType]
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
@@ -216,7 +216,7 @@ def test_invalid_integer_overrides_are_ignored(
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
         classmethod(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-            lambda cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
+            lambda _cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
                 apply_to_config=lambda _config: None,  # type: ignore[reportUnknownLambdaType]
             )
         ),
@@ -344,7 +344,7 @@ def test_load_config_feature_flags_env_overrides_user(
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
         classmethod(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-            lambda cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
+            lambda _cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
                 apply_to_config=lambda _config: None,  # type: ignore[reportUnknownLambdaType]
             )
         ),

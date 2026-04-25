@@ -187,8 +187,6 @@ class TestFormatVerificationNotice:
 
 
 # ---------------------------------------------------------------------------
-# verify_response (end-to-end)
-# ---------------------------------------------------------------------------
 
 
 class TestVerifyResponse:

@@ -19,6 +19,7 @@ from hephaistos.observability import init_observability, shutdown_observability
 from hephaistos.parameters.cli import (
     register as register_config_commands,
 )
+from hephaistos.parameters.settings import load_raw_settings, save_raw_settings
 from hephaistos.source.cli import register as register_source_commands
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
@@ -234,9 +235,20 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
     handler(args)
 
 
+def _increment_session_count() -> None:
+    """Bump the persisted session count (used for progressive keybind hints)."""
+    settings = load_raw_settings()
+    count = int(settings.get("session_count", 0) or 0) + 1  # type: ignore[reportArgumentType]
+    settings["session_count"] = count
+    save_raw_settings(settings)
+
+
 def main() -> None:
     init_analytics()
     init_observability()
+
+    # Track session count for progressive keybind hints.
+    _increment_session_count()
 
     # Detect profile flags before argparse (so profiling covers argparse itself)
     _profile = "--profile" in sys.argv[1:]

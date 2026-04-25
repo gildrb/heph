@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from hephaistos.app import commands
@@ -143,7 +145,7 @@ def test_model_command_validates_against_session_endpoint(
     monkeypatch.setattr(
         commands.ProviderConfig,
         "load",
-        classmethod(lambda cls: _default_config()),  # type: ignore[reportUnknownLambdaType]
+        classmethod(lambda _cls: _default_config()),  # type: ignore[reportUnknownLambdaType]
     )
     monkeypatch.setattr(
         commands,
@@ -221,7 +223,7 @@ def test_model_command_rejects_unsupported_model_for_known_endpoint(
     monkeypatch.setattr(
         commands.ProviderConfig,
         "load",
-        classmethod(lambda cls: _default_config()),  # type: ignore[reportUnknownLambdaType]
+        classmethod(lambda _cls: _default_config()),  # type: ignore[reportUnknownLambdaType]
     )
     monkeypatch.setattr(
         commands,
@@ -239,3 +241,198 @@ def test_model_command_rejects_unsupported_model_for_known_endpoint(
     assert result.output is None
     assert session.config.model == "gpt-5.4"
     assert messages == [("error", "Model unavailable.")]
+
+
+# ---------------------------------------------------------------------------
+# Coverage-boosting tests for command handlers
+# ---------------------------------------------------------------------------
+
+
+def test_exit_command_returns_quit(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    result = commands.ExitCommand().handle(session, "")
+
+    assert result.should_exit is True
+
+
+def test_quit_command_returns_quit(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    result = commands.QuitCommand().handle(session, "")
+
+    assert result.should_exit is True
+
+
+def test_status_command_reports_model(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.StatusCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "Model:" in out
+
+
+def test_history_command_no_armory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.HistoryCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "Turns:" in out
+
+
+def test_evidence_command_no_armory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.EvidenceCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "evidence" in out.lower()
+
+
+def test_save_command_plain_session(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    monkeypatch.setattr(
+        commands,
+        "save_session",
+        lambda _s: Path("/fake/saved.json"),  # type: ignore[reportUnknownLambdaType]
+    )
+
+    commands.SaveCommand().handle(session, "")
+    out = capsys.readouterr().out
+    assert "Saved" in out
+
+
+def test_compact_command_empty_session(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.CompactCommand().handle(session, "")
+    out = capsys.readouterr().out
+    assert "Nothing to compact" in out
+
+
+def test_edit_command_no_messages(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.EditCommand().handle(session, "")
+    out = capsys.readouterr().out
+    assert "No user messages" in out
+
+
+def test_api_command_set_url(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.ApiCommand().handle(session, "url https://api.example.com/v1")
+
+    out = capsys.readouterr().out
+    assert "Base URL:" in out
+    assert session.config.base_url == "https://api.example.com/v1"
+
+
+def test_api_command_set_url_missing_value(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.ApiCommand().handle(session, "url")
+    out = capsys.readouterr().out
+    assert "Usage:" in out
+
+
+def test_api_command_set_key(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    monkeypatch.setattr(
+        commands.ProviderConfig,
+        "load",
+        classmethod(lambda cls: _default_config()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+    )
+    monkeypatch.setattr(commands, "store_key", lambda *_a: None)  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+
+    commands.ApiCommand().handle(session, "key sk-test-123")
+    out = capsys.readouterr().out
+    assert "key saved" in out.lower() or "API key" in out
+
+
+def test_api_command_set_key_missing_value(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.ApiCommand().handle(session, "key")
+    out = capsys.readouterr().out
+    assert "Usage:" in out
+
+
+def test_api_command_unknown_subcommand(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.ApiCommand().handle(session, "bogus value")
+    out = capsys.readouterr().out
+    assert "Unknown subcommand" in out
+
+
+def test_tokens_command_invalid_arg(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.TokensCommand().handle(session, "bogus")
+    out = capsys.readouterr().out
+    assert "Usage:" in out or "toggle" in out.lower()
+
+
+def test_tokens_command_toggle(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.TokensCommand().handle(session, "")
+    out = capsys.readouterr().out
+    assert "tokens" in out.lower()
+
+
+def test_cost_command_invalid_arg(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.CostCommand().handle(session, "bogus")
+    out = capsys.readouterr().out
+    assert "Usage:" in out or "toggle" in out.lower()
+
+
+def test_cost_command_toggle(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.CostCommand().handle(session, "")
+    out = capsys.readouterr().out
+    assert "cost" in out.lower()

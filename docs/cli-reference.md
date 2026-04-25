@@ -50,7 +50,10 @@ new docs.
 | /evidence | Show sources retrieved for the last turn |
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
-| /stats | Show session and armory usage stats |
+| /stats | Show session, armory, and study progress stats |
+| /export | Export the current session to a markdown file |
+| /import | Import files into the armory source directory |
+| /remind | Show upcoming study reminders and due cards |
 | /edit | Edit and resend the last user message |
 | /provider | Show or switch LLM provider and model |
 | /models | List all available models across providers |

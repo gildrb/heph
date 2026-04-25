@@ -222,7 +222,7 @@ class TestAutoCompact:
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
             "hephaistos.harness.compact.build_client",
-            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
         auto_compact(messages, config, tmp_path)
@@ -249,7 +249,7 @@ class TestAutoCompact:
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
             "hephaistos.harness.compact.build_client",
-            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
         compressed = auto_compact(messages, config, tmp_path)
@@ -274,7 +274,7 @@ class TestAutoCompact:
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
             "hephaistos.harness.compact.build_client",
-            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
         compressed = auto_compact(messages, config, tmp_path, keep_recent_exchanges=2)
@@ -294,7 +294,7 @@ class TestAutoCompact:
         config, mock_client = self._mock_config_and_client(summary="Key fact: the answer is 42.")
         monkeypatch.setattr(
             "hephaistos.harness.compact.build_client",
-            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
         compressed = auto_compact(messages, config, tmp_path)
@@ -315,7 +315,7 @@ class TestAutoCompact:
         mock_client.chat.completions.create.side_effect = RuntimeError("no API key")
         monkeypatch.setattr(
             "hephaistos.harness.compact.build_client",
-            lambda c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
         result = auto_compact(messages, config, tmp_path)

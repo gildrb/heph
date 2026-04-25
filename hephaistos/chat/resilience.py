@@ -137,3 +137,34 @@ class CircuitBreaker:
                 extra={"fields": {"circuit": self.name}},
             )
             _state_gauge.set(CircuitState.HALF_OPEN, {"circuit": self.name})
+
+
+def is_network_error(exc: BaseException) -> bool:
+    """Return True when the exception is a network connectivity error.
+
+    Distinguishes network failures from auth errors, rate limits, and
+    server-side issues so the UI can show appropriate offline guidance.
+    """
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, ConnectionError | OSError | TimeoutError):
+            return True
+        exc_name = type(current).__name__
+        if exc_name in ("APIConnectionError", "APITimeoutError"):
+            return True
+        current = current.__cause__
+    return False
+
+
+def offline_message(provider_name: str) -> str:
+    """Return a friendly message for when the LLM API is unreachable."""
+    return (
+        f"Can't reach {provider_name}. "
+        "You're offline — but you can still:\n"
+        "  · Review vocabulary with /vocab drill\n"
+        "  · Browse sources with /sources\n"
+        "  · Export your notes with /export\n"
+        "  · Check /stats for session progress\n"
+        "\n"
+        "Hephaistos will reconnect automatically when connectivity returns."
+    )

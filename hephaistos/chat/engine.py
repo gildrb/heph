@@ -72,8 +72,8 @@ class _MeterProtocol(Protocol):
 
 _log = get_logger("chat.engine")
 
-_tracer: _TracerProtocol = get_tracer("chat.engine")
-_meter: _MeterProtocol = get_meter("chat.engine")
+_tracer: _TracerProtocol = get_tracer("chat.engine")  # type: ignore[reportAssignmentType]
+_meter: _MeterProtocol = get_meter("chat.engine")  # type: ignore[reportAssignmentType]
 
 _llm_duration_hist = _meter.create_histogram(
     "llm.request.duration",
@@ -258,7 +258,7 @@ def _provider_error_fields(exc: Exception) -> tuple[str, str]:
 
 def _is_account_setup_error(exc: Exception) -> bool:
     """Return True when retrying cannot fix the provider/account state."""
-    if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
+    if isinstance(exc, AuthenticationError | PermissionDeniedError):
         return True
     if not isinstance(exc, RateLimitError):
         return False

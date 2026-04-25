@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import time
 
-from hephaistos.chat.resilience import CircuitBreaker, CircuitState
+from hephaistos.chat.resilience import (
+    CircuitBreaker,
+    CircuitState,
+    is_network_error,
+    offline_message,
+)
 
 
 class TestCircuitBreaker:
@@ -71,3 +76,55 @@ class TestCircuitBreaker:
         cb1.record_failure()
         assert cb1.state == CircuitState.OPEN
         assert cb2.state == CircuitState.CLOSED
+
+
+class TestIsNetworkError:
+    def test_connection_error_is_network(self) -> None:
+        assert is_network_error(ConnectionError("refused")) is True
+
+    def test_timeout_is_network(self) -> None:
+        assert is_network_error(TimeoutError("timed out")) is True
+
+    def test_os_error_is_network(self) -> None:
+        assert is_network_error(OSError("network unreachable")) is True
+
+    def test_runtime_error_is_not_network(self) -> None:
+        assert is_network_error(RuntimeError("something else")) is False
+
+    def test_value_error_is_not_network(self) -> None:
+        assert is_network_error(ValueError("bad input")) is False
+
+    def test_chained_os_error_is_network(self) -> None:
+        inner = OSError("connection reset")
+        exc = RuntimeError("wrap")
+        exc.__cause__ = inner
+        assert is_network_error(exc) is True
+
+    def test_api_connection_error_by_name(self) -> None:
+        exc_cls = type("APIConnectionError", (Exception,), {})
+        exc = exc_cls.__new__(exc_cls)
+        exc.__cause__ = None
+        assert is_network_error(exc) is True
+
+    def test_api_timeout_error_by_name(self) -> None:
+        exc_cls = type("APITimeoutError", (Exception,), {})
+        exc = exc_cls.__new__(exc_cls)
+        exc.__cause__ = None
+        assert is_network_error(exc) is True
+
+
+class TestOfflineMessage:
+    def test_mentions_provider(self) -> None:
+        msg = offline_message("OpenRouter")
+        assert "OpenRouter" in msg
+
+    def test_mentions_offline_features(self) -> None:
+        msg = offline_message("OpenRouter")
+        assert "/vocab" in msg
+        assert "/sources" in msg
+        assert "/export" in msg
+        assert "/stats" in msg
+
+    def test_mentions_reconnect(self) -> None:
+        msg = offline_message("OpenRouter")
+        assert "reconnect" in msg.lower()

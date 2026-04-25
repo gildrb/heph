@@ -60,7 +60,7 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         commands,
         "print_error",
-        lambda msg: None,  # type: ignore[reportUnknownLambdaType]
+        lambda _msg: None,  # type: ignore[reportUnknownLambdaType]
     )
 
     result = commands.LoginCommand().handle(session, "")
@@ -107,7 +107,7 @@ def test_login_failure_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         commands,
         "print_success",
-        lambda msg: None,  # type: ignore[reportUnknownLambdaType]
+        lambda _msg: None,  # type: ignore[reportUnknownLambdaType]
     )
 
     commands.LoginCommand().handle(session, "")

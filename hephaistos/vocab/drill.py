@@ -74,7 +74,7 @@ def _apply_schedule(state: VocabCardState, result: ScheduleResult) -> VocabCardS
     return state
 
 
-def _print_header(card_num: int, total: int, card: VocabCardState) -> None:
+def _print_header(card_num: int, total: int, _card: VocabCardState) -> None:
     direct_print("")
     direct_print(
         styled(

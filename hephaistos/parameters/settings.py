@@ -35,7 +35,7 @@ STRING_KEYS: Final[frozenset[str]] = frozenset(
         "default_armory_path",
     }
 )
-INT_KEYS: Final[frozenset[str]] = frozenset({"max_tokens", "rag_context_budget"})
+INT_KEYS: Final[frozenset[str]] = frozenset({"max_tokens", "rag_context_budget", "session_count"})
 PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "base_url",
     "model",
@@ -52,11 +52,16 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
 INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "supermemory_onboarding_seen",
     "telemetry_notice_seen",
+    "session_count",
 )
 ALLOWED_CONFIG_KEYS: Final[frozenset[str]] = frozenset(
     (*PUBLIC_CONFIG_KEYS, *INTERNAL_CONFIG_KEYS)
 )
-DEFAULT_INT_VALUES: Final[dict[str, int]] = {"max_tokens": 4096, "rag_context_budget": 2000}
+DEFAULT_INT_VALUES: Final[dict[str, int]] = {
+    "max_tokens": 4096,
+    "rag_context_budget": 2000,
+    "session_count": 0,
+}
 
 _TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
@@ -72,6 +77,7 @@ class AppSettings:
     supermemory_profile: str = "heph-study"
     supermemory_onboarding_seen: bool = False
     telemetry_notice_seen: bool = False
+    session_count: int = 0
 
 
 @dataclass
@@ -245,6 +251,7 @@ def load_app_settings() -> AppSettings:
             raw.get("supermemory_onboarding_seen"), default=False
         ),
         telemetry_notice_seen=_coerce_bool(raw.get("telemetry_notice_seen"), default=False),
+        session_count=int(raw.get("session_count", 0) or 0),  # type: ignore[reportArgumentType]
     )
 
 

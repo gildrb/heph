@@ -32,7 +32,7 @@ class _NoopSpan:
 
     __slots__ = ()
 
-    def set_attribute(self, key: str, value: object) -> _NoopSpan:
+    def set_attribute(self, _key: str, _value: object) -> object:
         return self
 
     def end(self, _end_time: float | None = None) -> None:
@@ -98,7 +98,7 @@ class _NoopMeter:
     def create_up_down_counter(self, name: str, **kwargs: object) -> _NoopCounter:
         return _NoopCounter()
 
-    def create_gauge(self, name: str, **kwargs: object) -> _NoopGauge:
+    def create_gauge(self, _name: str, **_kwargs: object) -> _NoopGauge:
         return _NoopGauge()
 
 
@@ -324,7 +324,7 @@ def init_tracing() -> None:
     """Compatibility no-op for remote tracing."""
 
 
-def get_tracer(name: str) -> _NoopTracer:
+def get_tracer(_name: str) -> _NoopTracer:
     """Return a reusable no-op tracer."""
     return _NOOP_TRACER
 
@@ -333,7 +333,7 @@ def init_metrics() -> None:
     """Compatibility no-op for remote metrics."""
 
 
-def get_meter(name: str) -> _NoopMeter:
+def get_meter(_name: str) -> _NoopMeter:
     """Return a reusable no-op meter."""
     return _NOOP_METER
 

@@ -62,6 +62,7 @@ from hephaistos.app.palette import (
 from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, EngineError, StreamRecoveryError
+from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import (
     ChatSession,
     SessionError,
@@ -285,18 +286,23 @@ def _report_engine_error(
     session: ChatSession,
 ) -> None:
     """Display an engine error and capture local diagnostic context."""
+    provider = session.config.provider_slug or "the provider"
+
     if isinstance(exc, StreamRecoveryError):
-        msg = (
-            f"{styled('warning:', STYLE_ERROR)} "
-            f"Stream interrupted — connection lost after partial reply."
-        )
-        if exc.partial_content:
-            msg += f" ({len(exc.partial_content)} chars received)"
-        print(msg)
+        if is_network_error(exc):
+            print(offline_message(provider))
+        else:
+            msg = (
+                f"{styled('warning:', STYLE_ERROR)} "
+                f"Stream interrupted — connection lost after partial reply."
+            )
+            if exc.partial_content:
+                msg += f" ({len(exc.partial_content)} chars received)"
+            print(msg)
         capture_exception(
             exc,
             context={
-                "provider": session.config.provider_slug,
+                "provider": provider,
                 "model": session.config.model,
                 "partial_content_length": len(exc.partial_content),
             },
@@ -304,13 +310,32 @@ def _report_engine_error(
         capture_analytics(
             "request_failed",
             {
-                "provider": session.config.provider_slug or "unknown",
+                "provider": provider,
                 "model": session.config.model,
                 "kind": "stream_recovery",
                 "partial_content_length": len(exc.partial_content),
             },
         )
     else:
+        if is_network_error(exc):
+            print(offline_message(provider))
+        else:
+            print_error(str(exc))
+        capture_exception(
+            exc,
+            context={
+                "provider": provider,
+                "model": session.config.model,
+            },
+        )
+        capture_analytics(
+            "request_failed",
+            {
+                "provider": provider,
+                "model": session.config.model,
+                "kind": "engine_error",
+            },
+        )
         print_error(str(exc))
         capture_exception(
             exc,

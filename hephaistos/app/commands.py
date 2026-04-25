@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.autocomplete import CommandSuggestion
 from hephaistos.app.display import (
+    STYLE_ACCENT,
     STYLE_DIM,
+    STYLE_SUCCESS,
     direct_input,
     print_error,
     print_info,
@@ -50,6 +54,7 @@ from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import mask_key, resolve_key, set_volatile, store_key
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.registry import get_registry as get_provider_registry
+from hephaistos.study.state import StudyFeedbackType
 from hephaistos.telemetry import (
     analytics_backend_available,
     analytics_enabled,
@@ -60,7 +65,8 @@ from hephaistos.telemetry import (
 )
 from hephaistos.vocab.drill import run_drill
 from hephaistos.vocab.parser import scan_armory
-from hephaistos.vocab.state import load_schedule, save_schedule
+from hephaistos.vocab.scheduler import select_due_cards
+from hephaistos.vocab.state import VocabCardState, load_schedule, save_schedule
 
 
 class CommandResult:
@@ -580,7 +586,7 @@ class CostCommand(Command):
 
 class StatsCommand(Command):
     name = "stats"
-    description = "Show session and armory usage stats"
+    description = "Show session, armory, and study progress stats"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = _ensure_session(session)
@@ -616,6 +622,220 @@ class StatsCommand(Command):
                     f"  Cost:       ${total_cost:.4f}",
                 ]
             )
+            lines.extend(self._vocab_stats(s.armory_path))
+            lines.extend(self._study_stats(s))
+        print("\n".join(lines))
+        return CommandResult()
+
+    @staticmethod
+    def _vocab_stats(armory_path: Path) -> list[str]:
+        """Return vocabulary scheduling statistics for the armory."""
+        deck = scan_armory(armory_path)
+        store = load_schedule(armory_path)
+        store.sync_with_deck(deck)
+        save_schedule(store)
+        stats = store.stats()
+
+        if stats["total"] == 0:
+            return [
+                "",
+                "Vocabulary:",
+                "  No vocab cards yet. Add Q&A pairs to your source files.",
+            ]
+
+        cards = store.card_list
+        reviewed = [card for card in cards if not card.is_new]
+        avg_easiness = sum(card.easiness for card in reviewed) / len(reviewed) if reviewed else 0.0
+
+        lines = [
+            "",
+            "Vocabulary:",
+            f"  Total cards:  {stats['total']}",
+            f"  New:          {stats['new']}",
+            f"  Due now:      {stats['due']}",
+            f"  Mastered:     {stats['mastered']} ({_pct(stats['mastered'], stats['total'])})",
+        ]
+        if reviewed:
+            lines.append(f"  Avg easiness: {avg_easiness:.2f}")
+
+        now = datetime.now(UTC)
+        week_ahead = now + timedelta(days=7)
+        due_this_week = sum(
+            1 for card in cards if card.next_review is not None and card.next_review <= week_ahead
+        )
+        due_tomorrow = sum(
+            1
+            for card in cards
+            if card.next_review is not None and card.next_review <= now + timedelta(days=1)
+        )
+        lines.append(f"  Due tomorrow: {due_tomorrow}")
+        lines.append(f"  Due this week: {due_this_week}")
+        return lines
+
+    @staticmethod
+    def _study_stats(session: ChatSession) -> list[str]:
+        """Return study mode feedback from the current session state."""
+        study = session.study_state
+        if study.last_feedback_type == StudyFeedbackType.NONE:
+            return []
+        lines = [
+            "",
+            "Study mode:",
+            f"  Phase:     {study.phase.value}",
+        ]
+        if study.current_item:
+            lines.append(f"  Item:      {study.current_item[:60]}")
+        if study.attempt_count > 0:
+            lines.append(f"  Attempts:  {study.attempt_count}")
+        lines.append(f"  Feedback:  {study.last_feedback_type.value}")
+        return lines
+
+
+class ExportCommand(Command):
+    name = "export"
+    description = "Export the current session to a markdown file"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        dest = args.strip()
+        if not dest:
+            dest = f"session-{s.session_id[:8]}.md"
+
+        path = Path(dest).expanduser().resolve()
+        if path.is_dir():
+            path = path / f"session-{s.session_id[:8]}.md"
+
+        lines: list[str] = []
+        if s.title:
+            lines.append(f"# {s.title}")
+            lines.append("")
+
+        for msg in s.conversation.messages:
+            if msg.role == "user":
+                lines.append("## You")
+                lines.append("")
+                lines.append(msg.content)
+                lines.append("")
+            elif msg.role == "assistant":
+                lines.append("## Hephaistos")
+                lines.append("")
+                lines.append(msg.content)
+                lines.append("")
+
+        if not any(m.role in ("user", "assistant") for m in s.conversation.messages):
+            print_info("Nothing to export — the session has no messages yet.")
+            return CommandResult()
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(lines), encoding="utf-8")
+        print_success(f"Session exported to {path}")
+        return CommandResult()
+
+
+class ImportCommand(Command):
+    name = "import"
+    description = "Import files into the armory source directory"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        if s.armory_path is None:
+            print_error("No armory attached. Use /armory to open one.")
+            return CommandResult()
+
+        raw = args.strip()
+        if not raw:
+            print_error("Usage: /import <file-or-directory>")
+            return CommandResult()
+
+        source = Path(raw).expanduser().resolve()
+        if not source.exists():
+            print_error(f"Path not found: {source}")
+            return CommandResult()
+
+        dest_dir = s.armory_path / "source"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        imported: list[str] = []
+
+        targets = sorted(source.iterdir()) if source.is_dir() else [source]
+        for target in targets:
+            if target.is_dir():
+                continue
+            if target.suffix.lower() not in (".md", ".txt", ".pdf", ".rst", ".py", ".json"):
+                continue
+            dest = dest_dir / target.name
+            if dest.exists():
+                continue
+            shutil.copy2(target, dest)
+            imported.append(target.name)
+
+        if not imported:
+            print_info("No new files to import (unsupported format or already present).")
+            return CommandResult()
+
+        print_success(f"Imported {len(imported)} file{'s' if len(imported) != 1 else ''}:")
+        for name in imported:
+            print(f"  {name}")
+        print_info("Use /sources to browse or /vocab drill to review extracted cards.")
+        return CommandResult()
+
+
+class RemindCommand(Command):
+    name = "remind"
+    description = "Show upcoming study reminders and due cards"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        if s.armory_path is None:
+            print_error("No armory attached. Use /armory to open one.")
+            return CommandResult()
+
+        deck = scan_armory(s.armory_path)
+        store = load_schedule(s.armory_path)
+        store.sync_with_deck(deck)
+        save_schedule(store)
+
+        all_cards = store.card_list
+        due = select_due_cards(all_cards)
+        now = datetime.now(UTC)
+
+        if not all_cards:
+            print_info("No vocab cards yet. Add Q&A pairs to your source files.")
+            return CommandResult()
+
+        lines: list[str] = []
+
+        if due:
+            lines.append(f"You have {len(due)} card{'s' if len(due) != 1 else ''} due for review.")
+            lines.append(f"  Run {styled('/vocab drill', STYLE_ACCENT)} to study them now.")
+        else:
+            lines.append(styled("All caught up!", STYLE_SUCCESS))
+
+        with_scheduled = [c for c in all_cards if c.next_review is not None]
+        scheduled = sorted(with_scheduled, key=lambda c: c.next_review)  # type: ignore[arg-type]
+        if scheduled:
+            next_card: VocabCardState = scheduled[0]  # type: ignore[reportUnknownVariableType]
+            assert next_card.next_review is not None  # type: ignore[reportUnknownMemberType]
+            delta = next_card.next_review - now  # type: ignore[reportUnknownMemberType,reportUnknownVariableType]
+            secs = float(delta.total_seconds())  # type: ignore[reportUnknownMemberType]
+            if secs > 0:
+                hours = secs / 3600
+                if hours < 1:
+                    when = f"{int(secs / 60)}m"  # type: ignore[reportUnknownArgumentType]
+                elif hours < 48:
+                    when = f"{int(hours)}h"  # type: ignore[reportUnknownArgumentType]
+                else:
+                    when = f"{int(hours / 24)}d"  # type: ignore[reportUnknownArgumentType]
+                n_scheduled = len(scheduled)  # type: ignore[reportUnknownArgumentType]
+                plural = "s" if n_scheduled != 1 else ""
+                lines.append(f"  Next review in {when} ({n_scheduled} card{plural} scheduled).")
+
+        if due:
+            lines.append("")
+            lines.append("Due cards:")
+            lines.extend(f"  {styled(card.front[:60], STYLE_DIM)}" for card in due[:10])
+            if len(due) > 10:
+                lines.append(f"  ... and {len(due) - 10} more")
+
         print("\n".join(lines))
         return CommandResult()
 
@@ -1327,6 +1547,13 @@ def _format_duration(seconds: int) -> str:
     return f"{sec}s"
 
 
+def _pct(part: int, total: int) -> str:
+    """Return a percentage string like '42%'."""
+    if total == 0:
+        return "0%"
+    return f"{part * 100 // total}%"
+
+
 def _supermemory_key_source() -> str:
     if keyring_store.retrieve_key(SUPERMEMORY_PROVIDER_SLUG):
         return "keychain"
@@ -1387,6 +1614,9 @@ def get_registry() -> CommandRegistry:
             TokensCommand,
             CostCommand,
             StatsCommand,
+            ExportCommand,
+            ImportCommand,
+            RemindCommand,
             EditCommand,
             ProviderCommand,
             ModelsCommand,

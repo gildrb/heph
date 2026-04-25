@@ -96,7 +96,7 @@ def test_list_child_dirs_handles_permission_error(tmp_path: Path) -> None:
     parent = tmp_path / "parent"
     parent.mkdir()
 
-    def _raising_iterdir(self: Path):
+    def _raising_iterdir(_self: Path):
         raise PermissionError("no access")
 
     original = menu_mod.Path.iterdir

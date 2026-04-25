@@ -342,7 +342,7 @@ def chunk_markdown(
     text: str,
     source: str,
     chunk_size: int = _DEFAULT_CHUNK_SIZE,
-    overlap: int = _DEFAULT_OVERLAP,
+    _overlap: int = _DEFAULT_OVERLAP,
 ) -> list[Chunk]:
     """Structure-aware Markdown chunking.
 
