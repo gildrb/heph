@@ -223,9 +223,9 @@ Screen {
     background-tint: transparent;
 }
 #composer-frame {
-    height: auto;
-    min-height: 4;
-    max-height: 12;
+    height: 11;
+    min-height: 11;
+    max-height: 11;
     width: auto;
     max-width: 100%;
     padding: 0 0;
@@ -233,16 +233,25 @@ Screen {
     color: #E0E0E0;
 }
 #suggestions {
-    height: auto;
-    max-height: 8;
+    height: 7;
+    min-height: 7;
+    max-height: 7;
     width: auto;
     max-width: 100%;
     margin-bottom: 1;
     background: transparent;
     color: #E0E0E0;
+    scrollbar-color: #333333;
+    scrollbar-color-hover: #444444;
+    scrollbar-color-active: #555555;
+    scrollbar-background: #111111;
+    scrollbar-background-hover: #111111;
+    scrollbar-background-active: #111111;
+    scrollbar-corner-color: transparent;
+    scrollbar-size-vertical: 1;
 }
 .hidden {
-    display: none;
+    visibility: hidden;
 }
 OptionList {
     background: transparent;
@@ -253,6 +262,10 @@ OptionList > .option-list--option {
     color: #E0E0E0;
 }
 OptionList > .option-list--option-highlighted {
+    background: #333333;
+    color: #FFFFFF;
+}
+OptionList:focus > .option-list--option-highlighted {
     background: #333333;
     color: #FFFFFF;
 }
