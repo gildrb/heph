@@ -35,6 +35,7 @@ from hephaistos.chat.session import (
     session_has_messages,
     validate_armory_path,
 )
+from hephaistos.chat.usage import load_usage_summaries
 from hephaistos.harness.persona import get_persona, list_personas
 from hephaistos.memory.supermemory import (
     SUPERMEMORY_API_KEY_ENV,
@@ -122,7 +123,7 @@ class HelpCommand(Command):
 class ExitCommand(Command):
     name = "exit"
     description = "Leave the shell"
-    aliases = ()
+    aliases = ("quit", "q")
 
     def handle(self, session: object, args: str) -> CommandResult:
         return CommandResult(should_exit=True)
@@ -132,6 +133,7 @@ class QuitCommand(Command):
     name = "quit"
     description = "Leave the shell"
     aliases = ("q",)
+    hidden = True
 
     def handle(self, session: object, args: str) -> CommandResult:
         print_info(f"Exiting... (/{self.name} \u2192 /exit)")
@@ -247,7 +249,6 @@ class ArmoryCommand(Command):
 class ChatsCommand(Command):
     name = "chats"
     description = "List saved chats in the active armory"
-    aliases = ("sessions",)
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = _ensure_session(session)
@@ -255,9 +256,27 @@ class ChatsCommand(Command):
         return CommandResult()
 
 
+class SessionsCommand(Command):
+    name = "sessions"
+    description = "List or resume saved sessions"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        subcmd = args.strip().lower()
+        if subcmd in ("", "list", "recent"):
+            list_saved_chats(s)
+            return CommandResult()
+        if subcmd in ("browse", "menu"):
+            return CommandResult(new_session=resume_saved_chat(s, "browse"))
+        if subcmd in ("resume", "last", "latest"):
+            return CommandResult(new_session=resume_saved_chat(s, "latest"))
+        print_error("Usage: /sessions [list|recent|browse|resume]")
+        return CommandResult()
+
+
 class ResumeCommand(Command):
     name = "resume"
-    description = "Resume a saved chat by menu or session ID prefix"
+    description = "Resume the latest saved chat, or pass an ID prefix"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = _ensure_session(session)
@@ -488,6 +507,115 @@ class HistoryCommand(Command):
                 f"  Cost:      ${usage_summary['cost_usd']:.4f}",
             ]
         )
+        print("\n".join(lines))
+        return CommandResult()
+
+
+class EvidenceCommand(Command):
+    name = "evidence"
+    description = "Show sources retrieved for the last turn"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        evidence = s.last_turn_evidence
+        if evidence is None or not evidence.items:
+            print_info("No evidence was retrieved for the last turn.")
+            return CommandResult()
+        lines = ["Last turn evidence:"]
+        for item in evidence.items:
+            preview = " ".join(item.content.split())
+            if len(preview) > 120:
+                preview = f"{preview[:117]}..."
+            lines.append(
+                f"  {item.evidence_id}  {item.source}#chunk={item.chunk_index}"
+                f"  score={item.score:.3f}"
+            )
+            if preview:
+                lines.append(f"      {preview}")
+        print("\n".join(lines))
+        return CommandResult()
+
+
+class TokensCommand(Command):
+    name = "tokens"
+    description = "Show or hide live token estimates"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        value = args.strip().lower()
+        if value in ("show", "on", "yes", "true", "1"):
+            s.live_tokens_visible = True
+        elif value in ("hide", "off", "no", "false", "0"):
+            s.live_tokens_visible = False
+        elif value:
+            print_error("Usage: /tokens [show|hide]")
+            return CommandResult()
+        else:
+            s.live_tokens_visible = not s.live_tokens_visible
+        state = "shown" if s.live_tokens_visible else "hidden"
+        print_success(f"Live tokens {state}.")
+        return CommandResult()
+
+
+class CostCommand(Command):
+    name = "cost"
+    description = "Show or hide live cost estimates"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        value = args.strip().lower()
+        if value in ("show", "on", "yes", "true", "1"):
+            s.live_cost_visible = True
+        elif value in ("hide", "off", "no", "false", "0"):
+            s.live_cost_visible = False
+        elif value:
+            print_error("Usage: /cost [show|hide]")
+            return CommandResult()
+        else:
+            s.live_cost_visible = not s.live_cost_visible
+        state = "shown" if s.live_cost_visible else "hidden"
+        print_success(f"Live cost {state}.")
+        return CommandResult()
+
+
+class StatsCommand(Command):
+    name = "stats"
+    description = "Show session and armory usage stats"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        user_msgs = sum(1 for message in s.conversation.messages if message.role == "user")
+        assistant_msgs = sum(
+            1 for message in s.conversation.messages if message.role == "assistant"
+        )
+        usage = s.usage.summary()
+        lines = [
+            "Current session:",
+            f"  Session:    {s.session_id}",
+            f"  Runtime:    {_format_duration(s.current_run_seconds)}",
+            f"  Turns:      {user_msgs}",
+            f"  Assistant:  {assistant_msgs} messages",
+            f"  API calls:  {usage['api_calls']}",
+            f"  Tokens:     {usage['total_tokens']}",
+            f"  Cost:       ${usage['cost_usd']:.4f}",
+        ]
+        if s.armory_path is not None:
+            sessions = chat_storage.list_sessions(s.armory_path)
+            usage_summaries = load_usage_summaries(s.armory_path)
+            total_calls = sum(int(item["api_calls"]) for item in usage_summaries)
+            total_tokens = sum(int(item["total_tokens"]) for item in usage_summaries)
+            total_cost = sum(float(item["cost_usd"]) for item in usage_summaries)
+            lines.extend(
+                [
+                    "",
+                    "Armory:",
+                    f"  Path:       {s.armory_path}",
+                    f"  Saved:      {len(sessions)} sessions",
+                    f"  API calls:  {total_calls}",
+                    f"  Tokens:     {total_tokens}",
+                    f"  Cost:       ${total_cost:.4f}",
+                ]
+            )
         print("\n".join(lines))
         return CommandResult()
 
@@ -784,7 +912,7 @@ class MemoryCommand(Command):
 
 class LoginCommand(Command):
     name = "login"
-    description = "Authenticate with an LLM provider via OAuth"
+    description = "Authenticate via OAuth"
 
     def handle(self, session: object, args: str) -> CommandResult:
         options = [
@@ -1189,6 +1317,16 @@ def _ensure_session(session: object):
     return session
 
 
+def _format_duration(seconds: int) -> str:
+    minutes, sec = divmod(seconds, 60)
+    hours, minute = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minute}m {sec}s"
+    if minute:
+        return f"{minute}m {sec}s"
+    return f"{sec}s"
+
+
 def _supermemory_key_source() -> str:
     if keyring_store.retrieve_key(SUPERMEMORY_PROVIDER_SLUG):
         return "keychain"
@@ -1239,11 +1377,16 @@ def get_registry() -> CommandRegistry:
             ClearCommand,
             ArmoryCommand,
             ChatsCommand,
+            SessionsCommand,
             ResumeCommand,
             ModelCommand,
             ApiCommand,
             CompactCommand,
             HistoryCommand,
+            EvidenceCommand,
+            TokensCommand,
+            CostCommand,
+            StatsCommand,
             EditCommand,
             ProviderCommand,
             ModelsCommand,

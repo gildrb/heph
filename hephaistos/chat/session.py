@@ -8,6 +8,7 @@ import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from hephaistos.analytics import capture as capture_analytics
@@ -21,7 +22,7 @@ from hephaistos.chat.usage import SessionUsage
 from hephaistos.harness.dispatch import SteeringQueue
 from hephaistos.harness.persona import Persona, resolve_persona
 from hephaistos.harness.prompt import build_system_prompt
-from hephaistos.harness.rag import ArmoryIndex, iter_source_files
+from hephaistos.harness.rag import ArmoryIndex, TurnEvidence, iter_source_files
 from hephaistos.harness.tools import ToolRegistry, default_registry
 from hephaistos.logging import TraceWriter, get_logger
 from hephaistos.memory import MemoryStore, load_memory
@@ -41,6 +42,12 @@ class ChatSession:
     source_file_count: int = 0
     source_files: tuple[str, ...] = ()
     dirty: bool = False
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    resumed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_activity_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    live_tokens_visible: bool = False
+    live_cost_visible: bool = False
+    last_turn_evidence: TurnEvidence | None = None
     _rag_index: ArmoryIndex | None = field(default=None, init=False, repr=False)
     _memory: MemoryStore | None = field(default=None, init=False, repr=False)
     _tool_registry: ToolRegistry = field(
@@ -61,6 +68,13 @@ class ChatSession:
     @property
     def tool_registry(self) -> ToolRegistry:
         return self._tool_registry
+
+    @property
+    def current_run_seconds(self) -> int:
+        return max(0, int((datetime.now(UTC) - self.resumed_at).total_seconds()))
+
+    def mark_activity(self) -> None:
+        self.last_activity_at = datetime.now(UTC)
 
     @property
     def memory(self) -> MemoryStore | None:
@@ -101,6 +115,19 @@ _PLAIN_CHAT_CONTEXT = (
     "tools are unavailable. Do not claim to have retrieved armory evidence. "
     "Ask the user to attach an armory for source-grounded study."
 )
+
+
+def _metadata_datetime(metadata: dict[str, object], key: str) -> datetime | None:
+    value = metadata.get(key)
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def validate_armory_path(path_str: str) -> Path:
@@ -264,6 +291,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
     conversation, title = chat_storage.load(armory_path, session_id)
     metadata = chat_storage.load_metadata(armory_path, session_id)
     source_file_count, source_files = _scan_source_files(armory_path)
+    now = datetime.now(UTC)
     session = ChatSession(
         config=config,
         conversation=conversation,
@@ -273,6 +301,9 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         source_file_count=source_file_count,
         source_files=tuple(source_files),
         study_state=StudyState.from_dict(metadata.get("study_state")),
+        started_at=_metadata_datetime(metadata, "started_at") or now,
+        resumed_at=now,
+        last_activity_at=now,
     )
     session.configure_armory_context(
         memory=load_memory(armory_path),
@@ -326,6 +357,7 @@ def send_user_message(
     being written to ``sys.stdout``. This keeps backward compatibility with
     callers that still rely on stdout behaviour.
     """
+    session.mark_activity()
     orchestrator = TurnOrchestrator(session)
     printed_prefix = False
 
@@ -347,6 +379,7 @@ def send_user_message(
 
     if orchestrator.last_reply:
         _write("\n")
+    session.mark_activity()
     return orchestrator.last_reply
 
 
@@ -362,7 +395,11 @@ def save_session(session: ChatSession) -> Path:
         session.session_id,
         session.conversation,
         title=title,
-        metadata={"study_state": session.study_state.to_dict()},
+        metadata={
+            "study_state": session.study_state.to_dict(),
+            "started_at": session.started_at.isoformat(),
+            "last_activity_at": session.last_activity_at.isoformat(),
+        },
     )
     session.dirty = False
     capture_analytics(

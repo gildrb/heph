@@ -29,7 +29,6 @@ from hephaistos.chat.events import (
 )
 from hephaistos.chat.usage import ContextBudget, SessionUsage, TokenUsage
 from hephaistos.harness.compact import (
-    TOKEN_THRESHOLD,
     auto_compact,
     estimate_messages_tokens,
     micro_compact,
@@ -514,7 +513,8 @@ def iter_agent_events(
         micro_compact(api_messages)
 
         llm_messages = _inject_turn_context(api_messages, turn_evidence, extra_system_prompt)
-        if estimate_messages_tokens(llm_messages) > TOKEN_THRESHOLD:
+        compaction_threshold = int(budget.prompt_budget * 0.75)
+        if estimate_messages_tokens(llm_messages) > compaction_threshold:
             yield NoticeEvent(
                 "Auto-compacting conversation (context threshold reached)...",
                 code="auto_compact",
@@ -553,6 +553,7 @@ def iter_agent_events(
 
         if not collected_tool_calls:
             _record_usage(usage, stream_usage, api_messages, collected_text, config.model)
+            api_messages.append({"role": "assistant", "content": collected_text})
             conversation.add("assistant", collected_text)
             tokens_remaining = budget.tokens_remaining(api_messages)
 

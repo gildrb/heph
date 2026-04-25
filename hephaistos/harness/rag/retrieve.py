@@ -16,6 +16,7 @@ cross-encoder re-ranking → top-k results.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import re
@@ -545,6 +546,7 @@ class EmbeddingRetriever:
         index: ArmoryIndex,
         model_name: str | None = None,
     ) -> None:
+        self._index = index
         self._chunks = index.all_chunks
         self._model_name = model_name or os.environ.get(
             _EMBED_MODEL_ENV,
@@ -571,11 +573,23 @@ class EmbeddingRetriever:
             self._embeddings = []
             return self._embeddings
 
+        # Try loading persisted embeddings before computing.
+        cached = self._index.load_embeddings(self._model_name)
+        if cached is not None and len(cached) == len(self._chunks):
+            self._embeddings = cached
+            return self._embeddings
+
         model = self._ensure_model()
         texts = [c.text for c in self._chunks]
         self._embeddings = _embedding_rows(
             model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
         )
+
+        # Persist for future runs.
+        if self._embeddings:
+            with contextlib.suppress(Exception):
+                self._index.save_embeddings(self._embeddings, self._model_name)
+
         return self._embeddings
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:

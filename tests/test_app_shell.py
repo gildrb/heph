@@ -344,6 +344,17 @@ def test_bottom_toolbar_shows_busy_hint(tmp_path: Path) -> None:
     assert "·" not in status
 
 
+def test_bottom_toolbar_shows_live_usage_when_enabled(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    session.live_tokens_visible = True
+    session.live_cost_visible = True
+
+    status = shell._build_bottom_toolbar_status(session)  # type: ignore[reportPrivateUsage]
+
+    assert "tokens " in status
+    assert "cost $" in status
+
+
 def test_shell_style_overrides_default_reversed_toolbar() -> None:
     palette.set_theme("forge")
     style_rules = shell.shell_style_dict()  # type: ignore[reportPrivateUsage]

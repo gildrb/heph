@@ -213,11 +213,10 @@ def _resume_saved_chat(session: ChatSession, selector: str = "") -> ChatSession:
     if not sessions:
         print_info("No saved chats found.")
         return session
-    if selector.strip():
-        entry = _match_saved_session(sessions, selector)
-        if entry is None:
-            return session
-    else:
+    normalized_selector = selector.strip().lower()
+    if normalized_selector in ("", "last", "latest", "recent"):
+        entry = sessions[0]
+    elif normalized_selector in ("browse", "menu"):
         options = [
             MenuOption(
                 entry["title"] or entry["session_id"],
@@ -229,6 +228,10 @@ def _resume_saved_chat(session: ChatSession, selector: str = "") -> ChatSession:
         if selected is None:
             return session
         entry = sessions[selected]
+    else:
+        entry = _match_saved_session(sessions, selector)
+        if entry is None:
+            return session
     _save_before_switch(session)
     try:
         resumed = resume_session(session.config, armory_path, entry["session_id"])

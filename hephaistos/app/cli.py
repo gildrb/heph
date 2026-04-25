@@ -21,6 +21,23 @@ from hephaistos.parameters.cli import (
 )
 from hephaistos.source.cli import register as register_source_commands
 
+_HELP_COMMANDS_HEADER = "Essential commands:"
+_HELP_OPTIONS_HEADER = "Options:"
+_HELP_EXAMPLES_HEADER = "Examples:"
+
+
+class HephaistosArgumentParser(argparse.ArgumentParser):
+    """Top-level help that stays compact while deriving commands from argparse."""
+
+    def __init__(self, *args: object, compact_help: bool = False, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[reportUnknownArgumentType]
+        self._compact_help = compact_help
+
+    def format_help(self) -> str:
+        if not self._compact_help:
+            return super().format_help()
+        return _format_compact_help(self)
+
 
 def _package_version() -> str:
     try:
@@ -70,6 +87,60 @@ def _get_subcommand_names(parser: argparse.ArgumentParser) -> set[str]:
     return set()
 
 
+def _get_visible_subcommands(parser: argparse.ArgumentParser) -> list[tuple[str, str]]:
+    for action in parser._actions:  # type: ignore[reportPrivateUsage]
+        if isinstance(action, argparse._SubParsersAction):  # type: ignore[reportPrivateUsage]
+            return [
+                (choice.dest, choice.help or "")
+                for choice in action._choices_actions  # type: ignore[reportPrivateUsage]
+                if choice.help is not argparse.SUPPRESS
+            ]
+    return []
+
+
+def _get_visible_options(parser: argparse.ArgumentParser) -> list[tuple[str, str]]:
+    options: list[tuple[str, str]] = []
+    for action in parser._actions:  # type: ignore[reportPrivateUsage]
+        if not action.option_strings or action.help is argparse.SUPPRESS:
+            continue
+        option = ", ".join(action.option_strings)
+        help_text = action.help or ""
+        options.append((option, help_text))
+    return options
+
+
+def _format_rows(rows: list[tuple[str, str]]) -> list[str]:
+    if not rows:
+        return []
+    width = max(len(name) for name, _description in rows)
+    return [f"  {name.ljust(width)}  {description}".rstrip() for name, description in rows]
+
+
+def _format_compact_help(parser: argparse.ArgumentParser) -> str:
+    commands = _get_visible_subcommands(parser)
+    options = _get_visible_options(parser)
+    lines = [
+        f"Usage: {parser.prog} [options] [command] [path]",
+        "",
+        "Hephaistos is a local-first study shell with armories and source indexing.",
+        "",
+        _HELP_EXAMPLES_HEADER,
+        f"  {parser.prog}                         Start the interactive TUI",
+        f"  {parser.prog} <path>                  Attach an armory path",
+        f"  {parser.prog} armory init <path>      Create an armory",
+        f"  {parser.prog} source index <path>     Build the source index",
+        "",
+        _HELP_COMMANDS_HEADER,
+        *_format_rows(commands),
+        "",
+        _HELP_OPTIONS_HEADER,
+        *_format_rows(options),
+        "",
+        "Inside Hephaistos, type /help for the full interactive command reference.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _inject_tui_if_path(argv: list[str], known_commands: set[str]) -> list[str]:
     """Prepend 'tui' if the first non-flag arg is not a known subcommand."""
     for i, arg in enumerate(argv):
@@ -94,9 +165,10 @@ def _normalise_tui_alias(argv: list[str]) -> list[str]:
 
 def build_parser() -> argparse.ArgumentParser:
     prog = Path(sys.argv[0]).name or "hephaistos"
-    parser = argparse.ArgumentParser(
+    parser = HephaistosArgumentParser(
         prog=prog,
         description="TUI-first study CLI.",
+        compact_help=True,
     )
     parser.add_argument(
         "--version",
@@ -116,6 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(
         dest="command",
         metavar="command",
+        parser_class=argparse.ArgumentParser,
     )
 
     # Hidden backwards-compatible alias: `heph start [path]`

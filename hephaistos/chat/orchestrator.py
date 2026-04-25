@@ -9,11 +9,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from hephaistos.chat.engine import (
+    ChatConfig,
+    Conversation,
     EngineError,
     RetryConfig,
     StreamRecoveryError,
     _build_client,  # type: ignore[reportPrivateUsage]
     stream_completion,
+    to_chat_completion_messages,
 )
 from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
 from hephaistos.chat.titles import derive_title
@@ -23,11 +26,13 @@ from hephaistos.harness.dispatch import iter_agent_events
 from hephaistos.harness.rag import (
     ArmoryIndex,
     ScoredChunk,
+    TransformStrategy,
     TurnEvidence,
     build_turn_evidence,
     load_or_build,
     retrieve,
 )
+from hephaistos.harness.rag.query_transform import PromptFn
 from hephaistos.logging import Timer, get_logger
 from hephaistos.memory.extract import extract_and_store
 from hephaistos.observability import get_meter, get_tracer
@@ -97,6 +102,7 @@ class TurnOrchestrator:
                     rag_timer = Timer()
                     with rag_timer:
                         resolved = self._resolve_turn_plan(user_input)
+                    session.last_turn_evidence = resolved.turn_evidence
                     if resolved.turn_evidence is not None:
                         rag_span.set_attribute("rag.retrieved", len(resolved.turn_evidence.items))
                     rag_span.end()
@@ -110,6 +116,7 @@ class TurnOrchestrator:
                     ):
                         yield event
                 else:
+                    session.last_turn_evidence = None
                     for event in self._iter_plain_events(abort=abort):
                         yield event
 
@@ -286,6 +293,8 @@ class TurnOrchestrator:
             reply_len=len(self.last_reply),
             study_phase=session.study_state.phase.value,
             study_feedback=session.study_state.last_feedback_type.value,
+            evidence_blocks=len(resolved.turn_evidence.items) if resolved.turn_evidence else 0,
+            evidence_refs=_evidence_refs(resolved.turn_evidence),
         )
 
         if session.memory is not None and len(self.last_reply) >= 100:
@@ -343,6 +352,41 @@ def _parse_source_ref(ref: str) -> tuple[str, int] | None:
         return None
 
 
+_FLAG_STRATEGY_MAP: dict[str, TransformStrategy] = {
+    "rag_expansion": TransformStrategy.EXPANSION,
+    "rag_hyde": TransformStrategy.HYDE,
+    "rag_multi_query": TransformStrategy.MULTI_QUERY,
+}
+
+
+def _resolve_transform_strategy(config: ChatConfig) -> TransformStrategy:
+    """Resolve RAG query-transform strategy from feature flags."""
+    for flag, strategy in _FLAG_STRATEGY_MAP.items():
+        if config.is_feature_enabled(flag):
+            return strategy
+    return TransformStrategy.EXPANSION
+
+
+def _build_prompt_fn(config: ChatConfig) -> PromptFn:
+    """Build a prompt function for LLM-based query transforms."""
+
+    def _prompt(prompt_text: str) -> str:
+        conv = Conversation()
+        conv.add("user", prompt_text)
+        client = _build_client(config)
+        messages = to_chat_completion_messages(conv.to_api_messages())
+        resp = client.chat.completions.create(
+            model=config.model,
+            messages=messages,
+            max_tokens=500,
+            stream=False,
+        )
+        content = resp.choices[0].message.content
+        return content if isinstance(content, str) else ""
+
+    return _prompt
+
+
 def _ensure_rag_index(session: ChatSession) -> ArmoryIndex | None:
     if session.armory_path is None:
         return None
@@ -367,12 +411,19 @@ def _build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvi
         if index is None:
             return None
 
+        strategy = _resolve_transform_strategy(session.config)
+        prompt_fn: PromptFn | None = None
+        if strategy in (TransformStrategy.HYDE, TransformStrategy.MULTI_QUERY):
+            prompt_fn = _build_prompt_fn(session.config)
+
         with timer:
             scored = retrieve(
                 query,
                 index,
                 top_k=5,
                 min_score=_RAG_MIN_SCORE,
+                transform_strategy=strategy,
+                prompt_fn=prompt_fn,
             )
         if not scored:
             _log.info(

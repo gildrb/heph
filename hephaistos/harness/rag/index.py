@@ -88,6 +88,82 @@ class ArmoryIndex:
         return chunks
 
     @property
+    def content_hash(self) -> str:
+        """Stable hash of the index content for cache invalidation."""
+        hasher = hashlib.sha256()
+        for doc in self.documents:
+            hasher.update(doc.content_hash.encode())
+            hasher.update(str(len(doc.chunks)).encode())
+        return hasher.hexdigest()[:16]
+
+    def save_embeddings(self, embeddings: list[list[float]], model_name: str) -> Path | None:
+        """Persist computed embeddings keyed by content hash + model name."""
+        if not embeddings:
+            return None
+        embed_path = (
+            self.armory_path
+            / ".hephaistos"
+            / f"embeddings_{self.content_hash}_{model_name.replace('/', '_')}.json"
+        )
+        embed_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "content_hash": self.content_hash,
+            "model_name": model_name,
+            "chunk_count": len(self.all_chunks),
+            "embeddings": embeddings,
+        }
+        embed_path.write_text(
+            json.dumps(data, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        _log.debug(
+            "embeddings saved",
+            extra={"fields": {"path": str(embed_path), "chunks": len(embeddings)}},
+        )
+        return embed_path
+
+    def load_embeddings(self, model_name: str) -> list[list[float]] | None:
+        """Load persisted embeddings if they match the current index."""
+        embed_path = (
+            self.armory_path
+            / ".hephaistos"
+            / f"embeddings_{self.content_hash}_{model_name.replace('/', '_')}.json"
+        )
+        if not embed_path.is_file():
+            return None
+        try:
+            data: object = json.loads(embed_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+        if not is_string_mapping(data):
+            return None
+        if data.get("content_hash") != self.content_hash:
+            return None
+        if data.get("model_name") != model_name:
+            return None
+        if data.get("chunk_count") != len(self.all_chunks):
+            return None
+        raw_embeddings = data.get("embeddings")
+        if not isinstance(raw_embeddings, list):
+            return None
+        typed: list[list[float]] = []
+        for raw_row in cast("list[object]", raw_embeddings):
+            if not isinstance(raw_row, list):
+                return None
+            typed_row: list[float] = []
+            for raw_val in cast("list[object]", raw_row):
+                if isinstance(raw_val, int | float):
+                    typed_row.append(float(raw_val))
+                else:
+                    typed_row.append(float(str(raw_val)))
+            typed.append(typed_row)
+        _log.debug(
+            "embeddings loaded from cache",
+            extra={"fields": {"path": str(embed_path), "chunks": len(typed)}},
+        )
+        return typed
+
+    @property
     def chunk_count(self) -> int:
         return sum(len(doc.chunks) for doc in self.documents)
 

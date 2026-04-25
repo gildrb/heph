@@ -61,13 +61,17 @@ class SlashCompletionEngine:
             candidates: list[CompletionCandidate] = []
             for command in commands:
                 matches_name = command.name.lower().startswith(prefix)
-                matches_alias = any(alias.lower().startswith(prefix) for alias in command.aliases)
-                if not (matches_name or matches_alias) or command.name in seen:
+                alias_match = next(
+                    (alias for alias in command.aliases if alias.lower().startswith(prefix)),
+                    "",
+                )
+                if not (matches_name or alias_match) or command.name in seen:
                     continue
                 seen.add(command.name)
+                replacement = command.name if matches_name else alias_match
                 candidates.append(
                     CompletionCandidate(
-                        text=command.name + " ",
+                        text=replacement + " ",
                         description=command.description,
                         start_position=-len(body),
                     )

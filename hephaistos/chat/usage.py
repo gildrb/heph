@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hephaistos._types import is_string_mapping
 from hephaistos.chat._api_types import ApiMessage, ContentPart, UsagePayload
 from hephaistos.logging import get_logger
 
@@ -283,3 +284,61 @@ def save_usage(
         encoding="utf-8",
     )
     return path
+
+
+def load_usage_summaries(armory_path: Path) -> list[dict[str, int | float | str]]:
+    """Load persisted usage summaries for an armory."""
+    usage_dir = armory_path / ".hephaistos" / _USAGE_DIR
+    if not usage_dir.exists():
+        return []
+
+    summaries: list[dict[str, int | float | str]] = []
+    for path in sorted(usage_dir.glob("*.json")):
+        try:
+            raw: object = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if not is_string_mapping(raw):
+            continue
+        session_id = raw.get("session_id")
+        if not isinstance(session_id, str):
+            session_id = path.stem
+        summaries.append(
+            {
+                "session_id": session_id,
+                "api_calls": _int_value(raw.get("api_calls")),
+                "prompt_tokens": _int_value(raw.get("prompt_tokens")),
+                "completion_tokens": _int_value(raw.get("completion_tokens")),
+                "total_tokens": _int_value(raw.get("total_tokens")),
+                "cost_usd": _float_value(raw.get("cost_usd")),
+            }
+        )
+    return summaries
+
+
+def _int_value(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _float_value(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+    return 0.0

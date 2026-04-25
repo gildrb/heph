@@ -798,7 +798,7 @@ def run_tui(session: ChatSession | None = None) -> None:
         def _format_completion_candidate(self, candidate: CompletionCandidate) -> str:
             value = self._completion_preview(candidate).strip()
             if candidate.description:
-                return f"{value:<30} {candidate.description}  "
+                return f"{value:<22} {candidate.description}  "
             return f"{value}  "
 
         def _completion_preview(self, candidate: CompletionCandidate) -> str:

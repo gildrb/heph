@@ -7,7 +7,12 @@ import pytest
 
 import hephaistos.app.cli as app_cli
 from hephaistos.app.cli import build_parser, run_argv
-from hephaistos.chat.session import ChatSession
+from hephaistos.armory.storage import initialize
+from hephaistos.chat.engine import ChatConfig
+from hephaistos.chat.events import TurnCompleteEvent
+from hephaistos.chat.session import ChatSession, create_session
+from hephaistos.harness.dispatch import iter_agent_events
+from hephaistos.harness.rag.index import load_or_build
 
 
 class _FakeTTY(io.StringIO):
@@ -30,6 +35,19 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "source" in help_text
     assert "tui" in help_text
     assert "parameters" not in help_text
+
+
+def test_top_level_help_is_compact_and_points_to_interactive_help() -> None:
+    parser = build_parser()
+    help_text = parser.format_help()
+
+    assert " [options] [command] [path]" in help_text
+    assert help_text.startswith("Usage:")
+    assert "Examples:" in help_text
+    assert "Essential commands:" in help_text
+    assert "Options:" in help_text
+    assert "Inside Hephaistos, type /help" in help_text
+    assert "positional arguments:" not in help_text
 
 
 def test_run_argv_dispatches_armory_init(
@@ -213,3 +231,49 @@ def test_tui_command_reports_missing_dependency(
 
     assert exc_info.value.code == 2
     assert "missing textual" in capsys.readouterr().err
+
+
+def test_golden_path_init_source_index_dry_run(tmp_path: Path) -> None:
+    """Golden-path smoke test: init armory -> add source -> index -> dry-run chat."""
+    # Step 1: Init armory
+    armory_path = tmp_path / "golden-armory"
+    initialize(armory_path)
+    assert (armory_path / ".hephaistos" / "armory.toml").is_file()
+
+    # Step 2: Add source documents
+    source_dir = armory_path / "source"
+    (source_dir / "basics.md").write_text(
+        "# Basics\n\nPython is a programming language.\n\nVariables store values.\n",
+        encoding="utf-8",
+    )
+    (source_dir / "advanced.md").write_text(
+        "# Advanced\n\nDecorators wrap functions.\n\nGenerators yield values lazily.\n",
+        encoding="utf-8",
+    )
+
+    # Step 3: Build index
+    index = load_or_build(armory_path)
+    assert index.chunk_count > 0
+    assert (armory_path / ".hephaistos" / "rag_index.json").is_file()
+
+    # Step 4: Create session with armory
+    config = ChatConfig(base_url="https://api.example.invalid", model="test-model")
+    session = create_session(config, armory_path)
+    assert session.armory_path == armory_path
+    assert session.source_file_count >= 2
+
+    # Step 5: Dry-run agent loop (no LLM calls needed)
+    events = list(
+        iter_agent_events(
+            config,
+            session.conversation,
+            armory_path,
+            dry_run=True,
+        )
+    )
+
+    assert len(events) >= 2
+    assert events[0].kind == "notice"
+    assert isinstance(events[-1], TurnCompleteEvent)
+    assert events[-1].finish_reason == "dry_run"
+    assert events[-1].tokens_remaining > 0

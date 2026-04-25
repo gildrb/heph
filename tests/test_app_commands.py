@@ -82,7 +82,47 @@ def test_command_registry_includes_saved_chat_shortcuts() -> None:
     assert registry.find("sessions") is not None
     assert registry.find("resume") is not None
     assert "chats" in names
+    assert "sessions" in names
     assert "resume" in names
+
+
+def test_command_registry_includes_session_utility_commands() -> None:
+    registry = commands.get_registry()
+    suggestions = registry.suggestions()
+    names = {suggestion.name for suggestion in suggestions}
+
+    for name in ("evidence", "tokens", "cost", "stats"):
+        assert registry.find(name) is not None
+        assert name in names
+
+
+def test_tokens_and_cost_commands_toggle_live_toolbar() -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.TokensCommand().handle(session, "show")
+    commands.CostCommand().handle(session, "show")
+
+    assert session.live_tokens_visible is True
+    assert session.live_cost_visible is True
+
+    commands.TokensCommand().handle(session, "hide")
+    commands.CostCommand().handle(session, "hide")
+
+    assert session.live_tokens_visible is False
+    assert session.live_cost_visible is False
+
+
+def test_stats_command_reports_current_session(capsys: pytest.CaptureFixture[str]) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+    session.conversation.add("user", "hello")
+    session.conversation.add("assistant", "hi")
+
+    commands.StatsCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "Current session:" in out
+    assert "Turns:      1" in out
+    assert "Assistant:  1 messages" in out
 
 
 def test_model_command_validates_against_session_endpoint(

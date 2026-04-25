@@ -72,6 +72,7 @@ from hephaistos.chat.session import (
     session_has_messages,
     validate_armory_path,
 )
+from hephaistos.chat.usage import ContextBudget, estimate_conversation_tokens
 from hephaistos.logging import get_logger
 from hephaistos.observability import capture_exception
 from hephaistos.parameters.cli import load_config
@@ -189,6 +190,18 @@ def _build_bottom_toolbar_status(
         steering_suffix = f"  queued {runtime.steering_count}" if runtime.steering_count else ""
         return f"assistant working  enter queues follow-up  ctrl+c interrupt{steering_suffix}"
     input_hint = "alt+enter newline  /help commands  /settings prefs  ! shell"
+    live_parts: list[str] = []
+    if session.live_tokens_visible:
+        messages = session.conversation.to_api_messages()
+        used = estimate_conversation_tokens(messages)
+        budget = ContextBudget(session.config.model, session.config.max_tokens)
+        remaining = budget.tokens_remaining(messages)
+        live_parts.append(f"tokens {used}/{budget.prompt_budget} rem {remaining}")
+    if session.live_cost_visible:
+        summary = session.usage.summary()
+        live_parts.append(f"cost ${summary['cost_usd']:.4f}")
+    if live_parts:
+        input_hint = f"{input_hint}  {'  '.join(live_parts)}"
     if api_state == "missing":
         return f"{input_hint}  api missing"
     return input_hint

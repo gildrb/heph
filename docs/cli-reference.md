@@ -34,19 +34,23 @@ new docs.
 |---|---|
 | /help | Show available commands |
 | /exit | Leave the shell |
-| /quit | Leave the shell |
-| /login | Authenticate with an LLM provider via OAuth |
+| /login | Authenticate via OAuth |
 | /logout | Clear stored OAuth credentials |
 | /status | Show armory, session, and model info |
 | /save | Save current chat to armory |
 | /clear | Start a fresh chat session |
 | /armory | Open the armory management menu |
 | /chats | List saved chats in the active armory |
-| /resume [id-prefix] | Resume a saved chat by menu or session ID prefix |
+| /sessions | List or resume saved sessions |
+| /resume [id-prefix] | Resume the latest saved chat, or pass an ID prefix |
 | /model | Show or switch the active model |
 | /api | Manage API key (keychain) or base URL |
 | /compact | Summarize conversation to reduce context size |
 | /history | Show conversation turn count and token estimate |
+| /evidence | Show sources retrieved for the last turn |
+| /tokens | Show or hide live token estimates |
+| /cost | Show or hide live cost estimates |
+| /stats | Show session and armory usage stats |
 | /edit | Edit and resend the last user message |
 | /provider | Show or switch LLM provider and model |
 | /models | List all available models across providers |
