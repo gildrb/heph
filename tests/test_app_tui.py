@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -42,9 +43,53 @@ def test_tui_css_keeps_surface_transparent() -> None:
 
     assert "App {\n    background: transparent;" in css
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
+    assert "#status {\n    height: 3;\n    width: auto;" in css
+    assert ("#composer-meta {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
+    assert "background: ansi_default;" not in css
     assert "border-bottom: tall" not in css
+
+
+def test_tui_css_prevents_full_width_status_and_composer_bars() -> None:
+    css = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+
+    for selector in ("#status", "#composer-frame", "#composer", "#composer-meta"):
+        block_start = css.index(f"{selector} {{")
+        block_end = css.index("}", block_start)
+        block = css[block_start:block_end]
+
+        assert "width: auto;" in block
+        assert "max-width: 100%;" in block
+
+
+def test_status_and_composer_meta_segments_do_not_paint_black_background() -> None:
+    if tui.Static is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    class Smoke(tui.App[None]):  # type: ignore[index]
+        CSS = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+
+        def compose(self) -> tui.ComposeResult:
+            session = _plain_session()
+            status_text = tui._status_text(session)  # type: ignore[reportPrivateUsage]
+            meta_text = tui._composer_meta_text(session)  # type: ignore[reportPrivateUsage]
+            with tui.Vertical(id="shell"):  # type: ignore[operator, reportCallIssue]
+                yield tui.Static(status_text, id="status")  # type: ignore[operator]
+                yield tui.Static(meta_text, id="composer-meta")  # type: ignore[operator]
+
+    async def check_segments() -> None:
+        app = Smoke()
+        async with app.run_test(size=(120, 12)) as pilot:
+            await pilot.pause()
+            for selector in ("#status", "#composer-meta"):
+                widget = app.query_one(selector, tui.Static)
+                for line_number in range(widget.size.height):
+                    for segment in widget.render_line(line_number):
+                        style = str(segment.style)
+                        assert "on #000000" not in style
+
+    asyncio.run(check_segments())
 
 
 def test_command_help_is_command_first() -> None:

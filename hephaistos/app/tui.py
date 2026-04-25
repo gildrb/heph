@@ -25,11 +25,13 @@ from hephaistos.parameters.cli import load_config
 
 try:
     from rich.markdown import Markdown
+    from rich.text import Text as _RichText
     from textual.app import App, ComposeResult
     from textual.containers import Vertical
     from textual.widgets import Input, RichLog, Static
 except ImportError:
     Markdown = None  # type: ignore[assignment]
+    _RichText = None  # type: ignore[assignment]
     App = object  # type: ignore[assignment, misc]
     ComposeResult = object  # type: ignore[assignment, misc]
     Vertical = object  # type: ignore[assignment, misc]
@@ -39,6 +41,8 @@ except ImportError:
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from rich.text import Text
 
 
 class TuiDependencyError(RuntimeError):
@@ -74,34 +78,74 @@ def _tui_dependency_message() -> str:
     )
 
 
-def _status_lines(session: ChatSession, state: str = "ready") -> str:
+def _status_lines(
+    session: ChatSession,
+    state: str = "ready",
+) -> str:
     armory = str(session.armory_path) if session.armory_path is not None else "none"
     model = session.config.model or "none"
-    if session.config.resolved_api_key:
-        api = "[#7F9A6A]configured[/#7F9A6A]"
-    else:
-        api = "[#CC3333]missing[/#CC3333]"
+    api = "configured" if session.config.resolved_api_key else "missing"
     sources = session.source_file_count or 0
     source_str = str(sources) if sources else "none"
     state_tag = f"[{state}]" if state != "ready" else ""
     return (
-        f"[bold #9B4A2E]Hephaistos[/bold #9B4A2E] [dim]v{__version__}[/dim]"
-        f"{'  ' + state_tag if state_tag else ''}\n"
-        f"[dim]armory[/dim] {armory}  "
-        f"[dim]model[/dim] {model}  "
-        f"[dim]api[/dim] {api}  "
-        f"[dim]source[/dim] {source_str}\n"
-        f"[dim]enter[/dim] send  "
-        f"[dim]tab[/dim] complete  "
-        f"[dim]ctrl+c[/dim] interrupt  "
-        f"[dim]ctrl+d[/dim] exit"
+        f"Hephaistos v{__version__}{'  ' + state_tag if state_tag else ''}\n"
+        f"armory {armory}  "
+        f"model {model}  "
+        f"api {api}  "
+        f"source {source_str}\n"
+        "enter send  "
+        "tab complete  "
+        "ctrl+c interrupt  "
+        "ctrl+d exit"
     )
 
 
-def _composer_meta(session: ChatSession) -> str:
+def _status_text(session: ChatSession, state: str = "ready") -> Text:
+    plain = _status_lines(session, state)
+    api = "configured" if session.config.resolved_api_key else "missing"
+    api_style = "#7F9A6A" if session.config.resolved_api_key else "#CC3333"
+
+    if _RichText is None:
+        raise TuiDependencyError(_tui_dependency_message())
+
+    text = _RichText(plain, style="#808080")
+    text.stylize("bold #9B4A2E", 0, len("Hephaistos"))
+
+    first_line_end = plain.index("\n")
+    text.stylize("dim #808080", len("Hephaistos "), first_line_end)
+
+    cursor = first_line_end + 1
+    for label in ("armory", "model", "api", "source", "enter", "tab", "ctrl+c", "ctrl+d"):
+        start = plain.index(label, cursor)
+        text.stylize("dim #808080", start, start + len(label))
+        cursor = start + len(label)
+
+    api_start = plain.index(api, plain.index("api "))
+    text.stylize(api_style, api_start, api_start + len(api))
+    return text
+
+
+def _composer_meta(session: ChatSession) -> str:  # pyright: ignore[reportUnusedFunction]
     model = session.config.model or "no model"
     mode = "armory" if session.armory_path is not None else "plain"
-    return f"[bold #9B4A2E]Study[/bold #9B4A2E]  [#C8C8C8]{model}[/#C8C8C8]  [dim]{mode}[/dim]"
+    return f"Study  {model}  {mode}"
+
+
+def _composer_meta_text(session: ChatSession) -> Text:
+    plain = _composer_meta(session)
+    model = session.config.model or "no model"
+    mode = "armory" if session.armory_path is not None else "plain"
+    if _RichText is None:
+        raise TuiDependencyError(_tui_dependency_message())
+
+    text = _RichText(plain, style="#808080")
+    text.stylize("bold #9B4A2E", 0, len("Study"))
+    model_start = plain.index(model)
+    text.stylize("#C8C8C8", model_start, model_start + len(model))
+    mode_start = plain.rindex(mode)
+    text.stylize("dim #808080", mode_start, mode_start + len(mode))
+    return text
 
 
 def _command_help() -> str:
@@ -155,6 +199,8 @@ Screen {
 }
 #status {
     height: 3;
+    width: auto;
+    max-width: 100%;
     padding: 0 0;
     background: transparent;
     color: #808080;
@@ -175,6 +221,8 @@ Screen {
     height: 4;
     min-height: 4;
     max-height: 4;
+    width: auto;
+    max-width: 100%;
     padding: 0 0;
     background: transparent;
     color: #E0E0E0;
@@ -183,12 +231,16 @@ Screen {
     height: 1;
     min-height: 1;
     max-height: 1;
+    width: auto;
+    max-width: 100%;
     padding: 0 0;
     background: transparent;
     color: #FFFFFF;
 }
 #composer-meta {
     height: 1;
+    width: auto;
+    max-width: 100%;
     margin-top: 1;
     background: transparent;
     color: #808080;
@@ -224,7 +276,7 @@ Input > .input--selection {
 
 def run_tui(session: ChatSession | None = None) -> None:
     """Run the experimental command-first Textual shell."""
-    if Markdown is None or Input is None or RichLog is None or Static is None:
+    if Markdown is None or _RichText is None or Input is None or RichLog is None or Static is None:
         raise TuiDependencyError(_tui_dependency_message())
 
     if session is None:
@@ -247,14 +299,14 @@ def run_tui(session: ChatSession | None = None) -> None:
 
         def compose(self) -> ComposeResult:
             with Vertical(id="shell"):  # type: ignore[reportCallIssue]
-                yield Static(_status_lines(self.session), id="status")
+                yield Static(_status_text(self.session), id="status")
                 yield RichLog(id="transcript", markup=True, wrap=True, highlight=True)
                 with Vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
                     yield Input(
                         placeholder='Ask anything... "What do I need to study next?"',
                         id="composer",
                     )
-                    yield Static(_composer_meta(self.session), id="composer-meta")
+                    yield Static(_composer_meta_text(self.session), id="composer-meta")
 
         def on_mount(self) -> None:
             self.title = "Hephaistos"
@@ -305,7 +357,7 @@ def run_tui(session: ChatSession | None = None) -> None:
                 self.query_one("#transcript", RichLog).write(_command_help())
                 return True
             if command == "/status":
-                self.query_one("#transcript", RichLog).write(_status_lines(self.session))
+                self.query_one("#transcript", RichLog).write(_status_text(self.session))
                 return True
             if command == "/sources":
                 self.query_one("#transcript", RichLog).write(_source_listing(self.session, args))
@@ -360,7 +412,7 @@ def run_tui(session: ChatSession | None = None) -> None:
 
         def _refresh_status(self, state: str = "ready") -> None:
             status = self.query_one("#status", Static)
-            status.update(_status_lines(self.session, state))
+            status.update(_status_text(self.session, state))
 
     HephaistosTui(session).run()
 
