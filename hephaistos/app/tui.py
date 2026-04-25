@@ -25,16 +25,22 @@ from hephaistos.parameters.cli import load_config
 
 try:
     from rich.markdown import Markdown
+    from rich.style import Style as _RichStyle
     from rich.text import Text as _RichText
     from textual.app import App, ComposeResult
     from textual.containers import Vertical
+    from textual.screen import Screen
+    from textual.strip import Strip
     from textual.widgets import Input, RichLog, Static
 except ImportError:
+    _RichStyle = None  # type: ignore[assignment]
     Markdown = None  # type: ignore[assignment]
     _RichText = None  # type: ignore[assignment]
     App = object  # type: ignore[assignment, misc]
     ComposeResult = object  # type: ignore[assignment, misc]
     Vertical = object  # type: ignore[assignment, misc]
+    Screen = object  # type: ignore[assignment, misc]
+    Strip = None  # type: ignore[assignment]
     Input = None  # type: ignore[assignment]
     RichLog = None  # type: ignore[assignment]
     Static = None  # type: ignore[assignment]
@@ -274,13 +280,52 @@ Input > .input--selection {
 """
 
 
+def _transparent_screen_class() -> type[Screen]:
+    """Return a Textual screen class whose empty cells have no background."""
+    if Strip is None or _RichStyle is None:
+        raise TuiDependencyError(_tui_dependency_message())
+    strip_class = Strip
+    transparent_style = _RichStyle()
+
+    class TransparentScreen(Screen[None]):  # type: ignore[index, misc]
+        def render_line(self, y: int) -> Strip:
+            return strip_class.blank(self.size.width, transparent_style)
+
+    return TransparentScreen
+
+
+def _transparent_vertical_class() -> type[Vertical]:
+    """Return a Textual vertical layout class whose empty cells have no background."""
+    if Strip is None or _RichStyle is None:
+        raise TuiDependencyError(_tui_dependency_message())
+    strip_class = Strip
+    transparent_style = _RichStyle()
+
+    class TransparentVertical(Vertical):  # type: ignore[misc]
+        def render_line(self, y: int) -> Strip:
+            return strip_class.blank(self.size.width, transparent_style)
+
+    return TransparentVertical
+
+
 def run_tui(session: ChatSession | None = None) -> None:
     """Run the experimental command-first Textual shell."""
-    if Markdown is None or _RichText is None or Input is None or RichLog is None or Static is None:
+    if (
+        Markdown is None
+        or _RichStyle is None
+        or _RichText is None
+        or Input is None
+        or RichLog is None
+        or Static is None
+        or Strip is None
+    ):
         raise TuiDependencyError(_tui_dependency_message())
 
     if session is None:
         session = _create_startup_session(load_config())
+
+    transparent_screen = _transparent_screen_class()
+    transparent_vertical = _transparent_vertical_class()
 
     class HephaistosTui(App[None]):
         CSS = _TUI_CSS
@@ -297,11 +342,14 @@ def run_tui(session: ChatSession | None = None) -> None:
             self.abort_event = threading.Event()
             self.busy = False
 
+        def get_default_screen(self) -> Screen:
+            return transparent_screen(id="_default")
+
         def compose(self) -> ComposeResult:
-            with Vertical(id="shell"):  # type: ignore[reportCallIssue]
+            with transparent_vertical(id="shell"):  # type: ignore[reportCallIssue]
                 yield Static(_status_text(self.session), id="status")
                 yield RichLog(id="transcript", markup=True, wrap=True, highlight=True)
-                with Vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
+                with transparent_vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
                     yield Input(
                         placeholder='Ask anything... "What do I need to study next?"',
                         id="composer",

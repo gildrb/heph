@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from hephaistos.app import tui
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
+
+if TYPE_CHECKING:
+    from textual.screen import Screen
+    from textual.widget import Widget
 
 
 def _plain_session() -> ChatSession:
@@ -90,6 +95,45 @@ def test_status_and_composer_meta_segments_do_not_paint_black_background() -> No
                         assert "on #000000" not in style
 
     asyncio.run(check_segments())
+
+
+def test_tui_layout_blanks_do_not_paint_black_background() -> None:
+    if tui.Static is None or tui.Strip is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    screen_class = tui._transparent_screen_class()  # type: ignore[reportPrivateUsage]
+    vertical_class = tui._transparent_vertical_class()  # type: ignore[reportPrivateUsage]
+
+    class Smoke(tui.App[None]):  # type: ignore[index]
+        CSS = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+
+        def get_default_screen(self) -> Screen[object]:
+            return screen_class(id="_default")
+
+        def compose(self) -> tui.ComposeResult:
+            session = _plain_session()
+            with vertical_class(id="shell"):  # type: ignore[operator, reportCallIssue]
+                yield tui.Static(tui._status_text(session), id="status")  # type: ignore[operator, reportPrivateUsage]
+                with vertical_class(id="composer-frame"):  # type: ignore[operator, reportCallIssue]
+                    yield tui.Static(  # type: ignore[operator]
+                        tui._composer_meta_text(session),  # type: ignore[reportPrivateUsage]
+                        id="composer-meta",
+                    )
+
+    async def check_layout_blanks() -> None:
+        app = Smoke()
+        async with app.run_test(size=(120, 12)) as pilot:
+            await pilot.pause()
+            widgets: tuple[Widget, ...] = (
+                cast("Widget", app.screen),
+                app.query_one("#shell"),
+                app.query_one("#composer-frame"),
+            )
+            for widget in widgets:
+                segments = widget.render_line(0)
+                assert all("on #000000" not in str(segment.style) for segment in segments)
+
+    asyncio.run(check_layout_blanks())
 
 
 def test_command_help_is_command_first() -> None:
