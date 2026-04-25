@@ -29,6 +29,24 @@ def test_session_status_for_plain_session() -> None:
     assert "enter" in status
 
 
+def test_composer_meta_uses_model_and_plain_mode() -> None:
+    meta = tui._composer_meta(_plain_session())  # type: ignore[reportPrivateUsage]
+
+    assert "Study" in meta
+    assert "test-model" in meta
+    assert "plain" in meta
+
+
+def test_tui_css_keeps_surface_transparent() -> None:
+    css = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+
+    assert "App {\n    background: transparent;" in css
+    assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
+    assert "#transcript:focus" in css
+    assert "background-tint: transparent;" in css
+    assert "border-bottom: tall" not in css
+
+
 def test_command_help_is_command_first() -> None:
     help_text = tui._command_help()  # type: ignore[reportPrivateUsage]
 

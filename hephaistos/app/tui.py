@@ -26,11 +26,13 @@ from hephaistos.parameters.cli import load_config
 try:
     from rich.markdown import Markdown
     from textual.app import App, ComposeResult
+    from textual.containers import Vertical
     from textual.widgets import Input, RichLog, Static
 except ImportError:
     Markdown = None  # type: ignore[assignment]
     App = object  # type: ignore[assignment, misc]
     ComposeResult = object  # type: ignore[assignment, misc]
+    Vertical = object  # type: ignore[assignment, misc]
     Input = None  # type: ignore[assignment]
     RichLog = None  # type: ignore[assignment]
     Static = None  # type: ignore[assignment]
@@ -96,6 +98,12 @@ def _status_lines(session: ChatSession, state: str = "ready") -> str:
     )
 
 
+def _composer_meta(session: ChatSession) -> str:
+    model = session.config.model or "no model"
+    mode = "armory" if session.armory_path is not None else "plain"
+    return f"[bold #9B4A2E]Study[/bold #9B4A2E]  [#C8C8C8]{model}[/#C8C8C8]  [dim]{mode}[/dim]"
+
+
 def _command_help() -> str:
     width = max(len(command.signature) for command in _COMMANDS)
     rows = [f"{command.signature:<{width}}  {command.description}" for command in _COMMANDS]
@@ -128,6 +136,92 @@ def _config_error(session: ChatSession) -> str | None:
     return None
 
 
+_TUI_CSS = """
+App {
+    background: transparent;
+    color: #E0E0E0;
+}
+Screen {
+    layout: vertical;
+    background: transparent;
+    color: #E0E0E0;
+}
+#shell {
+    layout: vertical;
+    height: 100%;
+    width: 100%;
+    background: transparent;
+    color: #E0E0E0;
+}
+#status {
+    height: 3;
+    padding: 0 0;
+    background: transparent;
+    color: #808080;
+}
+#transcript {
+    height: 1fr;
+    padding: 0 0;
+    background: transparent;
+    color: #E0E0E0;
+    scrollbar-size: 0 0;
+    background-tint: transparent;
+}
+#transcript:focus {
+    background: transparent;
+    background-tint: transparent;
+}
+#composer-frame {
+    height: 4;
+    min-height: 4;
+    max-height: 4;
+    padding: 0 0;
+    background: transparent;
+    color: #E0E0E0;
+}
+#composer {
+    height: 1;
+    min-height: 1;
+    max-height: 1;
+    padding: 0 0;
+    background: transparent;
+    color: #FFFFFF;
+}
+#composer-meta {
+    height: 1;
+    margin-top: 1;
+    background: transparent;
+    color: #808080;
+}
+Input {
+    height: 1;
+    min-height: 1;
+    max-height: 1;
+    border: none;
+    padding: 0 0;
+    background: transparent;
+    background-tint: transparent;
+    color: #FFFFFF;
+}
+Input > .input--placeholder,
+Input > .input--suggestion {
+    color: #808080;
+}
+Input:focus {
+    border: none;
+    background: transparent;
+    background-tint: transparent;
+}
+Input > .input--cursor {
+    background: #E0E0E0;
+    color: #000000;
+}
+Input > .input--selection {
+    background: #555555;
+}
+"""
+
+
 def run_tui(session: ChatSession | None = None) -> None:
     """Run the experimental command-first Textual shell."""
     if Markdown is None or Input is None or RichLog is None or Static is None:
@@ -137,34 +231,7 @@ def run_tui(session: ChatSession | None = None) -> None:
         session = _create_startup_session(load_config())
 
     class HephaistosTui(App[None]):
-        CSS = """
-        Screen {
-            layout: vertical;
-        }
-        #status {
-            height: 3;
-            padding: 0 1;
-            color: #808080;
-        }
-        #transcript {
-            height: 1fr;
-            padding: 0 1;
-            scrollbar-size: 0 0;
-        }
-        #composer {
-            height: 3;
-            color: #FFFFFF;
-        }
-        Input {
-            border: none;
-            border-bottom: tall #333;
-            padding: 0 1;
-        }
-        Input:focus {
-            border: none;
-            border-bottom: tall #9B4A2E;
-        }
-        """
+        CSS = _TUI_CSS
 
         BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
             ("ctrl+c", "cancel_turn", "Cancel"),
@@ -179,9 +246,15 @@ def run_tui(session: ChatSession | None = None) -> None:
             self.busy = False
 
         def compose(self) -> ComposeResult:
-            yield Static(_status_lines(self.session), id="status")
-            yield RichLog(id="transcript", markup=True, wrap=True, highlight=True)
-            yield Input(placeholder="type a study prompt or /help", id="composer")
+            with Vertical(id="shell"):  # type: ignore[reportCallIssue]
+                yield Static(_status_lines(self.session), id="status")
+                yield RichLog(id="transcript", markup=True, wrap=True, highlight=True)
+                with Vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
+                    yield Input(
+                        placeholder='Ask anything... "What do I need to study next?"',
+                        id="composer",
+                    )
+                    yield Static(_composer_meta(self.session), id="composer-meta")
 
         def on_mount(self) -> None:
             self.title = "Hephaistos"
