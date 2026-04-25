@@ -236,8 +236,9 @@ Screen {
     height: 7;
     min-height: 7;
     max-height: 7;
-    width: auto;
+    width: 100%;
     max-width: 100%;
+    padding-right: 1;
     margin-bottom: 1;
     background: transparent;
     color: #E0E0E0;
@@ -254,6 +255,7 @@ Screen {
     visibility: hidden;
 }
 OptionList {
+    width: 100%;
     background: transparent;
     color: #E0E0E0;
 }
@@ -796,8 +798,8 @@ def run_tui(session: ChatSession | None = None) -> None:
         def _format_completion_candidate(self, candidate: CompletionCandidate) -> str:
             value = self._completion_preview(candidate).strip()
             if candidate.description:
-                return f"{value:<28} {candidate.description}"
-            return value
+                return f"{value:<30} {candidate.description}  "
+            return f"{value}  "
 
         def _completion_preview(self, candidate: CompletionCandidate) -> str:
             composer = self.query_one("#composer", Input)
