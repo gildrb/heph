@@ -318,7 +318,11 @@ from hephaistos.memory.supermemory import (  # noqa: E402
 
 
 def load_memory(armory_path: Path) -> MemoryStore:
-    """Load memory for an armory (creates empty store if none exists)."""
+    """Load memory for an armory.
+
+    Uses Supermemory when an API key is available.  Falls back to the
+    local JSON store when the key is missing or the API is unreachable.
+    """
     try:
         if supermemory_configured():
             store = SupermemoryStore(armory_path)

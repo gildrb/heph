@@ -1,24 +1,28 @@
-"""Supermemory-backed study memory.
+"""Supermemory-backed study memory using the official SDK.
 
-This module keeps Supermemory optional. The local JSON store remains the
-default, and callers can fall back to it whenever this backend is not enabled
-or cannot reach the API.
+Supermemory is the default memory backend.  When an API key is available
+(keychain, environment variable, or volatile store), ``SupermemoryStore``
+is used automatically.  The local JSON store serves as the offline fallback
+when no key is configured or the API is unreachable.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, TypedDict
 
-from hephaistos._types import is_object_list, is_string_mapping
+from supermemory import APIConnectionError, APIStatusError, Supermemory
+from supermemory.types.search_memories_response import (
+    Result as SearchResult,
+)
+from supermemory.types.search_memories_response import (
+    SearchMemoriesResponse,
+)
+
 from hephaistos.logging import get_logger
 from hephaistos.memory import MemoryEntry, MemoryStore
 from hephaistos.parameters.settings import load_app_settings
@@ -37,20 +41,6 @@ class SupermemoryUnavailableError(RuntimeError):
     """Raised when Supermemory is requested but cannot be used."""
 
 
-class SupermemorySearchResult(TypedDict, total=False):
-    id: str
-    memory: str
-    chunk: str
-    similarity: float
-    metadata: dict[str, object]
-    updatedAt: str
-
-
-class SupermemorySearchPayload(TypedDict):
-    results: list[SupermemorySearchResult]
-    total: int
-
-
 @dataclass(frozen=True)
 class SupermemoryConfig:
     api_key: str
@@ -67,9 +57,8 @@ def resolve_supermemory_key() -> str:
 
 
 def supermemory_configured() -> bool:
-    """Return whether Supermemory is enabled and has credentials."""
-    settings = load_app_settings()
-    return settings.supermemory_enabled and bool(resolve_supermemory_key())
+    """Return whether Supermemory has credentials available."""
+    return bool(resolve_supermemory_key())
 
 
 def load_supermemory_config() -> SupermemoryConfig:
@@ -82,6 +71,16 @@ def load_supermemory_config() -> SupermemoryConfig:
         api_key=api_key,
         base_url=os.environ.get(SUPERMEMORY_URL_ENV, SUPERMEMORY_DEFAULT_URL).strip().rstrip("/"),
         profile=settings.supermemory_profile or SUPERMEMORY_DEFAULT_PROFILE,
+    )
+
+
+def _build_sdk_client(config: SupermemoryConfig) -> Supermemory:
+    """Create an SDK client from config."""
+    return Supermemory(
+        api_key=config.api_key,
+        base_url=config.base_url,
+        timeout=10.0,
+        max_retries=2,
     )
 
 
@@ -99,88 +98,54 @@ def profile_container_tag(profile: str) -> str:
     return f"heph:profile:{safe}"
 
 
-class SupermemoryClient:
-    """Tiny stdlib REST client for the Supermemory API."""
-
-    def __init__(self, config: SupermemoryConfig, *, timeout: float = 10.0) -> None:
-        self.config = config
-        self.timeout = timeout
-
-    def add_document(
-        self,
-        *,
-        content: str,
-        container_tag: str,
-        custom_id: str,
-        metadata: Mapping[str, object],
-    ) -> str:
-        payload = {
-            "content": content,
-            "containerTag": container_tag,
-            "customId": custom_id,
-            "metadata": _flat_metadata(metadata),
-        }
-        data = self._request("POST", "/v3/documents", payload)
-        raw_id = data.get("id", "") if is_string_mapping(data) else ""
-        return raw_id if isinstance(raw_id, str) else ""
-
-    def search(
-        self,
-        *,
-        query: str,
-        container_tag: str,
-        limit: int,
-        mode: Literal["hybrid", "memories"] = "hybrid",
-    ) -> SupermemorySearchPayload:
-        payload = {
-            "q": query,
-            "containerTag": container_tag,
-            "searchMode": mode,
-            "limit": limit,
-        }
-        data = self._request("POST", "/v4/search", payload)
-        results: list[SupermemorySearchResult] = []
-        if is_string_mapping(data):
-            raw_results = data.get("results", [])
-            if is_object_list(raw_results):
-                for item in raw_results:
-                    if not is_string_mapping(item):
-                        continue
-                    result = _coerce_search_result(item)
-                    if result:
-                        results.append(result)
-            raw_total = data.get("total", len(results))
-            total = raw_total if isinstance(raw_total, int) else len(results)
-            return {"results": results, "total": total}
-        return {"results": results, "total": 0}
-
-    def _request(self, method: str, path: str, payload: Mapping[str, object]) -> object:
-        body = json.dumps(payload).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self.config.base_url}{path}",
-            data=body,
-            method=method,
-            headers={
-                "Authorization": f"Bearer {self.config.api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "hephaistos",
-            },
+def _sdk_add_document(
+    client: Supermemory,
+    *,
+    content: str,
+    container_tag: str,
+    custom_id: str,
+    metadata: dict[str, object],
+) -> str:
+    """Add a document via the SDK, wrapping errors."""
+    flat: dict[str, str | float | bool] = {
+        k: v for k, v in metadata.items() if isinstance(v, str | int | float | bool)
+    }
+    try:
+        resp = client.add(
+            content=content,
+            container_tag=container_tag,
+            custom_id=custom_id,
+            metadata=flat,  # type: ignore[arg-type]
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:  # nosec B310
-                raw = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            raise SupermemoryUnavailableError(f"Supermemory API error: HTTP {exc.code}") from exc
-        except urllib.error.URLError as exc:
-            raise SupermemoryUnavailableError(
-                f"Supermemory API unavailable: {exc.reason}"
-            ) from exc
-        if not raw:
-            return {}
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise SupermemoryUnavailableError("Supermemory API returned invalid JSON.") from exc
+        return resp.id
+    except APIConnectionError as exc:
+        raise SupermemoryUnavailableError(f"Supermemory API unavailable: {exc}") from exc
+    except APIStatusError as exc:
+        raise SupermemoryUnavailableError(
+            f"Supermemory API error: HTTP {exc.status_code}"
+        ) from exc
+
+
+def _sdk_search_memories(
+    client: Supermemory,
+    *,
+    query: str,
+    container_tag: str,
+    limit: int,
+) -> SearchMemoriesResponse:
+    """Search memories via the SDK, wrapping errors."""
+    try:
+        return client.search.memories(
+            q=query,
+            container_tag=container_tag,
+            limit=limit,
+        )
+    except APIConnectionError as exc:
+        raise SupermemoryUnavailableError(f"Supermemory API unavailable: {exc}") from exc
+    except APIStatusError as exc:
+        raise SupermemoryUnavailableError(
+            f"Supermemory API error: HTTP {exc.status_code}"
+        ) from exc
 
 
 class SupermemoryStore(MemoryStore):
@@ -190,26 +155,30 @@ class SupermemoryStore(MemoryStore):
         self,
         armory_path: Path,
         *,
-        client: SupermemoryClient | None = None,
+        client: Supermemory | None = None,
         config: SupermemoryConfig | None = None,
     ) -> None:
         super().__init__(armory_path)
         effective_config = config or load_supermemory_config()
-        self.client = client or SupermemoryClient(effective_config)
+        self._sdk_client = client or _build_sdk_client(effective_config)
         self.config = effective_config
         self.armory_tag = armory_container_tag(armory_path)
         self.profile_tag = profile_container_tag(effective_config.profile)
         self.backend = "supermemory"
 
+    @property
+    def client(self) -> Supermemory:
+        return self._sdk_client
+
     def load(self) -> bool:
         """Prime a small cache of known memory results."""
-        payload = self.client.search(
+        resp = _sdk_search_memories(
+            self._sdk_client,
             query="study concepts learned by the user",
             container_tag=self.armory_tag,
             limit=20,
-            mode="memories",
         )
-        self.entries = [_entry_from_result(result) for result in payload["results"]]
+        self.entries = [_entry_from_result(r) for r in resp.results]
         return True
 
     def save(self) -> Path:
@@ -234,7 +203,8 @@ class SupermemoryStore(MemoryStore):
             tags=tags or [],
         )
         custom_id = _custom_id(self.armory_tag, entry)
-        self.client.add_document(
+        _sdk_add_document(
+            self._sdk_client,
             content=_document_content(entry),
             container_tag=self.armory_tag,
             custom_id=custom_id,
@@ -296,7 +266,8 @@ class SupermemoryStore(MemoryStore):
                 source=raw_source if isinstance(raw_source, str) else source,
                 confidence=raw_confidence if isinstance(raw_confidence, str) else confidence,
             )
-            self.client.add_document(
+            _sdk_add_document(
+                self._sdk_client,
                 content=_document_content(entry),
                 container_tag=self.profile_tag,
                 custom_id=_custom_id(self.profile_tag, entry),
@@ -308,57 +279,39 @@ class SupermemoryStore(MemoryStore):
     def topics_covered(self) -> list[str]:
         if self.entries:
             return super().topics_covered()
-        payload = self.client.search(
+        resp = _sdk_search_memories(
+            self._sdk_client,
             query="study topics learned by the user",
             container_tag=self.armory_tag,
             limit=50,
-            mode="memories",
         )
-        return [_entry_from_result(result).topic for result in payload["results"]]
+        return [_entry_from_result(r).topic for r in resp.results]
 
     def build_system_context(self, *, max_entries: int = 20, max_chars: int = 3000) -> str:
-        payloads = [
-            self.client.search(
-                query="study concepts already learned by the user",
-                container_tag=self.armory_tag,
-                limit=max_entries,
-                mode="memories",
-            ),
-            self.client.search(
-                query="cross subject study concepts already learned by the user",
-                container_tag=self.profile_tag,
-                limit=max_entries,
-                mode="memories",
-            ),
-        ]
-        entries: list[MemoryEntry] = []
-        for payload in payloads:
-            entries.extend(_entry_from_result(result) for result in payload["results"])
+        armory_resp = _sdk_search_memories(
+            self._sdk_client,
+            query="study concepts already learned by the user",
+            container_tag=self.armory_tag,
+            limit=max_entries,
+        )
+        profile_resp = _sdk_search_memories(
+            self._sdk_client,
+            query="cross subject study concepts already learned by the user",
+            container_tag=self.profile_tag,
+            limit=max_entries,
+        )
+        entries: list[MemoryEntry] = [_entry_from_result(r) for r in armory_resp.results]
+        entries.extend(_entry_from_result(r) for r in profile_resp.results)
         self.entries = entries[:max_entries]
         return super().build_system_context(max_entries=max_entries, max_chars=max_chars)
 
 
-def _coerce_search_result(data: Mapping[str, object]) -> SupermemorySearchResult | None:
-    result: SupermemorySearchResult = {}
-    for key in ("id", "memory", "chunk", "updatedAt"):
-        raw = data.get(key)
-        if isinstance(raw, str):
-            result[key] = raw  # type: ignore[literal-required]
-    similarity = data.get("similarity")
-    if isinstance(similarity, int | float):
-        result["similarity"] = float(similarity)
-    metadata = data.get("metadata")
-    if is_string_mapping(metadata):
-        result["metadata"] = dict(metadata)
-    return result if result.get("memory") or result.get("chunk") else None
-
-
-def _entry_from_result(result: SupermemorySearchResult) -> MemoryEntry:
-    metadata = result.get("metadata", {})
+def _entry_from_result(result: SearchResult) -> MemoryEntry:
+    metadata = result.metadata or {}
     topic = metadata.get("topic", "")
     source = metadata.get("source", "")
     confidence = metadata.get("confidence", "discussed")
-    content = result.get("memory") or result.get("chunk") or ""
+    content = result.memory or result.chunk or ""
     return MemoryEntry(
         topic=topic if isinstance(topic, str) and topic else content[:80],
         content=content,
@@ -386,12 +339,4 @@ def _metadata(entry: MemoryEntry, profile: str, scope: str) -> dict[str, object]
         "profile": profile,
         "scope": scope,
         "created_at": int(entry.created_at or time.time()),
-    }
-
-
-def _flat_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
-    return {
-        key: value
-        for key, value in metadata.items()
-        if isinstance(value, str | int | float | bool)
     }
