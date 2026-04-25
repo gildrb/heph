@@ -1215,7 +1215,7 @@ class CommandRegistry:
 
     def suggestions(self) -> list[CommandSuggestion]:
         return [
-            CommandSuggestion(name=cmd.name, description=cmd.description)
+            CommandSuggestion(name=cmd.name, description=cmd.description, aliases=cmd.aliases)
             for cmd in self.commands
             if not cmd.hidden
         ]

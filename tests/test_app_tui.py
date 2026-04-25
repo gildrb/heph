@@ -46,15 +46,20 @@ def test_session_status_for_plain_session() -> None:
 
     assert "test-model" in status
     assert "armory" in status
-    assert "enter" in status
+    assert "enter" not in status
+    assert "/help" not in status
 
 
-def test_composer_meta_uses_model_and_plain_mode() -> None:
+def test_composer_meta_keeps_input_hints_below_composer() -> None:
     meta = tui._composer_meta(_plain_session())  # type: ignore[reportPrivateUsage]
 
-    assert "Study" in meta
-    assert "test-model" in meta
-    assert "plain" in meta
+    assert "enter send" in meta
+    assert "tab complete" in meta
+    assert "/help commands" in meta
+    assert "ctrl+c interrupt" in meta
+    assert "ctrl+d exit" in meta
+    assert "armory" not in meta
+    assert "test-model" not in meta
 
 
 def test_tui_css_keeps_surface_transparent() -> None:
@@ -62,7 +67,7 @@ def test_tui_css_keeps_surface_transparent() -> None:
 
     assert "App {\n    background: transparent;" in css
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
-    assert "#status {\n    height: 3;\n    width: auto;" in css
+    assert "#status {\n    height: 2;\n    width: auto;" in css
     assert ("#composer-meta {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
@@ -207,7 +212,25 @@ def test_command_help_is_command_first() -> None:
     help_text = tui._command_help()  # type: ignore[reportPrivateUsage]
 
     assert "/help" in help_text
-    assert "/sources [query]" in help_text
+    assert "/provider" in help_text
+    assert "/sources" in help_text
+    assert "/status" in help_text
+
+
+def test_tui_slash_suggestion_uses_shared_registry() -> None:
+    engine = tui.SlashCompletionEngine()
+
+    suggestion = tui._slash_suggestion(engine, "/sta")  # type: ignore[reportPrivateUsage]
+
+    assert suggestion == "/status "
+
+
+def test_tui_slash_suggestion_includes_tui_source_command() -> None:
+    engine = tui.SlashCompletionEngine()
+
+    suggestion = tui._slash_suggestion(engine, "/sou")  # type: ignore[reportPrivateUsage]
+
+    assert suggestion == "/sources "
 
 
 def test_source_listing_filters_with_fuzzy_match() -> None:
@@ -228,9 +251,9 @@ def test_run_tui_reports_missing_textual(monkeypatch: pytest.MonkeyPatch) -> Non
 
     message = str(exc_info.value)
     assert "repository root" in message
-    assert "uv run --group tui heph tui" in message
+    assert "uv sync --frozen" in message
     assert "uv run --project" not in message
-    assert "-m pip install -e '.[tui]'" in message
+    assert "-m pip install -e ." in message
 
 
 def test_run_tui_for_path_resolves_armory(

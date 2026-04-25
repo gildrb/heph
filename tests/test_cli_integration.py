@@ -24,6 +24,8 @@ def test_parser_includes_expected_top_level_commands() -> None:
     help_text = parser.format_help()
 
     assert "armory" in help_text
+    assert "start           " not in help_text
+    assert "shell           " not in help_text
     assert "chat" not in help_text
     assert "source" in help_text
     assert "tui" in help_text
@@ -43,14 +45,15 @@ def test_run_argv_dispatches_armory_init(
     assert armory_path.is_dir()
 
 
-def test_main_without_args_uses_chat_shell_on_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_without_args_uses_tui(monkeypatch: pytest.MonkeyPatch) -> None:
     called = False
 
-    def fake_shell() -> None:
+    def fake_tui(path: Path | None) -> None:
         nonlocal called
         called = True
+        assert path is None
 
-    monkeypatch.setattr(app_cli, "run_chat_shell", fake_shell)
+    monkeypatch.setattr(app_cli, "run_tui_for_path", fake_tui)
     monkeypatch.setattr(app_cli.sys, "argv", ["heph"])
     monkeypatch.setattr(app_cli.sys, "stdin", _FakeTTY(True))
     monkeypatch.setattr(app_cli.sys, "stdout", _FakeTTY(True))
@@ -60,14 +63,15 @@ def test_main_without_args_uses_chat_shell_on_tty(monkeypatch: pytest.MonkeyPatc
     assert called
 
 
-def test_main_without_args_starts_shell_on_non_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_without_args_uses_tui_on_non_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     called = False
 
-    def fake_shell(session: object | None = None) -> None:
+    def fake_tui(path: Path | None) -> None:
         nonlocal called
         called = True
+        assert path is None
 
-    monkeypatch.setattr(app_cli, "run_chat_shell", fake_shell)
+    monkeypatch.setattr(app_cli, "run_tui_for_path", fake_tui)
     monkeypatch.setattr(app_cli.sys, "argv", ["heph"])
     monkeypatch.setattr(app_cli.sys, "stdin", _FakeTTY(False))
     monkeypatch.setattr(app_cli.sys, "stdout", _FakeTTY(False))
@@ -77,23 +81,42 @@ def test_main_without_args_starts_shell_on_non_tty(monkeypatch: pytest.MonkeyPat
     assert called
 
 
-def test_start_command_launches_shell_without_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_command_launches_tui_without_path(monkeypatch: pytest.MonkeyPatch) -> None:
     parser = build_parser()
     called = False
 
-    def fake_shell(session: object | None = None) -> None:
+    def fake_tui(path: Path | None) -> None:
         nonlocal called
         called = True
-        assert session is None
+        assert path is None
 
-    monkeypatch.setattr(app_cli, "run_chat_shell", fake_shell)
+    monkeypatch.setattr(app_cli, "run_tui_for_path", fake_tui)
 
     run_argv(parser, ["start"])
 
     assert called
 
 
-def test_start_command_with_path_launches_shell_with_session(
+def test_start_command_with_path_launches_tui_with_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parser = build_parser()
+    armory_path = tmp_path / "integration-armory"
+    run_argv(parser, ["armory", "init", str(armory_path)])
+    captured_path: Path | None = None
+
+    def fake_tui(path: Path | None) -> None:
+        nonlocal captured_path
+        captured_path = path
+
+    monkeypatch.setattr(app_cli, "run_tui_for_path", fake_tui)
+
+    run_argv(parser, ["start", str(armory_path)])
+
+    assert captured_path == armory_path
+
+
+def test_shell_command_launches_classic_shell_with_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     parser = build_parser()
@@ -110,10 +133,25 @@ def test_start_command_with_path_launches_shell_with_session(
 
     monkeypatch.setattr(app_cli, "run_chat_shell", fake_shell)
 
-    run_argv(parser, ["start", str(armory_path)])
+    run_argv(parser, ["shell", str(armory_path)])
 
     assert captured_session is not None
     assert captured_session.armory_path == armory_path.resolve()
+
+
+def test_bare_path_dispatches_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_path: Path | None = None
+
+    def fake_tui(path: Path | None) -> None:
+        nonlocal captured_path
+        captured_path = path
+
+    monkeypatch.setattr(app_cli, "run_tui_for_path", fake_tui)
+    monkeypatch.setattr(app_cli.sys, "argv", ["heph", str(tmp_path)])
+
+    app_cli.main()
+
+    assert captured_path == tmp_path
 
 
 def test_tui_command_dispatches_optional_shell(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -29,7 +29,9 @@ dependencies = [
     "pathspec>=0.12.0",
     "prompt-toolkit>=3.0.0",
     "rapidfuzz>=3.14.0",
+    "rich>=14.0.0",
     "certifi>=2024.0.0",
+    "textual>=6.0.0",
 ]
 
 [project.urls]
@@ -45,10 +47,6 @@ embeddings = [
 ]
 docling = [
     "docling>=2.0.0",
-]
-tui = [
-    "rich>=14.0.0",
-    "textual>=6.0.0",
 ]
 
 [project.scripts]
@@ -279,10 +277,6 @@ rag = [
 ]
 docling = [
     "docling>=2.0.0",
-]
-tui = [
-    "rich>=14.0.0",
-    "textual>=6.0.0",
 ]
 docs = [
     "mkdocs>=1.6.0",

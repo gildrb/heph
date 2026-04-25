@@ -41,6 +41,7 @@ from prompt_toolkit.styles import Style as PtStyle
 
 from hephaistos import __version__
 from hephaistos.analytics import capture as capture_analytics
+from hephaistos.app.autocomplete import SlashCompletionEngine
 from hephaistos.app.commands import get_registry
 from hephaistos.app.display import (
     STYLE_ASSISTANT,
@@ -71,12 +72,10 @@ from hephaistos.chat.session import (
     session_has_messages,
     validate_armory_path,
 )
-from hephaistos.harness.persona import list_personas
 from hephaistos.logging import get_logger
 from hephaistos.observability import capture_exception
 from hephaistos.parameters.cli import load_config
 from hephaistos.parameters.settings import load_app_settings, save_setting
-from hephaistos.providers.config import Provider, ProviderConfig
 from hephaistos.telemetry import mark_telemetry_notice_seen, should_show_telemetry_notice
 from hephaistos.vocab.parser import scan_armory
 
@@ -98,135 +97,22 @@ class SlashCommandCompleter(Completer):
     """Context-aware completion for slash commands and their common arguments."""
 
     def __init__(self) -> None:
-        self._cached_providers: dict[str, Provider] = {}
-        self._refresh_provider_cache()
+        self._engine = SlashCompletionEngine()
 
     def _refresh_provider_cache(self) -> None:
         """Reload provider list from cached config."""
-        self._cached_providers = dict(ProviderConfig.load().providers)
+        self._engine.refresh()
 
     def get_completions(self, document: Document, complete_event: CompleteEvent):
-        text = document.text_before_cursor
-        stripped = text.lstrip()
-
-        if not stripped.startswith("/") or "\n" in stripped:
-            return
-
-        body = stripped[1:]
-        registry = get_registry()
-
-        if not body or " " not in body:
-            prefix = body.lower()
-            seen: set[str] = set()
-            for cmd in registry.commands:
-                if cmd.hidden:
-                    continue
-                matches_name = cmd.name.lower().startswith(prefix)
-                matches_alias = any(alias.lower().startswith(prefix) for alias in cmd.aliases)
-                if not (matches_name or matches_alias) or cmd.name in seen:
-                    continue
-                seen.add(cmd.name)
-                yield Completion(
-                    text=cmd.name + " ",
-                    start_position=-len(body),
-                    display_meta=cmd.description,
-                )
-            return
-
-        parts = body.split()
-        if not parts:
-            return
-
-        ends_with_space = stripped.endswith(" ")
-        cmd_name = parts[0].lower()
-        arg_parts = parts[1:]
-        if ends_with_space:
-            arg_parts.append("")
-
-        for suggestion, description in self._argument_suggestions(cmd_name, arg_parts):
-            current = arg_parts[-1] if arg_parts else ""
-            if current and not suggestion.lower().startswith(current.lower()):
-                continue
-            suffix = "" if suggestion.endswith(" ") else " "
+        for suggestion in self._engine.candidates(
+            document.text_before_cursor,
+            get_registry().suggestions(),
+        ):
             yield Completion(
-                text=suggestion + suffix,
-                start_position=-len(current),
-                display_meta=description,
+                text=suggestion.text,
+                start_position=suggestion.start_position,
+                display_meta=suggestion.description,
             )
-
-    def _argument_suggestions(
-        self,
-        cmd_name: str,
-        arg_parts: list[str],
-    ) -> list[tuple[str, str]]:
-        if cmd_name == "api":
-            if len(arg_parts) <= 1:
-                return [
-                    ("key", "Store an API key for the active provider"),
-                    ("url", "Override the provider base URL"),
-                ]
-            return []
-
-        if cmd_name == "provider":
-            return self._provider_suggestions(arg_parts)
-
-        if cmd_name == "model":
-            return [(model, f"via {slug}") for slug, model in self._all_models()]
-
-        if cmd_name == "models":
-            return [("study", "Low-cost model recommendations for study sessions")]
-
-        if cmd_name == "memory":
-            return [
-                ("status", "Show memory backend and Supermemory setup"),
-                ("setup", "Connect Supermemory for cross-armory study memory"),
-                ("profile", "View or change the Supermemory profile"),
-                ("disable", "Use local memory only"),
-            ]
-
-        if cmd_name == "persona":
-            return self._persona_suggestions(arg_parts)
-
-        return []
-
-    def _provider_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
-        if len(arg_parts) <= 1:
-            return [
-                ("use", "Switch active provider (and optional model)"),
-                ("model", "Switch model within the active provider"),
-            ]
-
-        subcmd = arg_parts[0].lower()
-        providers = self._cached_providers
-
-        if subcmd == "use":
-            if len(arg_parts) == 2:
-                return [(slug, provider.display_name) for slug, provider in providers.items()]
-            if len(arg_parts) == 3:
-                provider = providers.get(arg_parts[1].lower())
-                if provider is None:
-                    return []
-                return [(model, provider.display_name) for model in provider.models]
-
-        if subcmd == "model":
-            active = ProviderConfig.load().get_active()
-            if active is None:
-                return []
-            return [(model, active.display_name) for model in active.models]
-
-        return []
-
-    def _all_models(self) -> list[tuple[str, str]]:
-        providers = self._cached_providers
-        models: list[tuple[str, str]] = []
-        for slug, provider in providers.items():
-            models.extend((slug, model) for model in provider.models)
-        return models
-
-    def _persona_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
-        if len(arg_parts) > 1:
-            return []
-        return [(p.slug, p.description) for p in list_personas()]
 
 
 def _build_keybindings(

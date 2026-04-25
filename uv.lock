@@ -791,6 +791,8 @@ dependencies = [
     { name = "pathspec" },
     { name = "prompt-toolkit" },
     { name = "rapidfuzz" },
+    { name = "rich" },
+    { name = "textual" },
 ]
 
 [package.optional-dependencies]
@@ -800,10 +802,6 @@ docling = [
 embeddings = [
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
-]
-tui = [
-    { name = "rich" },
-    { name = "textual" },
 ]
 
 [package.dev-dependencies]
@@ -837,10 +835,6 @@ rag = [
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
 ]
-tui = [
-    { name = "rich" },
-    { name = "textual" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -851,12 +845,12 @@ requires-dist = [
     { name = "pathspec", specifier = ">=0.12.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "rapidfuzz", specifier = ">=3.14.0" },
-    { name = "rich", marker = "extra == 'tui'", specifier = ">=14.0.0" },
+    { name = "rich", specifier = ">=14.0.0" },
     { name = "scikit-learn", marker = "extra == 'embeddings'", specifier = ">=1.0.0" },
     { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=3.0.0" },
-    { name = "textual", marker = "extra == 'tui'", specifier = ">=6.0.0" },
+    { name = "textual", specifier = ">=6.0.0" },
 ]
-provides-extras = ["embeddings", "docling", "tui"]
+provides-extras = ["embeddings", "docling"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -887,10 +881,6 @@ rag = [
     { name = "bm25s", specifier = ">=0.2.13" },
     { name = "scikit-learn", specifier = ">=1.0.0" },
     { name = "sentence-transformers", specifier = ">=3.0.0" },
-]
-tui = [
-    { name = "rich", specifier = ">=14.0.0" },
-    { name = "textual", specifier = ">=6.0.0" },
 ]
 
 [[package]]

@@ -21,7 +21,7 @@ from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style, merge_styles
 from prompt_toolkit.styles.defaults import default_ui_style
 
-from hephaistos.app import menu, palette, shell, workspace
+from hephaistos.app import autocomplete, menu, palette, shell, workspace
 from hephaistos.app.commands import SettingsCommand
 from hephaistos.app.display import format_shell_header, print_shell_intro
 from hephaistos.app.input_history import InputHistory
@@ -455,7 +455,7 @@ def test_slash_completer_suggests_provider_subcommands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        shell.ProviderConfig,
+        autocomplete.ProviderConfig,
         "load",
         classmethod(lambda cls: _default_config()),  # type: ignore[reportPrivateUsage, reportUnknownLambdaType]
     )

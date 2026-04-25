@@ -129,11 +129,12 @@ SHELL_SIGNATURE_OVERRIDES: Final[dict[str, str]] = {
 }
 
 CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
-    "heph": "Launch the interactive shell in plain-chat mode or attach the current armory.",
-    "heph <path>": "Launch the shell attached to a specific armory path.",
+    "heph": "Launch the TUI in plain-chat mode or attach the current armory.",
+    "heph <path>": "Launch the TUI attached to a specific armory path.",
     "hephaistos [path]": "Equivalent long entrypoint for `heph`.",
     "heph start [path]": "Hidden backwards-compatible alias for `heph [path]`.",
-    "heph tui [path]": "Launch the experimental Textual shell.",
+    "heph shell [path]": "Hidden escape hatch for the classic prompt-toolkit shell.",
+    "heph tui [path]": "Explicit alias for the default Textual TUI.",
 }
 
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
@@ -208,8 +209,8 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
 
     if "armory" not in top_level or "source" not in top_level or "config" not in top_level:
         raise RuntimeError("The top-level CLI surface changed; update sync_docs.py.")
-    if "chat" not in top_level or "start" not in top_level:
-        raise RuntimeError("Expected hidden `chat` and `start` commands to exist.")
+    if "chat" not in top_level or "start" not in top_level or "shell" not in top_level:
+        raise RuntimeError("Expected hidden `chat`, `start`, and `shell` commands to exist.")
 
     armory_parser = subparsers.choices["armory"]
     source_parser = subparsers.choices["source"]
@@ -249,6 +250,10 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(
             f"{short_command} start [path]",
             CLI_COMMAND_DESCRIPTIONS[f"{short_command} start [path]"],
+        ),
+        CommandLine(
+            f"{short_command} shell [path]",
+            CLI_COMMAND_DESCRIPTIONS[f"{short_command} shell [path]"],
         ),
         CommandLine(
             f"{short_command} tui [path]",

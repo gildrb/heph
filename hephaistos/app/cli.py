@@ -43,8 +43,8 @@ def _hide_subparser(
     ]
 
 
-def _cmd_start(args: argparse.Namespace) -> None:
-    """Start the interactive shell, optionally attached to a specific armory."""
+def _cmd_shell(args: argparse.Namespace) -> None:
+    """Start the classic prompt-toolkit shell, optionally attached to a specific armory."""
     if args.path:
         session = resolve_armory_session(args.path)
         run_chat_shell(session)
@@ -53,9 +53,10 @@ def _cmd_start(args: argparse.Namespace) -> None:
 
 
 def _cmd_tui(args: argparse.Namespace) -> None:
-    """Start the experimental Textual shell."""
+    """Start the Textual shell."""
     try:
-        run_tui_for_path(Path(args.path) if args.path else None)
+        path = getattr(args, "path", None)
+        run_tui_for_path(Path(path) if path else None)
     except TuiDependencyError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
@@ -69,12 +70,12 @@ def _get_subcommand_names(parser: argparse.ArgumentParser) -> set[str]:
     return set()
 
 
-def _inject_start_if_path(argv: list[str], known_commands: set[str]) -> list[str]:
-    """Prepend 'start' if the first non-flag arg is not a known subcommand."""
+def _inject_tui_if_path(argv: list[str], known_commands: set[str]) -> list[str]:
+    """Prepend 'tui' if the first non-flag arg is not a known subcommand."""
     for i, arg in enumerate(argv):
         if not arg.startswith("-"):
             if arg not in known_commands:
-                return [*argv[:i], "start", *argv[i:]]
+                return [*argv[:i], "tui", *argv[i:]]
             break
     return argv
 
@@ -95,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     prog = Path(sys.argv[0]).name or "hephaistos"
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="Chat-first study CLI.",
+        description="TUI-first study CLI.",
     )
     parser.add_argument(
         "--version",
@@ -123,11 +124,19 @@ def build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,
     )
     start.add_argument("path", nargs="?", help=argparse.SUPPRESS)
-    start.set_defaults(handler=_cmd_start)
+    start.set_defaults(handler=_cmd_tui)
+
+    # Hidden escape hatch for the original prompt-toolkit shell.
+    shell = subparsers.add_parser(
+        "shell",
+        help=argparse.SUPPRESS,
+    )
+    shell.add_argument("path", nargs="?", help=argparse.SUPPRESS)
+    shell.set_defaults(handler=_cmd_shell)
 
     tui = subparsers.add_parser(
         "tui",
-        help="Launch the experimental Textual shell",
+        help="Launch the Textual shell",
     )
     tui.add_argument("path", nargs="?", help="Armory path to attach")
     tui.set_defaults(handler=_cmd_tui)
@@ -136,6 +145,8 @@ def build_parser() -> argparse.ArgumentParser:
     register_source_commands(subparsers)
     register_chat_commands(subparsers, run_shell=run_chat_shell)
     register_config_commands(subparsers)
+    _hide_subparser(subparsers, "start")
+    _hide_subparser(subparsers, "shell")
     _hide_subparser(subparsers, "chat")
 
     return parser
@@ -145,8 +156,7 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
     args = parser.parse_args(argv)
     handler = getattr(args, "handler", None)
     if handler is None:
-        # No subcommand → launch the interactive shell directly
-        run_chat_shell()
+        _cmd_tui(args)
         return
     handler(args)
 
@@ -173,9 +183,9 @@ def main() -> None:
         argv = _normalise_tui_alias(argv)
 
         # If the first non-flag arg isn't a known subcommand (e.g. a path),
-        # transparently inject "start" so `heph /my/armory` just works.
+        # transparently inject "tui" so `heph /my/armory` just works.
         known_commands = _get_subcommand_names(parser)
-        argv = _inject_start_if_path(argv, known_commands)
+        argv = _inject_tui_if_path(argv, known_commands)
 
         run_argv(parser, argv)
     finally:
