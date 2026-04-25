@@ -27,6 +27,20 @@ def _plain_session() -> ChatSession:
     )
 
 
+def _configured_status_session() -> ChatSession:
+    conversation = Conversation()
+    conversation.add("system", "test")
+    return ChatSession(
+        config=ChatConfig(
+            base_url="https://example.test",
+            model="glm-5v-turbo",
+            api_key="test-key",
+        ),
+        conversation=conversation,
+        session_id="session-test",
+    )
+
+
 def test_session_status_for_plain_session() -> None:
     status = tui._status_lines(_plain_session())  # type: ignore[reportPrivateUsage]
 
@@ -103,6 +117,9 @@ def test_tui_layout_blanks_do_not_paint_black_background() -> None:
 
     screen_class = tui._transparent_screen_class()  # type: ignore[reportPrivateUsage]
     vertical_class = tui._transparent_vertical_class()  # type: ignore[reportPrivateUsage]
+    static_class = tui._transparent_static_class()  # type: ignore[reportPrivateUsage]
+    rich_log_class = tui._transparent_rich_log_class()  # type: ignore[reportPrivateUsage]
+    input_class = tui._transparent_input_class()  # type: ignore[reportPrivateUsage]
 
     class Smoke(tui.App[None]):  # type: ignore[index]
         CSS = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
@@ -113,9 +130,14 @@ def test_tui_layout_blanks_do_not_paint_black_background() -> None:
         def compose(self) -> tui.ComposeResult:
             session = _plain_session()
             with vertical_class(id="shell"):  # type: ignore[operator, reportCallIssue]
-                yield tui.Static(tui._status_text(session), id="status")  # type: ignore[operator, reportPrivateUsage]
+                yield static_class(tui._status_text(session), id="status")  # type: ignore[operator, reportPrivateUsage]
+                yield rich_log_class(id="transcript", markup=True, wrap=True, highlight=True)  # type: ignore[operator]
                 with vertical_class(id="composer-frame"):  # type: ignore[operator, reportCallIssue]
-                    yield tui.Static(  # type: ignore[operator]
+                    yield input_class(  # type: ignore[operator]
+                        placeholder='Ask anything... "What do I need to study next?"',
+                        id="composer",
+                    )
+                    yield static_class(  # type: ignore[operator]
                         tui._composer_meta_text(session),  # type: ignore[reportPrivateUsage]
                         id="composer-meta",
                     )
@@ -127,13 +149,58 @@ def test_tui_layout_blanks_do_not_paint_black_background() -> None:
             widgets: tuple[Widget, ...] = (
                 cast("Widget", app.screen),
                 app.query_one("#shell"),
+                app.query_one("#status"),
+                app.query_one("#transcript"),
                 app.query_one("#composer-frame"),
+                app.query_one("#composer"),
+                app.query_one("#composer-meta"),
             )
             for widget in widgets:
-                segments = widget.render_line(0)
-                assert all("on #000000" not in str(segment.style) for segment in segments)
+                for line_number in range(widget.size.height):
+                    segments = widget.render_line(line_number)
+                    assert all("on #000000" not in str(segment.style) for segment in segments)
 
     asyncio.run(check_layout_blanks())
+
+
+def test_tui_status_short_rows_are_padded_transparently() -> None:
+    if tui.Static is None or tui.Strip is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    screen_class = tui._transparent_screen_class()  # type: ignore[reportPrivateUsage]
+    vertical_class = tui._transparent_vertical_class()  # type: ignore[reportPrivateUsage]
+    static_class = tui._transparent_static_class()  # type: ignore[reportPrivateUsage]
+
+    class Smoke(tui.App[None]):  # type: ignore[index]
+        CSS = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+
+        def get_default_screen(self) -> Screen[object]:
+            return screen_class(id="_default")
+
+        def compose(self) -> tui.ComposeResult:
+            with vertical_class(id="shell"):  # type: ignore[operator, reportCallIssue]
+                yield static_class(  # type: ignore[operator]
+                    tui._status_text(_configured_status_session()),  # type: ignore[reportPrivateUsage]
+                    id="status",
+                )
+
+    async def check_status_padding() -> None:
+        app = Smoke()
+        async with app.run_test(size=(160, 10)) as pilot:
+            await pilot.pause()
+            widget = app.query_one("#status")
+            widths: list[int] = []
+            for line_number in range(widget.size.height):
+                strip = widget.render_line(line_number)
+                widths.append(strip.cell_length)
+                assert strip.cell_length == widget.size.width
+                assert all(
+                    segment.style is None or segment.style.bgcolor is None for segment in strip
+                )
+
+            assert len(set(widths)) == 1
+
+    asyncio.run(check_status_padding())
 
 
 def test_command_help_is_command_first() -> None:

@@ -31,12 +31,12 @@ def test_set_theme_switches_palette() -> None:
     menu_style = palette.menu_style_dict()
 
     assert palette.current_theme_name() == "light"
-    assert style_rules[""] == "bg:#F6F2EA fg:#2C241B"
-    assert style_rules["composer"] == "bg:#F6F2EA fg:#2C241B"
-    assert style_rules["header.title"] == "bg:#F6F2EA bold fg:#8E4A32"
-    assert style_rules["header.configured"] == "bg:#F6F2EA fg:#687A4B"
+    assert style_rules[""] == "fg:#2C241B"
+    assert style_rules["composer"] == "fg:#2C241B"
+    assert style_rules["header.title"] == "bold fg:#8E4A32"
+    assert style_rules["header.configured"] == "fg:#687A4B"
     assert style_rules["header.success"] == style_rules["header.configured"]
-    assert style_rules["toolbar-error"] == "noreverse bg:#F6F2EA bold fg:#B03A2E"
+    assert style_rules["toolbar-error"] == "noreverse bold fg:#B03A2E"
     assert menu_style[""] == "bg:#F6F2EA fg:#2C241B"
 
 
@@ -57,12 +57,34 @@ def test_menu_style_dict_uses_theme_background_instead_of_prompt_toolkit_default
         assert attrs.bgcolor == "F6F2EA"
 
 
-_TOOLBAR_STYLES: tuple[str, ...] = (
+_SHELL_TRANSPARENT_STYLES: tuple[str, ...] = (
+    "",
+    "composer",
     "bottom-toolbar",
     "bottom-toolbar.text",
     "toolbar-location",
     "toolbar-accent",
     "toolbar-error",
+    "scrollbar.background",
+    "scrollbar.button",
+    "header",
+    "header.title",
+    "header.dim",
+    "header.accent",
+    "header.ember",
+    "header.configured",
+    "header.error",
+    "header.success",
+    "header.warning",
+    "separator",
+    "chat-area",
+    "chat-area.user",
+    "chat-area.assistant",
+    "chat-area.assistant-label",
+    "chat-area.system",
+    "chat-area.error",
+    "chat-area.success",
+    "chat-area.tool",
 )
 
 _MENU_STYLES: tuple[str, ...] = (
@@ -86,13 +108,12 @@ _BROWSER_STYLES: tuple[str, ...] = (
 
 
 @pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])
-def test_all_toolbar_styles_have_theme_background(theme: str) -> None:
+def test_shell_chrome_styles_leave_background_transparent(theme: str) -> None:
     palette.set_theme(theme)
-    expected_bg = palette.current_palette().panel.lstrip("#")
     merged = merge_styles([default_ui_style(), Style.from_dict(palette.shell_style_dict())])
-    for style_name in _TOOLBAR_STYLES:
+    for style_name in _SHELL_TRANSPARENT_STYLES:
         attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
-        assert attrs.bgcolor == expected_bg, f"{style_name} bgcolor mismatch for theme {theme}"
+        assert attrs.bgcolor == "", f"{style_name} bgcolor should be transparent for theme {theme}"
 
 
 @pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])

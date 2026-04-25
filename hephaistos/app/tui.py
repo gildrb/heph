@@ -25,6 +25,7 @@ from hephaistos.parameters.cli import load_config
 
 try:
     from rich.markdown import Markdown
+    from rich.segment import Segment
     from rich.style import Style as _RichStyle
     from rich.text import Text as _RichText
     from textual.app import App, ComposeResult
@@ -35,6 +36,7 @@ try:
 except ImportError:
     _RichStyle = None  # type: ignore[assignment]
     Markdown = None  # type: ignore[assignment]
+    Segment = None  # type: ignore[assignment]
     _RichText = None  # type: ignore[assignment]
     App = object  # type: ignore[assignment, misc]
     ComposeResult = object  # type: ignore[assignment, misc]
@@ -308,10 +310,79 @@ def _transparent_vertical_class() -> type[Vertical]:
     return TransparentVertical
 
 
+def _style_without_black_background(style: _RichStyle | None) -> _RichStyle:
+    if _RichStyle is None:
+        raise TuiDependencyError(_tui_dependency_message())
+    if style is None:
+        return _RichStyle()
+    bgcolor = style.bgcolor
+    triplet = bgcolor.triplet if bgcolor is not None else None
+    if triplet is None or (triplet.red, triplet.green, triplet.blue) != (0, 0, 0):
+        return style
+    return _RichStyle(
+        color=style.color,
+        bold=style.bold,
+        dim=style.dim,
+        italic=style.italic,
+        underline=style.underline,
+        blink=style.blink,
+        blink2=style.blink2,
+        reverse=style.reverse,
+        conceal=style.conceal,
+        strike=style.strike,
+        underline2=style.underline2,
+        frame=style.frame,
+        encircle=style.encircle,
+        overline=style.overline,
+        link=style.link,
+        meta=style.meta or None,
+    )
+
+
+def _transparent_strip(strip: Strip, cell_length: int) -> Strip:
+    """Drop synthetic black backgrounds and pad short rows with transparent cells."""
+    if Segment is None:
+        raise TuiDependencyError(_tui_dependency_message())
+    changed = False
+    segments: list[Segment] = []
+    for segment in strip:
+        style = _style_without_black_background(segment.style)
+        changed = changed or style is not segment.style
+        segments.append(segment._replace(style=style))
+    if not changed:
+        return strip.extend_cell_length(cell_length, _RichStyle())
+    return Strip(segments, strip.cell_length).extend_cell_length(cell_length, _RichStyle())
+
+
+def _transparent_static_class() -> type[Static]:
+    class TransparentStatic(Static):  # type: ignore[misc]
+        def render_line(self, y: int) -> Strip:
+            return _transparent_strip(super().render_line(y), self.size.width)
+
+    return TransparentStatic
+
+
+def _transparent_rich_log_class() -> type[RichLog]:
+    class TransparentRichLog(RichLog):  # type: ignore[misc]
+        def render_line(self, y: int) -> Strip:
+            return _transparent_strip(super().render_line(y), self.size.width)
+
+    return TransparentRichLog
+
+
+def _transparent_input_class() -> type[Input]:
+    class TransparentInput(Input):  # type: ignore[misc]
+        def render_line(self, y: int) -> Strip:
+            return _transparent_strip(super().render_line(y), self.size.width)
+
+    return TransparentInput
+
+
 def run_tui(session: ChatSession | None = None) -> None:
     """Run the experimental command-first Textual shell."""
     if (
         Markdown is None
+        or Segment is None
         or _RichStyle is None
         or _RichText is None
         or Input is None
@@ -326,6 +397,9 @@ def run_tui(session: ChatSession | None = None) -> None:
 
     transparent_screen = _transparent_screen_class()
     transparent_vertical = _transparent_vertical_class()
+    transparent_static = _transparent_static_class()
+    transparent_rich_log = _transparent_rich_log_class()
+    transparent_input = _transparent_input_class()
 
     class HephaistosTui(App[None]):
         CSS = _TUI_CSS
@@ -347,14 +421,14 @@ def run_tui(session: ChatSession | None = None) -> None:
 
         def compose(self) -> ComposeResult:
             with transparent_vertical(id="shell"):  # type: ignore[reportCallIssue]
-                yield Static(_status_text(self.session), id="status")
-                yield RichLog(id="transcript", markup=True, wrap=True, highlight=True)
+                yield transparent_static(_status_text(self.session), id="status")
+                yield transparent_rich_log(id="transcript", markup=True, wrap=True, highlight=True)
                 with transparent_vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
-                    yield Input(
+                    yield transparent_input(
                         placeholder='Ask anything... "What do I need to study next?"',
                         id="composer",
                     )
-                    yield Static(_composer_meta_text(self.session), id="composer-meta")
+                    yield transparent_static(_composer_meta_text(self.session), id="composer-meta")
 
         def on_mount(self) -> None:
             self.title = "Hephaistos"

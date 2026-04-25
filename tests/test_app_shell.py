@@ -348,7 +348,7 @@ def test_shell_style_overrides_default_reversed_toolbar() -> None:
     palette.set_theme("forge")
     style_rules = shell.shell_style_dict()  # type: ignore[reportPrivateUsage]
 
-    assert style_rules["composer"] == "bg:#1C1C1C fg:#E0E0E0"
+    assert style_rules["composer"] == "fg:#E0E0E0"
     assert style_rules["prompt-mark"] == "bold #C8C8C8"
     assert "frame" not in style_rules
     assert "frame.border" not in style_rules
@@ -362,7 +362,7 @@ def test_shell_style_overrides_default_reversed_toolbar() -> None:
         ("toolbar-error", "CC3333"),
     ):
         attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
-        assert attrs.bgcolor == "1C1C1C", f"{style_name} bgcolor mismatch"
+        assert attrs.bgcolor == "", f"{style_name} should leave the terminal background visible"
         assert attrs.color == expected_fg, f"{style_name} fg mismatch"
         assert attrs.reverse is False, f"{style_name} should have reverse disabled"
 
