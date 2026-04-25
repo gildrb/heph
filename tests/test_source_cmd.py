@@ -139,3 +139,24 @@ def test_source_list_ignores_dotfiles(tmp_path: Path, capsys: pytest.CaptureFixt
     out = capsys.readouterr().out
     assert "source/visible.md" in out
     assert ".hidden.md" not in out
+
+
+def test_source_list_respects_armory_ignore(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    armory_path = tmp_path / "ignored-armory"
+    initialize(armory_path)
+    (armory_path / ".hephaistosignore").write_text("source/ignored.md\nlibrary/private/\n")
+    (armory_path / "source" / "visible.md").write_text("# Visible\n")
+    (armory_path / "source" / "ignored.md").write_text("# Ignored\n")
+    private = armory_path / "library" / "private"
+    private.mkdir()
+    (private / "notes.md").write_text("# Private\n")
+    parser = build_parser()
+
+    run_argv(parser, ["source", "list", str(armory_path)])
+
+    out = capsys.readouterr().out
+    assert "source/visible.md" in out
+    assert "source/ignored.md" not in out
+    assert "library/private/notes.md" not in out

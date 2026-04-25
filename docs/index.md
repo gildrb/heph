@@ -59,7 +59,8 @@ cd hephaistos
 uv sync --group dev
 ```
 
-Optional: enable embedding retrieval and cross-encoder re-ranking from a source checkout.
+Optional: enable BM25, embedding retrieval, and cross-encoder re-ranking from a source
+checkout.
 
 ```bash
 uv sync --group rag
@@ -178,8 +179,8 @@ and other readable text formats out of the box. Markdown is chunked with heading
 context, and other text files use semantic chunking when the optional RAG
 dependencies are installed.
 
-With `uv sync --group rag`, retrieval can use hybrid TF-IDF plus embeddings,
-cross-encoder re-ranking, and query transformation.
+With `uv sync --group rag`, retrieval can use BM25, hybrid sparse plus
+embedding retrieval, cross-encoder re-ranking, and query transformation.
 
 With `uv sync --group docling`, document files such as PDF, DOCX, PPTX, XLSX,
 ODT, ODS, ODP, and RTF can be converted into Markdown before indexing.
@@ -217,6 +218,7 @@ heph source index <path>      Build or refresh the RAG index.
 heph chat resume <path> <id>  Resume an existing chat session.
 heph chat list <path>         List chat sessions in an armory.
 heph start [path]             Hidden backwards-compatible alias for `heph [path]`.
+heph tui [path]               Launch the experimental Textual shell.
 ```
 
 Useful shell commands:

@@ -2,8 +2,9 @@
 
 Backends (selected automatically based on available dependencies):
 - ``TfidfRetriever``     — pure-stdlib keyword scoring (always available)
+- ``Bm25Retriever``      — BM25 sparse retrieval via bm25s when available
 - ``EmbeddingRetriever`` — dense vector similarity via sentence-transformers
-- ``HybridRetriever``    — reciprocal-rank fusion of TF-IDF + embeddings
+- ``HybridRetriever``    — reciprocal-rank fusion of sparse + embeddings
 
 Post-retrieval re-ranking (optional, requires sentence-transformers):
 - ``CrossEncoderReranker`` — cross-encoder re-scoring for improved precision
@@ -22,6 +23,11 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol, cast, runtime_checkable
+
+try:
+    import bm25s as _imported_bm25s  # type: ignore[import-untyped]
+except ImportError:
+    _imported_bm25s = None
 
 try:
     from sklearn.feature_extraction.text import (
@@ -204,6 +210,22 @@ class _CrossEncoderFactory(Protocol):
     def __call__(self, model_name: str) -> _CrossEncoderProtocol: ...
 
 
+class _Bm25Protocol(Protocol):
+    def index(self, _corpus_tokens: list[list[str]], *, show_progress: bool) -> object: ...
+
+    def retrieve(
+        self,
+        query_tokens: list[list[str]],
+        *,
+        k: int,
+        show_progress: bool,
+    ) -> tuple[object, object]: ...
+
+
+class _Bm25Factory(Protocol):
+    def __call__(self) -> _Bm25Protocol: ...
+
+
 if _ImportedSklearnTfidfVectorizer is None:
     _SklearnTfidfVectorizer: _SklearnVectorizerFactory | None = None
 else:
@@ -218,6 +240,10 @@ if _ImportedCrossEncoder is None or _ImportedSentenceTransformer is None:
 else:
     _CrossEncoder = cast("_CrossEncoderFactory", _ImportedCrossEncoder)
     _SentenceTransformer = cast("_SentenceTransformerFactory", _ImportedSentenceTransformer)
+
+_Bm25Class: _Bm25Factory | None = (
+    None if _imported_bm25s is None else cast("_Bm25Factory", _imported_bm25s.BM25)
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,6 +441,73 @@ class TfidfRetriever:
             return 0.0
 
         return dot / (math.sqrt(chunk_norm_sq) * math.sqrt(query_norm_sq))
+
+
+class Bm25Retriever:
+    """Sparse BM25 retriever using the optional ``bm25s`` package."""
+
+    def __init__(self, index: ArmoryIndex) -> None:
+        self._chunks = index.all_chunks
+        self._retriever: object | None = None
+        self._corpus_tokens: list[list[str]] = []
+        if self._chunks and _Bm25Class is not None:
+            self._build()
+
+    @property
+    def available(self) -> bool:
+        """Whether the BM25 backend was built successfully."""
+        return self._retriever is not None
+
+    def _build(self) -> None:
+        assert _Bm25Class is not None
+        self._corpus_tokens = [_tokenize(chunk.text) for chunk in self._chunks]
+        if not any(self._corpus_tokens):
+            return
+        try:
+            retriever = _Bm25Class()
+            retriever.index(self._corpus_tokens, show_progress=False)
+        except Exception:
+            _log.warning("bm25 build failed; falling back to tf-idf", exc_info=True)
+            return
+        self._retriever = retriever
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
+        """Return the top-k chunks by BM25 score."""
+        if self._retriever is None or not self._chunks:
+            return []
+        query_tokens = _tokenize(query)
+        if not query_tokens:
+            return []
+
+        result_count = min(top_k, len(self._chunks))
+        if result_count <= 0:
+            return []
+        retriever = cast("_Bm25Protocol", self._retriever)
+        results, scores = retriever.retrieve([query_tokens], k=result_count, show_progress=False)
+        result_rows = _object_rows(results)
+        score_rows = _object_rows(scores)
+        if not result_rows or not score_rows:
+            return []
+
+        scored: list[ScoredChunk] = []
+        for raw_idx, raw_score in zip(result_rows[0], score_rows[0], strict=False):
+            if not isinstance(raw_idx, int) or not isinstance(raw_score, int | float):
+                continue
+            if raw_score <= 0:
+                continue
+            if raw_idx < 0 or raw_idx >= len(self._chunks):
+                continue
+            scored.append(ScoredChunk(chunk=self._chunks[raw_idx], score=float(raw_score)))
+        return scored
+
+
+def _object_rows(values: object) -> list[list[object]]:
+    if isinstance(values, _ToListProtocol):
+        values = values.tolist()
+    if not isinstance(values, list):
+        return []
+    typed_values = cast("list[object]", values)
+    return [cast("list[object]", row) for row in typed_values if isinstance(row, list)]
 
 
 _EMBED_MODEL_ENV = "HEPHAISTOS_EMBED_MODEL"
@@ -616,7 +709,8 @@ class HybridRetriever:
         candidate_multiplier: int = 3,
         query_transformer: QueryTransformerProtocol | None = None,
     ) -> None:
-        self._tfidf = TfidfRetriever(index)
+        bm25 = Bm25Retriever(index)
+        self._sparse: RetrieverProtocol = bm25 if bm25.available else TfidfRetriever(index)
         self._embedding: EmbeddingRetriever | None = None
         self._reranker = reranker
         self._candidate_multiplier = candidate_multiplier
@@ -679,19 +773,19 @@ class HybridRetriever:
     def _retrieve_single(self, query: str, pool: int) -> list[ScoredChunk]:
         """Run TF-IDF + (optional) embedding retrieval for a single query."""
         if self._embedding is None:
-            return self._tfidf.retrieve(query, top_k=pool)
+            return self._sparse.retrieve(query, top_k=pool)
 
-        tfidf_results = self._tfidf.retrieve(query, top_k=pool)
+        sparse_results = self._sparse.retrieve(query, top_k=pool)
         embed_results = self._embedding.retrieve(query, top_k=pool)
 
-        if not tfidf_results and not embed_results:
+        if not sparse_results and not embed_results:
             return []
-        if not tfidf_results:
+        if not sparse_results:
             return embed_results
         if not embed_results:
-            return tfidf_results
+            return sparse_results
 
-        return _reciprocal_rank_fusion([tfidf_results, embed_results])
+        return _reciprocal_rank_fusion([sparse_results, embed_results])
 
 
 def _create_retriever(
@@ -699,13 +793,13 @@ def _create_retriever(
     embed_model: str | None = None,
     rerank_model: str | None = None,
     query_transformer: QueryTransformerProtocol | None = None,
-) -> TfidfRetriever | EmbeddingRetriever | HybridRetriever:
+) -> TfidfRetriever | Bm25Retriever | EmbeddingRetriever | HybridRetriever:
     """Create the best available retriever for the given index.
 
     Strategy:
-    1. If sentence-transformers is available → ``HybridRetriever`` (TF-IDF + embeddings)
+    1. If sentence-transformers is available → ``HybridRetriever`` (sparse + embeddings)
        with an optional ``CrossEncoderReranker`` for post-retrieval re-scoring.
-    2. Otherwise → ``TfidfRetriever`` (pure keyword matching)
+    2. Otherwise → ``Bm25Retriever`` when available, else ``TfidfRetriever``.
 
     A ``query_transformer`` can be attached to any retriever type.
     """
@@ -724,6 +818,9 @@ def _create_retriever(
         )
         if hybrid.has_embeddings:
             return hybrid
+    bm25 = Bm25Retriever(index)
+    if bm25.available:
+        return bm25
     return TfidfRetriever(index)
 
 

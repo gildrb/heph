@@ -25,6 +25,7 @@ from hephaistos.chat.session import (
     save_session,
     validate_armory_path,
 )
+from hephaistos.fuzzy import ranked_matches
 
 ARMORY_MENU_OPTIONS = [
     MenuOption("Open existing armory", "Attach a workspace and load its study context."),
@@ -178,6 +179,22 @@ def _match_saved_session(
     if len(matches) == 1:
         return matches[0]
     if not matches:
+        fuzzy = ranked_matches(
+            session_id,
+            list(sessions),
+            key=lambda entry: f"{entry['session_id']} {entry['title']}",
+            limit=3,
+            min_score=70.0,
+        )
+        if len(fuzzy) == 1 and fuzzy[0].score >= 90.0:
+            return fuzzy[0].value
+        if fuzzy:
+            print_error(f"No exact saved chat matches '{session_id}'. Close matches:")
+            for match in fuzzy:
+                entry = match.value
+                title = entry["title"] or "(untitled)"
+                print(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
+            return None
         print_error(f"No saved chat matches '{session_id}'.")
         return None
 

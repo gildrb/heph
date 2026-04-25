@@ -51,7 +51,8 @@ cd hephaistos
 uv sync --group dev
 ```
 
-Optional: enable embedding retrieval and cross-encoder re-ranking from a source checkout.
+Optional: enable BM25, embedding retrieval, and cross-encoder re-ranking from a source
+checkout.
 
 ```bash
 uv sync --group rag
@@ -161,8 +162,8 @@ and other readable text formats out of the box. Markdown is chunked with heading
 context, and other text files use semantic chunking when the optional RAG
 dependencies are installed.
 
-With `uv sync --group rag`, retrieval can use hybrid TF-IDF plus embeddings,
-cross-encoder re-ranking, and query transformation.
+With `uv sync --group rag`, retrieval can use BM25, hybrid sparse plus
+embedding retrieval, cross-encoder re-ranking, and query transformation.
 
 With `uv sync --group docling`, document files such as PDF, DOCX, PPTX, XLSX,
 ODT, ODS, ODP, and RTF can be converted into Markdown before indexing.

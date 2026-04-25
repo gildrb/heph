@@ -26,6 +26,7 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "armory" in help_text
     assert "chat" not in help_text
     assert "source" in help_text
+    assert "tui" in help_text
     assert "parameters" not in help_text
 
 
@@ -113,3 +114,64 @@ def test_start_command_with_path_launches_shell_with_session(
 
     assert captured_session is not None
     assert captured_session.armory_path == armory_path.resolve()
+
+
+def test_tui_command_dispatches_optional_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    parser = build_parser()
+    captured_path: Path | None = None
+
+    def fake_tui(path: Path | None) -> None:
+        nonlocal captured_path
+        captured_path = path
+
+    monkeypatch.setattr(app_cli, "run_tui_for_path", fake_tui)
+
+    run_argv(parser, ["tui", "notes"])
+
+    assert captured_path == Path("notes")
+
+
+def test_tui_flag_alias_dispatches_optional_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_path: Path | None = Path("unset")
+
+    def fake_tui(path: Path | None) -> None:
+        nonlocal captured_path
+        captured_path = path
+
+    monkeypatch.setattr(app_cli, "run_tui_for_path", fake_tui)
+    monkeypatch.setattr(app_cli.sys, "argv", ["heph", "--tui"])
+
+    app_cli.main()
+
+    assert captured_path is None
+
+
+def test_tui_flag_alias_help(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(app_cli.sys, "argv", ["heph", "--tui", "help"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        app_cli.main()
+
+    assert exc_info.value.code == 0
+    assert "usage: heph tui" in capsys.readouterr().out
+
+
+def test_tui_command_reports_missing_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+
+    def fake_tui(_path: Path | None) -> None:
+        raise app_cli.TuiDependencyError("missing textual")
+
+    monkeypatch.setattr(app_cli, "run_tui_for_path", fake_tui)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_argv(parser, ["tui"])
+
+    assert exc_info.value.code == 2
+    assert "missing textual" in capsys.readouterr().err

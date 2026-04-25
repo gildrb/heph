@@ -7,10 +7,17 @@ incremental rebuild detection.
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
+
+try:
+    import pathspec
+except ImportError:
+    pathspec = None  # type: ignore[assignment]
 
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.harness.rag.chunker import (
@@ -25,6 +32,18 @@ _log = get_logger("rag.index")
 
 _INDEX_FILE = "rag_index.json"
 _SOURCE_DIRS = ("source", "library")
+_IGNORE_FILE = ".hephaistosignore"
+_DEFAULT_IGNORE_PATTERNS: tuple[str, ...] = (
+    ".git/",
+    ".hg/",
+    ".svn/",
+    ".DS_Store",
+    "__pycache__/",
+    "*.pyc",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".ruff_cache/",
+)
 
 _CHUNK_SIZE = 500
 _OVERLAP = 100
@@ -250,16 +269,61 @@ class ArmoryIndex:
         return count
 
     def _iter_source_files(self) -> Iterator[Path]:
-        for dirname in _SOURCE_DIRS:
-            folder = self.armory_path / dirname
-            if not folder.is_dir():
+        yield from iter_source_files(self.armory_path)
+
+
+def iter_source_files(armory_path: Path) -> Iterator[Path]:
+    """Yield visible source/library files using the armory ignore rules."""
+    ignore_spec = _load_ignore_spec(armory_path)
+    for dirname in _SOURCE_DIRS:
+        folder = armory_path / dirname
+        if not folder.is_dir():
+            continue
+        for file_path in sorted(folder.rglob("*")):
+            if not file_path.is_file():
                 continue
-            for file_path in sorted(folder.rglob("*")):
-                if not file_path.is_file():
-                    continue
-                if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
-                    continue
-                yield file_path
+            rel = file_path.relative_to(armory_path)
+            if any(part.startswith(".") for part in file_path.relative_to(folder).parts):
+                continue
+            if _matches_ignore(ignore_spec, str(rel)):
+                continue
+            yield file_path
+
+
+def _load_ignore_spec(armory_path: Path) -> object:
+    """Load built-in and armory-local source ignore patterns."""
+    patterns = list(_DEFAULT_IGNORE_PATTERNS)
+    ignore_path = armory_path / _IGNORE_FILE
+    if ignore_path.is_file():
+        try:
+            patterns.extend(ignore_path.read_text(encoding="utf-8").splitlines())
+        except OSError:
+            _log.warning("failed to read armory ignore file", exc_info=True)
+    if pathspec is not None:
+        return pathspec.PathSpec.from_lines("gitignore", patterns)
+    return tuple(pattern for pattern in patterns if pattern and not pattern.startswith("#"))
+
+
+def _matches_ignore(ignore_spec: object, rel_path: str) -> bool:
+    """Return whether *rel_path* is ignored, with a stdlib fallback."""
+    match_file = getattr(ignore_spec, "match_file", None)
+    if callable(match_file):
+        result = match_file(rel_path)
+        return bool(result)
+    if not isinstance(ignore_spec, tuple):
+        return False
+    patterns = cast("tuple[object, ...]", ignore_spec)
+    for pattern in patterns:
+        if not isinstance(pattern, str):
+            continue
+        normalized = pattern.rstrip("/")
+        if pattern.endswith("/") and (
+            rel_path == normalized or rel_path.startswith(f"{normalized}/")
+        ):
+            return True
+        if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(Path(rel_path).name, pattern):
+            return True
+    return False
 
 
 def build_index(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from importlib import import_module
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,7 @@ from hephaistos.harness.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.harness.rag.index import ArmoryIndex
 from hephaistos.harness.rag.query_transform import TransformStrategy
 from hephaistos.harness.rag.retrieve import (
+    Bm25Retriever,
     CrossEncoderReranker,
     EmbeddingRetriever,
     HybridRetriever,
@@ -183,6 +185,68 @@ class TestTfidfRetriever:
             "Python",
             "programming",
         ]
+
+
+class TestBm25Retriever:
+    def test_uses_bm25_backend_when_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class FakeBm25:
+            def index(self, _corpus_tokens: list[list[str]], *, show_progress: bool) -> object:
+                assert show_progress is False
+                return None
+
+            def retrieve(
+                self,
+                _query_tokens: list[list[str]],
+                *,
+                k: int,
+                show_progress: bool,
+            ) -> tuple[object, object]:
+                assert k == 2
+                assert show_progress is False
+                return [[1, 0]], [[3.0, 1.0]]
+
+        chunks = [
+            _make_chunk("Python is a programming language.", "python.md", 0),
+            _make_chunk("Rust ownership and borrowing.", "rust.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+        retrieve_module = import_module("hephaistos.harness.rag.retrieve")
+        monkeypatch.setattr(retrieve_module, "_Bm25Class", FakeBm25)
+
+        retriever = Bm25Retriever(index)
+        results = retriever.retrieve("ownership", top_k=2)
+
+        assert retriever.available
+        assert [result.chunk.source for result in results] == ["rust.md", "python.md"]
+
+    def test_empty_token_corpus_is_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class ExplodingBm25:
+            def index(self, _corpus_tokens: list[list[str]], *, show_progress: bool) -> object:
+                raise AssertionError("empty token corpus should not be indexed")
+
+        index = _make_index_with_chunks([_make_chunk("a I to the", "empty.md", 0)])
+        retrieve_module = import_module("hephaistos.harness.rag.retrieve")
+        monkeypatch.setattr(retrieve_module, "_Bm25Class", ExplodingBm25)
+
+        retriever = Bm25Retriever(index)
+
+        assert not retriever.available
+        assert retriever.retrieve("anything") == []
+
+    def test_build_failure_falls_back_to_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class FailingBm25:
+            def index(self, _corpus_tokens: list[list[str]], *, show_progress: bool) -> object:
+                raise ValueError("max() iterable argument is empty")
+
+        index = _make_index_with_chunks([_make_chunk("python", "python.md", 0)])
+        retrieve_module = import_module("hephaistos.harness.rag.retrieve")
+        monkeypatch.setattr(retrieve_module, "_Bm25Class", FailingBm25)
+
+        retriever = Bm25Retriever(index)
+
+        assert not retriever.available
 
 
 # ---------------------------------------------------------------------------
@@ -891,7 +955,7 @@ class TestCreateRetriever:
             return_value=False,
         ):
             r = _create_retriever(index)
-            assert isinstance(r, TfidfRetriever)
+            assert isinstance(r, Bm25Retriever | TfidfRetriever)
 
     def test_returns_hybrid_when_embeddings_available(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])
@@ -933,7 +997,7 @@ class TestCreateRetriever:
             ),
         ):
             r = _create_retriever(index)
-            assert isinstance(r, TfidfRetriever)
+            assert isinstance(r, Bm25Retriever | TfidfRetriever)
 
 
 # ---------------------------------------------------------------------------

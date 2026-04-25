@@ -11,6 +11,7 @@ from pathlib import Path
 
 from hephaistos.analytics import init_analytics, shutdown_analytics
 from hephaistos.app.shell import run_chat_shell
+from hephaistos.app.tui import TuiDependencyError, run_tui_for_path
 from hephaistos.armory.cli import register as register_armory_commands
 from hephaistos.chat.cli import register as register_chat_commands
 from hephaistos.chat.cli import resolve_armory_session
@@ -51,6 +52,15 @@ def _cmd_start(args: argparse.Namespace) -> None:
     run_chat_shell()
 
 
+def _cmd_tui(args: argparse.Namespace) -> None:
+    """Start the experimental Textual shell."""
+    try:
+        run_tui_for_path(Path(args.path) if args.path else None)
+    except TuiDependencyError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
+
+
 def _get_subcommand_names(parser: argparse.ArgumentParser) -> set[str]:
     """Return the set of registered subcommand names."""
     for action in parser._actions:  # type: ignore[reportPrivateUsage]
@@ -67,6 +77,18 @@ def _inject_start_if_path(argv: list[str], known_commands: set[str]) -> list[str
                 return [*argv[:i], "start", *argv[i:]]
             break
     return argv
+
+
+def _normalise_tui_alias(argv: list[str]) -> list[str]:
+    """Accept common flag-shaped TUI aliases as shorthand for ``tui``."""
+    if not argv:
+        return argv
+    if argv[0] not in ("--tui", "-tui"):
+        return argv
+    rest = argv[1:]
+    if rest and rest[0] in ("help", "-h", "--help"):
+        return ["tui", "--help", *rest[1:]]
+    return ["tui", *rest]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -102,6 +124,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     start.add_argument("path", nargs="?", help=argparse.SUPPRESS)
     start.set_defaults(handler=_cmd_start)
+
+    tui = subparsers.add_parser(
+        "tui",
+        help="Launch the experimental Textual shell",
+    )
+    tui.add_argument("path", nargs="?", help="Armory path to attach")
+    tui.set_defaults(handler=_cmd_tui)
 
     register_armory_commands(subparsers)
     register_source_commands(subparsers)
@@ -141,6 +170,7 @@ def main() -> None:
     try:
         parser = build_parser()
         argv = sys.argv[1:]
+        argv = _normalise_tui_alias(argv)
 
         # If the first non-flag arg isn't a known subcommand (e.g. a path),
         # transparently inject "start" so `heph /my/armory` just works.

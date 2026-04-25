@@ -21,7 +21,7 @@ from hephaistos.chat.usage import SessionUsage
 from hephaistos.harness.dispatch import SteeringQueue
 from hephaistos.harness.persona import Persona, resolve_persona
 from hephaistos.harness.prompt import build_system_prompt
-from hephaistos.harness.rag import ArmoryIndex
+from hephaistos.harness.rag import ArmoryIndex, iter_source_files
 from hephaistos.harness.tools import ToolRegistry, default_registry
 from hephaistos.logging import TraceWriter, get_logger
 from hephaistos.memory import MemoryStore, load_memory
@@ -115,14 +115,9 @@ def _scan_source_files(armory_path: Path) -> tuple[int, list[str]]:
     """Count source files and collect relative paths in a single pass."""
     count = 0
     names: list[str] = []
-    for dirname in ("source", "library"):
-        folder = armory_path / dirname
-        if not folder.is_dir():
-            continue
-        for file_path in sorted(folder.rglob("*")):
-            if file_path.is_file() and not file_path.name.startswith("."):
-                count += 1
-                names.append(str(file_path.relative_to(armory_path)))
+    for file_path in iter_source_files(armory_path):
+        count += 1
+        names.append(str(file_path.relative_to(armory_path)))
     return count, names
 
 

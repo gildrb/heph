@@ -169,6 +169,20 @@ class TestArmoryIndexSkips:
         sources = {doc.source for doc in index.documents}
         assert "source/.hidden.md" not in sources
 
+    def test_skips_armory_ignore_patterns(self, armory: Path) -> None:
+        (armory / ".hephaistosignore").write_text("source/ignored.md\nlibrary/private/\n")
+        (armory / "source" / "ignored.md").write_text("ignored content\n")
+        private = armory / "library" / "private"
+        private.mkdir()
+        (private / "notes.md").write_text("private content\n")
+
+        index = ArmoryIndex(armory)
+        index.build()
+
+        sources = {doc.source for doc in index.documents}
+        assert "source/ignored.md" not in sources
+        assert "library/private/notes.md" not in sources
+
     def test_skips_binary(self, armory: Path) -> None:
         (armory / "source" / "data.bin").write_bytes(b"\x00\x01\x02\x03")
         index = ArmoryIndex(armory)

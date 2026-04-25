@@ -15,7 +15,7 @@ from hephaistos.harness.rag.context import (
     build_turn_evidence,
     estimate_tokens,
 )
-from hephaistos.harness.rag.index import ArmoryIndex, build_index, load_or_build
+from hephaistos.harness.rag.index import ArmoryIndex, build_index, iter_source_files, load_or_build
 from hephaistos.harness.rag.query_transform import (
     CompositeTransformer,
     HyDETransformer,
@@ -69,6 +69,7 @@ __all__ = [
     "chunk_text",
     "create_transformer",
     "estimate_tokens",
+    "iter_source_files",
     "load_or_build",
     "retrieve",
     "transform_query",

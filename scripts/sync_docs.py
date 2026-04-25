@@ -133,6 +133,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph <path>": "Launch the shell attached to a specific armory path.",
     "hephaistos [path]": "Equivalent long entrypoint for `heph`.",
     "heph start [path]": "Hidden backwards-compatible alias for `heph [path]`.",
+    "heph tui [path]": "Launch the experimental Textual shell.",
 }
 
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
@@ -249,6 +250,10 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
             f"{short_command} start [path]",
             CLI_COMMAND_DESCRIPTIONS[f"{short_command} start [path]"],
         ),
+        CommandLine(
+            f"{short_command} tui [path]",
+            CLI_COMMAND_DESCRIPTIONS[f"{short_command} tui [path]"],
+        ),
     )
 
 
@@ -268,6 +273,7 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
         f"{short_command} chat resume <path> <id>",
         f"{short_command} chat list <path>",
         f"{short_command} start [path]",
+        f"{short_command} tui [path]",
     )
     return tuple(CommandLine(command, cli_commands[command]) for command in selected)
 

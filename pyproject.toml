@@ -26,7 +26,9 @@ classifiers = [
 dependencies = [
     "keyring>=25.7.0",
     "openai>=1.0.0",
+    "pathspec>=0.12.0",
     "prompt-toolkit>=3.0.0",
+    "rapidfuzz>=3.14.0",
     "certifi>=2024.0.0",
 ]
 
@@ -43,6 +45,10 @@ embeddings = [
 ]
 docling = [
     "docling>=2.0.0",
+]
+tui = [
+    "rich>=14.0.0",
+    "textual>=6.0.0",
 ]
 
 [project.scripts]
@@ -231,7 +237,8 @@ extend_exclude = ["tests"]
 # DEP003 on "certifi" — imported directly in oauth.py SSL fallback; declared as a
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"] }
+# DEP004 on bm25s — optional runtime RAG backend installed through the rag group.
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s"] }
 
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --durations=10 --strict-markers --cov=hephaistos --cov-report=term-missing --cov-fail-under=75"
@@ -266,11 +273,16 @@ dev = [
     "bandit>=1.9",
 ]
 rag = [
+    "bm25s>=0.2.13",
     "sentence-transformers>=3.0.0",
     "scikit-learn>=1.0.0",
 ]
 docling = [
     "docling>=2.0.0",
+]
+tui = [
+    "rich>=14.0.0",
+    "textual>=6.0.0",
 ]
 docs = [
     "mkdocs>=1.6.0",

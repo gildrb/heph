@@ -11,22 +11,12 @@ from hephaistos.armory.storage import (
     normalize_path,
     validate,
 )
-from hephaistos.harness.rag.index import build_index
-
-_SOURCE_DIRS = ("source", "library")
+from hephaistos.harness.rag.index import build_index, iter_source_files
 
 
 def _iter_source_files(armory_path: Path) -> list[Path]:
     """Return sorted list of source files across source/ and library/ dirs."""
-    files: list[Path] = []
-    for dirname in _SOURCE_DIRS:
-        folder = armory_path / dirname
-        if not folder.is_dir():
-            continue
-        files.extend(
-            p for p in sorted(folder.rglob("*")) if p.is_file() and not p.name.startswith(".")
-        )
-    return files
+    return list(iter_source_files(armory_path))
 
 
 def _validate_armory(args: argparse.Namespace) -> Path:
