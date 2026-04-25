@@ -18,6 +18,7 @@ def test_default_openrouter_models_match_supported_families() -> None:
     assert all(
         model.startswith(
             (
+                "openrouter/",
                 "openai/",
                 "google/",
                 "qwen/",
@@ -35,16 +36,16 @@ def test_default_openrouter_models_match_supported_families() -> None:
     )
 
 
-def test_default_config_activates_zai_with_model() -> None:
+def test_default_config_activates_openrouter_with_free_router() -> None:
     config = _default_config()
     chat_config = ChatConfig(base_url="", model="")
 
     config.apply_to_config(chat_config)
 
-    assert config.get_active() is config.providers["zai"]
-    assert chat_config.base_url == "https://api.z.ai/api/paas/v4/"
-    assert chat_config.model == "glm-5"
-    assert chat_config._provider_slug == "zai"  # type: ignore[reportPrivateUsage]
+    assert config.get_active() is config.providers["openrouter"]
+    assert chat_config.base_url == "https://openrouter.ai/api/v1"
+    assert chat_config.model == "openrouter/free"
+    assert chat_config._provider_slug == "openrouter"  # type: ignore[reportPrivateUsage]
 
 
 def test_load_missing_config_stays_in_memory_until_saved(tmp_path: Path) -> None:

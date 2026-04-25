@@ -4,6 +4,7 @@ from __future__ import annotations
 
 _PROVIDER_PREFIXES: dict[str, tuple[str, ...]] = {
     "openrouter": (
+        "openrouter/",
         "openai/",
         "google/",
         "qwen/",

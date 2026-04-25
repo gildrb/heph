@@ -807,6 +807,18 @@ def run_chat_shell(
         )
         mark_telemetry_notice_seen()
 
+    if not session.config.resolved_api_key and session.config.provider_slug == "openrouter":
+        chat_lines.append(
+            (
+                "class:chat-area.system",
+                (
+                    "info: No OpenRouter API key detected. "
+                    "Get a free key at https://openrouter.ai/settings/keys "
+                    "then run /api key to configure it.\n"
+                ),
+            )
+        )
+
     memory_settings = load_app_settings()
     if (
         session.armory_path is not None
@@ -971,6 +983,12 @@ def _run_fallback_shell(session: ChatSession | None = None) -> None:
         session = _create_startup_session(load_config())
 
     print("Hephaistos (basic mode)")
+    if not session.config.resolved_api_key and session.config.provider_slug == "openrouter":
+        print(
+            "info: No OpenRouter API key detected. "
+            "Get a free key at https://openrouter.ai/settings/keys "
+            "then run /api key to configure it."
+        )
     history = InputHistory()
 
     while True:

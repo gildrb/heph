@@ -179,7 +179,10 @@ def _default_config() -> ProviderConfig:
                 display_name="OpenRouter",
                 endpoint="https://openrouter.ai/api/v1",
                 api_key_env="OPENROUTER_API_KEY",
+                active=True,
+                current_model="openrouter/free",
                 models=[
+                    "openrouter/free",
                     "qwen/qwen3.6-plus:free",
                     "openai/gpt-5.4",
                     "openai/gpt-5.4-mini",
@@ -226,8 +229,6 @@ def _default_config() -> ProviderConfig:
                 display_name="Z.AI / GLM",
                 endpoint="https://api.z.ai/api/paas/v4/",
                 api_key_env="ZAI_API_KEY",
-                active=True,
-                current_model="glm-5",
                 models=[
                     "glm-5",
                     "glm-5-turbo",

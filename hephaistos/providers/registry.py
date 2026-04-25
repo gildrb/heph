@@ -43,6 +43,17 @@ class ModelInfo:
 
 
 _BUILTIN_MODELS: list[ModelInfo] = [
+    # --- OpenRouter Free Router ---
+    ModelInfo(
+        "openrouter/free",
+        "openrouter",
+        "Free Models Router",
+        200_000,
+        8_192,
+        0.0,
+        0.0,
+        tags=("free", "router"),
+    ),
     # --- OpenAI ---
     ModelInfo("gpt-5.4", "openai-codex", "GPT-5.4", 128_000, 16_384, 0.002, 0.008),
     ModelInfo(
