@@ -63,6 +63,7 @@ class ThemePalette:
     configured: str
     error: str
     success: str
+    highlight: str
 
 
 _PALETTES: Final[dict[str, ThemePalette]] = {
@@ -77,6 +78,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         configured="#7F9A6A",
         error="#CC3333",
         success="#66BB6A",
+        highlight="#333333",
     ),
     "light": ThemePalette(
         name="light",
@@ -89,6 +91,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         configured="#687A4B",
         error="#B03A2E",
         success="#2E8B57",
+        highlight="#D9CCBA",
     ),
     "high_contrast": ThemePalette(
         name="high_contrast",
@@ -101,6 +104,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         configured="#A9C97A",
         error="#FF4D4D",
         success="#00FF88",
+        highlight="#333333",
     ),
 }
 
@@ -196,28 +200,28 @@ def shell_style_dict() -> dict[str, str]:
 def menu_style_dict() -> dict[str, str]:
     palette = current_palette()
     return {
-        "": f"bg:{palette.panel} fg:{palette.text}",
-        "inline-menu.title": f"bg:{palette.panel} bold fg:{palette.accent}",
-        "inline-menu.option": f"bg:{palette.panel} fg:{palette.text}",
-        "inline-menu.option.current": f"bg:{palette.panel} bold fg:{palette.accent}",
-        "inline-menu.description": f"bg:{palette.panel} fg:{palette.dim}",
-        "inline-menu.description.current": f"bg:{palette.panel} fg:{palette.text}",
-        "inline-menu.badge": f"bg:{palette.panel} bold fg:{palette.accent}",
-        "inline-menu.hint": f"bg:{palette.panel} fg:{palette.dim}",
+        "": f"fg:{palette.text}",
+        "inline-menu.title": f"bold fg:{palette.text}",
+        "inline-menu.option": f"fg:{palette.text}",
+        "inline-menu.option.current": f"bg:{palette.highlight} fg:{palette.text} bold",
+        "inline-menu.description": f"fg:{palette.dim}",
+        "inline-menu.description.current": f"bg:{palette.highlight} fg:{palette.text}",
+        "inline-menu.badge": f"fg:{palette.accent}",
+        "inline-menu.hint": f"fg:{palette.dim}",
     }
 
 
 def browser_style_dict() -> dict[str, str]:
     palette = current_palette()
     return {
-        "": f"bg:{palette.panel} fg:{palette.text}",
-        "browser.title": f"bg:{palette.panel} bold fg:{palette.accent}",
-        "browser.path": f"bg:{palette.panel} fg:{palette.dim}",
-        "browser.entry": f"bg:{palette.panel} fg:{palette.text}",
-        "browser.entry.selected": f"bg:{palette.panel} bold fg:{palette.accent}",
-        "browser.parent": f"bg:{palette.panel} fg:{palette.dim}",
-        "browser.parent.selected": f"bg:{palette.panel} bold fg:{palette.accent}",
-        "browser.hint": f"bg:{palette.panel} fg:{palette.dim}",
+        "": f"fg:{palette.text}",
+        "browser.title": f"bold fg:{palette.text}",
+        "browser.path": f"fg:{palette.dim}",
+        "browser.entry": f"fg:{palette.text}",
+        "browser.entry.selected": f"bg:{palette.highlight} fg:{palette.text} bold",
+        "browser.parent": f"fg:{palette.dim}",
+        "browser.parent.selected": f"bg:{palette.highlight} fg:{palette.text} bold",
+        "browser.hint": f"fg:{palette.dim}",
     }
 
 

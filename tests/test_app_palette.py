@@ -37,10 +37,10 @@ def test_set_theme_switches_palette() -> None:
     assert style_rules["header.configured"] == "fg:#687A4B"
     assert style_rules["header.success"] == style_rules["header.configured"]
     assert style_rules["toolbar-error"] == "noreverse bold fg:#B03A2E"
-    assert menu_style[""] == "bg:#F6F2EA fg:#2C241B"
+    assert menu_style[""] == "fg:#2C241B"
 
 
-def test_menu_style_dict_uses_theme_background_instead_of_prompt_toolkit_default() -> None:
+def test_menu_style_dict_uses_transparent_background() -> None:
     palette.set_theme("light")
 
     merged_style = merge_styles([default_ui_style(), Style.from_dict(palette.menu_style_dict())])
@@ -48,13 +48,11 @@ def test_menu_style_dict_uses_theme_background_instead_of_prompt_toolkit_default
     for style_name in (
         "inline-menu.title",
         "inline-menu.option",
-        "inline-menu.option.current",
         "inline-menu.description",
-        "inline-menu.description.current",
         "inline-menu.hint",
     ):
         attrs = merged_style.get_attrs_for_style_str(f"class:{style_name}")
-        assert attrs.bgcolor == "F6F2EA"
+        assert attrs.bgcolor == "", f"{style_name} should be transparent"
 
 
 _SHELL_TRANSPARENT_STYLES: tuple[str, ...] = (
@@ -87,23 +85,28 @@ _SHELL_TRANSPARENT_STYLES: tuple[str, ...] = (
     "chat-area.tool",
 )
 
-_MENU_STYLES: tuple[str, ...] = (
+_MENU_TRANSPARENT_STYLES: tuple[str, ...] = (
     "inline-menu.title",
     "inline-menu.option",
-    "inline-menu.option.current",
     "inline-menu.description",
-    "inline-menu.description.current",
     "inline-menu.hint",
 )
 
-_BROWSER_STYLES: tuple[str, ...] = (
+_MENU_HIGHLIGHTED_STYLES: tuple[str, ...] = (
+    "inline-menu.option.current",
+    "inline-menu.description.current",
+)
+
+_BROWSER_TRANSPARENT_STYLES: tuple[str, ...] = (
     "browser.title",
     "browser.path",
     "browser.entry",
-    "browser.entry.selected",
     "browser.parent",
+)
+
+_BROWSER_HIGHLIGHTED_STYLES: tuple[str, ...] = (
+    "browser.entry.selected",
     "browser.parent.selected",
-    "browser.hint",
 )
 
 
@@ -117,20 +120,38 @@ def test_shell_chrome_styles_leave_background_transparent(theme: str) -> None:
 
 
 @pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])
-def test_all_menu_styles_have_theme_background(theme: str) -> None:
+def test_menu_styles_leave_background_transparent(theme: str) -> None:
     palette.set_theme(theme)
-    expected_bg = palette.current_palette().panel.lstrip("#")
     merged = merge_styles([default_ui_style(), Style.from_dict(palette.menu_style_dict())])
-    for style_name in _MENU_STYLES:
+    for style_name in _MENU_TRANSPARENT_STYLES:
+        attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
+        assert attrs.bgcolor == "", f"{style_name} bgcolor should be transparent for theme {theme}"
+
+
+@pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])
+def test_menu_highlighted_styles_use_highlight_color(theme: str) -> None:
+    palette.set_theme(theme)
+    expected_bg = palette.current_palette().highlight.lstrip("#")
+    merged = merge_styles([default_ui_style(), Style.from_dict(palette.menu_style_dict())])
+    for style_name in _MENU_HIGHLIGHTED_STYLES:
         attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
         assert attrs.bgcolor == expected_bg, f"{style_name} bgcolor mismatch for theme {theme}"
 
 
 @pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])
-def test_all_browser_styles_have_theme_background(theme: str) -> None:
+def test_browser_styles_leave_background_transparent(theme: str) -> None:
     palette.set_theme(theme)
-    expected_bg = palette.current_palette().panel.lstrip("#")
     merged = merge_styles([default_ui_style(), Style.from_dict(palette.browser_style_dict())])
-    for style_name in _BROWSER_STYLES:
+    for style_name in _BROWSER_TRANSPARENT_STYLES:
+        attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
+        assert attrs.bgcolor == "", f"{style_name} bgcolor should be transparent for theme {theme}"
+
+
+@pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])
+def test_browser_highlighted_styles_use_highlight_color(theme: str) -> None:
+    palette.set_theme(theme)
+    expected_bg = palette.current_palette().highlight.lstrip("#")
+    merged = merge_styles([default_ui_style(), Style.from_dict(palette.browser_style_dict())])
+    for style_name in _BROWSER_HIGHLIGHTED_STYLES:
         attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
         assert attrs.bgcolor == expected_bg, f"{style_name} bgcolor mismatch for theme {theme}"

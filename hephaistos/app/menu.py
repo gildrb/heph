@@ -81,17 +81,14 @@ def _format_menu(title: str, options: list[MenuOption], selected: int):
             if is_selected
             else "class:inline-menu.description"
         )
-        marker = ">" if is_selected else " "
         label = option.label.ljust(max_label) if option.description else option.label
         desc = f"  {option.description}" if option.description else ""
         badge = "  active" if option.is_current else ""
-        line_width = visible_len(f"  {marker} {index + 1}. {label}{desc}{badge}")
+        line_width = visible_len(f"  {label}{desc}{badge}")
         lines.append(line_width)
-        row_label = f"  {marker} {index + 1}. {label}"
+        row_label = f"  {label}"
         rendered_rows.append((option_style, desc_style, row_label, desc, badge))
 
-    hint = "  up/down choose | enter select | q/esc cancel"
-    lines.append(visible_len(hint))
     width = max(_terminal_columns(), *lines)
     fragments: list[tuple[str, str]] = [
         ("class:inline-menu.title", _pad_line(title, width)),
@@ -108,7 +105,7 @@ def _format_menu(title: str, options: list[MenuOption], selected: int):
         fragments.append((option_style, " " * max(0, width - pad_width)))
         fragments.append(("", "\n"))
 
-    fragments.append(("class:inline-menu.hint", _pad_line(hint, width)))
+    fragments.append(("class:inline-menu.hint", ""))
     return fragments
 
 
@@ -175,18 +172,18 @@ def _select_with_prompt_toolkit(
 
 def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
     direct_print(styled(title, STYLE_PROMPT))
-    for index, option in enumerate(options, start=1):
+    for option in options:
         label = styled(option.label, BOLD)
         desc = styled(option.description, STYLE_DIM) if option.description else ""
-        cur = styled("current", STYLE_PROMPT) if option.is_current else ""
+        cur = styled("active", STYLE_PROMPT) if option.is_current else ""
         if desc:
             max_label = max(visible_len(o.label) for o in options)
             padded = f"{option.label}".ljust(max_label)
             suffix = f"  {cur}" if cur else ""
-            direct_print(f"  {index}. {padded}  {desc}{suffix}")
+            direct_print(f"  {padded}  {desc}{suffix}")
         else:
             suffix = f"  {cur}" if cur else ""
-            direct_print(f"  {index}. {label}{suffix}")
+            direct_print(f"  {label}{suffix}")
     direct_print(f"  {styled('q.', STYLE_DIM)} cancel")
 
     while True:
@@ -255,11 +252,9 @@ def _list_child_dirs(path: Path) -> list[Path]:
 
 
 def _format_browser(title: str, current: Path, entries: list[str], selected: int):
-    hint = "  up/down navigate | enter open | c choose | q/esc cancel"
     line_widths = [
         visible_len(title),
         visible_len(f"  {current}"),
-        visible_len(hint),
     ]
     browser_rows: list[tuple[str, str]] = []
     for index, name in enumerate(entries):
@@ -269,9 +264,8 @@ def _format_browser(title: str, current: Path, entries: list[str], selected: int
             style = "class:browser.parent.selected" if is_selected else "class:browser.parent"
         else:
             style = "class:browser.entry.selected" if is_selected else "class:browser.entry"
-        marker = ">" if is_selected else " "
         icon = "" if is_parent else f"{_DIR_ICON} "
-        row = f"  {marker} {icon}{name}"
+        row = f"  {icon}{name}"
         browser_rows.append((style, row))
         line_widths.append(visible_len(row))
 
@@ -287,7 +281,6 @@ def _format_browser(title: str, current: Path, entries: list[str], selected: int
         fragments.append(("", "\n"))
 
     fragments.append(("", "\n"))
-    fragments.append(("class:browser.hint", _pad_line(hint, width)))
     return fragments
 
 
@@ -380,9 +373,8 @@ def _browse_with_prompt(title: str, start: Path) -> Path | None:
     while True:
         direct_print(styled(f"{title}: {current}", STYLE_PROMPT))
         entries = [_PARENT_LABEL] + [d.name for d in _list_child_dirs(current)]
-        for i, name in enumerate(entries, start=1):
-            prefix = "  " if name == _PARENT_LABEL else f"  {i}. "
-            direct_print(f"{prefix}{name}")
+        for name in entries:
+            direct_print(f"  {name}")
         direct_print(styled("  c. choose this directory  q. cancel", STYLE_DIM))
         try:
             choice = direct_input("  > ").strip().lower()
