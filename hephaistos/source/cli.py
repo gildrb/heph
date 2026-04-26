@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 from pathlib import Path
 
@@ -11,12 +12,6 @@ from hephaistos.armory.storage import (
     normalize_path,
     validate,
 )
-from hephaistos.harness.rag.index import build_index, iter_source_files
-
-
-def _iter_source_files(armory_path: Path) -> list[Path]:
-    """Return sorted list of source files across source/ and library/ dirs."""
-    return list(iter_source_files(armory_path))
 
 
 def _validate_armory(args: argparse.Namespace) -> Path:
@@ -28,13 +23,15 @@ def _validate_armory(args: argparse.Namespace) -> Path:
 
 def _cmd_source_list(args: argparse.Namespace) -> None:
     """List source documents in an armory."""
+    rag_index = importlib.import_module("hephaistos.harness.rag.index")
+
     try:
         armory_path = _validate_armory(args)
     except (ArmoryError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    files = _iter_source_files(armory_path)
+    files = list(rag_index.iter_source_files(armory_path))
     if not files:
         print("No source documents found.")
         return
@@ -45,25 +42,28 @@ def _cmd_source_list(args: argparse.Namespace) -> None:
 
 def _cmd_source_count(args: argparse.Namespace) -> None:
     """Show the count of source documents in an armory."""
+    rag_index = importlib.import_module("hephaistos.harness.rag.index")
+
     try:
         armory_path = _validate_armory(args)
     except (ArmoryError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    count = len(_iter_source_files(armory_path))
-    print(count)
+    print(len(list(rag_index.iter_source_files(armory_path))))
 
 
 def _cmd_source_index(args: argparse.Namespace) -> None:
     """Build or refresh the RAG index for source documents."""
+    rag_index = importlib.import_module("hephaistos.harness.rag.index")
+
     try:
         armory_path = _validate_armory(args)
     except (ArmoryError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    index = build_index(armory_path)
+    index = rag_index.build_index(armory_path)
     print(f"Indexed {len(index.documents)} documents ({index.chunk_count} chunks)")
 
 

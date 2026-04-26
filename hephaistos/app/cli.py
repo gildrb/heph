@@ -2,19 +2,17 @@ from __future__ import annotations
 
 import argparse
 import cProfile
+import importlib
 import pstats
 import sys
 import tracemalloc
+from collections.abc import Callable
 from datetime import UTC, datetime
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 from hephaistos.analytics import init_analytics, shutdown_analytics
-from hephaistos.app.shell import run_chat_shell
-from hephaistos.app.tui import TuiDependencyError, run_tui_for_path
 from hephaistos.armory.cli import register as register_armory_commands
-from hephaistos.chat.cli import register as register_chat_commands
-from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.observability import init_observability, shutdown_observability
 from hephaistos.parameters.cli import (
     register as register_config_commands,
@@ -63,6 +61,9 @@ def _hide_subparser(
 
 def _cmd_shell(args: argparse.Namespace) -> None:
     """Start the classic prompt-toolkit shell, optionally attached to a specific armory."""
+    resolve_armory_session = importlib.import_module("hephaistos.chat.cli").resolve_armory_session
+    run_chat_shell = importlib.import_module("hephaistos.app.shell").run_chat_shell
+
     if args.path:
         session = resolve_armory_session(args.path)
         run_chat_shell(session)
@@ -72,10 +73,12 @@ def _cmd_shell(args: argparse.Namespace) -> None:
 
 def _cmd_tui(args: argparse.Namespace) -> None:
     """Start the Textual shell."""
+    tui = importlib.import_module("hephaistos.app.tui")
+
     try:
         path = getattr(args, "path", None)
-        run_tui_for_path(Path(path) if path else None)
-    except TuiDependencyError as exc:
+        tui.run_tui_for_path(Path(path) if path else None)
+    except tui.TuiDependencyError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
 
@@ -217,7 +220,47 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_armory_commands(subparsers)
     register_source_commands(subparsers)
-    register_chat_commands(subparsers, run_shell=run_chat_shell)
+
+    # Chat subcommands are hidden.  We register stub handlers here that
+    # lazily import the real implementation (and the heavy openai /
+    # sentence_transformers chain) only when `heph chat …` is invoked.
+    chat = subparsers.add_parser(
+        "chat",
+        help=argparse.SUPPRESS,
+        description="Chat with an LLM.",
+    )
+    chat_sub = chat.add_subparsers(dest="chat_command", required=True)
+
+    def _chat_handler(
+        chat_cmd: str,
+    ) -> Callable[[argparse.Namespace], None]:
+        """Return a stub handler that lazily loads chat.cli and dispatches."""
+
+        def _handler(args: argparse.Namespace) -> None:
+            chat_cli = importlib.import_module("hephaistos.chat.cli")
+            shell_mod = importlib.import_module("hephaistos.app.shell")
+            if chat_cmd == "start":
+                chat_cli._cmd_chat_start(args, run_shell=shell_mod.run_chat_shell)
+            elif chat_cmd == "resume":
+                chat_cli._cmd_chat_resume(args, run_shell=shell_mod.run_chat_shell)
+            elif chat_cmd == "list":
+                chat_cli._cmd_chat_list(args)
+
+        return _handler
+
+    start = chat_sub.add_parser("start", help="Start a new chat session in an armory.")
+    start.add_argument("path", help="Path to the armory folder.")
+    start.set_defaults(handler=_chat_handler("start"))
+
+    resume = chat_sub.add_parser("resume", help="Resume an existing chat session.")
+    resume.add_argument("path", help="Path to the armory folder.")
+    resume.add_argument("session_id", help="Session ID to resume.")
+    resume.set_defaults(handler=_chat_handler("resume"))
+
+    list_cmd = chat_sub.add_parser("list", help="List chat sessions in an armory.")
+    list_cmd.add_argument("path", help="Path to the armory folder.")
+    list_cmd.set_defaults(handler=_chat_handler("list"))
+
     register_config_commands(subparsers)
     _hide_subparser(subparsers, "start")
     _hide_subparser(subparsers, "shell")
