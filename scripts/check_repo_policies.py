@@ -122,12 +122,12 @@ class PolicyVisitor(ast.NodeVisitor):
             return False
         return True
 
-    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+    def visit_Import(self, node: ast.Import) -> None:
         if not self._import_context_is_allowed():
             self._add(node, "deferred imports are forbidden outside module scope")
         self.generic_visit(node)
 
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if not self._import_context_is_allowed():
             self._add(node, "deferred imports are forbidden outside module scope")
         if node.module in {"typing", "typing_extensions"}:
@@ -136,18 +136,18 @@ class PolicyVisitor(ast.NodeVisitor):
                     self._add(node, "explicit Any is forbidden")
         self.generic_visit(node)
 
-    def visit_Name(self, node: ast.Name) -> None:  # noqa: N802
+    def visit_Name(self, node: ast.Name) -> None:
         if node.id == "Any":
             self._add(node, "explicit Any is forbidden")
         self.generic_visit(node)
 
-    def visit_Attribute(self, node: ast.Attribute) -> None:  # noqa: N802
+    def visit_Attribute(self, node: ast.Attribute) -> None:
         dotted = _dotted_name(node)
         if dotted in {"typing.Any", "typing_extensions.Any"}:
             self._add(node, "explicit Any is forbidden")
         self.generic_visit(node)
 
-    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+    def visit_Call(self, node: ast.Call) -> None:
         dotted = _dotted_name(node.func)
         if dotted in {
             "__import__",
