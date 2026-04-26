@@ -174,13 +174,35 @@ def providers_dir() -> Path:
 def _default_config() -> ProviderConfig:
     return ProviderConfig(
         providers={
+            "pollinations": Provider(
+                slug="pollinations",
+                display_name="Pollinations AI (free)",
+                endpoint="https://text.pollinations.ai/openai",
+                api_key_env="",
+                active=True,
+                current_model="openai",
+                models=[
+                    "openai",
+                    "openai-large",
+                    "openai-reasoning",
+                    "openai-fast",
+                    "mistral",
+                    "mistral-large",
+                    "mistral-reasoning",
+                    "qwen-coder",
+                    "deepseek-reasoning",
+                    "deepseek",
+                    "llama",
+                    "llama-scaleway",
+                    "gemini",
+                    "gemini-thinking",
+                ],
+            ),
             "openrouter": Provider(
                 slug="openrouter",
                 display_name="OpenRouter",
                 endpoint="https://openrouter.ai/api/v1",
                 api_key_env="OPENROUTER_API_KEY",
-                active=True,
-                current_model="openrouter/free",
                 models=[
                     "openrouter/free",
                     "qwen/qwen3.6-plus:free",

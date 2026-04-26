@@ -61,7 +61,12 @@ from hephaistos.app.palette import (
 )
 from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig, EngineError, StreamRecoveryError
+from hephaistos.chat.engine import (
+    ChatConfig,
+    EngineError,
+    StreamRecoveryError,
+    is_keyless_endpoint,
+)
 from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import (
     ChatSession,
@@ -186,7 +191,8 @@ def _build_bottom_toolbar_status(
     runtime: ShellRuntime | None = None,
 ) -> str:
     """Build the compact helper bar shown below the composer."""
-    api_state = "configured" if session.config.resolved_api_key else "missing"
+    key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
+    api_state = "configured" if key_ok else "missing"
     if runtime is not None and runtime.busy:
         steering_suffix = f"  queued {runtime.steering_count}" if runtime.steering_count else ""
         return f"assistant working  enter queues follow-up  ctrl+c interrupt{steering_suffix}"
@@ -273,7 +279,7 @@ def _preflight_config_check(session: ChatSession) -> str | None:
         return "No provider configured. Use /provider use <slug> to select one."
     if not session.config.model:
         return "No model configured. Use /model to select one."
-    if not session.config.resolved_api_key:
+    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
         return (
             "No API key found. "
             "Configure one via /api key, environment variable, or OAuth (/login)."
@@ -807,13 +813,13 @@ def run_chat_shell(
         )
         mark_telemetry_notice_seen()
 
-    if not session.config.resolved_api_key and session.config.provider_slug == "openrouter":
+    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
         chat_lines.append(
             (
                 "class:chat-area.system",
                 (
-                    "info: No OpenRouter API key detected. "
-                    "Get a free key at https://openrouter.ai/settings/keys "
+                    "info: No API key detected for this provider. "
+                    "Get a key from your provider's dashboard "
                     "then run /api key to configure it.\n"
                 ),
             )
@@ -839,6 +845,9 @@ def run_chat_shell(
 
     def get_header() -> FormattedText:
         active = session_ref[0]
+        key_ok = bool(active.config.resolved_api_key) or is_keyless_endpoint(
+            active.config.base_url
+        )
         return FormattedText(
             format_shell_header(
                 version=__version__,
@@ -846,7 +855,7 @@ def run_chat_shell(
                 source_file_count=active.source_file_count or 0,
                 source_files=active.source_files,
                 model=active.config.model,
-                has_api_key=bool(active.config.resolved_api_key),
+                has_api_key=key_ok,
             )
         )
 
@@ -983,10 +992,10 @@ def _run_fallback_shell(session: ChatSession | None = None) -> None:
         session = _create_startup_session(load_config())
 
     print("Hephaistos (basic mode)")
-    if not session.config.resolved_api_key and session.config.provider_slug == "openrouter":
+    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
         print(
-            "info: No OpenRouter API key detected. "
-            "Get a free key at https://openrouter.ai/settings/keys "
+            "info: No API key detected for this provider. "
+            "Get a key from your provider's dashboard "
             "then run /api key to configure it."
         )
     history = InputHistory()

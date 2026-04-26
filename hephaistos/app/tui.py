@@ -34,7 +34,7 @@ from hephaistos.app.shell import (  # type: ignore[reportPrivateUsage]
     _save_on_exit,
 )
 from hephaistos.chat.cli import resolve_armory_session
-from hephaistos.chat.engine import EngineError, StreamRecoveryError
+from hephaistos.chat.engine import EngineError, StreamRecoveryError, is_keyless_endpoint
 from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import ChatSession, send_user_message
 from hephaistos.fuzzy import ranked_matches
@@ -98,7 +98,8 @@ def _status_lines(
 ) -> str:
     armory = str(session.armory_path) if session.armory_path is not None else "none"
     model = session.config.model or "none"
-    api = "configured" if session.config.resolved_api_key else "missing"
+    key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
+    api = "configured" if key_ok else "missing"
     sources = session.source_file_count or 0
     source_str = str(sources) if sources else "none"
     state_tag = f"[{state}]" if state != "ready" else ""
@@ -113,8 +114,9 @@ def _status_lines(
 
 def _status_text(session: ChatSession, state: str = "ready") -> Text:
     plain = _status_lines(session, state)
-    api = "configured" if session.config.resolved_api_key else "missing"
-    api_style = "#7F9A6A" if session.config.resolved_api_key else "#CC3333"
+    key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
+    api = "configured" if key_ok else "missing"
+    api_style = "#7F9A6A" if key_ok else "#CC3333"
 
     if _RichText is None:
         raise TuiDependencyError(_tui_dependency_message())
@@ -137,7 +139,8 @@ def _status_text(session: ChatSession, state: str = "ready") -> Text:
 
 
 def _composer_meta(session: ChatSession) -> str:  # pyright: ignore[reportUnusedFunction]
-    api_hint = "api missing" if not session.config.resolved_api_key else ""
+    key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
+    api_hint = "" if key_ok else "api missing"
 
     session_count = load_app_settings().session_count
     parts = ["enter send", "tab complete", "/help commands", "ctrl+c interrupt", "ctrl+d exit"]

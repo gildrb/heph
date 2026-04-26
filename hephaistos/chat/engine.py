@@ -314,11 +314,33 @@ def _build_client(config: ChatConfig) -> OpenAI:
         raise EngineError(f"Model unavailable for endpoint: {config.model}")
     api_key = config.resolved_api_key
     if not api_key:
-        raise EngineError(
-            "No API key found. Configure one via /api key, environment variable, "
-            "or OAuth (/login)."
-        )
+        # Some providers (e.g. Pollinations) work without an API key.
+        if _is_keyless_endpoint(config.base_url):
+            api_key = "no-key-required"
+        else:
+            raise EngineError(
+                "No API key found. Configure one via /api key, environment variable, "
+                "or OAuth (/login)."
+            )
     return OpenAI(api_key=api_key, base_url=config.base_url)
+
+
+def _normalize_url(url: str) -> str:
+    return url.strip().rstrip("/")
+
+
+_KEYLESS_ENDPOINTS = frozenset(
+    {
+        _normalize_url("https://text.pollinations.ai/openai"),
+    }
+)
+
+
+def _is_keyless_endpoint(base_url: str) -> bool:
+    return _normalize_url(base_url) in _KEYLESS_ENDPOINTS
+
+
+is_keyless_endpoint = _is_keyless_endpoint
 
 
 # Public alias so callers don't need to reference the private name.

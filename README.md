@@ -12,8 +12,8 @@ that armory so you can continue where you left off.
 
 Your workspace is just a folder on disk. Your source files, notes, saved chats,
 retrieval index, and study memory stay with the armory instead of being locked
-inside one model vendor's project format. Use OpenRouter, OpenAI, Z.AI, or any
-OpenAI-compatible endpoint you configure.
+inside one model vendor's project format. Use Pollinations AI (free, zero-config),
+OpenRouter, OpenAI, Z.AI, or any OpenAI-compatible endpoint you configure.
 
 ## Quickstart
 
@@ -21,7 +21,6 @@ OpenAI-compatible endpoint you configure.
 
 - Python 3.13+
 - [`uv`](https://docs.astral.sh/uv/)
-- An API key or compatible local/hosted LLM endpoint
 
 ### Install
 
@@ -32,6 +31,9 @@ uv tool install hephaistos
 heph
 heph --version
 ```
+
+> **Zero-config**: Hephaistos uses Pollinations AI by default -- no API key
+> or account needed. Just run `heph` and start studying.
 
 Upgrade later with:
 
@@ -97,7 +99,8 @@ Inside the shell:
 
 You can also use environment variables such as `OPENROUTER_API_KEY`,
 `OPENAI_API_KEY`, `ZAI_API_KEY`, `CUSTOM_API_KEY`, `HEPHAISTOS_BASE_URL`, and
-`HEPHAISTOS_MODEL`.
+`HEPHAISTOS_MODEL`. The default provider (Pollinations AI) works without any
+API key.
 
 ### Settings And Telemetry
 
@@ -196,6 +199,7 @@ heph source index ~/armories/exams
 Hephaistos is built around configurable providers, not a single required model.
 The default provider config includes:
 
+- Pollinations AI (free, zero-config default)
 - OpenRouter
 - OpenAI
 - Z.AI

@@ -28,7 +28,7 @@ from hephaistos.app.workspace import (
     resume_saved_chat,
 )
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import Conversation, Message, stream_reply
+from hephaistos.chat.engine import Conversation, Message, is_keyless_endpoint, stream_reply
 from hephaistos.chat.session import (
     ChatSession,
     SessionError,
@@ -168,9 +168,13 @@ class StatusCommand(Command):
             f"  Persona:   {s.persona.display_name}",
             f"  API:       {s.config.base_url}",
             (
-                "  Key:       configured"
-                if s.config.resolved_api_key
-                else f"  Key:       {styled('not set', STYLE_DIM)}"
+                "  Key:       not needed (free provider)"
+                if is_keyless_endpoint(s.config.base_url)
+                else (
+                    "  Key:       configured"
+                    if s.config.resolved_api_key
+                    else f"  Key:       {styled('not set', STYLE_DIM)}"
+                )
             ),
             f"  Mode:      {mode}",
             f"  Tools:     {tool_count}",
@@ -326,11 +330,15 @@ class ModelCommand(Command):
                 model_map.append((slug, model))
 
         if not options:
-            has_key = bool(s.config.resolved_api_key)
+            key_label = (
+                "not needed (free provider)"
+                if is_keyless_endpoint(s.config.base_url)
+                else ("configured" if s.config.resolved_api_key else styled("not set", STYLE_DIM))
+            )
             lines = [
                 f"  Model:   {s.config.model}",
                 f"  API:     {s.config.base_url}",
-                f"  Key:     {'configured' if has_key else styled('not set', STYLE_DIM)}",
+                f"  Key:     {key_label}",
                 "",
                 "  No models configured. Use /provider to set up providers.",
             ]
@@ -373,7 +381,10 @@ class ApiCommand(Command):
             env_var = active.api_key_env if active else ""
 
             key = resolve_key(slug, env_var) if slug else ""
-            key_display = mask_key(key) if key else styled("not set", STYLE_DIM)
+            if is_keyless_endpoint(s.config.base_url):
+                key_display = styled("not required (free provider)", STYLE_DIM)
+            else:
+                key_display = mask_key(key) if key else styled("not set", STYLE_DIM)
 
             source = ""
             if key:

@@ -300,7 +300,11 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
         for env in parameters_cli._CONFIG_KEY_TO_ENV.values()  # type: ignore[attr-defined]
         if env
     ]
-    provider_envs = [provider.api_key_env for provider in _default_config().providers.values()]
+    provider_envs = [
+        provider.api_key_env
+        for provider in _default_config().providers.values()
+        if provider.api_key_env
+    ]
     names = sorted(
         {
             GLOBAL_API_KEY_ENV,

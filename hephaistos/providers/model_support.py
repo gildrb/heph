@@ -3,6 +3,19 @@
 from __future__ import annotations
 
 _PROVIDER_PREFIXES: dict[str, tuple[str, ...]] = {
+    "pollinations": (
+        "openai",
+        "openai-",
+        "mistral",
+        "mistral-",
+        "qwen-",
+        "deepseek",
+        "deepseek-",
+        "llama",
+        "llama-",
+        "gemini",
+        "gemini-",
+    ),
     "openrouter": (
         "openrouter/",
         "openai/",
@@ -27,6 +40,7 @@ def _normalize_endpoint(base_url: str) -> str:
 
 
 _ENDPOINT_PREFIXES: dict[str, tuple[str, ...]] = {
+    _normalize_endpoint("https://text.pollinations.ai/openai"): _PROVIDER_PREFIXES["pollinations"],
     _normalize_endpoint("https://openrouter.ai/api/v1"): _PROVIDER_PREFIXES["openrouter"],
     _normalize_endpoint("https://api.openai.com/v1"): _PROVIDER_PREFIXES["openai-codex"],
     _normalize_endpoint("https://api.z.ai/api/paas/v4/"): _PROVIDER_PREFIXES["zai"],
