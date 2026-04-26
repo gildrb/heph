@@ -35,31 +35,31 @@ repos:
       - id: vulture
         name: vulture (dead-code)
         language: python
-        entry: vulture hephaistos tests vulture-whitelist.py
+        entry: uv run vulture hephaistos tests vulture-whitelist.py
         types: [python]
         pass_filenames: false
       - id: pylint-duplicate-code
         name: pylint (duplicate-code)
         language: python
-        entry: pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaistos
+        entry: uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaistos
         types: [python]
         pass_filenames: false
       - id: lint-imports
         name: import-linter (architecture)
         language: python
-        entry: lint-imports
+        entry: uv run lint-imports
         types: [python]
         pass_filenames: false
       - id: deptry
         name: deptry (unused-deps)
         language: python
-        entry: deptry hephaistos
+        entry: uv run deptry hephaistos
         types: [python]
         pass_filenames: false
       - id: radon-complexity
         name: radon (complexity)
         language: python
-        entry: radon cc hephaistos -a -nc
+        entry: uv run radon cc hephaistos -a -nc
         types: [python]
         pass_filenames: false
       - id: check-tech-debt

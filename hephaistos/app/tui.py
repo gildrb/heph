@@ -196,7 +196,7 @@ def _config_error(session: ChatSession) -> str | None:
         return "No provider configured. Use the classic shell /provider command first."
     if not session.config.model:
         return "No model configured. Use the classic shell /model command first."
-    if not session.config.resolved_api_key:
+    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
         return "No API key found. Configure one via /api key, env var, or OAuth first."
     return None
 

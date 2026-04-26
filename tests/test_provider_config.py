@@ -81,6 +81,32 @@ def test_load_missing_config_stays_in_memory_until_saved(tmp_path: Path) -> None
     assert not config_path.exists()
 
 
+def test_load_existing_legacy_config_adds_pollinations_default(tmp_path: Path) -> None:
+    config_path = tmp_path / "providers.toml"
+    config_path.write_text(
+        """
+[openrouter]
+display_name = "OpenRouter"
+endpoint = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+models = ["openrouter/free"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = ProviderConfig.load(config_path)
+    config = ChatConfig(base_url="", model="")
+
+    loaded.apply_to_config(config)
+
+    assert "pollinations" in loaded.providers
+    assert loaded.get_active() is loaded.providers["pollinations"]
+    assert config.base_url == "https://text.pollinations.ai/openai"
+    assert config.model == "openai"
+    assert config.provider_slug == "pollinations"
+
+
 def test_load_refreshes_when_provider_path_changes(tmp_path: Path) -> None:
     first_path = tmp_path / "first-providers.toml"
     first_path.write_text(

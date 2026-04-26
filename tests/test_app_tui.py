@@ -41,6 +41,19 @@ def _configured_status_session() -> ChatSession:
     )
 
 
+def _pollinations_session() -> ChatSession:
+    conversation = Conversation()
+    conversation.add("system", "test")
+    return ChatSession(
+        config=ChatConfig(
+            base_url="https://text.pollinations.ai/openai",
+            model="openai",
+        ),
+        conversation=conversation,
+        session_id="session-test",
+    )
+
+
 def test_session_status_for_plain_session() -> None:
     status = tui._status_lines(_plain_session())  # type: ignore[reportPrivateUsage]
 
@@ -60,6 +73,10 @@ def test_composer_meta_keeps_input_hints_below_composer() -> None:
     assert "ctrl+d exit" in meta
     assert "armory" not in meta
     assert "test-model" not in meta
+
+
+def test_tui_config_error_allows_pollinations_without_api_key() -> None:
+    assert tui._config_error(_pollinations_session()) is None  # type: ignore[reportPrivateUsage]
 
 
 def test_tui_css_keeps_surface_transparent() -> None:
