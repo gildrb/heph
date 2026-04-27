@@ -57,6 +57,7 @@ def _merge_default_providers(config: ProviderConfig) -> ProviderConfig:
     changed = False
     for slug, provider in defaults.providers.items():
         if slug not in config.providers:
+            provider.active = False
             config.providers[slug] = provider
             changed = True
 
