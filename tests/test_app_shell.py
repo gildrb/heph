@@ -29,7 +29,7 @@ from hephaistos.armory.storage import initialize
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation, EngineError
 from hephaistos.chat.session import SessionError, create_plain_session, create_session
-from hephaistos.providers.config import _default_config  # type: ignore[reportPrivateUsage]
+from hephaistos.providers.config import default_config
 
 
 def _test_config() -> ChatConfig:
@@ -468,7 +468,7 @@ def test_slash_completer_suggests_provider_subcommands(
     monkeypatch.setattr(
         autocomplete.ProviderConfig,
         "load",
-        classmethod(lambda _cls: _default_config()),  # type: ignore[reportPrivateUsage, reportUnknownLambdaType]
+        classmethod(lambda _cls: default_config()),  # type: ignore[reportPrivateUsage, reportUnknownLambdaType]
     )
     completer = shell.SlashCommandCompleter()
 

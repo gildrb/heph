@@ -17,7 +17,7 @@ from hephaistos.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
 from hephaistos.memory.extract import _EXTRACTION_MODEL_ENV
 from hephaistos.memory.supermemory import SUPERMEMORY_API_KEY_ENV, SUPERMEMORY_URL_ENV
 from hephaistos.parameters import cli as parameters_cli
-from hephaistos.providers.config import _default_config
+from hephaistos.providers.config import default_config
 from hephaistos.providers.keyring_store import GLOBAL_API_KEY_ENV
 from hephaistos.telemetry import (
     ANALYTICS_ENABLED_ENV,
@@ -302,7 +302,7 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
     ]
     provider_envs = [
         provider.api_key_env
-        for provider in _default_config().providers.values()
+        for provider in default_config().providers.values()
         if provider.api_key_env
     ]
     names = sorted(

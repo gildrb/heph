@@ -8,9 +8,12 @@ import os
 import sys
 from pathlib import Path
 
-from hephaistos.chat.engine import ChatConfig
+from hephaistos.chat.engine import ChatConfig, is_keyless_endpoint
 from hephaistos.parameters import settings as settings_store
-from hephaistos.providers.config import ProviderConfig
+from hephaistos.providers.config import (
+    ProviderConfig,
+    default_config,
+)
 from hephaistos.telemetry import (
     analytics_backend_available,
     analytics_enabled,
@@ -67,6 +70,17 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
     try:
         pc = ProviderConfig.load()
         pc.apply_to_config(config)
+        if (
+            config.base_url
+            and not is_keyless_endpoint(config.base_url)
+            and not config.resolved_api_key
+        ):
+            print(
+                f"warning: active provider '{config._provider_slug}' has no API key, "  # type: ignore[reportPrivateUsage]
+                "falling back to Pollinations AI (free)",
+                file=sys.stderr,
+            )
+            default_config().apply_to_config(config)
     except Exception as exc:
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
 

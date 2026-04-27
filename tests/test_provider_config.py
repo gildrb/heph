@@ -5,14 +5,14 @@ from pathlib import Path
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.providers.config import (
     ProviderConfig,
-    _default_config,  # type: ignore[reportPrivateUsage]
+    default_config,
 )
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.registry import ModelInfo, ModelRegistry
 
 
 def test_default_openrouter_models_match_supported_families() -> None:
-    config = _default_config()
+    config = default_config()
 
     assert "openrouter" in config.providers
     assert all(
@@ -37,7 +37,7 @@ def test_default_openrouter_models_match_supported_families() -> None:
 
 
 def test_default_pollinations_models_match_supported_families() -> None:
-    config = _default_config()
+    config = default_config()
 
     assert "pollinations" in config.providers
     assert all(
@@ -61,7 +61,7 @@ def test_default_pollinations_models_match_supported_families() -> None:
 
 
 def test_default_config_activates_pollinations_as_default() -> None:
-    config = _default_config()
+    config = default_config()
     chat_config = ChatConfig(base_url="", model="")
 
     config.apply_to_config(chat_config)

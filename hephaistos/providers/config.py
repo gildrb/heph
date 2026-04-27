@@ -150,7 +150,7 @@ class ProviderConfig:
         if cached is not None:
             return cached
         if not path.is_file():
-            cfg = _default_config()
+            cfg = default_config()
             invalidate_provider_cache(cfg, path=path)
             return cfg
 
@@ -171,7 +171,7 @@ def providers_dir() -> Path:
     return _CONFIG_DIR
 
 
-def _default_config() -> ProviderConfig:
+def default_config() -> ProviderConfig:
     return ProviderConfig(
         providers={
             "pollinations": Provider(

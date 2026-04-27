@@ -7,7 +7,7 @@ import pytest
 from hephaistos.app import commands
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession, create_plain_session
-from hephaistos.providers.config import _default_config  # type: ignore[reportPrivateUsage]
+from hephaistos.providers.config import default_config
 
 
 def test_command_registry_includes_login_logout() -> None:
@@ -145,7 +145,7 @@ def test_model_command_validates_against_session_endpoint(
     monkeypatch.setattr(
         commands.ProviderConfig,
         "load",
-        classmethod(lambda _cls: _default_config()),  # type: ignore[reportUnknownLambdaType]
+        classmethod(lambda _cls: default_config()),  # type: ignore[reportUnknownLambdaType]
     )
     monkeypatch.setattr(
         commands,
@@ -223,7 +223,7 @@ def test_model_command_rejects_unsupported_model_for_known_endpoint(
     monkeypatch.setattr(
         commands.ProviderConfig,
         "load",
-        classmethod(lambda _cls: _default_config()),  # type: ignore[reportUnknownLambdaType]
+        classmethod(lambda _cls: default_config()),  # type: ignore[reportUnknownLambdaType]
     )
     monkeypatch.setattr(
         commands,
@@ -369,7 +369,7 @@ def test_api_command_set_key(
     monkeypatch.setattr(
         commands.ProviderConfig,
         "load",
-        classmethod(lambda cls: _default_config()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        classmethod(lambda cls: default_config()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
     monkeypatch.setattr(commands, "store_key", lambda *_a: None)  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
 
