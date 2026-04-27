@@ -193,10 +193,10 @@ def _source_listing(session: ChatSession, query: str = "") -> str:
 
 def _config_error(session: ChatSession) -> str | None:
     if not session.config.base_url:
-        return "No provider configured. Use the classic shell /provider command first."
+        return "No provider configured. Use /provider to select one."
     if not session.config.model:
-        return "No model configured. Use the classic shell /model command first."
-    if not session.config.resolved_api_key:
+        return "No model configured. Use /model to select one."
+    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
         return "No API key found. Configure one via /api key, env var, or OAuth first."
     return None
 
@@ -239,9 +239,9 @@ Screen {
     background-tint: transparent;
 }
 #composer-frame {
-    height: 11;
-    min-height: 11;
-    max-height: 11;
+    height: 13;
+    min-height: 13;
+    max-height: 13;
     width: auto;
     max-width: 100%;
     padding: 0 0;

@@ -16,6 +16,8 @@ _USER_CONFIG_FILE = _USER_CONFIG_DIR / "config.json"
 
 DEFAULT_THEME: Final[str] = "forge"
 THEME_PRESETS: Final[tuple[str, ...]] = ("forge", "light", "high_contrast")
+INTERFACE_MODES: Final[tuple[str, ...]] = ("tui", "classic")
+DEFAULT_INTERFACE_MODE: Final[str] = "tui"
 BOOL_KEYS: Final[frozenset[str]] = frozenset(
     {
         "analytics_enabled",
@@ -33,6 +35,7 @@ STRING_KEYS: Final[frozenset[str]] = frozenset(
         "supermemory_profile",
         "theme",
         "default_armory_path",
+        "interface_mode",
     }
 )
 INT_KEYS: Final[frozenset[str]] = frozenset({"max_tokens", "rag_context_budget", "session_count"})
@@ -45,6 +48,7 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "supermemory_profile",
     "theme",
     "default_armory_path",
+    "interface_mode",
     "analytics_enabled",
     "crash_reports_enabled",
     "supermemory_enabled",
@@ -71,6 +75,7 @@ _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
 class AppSettings:
     theme: str = DEFAULT_THEME
     default_armory_path: str = ""
+    interface_mode: str = DEFAULT_INTERFACE_MODE
     analytics_enabled: bool = False
     crash_reports_enabled: bool = False
     supermemory_enabled: bool = False
@@ -141,6 +146,11 @@ def normalize_setting_value(key: str, value: object) -> object:
         if theme not in THEME_PRESETS:
             raise ValueError(f"theme must be one of: {', '.join(THEME_PRESETS)}")
         return theme
+    if key == "interface_mode":
+        mode = str(value).strip().lower()
+        if mode not in INTERFACE_MODES:
+            raise ValueError(f"interface_mode must be one of: {', '.join(INTERFACE_MODES)}")
+        return mode
     if key == "default_armory_path":
         raw = str(value).strip()
         if not raw:
@@ -239,9 +249,13 @@ def load_app_settings() -> AppSettings:
     if theme not in THEME_PRESETS:
         theme = DEFAULT_THEME
     default_armory = str(raw.get("default_armory_path", "")).strip()
+    interface_mode = str(raw.get("interface_mode", DEFAULT_INTERFACE_MODE)).strip().lower()
+    if interface_mode not in INTERFACE_MODES:
+        interface_mode = DEFAULT_INTERFACE_MODE
     return AppSettings(
         theme=theme,
         default_armory_path=default_armory,
+        interface_mode=interface_mode,
         analytics_enabled=_coerce_bool(raw.get("analytics_enabled"), default=False),
         crash_reports_enabled=_coerce_bool(raw.get("crash_reports_enabled"), default=False),
         supermemory_enabled=_coerce_bool(raw.get("supermemory_enabled"), default=False),

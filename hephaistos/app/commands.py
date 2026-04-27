@@ -48,7 +48,12 @@ from hephaistos.memory.supermemory import (
     SUPERMEMORY_URL_ENV,
     resolve_supermemory_key,
 )
-from hephaistos.parameters.settings import clear_setting, load_app_settings, save_setting
+from hephaistos.parameters.settings import (
+    INTERFACE_MODES,
+    clear_setting,
+    load_app_settings,
+    save_setting,
+)
 from hephaistos.providers import keyring_store, oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import mask_key, resolve_key, set_volatile, store_key
@@ -1273,7 +1278,12 @@ class SettingsCommand(Command):
         while True:
             settings = load_app_settings()
             default_armory = settings.default_armory_path or "none"
+            mode_label = settings.interface_mode.upper()
             options = [
+                MenuOption(
+                    "Interface",
+                    f"Mode: {mode_label}",
+                ),
                 MenuOption(
                     "Telemetry",
                     "Usage analytics and crash reports",
@@ -1304,17 +1314,41 @@ class SettingsCommand(Command):
             if selected is None or selected == len(options) - 1:
                 return CommandResult()
             if selected == 0:
-                self._telemetry_menu()
+                self._interface_menu()
             elif selected == 1:
-                self._appearance_menu()
+                self._telemetry_menu()
             elif selected == 2:
-                self._startup_menu()
+                self._appearance_menu()
             elif selected == 3:
-                ModelCommand().handle(s, "")
+                self._startup_menu()
             elif selected == 4:
+                ModelCommand().handle(s, "")
+            elif selected == 5:
                 MemoryCommand().handle(s, "status")
             else:
                 self._provider_credentials_menu(s)
+
+    def _interface_menu(self) -> None:
+        while True:
+            settings = load_app_settings()
+            current = settings.interface_mode
+            options = [
+                MenuOption(
+                    mode.upper(),
+                    "Default interface on next startup",
+                    is_current=(mode == current),
+                )
+                for mode in INTERFACE_MODES
+            ]
+            options.append(MenuOption("Back", "Return to settings."))
+            selected = select_option("Interface", options)
+            if selected is None or selected == len(options) - 1:
+                return
+            chosen = INTERFACE_MODES[selected]
+            if chosen == current:
+                continue
+            save_setting("interface_mode", chosen)
+            print_success(f"Interface set to {chosen.upper()}. Restart Hephaistos to apply.")
 
     @staticmethod
     def _telemetry_description(

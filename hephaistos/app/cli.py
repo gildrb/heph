@@ -17,7 +17,11 @@ from hephaistos.observability import init_observability, shutdown_observability
 from hephaistos.parameters.cli import (
     register as register_config_commands,
 )
-from hephaistos.parameters.settings import load_raw_settings, save_raw_settings
+from hephaistos.parameters.settings import (
+    load_app_settings,
+    load_raw_settings,
+    save_raw_settings,
+)
 from hephaistos.source.cli import register as register_source_commands
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
@@ -145,12 +149,18 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _inject_tui_if_path(argv: list[str], known_commands: set[str]) -> list[str]:
-    """Prepend 'tui' if the first non-flag arg is not a known subcommand."""
+def _inject_default_subcommand(
+    argv: list[str], known_commands: set[str], interface_mode: str
+) -> list[str]:
+    """Prepend the default subcommand when no explicit subcommand is given."""
+    subcommand = "shell" if interface_mode == "classic" else "tui"
+    # No args at all → inject the default interface.
+    if not argv:
+        return [subcommand]
     for i, arg in enumerate(argv):
         if not arg.startswith("-"):
             if arg not in known_commands:
-                return [*argv[:i], "tui", *argv[i:]]
+                return [*argv[:i], subcommand, *argv[i:]]
             break
     return argv
 
@@ -311,9 +321,10 @@ def main() -> None:
         argv = _normalise_tui_alias(argv)
 
         # If the first non-flag arg isn't a known subcommand (e.g. a path),
-        # transparently inject "tui" so `heph /my/armory` just works.
+        # transparently inject the default interface subcommand so `heph /my/armory` just works.
         known_commands = _get_subcommand_names(parser)
-        argv = _inject_tui_if_path(argv, known_commands)
+        interface_mode = load_app_settings().interface_mode
+        argv = _inject_default_subcommand(argv, known_commands, interface_mode)
 
         run_argv(parser, argv)
     finally:

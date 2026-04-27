@@ -50,3 +50,76 @@ def test_load_raw_settings_refreshes_after_external_write(
     config_file.write_text(json.dumps({"model": "updated-model"}), encoding="utf-8")
 
     assert settings.load_raw_settings() == {"model": "updated-model"}
+
+
+def test_default_interface_mode_is_tui() -> None:
+    assert settings.DEFAULT_INTERFACE_MODE == "tui"
+    assert "tui" in settings.INTERFACE_MODES
+    assert "classic" in settings.INTERFACE_MODES
+
+
+def test_app_settings_default_interface_mode_is_tui() -> None:
+    s = settings.AppSettings()
+    assert s.interface_mode == "tui"
+
+
+def test_load_app_settings_defaults_to_tui(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+    settings.invalidate_settings_cache()
+
+    assert settings.load_app_settings().interface_mode == "tui"
+
+
+def test_load_app_settings_reads_classic_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(json.dumps({"interface_mode": "classic"}), encoding="utf-8")
+
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+    settings.invalidate_settings_cache()
+
+    assert settings.load_app_settings().interface_mode == "classic"
+
+
+def test_normalize_interface_mode_rejects_invalid() -> None:
+    with pytest.raises(ValueError, match="interface_mode"):
+        settings.normalize_setting_value("interface_mode", "gtk")
+
+
+def test_normalize_interface_mode_accepts_classic() -> None:
+    assert settings.normalize_setting_value("interface_mode", "classic") == "classic"
+
+
+def test_normalize_interface_mode_accepts_tui() -> None:
+    assert settings.normalize_setting_value("interface_mode", "tui") == "tui"
+
+
+def test_save_and_load_interface_mode_roundtrip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+    settings.invalidate_settings_cache()
+
+    settings.save_setting("interface_mode", "classic")
+    assert settings.load_app_settings().interface_mode == "classic"
+
+    settings.save_setting("interface_mode", "tui")
+    assert settings.load_app_settings().interface_mode == "tui"
