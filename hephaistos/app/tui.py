@@ -278,14 +278,17 @@ OptionList {
 OptionList > .option-list--option {
     background: transparent;
     color: #E0E0E0;
+    padding: 0 0;
 }
 OptionList > .option-list--option-highlighted {
     background: #333333;
     color: #FFFFFF;
+    padding: 0 0;
 }
 OptionList:focus > .option-list--option-highlighted {
     background: #333333;
     color: #FFFFFF;
+    padding: 0 0;
 }
 #composer {
     height: 1;
