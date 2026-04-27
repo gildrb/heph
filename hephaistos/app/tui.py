@@ -12,6 +12,7 @@ from __future__ import annotations
 import subprocess  # nosec B404
 import sys
 import threading
+import time
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from io import StringIO
@@ -111,11 +112,11 @@ def _status_lines(
     source_str = str(sources) if sources else "none"
     state_tag = f" [{state}]" if state != "ready" else ""
     return (
-        f"\u2301 Hephaistos v{__version__}{state_tag}"
-        f"  \u2502  armory {armory}"
-        f" \u00b7 model {model}"
-        f" \u00b7 api {api}"
-        f" \u00b7 source {source_str}"
+        f"Hephaistos v{__version__}{state_tag}"
+        f"  armory {armory}"
+        f"  model {model}"
+        f"  api {api}"
+        f"  source {source_str}"
     )
 
 
@@ -138,8 +139,6 @@ def _status_text(session: ChatSession, state: str = "ready") -> Text:
 
     text = _RichText(plain, style="#808080")
 
-    spark_idx = plain.index("\u2301")
-    text.stylize("bold #9B4A2E", spark_idx, spark_idx + 1)
     hep_idx = plain.index("Hephaistos")
     text.stylize("bold #9B4A2E", hep_idx, hep_idx + len("Hephaistos"))
 
@@ -240,13 +239,6 @@ Screen {
     background: transparent;
     color: #808080;
 }
-#separator {
-    height: 1;
-    width: 100%;
-    padding: 0 0;
-    background: transparent;
-    color: #555555;
-}
 #transcript {
     height: 1fr;
     padding: 0 0;
@@ -259,10 +251,15 @@ Screen {
     background: transparent;
     background-tint: transparent;
 }
+#transcript RichLog {
+    color: #E0E0E0;
+}
+#transcript RichLog .md-code-inline {
+    color: #FFFFFF;
+    text-style: bold;
+}
 #composer-frame {
-    height: 13;
-    min-height: 13;
-    max-height: 13;
+    height: auto;
     width: auto;
     max-width: 100%;
     padding: 0 0;
@@ -331,6 +328,18 @@ OptionList:focus > .option-list--option-highlighted {
     background: transparent;
     color: #808080;
 }
+#thinking-indicator {
+    height: 1;
+    width: auto;
+    max-width: 100%;
+    padding: 0 0;
+    background: transparent;
+    color: #9B4A2E;
+    display: none;
+}
+#thinking-indicator.active {
+    display: block;
+}
 Input {
     height: 1;
     min-height: 1;
@@ -358,6 +367,9 @@ Input > .input--selection {
     background: #555555;
 }
 """
+
+
+_THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 def _transparent_screen_class() -> type[Screen]:
@@ -647,6 +659,8 @@ def run_tui(session: ChatSession | None = None) -> None:
             self.busy = False
             self.completion_engine = SlashCompletionEngine()
             self.completion_candidates: list[CompletionCandidate] = []
+            self._thinking_timer: object = None
+            self._thinking_start: float = 0.0
 
         def get_default_screen(self) -> Screen:
             return transparent_screen(id="_default")
@@ -654,8 +668,8 @@ def run_tui(session: ChatSession | None = None) -> None:
         def compose(self) -> ComposeResult:
             with transparent_vertical(id="shell"):  # type: ignore[reportCallIssue]
                 yield transparent_static(_status_text(self.session), id="status")
-                yield transparent_static("\u2500" * 200, id="separator")
                 yield transparent_rich_log(id="transcript", markup=True, wrap=True, highlight=True)
+                yield transparent_static("", id="thinking-indicator")
                 with transparent_vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
                     yield transparent_option_list(id="suggestions", classes="hidden", markup=False)
                     yield transparent_input(
@@ -669,8 +683,10 @@ def run_tui(session: ChatSession | None = None) -> None:
             self.title = "Hephaistos"
             self.sub_title = "command-first study shell"
             if not self.state.transcript:
-                self._append_entry(
-                    f"[bold #9B4A2E]{ascii_logo(color=False)}[/bold #9B4A2E]", "plain"
+                self.state.transcript.append(
+                    _TuiTranscriptEntry(
+                        f"[bold #9B4A2E]{ascii_logo(color=False)}[/bold #9B4A2E]", "plain"
+                    )
                 )
             for entry in self.state.transcript:
                 self._write_transcript_entry(entry)
@@ -755,6 +771,7 @@ def run_tui(session: ChatSession | None = None) -> None:
         def action_cancel_turn(self) -> None:
             if self.busy:
                 self.abort_event.set()
+                self._stop_thinking_animation()
                 self._append_notice("Interrupt requested.")
 
         def action_clear_transcript(self) -> None:
@@ -928,10 +945,14 @@ def run_tui(session: ChatSession | None = None) -> None:
         def _append_user(self, text: str, *, mark_working: bool = True) -> None:
             self._append_entry(f"[bold #E0E0E0]You:[/bold #E0E0E0] {text}")
             if mark_working:
-                self._append_entry("[dim]\u2301 thinking...[/dim]")
+                self._start_thinking_animation()
 
         def _append_assistant_reply(self, text: str) -> None:
-            self._append_entry(f"[bold #7F9A6A]Hephaistos:[/bold #7F9A6A] {text}", "markdown")
+            labeled = f"**Hephaistos:** {text}"
+            entry = _TuiTranscriptEntry(labeled, "markdown")
+            self.state.transcript.append(entry)
+            log = self.query_one("#transcript", RichLog)
+            log.write(Markdown(labeled))
 
         def _append_notice(self, text: str) -> None:
             self._append_entry(f"[#808080]{text}[/#808080]")
@@ -942,11 +963,36 @@ def run_tui(session: ChatSession | None = None) -> None:
         def _finish_turn(self) -> None:
             self.busy = False
             self.abort_event.clear()
+            self._stop_thinking_animation()
             self._refresh_status("ready")
 
         def _refresh_status(self, state: str = "ready") -> None:
             status = self.query_one("#status", Static)
             status.update(_status_text(self.session, state))
+
+        def _start_thinking_animation(self) -> None:
+            self._thinking_start = time.monotonic()
+            indicator = self.query_one("#thinking-indicator", Static)
+            indicator.update(f"[dim]{_THINKING_FRAMES[0]} thinking...[/dim]")
+            indicator.add_class("active")
+            self._thinking_timer = self.set_interval(0.12, self._tick_thinking)
+
+        def _tick_thinking(self) -> None:
+            if not self.busy:
+                self._stop_thinking_animation()
+                return
+            elapsed = time.monotonic() - self._thinking_start
+            frame_idx = int(elapsed / 0.12) % len(_THINKING_FRAMES)
+            indicator = self.query_one("#thinking-indicator", Static)
+            indicator.update(f"[dim]{_THINKING_FRAMES[frame_idx]} thinking...[/dim]")
+
+        def _stop_thinking_animation(self) -> None:
+            if self._thinking_timer is not None:
+                self._thinking_timer.stop()  # type: ignore[union-attr]
+                self._thinking_timer = None
+            indicator = self.query_one("#thinking-indicator", Static)
+            indicator.remove_class("active")
+            indicator.update("")
 
     try:
         while True:

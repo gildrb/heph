@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from hephaistos.app.palette import RESET, STYLE_DIM, STYLE_EMBER, ansi_fg, current_palette
 
-_ASCII_LOGO_SMALL = (
-    "  @@@@@@@@@@@@            @@@@@@@@@@@@\n"
-    "  @@@@@@@@@@@@            @@@@@@@@@@@@\n"
-    "  @@@@@@@@@@@@            @@@@@@@@@@@@\n"
-    "  @@@@@@@@@@@@            @@@@@@@@@@@@\n"
-    "  @@@@@@@@@@@            @@@@@@@@@@@\n"
-    "   @@@@@@@@@            @@@@@@@@@\n"
-    "    @@@@@@@              @@@@@@@\n"
-    "      @@@@                @@@@"
+_ASCII_LOGO = (
+    "@@@@@@@@@@@@@@@@@@@@     @@@@@@@@@@@\n"
+    "@@@@@@@@@@@@@@@@@@@@     @@@@@@@@@@@\n"
+    "@@@@@@@@@@@@@@@@@@@@     @@@@@@@@@@@\n"
+    "@@@@@@@@@@@@@@@@@@@@     @@@@@@@@@@@\n"
+    "@@@@@@@@@@@@@@@@@@@@     @@@@@@@@@@@\n"
+    "@@@@@@@@@@@@@@@@             @@@@@@@"
 )
 
 
@@ -21,7 +19,7 @@ def ascii_logo(*, color: bool = True) -> str:
 
     When *color* is True, the logo is rendered in ember color.
     """
-    logo = _ASCII_LOGO_SMALL
+    logo = _ASCII_LOGO
     if not color:
         return logo
     return f"{STYLE_EMBER}{logo}{RESET}"
