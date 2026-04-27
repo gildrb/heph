@@ -9,7 +9,7 @@ from hephaistos.harness.prompt import build_system_prompt, build_system_prompt_s
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["source/python.md"])
 
-    assert prompt.startswith("Hephaistos. A drill instructor for exam preparation.")
+    assert prompt.startswith("Hephaistos. A study drill engine.")
     assert "## Study Loop" in prompt
     assert "## Accuracy Rules" in prompt
     assert "## Tools" in prompt
@@ -23,7 +23,7 @@ def test_custom_system_prompt_replaces_default_role_block(armory: Path) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["source/python.md"])
 
     assert prompt.startswith("Custom persona.")
-    assert "Hephaistos. A drill instructor for exam preparation." not in prompt
+    assert "Hephaistos. A study drill engine." not in prompt
     assert "## Study Loop" not in prompt
 
 
@@ -33,7 +33,7 @@ def test_blank_custom_system_prompt_falls_back_to_default_persona(armory: Path) 
 
     prompt = build_system_prompt(armory_path=armory, source_files=["source/python.md"])
 
-    assert prompt.startswith("Hephaistos. A drill instructor for exam preparation.")
+    assert prompt.startswith("Hephaistos. A study drill engine.")
     assert "## Study Loop" in prompt
 
 

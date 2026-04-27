@@ -1,7 +1,7 @@
 """Rich system prompt builder with tool docs and anti-hallucination guardrails.
 
 Builds a structured system prompt that gives the LLM:
-1. Its role as a study drill instructor
+1. Its role as a study drill engine
 2. Tool documentation (so it knows exactly how to use each tool)
 3. Anti-hallucination directives (cite sources, never fabricate)
 4. Context: current date, armory info, memory of what's been studied
@@ -74,6 +74,8 @@ _FORMAT_RULES = """\
 ## Format
 
 - State things directly.
+- No greetings. No sign-offs. No pleasantries.
+- Never use Em-Dashes (\u2014) or Emojis in any output.
 - Use numbered steps for procedures.
 - Use fenced code blocks for code.
 - Use LaTeX for mathematical expressions ($...$ for inline, $$...$$ for display).
@@ -170,7 +172,7 @@ def build_system_prompt_sections(
     memory_context :
         Pre-built memory context string (from MemoryStore.build_system_context).
     persona :
-        The active persona.  Falls back to the default drill instructor.
+        The active persona.  Falls back to the default drill persona.
 
     Returns
     -------

@@ -105,9 +105,8 @@ class SessionError(Exception):
 
 
 _SYSTEM_PROMPT_FALLBACK = (
-    "Hephaistos. A drill instructor for exam preparation.\n"
-    "Ask the student to attach an armory with source documents first.\n"
-    "Be concise. Never fabricate information."
+    "Hephaistos. A study drill engine. Attach an armory with source documents to begin.\n"
+    "Be terse. Never fabricate. Never use emojis or em-dashes."
 )
 
 _PLAIN_CHAT_CONTEXT = (
