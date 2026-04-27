@@ -820,7 +820,7 @@ def run_tui(session: ChatSession | None = None) -> None:
             suggestions.set_options(
                 [
                     self._format_completion_candidate(candidate)
-                    for candidate in self.completion_candidates[:20]
+                    for candidate in self.completion_candidates
                 ]
             )
             suggestions.highlighted = 0
@@ -839,7 +839,7 @@ def run_tui(session: ChatSession | None = None) -> None:
             current = suggestions.highlighted
             if current is None:
                 current = 0
-            suggestions.highlighted = (current + offset) % min(len(self.completion_candidates), 8)
+            suggestions.highlighted = (current + offset) % len(self.completion_candidates)
 
         def _apply_completion(self, index: int) -> None:
             if not (0 <= index < len(self.completion_candidates)):
@@ -931,8 +931,7 @@ def run_tui(session: ChatSession | None = None) -> None:
                 self._append_entry("[dim]\u2301 thinking...[/dim]")
 
         def _append_assistant_reply(self, text: str) -> None:
-            self._append_entry("[bold #7F9A6A]Hephaistos:[/bold #7F9A6A]")
-            self._append_entry(text, "markdown")
+            self._append_entry(f"[bold #7F9A6A]Hephaistos:[/bold #7F9A6A] {text}", "markdown")
 
         def _append_notice(self, text: str) -> None:
             self._append_entry(f"[#808080]{text}[/#808080]")
