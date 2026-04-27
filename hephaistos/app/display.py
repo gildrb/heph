@@ -7,6 +7,7 @@ import sys
 from typing import Protocol, runtime_checkable
 
 from hephaistos.app import palette
+from hephaistos.app.banner import ascii_logo, separator_line, wordmark
 from hephaistos.app.palette import (
     RESET,
     STYLE_ACCENT,
@@ -92,11 +93,16 @@ def print_shell_intro(
     model: str,
     has_api_key: bool,
     source_files: tuple[str, ...] = (),
+    *,
+    is_keyless: bool = False,
 ) -> None:
     """Print a compact startup screen with essential status and input hints."""
-    api_status = (
-        styled("configured", STYLE_SUCCESS) if has_api_key else styled("missing", STYLE_ERROR)
-    )
+    if has_api_key and not is_keyless:
+        api_status = styled("configured", STYLE_SUCCESS)
+    elif is_keyless:
+        api_status = styled("free", STYLE_DIM)
+    else:
+        api_status = styled("missing", STYLE_ERROR)
     source_status = (
         styled(_format_source_summary(source_file_count, source_files), STYLE_DIM)
         if source_file_count
@@ -109,21 +115,24 @@ def print_shell_intro(
     settings = load_app_settings()
     hints = _progressive_hints(settings.session_count)
 
-    print(f"{styled('Hephaistos', STYLE_EMBER)} {styled(f'v{version}', STYLE_DIM)}")
+    print(ascii_logo())
+    print()
+    print(separator_line(60))
     print()
     print(
-        "  "
+        f"{wordmark()} {styled(f'v{version}', STYLE_DIM)}"
+        f"  {styled('\u2502', STYLE_DIM)}  "
         f"{styled('armory', STYLE_DIM)} {styled(armory_path, armory_style)}"
-        "  "
+        f" {styled('\u00b7', STYLE_DIM)} "
         f"{styled('model', STYLE_DIM)} {styled(model_text, model_style)}"
-        "  "
+        f" {styled('\u00b7', STYLE_DIM)} "
         f"{styled('api', STYLE_DIM)} {api_status}"
-        "  "
+        f" {styled('\u00b7', STYLE_DIM)} "
         f"{styled('source', STYLE_DIM)} {source_status}"
     )
     for hint_line in hints:
         print(f"  {hint_line}")
-    if not has_api_key:
+    if not has_api_key and not is_keyless:
         print(
             "  "
             f"{styled('configure api', STYLE_WARNING)} "
@@ -139,10 +148,19 @@ def format_shell_header(
     model: str,
     has_api_key: bool,
     source_files: tuple[str, ...] = (),
+    *,
+    is_keyless: bool = False,
 ) -> list[tuple[str, str]]:
     """Return FormattedText fragments for the fullscreen header bar."""
-    api_status = "configured" if has_api_key else "missing"
-    api_style = "class:header.success" if has_api_key else "class:header.error"
+    if has_api_key and not is_keyless:
+        api_status = "configured"
+        api_style = "class:header.success"
+    elif is_keyless:
+        api_status = "free"
+        api_style = "class:header.dim"
+    else:
+        api_status = "missing"
+        api_style = "class:header.error"
     model_text = model or "none"
     model_style = "class:header.configured" if model else "class:header.ember"
     source_text = _format_source_summary(source_file_count, source_files)
@@ -150,16 +168,19 @@ def format_shell_header(
     armory_style = "class:header.dim" if armory_path != "none" else "class:header.ember"
 
     fragments: list[tuple[str, str]] = [
-        ("class:header.title", "Hephaistos"),
+        ("class:header.title", "\u2301 Hephaistos"),
         ("class:header.dim", f" v{version}"),
-        ("", "\n"),
-        ("class:header.dim", "  armory "),
+        ("class:header.dim", "  \u2502  "),
+        ("class:header.dim", "armory "),
         (armory_style, armory_path),
-        ("class:header.dim", "  model "),
+        ("class:header.dim", " \u00b7 "),
+        ("class:header.dim", "model "),
         (model_style, model_text),
-        ("class:header.dim", "  api "),
+        ("class:header.dim", " \u00b7 "),
+        ("class:header.dim", "api "),
         (api_style, api_status),
-        ("class:header.dim", "  source "),
+        ("class:header.dim", " \u00b7 "),
+        ("class:header.dim", "source "),
         (source_style, source_text),
         ("", "\n"),
         ("class:header.dim", "  enter "),
@@ -171,7 +192,7 @@ def format_shell_header(
         ("class:header.dim", "ctrl+d "),
         ("class:header.dim", "exit"),
     ]
-    if not has_api_key:
+    if not has_api_key and not is_keyless:
         fragments.extend(
             [
                 ("", "\n"),

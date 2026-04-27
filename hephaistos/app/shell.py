@@ -195,7 +195,7 @@ def _build_bottom_toolbar_status(
     api_state = "configured" if key_ok else "missing"
     if runtime is not None and runtime.busy:
         steering_suffix = f"  queued {runtime.steering_count}" if runtime.steering_count else ""
-        return f"assistant working  enter queues follow-up  ctrl+c interrupt{steering_suffix}"
+        return f"\u2301 thinking  enter queues follow-up  ctrl+c interrupt{steering_suffix}"
     input_hint = "alt+enter newline  /help commands  /settings prefs  ! shell"
     live_parts: list[str] = []
     if session.live_tokens_visible:
@@ -238,11 +238,11 @@ def _get_bottom_toolbar(toolbar_ref: list[str]):
         fragments.append(("class:bottom-toolbar", suffix))
         fragments.append(("class:bottom-toolbar", " " * max(0, width - used)))
         return FormattedText(fragments)
-    if line.startswith("assistant working"):
-        prefix, suffix = line.split("assistant working", 1)
-        used = len(prefix) + len("assistant working") + len(suffix)
+    if line.startswith("\u2301 thinking"):
+        prefix, suffix = line.split("\u2301 thinking", 1)
+        used = len(prefix) + len("\u2301 thinking") + len(suffix)
         fragments.append(("class:bottom-toolbar", prefix))
-        fragments.append(("class:toolbar-accent", "assistant working"))
+        fragments.append(("class:toolbar-accent", "\u2301 thinking"))
         fragments.append(("class:bottom-toolbar", suffix))
         fragments.append(("class:bottom-toolbar", " " * max(0, width - used)))
         return FormattedText(fragments)
@@ -421,7 +421,7 @@ def _handle_input(
                 print_error(config_error)
                 return session, True
             abort = threading.Event()
-            reply_prefix = f"\r{styled('Assistant:', STYLE_ASSISTANT)} "
+            reply_prefix = f"\r{styled('Hephaistos:', STYLE_ASSISTANT)} "
             try:
                 send_user_message(session, new_input, abort=abort, reply_prefix=reply_prefix)
             except (StreamRecoveryError, EngineError) as exc:
@@ -433,7 +433,7 @@ def _handle_input(
         print_error(config_error)
         return session, True
     abort = threading.Event()
-    reply_prefix = f"\r{styled('Assistant:', STYLE_ASSISTANT)} "
+    reply_prefix = f"\r{styled('Hephaistos:', STYLE_ASSISTANT)} "
     try:
         send_user_message(session, user_input, abort=abort, reply_prefix=reply_prefix)
     except (StreamRecoveryError, EngineError) as exc:
@@ -628,7 +628,7 @@ def _start_background_reply_fullscreen(
     runtime.abort_event.clear()
     app.invalidate()
 
-    chat_lines.append(("class:chat-area.assistant-label", "\nAssistant: "))
+    chat_lines.append(("class:chat-area.assistant-label", "\nHephaistos: "))
 
     def _chat_writer(text: str) -> None:
         if text:
@@ -701,7 +701,7 @@ def _build_shell_layout(
             Window(
                 FormattedTextControl(get_header),
                 dont_extend_height=True,
-                height=Dimension(min=3, preferred=4),
+                height=Dimension(min=2, preferred=3),
                 style="class:header",
             ),
             Window(
@@ -848,6 +848,7 @@ def run_chat_shell(
         key_ok = bool(active.config.resolved_api_key) or is_keyless_endpoint(
             active.config.base_url
         )
+        keyless = is_keyless_endpoint(active.config.base_url)
         return FormattedText(
             format_shell_header(
                 version=__version__,
@@ -856,6 +857,7 @@ def run_chat_shell(
                 source_files=active.source_files,
                 model=active.config.model,
                 has_api_key=key_ok,
+                is_keyless=keyless,
             )
         )
 

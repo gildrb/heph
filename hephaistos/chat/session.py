@@ -105,14 +105,17 @@ class SessionError(Exception):
 
 
 _SYSTEM_PROMPT_FALLBACK = (
-    "Hephaistos. A study drill engine. Attach an armory with source documents to begin.\n"
-    "Be terse. Never fabricate. Never use emojis or em-dashes."
+    "Hephaistos. A study drill engine.\n"
+    "You need an armory with source documents to study. No armory is attached.\n"
+    "Tell the user to create one: run `heph armory init <path>` or type /armory "
+    "in the shell. Say nothing else."
 )
 
 _PLAIN_CHAT_CONTEXT = (
-    "Plain chat mode: no armory or source documents are attached, and workspace "
-    "tools are unavailable. Do not claim to have retrieved armory evidence. "
-    "Ask the user to attach an armory for source-grounded study."
+    "No armory or source documents are attached. Workspace tools are unavailable.\n"
+    "Do not answer general-knowledge questions or chat. Do not fabricate evidence.\n"
+    "Tell the user to create an armory (`heph armory init <path>` or /armory) and "
+    "add source documents to begin studying. Be terse."
 )
 
 

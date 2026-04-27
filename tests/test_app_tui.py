@@ -41,6 +41,19 @@ def _configured_status_session() -> ChatSession:
     )
 
 
+def _keyless_session() -> ChatSession:
+    conversation = Conversation()
+    conversation.add("system", "test")
+    return ChatSession(
+        config=ChatConfig(
+            base_url="https://text.pollinations.ai/openai",
+            model="openai",
+        ),
+        conversation=conversation,
+        session_id="session-test",
+    )
+
+
 def test_session_status_for_plain_session() -> None:
     status = tui._status_lines(_plain_session())  # type: ignore[reportPrivateUsage]
 
@@ -48,6 +61,14 @@ def test_session_status_for_plain_session() -> None:
     assert "armory" in status
     assert "enter" not in status
     assert "/help" not in status
+
+
+def test_session_status_shows_free_for_keyless_provider() -> None:
+    status = tui._status_lines(_keyless_session())  # type: ignore[reportPrivateUsage]
+
+    assert "free" in status
+    assert "configured" not in status
+    assert "missing" not in status
 
 
 def test_composer_meta_keeps_input_hints_below_composer() -> None:
@@ -67,7 +88,7 @@ def test_tui_css_keeps_surface_transparent() -> None:
 
     assert "App {\n    background: transparent;" in css
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
-    assert "#status {\n    height: 2;\n    width: auto;" in css
+    assert "#status {\n    height: 1;\n    width: auto;" in css
     assert ("#composer-meta {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css

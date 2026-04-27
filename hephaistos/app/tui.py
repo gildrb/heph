@@ -25,6 +25,7 @@ from hephaistos.app.autocomplete import (
     CompletionCandidate,
     SlashCompletionEngine,
 )
+from hephaistos.app.banner import ascii_logo
 from hephaistos.app.commands import get_registry
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.shell import (  # type: ignore[reportPrivateUsage]
@@ -99,39 +100,52 @@ def _status_lines(
     armory = str(session.armory_path) if session.armory_path is not None else "none"
     model = session.config.model or "none"
     key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
-    api = "configured" if key_ok else "missing"
+    keyless = is_keyless_endpoint(session.config.base_url)
+    if keyless:
+        api = "free"
+    elif key_ok:
+        api = "configured"
+    else:
+        api = "missing"
     sources = session.source_file_count or 0
     source_str = str(sources) if sources else "none"
-    state_tag = f"[{state}]" if state != "ready" else ""
+    state_tag = f" [{state}]" if state != "ready" else ""
     return (
-        f"Hephaistos v{__version__}{'  ' + state_tag if state_tag else ''}\n"
-        f"armory {armory}  "
-        f"model {model}  "
-        f"api {api}  "
-        f"source {source_str}"
+        f"\u2301 Hephaistos v{__version__}{state_tag}"
+        f"  \u2502  armory {armory}"
+        f" \u00b7 model {model}"
+        f" \u00b7 api {api}"
+        f" \u00b7 source {source_str}"
     )
 
 
 def _status_text(session: ChatSession, state: str = "ready") -> Text:
     plain = _status_lines(session, state)
-    key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
-    api = "configured" if key_ok else "missing"
-    api_style = "#7F9A6A" if key_ok else "#CC3333"
+    keyless = is_keyless_endpoint(session.config.base_url)
+    key_ok = bool(session.config.resolved_api_key) or keyless
+    if keyless:
+        api = "free"
+        api_style = "#808080"
+    elif key_ok:
+        api = "configured"
+        api_style = "#7F9A6A"
+    else:
+        api = "missing"
+        api_style = "#CC3333"
 
     if _RichText is None:
         raise TuiDependencyError(_tui_dependency_message())
 
     text = _RichText(plain, style="#808080")
-    text.stylize("bold #9B4A2E", 0, len("Hephaistos"))
 
-    first_line_end = plain.index("\n")
-    text.stylize("dim #808080", len("Hephaistos "), first_line_end)
+    spark_idx = plain.index("\u2301")
+    text.stylize("bold #9B4A2E", spark_idx, spark_idx + 1)
+    hep_idx = plain.index("Hephaistos")
+    text.stylize("bold #9B4A2E", hep_idx, hep_idx + len("Hephaistos"))
 
-    cursor = first_line_end + 1
     for label in ("armory", "model", "api", "source"):
-        start = plain.index(label, cursor)
+        start = plain.index(label)
         text.stylize("dim #808080", start, start + len(label))
-        cursor = start + len(label)
 
     api_start = plain.index(api, plain.index("api "))
     text.stylize(api_style, api_start, api_start + len(api))
@@ -219,12 +233,19 @@ Screen {
     color: #E0E0E0;
 }
 #status {
-    height: 2;
+    height: 1;
     width: auto;
     max-width: 100%;
     padding: 0 0;
     background: transparent;
     color: #808080;
+}
+#separator {
+    height: 1;
+    width: 100%;
+    padding: 0 0;
+    background: transparent;
+    color: #555555;
 }
 #transcript {
     height: 1fr;
@@ -633,6 +654,7 @@ def run_tui(session: ChatSession | None = None) -> None:
         def compose(self) -> ComposeResult:
             with transparent_vertical(id="shell"):  # type: ignore[reportCallIssue]
                 yield transparent_static(_status_text(self.session), id="status")
+                yield transparent_static("\u2500" * 200, id="separator")
                 yield transparent_rich_log(id="transcript", markup=True, wrap=True, highlight=True)
                 with transparent_vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
                     yield transparent_option_list(id="suggestions", classes="hidden", markup=False)
@@ -646,6 +668,10 @@ def run_tui(session: ChatSession | None = None) -> None:
         def on_mount(self) -> None:
             self.title = "Hephaistos"
             self.sub_title = "command-first study shell"
+            if not self.state.transcript:
+                self._append_entry(
+                    f"[bold #9B4A2E]{ascii_logo(color=False)}[/bold #9B4A2E]", "plain"
+                )
             for entry in self.state.transcript:
                 self._write_transcript_entry(entry)
             composer = self.query_one("#composer", Input)
@@ -794,7 +820,7 @@ def run_tui(session: ChatSession | None = None) -> None:
             suggestions.set_options(
                 [
                     self._format_completion_candidate(candidate)
-                    for candidate in self.completion_candidates[:8]
+                    for candidate in self.completion_candidates[:20]
                 ]
             )
             suggestions.highlighted = 0
@@ -902,10 +928,10 @@ def run_tui(session: ChatSession | None = None) -> None:
         def _append_user(self, text: str, *, mark_working: bool = True) -> None:
             self._append_entry(f"[bold #E0E0E0]You:[/bold #E0E0E0] {text}")
             if mark_working:
-                self._append_entry("[dim]assistant working...[/dim]")
+                self._append_entry("[dim]\u2301 thinking...[/dim]")
 
         def _append_assistant_reply(self, text: str) -> None:
-            self._append_entry("[bold #7F9A6A]Assistant:[/bold #7F9A6A]")
+            self._append_entry("[bold #7F9A6A]Hephaistos:[/bold #7F9A6A]")
             self._append_entry(text, "markdown")
 
         def _append_notice(self, text: str) -> None:

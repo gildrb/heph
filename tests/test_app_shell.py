@@ -250,7 +250,7 @@ def test_bottom_toolbar_uses_cached_status(
     busy_toolbar = shell._get_bottom_toolbar(toolbar_ref)  # type: ignore[reportPrivateUsage]
     busy_text = "".join(fragment[1] for fragment in busy_toolbar)
 
-    assert "assistant working" in busy_text
+    assert "\u2301 thinking" in busy_text
     assert "queued 2" in busy_text
 
 
@@ -338,7 +338,7 @@ def test_bottom_toolbar_shows_busy_hint(tmp_path: Path) -> None:
 
     status = shell._build_bottom_toolbar_status(session, runtime)  # type: ignore[reportPrivateUsage]
 
-    assert "assistant working" in status
+    assert "\u2301 thinking" in status
     assert "enter queues follow-up" in status
     assert "queued 2" in status
     assert "·" not in status
@@ -504,6 +504,23 @@ def test_shell_intro_uses_compact_header(capsys: pytest.CaptureFixture[str]) -> 
     assert "/help" in out
     assert "configure api" in out
     assert "alt+enter" not in out
+
+
+def test_shell_intro_shows_free_for_keyless_provider(capsys: pytest.CaptureFixture[str]) -> None:
+    print_shell_intro(
+        version="0.1.0",
+        armory_path="none",
+        source_file_count=0,
+        model="glm-5v-turbo",
+        has_api_key=True,
+        is_keyless=True,
+    )
+
+    out = capsys.readouterr().out
+    assert "free" in out
+    assert "configured" not in out
+    assert "missing" not in out
+    assert "configure api" not in out
 
 
 # ---------------------------------------------------------------------------
@@ -779,6 +796,25 @@ def test_format_shell_header_warns_when_api_key_missing() -> None:
     assert "/api key <your-key>" in text
     assert "class:header.error" in styles
     assert "class:header.warning" in styles
+
+
+def test_format_shell_header_shows_free_for_keyless_provider() -> None:
+    fragments = format_shell_header(
+        version="0.0.0-test",
+        armory_path="none",
+        source_file_count=0,
+        model="gpt-4o-mini",
+        has_api_key=True,
+        is_keyless=True,
+    )
+
+    text = "".join(frag[1] for frag in fragments)
+    styles = {style for style, _ in fragments if style}
+    assert "free" in text
+    assert "configured" not in text
+    assert "missing" not in text
+    assert "/api key <your-key>" not in text
+    assert "class:header.dim" in styles
 
 
 def test_chat_writer_appends_styled_fragments() -> None:
