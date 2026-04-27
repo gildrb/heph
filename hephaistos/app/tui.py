@@ -274,6 +274,8 @@ OptionList {
     width: 100%;
     background: transparent;
     color: #E0E0E0;
+    border: none;
+    padding: 0;
 }
 OptionList > .option-list--option {
     background: transparent;

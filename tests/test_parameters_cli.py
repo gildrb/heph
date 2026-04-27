@@ -367,3 +367,94 @@ def test_load_config_feature_flags_from_user_overrides(
     config = params_cli.load_config()
 
     assert config.feature_flags == frozenset({"alpha", "beta"})
+
+
+def test_load_config_falls_back_when_active_provider_has_no_key(
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_config_dir: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When active provider needs a key but none is configured, fall back to Pollinations."""
+    isolated_config_dir.defaults_file.write_text("", encoding="utf-8")
+
+    class _FakeProviderConfig:
+        def apply_to_config(self, config: ChatConfig) -> None:
+            config.base_url = "https://openrouter.ai/api/v1"
+            config.model = "qwen/test"
+            config.apply_provider_reference("openrouter", "OPENROUTER_API_KEY")
+
+    monkeypatch.setattr(
+        "hephaistos.providers.config.ProviderConfig.load",
+        classmethod(lambda _cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+    )
+    # Ensure no key is resolved for openrouter.
+    monkeypatch.setattr(
+        "hephaistos.chat.engine.resolve_key",
+        lambda _slug, _env="": "",  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+    )
+
+    config = params_cli.load_config()
+
+    assert config.base_url == "https://text.pollinations.ai/openai"
+    assert config.model == "openai"
+    assert config._provider_slug == "pollinations"  # type: ignore[reportPrivateUsage]
+    err = capsys.readouterr().err
+    assert "falling back to Pollinations AI" in err
+
+
+def test_load_config_no_fallback_when_keyless(
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_config_dir: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When active provider is keyless (Pollinations), no fallback should occur."""
+    isolated_config_dir.defaults_file.write_text("", encoding="utf-8")
+
+    class _FakeProviderConfig:
+        def apply_to_config(self, config: ChatConfig) -> None:
+            config.base_url = "https://text.pollinations.ai/openai"
+            config.model = "openai"
+            config.apply_provider_reference("pollinations", "")
+
+    monkeypatch.setattr(
+        "hephaistos.providers.config.ProviderConfig.load",
+        classmethod(lambda _cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+    )
+
+    config = params_cli.load_config()
+
+    assert config.base_url == "https://text.pollinations.ai/openai"
+    assert config._provider_slug == "pollinations"  # type: ignore[reportPrivateUsage]
+    err = capsys.readouterr().err
+    assert "falling back" not in err
+
+
+def test_load_config_no_fallback_when_key_present(
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_config_dir: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When active provider has an API key, no fallback should occur."""
+    isolated_config_dir.defaults_file.write_text("", encoding="utf-8")
+
+    class _FakeProviderConfig:
+        def apply_to_config(self, config: ChatConfig) -> None:
+            config.base_url = "https://api.openai.com/v1"
+            config.model = "gpt-test"
+            config.apply_provider_reference("openai-codex", "OPENAI_API_KEY")
+
+    monkeypatch.setattr(
+        "hephaistos.providers.config.ProviderConfig.load",
+        classmethod(lambda _cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+    )
+    monkeypatch.setattr(
+        "hephaistos.chat.engine.resolve_key",
+        lambda _slug, _env="": "sk-test-key",  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+    )
+
+    config = params_cli.load_config()
+
+    assert config.base_url == "https://api.openai.com/v1"
+    assert config._provider_slug == "openai-codex"  # type: ignore[reportPrivateUsage]
+    err = capsys.readouterr().err
+    assert "falling back" not in err
