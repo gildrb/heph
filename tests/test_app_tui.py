@@ -338,3 +338,259 @@ def test_is_armory_command_matches_inline_forms() -> None:
     assert not tui._is_armory_command("/armory detach")  # type: ignore[reportPrivateUsage]
     assert not tui._is_armory_command("/model")  # type: ignore[reportPrivateUsage]
     assert not tui._is_armory_command("hello")  # type: ignore[reportPrivateUsage]
+
+
+def test_click_refocuses_composer() -> None:
+    if tui.Input is None or tui.Static is None or tui.events is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    screen_class = tui._transparent_screen_class()  # type: ignore[reportPrivateUsage]
+    vertical_class = tui._transparent_vertical_class()  # type: ignore[reportPrivateUsage]
+    input_class = tui._transparent_input_class()  # type: ignore[reportPrivateUsage]
+    static_class = tui._transparent_static_class()  # type: ignore[reportPrivateUsage]
+    rich_log_class = tui._transparent_rich_log_class()  # type: ignore[reportPrivateUsage]
+
+    class ClickSmoke(tui.App[None]):  # type: ignore[index]
+        CSS = tui._tui_css()  # type: ignore[reportPrivateUsage]
+
+        def get_default_screen(self) -> Screen[object]:
+            return screen_class(id="_default")
+
+        def compose(self) -> tui.ComposeResult:
+            session = _plain_session()
+            with vertical_class(id="shell"):  # type: ignore[operator, reportCallIssue]
+                yield static_class(  # type: ignore[operator]
+                    tui._status_text(session),  # type: ignore[reportPrivateUsage]
+                    id="status",
+                )
+                yield rich_log_class(id="transcript", markup=True, wrap=True, highlight=True)  # type: ignore[operator]
+                yield static_class("", id="thinking-indicator")  # type: ignore[operator]
+                with vertical_class(id="composer-frame"):  # type: ignore[operator, reportCallIssue]
+                    yield input_class(  # type: ignore[operator]
+                        placeholder="Ask...",
+                        id="composer",
+                    )
+                    yield static_class(  # type: ignore[operator]
+                        tui._footer_hints_text(session),  # type: ignore[reportPrivateUsage]
+                        id="footer-hints",
+                    )
+
+        def on_click(self, event: tui.events.Click) -> None:  # type: ignore[reportPrivateUsage]
+            composer = self.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            if self.focused is not composer:
+                self.call_after_refresh(composer.focus)
+
+    async def check_click_focus() -> None:
+        app = ClickSmoke()
+        async with app.run_test(size=(120, 12)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            assert app.focused is composer
+            # Click on transcript area
+            await pilot.click("#transcript", offset=(5, 2))
+            await pilot.pause()
+            await pilot.pause()
+            # Composer should be re-focused by the on_click handler
+            assert app.focused is composer
+
+    asyncio.run(check_click_focus())
+
+
+def test_completion_menu_auto_highlights_first_item() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    screen_class = tui._transparent_screen_class()  # type: ignore[reportPrivateUsage]
+    vertical_class = tui._transparent_vertical_class()  # type: ignore[reportPrivateUsage]
+    horizontal_class = tui._transparent_horizontal_class()  # type: ignore[reportPrivateUsage]
+    input_class = tui._transparent_input_class()  # type: ignore[reportPrivateUsage]
+    static_class = tui._transparent_static_class()  # type: ignore[reportPrivateUsage]
+    rich_log_class = tui._transparent_rich_log_class()  # type: ignore[reportPrivateUsage]
+    option_list_class = tui._transparent_option_list_class()  # type: ignore[reportPrivateUsage]
+
+    engine = tui.SlashCompletionEngine()
+
+    class CompletionSmoke(tui.App[None]):  # type: ignore[index]
+        CSS = tui._tui_css()  # type: ignore[reportPrivateUsage]
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.completion_engine = engine
+            self.completion_candidates: list[tui.CompletionCandidate] = []
+
+        def get_default_screen(self) -> Screen[object]:
+            return screen_class(id="_default")
+
+        def compose(self) -> tui.ComposeResult:
+            session = _plain_session()
+            with horizontal_class(id="main-layout"):  # type: ignore[operator, reportCallIssue]
+                with vertical_class(id="shell"):  # type: ignore[operator, reportCallIssue]
+                    yield static_class(  # type: ignore[operator]
+                        tui._status_text(session),  # type: ignore[reportPrivateUsage]
+                        id="status",
+                    )
+                    yield rich_log_class(id="transcript", markup=True, wrap=True, highlight=True)  # type: ignore[operator]
+                    yield static_class("", id="thinking-indicator")  # type: ignore[operator]
+                    with vertical_class(id="composer-frame"):  # type: ignore[operator, reportCallIssue]
+                        yield input_class(  # type: ignore[operator]
+                            placeholder="Ask...",
+                            id="composer",
+                        )
+                        yield static_class(  # type: ignore[operator]
+                            tui._footer_hints_text(session),  # type: ignore[reportPrivateUsage]
+                            id="footer-hints",
+                        )
+                yield static_class("", id="info-separator")  # type: ignore[operator]
+                yield static_class(  # type: ignore[operator]
+                    tui._info_panel_default_text(session),  # type: ignore[reportPrivateUsage]
+                    id="info-panel",
+                )
+            yield option_list_class(id="suggestions", classes="hidden", markup=False)  # type: ignore[operator]
+
+        def on_mount(self) -> None:
+            self.query_one("#composer", tui.Input).focus()  # type: ignore[reportPrivateUsage]
+
+        def on_input_changed(self, event: tui.Input.Changed) -> None:  # type: ignore[reportPrivateUsage]
+            if event.input.id == "composer":  # type: ignore[reportUnknownMemberType]
+                self._refresh_completions()
+
+        def _refresh_completions(self) -> None:
+            composer = self.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            before_cursor = composer.value[: composer.cursor_position]
+            self.completion_candidates = self.completion_engine.candidates(
+                before_cursor,
+                tui._tui_command_suggestions(),  # type: ignore[reportPrivateUsage]
+            )
+            suggestions = self.query_one("#suggestions", tui.OptionList)  # type: ignore[reportPrivateUsage]
+            if not self.completion_candidates:
+                suggestions.set_options([])
+                suggestions.add_class("hidden")
+                return
+            suggestions.set_options(
+                [f"{c.text:<22} {c.description}" for c in self.completion_candidates]
+            )
+            suggestions.highlighted = 0
+            suggestions.remove_class("hidden")
+            self.set_focus(suggestions)
+            self.set_focus(composer)
+
+    async def check_highlight() -> None:
+        app = CompletionSmoke()
+        async with app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            # Type "/" to trigger completions
+            await pilot.press("/")
+            await pilot.pause()
+            suggestions = app.query_one("#suggestions", tui.OptionList)  # type: ignore[reportPrivateUsage]
+            # The suggestion list should be visible with first item highlighted
+            assert not suggestions.has_class("hidden")
+            assert suggestions.highlighted == 0
+            assert suggestions.option_count > 0
+            # Composer should retain focus after the brief focus swap
+            assert app.focused is composer
+
+    asyncio.run(check_highlight())
+
+
+def test_slash_on_empty_composer_preserves_cursor_after_focus_swap() -> None:
+    """Pressing / must show completions without selecting/highlighting the / character.
+
+    Regression test: the focus swap in _refresh_completions (set_focus(suggestions)
+    then set_focus(composer)) was causing Textual's Input to select its text, so the
+    next keypress would replace the / instead of appending to it.
+    """
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    screen_class = tui._transparent_screen_class()  # type: ignore[reportPrivateUsage]
+    vertical_class = tui._transparent_vertical_class()  # type: ignore[reportPrivateUsage]
+    horizontal_class = tui._transparent_horizontal_class()  # type: ignore[reportPrivateUsage]
+    input_class = tui._transparent_input_class()  # type: ignore[reportPrivateUsage]
+    static_class = tui._transparent_static_class()  # type: ignore[reportPrivateUsage]
+    rich_log_class = tui._transparent_rich_log_class()  # type: ignore[reportPrivateUsage]
+    option_list_class = tui._transparent_option_list_class()  # type: ignore[reportPrivateUsage]
+
+    engine = tui.SlashCompletionEngine()
+
+    class SlashSmoke(tui.App[None]):  # type: ignore[index]
+        CSS = tui._tui_css()  # type: ignore[reportPrivateUsage]
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.completion_engine = engine
+            self.completion_candidates: list[tui.CompletionCandidate] = []
+
+        def get_default_screen(self) -> Screen[object]:
+            return screen_class(id="_default")
+
+        def compose(self) -> tui.ComposeResult:
+            session = _plain_session()
+            with horizontal_class(id="main-layout"):  # type: ignore[operator, reportCallIssue]
+                with vertical_class(id="shell"):  # type: ignore[operator, reportCallIssue]
+                    yield static_class(  # type: ignore[operator]
+                        tui._status_text(session),  # type: ignore[reportPrivateUsage]
+                        id="status",
+                    )
+                    yield rich_log_class(id="transcript", markup=True, wrap=True, highlight=True)  # type: ignore[operator]
+                    yield static_class("", id="thinking-indicator")  # type: ignore[operator]
+                    with vertical_class(id="composer-frame"):  # type: ignore[operator, reportCallIssue]
+                        yield input_class(  # type: ignore[operator]
+                            placeholder="Ask...",
+                            id="composer",
+                        )
+                        yield static_class(  # type: ignore[operator]
+                            tui._footer_hints_text(session),  # type: ignore[reportPrivateUsage]
+                            id="footer-hints",
+                        )
+                yield static_class("", id="info-separator")  # type: ignore[operator]
+                yield static_class(  # type: ignore[operator]
+                    tui._info_panel_default_text(session),  # type: ignore[reportPrivateUsage]
+                    id="info-panel",
+                )
+            yield option_list_class(id="suggestions", classes="hidden", markup=False)  # type: ignore[operator]
+
+        def on_mount(self) -> None:
+            composer = self.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.select_on_focus = False
+            composer.focus()
+
+        def on_input_changed(self, event: tui.Input.Changed) -> None:  # type: ignore[reportPrivateUsage]
+            if event.input.id == "composer":  # type: ignore[reportUnknownMemberType]
+                self._refresh_completions()
+
+        def _refresh_completions(self) -> None:
+            composer = self.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            before_cursor = composer.value[: composer.cursor_position]
+            self.completion_candidates = self.completion_engine.candidates(
+                before_cursor,
+                tui._tui_command_suggestions(),  # type: ignore[reportPrivateUsage]
+            )
+            suggestions = self.query_one("#suggestions", tui.OptionList)  # type: ignore[reportPrivateUsage]
+            if not self.completion_candidates:
+                suggestions.set_options([])
+                suggestions.add_class("hidden")
+                return
+            suggestions.set_options(
+                [f"{c.text:<22} {c.description}" for c in self.completion_candidates]
+            )
+            suggestions.highlighted = 0
+            suggestions.remove_class("hidden")
+            self.set_focus(suggestions)
+            self.set_focus(composer)
+
+    async def check_cursor_preserved() -> None:
+        app = SlashSmoke()
+        async with app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            # Type "/" to trigger completions
+            await pilot.press("/")
+            await pilot.pause()
+            # Composer value should be "/" and cursor should be at the end
+            assert composer.value == "/"
+            assert composer.cursor_position == 1
+            # Typing another character should append, not replace
+            await pilot.press("h")
+            await pilot.pause()
+            assert composer.value == "/h"
+            assert composer.cursor_position == 2
+
+    asyncio.run(check_cursor_preserved())

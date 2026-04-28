@@ -588,8 +588,17 @@ def _transparent_static_class() -> type[Static]:
     return TransparentStatic
 
 
+def _nonfocus_rich_log_class() -> type[RichLog]:
+    class NonFocusRichLog(RichLog):  # type: ignore[misc]
+        can_focus = False
+
+    return NonFocusRichLog
+
+
 def _transparent_rich_log_class() -> type[RichLog]:
     class TransparentRichLog(RichLog):  # type: ignore[misc]
+        can_focus = False
+
         def render_line(self, y: int) -> Strip:
             return _transparent_strip(super().render_line(y), self.size.width)
 
@@ -768,12 +777,13 @@ def run_tui(session: ChatSession | None = None) -> None:
     transparent_rich_log = _transparent_rich_log_class()
     transparent_input = _transparent_input_class()
     transparent_option_list = _transparent_option_list_class()
+    nonfocus_rich_log = _nonfocus_rich_log_class()
 
     screen_cls = transparent_screen if palette.is_transparent else Screen  # type: ignore[misc]
     vertical_cls = transparent_vertical if palette.is_transparent else Vertical
     horizontal_cls = transparent_horizontal if palette.is_transparent else Horizontal
     static_cls = transparent_static if palette.is_transparent else Static  # type: ignore[misc]
-    rich_log_cls = transparent_rich_log if palette.is_transparent else RichLog  # type: ignore[misc]
+    rich_log_cls = transparent_rich_log if palette.is_transparent else nonfocus_rich_log  # type: ignore[misc]
     input_cls = transparent_input if palette.is_transparent else Input  # type: ignore[misc]
     option_list_cls = transparent_option_list if palette.is_transparent else OptionList  # type: ignore[misc]
 
@@ -844,6 +854,7 @@ def run_tui(session: ChatSession | None = None) -> None:
                     self._write_transcript_gap()
                 self._write_transcript_entry(entry)
             composer = self.query_one("#composer", Input)
+            composer.select_on_focus = False
             composer.focus()
             self.set_focus(composer)
 
