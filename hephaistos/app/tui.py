@@ -21,31 +21,34 @@ from typing import TYPE_CHECKING, ClassVar
 from prompt_toolkit.history import FileHistory
 
 from hephaistos import __version__
+from hephaistos.app.armory_browser import ArmoryBrowserScreen
 from hephaistos.app.autocomplete import (
     CommandSuggestion,
     CompletionCandidate,
     SlashCompletionEngine,
 )
-from hephaistos.app.banner import ascii_logo
-from hephaistos.app.commands import get_registry
+from hephaistos.app.commands import NewCommand, get_registry
 from hephaistos.app.input_history import InputHistory
+from hephaistos.app.palette import current_palette
+from hephaistos.app.rich_transcript import enrich_reply, evidence_summary_text
+from hephaistos.app.search_index import SearchResult
+from hephaistos.app.search_screen import SearchScreen
 from hephaistos.app.shell import (  # type: ignore[reportPrivateUsage]
     _create_startup_session,
     _get_history_path,
     _handle_input,
     _save_on_exit,
 )
+from hephaistos.app.workspace import _start_fresh_session  # type: ignore[reportPrivateUsage]
+from hephaistos.armory.storage import validate as _validate_armory
 from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.engine import EngineError, StreamRecoveryError, is_keyless_endpoint
 from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import ChatSession, send_user_message
-from hephaistos.chat.titles import derive_title as _derive_title
 from hephaistos.fuzzy import ranked_matches
 from hephaistos.parameters.cli import load_config
-from hephaistos.parameters.settings import load_app_settings
 
 try:
-    from rich.color import Color as _RichColor
     from rich.markdown import Markdown
     from rich.segment import Segment
     from rich.style import Style as _RichStyle
@@ -58,7 +61,6 @@ try:
     from textual.suggester import Suggester
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
-    _RichColor = None  # type: ignore[assignment]
     _RichStyle = None  # type: ignore[assignment]
     Markdown = None  # type: ignore[assignment]
     Segment = None  # type: ignore[assignment]
@@ -84,6 +86,9 @@ if TYPE_CHECKING:
 
 class TuiDependencyError(RuntimeError):
     """Raised when the optional Textual dependency group is missing."""
+
+
+_TRANSCRIPT_ENTRY_GAP = ""
 
 
 def _tui_dependency_message() -> str:
@@ -126,103 +131,148 @@ def _status_lines(
 
 def _status_text(session: ChatSession, state: str = "ready") -> Text:
     plain = _status_lines(session, state)
+    palette = current_palette()
     keyless = is_keyless_endpoint(session.config.base_url)
     key_ok = bool(session.config.resolved_api_key) or keyless
     if keyless:
         api = "free"
-        api_style = "#808080"
+        api_style = palette.dim
     elif key_ok:
         api = "configured"
-        api_style = "#7F9A6A"
+        api_style = palette.configured
     else:
         api = "missing"
-        api_style = "#CC3333"
+        api_style = palette.error
 
     if _RichText is None:
         raise TuiDependencyError(_tui_dependency_message())
 
-    text = _RichText(plain, style="#808080")
+    text = _RichText(plain, style=palette.dim)
 
     hep_idx = plain.index("Hephaistos")
-    text.stylize("bold #9B4A2E", hep_idx, hep_idx + len("Hephaistos"))
+    text.stylize(f"bold {palette.ember}", hep_idx, hep_idx + len("Hephaistos"))
 
     for label in ("armory", "model", "api", "source"):
         start = plain.index(label)
-        text.stylize("dim #808080", start, start + len(label))
+        text.stylize(f"dim {palette.dim}", start, start + len(label))
 
     api_start = plain.index(api, plain.index("api "))
     text.stylize(api_style, api_start, api_start + len(api))
     return text
 
 
-def _info_panel_text(session: ChatSession) -> Text:
-    """Build the right-side info panel content with title, armory, sources, model."""
+def _footer_hints_text(session: ChatSession, *, busy: bool = False) -> Text:
+    """Build contextual footer hints that change based on current state."""
     if _RichText is None:
         raise TuiDependencyError(_tui_dependency_message())
 
-    title = session.title or _derive_title(session.conversation) or "New conversation"
+    palette = current_palette()
+
+    if busy:
+        plain = "ctrl+c cancel"
+        text = _RichText(plain, style=palette.dim)
+        for label in ("ctrl+c",):
+            start = plain.index(label)
+            text.stylize(f"dim {palette.dim}", start, start + len(label))
+        return text
+
+    key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
+    parts = ["enter send", "tab complete", "/help commands", "ctrl+d exit"]
+    if not key_ok:
+        parts.append("api missing")
+    plain = "  ".join(parts)
+    text = _RichText(plain, style=palette.dim)
+    for label in ("enter", "tab", "/help", "ctrl+c", "ctrl+d"):
+        try:
+            start = plain.index(label)
+        except ValueError:
+            continue
+        text.stylize(f"dim {palette.dim}", start, start + len(label))
+    for label in ("/help",):
+        try:
+            start = plain.index(label)
+        except ValueError:
+            continue
+        text.stylize(f"bold {palette.ember}", start, start + len(label))
+    if "api missing" in plain:
+        api_start = plain.index("api missing")
+        text.stylize(palette.error, api_start, api_start + len("api missing"))
+    return text
+
+
+def _info_panel_default_text(session: ChatSession) -> Text:
+    """Build the default info panel content showing armory, model, sources."""
+    if _RichText is None:
+        raise TuiDependencyError(_tui_dependency_message())
+    title = session.title or "New conversation"
     armory_name = session.armory_path.name if session.armory_path is not None else "none"
     model = session.config.model or "none"
     sources = session.source_file_count or 0
     source_str = str(sources) if sources else "none"
+    evidence_str = evidence_summary_text(session.last_turn_evidence)
 
-    lines: list[str] = []
-    lines.append(title)
-    lines.append("\u2500" * 26)
-    lines.append(f"armory  {armory_name}")
-    lines.append(f"model   {model}")
-    lines.append(f"sources {source_str}")
+    lines: list[str] = [
+        title,
+        "\u2500" * 26,
+        f"armory  {armory_name}",
+        f"model   {model}",
+        f"sources {source_str}",
+        f"evidence {evidence_str}",
+    ]
     plain = "\n".join(lines)
-
     text = _RichText(plain, style="#808080")
-
     title_end = len(lines[0])
     text.stylize("bold #9B4A2E", 0, title_end)
-
-    for label in ("armory", "model", "sources"):
+    for label in ("armory", "model", "sources", "evidence"):
         try:
             start = plain.index(label)
             text.stylize("dim #808080", start, start + len(label))
         except ValueError:
             pass
-
     return text
 
 
-def _composer_meta(session: ChatSession) -> str:  # pyright: ignore[reportUnusedFunction]
-    key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
-    api_hint = "" if key_ok else "api missing"
-
-    session_count = load_app_settings().session_count
-    parts = ["enter send", "tab complete", "/help commands", "ctrl+c interrupt", "ctrl+d exit"]
-    if session_count >= 3:
-        parts.extend(["/vocab drill", "/model model", "/theme theme"])
-    if session_count >= 5:
-        parts.extend(["! shell", "\\ continuation"])
-    if api_hint:
-        parts.append(api_hint)
-    return "  ".join(parts)
-
-
-def _composer_meta_text(session: ChatSession) -> Text:
-    plain = _composer_meta(session)
+def _info_panel_message_text(
+    entry: _TuiTranscriptEntry,
+    session: ChatSession,
+) -> Text:
+    """Build info panel content for a focused transcript message."""
     if _RichText is None:
         raise TuiDependencyError(_tui_dependency_message())
 
+    is_user = entry.content.startswith("[bold #E0E0E0]You:")
+    is_assistant = entry.kind == "markdown" and "Hephaistos:" in entry.content
+
+    if is_user:
+        content = entry.content.replace("[bold #E0E0E0]You:[/bold #E0E0E0] ", "")
+        preview = content[:120] + ("..." if len(content) > 120 else "")
+        sep = "\u2500" * 26
+        plain = f"You message\n{sep}\n{preview}"
+    elif is_assistant:
+        model = session.config.model or "unknown"
+        evidence_str = evidence_summary_text(session.last_turn_evidence)
+        usage = session.usage.summary()
+        sep = "\u2500" * 26
+        plain = (
+            f"Assistant reply\n{sep}"
+            f"\nmodel   {model}"
+            f"\ntokens  {usage['total_tokens']}"
+            f"\ncost    ${usage['cost_usd']:.4f}"
+            f"\nevidence {evidence_str}"
+        )
+    else:
+        sep = "\u2500" * 26
+        plain = f"Message\n{sep}\n{entry.kind}"
+
     text = _RichText(plain, style="#808080")
-    for label in ("enter", "tab", "/help", "ctrl+c", "ctrl+d", "/vocab", "/model", "/theme", "!"):
+    first_newline = plain.index("\n") if "\n" in plain else len(plain)
+    text.stylize("bold #9B4A2E", 0, first_newline)
+    for label in ("model", "tokens", "cost", "evidence"):
         try:
             start = plain.index(label)
+            text.stylize("dim #808080", start, start + len(label))
         except ValueError:
-            continue
-        text.stylize(
-            "bold #9B4A2E" if label.startswith("/") or label == "!" else "dim #808080",
-            start,
-            start + len(label),
-        )
-    if "api missing" in plain:
-        api_start = plain.index("api missing")
-        text.stylize("#CC3333", api_start, api_start + len("api missing"))
+            pass
     return text
 
 
@@ -252,166 +302,192 @@ def _config_error(session: ChatSession) -> str | None:
     return None
 
 
-_TUI_CSS = """
-App {
-    background: transparent;
-    color: #E0E0E0;
-}
-Screen {
+def _tui_css() -> str:
+    """Generate TUI CSS from the current theme palette.
+
+    Transparent themes (forge) use ``background: transparent`` so the
+    terminal shows through.  Opaque themes set an explicit background
+    colour on every surface so no transparency leaks.
+    """
+    p = current_palette()
+    bg = "transparent" if p.is_transparent else p.background
+    bt = "transparent"
+    return f"""
+App {{
+    background: {bg};
+    color: {p.text};
+}}
+Screen {{
     layout: vertical;
-    background: transparent;
-    color: #E0E0E0;
-}
-#main-layout {
+    background: {bg};
+    color: {p.text};
+    layers: base suggestions;
+}}
+#main-layout {{
+    layer: base;
     layout: horizontal;
     height: 100%;
     width: 100%;
-    background: transparent;
-    color: #E0E0E0;
-}
-#shell {
+    background: {bg};
+    color: {p.text};
+}}
+#shell {{
     layout: vertical;
     height: 100%;
     width: 1fr;
-    background: transparent;
-    color: #E0E0E0;
-}
-#status {
+    background: {bg};
+    color: {p.text};
+}}
+#status {{
     height: 1;
     width: auto;
     max-width: 100%;
     padding: 0 0;
-    background: transparent;
-    color: #808080;
-}
-#transcript {
+    background: {bg};
+    color: {p.dim};
+}}
+#transcript {{
     height: 1fr;
     padding: 0 0;
-    background: transparent;
-    color: #E0E0E0;
+    background: {bg};
+    color: {p.text};
     scrollbar-size: 0 0;
-    background-tint: transparent;
-}
-#transcript:focus {
-    background: transparent;
-    background-tint: transparent;
-}
-#transcript RichLog {
-    color: #E0E0E0;
-}
-#transcript RichLog .md-code-inline {
-    color: #FFFFFF;
+    background-tint: {bt};
+}}
+#transcript:focus {{
+    background: {bg};
+    background-tint: {bt};
+}}
+#transcript RichLog {{
+    color: {p.text};
+}}
+#transcript RichLog .md-code-inline {{
+    color: {p.text};
     text-style: bold;
-}
-#composer-frame {
+}}
+#thinking-indicator {{
+    height: 1;
+    width: auto;
+    max-width: 100%;
+    padding: 0 0;
+    background: {bg};
+    color: {p.dim};
+    display: none;
+}}
+#thinking-indicator.active {{
+    display: block;
+}}
+#composer-frame {{
     height: auto;
     width: auto;
     max-width: 100%;
     padding: 0 0;
-    background: transparent;
-    color: #E0E0E0;
-}
-#info-separator {
-    width: 1;
-    height: 100%;
-    background: transparent;
-    color: #555555;
-}
-#info-panel {
-    width: 28;
-    height: 100%;
-    padding: 0 1;
-    background: transparent;
-    color: #808080;
-}
-#suggestions {
-    height: 7;
-    min-height: 7;
-    max-height: 7;
-    width: 100%;
-    max-width: 100%;
+    background: {bg};
+    color: {p.text};
+}}
+#suggestions {{
+    position: absolute;
+    height: auto;
+    max-height: 50%;
+    width: 80%;
     padding-right: 1;
     margin-bottom: 1;
-    background: transparent;
-    color: #E0E0E0;
-    scrollbar-color: #333333;
-    scrollbar-color-hover: #444444;
-    scrollbar-color-active: #555555;
-    scrollbar-background: #111111;
-    scrollbar-background-hover: #111111;
-    scrollbar-background-active: #111111;
-    scrollbar-corner-color: transparent;
+    background: {bg};
+    color: {p.text};
+    scrollbar-color: {p.highlight};
+    scrollbar-color-hover: {p.stone};
+    scrollbar-color-active: {p.stone};
+    scrollbar-background: {p.panel};
+    scrollbar-background-hover: {p.panel};
+    scrollbar-background-active: {p.panel};
+    scrollbar-corner-color: {bg};
     scrollbar-size-vertical: 1;
-}
-.hidden {
+    layer: suggestions;
+}}
+.hidden {{
     visibility: hidden;
-}
-OptionList {
+}}
+OptionList {{
     width: 100%;
-    background: transparent;
-    color: #E0E0E0;
+    background: {bg};
+    color: {p.text};
     border: none;
     padding: 0;
-}
-OptionList > .option-list--option {
-    background: transparent;
-    color: #E0E0E0;
+}}
+OptionList > .option-list--option {{
+    background: {bg};
+    color: {p.text};
     padding: 0 0;
-}
-OptionList > .option-list--option-highlighted {
-    background: #333333;
-    color: #FFFFFF;
+}}
+OptionList > .option-list--option-highlighted {{
+    background: {p.highlight};
+    color: {p.text};
     padding: 0 0;
-}
-OptionList:focus > .option-list--option-highlighted {
-    background: #333333;
-    color: #FFFFFF;
+}}
+OptionList:focus > .option-list--option-highlighted {{
+    background: {p.highlight};
+    color: {p.text};
     padding: 0 0;
-}
-#composer {
+}}
+#composer {{
     height: 1;
     min-height: 1;
     max-height: 1;
     width: auto;
     max-width: 100%;
     padding: 0 0;
-    background: transparent;
-    color: #FFFFFF;
-}
-#composer-meta {
+    background: {bg};
+    color: {p.text};
+}}
+#footer-hints {{
     height: 1;
     width: auto;
     max-width: 100%;
     margin-top: 1;
-    background: transparent;
-    color: #808080;
-}
-Input {
+    background: {bg};
+    color: {p.dim};
+}}
+#info-separator {{
+    width: 1;
+    height: 100%;
+    background: {bg};
+    color: {p.stone};
+}}
+#info-panel {{
+    width: 30;
+    min-width: 30;
+    max-width: 30;
+    height: 100%;
+    padding: 0 1;
+    background: {bg};
+    color: {p.dim};
+}}
+Input {{
     height: 1;
     min-height: 1;
     max-height: 1;
     border: none;
     padding: 0 0;
-    background: transparent;
-    background-tint: transparent;
-    color: #FFFFFF;
-}
+    background: {bg};
+    background-tint: {bt};
+    color: {p.text};
+}}
 Input > .input--placeholder,
-Input > .input--suggestion {
-    color: #808080;
-}
-Input:focus {
+Input > .input--suggestion {{
+    color: {p.dim};
+}}
+Input:focus {{
     border: none;
-    background: transparent;
-    background-tint: transparent;
-}
-Input > .input--cursor {
-    background: #E0E0E0;
-    color: #000000;
-}
-Input > .input--selection {
-    background: #555555;
-}
+    background: {bg};
+    background-tint: {bt};
+}}
+Input > .input--cursor {{
+    background: {p.text};
+    color: {p.panel};
+}}
+Input > .input--selection {{
+    background: {p.stone};
+}}
 """
 
 
@@ -458,25 +534,6 @@ def _transparent_horizontal_class() -> type[Horizontal]:
             return strip_class.blank(self.size.width, transparent_style)
 
     return TransparentHorizontal
-
-
-def _transparent_vline_class() -> type[Static]:
-    """Return a Static subclass that renders a vertical separator line."""
-    if Strip is None or _RichStyle is None or Segment is None or _RichColor is None:
-        raise TuiDependencyError(_tui_dependency_message())
-    strip_class = Strip
-    seg_class = Segment
-    sep_style = _RichStyle(color=_RichColor.parse("#555555"))
-    sep_char = "│"
-    transparent_style = _RichStyle()
-
-    class VerticalLine(Static):  # type: ignore[misc]
-        def render_line(self, _y: int) -> Strip:
-            return strip_class([seg_class(sep_char, sep_style)], 1).extend_cell_length(
-                self.size.width, transparent_style
-            )
-
-    return VerticalLine
 
 
 def _style_without_black_background(style: _RichStyle | None) -> _RichStyle:
@@ -618,7 +675,6 @@ class _TuiCaptureWriter(StringIO):
 
 
 _TERMINAL_INTERACTIVE_COMMANDS = {
-    "armory",
     "clear",
     "edit",
     "login",
@@ -651,6 +707,12 @@ def _pending_input_requires_terminal(value: str) -> bool:
         return arg_text.lower() != "status"
 
     return command_name in _TERMINAL_INTERACTIVE_COMMANDS
+
+
+def _is_armory_command(value: str) -> bool:
+    """Return True when *value* is a /armory command handled inline by the TUI."""
+    stripped = value.strip().lower()
+    return stripped in ("/armory", "/armory open", "/armory create")
 
 
 def _run_shell_escape_captured(command: str) -> str:
@@ -696,14 +758,24 @@ def run_tui(session: ChatSession | None = None) -> None:
     if session is None:
         session = _create_startup_session(load_config())
 
+    palette = current_palette()
+    css = _tui_css()
+
     transparent_screen = _transparent_screen_class()
     transparent_vertical = _transparent_vertical_class()
     transparent_horizontal = _transparent_horizontal_class()
-    transparent_vline = _transparent_vline_class()
     transparent_static = _transparent_static_class()
     transparent_rich_log = _transparent_rich_log_class()
     transparent_input = _transparent_input_class()
     transparent_option_list = _transparent_option_list_class()
+
+    screen_cls = transparent_screen if palette.is_transparent else Screen  # type: ignore[misc]
+    vertical_cls = transparent_vertical if palette.is_transparent else Vertical
+    horizontal_cls = transparent_horizontal if palette.is_transparent else Horizontal
+    static_cls = transparent_static if palette.is_transparent else Static  # type: ignore[misc]
+    rich_log_cls = transparent_rich_log if palette.is_transparent else RichLog  # type: ignore[misc]
+    input_cls = transparent_input if palette.is_transparent else Input  # type: ignore[misc]
+    option_list_cls = transparent_option_list if palette.is_transparent else OptionList  # type: ignore[misc]
 
     session_ref: list[ChatSession] = [session]
     history_path = _get_history_path(session)
@@ -723,7 +795,7 @@ def run_tui(session: ChatSession | None = None) -> None:
             return _slash_suggestion(self.engine, value)
 
     class HephaistosTui(App[None]):
-        CSS = _TUI_CSS
+        CSS = css
 
         BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
             ("tab", "complete", "Complete"),
@@ -742,51 +814,56 @@ def run_tui(session: ChatSession | None = None) -> None:
             self.completion_candidates: list[CompletionCandidate] = []
             self._thinking_timer: object = None
             self._thinking_start: float = 0.0
-            self._thinking_line_count: int = 0
+            self._focused_msg_index: int | None = None
 
         def get_default_screen(self) -> Screen:
-            return transparent_screen(id="_default")
+            return screen_cls(id="_default")  # type: ignore[reportCallIssue]
 
         def compose(self) -> ComposeResult:
-            with transparent_horizontal(id="main-layout"):  # type: ignore[reportCallIssue]
-                with transparent_vertical(id="shell"):  # type: ignore[reportCallIssue]
-                    yield transparent_static(_status_text(self.session), id="status")
-                    yield transparent_rich_log(
-                        id="transcript", markup=True, wrap=True, highlight=True
-                    )
-                    with transparent_vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
-                        yield transparent_option_list(
-                            id="suggestions", classes="hidden", markup=False
-                        )
-                        yield transparent_input(
+            with horizontal_cls(id="main-layout"):  # type: ignore[reportCallIssue]
+                with vertical_cls(id="shell"):  # type: ignore[reportCallIssue]
+                    yield static_cls(_status_text(self.session), id="status")
+                    yield rich_log_cls(id="transcript", markup=True, wrap=True, highlight=True)
+                    yield static_cls("", id="thinking-indicator")
+                    with vertical_cls(id="composer-frame"):  # type: ignore[reportCallIssue]
+                        yield input_cls(
                             placeholder='Ask anything... "What do I need to study next?"',
                             suggester=SlashSuggester(self.completion_engine),
                             id="composer",
                         )
-                        yield transparent_static(
-                            _composer_meta_text(self.session), id="composer-meta"
-                        )
-                yield transparent_vline("", id="info-separator")
-                yield transparent_static(_info_panel_text(self.session), id="info-panel")
+                        yield static_cls(_footer_hints_text(self.session), id="footer-hints")
+                yield static_cls("", id="info-separator")
+                yield static_cls(_info_panel_default_text(self.session), id="info-panel")
+            yield option_list_cls(id="suggestions", classes="hidden", markup=False)
 
         def on_mount(self) -> None:
             self.title = "Hephaistos"
             self.sub_title = "command-first study shell"
-            if not self.state.transcript:
-                self.state.transcript.append(
-                    _TuiTranscriptEntry(
-                        f"[bold #9B4A2E]{ascii_logo(color=False)}[/bold #9B4A2E]", "plain"
-                    )
-                )
-            for entry in self.state.transcript:
+            for index, entry in enumerate(self.state.transcript):
+                if index > 0:
+                    self._write_transcript_gap()
                 self._write_transcript_entry(entry)
             composer = self.query_one("#composer", Input)
             composer.focus()
             self.set_focus(composer)
-            self._update_info_panel()
 
         def on_key(self, event: events.Key) -> None:
             composer = self.query_one("#composer", Input)
+            if event.key == "ctrl+up":
+                self._focus_message(-1)
+                event.prevent_default()
+                event.stop()
+                return
+            if event.key == "ctrl+down":
+                self._focus_message(1)
+                event.prevent_default()
+                event.stop()
+                return
+            if event.key == "/" and not composer.value.strip():
+                self._open_search()
+                event.prevent_default()
+                event.stop()
+                return
             if event.key == "up":
                 if self._completion_menu_visible():
                     self._move_completion(-1)
@@ -842,6 +919,15 @@ def run_tui(session: ChatSession | None = None) -> None:
                 self._append_user(value, mark_working=False)
                 self._handle_sources(value)
                 return
+            if value == "/new":
+                self._record_history(value)
+                self._handle_new()
+                return
+            if _is_armory_command(value):
+                self._record_history(value)
+                self._append_user(value, mark_working=False)
+                self._handle_armory_browser(value)
+                return
             if value.startswith(("/", "!")):
                 self._record_history(value)
                 self._append_user(value, mark_working=False)
@@ -882,6 +968,64 @@ def run_tui(session: ChatSession | None = None) -> None:
         def _handle_sources(self, value: str) -> None:
             _, _, args = value.partition(" ")
             self._append_plain(_source_listing(self.session, args))
+
+        def _handle_new(self) -> None:
+            result = NewCommand().handle(self.session, "")
+            if result.new_session is not None:
+                self.session = result.new_session
+                self.state.transcript.clear()
+                self.query_one("#transcript", RichLog).clear()
+                self._append_notice("New chat started.")
+                self._refresh_status("ready")
+                self._focused_msg_index = None
+                self._update_info_panel()
+
+        def _open_search(self) -> None:
+            """Open the cross-armory search screen."""
+
+            def on_search_result(result: object) -> None:
+                if result is None:
+                    return
+                if not isinstance(result, SearchResult):
+                    return
+                src_path = result.source_path
+                if src_path.suffix.lower() == ".pdf" and src_path.exists():
+                    if sys.platform == "darwin":
+                        subprocess.Popen(["open", str(src_path)])  # nosec B603
+                    elif sys.platform == "linux":
+                        subprocess.Popen(["xdg-open", str(src_path)])  # nosec B603
+                    self._append_notice(f"Opened {src_path}")
+                else:
+                    preview = result.chunk_text[:200]
+                    self._append_notice(
+                        f"Found in {result.armory_name}/{result.source_rel}: {preview}"
+                    )
+
+            self.push_screen(SearchScreen(), on_search_result)
+
+        def _handle_armory_browser(self, value: str) -> None:
+            allow_create = "create" in value.strip().lower()
+            start = self.session.armory_path or None
+            screen = ArmoryBrowserScreen(start, allow_create=allow_create)
+
+            def on_result(result: Path | None) -> None:
+                if result is None:
+                    self._append_notice("Cancelled.")
+                    return
+                try:
+                    _validate_armory(result)
+                except Exception:
+                    self._append_error(f"Not a valid armory: {result}")
+                    return
+                self.session = _start_fresh_session(self.session, result)
+                self._refresh_status("ready")
+                src_count = self.session.source_file_count or 0
+                self._append_notice(f"Using armory {result}")
+                if src_count:
+                    self._append_notice(f"Loaded {src_count} file(s).")
+                self.query_one("#composer", Input).focus()
+
+            self.push_screen(screen, on_result)
 
         def _run_turn(self, user_input: str) -> None:
             parts: list[str] = []
@@ -933,6 +1077,17 @@ def run_tui(session: ChatSession | None = None) -> None:
             )
             suggestions.highlighted = 0
             suggestions.remove_class("hidden")
+            self._position_suggestions()
+
+        def _position_suggestions(self) -> None:
+            suggestions = self.query_one("#suggestions", OptionList)
+            composer_frame = self.query_one("#composer-frame")
+            screen_height = self.size.height
+            screen_width = self.size.width
+            frame_region = composer_frame.region
+            offset_y = frame_region.y - screen_height
+            suggestions.styles.offset = (0, offset_y)
+            suggestions.styles.width = int(screen_width * 0.85)
 
         def _hide_completions(self) -> None:
             self.completion_candidates = []
@@ -1025,7 +1180,12 @@ def run_tui(session: ChatSession | None = None) -> None:
             else:
                 log.write(entry.content)
 
+        def _write_transcript_gap(self) -> None:
+            self.query_one("#transcript", RichLog).write(_TRANSCRIPT_ENTRY_GAP)
+
         def _append_entry(self, content: str, kind: str = "plain") -> None:
+            if self.state.transcript:
+                self._write_transcript_gap()
             entry = _TuiTranscriptEntry(content, kind)
             self.state.transcript.append(entry)
             self._write_transcript_entry(entry)
@@ -1034,45 +1194,94 @@ def run_tui(session: ChatSession | None = None) -> None:
             self._append_entry(text)
 
         def _append_user(self, text: str, *, mark_working: bool = True) -> None:
-            self._append_entry(f"[bold #E0E0E0]You:[/bold #E0E0E0] {text}")
+            p = current_palette()
+            self._append_entry(f"[bold {p.text}]You:[/bold {p.text}] {text}")
             if mark_working:
                 self._start_thinking_animation()
 
         def _append_assistant_reply(self, text: str) -> None:
-            labeled = f"**Hephaistos:** {text}"
-            entry = _TuiTranscriptEntry(labeled, "markdown")
+            evidence = self.session.last_turn_evidence
+            enriched = enrich_reply(text, evidence)
+            entry = _TuiTranscriptEntry(enriched.markdown_text, "markdown")
+            if self.state.transcript:
+                self._write_transcript_gap()
             self.state.transcript.append(entry)
             log = self.query_one("#transcript", RichLog)
-            log.write(Markdown(labeled))
+            log.write(Markdown(enriched.markdown_text))
 
         def _append_notice(self, text: str) -> None:
-            self._append_entry(f"[#808080]{text}[/#808080]")
+            p = current_palette()
+            self._append_entry(f"[{p.dim}]{text}[/{p.dim}]")
 
         def _append_error(self, text: str) -> None:
-            self._append_entry(f"[bold #CC3333]error:[/bold #CC3333] {text}")
+            p = current_palette()
+            self._append_entry(f"[bold {p.error}]error:[/bold {p.error}] {text}")
 
         def _finish_turn(self) -> None:
             self.busy = False
             self.abort_event.clear()
             self._stop_thinking_animation()
             self._refresh_status("ready")
+            self._refresh_footer_hints()
+            self._focused_msg_index = None
             self._update_info_panel()
 
         def _refresh_status(self, state: str = "ready") -> None:
             status = self.query_one("#status", Static)
             status.update(_status_text(self.session, state))
 
-        def _update_info_panel(self) -> None:
+        def _refresh_footer_hints(self) -> None:
+            hints = self.query_one("#footer-hints", Static)
+            hints.update(_footer_hints_text(self.session, busy=self.busy))
+
+        def _focus_message(self, direction: int) -> None:
+            """Navigate transcript focus for the info panel. direction: -1=up, +1=down."""
+            entries = [
+                e
+                for e in self.state.transcript
+                if e.kind in ("markdown", "plain")
+                and not e.content.startswith("[dim")
+                and not e.content.startswith("[#808080]")
+                and not e.content.startswith("[bold #CC3333]")
+            ]
+            if not entries:
+                return
+            if self._focused_msg_index is None:
+                self._focused_msg_index = len(entries) - 1 if direction < 0 else 0
+            else:
+                self._focused_msg_index = max(
+                    0, min(len(entries) - 1, self._focused_msg_index + direction)
+                )
+            entry = entries[self._focused_msg_index]
             panel = self.query_one("#info-panel", Static)
-            panel.update(_info_panel_text(self.session))
+            panel.update(_info_panel_message_text(entry, self.session))
+
+        def _update_info_panel(self) -> None:
+            """Refresh the info panel to reflect current state."""
+            panel = self.query_one("#info-panel", Static)
+            if self._focused_msg_index is not None:
+                entries = [
+                    e
+                    for e in self.state.transcript
+                    if e.kind in ("markdown", "plain")
+                    and not e.content.startswith("[dim")
+                    and not e.content.startswith("[#808080]")
+                    and not e.content.startswith("[bold #CC3333]")
+                ]
+                if self._focused_msg_index < len(entries):
+                    panel.update(
+                        _info_panel_message_text(entries[self._focused_msg_index], self.session)
+                    )
+                    return
+            panel.update(_info_panel_default_text(self.session))
 
         def _start_thinking_animation(self) -> None:
             self._thinking_start = time.monotonic()
-            self._thinking_line_count = 0
-            log = self.query_one("#transcript", RichLog)
-            line_count_before = len(log.lines)
-            log.write(f"[dim]{_THINKING_FRAMES[0]} thinking...[/dim]")
-            self._thinking_line_count = len(log.lines) - line_count_before
+            indicator = self.query_one("#thinking-indicator", Static)
+            indicator.update(f"[dim]{_THINKING_FRAMES[0]} thinking...[/dim]")
+            indicator.remove_class("hidden")
+            indicator.add_class("active")
+            self._refresh_footer_hints()
             self._thinking_timer = self.set_interval(0.12, self._tick_thinking)
 
         def _tick_thinking(self) -> None:
@@ -1081,22 +1290,18 @@ def run_tui(session: ChatSession | None = None) -> None:
                 return
             elapsed = time.monotonic() - self._thinking_start
             frame_idx = int(elapsed / 0.12) % len(_THINKING_FRAMES)
-            log = self.query_one("#transcript", RichLog)
-            if self._thinking_line_count > 0:
-                del log.lines[-self._thinking_line_count :]
-            line_count_before = len(log.lines)
-            log.write(f"[dim]{_THINKING_FRAMES[frame_idx]} thinking...[/dim]")
-            self._thinking_line_count = len(log.lines) - line_count_before
+            indicator = self.query_one("#thinking-indicator", Static)
+            indicator.update(f"[dim]{_THINKING_FRAMES[frame_idx]} thinking...[/dim]")
 
         def _stop_thinking_animation(self) -> None:
             if self._thinking_timer is not None:
                 self._thinking_timer.stop()  # type: ignore[union-attr]
                 self._thinking_timer = None
-            if self._thinking_line_count > 0:
-                log = self.query_one("#transcript", RichLog)
-                del log.lines[-self._thinking_line_count :]
-                self._thinking_line_count = 0
-                log.refresh()
+            indicator = self.query_one("#thinking-indicator", Static)
+            indicator.update("")
+            indicator.remove_class("active")
+            indicator.add_class("hidden")
+            self._refresh_footer_hints()
 
     try:
         while True:

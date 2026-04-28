@@ -43,7 +43,6 @@ _ARMORY_BADGE = "  \u2713 armory"
 _ARMORY_BROWSER_CSS = """
 ArmoryBrowserScreen {
     align: center middle;
-    layout: vertical;
 }
 #armory-dialog {
     width: 60;
@@ -72,40 +71,6 @@ ArmoryBrowserScreen {
     max-height: 16;
     background: transparent;
 }
-#armory-list:focus {
-    background: transparent;
-}
-.armory-entry {
-    height: 1;
-    width: 100%;
-    padding: 0 1;
-    background: transparent;
-    color: #E0E0E0;
-}
-.armory-entry.highlighted {
-    background: #333333;
-    color: #FFFFFF;
-    text-style: bold;
-}
-.armory-entry.parent-entry {
-    color: #808080;
-}
-.armory-entry.parent-entry.highlighted {
-    background: #333333;
-    color: #FFFFFF;
-    text-style: bold;
-}
-.armory-entry.new-armory {
-    color: #9B4A2E;
-}
-.armory-entry.new-armory.highlighted {
-    background: #333333;
-    color: #FFFFFF;
-    text-style: bold;
-}
-.armory-badge {
-    color: #7F9A6A;
-}
 #armory-hint {
     color: #808080;
     width: 100%;
@@ -132,6 +97,16 @@ ArmoryBrowserScreen {
 
 _SPECIAL_ENTRIES = (_PARENT_LABEL, _NEW_ARMORY_LABEL)
 
+# Style tokens for inline rendering
+_STYLE_SELECTED = "bold #FFFFFF on #333333"
+_STYLE_NORMAL = "#E0E0E0"
+_STYLE_PARENT = "#808080"
+_STYLE_PARENT_SEL = "bold #FFFFFF on #333333"
+_STYLE_NEW = "#9B4A2E"
+_STYLE_NEW_SEL = "bold #FFFFFF on #333333"
+_STYLE_BADGE = "#7F9A6A"
+_STYLE_BADGE_SEL = "bold #7F9A6A on #333333"
+
 
 def _list_child_dirs(path: Path) -> list[Path]:
     """Return sorted child directories, skipping hidden ones."""
@@ -155,17 +130,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     CSS = _ARMORY_BROWSER_CSS
 
-    BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
-        Binding("up", "cursor_up", "Up", show=False),
-        Binding("down", "cursor_down", "Down", show=False),
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
-        Binding("enter", "select", "Select"),
-        Binding("c", "choose_current", "Choose"),
-        Binding("n", "new_armory", "New"),
-        Binding("escape", "cancel", "Cancel"),
-        Binding("q", "cancel", "Cancel"),
-    ]
+    BINDINGS: ClassVar[list[Binding]] = []  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -183,7 +148,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         with Vertical(id="armory-dialog"):
             yield Static("Armory Browser", id="armory-title")
             yield Static("", id="armory-path")
-            yield Static("", id="armory-list")
+            yield Static("", id="armory-list", markup=True)
             with Vertical(id="armory-new-input-container"):
                 yield Input(
                     placeholder="Armory name...",
@@ -196,6 +161,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def on_mount(self) -> None:
         self._refresh()
+        self.focus()
 
     def _entries(self) -> list[str]:
         names: list[str] = [_PARENT_LABEL]
@@ -219,19 +185,43 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
         path_widget = self.query_one("#armory-path", Static)
         path_widget.update(str(self._current))
+        self._render_list()
 
+    def _render_list(self) -> None:
+        list_widget = self.query_one("#armory-list", Static)
+        entries = self._entries()
         lines: list[str] = []
         for index, name in enumerate(entries):
-            if name in _SPECIAL_ENTRIES:
-                lines.append(name)
+            is_sel = index == self._selected
+
+            if name == _PARENT_LABEL:
+                style = _STYLE_PARENT_SEL if is_sel else _STYLE_PARENT
+                indicator = " \u25b8 " if is_sel else "   "
+                lines.append(f"[{style}]{indicator}{name}[/{style}]")
+
+            elif name == _NEW_ARMORY_LABEL:
+                style = _STYLE_NEW_SEL if is_sel else _STYLE_NEW
+                indicator = " \u25b8 " if is_sel else "   "
+                lines.append(f"[{style}]{indicator}{name}[/{style}]")
+
             else:
                 child = self._child_path(index)
-                badge = _ARMORY_BADGE if child is not None and _is_armory(child) else ""
-                lines.append(f"{_DIR_ICON}{name}{badge}")
+                has_badge = child is not None and _is_armory(child)
+                if is_sel:
+                    indicator = " \u25b8 "
+                    badge = (
+                        f" [{_STYLE_BADGE_SEL}]\u2713 armory[/{_STYLE_BADGE_SEL}]"
+                        if has_badge
+                        else ""
+                    )
+                    lines.append(
+                        f"[{_STYLE_SELECTED}]{indicator}{_DIR_ICON}{name}{badge}[/{_STYLE_SELECTED}]"
+                    )
+                else:
+                    badge = f" [{_STYLE_BADGE}]\u2713 armory[/{_STYLE_BADGE}]" if has_badge else ""
+                    lines.append(f"   [{_STYLE_NORMAL}]{_DIR_ICON}{name}[/{_STYLE_NORMAL}]{badge}")
 
-        rendered = "\n".join(lines)
-        list_widget = self.query_one("#armory-list", Static)
-        list_widget.update(rendered)
+        list_widget.update("\n".join(lines))
 
     def _move_cursor(self, delta: int) -> None:
         if self._creating:
@@ -240,55 +230,23 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         if not entries:
             return
         self._selected = (self._selected + delta) % len(entries)
-        self._highlight()
+        self._render_list()
 
-    def _highlight(self) -> None:
-        list_widget = self.query_one("#armory-list", Static)
-        entries = self._entries()
-        lines: list[str] = []
-        for index, name in enumerate(entries):
-            is_sel = index == self._selected
-            if name == _PARENT_LABEL:
-                cls = "highlighted" if is_sel else ""
-                prefix = "parent-entry "
-                lines.append(f"[{prefix}{cls}]{name}[/{prefix}{cls}]")
-            elif name == _NEW_ARMORY_LABEL:
-                cls = "highlighted" if is_sel else ""
-                prefix = "new-armory "
-                lines.append(f"[{prefix}{cls}]{name}[/{prefix}{cls}]")
-            else:
-                child = self._child_path(index)
-                badge = (
-                    "  [armory-badge]\u2713 armory[/armory-badge]"
-                    if child is not None and _is_armory(child)
-                    else ""
-                )
-                if is_sel:
-                    lines.append(f"[highlighted]{_DIR_ICON}{name}{badge}[/highlighted]")
-                else:
-                    lines.append(f"{_DIR_ICON}{name}{badge}")
-        list_widget.update("\n".join(lines))
+    def _navigate_parent(self) -> None:
+        parent = self._current.parent
+        if parent != self._current and parent.exists():
+            self._current = parent
+            self._selected = 0
+            self._refresh()
 
-    def action_cursor_up(self) -> None:
-        self._move_cursor(-1)
-
-    def action_cursor_down(self) -> None:
-        self._move_cursor(1)
-
-    def action_select(self) -> None:
-        if self._creating:
-            return
+    def _navigate_into(self) -> None:
         entries = self._entries()
         if not entries:
             return
         name = entries[self._selected]
 
         if name == _PARENT_LABEL:
-            parent = self._current.parent
-            if parent != self._current and parent.exists():
-                self._current = parent
-                self._selected = 0
-                self._refresh()
+            self._navigate_parent()
             return
 
         if name == _NEW_ARMORY_LABEL:
@@ -301,18 +259,12 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             self._selected = 0
             self._refresh()
 
-    def action_choose_current(self) -> None:
-        """Choose the currently displayed directory as the armory path."""
+    def _choose_current(self) -> None:
         if self._creating:
             return
         self.dismiss(self._current)
 
-    def action_new_armory(self) -> None:
-        if not self._allow_create:
-            return
-        self._start_new_armory()
-
-    def action_cancel(self) -> None:
+    def _cancel(self) -> None:
         if self._creating:
             self._stop_new_armory()
             return
@@ -334,6 +286,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         container.remove_class("active")
         hint = self.query_one("#armory-hint", Static)
         hint.update("\u2191\u2193 navigate  enter open  c choose  n new  q cancel")
+        self.focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "armory-new-input":
@@ -351,8 +304,28 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         self.dismiss(armory_path)
 
     def on_key(self, event: events.Key) -> None:  # type: ignore[override]
-        # Block regular list navigation while the new-armory input is active
-        if self._creating and event.key in ("q", "escape"):
-            self._stop_new_armory()
-            event.prevent_default()
-            event.stop()
+        # Always stop propagation so the parent HephaistosTui.on_key
+        # cannot intercept our keys.
+        event.stop()
+        event.prevent_default()
+
+        # If the new-armory input is active, only handle escape/quit
+        if self._creating:
+            if event.key in ("escape", "q"):
+                self._stop_new_armory()
+            # All other keys (including enter) are handled by the Input widget
+            return
+
+        if event.key in ("up", "k"):
+            self._move_cursor(-1)
+        elif event.key in ("down", "j"):
+            self._move_cursor(1)
+        elif event.key == "enter":
+            self._navigate_into()
+        elif event.key == "c":
+            self._choose_current()
+        elif event.key == "n":
+            if self._allow_create:
+                self._start_new_armory()
+        elif event.key in ("escape", "q"):
+            self._cancel()

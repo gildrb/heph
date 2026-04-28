@@ -1,0 +1,95 @@
+project: Hephaistos
+imagemagick: true
+environments:
+  local:
+    url: "local"
+    restrictions: []
+
+default_target: local
+
+auth:
+  method: api-key
+  provider: zai
+
+personas:
+  - name: first_time_user
+    description: "Fresh install, no config, no API key, no armory"
+    email: null
+    credentials_source: none
+    test_focus:
+      - launch TUI without config
+      - armory browser empty state
+      - /help and /status with no provider
+      - autocomplete suggestions
+    cannot_do:
+      - send chat messages (no API key)
+      - run /vocab or /study (no armory)
+
+  - name: configured_user
+    description: "Has Z.AI API key configured, no armory attached"
+    email: null
+    credentials_source: env-var
+    secret_name: ZAI_API_KEY
+    test_focus:
+      - send chat messages
+      - /model and /provider switching
+      - /clear and /export
+      - streaming response display
+    cannot_do:
+      - run /vocab or /study (no armory)
+      - use source-retrieval features
+
+  - name: armory_user
+    description: "Has Z.AI API key + armory with source files attached"
+    email: null
+    credentials_source: env-var
+    secret_name: ZAI_API_KEY
+    test_focus:
+      - armory-attached status display
+      - source-informed chat responses
+      - /vocab and /study commands
+      - /sessions save and resume
+      - /stats and /usage
+    cannot_do: []
+
+apps:
+  cli:
+    path_patterns:
+      - "hephaistos/**"
+      - "tests/**"
+    skill: qa-cli
+    test_tool: tuistory
+    build_command: "uv sync --frozen"
+    launch_command: "uv run heph"
+
+feature_flags:
+  provider: none
+  dashboard_url: null
+  how_to_override: "Set HEPHAISTOS_FEATURE_FLAGS env var (comma-separated)"
+
+integrations:
+  llm:
+    provider: zai
+    endpoint: "https://api.z.ai/api/paas/v4/"
+    api_key_env: ZAI_API_KEY
+    default_model: glm-5
+  memory:
+    provider: supermemory
+    api_key_env: SUPERMEMORY_API_KEY
+    optional: true
+  telemetry:
+    analytics: posthog
+    crash_reports: sentry
+    opt_in: true
+
+cleanup:
+  auto_cleanup: true
+  strategy: delete-test-armories
+  instructions: >
+    Remove any armory directories created during QA testing (under /tmp or
+    the project directory). Delete any config files written to
+    ~/.config/hephaistos/ during the test run (providers.toml, config.json,
+    auth.json) that were not present before. Preserve any pre-existing
+    user config.
+
+failure_learning: suggest_in_report

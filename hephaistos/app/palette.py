@@ -64,6 +64,8 @@ class ThemePalette:
     error: str
     success: str
     highlight: str
+    is_transparent: bool = True
+    background: str = "transparent"
 
 
 _PALETTES: Final[dict[str, ThemePalette]] = {
@@ -79,32 +81,38 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         error="#CC3333",
         success="#66BB6A",
         highlight="#333333",
+        is_transparent=True,
+        background="transparent",
     ),
     "light": ThemePalette(
         name="light",
-        panel="#F6F2EA",
-        stone="#D9CCBA",
+        panel="#EDE8DC",
+        stone="#C4B8A6",
         text="#2C241B",
-        dim="#6E655B",
+        dim="#7A7068",
         accent="#8A5A2B",
         ember="#8E4A32",
         configured="#687A4B",
         error="#B03A2E",
         success="#2E8B57",
-        highlight="#D9CCBA",
+        highlight="#D4C9B8",
+        is_transparent=False,
+        background="#F6F2EA",
     ),
     "high_contrast": ThemePalette(
         name="high_contrast",
-        panel="#000000",
+        panel="#1A1A1A",
         stone="#2E2E2E",
         text="#FFFFFF",
-        dim="#D0D0D0",
+        dim="#C0C0C0",
         accent="#FFD400",
-        ember="#C76A45",
+        ember="#E08050",
         configured="#A9C97A",
         error="#FF4D4D",
         success="#00FF88",
-        highlight="#333333",
+        highlight="#404040",
+        is_transparent=False,
+        background="#000000",
     ),
 }
 

@@ -39,6 +39,7 @@ new docs.
 | /status | Show armory, session, and model info |
 | /save | Save current chat to armory |
 | /clear | Start a fresh chat session |
+| /new | Start a new chat (saves previous automatically) |
 | /armory | Open the armory management menu |
 | /chats | List saved chats in the active armory |
 | /sessions | List or resume saved sessions |
@@ -61,6 +62,7 @@ new docs.
 | /memory | Manage study memory and Supermemory setup |
 | /persona | Show or switch the agent persona |
 | /settings | Manage cross-session preferences |
+| /index | Manage cross-armory search index |
 | /usage | Show token usage and cost for this session |
 | /vocab | Vocabulary drill with spaced repetition |
 

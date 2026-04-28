@@ -71,35 +71,62 @@ def test_session_status_shows_free_for_keyless_provider() -> None:
     assert "missing" not in status
 
 
-def test_composer_meta_keeps_input_hints_below_composer() -> None:
-    meta = tui._composer_meta(_plain_session())  # type: ignore[reportPrivateUsage]
+def test_footer_hints_show_idle_shortcuts() -> None:
+    hints = tui._footer_hints_text(_plain_session())  # type: ignore[reportPrivateUsage]
+    plain = hints.plain
 
-    assert "enter send" in meta
-    assert "tab complete" in meta
-    assert "/help commands" in meta
-    assert "ctrl+c interrupt" in meta
-    assert "ctrl+d exit" in meta
-    assert "armory" not in meta
-    assert "test-model" not in meta
+    assert "enter" in plain
+    assert "tab" in plain
+    assert "/help" in plain
+    assert "ctrl+d" in plain
+    assert "armory" not in plain
+    assert "test-model" not in plain
+
+
+def test_footer_hints_show_cancel_when_busy() -> None:
+    hints = tui._footer_hints_text(_plain_session(), busy=True)  # type: ignore[reportPrivateUsage]
+    plain = hints.plain
+
+    assert "ctrl+c" in plain
+    assert "cancel" in plain
+    assert "enter" not in plain
+    assert "/help" not in plain
+
+
+def test_footer_hints_show_api_missing_when_unconfigured() -> None:
+    session = _plain_session()
+    session.config.api_key = None
+    hints = tui._footer_hints_text(session)  # type: ignore[reportPrivateUsage]
+    plain = hints.plain
+
+    assert "api missing" in plain
 
 
 def test_tui_css_keeps_surface_transparent() -> None:
-    css = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
 
     assert "App {\n    background: transparent;" in css
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
     assert "#status {\n    height: 1;\n    width: auto;" in css
-    assert ("#composer-meta {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
+    assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
     assert "background: ansi_default;" not in css
     assert "border-bottom: tall" not in css
 
 
-def test_tui_css_prevents_full_width_status_and_composer_bars() -> None:
-    css = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+def test_tui_css_has_info_panel_layout() -> None:
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
 
-    for selector in ("#status", "#composer-frame", "#composer", "#composer-meta"):
+    assert "#info-panel" in css
+    assert "#info-separator" in css
+    assert "#shell" in css
+
+
+def test_tui_css_prevents_full_width_status_and_composer_bars() -> None:
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
+
+    for selector in ("#status", "#composer-frame", "#composer", "#footer-hints"):
         block_start = css.index(f"{selector} {{")
         block_end = css.index("}", block_start)
         block = css[block_start:block_end]
@@ -108,26 +135,26 @@ def test_tui_css_prevents_full_width_status_and_composer_bars() -> None:
         assert "max-width: 100%;" in block
 
 
-def test_status_and_composer_meta_segments_do_not_paint_black_background() -> None:
+def test_status_and_footer_hints_segments_do_not_paint_black_background() -> None:
     if tui.Static is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
 
     class Smoke(tui.App[None]):  # type: ignore[index]
-        CSS = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+        CSS = tui._tui_css()  # type: ignore[reportPrivateUsage]
 
         def compose(self) -> tui.ComposeResult:
             session = _plain_session()
             status_text = tui._status_text(session)  # type: ignore[reportPrivateUsage]
-            meta_text = tui._composer_meta_text(session)  # type: ignore[reportPrivateUsage]
-            with tui.Vertical(id="shell"):  # type: ignore[operator, reportCallIssue]
+            hints_text = tui._footer_hints_text(session)  # type: ignore[reportPrivateUsage]
+            with tui.Vertical(id="main-layout"):  # type: ignore[operator, reportCallIssue]
                 yield tui.Static(status_text, id="status")  # type: ignore[operator]
-                yield tui.Static(meta_text, id="composer-meta")  # type: ignore[operator]
+                yield tui.Static(hints_text, id="footer-hints")  # type: ignore[operator]
 
     async def check_segments() -> None:
         app = Smoke()
         async with app.run_test(size=(120, 12)) as pilot:
             await pilot.pause()
-            for selector in ("#status", "#composer-meta"):
+            for selector in ("#status", "#footer-hints"):
                 widget = app.query_one(selector, tui.Static)
                 for line_number in range(widget.size.height):
                     for segment in widget.render_line(line_number):
@@ -148,24 +175,25 @@ def test_tui_layout_blanks_do_not_paint_black_background() -> None:
     input_class = tui._transparent_input_class()  # type: ignore[reportPrivateUsage]
 
     class Smoke(tui.App[None]):  # type: ignore[index]
-        CSS = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+        CSS = tui._tui_css()  # type: ignore[reportPrivateUsage]
 
         def get_default_screen(self) -> Screen[object]:
             return screen_class(id="_default")
 
         def compose(self) -> tui.ComposeResult:
             session = _plain_session()
-            with vertical_class(id="shell"):  # type: ignore[operator, reportCallIssue]
+            with vertical_class(id="main-layout"):  # type: ignore[operator, reportCallIssue]
                 yield static_class(tui._status_text(session), id="status")  # type: ignore[operator, reportPrivateUsage]
                 yield rich_log_class(id="transcript", markup=True, wrap=True, highlight=True)  # type: ignore[operator]
+                yield static_class("", id="thinking-indicator")  # type: ignore[operator]
                 with vertical_class(id="composer-frame"):  # type: ignore[operator, reportCallIssue]
                     yield input_class(  # type: ignore[operator]
                         placeholder='Ask anything... "What do I need to study next?"',
                         id="composer",
                     )
                     yield static_class(  # type: ignore[operator]
-                        tui._composer_meta_text(session),  # type: ignore[reportPrivateUsage]
-                        id="composer-meta",
+                        tui._footer_hints_text(session),  # type: ignore[reportPrivateUsage]
+                        id="footer-hints",
                     )
 
     async def check_layout_blanks() -> None:
@@ -174,12 +202,13 @@ def test_tui_layout_blanks_do_not_paint_black_background() -> None:
             await pilot.pause()
             widgets: tuple[Widget, ...] = (
                 cast("Widget", app.screen),
-                app.query_one("#shell"),
+                app.query_one("#main-layout"),
                 app.query_one("#status"),
                 app.query_one("#transcript"),
+                app.query_one("#thinking-indicator"),
                 app.query_one("#composer-frame"),
                 app.query_one("#composer"),
-                app.query_one("#composer-meta"),
+                app.query_one("#footer-hints"),
             )
             for widget in widgets:
                 for line_number in range(widget.size.height):
@@ -198,7 +227,7 @@ def test_tui_status_short_rows_are_padded_transparently() -> None:
     static_class = tui._transparent_static_class()  # type: ignore[reportPrivateUsage]
 
     class Smoke(tui.App[None]):  # type: ignore[index]
-        CSS = tui._TUI_CSS  # type: ignore[reportPrivateUsage]
+        CSS = tui._tui_css()  # type: ignore[reportPrivateUsage]
 
         def get_default_screen(self) -> Screen[object]:
             return screen_class(id="_default")
@@ -297,3 +326,15 @@ def test_run_tui_for_path_resolves_armory(
     tui.run_tui_for_path(tmp_path)
 
     assert captured_session is not None
+
+
+def test_is_armory_command_matches_inline_forms() -> None:
+    assert tui._is_armory_command("/armory")  # type: ignore[reportPrivateUsage]
+    assert tui._is_armory_command("/armory open")  # type: ignore[reportPrivateUsage]
+    assert tui._is_armory_command("/armory create")  # type: ignore[reportPrivateUsage]
+    assert tui._is_armory_command("  /armory  ")  # type: ignore[reportPrivateUsage]
+    assert tui._is_armory_command("/ARMORY OPEN")  # type: ignore[reportPrivateUsage]
+
+    assert not tui._is_armory_command("/armory detach")  # type: ignore[reportPrivateUsage]
+    assert not tui._is_armory_command("/model")  # type: ignore[reportPrivateUsage]
+    assert not tui._is_armory_command("hello")  # type: ignore[reportPrivateUsage]

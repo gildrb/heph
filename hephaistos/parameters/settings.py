@@ -164,6 +164,10 @@ def normalize_setting_value(key: str, value: object) -> object:
         return profile or "heph-study"
     if key in STRING_KEYS:
         return str(value)
+    if key == "known_armories":
+        if isinstance(value, list):
+            return [str(v) for v in value]  # type: ignore[reportUnknownArgumentType,reportUnknownVariableType]
+        return []
     raise KeyError(key)
 
 

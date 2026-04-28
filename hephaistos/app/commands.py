@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -22,6 +23,11 @@ from hephaistos.app.display import (
 )
 from hephaistos.app.menu import MenuOption, browse_directory, confirm, select_option
 from hephaistos.app.palette import STYLE_PROMPT, THEME_PRESETS, current_theme_name, set_theme
+from hephaistos.app.search_index import (
+    add_known_armory,
+    load_known_armories,
+    remove_known_armory,
+)
 from hephaistos.app.workspace import (
     handle_armory_command,
     list_saved_chats,
@@ -243,6 +249,36 @@ class ClearCommand(Command):
         print_success("Started fresh session.")
         capture_analytics(
             "session_cleared",
+            {
+                "mode": "armory" if new.armory_path is not None else "plain",
+                "model": new.config.model,
+            },
+        )
+        return CommandResult(new_session=new)
+
+
+class NewCommand(Command):
+    name = "new"
+    description = "Start a new chat (saves previous automatically)"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = _ensure_session(session)
+        if s.armory_path and s.dirty and session_has_messages(s):
+            with suppress(chat_storage.ChatStorageError):
+                save_session(s)
+        new: ChatSession
+        try:
+            new = (
+                create_plain_session(s.config)
+                if s.armory_path is None
+                else create_session(s.config, s.armory_path)
+            )
+        except SessionError as exc:
+            print_error(str(exc))
+            return CommandResult()
+        print_success("New chat started.")
+        capture_analytics(
+            "session_new",
             {
                 "mode": "armory" if new.armory_path is not None else "plain",
                 "model": new.config.model,
@@ -1576,6 +1612,57 @@ class UsageCommand(Command):
         return CommandResult()
 
 
+class IndexCommand(Command):
+    name = "index"
+    description = "Manage cross-armory search index"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        parts = args.strip().split(maxsplit=1)
+        subcmd = parts[0].lower() if parts else "list"
+        value = parts[1].strip() if len(parts) > 1 else ""
+
+        if subcmd == "list":
+            return self._list()
+        if subcmd == "add":
+            if not value:
+                print_error("Usage: /index add <path>")
+                return CommandResult()
+            return self._add(Path(value).expanduser().resolve())
+        if subcmd in ("remove", "rm", "delete"):
+            if not value:
+                print_error("Usage: /index remove <path>")
+                return CommandResult()
+            return self._remove(Path(value).expanduser().resolve())
+        print_error("Usage: /index [list | add <path> | remove <path>]")
+        return CommandResult()
+
+    @staticmethod
+    def _list() -> CommandResult:
+        armories = load_known_armories()
+        if not armories:
+            print_info("No armories indexed. Use /index add <path> to add one.")
+            return CommandResult()
+        lines = ["Indexed armories:"]
+        lines.extend(f"  {p}" for p in armories)
+        print("\n".join(lines))
+        return CommandResult()
+
+    @staticmethod
+    def _add(path: Path) -> CommandResult:
+        if not path.is_dir():
+            print_error(f"Not a directory: {path}")
+            return CommandResult()
+        paths = add_known_armory(path)
+        print_success(f"Added {path}. {len(paths)} armory/armories indexed.")
+        return CommandResult()
+
+    @staticmethod
+    def _remove(path: Path) -> CommandResult:
+        paths = remove_known_armory(path)
+        print_success(f"Removed {path}. {len(paths)} armory/armories indexed.")
+        return CommandResult()
+
+
 def _ensure_session(session: object):
     if not isinstance(session, ChatSession):
         raise TypeError(f"Expected ChatSession, got {type(session).__name__}")
@@ -1647,6 +1734,7 @@ def get_registry() -> CommandRegistry:
             StatusCommand,
             SaveCommand,
             ClearCommand,
+            NewCommand,
             ArmoryCommand,
             ChatsCommand,
             SessionsCommand,
@@ -1669,6 +1757,7 @@ def get_registry() -> CommandRegistry:
             MemoryCommand,
             PersonaCommand,
             SettingsCommand,
+            IndexCommand,
             UsageCommand,
             VocabCommand,
         ):
