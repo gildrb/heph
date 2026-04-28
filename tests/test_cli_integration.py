@@ -149,7 +149,7 @@ def test_bare_path_dispatches_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert captured_path == tmp_path
 
 
-def test_tui_command_dispatches_optional_shell() -> None:
+def test_tui_command_dispatches_with_path() -> None:
     parser = build_parser()
     captured_path: Path | None = None
 
@@ -163,7 +163,7 @@ def test_tui_command_dispatches_optional_shell() -> None:
     assert captured_path == Path("notes")
 
 
-def test_tui_flag_alias_dispatches_optional_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tui_flag_alias_dispatches_tui(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_path: Path | None = Path("unset")
 
     def fake_tui(path: Path | None) -> None:
