@@ -16,7 +16,7 @@ _USER_CONFIG_FILE = _USER_CONFIG_DIR / "config.json"
 
 DEFAULT_THEME: Final[str] = "forge"
 THEME_PRESETS: Final[tuple[str, ...]] = ("forge", "light", "high_contrast")
-INTERFACE_MODES: Final[tuple[str, ...]] = ("tui", "classic")
+INTERFACE_MODES: Final[tuple[str, ...]] = ("tui",)
 DEFAULT_INTERFACE_MODE: Final[str] = "tui"
 BOOL_KEYS: Final[frozenset[str]] = frozenset(
     {

@@ -55,7 +55,6 @@ from hephaistos.memory.supermemory import (
     resolve_supermemory_key,
 )
 from hephaistos.parameters.settings import (
-    INTERFACE_MODES,
     clear_setting,
     load_app_settings,
     save_setting,
@@ -1366,25 +1365,17 @@ class SettingsCommand(Command):
 
     def _interface_menu(self) -> None:
         while True:
-            settings = load_app_settings()
-            current = settings.interface_mode
             options = [
                 MenuOption(
-                    mode.upper(),
-                    "Default interface on next startup",
-                    is_current=(mode == current),
-                )
-                for mode in INTERFACE_MODES
+                    "TUI",
+                    "The only interface mode (Textual TUI)",
+                    is_current=True,
+                ),
+                MenuOption("Back", "Return to settings."),
             ]
-            options.append(MenuOption("Back", "Return to settings."))
             selected = select_option("Interface", options)
             if selected is None or selected == len(options) - 1:
                 return
-            chosen = INTERFACE_MODES[selected]
-            if chosen == current:
-                continue
-            save_setting("interface_mode", chosen)
-            print_success(f"Interface set to {chosen.upper()}. Restart Hephaistos to apply.")
 
     @staticmethod
     def _telemetry_description(

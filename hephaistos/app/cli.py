@@ -226,9 +226,9 @@ def build_parser() -> argparse.ArgumentParser:
             chat_cli = importlib.import_module("hephaistos.chat.cli")
             tui_mod = importlib.import_module("hephaistos.app.tui")
             if chat_cmd == "start":
-                chat_cli._cmd_chat_start(args, run_shell=tui_mod.run_tui)
+                chat_cli._cmd_chat_start(args, run_tui=tui_mod.run_tui)
             elif chat_cmd == "resume":
-                chat_cli._cmd_chat_resume(args, run_shell=tui_mod.run_tui)
+                chat_cli._cmd_chat_resume(args, run_tui=tui_mod.run_tui)
             elif chat_cmd == "list":
                 chat_cli._cmd_chat_list(args)
 

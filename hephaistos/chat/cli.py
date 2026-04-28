@@ -34,13 +34,13 @@ def resolve_armory_session(path: str) -> ChatSession:
         raise SystemExit(2) from exc
 
 
-def _cmd_chat_start(args: argparse.Namespace, *, run_shell: Callable[..., None]) -> None:
+def _cmd_chat_start(args: argparse.Namespace, *, run_tui: Callable[..., None]) -> None:
     """Start a new chat session."""
     session = resolve_armory_session(args.path)
-    run_shell(session)
+    run_tui(session)
 
 
-def _cmd_chat_resume(args: argparse.Namespace, *, run_shell: Callable[..., None]) -> None:
+def _cmd_chat_resume(args: argparse.Namespace, *, run_tui: Callable[..., None]) -> None:
     """Resume an existing chat session."""
     try:
         armory_path = validate_armory_path(args.path)
@@ -54,7 +54,7 @@ def _cmd_chat_resume(args: argparse.Namespace, *, run_shell: Callable[..., None]
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    run_shell(session)
+    run_tui(session)
 
 
 def _cmd_chat_list(args: argparse.Namespace) -> None:
@@ -78,7 +78,7 @@ def _cmd_chat_list(args: argparse.Namespace) -> None:
 def register(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
     *,
-    run_shell: Callable[..., None],
+    run_tui: Callable[..., None],
 ) -> None:
     """Register chat subcommands."""
     chat = subparsers.add_parser(
@@ -93,7 +93,7 @@ def register(
         help="Start a new chat session in an armory.",
     )
     start.add_argument("path", help="Path to the armory folder.")
-    start.set_defaults(handler=lambda a: _cmd_chat_start(a, run_shell=run_shell))  # type: ignore[arg-type]
+    start.set_defaults(handler=lambda a: _cmd_chat_start(a, run_tui=run_tui))  # type: ignore[arg-type]
 
     resume = chat_sub.add_parser(
         "resume",
@@ -101,7 +101,7 @@ def register(
     )
     resume.add_argument("path", help="Path to the armory folder.")
     resume.add_argument("session_id", help="Session ID to resume.")
-    resume.set_defaults(handler=lambda a: _cmd_chat_resume(a, run_shell=run_shell))  # type: ignore[arg-type]
+    resume.set_defaults(handler=lambda a: _cmd_chat_resume(a, run_tui=run_tui))  # type: ignore[arg-type]
 
     list_cmd = chat_sub.add_parser(
         "list",

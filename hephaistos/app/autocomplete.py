@@ -28,7 +28,7 @@ class _ProviderConfigLoader(Protocol):
 
 
 class SlashCompletionEngine:
-    """Context-aware slash completion shared by the classic shell and TUI."""
+    """Context-aware slash completion for the TUI."""
 
     def __init__(
         self,
