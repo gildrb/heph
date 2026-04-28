@@ -4,6 +4,11 @@ from pathlib import Path
 
 import pytest
 
+import hephaistos.app.commands.auth as _commands_auth
+import hephaistos.app.commands.memory as _commands_memory
+import hephaistos.app.commands.model as _commands_model
+import hephaistos.app.commands.persona as _commands_persona
+import hephaistos.app.commands.session as _commands_session
 from hephaistos.app import commands
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession, create_plain_session
@@ -46,7 +51,7 @@ def test_memory_status_reports_disabled(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
-    monkeypatch.setattr(commands, "resolve_supermemory_key", lambda: "")
+    monkeypatch.setattr(_commands_memory, "resolve_supermemory_key", lambda: "")
 
     result = commands.MemoryCommand().handle(session, "status")
 
@@ -148,12 +153,12 @@ def test_model_command_validates_against_session_endpoint(
         classmethod(lambda _cls: default_config()),  # type: ignore[reportUnknownLambdaType]
     )
     monkeypatch.setattr(
-        commands,
+        _commands_model,
         "print_success",
         lambda msg: messages.append(("success", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
     monkeypatch.setattr(
-        commands,
+        _commands_model,
         "print_error",
         lambda msg: messages.append(("error", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
@@ -170,7 +175,7 @@ def test_clear_command_supports_plain_chat(monkeypatch: pytest.MonkeyPatch) -> N
     session.conversation.add("user", "hello")
 
     monkeypatch.setattr(
-        commands,
+        _commands_session,
         "confirm",
         lambda *_args, **_kwargs: True,  # type: ignore[reportUnknownLambdaType]
     )
@@ -190,7 +195,7 @@ def test_persona_command_updates_plain_chat_system_prompt(
     before = session.conversation.messages[0].content
 
     monkeypatch.setattr(
-        commands,
+        _commands_persona,
         "print_success",
         lambda _msg: None,  # type: ignore[reportUnknownLambdaType]
     )
@@ -202,7 +207,7 @@ def test_persona_command_updates_plain_chat_system_prompt(
     assert session.persona.slug == "tutor"
     assert after != before
     assert "patient tutor" in after
-    assert "Plain chat mode" in after
+    assert "No armory or source documents are attached" in after
 
 
 def test_model_command_rejects_unsupported_model_for_known_endpoint(
@@ -226,12 +231,12 @@ def test_model_command_rejects_unsupported_model_for_known_endpoint(
         classmethod(lambda _cls: default_config()),  # type: ignore[reportUnknownLambdaType]
     )
     monkeypatch.setattr(
-        commands,
+        _commands_model,
         "print_success",
         lambda msg: messages.append(("success", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
     monkeypatch.setattr(
-        commands,
+        _commands_model,
         "print_error",
         lambda msg: messages.append(("error", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
@@ -308,7 +313,7 @@ def test_save_command_plain_session(
     session = create_plain_session(ChatConfig(api_key="test-key"))
 
     monkeypatch.setattr(
-        commands,
+        _commands_session,
         "save_session",
         lambda _s: Path("/fake/saved.json"),  # type: ignore[reportUnknownLambdaType]
     )
@@ -371,7 +376,7 @@ def test_api_command_set_key(
         "load",
         classmethod(lambda cls: default_config()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
-    monkeypatch.setattr(commands, "store_key", lambda *_a: None)  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+    monkeypatch.setattr(_commands_auth, "store_key", lambda *_a: None)  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
 
     commands.ApiCommand().handle(session, "key sk-test-123")
     out = capsys.readouterr().out

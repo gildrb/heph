@@ -234,7 +234,7 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("info", msg))
 
     monkeypatch.setattr(
-        "hephaistos.app.commands.print_info",
+        "hephaistos.app.commands.auth.print_info",
         _capture_info,
     )
     cmd = LogoutCommand()
@@ -253,7 +253,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         return True
 
     monkeypatch.setattr(
-        "hephaistos.app.commands.confirm",
+        "hephaistos.app.commands.auth.confirm",
         _confirm,
     )
     cleared: list[str] = []
@@ -267,7 +267,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("success", msg))
 
     monkeypatch.setattr(
-        "hephaistos.app.commands.print_success",
+        "hephaistos.app.commands.auth.print_success",
         _capture_success,
     )
     cmd = LogoutCommand()

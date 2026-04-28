@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+import hephaistos.app.commands.auth as _commands_auth
 from hephaistos.app import commands
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
@@ -35,7 +36,7 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
     )
 
     monkeypatch.setattr(
-        commands,
+        _commands_auth,
         "select_option",
         lambda _title, _options, **_kw: 0,  # type: ignore[reportUnknownLambdaType]
     )
@@ -56,9 +57,9 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(ProviderConfig, "save", _fake_save)
 
     success_msgs: list[str] = []
-    monkeypatch.setattr(commands, "print_success", success_msgs.append)
+    monkeypatch.setattr(_commands_auth, "print_success", success_msgs.append)
     monkeypatch.setattr(
-        commands,
+        _commands_auth,
         "print_error",
         lambda _msg: None,  # type: ignore[reportUnknownLambdaType]
     )
@@ -93,7 +94,7 @@ def test_login_failure_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch)
     )
 
     monkeypatch.setattr(
-        commands,
+        _commands_auth,
         "select_option",
         lambda _title, _options, **_kw: 0,  # type: ignore[reportUnknownLambdaType]
     )
@@ -103,9 +104,9 @@ def test_login_failure_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch)
     )
 
     error_msgs: list[str] = []
-    monkeypatch.setattr(commands, "print_error", error_msgs.append)
+    monkeypatch.setattr(_commands_auth, "print_error", error_msgs.append)
     monkeypatch.setattr(
-        commands,
+        _commands_auth,
         "print_success",
         lambda _msg: None,  # type: ignore[reportUnknownLambdaType]
     )
@@ -132,7 +133,7 @@ def test_login_cancel_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch) 
     )
 
     monkeypatch.setattr(
-        commands,
+        _commands_auth,
         "select_option",
         lambda _title, _options, **_kw: None,  # type: ignore[reportUnknownLambdaType]
     )
