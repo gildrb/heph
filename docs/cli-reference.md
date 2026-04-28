@@ -20,7 +20,6 @@
 | `heph chat resume <path> <id>` | Resume an existing chat session. |
 | `heph chat list <path>` | List chat sessions in an armory. |
 | `heph start [path]` | Hidden backwards-compatible alias for `heph [path]`. |
-| `heph shell [path]` | Hidden escape hatch for the classic prompt-toolkit shell. |
 | `heph tui [path]` | Explicit alias for the default Textual TUI. |
 
 `heph` is the canonical public command. `hephaistos` is an

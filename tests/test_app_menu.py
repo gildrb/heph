@@ -7,8 +7,7 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from hephaistos.app import menu
-from hephaistos.app.keybindings import DEFAULT_MENU_KEYBINDINGS
-from hephaistos.app.menu import MenuOption
+from hephaistos.app.menu import DEFAULT_MENU_KEYBINDINGS, MenuOption
 
 
 def _select_interactively(keys: str, options: list[MenuOption]) -> int | None:

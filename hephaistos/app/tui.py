@@ -33,13 +33,13 @@ from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.app.rich_transcript import enrich_reply, evidence_summary_text
 from hephaistos.app.search_index import SearchResult
 from hephaistos.app.search_screen import SearchScreen
-from hephaistos.app.shell import (  # type: ignore[reportPrivateUsage]
+from hephaistos.app.workspace import (  # type: ignore[reportPrivateUsage]
     _create_startup_session,
     _get_history_path,
     _handle_input,
     _save_on_exit,
+    _start_fresh_session,
 )
-from hephaistos.app.workspace import _start_fresh_session  # type: ignore[reportPrivateUsage]
 from hephaistos.armory.storage import validate as _validate_armory
 from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.engine import EngineError, StreamRecoveryError, is_keyless_endpoint

@@ -29,8 +29,14 @@ from hephaistos.app.display import (
     styled,
     visible_len,
 )
-from hephaistos.app.keybindings import DEFAULT_MENU_KEYBINDINGS
 from hephaistos.app.palette import BOLD, STYLE_PROMPT, browser_style_dict, menu_style_dict
+
+DEFAULT_MENU_KEYBINDINGS: dict[str, str | list[str]] = {
+    "navigate_up": "up",
+    "navigate_down": "down",
+    "select": "enter",
+    "cancel": ["c-c", "escape"],
+}
 
 
 @dataclass(frozen=True)

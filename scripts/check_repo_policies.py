@@ -34,6 +34,11 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
             "importlib.import_module",
         }
     ),
+    "hephaistos/app/workspace.py": frozenset(
+        {
+            "importlib.import_module",
+        }
+    ),
     "hephaistos/harness/tools.py": frozenset(
         {
             "importlib.util.module_from_spec",

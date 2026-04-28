@@ -18,7 +18,6 @@ from hephaistos.parameters.cli import (
     register as register_config_commands,
 )
 from hephaistos.parameters.settings import (
-    load_app_settings,
     load_raw_settings,
     save_raw_settings,
 )
@@ -61,18 +60,6 @@ def _hide_subparser(
     subparsers._choices_actions = [
         action for action in subparsers._choices_actions if getattr(action, "dest", None) != name
     ]
-
-
-def _cmd_shell(args: argparse.Namespace) -> None:
-    """Start the classic prompt-toolkit shell, optionally attached to a specific armory."""
-    resolve_armory_session = importlib.import_module("hephaistos.chat.cli").resolve_armory_session
-    run_chat_shell = importlib.import_module("hephaistos.app.shell").run_chat_shell
-
-    if args.path:
-        session = resolve_armory_session(args.path)
-        run_chat_shell(session)
-        return
-    run_chat_shell()
 
 
 def _cmd_tui(args: argparse.Namespace) -> None:
@@ -149,18 +136,15 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _inject_default_subcommand(
-    argv: list[str], known_commands: set[str], interface_mode: str
-) -> list[str]:
+def _inject_default_subcommand(argv: list[str], known_commands: set[str]) -> list[str]:
     """Prepend the default subcommand when no explicit subcommand is given."""
-    subcommand = "shell" if interface_mode == "classic" else "tui"
-    # No args at all → inject the default interface.
+    # No args at all → inject the TUI.
     if not argv:
-        return [subcommand]
+        return ["tui"]
     for i, arg in enumerate(argv):
         if not arg.startswith("-"):
             if arg not in known_commands:
-                return [*argv[:i], subcommand, *argv[i:]]
+                return [*argv[:i], "tui", *argv[i:]]
             break
     return argv
 
@@ -213,14 +197,6 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("path", nargs="?", help=argparse.SUPPRESS)
     start.set_defaults(handler=_cmd_tui)
 
-    # Hidden escape hatch for the original prompt-toolkit shell.
-    shell = subparsers.add_parser(
-        "shell",
-        help=argparse.SUPPRESS,
-    )
-    shell.add_argument("path", nargs="?", help=argparse.SUPPRESS)
-    shell.set_defaults(handler=_cmd_shell)
-
     tui = subparsers.add_parser(
         "tui",
         help="Launch the Textual shell",
@@ -248,11 +224,11 @@ def build_parser() -> argparse.ArgumentParser:
 
         def _handler(args: argparse.Namespace) -> None:
             chat_cli = importlib.import_module("hephaistos.chat.cli")
-            shell_mod = importlib.import_module("hephaistos.app.shell")
+            tui_mod = importlib.import_module("hephaistos.app.tui")
             if chat_cmd == "start":
-                chat_cli._cmd_chat_start(args, run_shell=shell_mod.run_chat_shell)
+                chat_cli._cmd_chat_start(args, run_shell=tui_mod.run_tui)
             elif chat_cmd == "resume":
-                chat_cli._cmd_chat_resume(args, run_shell=shell_mod.run_chat_shell)
+                chat_cli._cmd_chat_resume(args, run_shell=tui_mod.run_tui)
             elif chat_cmd == "list":
                 chat_cli._cmd_chat_list(args)
 
@@ -273,7 +249,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_config_commands(subparsers)
     _hide_subparser(subparsers, "start")
-    _hide_subparser(subparsers, "shell")
     _hide_subparser(subparsers, "chat")
 
     return parser
@@ -323,8 +298,7 @@ def main() -> None:
         # If the first non-flag arg isn't a known subcommand (e.g. a path),
         # transparently inject the default interface subcommand so `heph /my/armory` just works.
         known_commands = _get_subcommand_names(parser)
-        interface_mode = load_app_settings().interface_mode
-        argv = _inject_default_subcommand(argv, known_commands, interface_mode)
+        argv = _inject_default_subcommand(argv, known_commands)
 
         run_argv(parser, argv)
     finally:

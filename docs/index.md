@@ -277,6 +277,6 @@ citation rules around the custom prompt.
 
 ## Next Steps
 
-- Read the [CLI reference](cli-reference.md) for commands and shell shortcuts.
+- Read the [CLI reference](cli-reference.md) for commands and keyboard shortcuts.
 - Read the [RAG API docs](api/harness.md) for retrieval and citation modules.
 - Read the [memory API docs](api/memory.md) for per-armory study memory.

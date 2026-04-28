@@ -133,7 +133,6 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph <path>": "Launch the TUI attached to a specific armory path.",
     "hephaistos [path]": "Equivalent long entrypoint for `heph`.",
     "heph start [path]": "Hidden backwards-compatible alias for `heph [path]`.",
-    "heph shell [path]": "Hidden escape hatch for the classic prompt-toolkit shell.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
 }
 
@@ -209,8 +208,8 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
 
     if "armory" not in top_level or "source" not in top_level or "config" not in top_level:
         raise RuntimeError("The top-level CLI surface changed; update sync_docs.py.")
-    if "chat" not in top_level or "start" not in top_level or "shell" not in top_level:
-        raise RuntimeError("Expected hidden `chat`, `start`, and `shell` commands to exist.")
+    if "chat" not in top_level or "start" not in top_level:
+        raise RuntimeError("Expected hidden `chat` and `start` commands to exist.")
 
     armory_parser = subparsers.choices["armory"]
     source_parser = subparsers.choices["source"]
@@ -250,10 +249,6 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(
             f"{short_command} start [path]",
             CLI_COMMAND_DESCRIPTIONS[f"{short_command} start [path]"],
-        ),
-        CommandLine(
-            f"{short_command} shell [path]",
-            CLI_COMMAND_DESCRIPTIONS[f"{short_command} shell [path]"],
         ),
         CommandLine(
             f"{short_command} tui [path]",
@@ -427,7 +422,7 @@ def render_home_footer(*, docs_index: bool) -> str:
     if docs_index:
         return (
             "## Next Steps\n\n"
-            "- Read the [CLI reference](cli-reference.md) for commands and shell shortcuts.\n"
+            "- Read the [CLI reference](cli-reference.md) for commands and keyboard shortcuts.\n"
             "- Read the [RAG API docs](api/harness.md) for retrieval and citation modules.\n"
             "- Read the [memory API docs](api/memory.md) for per-armory study memory.\n"
         )

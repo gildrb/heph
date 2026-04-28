@@ -12,7 +12,7 @@ from hephaistos.app.tui import TuiDependencyError
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.events import TurnCompleteEvent
-from hephaistos.chat.session import ChatSession, create_session
+from hephaistos.chat.session import create_session
 from hephaistos.harness.dispatch import iter_agent_events
 from hephaistos.harness.rag.index import load_or_build
 
@@ -132,28 +132,6 @@ def test_start_command_with_path_launches_tui_with_path(
         run_argv(parser, ["start", str(armory_path)])
 
     assert captured_path == armory_path
-
-
-def test_shell_command_launches_classic_shell_with_path(
-    tmp_path: Path,
-) -> None:
-    parser = build_parser()
-    armory_path = tmp_path / "integration-armory"
-    run_argv(parser, ["armory", "init", str(armory_path)])
-    source_dir = armory_path / "source"
-    source_dir.mkdir(exist_ok=True)
-    (source_dir / "exam.md").write_text("# Exam\n\nQuestion\n", encoding="utf-8")
-    captured_session: ChatSession | None = None
-
-    def fake_shell(session: ChatSession | None = None) -> None:
-        nonlocal captured_session
-        captured_session = session
-
-    with patch("hephaistos.app.shell.run_chat_shell", fake_shell):
-        run_argv(parser, ["shell", str(armory_path)])
-
-    assert captured_session is not None
-    assert captured_session.armory_path == armory_path.resolve()
 
 
 def test_bare_path_dispatches_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
