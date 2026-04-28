@@ -253,3 +253,98 @@ def test_golden_path_init_source_index_dry_run(tmp_path: Path) -> None:
     assert isinstance(events[-1], TurnCompleteEvent)
     assert events[-1].finish_reason == "dry_run"
     assert events[-1].tokens_remaining > 0
+
+
+# --- _inject_default_subcommand tests ---
+
+
+def test_inject_default_subcommand_empty_args() -> None:
+    """No args at all → inject 'tui'."""
+    result = app_cli._inject_default_subcommand([], {"armory", "tui", "source"})  # type: ignore[reportPrivateUsage]
+    assert result == ["tui"]
+
+
+def test_inject_default_subcommand_bare_path() -> None:
+    """A bare path that isn't a known command → inject 'tui' before it."""
+    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+        ["/tmp/my-armory"],
+        {"armory", "tui", "source"},
+    )
+    assert result == ["tui", "/tmp/my-armory"]
+
+
+def test_inject_default_subcommand_flags_before_path() -> None:
+    """Flags before the path are skipped, 'tui' injected before the path."""
+    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+        ["--profile", "/tmp/armory"],
+        {"armory", "tui", "source"},
+    )
+    assert result == ["--profile", "tui", "/tmp/armory"]
+
+
+def test_inject_default_subcommand_known_command_unchanged() -> None:
+    """A known subcommand is left unchanged — argparse handles it."""
+    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+        ["armory", "init", "/tmp/armory"],
+        {"armory", "tui", "source"},
+    )
+    assert result == ["armory", "init", "/tmp/armory"]
+
+
+def test_inject_default_subcommand_flags_only() -> None:
+    """Only flags, no positional → return unchanged (argparse will show help or error)."""
+    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+        ["--version"],
+        {"armory", "tui", "source"},
+    )
+    assert result == ["--version"]
+
+
+def test_inject_default_subcommand_relative_path() -> None:
+    """Relative paths that aren't known commands get 'tui' injected."""
+    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+        ["./my-armory"],
+        {"armory", "tui", "source"},
+    )
+    assert result == ["tui", "./my-armory"]
+
+
+# --- End-to-end path argument tests ---
+
+
+def test_main_with_path_and_profile_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`heph --profile /path` should inject tui and pass path through."""
+    captured_path: Path | None = None
+
+    def fake_tui(path: Path | None) -> None:
+        nonlocal captured_path
+        captured_path = path
+
+    monkeypatch.setattr(app_cli.sys, "argv", ["heph", "--profile", str(tmp_path)])
+
+    # Stub profiling to avoid actual cProfile/pstats work
+    def _noop_report(_prof: object) -> None:
+        pass
+
+    monkeypatch.setattr(app_cli, "_report_profile", _noop_report)
+
+    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+        app_cli.main()
+
+    assert captured_path == tmp_path
+
+
+def test_bare_path_with_nonexistent_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`heph /nonexistent/path` should still inject tui and pass path."""
+    captured_path: Path | None = None
+
+    def fake_tui(path: Path | None) -> None:
+        nonlocal captured_path
+        captured_path = path
+
+    monkeypatch.setattr(app_cli.sys, "argv", ["heph", "/nonexistent/path"])
+
+    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+        app_cli.main()
+
+    assert captured_path == Path("/nonexistent/path")

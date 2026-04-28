@@ -329,6 +329,67 @@ def test_run_tui_for_path_resolves_armory(
     assert captured_session is not None
 
 
+def test_run_tui_for_path_passes_session_with_armory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """run_tui_for_path resolves the armory and passes the resulting session to run_tui."""
+    resolved_session = _plain_session()
+
+    def fake_resolve(path: str) -> ChatSession:
+        assert path == str(tmp_path)
+        return resolved_session
+
+    captured_session: ChatSession | None = None
+
+    def fake_run_tui(session: ChatSession | None = None) -> None:
+        nonlocal captured_session
+        captured_session = session
+
+    monkeypatch.setattr(tui, "resolve_armory_session", fake_resolve)
+    monkeypatch.setattr(tui, "run_tui", fake_run_tui)
+
+    tui.run_tui_for_path(tmp_path)
+
+    assert captured_session is resolved_session
+
+
+def test_status_lines_shows_armory_path() -> None:
+    """Status bar text includes the armory path when session has one."""
+    session = _plain_session()
+    session.armory_path = Path("/tmp/my-armory")
+
+    status = tui._status_lines(session)  # type: ignore[reportPrivateUsage]
+
+    assert "armory /tmp/my-armory" in status
+
+
+def test_status_lines_shows_none_when_no_armory() -> None:
+    """Status bar shows 'none' for armory when no armory is attached."""
+    session = _plain_session()
+
+    status = tui._status_lines(session)  # type: ignore[reportPrivateUsage]
+
+    assert "armory none" in status
+
+
+def test_run_tui_for_path_none_delegates_to_run_tui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_tui_for_path(None) calls run_tui() which creates a default session."""
+    called = False
+
+    def fake_run_tui(session: ChatSession | None = None) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(tui, "run_tui", fake_run_tui)
+
+    tui.run_tui_for_path(None)
+
+    assert called
+
+
 def test_is_armory_command_matches_inline_forms() -> None:
     assert tui._is_armory_command("/armory")  # type: ignore[reportPrivateUsage]
     assert tui._is_armory_command("/armory open")  # type: ignore[reportPrivateUsage]
