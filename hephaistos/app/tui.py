@@ -39,23 +39,26 @@ from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.engine import EngineError, StreamRecoveryError, is_keyless_endpoint
 from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import ChatSession, send_user_message
+from hephaistos.chat.titles import derive_title as _derive_title
 from hephaistos.fuzzy import ranked_matches
 from hephaistos.parameters.cli import load_config
 from hephaistos.parameters.settings import load_app_settings
 
 try:
+    from rich.color import Color as _RichColor
     from rich.markdown import Markdown
     from rich.segment import Segment
     from rich.style import Style as _RichStyle
     from rich.text import Text as _RichText
     from textual import events
     from textual.app import App, ComposeResult
-    from textual.containers import Vertical
+    from textual.containers import Horizontal, Vertical
     from textual.screen import Screen
     from textual.strip import Strip
     from textual.suggester import Suggester
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
+    _RichColor = None  # type: ignore[assignment]
     _RichStyle = None  # type: ignore[assignment]
     Markdown = None  # type: ignore[assignment]
     Segment = None  # type: ignore[assignment]
@@ -63,6 +66,7 @@ except ImportError:
     events = None  # type: ignore[assignment]
     App = object  # type: ignore[assignment, misc]
     ComposeResult = object  # type: ignore[assignment, misc]
+    Horizontal = object  # type: ignore[assignment, misc]
     Vertical = object  # type: ignore[assignment, misc]
     Screen = object  # type: ignore[assignment, misc]
     Suggester = object  # type: ignore[assignment, misc]
@@ -151,6 +155,40 @@ def _status_text(session: ChatSession, state: str = "ready") -> Text:
     return text
 
 
+def _info_panel_text(session: ChatSession) -> Text:
+    """Build the right-side info panel content with title, armory, sources, model."""
+    if _RichText is None:
+        raise TuiDependencyError(_tui_dependency_message())
+
+    title = session.title or _derive_title(session.conversation) or "New conversation"
+    armory_name = session.armory_path.name if session.armory_path is not None else "none"
+    model = session.config.model or "none"
+    sources = session.source_file_count or 0
+    source_str = str(sources) if sources else "none"
+
+    lines: list[str] = []
+    lines.append(title)
+    lines.append("\u2500" * 26)
+    lines.append(f"armory  {armory_name}")
+    lines.append(f"model   {model}")
+    lines.append(f"sources {source_str}")
+    plain = "\n".join(lines)
+
+    text = _RichText(plain, style="#808080")
+
+    title_end = len(lines[0])
+    text.stylize("bold #9B4A2E", 0, title_end)
+
+    for label in ("armory", "model", "sources"):
+        try:
+            start = plain.index(label)
+            text.stylize("dim #808080", start, start + len(label))
+        except ValueError:
+            pass
+
+    return text
+
+
 def _composer_meta(session: ChatSession) -> str:  # pyright: ignore[reportUnusedFunction]
     key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
     api_hint = "" if key_ok else "api missing"
@@ -224,10 +262,17 @@ Screen {
     background: transparent;
     color: #E0E0E0;
 }
+#main-layout {
+    layout: horizontal;
+    height: 100%;
+    width: 100%;
+    background: transparent;
+    color: #E0E0E0;
+}
 #shell {
     layout: vertical;
     height: 100%;
-    width: 100%;
+    width: 1fr;
     background: transparent;
     color: #E0E0E0;
 }
@@ -265,6 +310,19 @@ Screen {
     padding: 0 0;
     background: transparent;
     color: #E0E0E0;
+}
+#info-separator {
+    width: 1;
+    height: 100%;
+    background: transparent;
+    color: #555555;
+}
+#info-panel {
+    width: 28;
+    height: 100%;
+    padding: 0 1;
+    background: transparent;
+    color: #808080;
 }
 #suggestions {
     height: 7;
@@ -328,18 +386,6 @@ OptionList:focus > .option-list--option-highlighted {
     background: transparent;
     color: #808080;
 }
-#thinking-indicator {
-    height: 1;
-    width: auto;
-    max-width: 100%;
-    padding: 0 0;
-    background: transparent;
-    color: #9B4A2E;
-    display: none;
-}
-#thinking-indicator.active {
-    display: block;
-}
 Input {
     height: 1;
     min-height: 1;
@@ -398,6 +444,39 @@ def _transparent_vertical_class() -> type[Vertical]:
             return strip_class.blank(self.size.width, transparent_style)
 
     return TransparentVertical
+
+
+def _transparent_horizontal_class() -> type[Horizontal]:
+    """Return a Textual horizontal layout class whose empty cells have no background."""
+    if Strip is None or _RichStyle is None:
+        raise TuiDependencyError(_tui_dependency_message())
+    strip_class = Strip
+    transparent_style = _RichStyle()
+
+    class TransparentHorizontal(Horizontal):  # type: ignore[misc]
+        def render_line(self, _y: int) -> Strip:
+            return strip_class.blank(self.size.width, transparent_style)
+
+    return TransparentHorizontal
+
+
+def _transparent_vline_class() -> type[Static]:
+    """Return a Static subclass that renders a vertical separator line."""
+    if Strip is None or _RichStyle is None or Segment is None or _RichColor is None:
+        raise TuiDependencyError(_tui_dependency_message())
+    strip_class = Strip
+    seg_class = Segment
+    sep_style = _RichStyle(color=_RichColor.parse("#555555"))
+    sep_char = "│"
+    transparent_style = _RichStyle()
+
+    class VerticalLine(Static):  # type: ignore[misc]
+        def render_line(self, _y: int) -> Strip:
+            return strip_class([seg_class(sep_char, sep_style)], 1).extend_cell_length(
+                self.size.width, transparent_style
+            )
+
+    return VerticalLine
 
 
 def _style_without_black_background(style: _RichStyle | None) -> _RichStyle:
@@ -619,6 +698,8 @@ def run_tui(session: ChatSession | None = None) -> None:
 
     transparent_screen = _transparent_screen_class()
     transparent_vertical = _transparent_vertical_class()
+    transparent_horizontal = _transparent_horizontal_class()
+    transparent_vline = _transparent_vline_class()
     transparent_static = _transparent_static_class()
     transparent_rich_log = _transparent_rich_log_class()
     transparent_input = _transparent_input_class()
@@ -661,23 +742,32 @@ def run_tui(session: ChatSession | None = None) -> None:
             self.completion_candidates: list[CompletionCandidate] = []
             self._thinking_timer: object = None
             self._thinking_start: float = 0.0
+            self._thinking_line_count: int = 0
 
         def get_default_screen(self) -> Screen:
             return transparent_screen(id="_default")
 
         def compose(self) -> ComposeResult:
-            with transparent_vertical(id="shell"):  # type: ignore[reportCallIssue]
-                yield transparent_static(_status_text(self.session), id="status")
-                yield transparent_rich_log(id="transcript", markup=True, wrap=True, highlight=True)
-                yield transparent_static("", id="thinking-indicator")
-                with transparent_vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
-                    yield transparent_option_list(id="suggestions", classes="hidden", markup=False)
-                    yield transparent_input(
-                        placeholder='Ask anything... "What do I need to study next?"',
-                        suggester=SlashSuggester(self.completion_engine),
-                        id="composer",
+            with transparent_horizontal(id="main-layout"):  # type: ignore[reportCallIssue]
+                with transparent_vertical(id="shell"):  # type: ignore[reportCallIssue]
+                    yield transparent_static(_status_text(self.session), id="status")
+                    yield transparent_rich_log(
+                        id="transcript", markup=True, wrap=True, highlight=True
                     )
-                    yield transparent_static(_composer_meta_text(self.session), id="composer-meta")
+                    with transparent_vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
+                        yield transparent_option_list(
+                            id="suggestions", classes="hidden", markup=False
+                        )
+                        yield transparent_input(
+                            placeholder='Ask anything... "What do I need to study next?"',
+                            suggester=SlashSuggester(self.completion_engine),
+                            id="composer",
+                        )
+                        yield transparent_static(
+                            _composer_meta_text(self.session), id="composer-meta"
+                        )
+                yield transparent_vline("", id="info-separator")
+                yield transparent_static(_info_panel_text(self.session), id="info-panel")
 
         def on_mount(self) -> None:
             self.title = "Hephaistos"
@@ -693,6 +783,7 @@ def run_tui(session: ChatSession | None = None) -> None:
             composer = self.query_one("#composer", Input)
             composer.focus()
             self.set_focus(composer)
+            self._update_info_panel()
 
         def on_key(self, event: events.Key) -> None:
             composer = self.query_one("#composer", Input)
@@ -965,16 +1056,23 @@ def run_tui(session: ChatSession | None = None) -> None:
             self.abort_event.clear()
             self._stop_thinking_animation()
             self._refresh_status("ready")
+            self._update_info_panel()
 
         def _refresh_status(self, state: str = "ready") -> None:
             status = self.query_one("#status", Static)
             status.update(_status_text(self.session, state))
 
+        def _update_info_panel(self) -> None:
+            panel = self.query_one("#info-panel", Static)
+            panel.update(_info_panel_text(self.session))
+
         def _start_thinking_animation(self) -> None:
             self._thinking_start = time.monotonic()
-            indicator = self.query_one("#thinking-indicator", Static)
-            indicator.update(f"[dim]{_THINKING_FRAMES[0]} thinking...[/dim]")
-            indicator.add_class("active")
+            self._thinking_line_count = 0
+            log = self.query_one("#transcript", RichLog)
+            line_count_before = len(log.lines)
+            log.write(f"[dim]{_THINKING_FRAMES[0]} thinking...[/dim]")
+            self._thinking_line_count = len(log.lines) - line_count_before
             self._thinking_timer = self.set_interval(0.12, self._tick_thinking)
 
         def _tick_thinking(self) -> None:
@@ -983,16 +1081,22 @@ def run_tui(session: ChatSession | None = None) -> None:
                 return
             elapsed = time.monotonic() - self._thinking_start
             frame_idx = int(elapsed / 0.12) % len(_THINKING_FRAMES)
-            indicator = self.query_one("#thinking-indicator", Static)
-            indicator.update(f"[dim]{_THINKING_FRAMES[frame_idx]} thinking...[/dim]")
+            log = self.query_one("#transcript", RichLog)
+            if self._thinking_line_count > 0:
+                del log.lines[-self._thinking_line_count :]
+            line_count_before = len(log.lines)
+            log.write(f"[dim]{_THINKING_FRAMES[frame_idx]} thinking...[/dim]")
+            self._thinking_line_count = len(log.lines) - line_count_before
 
         def _stop_thinking_animation(self) -> None:
             if self._thinking_timer is not None:
                 self._thinking_timer.stop()  # type: ignore[union-attr]
                 self._thinking_timer = None
-            indicator = self.query_one("#thinking-indicator", Static)
-            indicator.remove_class("active")
-            indicator.update("")
+            if self._thinking_line_count > 0:
+                log = self.query_one("#transcript", RichLog)
+                del log.lines[-self._thinking_line_count :]
+                self._thinking_line_count = 0
+                log.refresh()
 
     try:
         while True:
