@@ -47,7 +47,6 @@ __all__ = [
     "current_theme_name",
     "menu_style_dict",
     "set_theme",
-    "shell_style_dict",
 ]
 
 
@@ -164,45 +163,6 @@ def style_code(style_name: str) -> str:
     if style_name == "success":
         return f"{BOLD}{ansi_fg(palette.success)}"
     return ""
-
-
-def shell_style_dict() -> dict[str, str]:
-    palette = current_palette()
-    return {
-        "": f"fg:{palette.text}",
-        "armory": palette.text,
-        "prompt-mark": f"bold {palette.accent}",
-        "composer": f"fg:{palette.text}",
-        "bottom-toolbar": f"noreverse fg:{palette.dim}",
-        "bottom-toolbar.text": f"noreverse fg:{palette.dim}",
-        "toolbar-location": f"noreverse fg:{palette.text}",
-        "toolbar-accent": f"noreverse bold fg:{palette.text}",
-        "toolbar-error": f"noreverse bold fg:{palette.error}",
-        "completion-menu.completion.current": f"bg:{palette.stone} fg:{palette.text} bold",
-        "completion-menu.completion": f"bg:{palette.panel} fg:{palette.text}",
-        "completion-menu.meta.completion.current": f"bg:{palette.stone} fg:{palette.text}",
-        "completion-menu.meta.completion": f"bg:{palette.panel} fg:{palette.dim}",
-        "scrollbar.background": f"bg: fg:{palette.stone}",
-        "scrollbar.button": f"bg: fg:{palette.stone}",
-        "header": f"fg:{palette.text}",
-        "header.title": f"bold fg:{palette.ember}",
-        "header.dim": f"fg:{palette.dim}",
-        "header.accent": f"fg:{palette.accent}",
-        "header.ember": f"bold fg:{palette.ember}",
-        "header.configured": f"fg:{palette.configured}",
-        "header.error": f"bold fg:{palette.error}",
-        "header.success": f"fg:{palette.configured}",
-        "header.warning": f"bold fg:{palette.error}",
-        "separator": f"fg:{palette.stone}",
-        "chat-area": f"fg:{palette.text}",
-        "chat-area.user": f"fg:{palette.text}",
-        "chat-area.assistant": f"fg:{palette.accent}",
-        "chat-area.assistant-label": f"bold fg:{palette.accent}",
-        "chat-area.system": f"fg:{palette.dim}",
-        "chat-area.error": f"bold fg:{palette.error}",
-        "chat-area.success": f"fg:{palette.success}",
-        "chat-area.tool": f"fg:{palette.dim}",
-    }
 
 
 def menu_style_dict() -> dict[str, str]:

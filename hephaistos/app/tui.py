@@ -18,8 +18,6 @@ from dataclasses import dataclass, field
 from io import StringIO
 from typing import TYPE_CHECKING, ClassVar
 
-from prompt_toolkit.history import FileHistory
-
 from hephaistos import __version__
 from hephaistos.app.armory_browser import ArmoryBrowserScreen
 from hephaistos.app.autocomplete import (
@@ -696,7 +694,7 @@ class _TuiTranscriptEntry:
 class _TuiRuntimeState:
     transcript: list[_TuiTranscriptEntry] = field(default_factory=list)
     history: list[str] = field(default_factory=list)
-    history_file: FileHistory | None = None
+    history_obj: InputHistory | None = None
     history_index: int | None = None
     history_draft: str = ""
     pending_input: str | None = None
@@ -1158,8 +1156,8 @@ class HephaistosTui(App[None]):
         if not self.state.history or self.state.history[-1] != value:
             self.state.history.append(value)
             self.state.history = self.state.history[-500:]
-            if self.state.history_file is not None:
-                self.state.history_file.append_string(value)
+            if self.state.history_obj is not None:
+                self.state.history_obj.add(value)
         self.state.history_index = None
         self.state.history_draft = ""
 
@@ -1346,10 +1344,10 @@ def run_tui(session: ChatSession | None = None) -> None:
     session_ref: list[ChatSession] = [session]
     history_path = _get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
-    history_file = FileHistory(str(history_path))
+    history_obj = InputHistory.load(history_path)
     state = _TuiRuntimeState(
-        history=list(history_file.load_history_strings())[-500:],
-        history_file=history_file,
+        history=history_obj.entries[-500:],
+        history_obj=history_obj,
     )
 
     try:
@@ -1397,6 +1395,8 @@ def run_tui(session: ChatSession | None = None) -> None:
             if not should_continue:
                 break
     finally:
+        if state.history_obj is not None:
+            state.history_obj.save(history_path)
         _save_on_exit(session_ref[0])
 
 
