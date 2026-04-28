@@ -1,7 +1,7 @@
 # pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportPrivateUsage=false
 # pyright: reportUnknownVariableType=false, reportUntypedBaseClass=false, reportGeneralTypeIssues=false
 # pyright: reportInvalidTypeArguments=false, reportInvalidTypeForm=false, reportOptionalCall=false
-# pyright: reportUnknownParameterType=false
+# pyright: reportUnknownParameterType=false, reportArgumentType=false, reportUnusedFunction=false
 """Command-first Textual shell for Hephaistos.
 
 Imports stay lazy so test suites can exercise dependency errors cleanly.
@@ -29,7 +29,7 @@ from hephaistos.app.autocomplete import (
 )
 from hephaistos.app.commands import NewCommand, get_registry
 from hephaistos.app.input_history import InputHistory
-from hephaistos.app.palette import current_palette
+from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.app.rich_transcript import enrich_reply, evidence_summary_text
 from hephaistos.app.search_index import SearchResult
 from hephaistos.app.search_screen import SearchScreen
@@ -55,12 +55,14 @@ try:
     from rich.text import Text as _RichText
     from textual import events
     from textual.app import App, ComposeResult
+    from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
     from textual.screen import Screen
     from textual.strip import Strip
     from textual.suggester import Suggester
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
+    Binding = None  # type: ignore[assignment]
     _RichStyle = None  # type: ignore[assignment]
     Markdown = None  # type: ignore[assignment]
     Segment = None  # type: ignore[assignment]
@@ -494,46 +496,36 @@ Input > .input--selection {{
 _THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
-def _transparent_screen_class() -> type[Screen]:
-    """Return a Textual screen class whose empty cells have no background."""
+def _make_blank_background_cls(base_cls: type) -> type:
+    """Return a subclass of *base_cls* that renders empty cells with no background.
+
+    Used for Screen, Vertical, and Horizontal in transparent themes.
+    """
     if Strip is None or _RichStyle is None:
         raise TuiDependencyError(_tui_dependency_message())
     strip_class = Strip
     transparent_style = _RichStyle()
 
-    class TransparentScreen(Screen[None]):  # type: ignore[index, misc]
+    class BlankBackgroundWidget(base_cls):  # type: ignore[misc]
         def render_line(self, _y: int) -> Strip:
             return strip_class.blank(self.size.width, transparent_style)
 
-    return TransparentScreen
+    return BlankBackgroundWidget
 
 
-def _transparent_vertical_class() -> type[Vertical]:
-    """Return a Textual vertical layout class whose empty cells have no background."""
+def _make_transparent_cls(base_cls: type) -> type:
+    """Return a subclass of *base_cls* that strips synthetic black backgrounds.
+
+    Used for Static, RichLog, Input, and OptionList in transparent themes.
+    """
     if Strip is None or _RichStyle is None:
         raise TuiDependencyError(_tui_dependency_message())
-    strip_class = Strip
-    transparent_style = _RichStyle()
 
-    class TransparentVertical(Vertical):  # type: ignore[misc]
-        def render_line(self, _y: int) -> Strip:
-            return strip_class.blank(self.size.width, transparent_style)
+    class TransparentWidget(base_cls):  # type: ignore[misc]
+        def render_line(self, y: int) -> Strip:
+            return _transparent_strip(super().render_line(y), self.size.width)
 
-    return TransparentVertical
-
-
-def _transparent_horizontal_class() -> type[Horizontal]:
-    """Return a Textual horizontal layout class whose empty cells have no background."""
-    if Strip is None or _RichStyle is None:
-        raise TuiDependencyError(_tui_dependency_message())
-    strip_class = Strip
-    transparent_style = _RichStyle()
-
-    class TransparentHorizontal(Horizontal):  # type: ignore[misc]
-        def render_line(self, _y: int) -> Strip:
-            return strip_class.blank(self.size.width, transparent_style)
-
-    return TransparentHorizontal
+    return TransparentWidget
 
 
 def _style_without_black_background(style: _RichStyle | None) -> _RichStyle:
@@ -580,14 +572,6 @@ def _transparent_strip(strip: Strip, cell_length: int) -> Strip:
     return Strip(segments, strip.cell_length).extend_cell_length(cell_length, _RichStyle())
 
 
-def _transparent_static_class() -> type[Static]:
-    class TransparentStatic(Static):  # type: ignore[misc]
-        def render_line(self, y: int) -> Strip:
-            return _transparent_strip(super().render_line(y), self.size.width)
-
-    return TransparentStatic
-
-
 def _nonfocus_rich_log_class() -> type[RichLog]:
     class NonFocusRichLog(RichLog):  # type: ignore[misc]
         can_focus = False
@@ -595,30 +579,81 @@ def _nonfocus_rich_log_class() -> type[RichLog]:
     return NonFocusRichLog
 
 
-def _transparent_rich_log_class() -> type[RichLog]:
-    class TransparentRichLog(RichLog):  # type: ignore[misc]
+@dataclass
+class _WidgetClasses:
+    """Palette-dependent widget classes for compose()."""
+
+    screen: type
+    vertical: type
+    horizontal: type
+    static: type
+    rich_log: type
+    input: type
+    option_list: type
+
+    @classmethod
+    def from_palette(cls, palette: ThemePalette) -> _WidgetClasses:
+        if palette.is_transparent:
+            transparent_rich_log_base = _make_transparent_cls(RichLog)
+
+            class TransparentNonFocusRichLog(transparent_rich_log_base):  # type: ignore[misc]
+                can_focus = False
+
+            return cls(
+                screen=_make_blank_background_cls(Screen),
+                vertical=_make_blank_background_cls(Vertical),
+                horizontal=_make_blank_background_cls(Horizontal),
+                static=_make_transparent_cls(Static),
+                rich_log=TransparentNonFocusRichLog,
+                input=_make_transparent_cls(Input),
+                option_list=_make_transparent_cls(OptionList),
+            )
+        return cls(
+            screen=Screen,
+            vertical=Vertical,
+            horizontal=Horizontal,
+            static=Static,
+            rich_log=_nonfocus_rich_log_class(),
+            input=Input,
+            option_list=OptionList,
+        )
+
+
+# Backward-compatible per-type factory wrappers for tests.
+# Prefer _WidgetClasses.from_palette() for production use.
+
+
+def _transparent_screen_class() -> type:
+    return _make_blank_background_cls(Screen)
+
+
+def _transparent_vertical_class() -> type:
+    return _make_blank_background_cls(Vertical)
+
+
+def _transparent_horizontal_class() -> type:
+    return _make_blank_background_cls(Horizontal)
+
+
+def _transparent_static_class() -> type:
+    return _make_transparent_cls(Static)
+
+
+def _transparent_rich_log_class() -> type:
+    base = _make_transparent_cls(RichLog)
+
+    class TransparentNonFocusRichLog(base):  # type: ignore[misc]
         can_focus = False
 
-        def render_line(self, y: int) -> Strip:
-            return _transparent_strip(super().render_line(y), self.size.width)
-
-    return TransparentRichLog
+    return TransparentNonFocusRichLog
 
 
-def _transparent_input_class() -> type[Input]:
-    class TransparentInput(Input):  # type: ignore[misc]
-        def render_line(self, y: int) -> Strip:
-            return _transparent_strip(super().render_line(y), self.size.width)
-
-    return TransparentInput
+def _transparent_input_class() -> type:
+    return _make_transparent_cls(Input)
 
 
-def _transparent_option_list_class() -> type[OptionList]:
-    class TransparentOptionList(OptionList):  # type: ignore[misc]
-        def render_line(self, y: int) -> Strip:
-            return _transparent_strip(super().render_line(y), self.size.width)
-
-    return TransparentOptionList
+def _transparent_option_list_class() -> type:
+    return _make_transparent_cls(OptionList)
 
 
 def _slash_suggestion(engine: SlashCompletionEngine, value: str) -> str | None:
@@ -749,6 +784,546 @@ def _run_shell_escape_captured(command: str) -> str:
     return "\n".join(parts)
 
 
+class SlashSuggester(Suggester):  # type: ignore[misc]
+    def __init__(self, engine: SlashCompletionEngine) -> None:
+        super().__init__()
+        self.engine = engine
+
+    async def get_suggestion(self, value: str) -> str | None:
+        return _slash_suggestion(self.engine, value)
+
+
+class HephaistosTui(App[None]):
+    BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
+        Binding("tab", "complete", "Complete"),
+        Binding("ctrl+s", "open_search", "Search", show=False),
+        Binding("ctrl+c", "cancel_turn", "Cancel", show=False),
+        Binding("ctrl+l", "clear_transcript", "Clear"),
+        Binding("ctrl+d", "quit", "Quit"),
+    ]
+
+    def __init__(
+        self,
+        active_session: ChatSession,
+        runtime_state: _TuiRuntimeState,
+        palette: ThemePalette,
+    ) -> None:
+        super().__init__()
+        self.CSS = _tui_css()
+        self._widgets = _WidgetClasses.from_palette(palette)
+        self.session = active_session
+        self.state = runtime_state
+        self.abort_event = threading.Event()
+        self.busy = False
+        self.completion_engine = SlashCompletionEngine()
+        self.completion_candidates: list[CompletionCandidate] = []
+        self._thinking_timer: object = None
+        self._thinking_start: float = 0.0
+        self._focused_msg_index: int | None = None
+
+    def get_default_screen(self) -> Screen:
+        return self._widgets.screen(id="_default")  # type: ignore[reportCallIssue]
+
+    def compose(self) -> ComposeResult:
+        w = self._widgets
+        with w.horizontal(id="main-layout"):  # type: ignore[reportCallIssue]
+            with w.vertical(id="shell"):  # type: ignore[reportCallIssue]
+                yield w.static(_status_text(self.session), id="status")
+                yield w.rich_log(id="transcript", markup=True, wrap=True, highlight=True)
+                yield w.static("", id="thinking-indicator")
+                with w.vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
+                    yield w.input(
+                        placeholder='Ask anything... "What do I need to study next?"',
+                        suggester=SlashSuggester(self.completion_engine),
+                        id="composer",
+                    )
+                    yield w.static(_footer_hints_text(self.session), id="footer-hints")
+            yield w.static("", id="info-separator")
+            yield w.static(_info_panel_default_text(self.session), id="info-panel")
+        yield w.option_list(id="suggestions", classes="hidden", markup=False)
+
+    def on_mount(self) -> None:
+        self.title = "Hephaistos"
+        self.sub_title = "command-first study shell"
+        for index, entry in enumerate(self.state.transcript):
+            if index > 0:
+                self._write_transcript_gap()
+            self._write_transcript_entry(entry)
+        composer = self.query_one("#composer", Input)
+        composer.select_on_focus = False
+        composer.focus()
+        self.set_focus(composer)
+
+    def on_click(self, event: events.Click) -> None:
+        composer = self.query_one("#composer", Input)
+        if self.focused is not composer:
+            composer.focus()
+            self.set_focus(composer)
+
+    def on_resize(self, event: events.Resize) -> None:
+        visible = event.size.width >= 100
+        panel = self.query_one("#info-panel", Static)
+        separator = self.query_one("#info-separator", Static)
+        panel.styles.display = "block" if visible else "none"
+        separator.styles.display = "block" if visible else "none"
+
+    def on_key(self, event: events.Key) -> None:
+        composer = self.query_one("#composer", Input)
+        if event.key == "ctrl+up":
+            self._focus_message(-1)
+            event.prevent_default()
+            event.stop()
+            return
+        if event.key == "ctrl+down":
+            self._focus_message(1)
+            event.prevent_default()
+            event.stop()
+            return
+        if event.key == "up":
+            if self._completion_menu_visible():
+                self._move_completion(-1)
+            else:
+                self._history_previous()
+            event.prevent_default()
+            event.stop()
+            return
+        if event.key == "down":
+            if self._completion_menu_visible():
+                self._move_completion(1)
+            else:
+                self._history_next()
+            event.prevent_default()
+            event.stop()
+            return
+        if event.key == "escape" and self._completion_menu_visible():
+            self._hide_completions()
+            event.prevent_default()
+            event.stop()
+            return
+        if self.focused is not composer and event.character and event.is_printable:
+            composer.focus()
+            self.set_focus(composer)
+            composer.insert_text_at_cursor(event.character)
+            event.prevent_default()
+            event.stop()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "composer":
+            self._refresh_completions()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != "suggestions":
+            return
+        self._apply_completion(event.index)
+        event.stop()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = event.value.strip()
+        composer = self.query_one("#composer", Input)
+        composer.value = ""
+        self._hide_completions()
+        if not value:
+            return
+        if self.busy:
+            self.session.steering.enqueue(value)
+            self._record_history(value)
+            self._append_notice(f"Steering queued: {value}")
+            return
+        if value == "/sources" or value.startswith("/sources "):
+            self._record_history(value)
+            self._append_user(value, mark_working=False)
+            self._handle_sources(value)
+            return
+        if value == "/new":
+            self._record_history(value)
+            self._handle_new()
+            return
+        if _is_armory_command(value):
+            self._record_history(value)
+            self._append_user(value, mark_working=False)
+            self._handle_armory_browser(value)
+            return
+        if value.startswith(("/", "!")):
+            self._record_history(value)
+            self._append_user(value, mark_working=False)
+            self.state.pending_input = value
+            self.exit()
+            return
+        config_error = _config_error(self.session)
+        if config_error is not None:
+            self._append_error(config_error)
+            return
+        self._record_history(value)
+        self._append_user(value)
+        self.busy = True
+        self.abort_event.clear()
+        self._refresh_status("assistant working")
+        self.run_worker(lambda: self._run_turn(value), thread=True)
+
+    def action_cancel_turn(self) -> None:
+        if self.busy:
+            self.abort_event.set()
+            self._stop_thinking_animation()
+            self._append_notice("Interrupt requested.")
+
+    def action_clear_transcript(self) -> None:
+        self.state.transcript.clear()
+        self.query_one("#transcript", RichLog).clear()
+        self._append_notice("Transcript cleared.")
+
+    def action_open_search(self) -> None:
+        self._open_search()
+
+    def action_complete(self) -> None:
+        if not self.completion_candidates:
+            self._refresh_completions()
+        if not self.completion_candidates:
+            return
+        suggestions = self.query_one("#suggestions", OptionList)
+        highlighted = suggestions.highlighted
+        self._apply_completion(highlighted if highlighted is not None else 0)
+
+    def _handle_sources(self, value: str) -> None:
+        _, _, args = value.partition(" ")
+        self._append_plain(_source_listing(self.session, args))
+
+    def _handle_new(self) -> None:
+        result = NewCommand().handle(self.session, "")
+        if result.new_session is not None:
+            self.session = result.new_session
+            self.state.transcript.clear()
+            self.query_one("#transcript", RichLog).clear()
+            self._append_notice("New chat started.")
+            self._refresh_status("ready")
+            self._focused_msg_index = None
+            self._update_info_panel()
+
+    def _open_search(self) -> None:
+        """Open the cross-armory search screen."""
+
+        def on_search_result(result: object) -> None:
+            if result is None:
+                return
+            if not isinstance(result, SearchResult):
+                return
+            src_path = result.source_path
+            if src_path.suffix.lower() == ".pdf" and src_path.exists():
+                if sys.platform == "darwin":
+                    subprocess.Popen(["open", str(src_path)])  # nosec B603
+                elif sys.platform == "linux":
+                    subprocess.Popen(["xdg-open", str(src_path)])  # nosec B603
+                self._append_notice(f"Opened {src_path}")
+            else:
+                preview = result.chunk_text[:200]
+                self._append_notice(
+                    f"Found in {result.armory_name}/{result.source_rel}: {preview}"
+                )
+
+        self.push_screen(SearchScreen(), on_search_result)
+
+    def _handle_armory_browser(self, value: str) -> None:
+        allow_create = "create" in value.strip().lower()
+        start = self.session.armory_path or None
+        screen = ArmoryBrowserScreen(start, allow_create=allow_create)
+
+        def on_result(result: Path | None) -> None:
+            if result is None:
+                self._append_notice("Cancelled.")
+                return
+            try:
+                _validate_armory(result)
+            except Exception:
+                self._append_error(f"Not a valid armory: {result}")
+                return
+            self.session = _start_fresh_session(self.session, result)
+            self._refresh_status("ready")
+            src_count = self.session.source_file_count or 0
+            self._append_notice(f"Using armory {result}")
+            if src_count:
+                self._append_notice(f"Loaded {src_count} file(s).")
+            self.query_one("#composer", Input).focus()
+
+        self.push_screen(screen, on_result)
+
+    def _run_turn(self, user_input: str) -> None:
+        parts: list[str] = []
+
+        def writer(text: str) -> None:
+            if text:
+                parts.append(text)
+
+        try:
+            send_user_message(
+                self.session,
+                user_input,
+                abort=self.abort_event,
+                writer=writer,
+            )
+            reply = "".join(parts).strip()
+            if reply:
+                self.call_from_thread(self._append_assistant_reply, reply)
+        except (StreamRecoveryError, EngineError) as exc:
+            provider = self.session.config.provider_slug or "the provider"
+            if is_network_error(exc):
+                self.call_from_thread(self._append_notice, offline_message(provider))
+            else:
+                self.call_from_thread(self._append_error, str(exc))
+        finally:
+            self.call_from_thread(self._finish_turn)
+
+    def _completion_menu_visible(self) -> bool:
+        suggestions = self.query_one("#suggestions", OptionList)
+        return bool(self.completion_candidates) and not suggestions.has_class("hidden")
+
+    def _refresh_completions(self) -> None:
+        composer = self.query_one("#composer", Input)
+        before_cursor = composer.value[: composer.cursor_position]
+        self.completion_candidates = self.completion_engine.candidates(
+            before_cursor,
+            _tui_command_suggestions(),
+        )
+        suggestions = self.query_one("#suggestions", OptionList)
+        if not self.completion_candidates:
+            suggestions.set_options([])
+            suggestions.add_class("hidden")
+            return
+        suggestions.set_options(
+            [
+                self._format_completion_candidate(candidate)
+                for candidate in self.completion_candidates
+            ]
+        )
+        suggestions.remove_class("hidden")
+        self.set_focus(suggestions)
+        suggestions.highlighted = 0
+        self.set_focus(composer)
+        self._position_suggestions()
+
+    def _position_suggestions(self) -> None:
+        suggestions = self.query_one("#suggestions", OptionList)
+        composer_frame = self.query_one("#composer-frame")
+        screen_height = self.size.height
+        screen_width = self.size.width
+        frame_region = composer_frame.region
+        offset_y = frame_region.y - screen_height
+        suggestions.styles.offset = (0, offset_y)
+        suggestions.styles.width = int(screen_width * 0.85)
+
+    def _hide_completions(self) -> None:
+        self.completion_candidates = []
+        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions.set_options([])
+        suggestions.add_class("hidden")
+
+    def _move_completion(self, offset: int) -> None:
+        suggestions = self.query_one("#suggestions", OptionList)
+        if not self.completion_candidates:
+            return
+        current = suggestions.highlighted
+        if current is None:
+            current = 0
+        suggestions.highlighted = (current + offset) % len(self.completion_candidates)
+
+    def _apply_completion(self, index: int) -> None:
+        if not (0 <= index < len(self.completion_candidates)):
+            return
+        composer = self.query_one("#composer", Input)
+        candidate = self.completion_candidates[index]
+        before_cursor = composer.value[: composer.cursor_position]
+        after_cursor = composer.value[composer.cursor_position :]
+        replacement_start = len(before_cursor) + candidate.start_position
+        next_value = before_cursor[:replacement_start] + candidate.text + after_cursor
+        composer.value = next_value
+        composer.cursor_position = replacement_start + len(candidate.text)
+        composer.focus()
+        self.set_focus(composer)
+        self._refresh_completions()
+
+    def _format_completion_candidate(self, candidate: CompletionCandidate) -> str:
+        value = self._completion_preview(candidate).strip()
+        if candidate.description:
+            return f"{value:<22} {candidate.description}  "
+        return f"{value}  "
+
+    def _completion_preview(self, candidate: CompletionCandidate) -> str:
+        composer = self.query_one("#composer", Input)
+        before_cursor = composer.value[: composer.cursor_position]
+        replacement_start = len(before_cursor) + candidate.start_position
+        return before_cursor[:replacement_start] + candidate.text
+
+    def _record_history(self, value: str) -> None:
+        value = value.strip()
+        if not value:
+            return
+        if not self.state.history or self.state.history[-1] != value:
+            self.state.history.append(value)
+            self.state.history = self.state.history[-500:]
+            if self.state.history_file is not None:
+                self.state.history_file.append_string(value)
+        self.state.history_index = None
+        self.state.history_draft = ""
+
+    def _history_previous(self) -> None:
+        if not self.state.history:
+            return
+        composer = self.query_one("#composer", Input)
+        if self.state.history_index is None:
+            self.state.history_draft = composer.value
+            self.state.history_index = len(self.state.history) - 1
+        else:
+            self.state.history_index = max(0, self.state.history_index - 1)
+        composer.value = self.state.history[self.state.history_index]
+        composer.cursor_position = len(composer.value)
+
+    def _history_next(self) -> None:
+        if self.state.history_index is None:
+            return
+        composer = self.query_one("#composer", Input)
+        if self.state.history_index >= len(self.state.history) - 1:
+            composer.value = self.state.history_draft
+            self.state.history_index = None
+            self.state.history_draft = ""
+        else:
+            self.state.history_index += 1
+            composer.value = self.state.history[self.state.history_index]
+        composer.cursor_position = len(composer.value)
+
+    def _write_transcript_entry(self, entry: _TuiTranscriptEntry) -> None:
+        log = self.query_one("#transcript", RichLog)
+        if entry.kind == "markdown":
+            log.write(Markdown(entry.content))
+        elif entry.kind == "ansi":
+            if _RichText is None:
+                log.write(entry.content)
+                return
+            log.write(_RichText.from_ansi(entry.content))
+        else:
+            log.write(entry.content)
+
+    def _write_transcript_gap(self) -> None:
+        self.query_one("#transcript", RichLog).write(_TRANSCRIPT_ENTRY_GAP)
+
+    def _append_entry(self, content: str, kind: str = "plain") -> None:
+        if self.state.transcript:
+            self._write_transcript_gap()
+        entry = _TuiTranscriptEntry(content, kind)
+        self.state.transcript.append(entry)
+        self._write_transcript_entry(entry)
+
+    def _append_plain(self, text: str) -> None:
+        self._append_entry(text)
+
+    def _append_user(self, text: str, *, mark_working: bool = True) -> None:
+        p = current_palette()
+        self._append_entry(f"[bold {p.text}]You:[/bold {p.text}] {text}")
+        if mark_working:
+            self._start_thinking_animation()
+
+    def _append_assistant_reply(self, text: str) -> None:
+        evidence = self.session.last_turn_evidence
+        enriched = enrich_reply(text, evidence)
+        entry = _TuiTranscriptEntry(enriched.markdown_text, "markdown")
+        if self.state.transcript:
+            self._write_transcript_gap()
+        self.state.transcript.append(entry)
+        log = self.query_one("#transcript", RichLog)
+        log.write(Markdown(enriched.markdown_text))
+
+    def _append_notice(self, text: str) -> None:
+        p = current_palette()
+        self._append_entry(f"[{p.dim}]{text}[/{p.dim}]")
+
+    def _append_error(self, text: str) -> None:
+        p = current_palette()
+        self._append_entry(f"[bold {p.error}]error:[/bold {p.error}] {text}")
+
+    def _finish_turn(self) -> None:
+        self.busy = False
+        self.abort_event.clear()
+        self._stop_thinking_animation()
+        self._refresh_status("ready")
+        self._refresh_footer_hints()
+        self._focused_msg_index = None
+        self._update_info_panel()
+
+    def _refresh_status(self, state: str = "ready") -> None:
+        status = self.query_one("#status", Static)
+        status.update(_status_text(self.session, state))
+
+    def _refresh_footer_hints(self) -> None:
+        hints = self.query_one("#footer-hints", Static)
+        hints.update(_footer_hints_text(self.session, busy=self.busy))
+
+    def _focus_message(self, direction: int) -> None:
+        """Navigate transcript focus for the info panel. direction: -1=up, +1=down."""
+        entries = [
+            e
+            for e in self.state.transcript
+            if e.kind in ("markdown", "plain")
+            and not e.content.startswith("[dim")
+            and not e.content.startswith("[#808080]")
+            and not e.content.startswith("[bold #CC3333]")
+        ]
+        if not entries:
+            return
+        if self._focused_msg_index is None:
+            self._focused_msg_index = len(entries) - 1 if direction < 0 else 0
+        else:
+            self._focused_msg_index = max(
+                0, min(len(entries) - 1, self._focused_msg_index + direction)
+            )
+        entry = entries[self._focused_msg_index]
+        panel = self.query_one("#info-panel", Static)
+        panel.update(_info_panel_message_text(entry, self.session))
+
+    def _update_info_panel(self) -> None:
+        """Refresh the info panel to reflect current state."""
+        panel = self.query_one("#info-panel", Static)
+        if self._focused_msg_index is not None:
+            entries = [
+                e
+                for e in self.state.transcript
+                if e.kind in ("markdown", "plain")
+                and not e.content.startswith("[dim")
+                and not e.content.startswith("[#808080]")
+                and not e.content.startswith("[bold #CC3333]")
+            ]
+            if self._focused_msg_index < len(entries):
+                panel.update(
+                    _info_panel_message_text(entries[self._focused_msg_index], self.session)
+                )
+                return
+        panel.update(_info_panel_default_text(self.session))
+
+    def _start_thinking_animation(self) -> None:
+        self._thinking_start = time.monotonic()
+        indicator = self.query_one("#thinking-indicator", Static)
+        indicator.update(f"[dim]{_THINKING_FRAMES[0]} thinking...[/dim]")
+        indicator.remove_class("hidden")
+        indicator.add_class("active")
+        self._refresh_footer_hints()
+        self._thinking_timer = self.set_interval(0.12, self._tick_thinking)
+
+    def _tick_thinking(self) -> None:
+        if not self.busy:
+            self._stop_thinking_animation()
+            return
+        elapsed = time.monotonic() - self._thinking_start
+        frame_idx = int(elapsed / 0.12) % len(_THINKING_FRAMES)
+        indicator = self.query_one("#thinking-indicator", Static)
+        indicator.update(f"[dim]{_THINKING_FRAMES[frame_idx]} thinking...[/dim]")
+
+    def _stop_thinking_animation(self) -> None:
+        if self._thinking_timer is not None:
+            self._thinking_timer.stop()  # type: ignore[union-attr]
+            self._thinking_timer = None
+        indicator = self.query_one("#thinking-indicator", Static)
+        indicator.update("")
+        indicator.remove_class("active")
+        indicator.add_class("hidden")
+        self._refresh_footer_hints()
+
+
 def run_tui(session: ChatSession | None = None) -> None:
     """Run the command-first Textual shell."""
     if (
@@ -768,25 +1343,6 @@ def run_tui(session: ChatSession | None = None) -> None:
         session = _create_startup_session(load_config())
 
     palette = current_palette()
-    css = _tui_css()
-
-    transparent_screen = _transparent_screen_class()
-    transparent_vertical = _transparent_vertical_class()
-    transparent_horizontal = _transparent_horizontal_class()
-    transparent_static = _transparent_static_class()
-    transparent_rich_log = _transparent_rich_log_class()
-    transparent_input = _transparent_input_class()
-    transparent_option_list = _transparent_option_list_class()
-    nonfocus_rich_log = _nonfocus_rich_log_class()
-
-    screen_cls = transparent_screen if palette.is_transparent else Screen  # type: ignore[misc]
-    vertical_cls = transparent_vertical if palette.is_transparent else Vertical
-    horizontal_cls = transparent_horizontal if palette.is_transparent else Horizontal
-    static_cls = transparent_static if palette.is_transparent else Static  # type: ignore[misc]
-    rich_log_cls = transparent_rich_log if palette.is_transparent else nonfocus_rich_log  # type: ignore[misc]
-    input_cls = transparent_input if palette.is_transparent else Input  # type: ignore[misc]
-    option_list_cls = transparent_option_list if palette.is_transparent else OptionList  # type: ignore[misc]
-
     session_ref: list[ChatSession] = [session]
     history_path = _get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
@@ -796,535 +1352,9 @@ def run_tui(session: ChatSession | None = None) -> None:
         history_file=history_file,
     )
 
-    class SlashSuggester(Suggester):  # type: ignore[misc]
-        def __init__(self, engine: SlashCompletionEngine) -> None:
-            super().__init__()
-            self.engine = engine
-
-        async def get_suggestion(self, value: str) -> str | None:
-            return _slash_suggestion(self.engine, value)
-
-    class HephaistosTui(App[None]):
-        CSS = css
-
-        BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
-            ("tab", "complete", "Complete"),
-            ("ctrl+c", "cancel_turn", "Cancel"),
-            ("ctrl+l", "clear_transcript", "Clear"),
-            ("ctrl+d", "quit", "Quit"),
-        ]
-
-        def __init__(self, active_session: ChatSession, runtime_state: _TuiRuntimeState) -> None:
-            super().__init__()
-            self.session = active_session
-            self.state = runtime_state
-            self.abort_event = threading.Event()
-            self.busy = False
-            self.completion_engine = SlashCompletionEngine()
-            self.completion_candidates: list[CompletionCandidate] = []
-            self._thinking_timer: object = None
-            self._thinking_start: float = 0.0
-            self._focused_msg_index: int | None = None
-
-        def get_default_screen(self) -> Screen:
-            return screen_cls(id="_default")  # type: ignore[reportCallIssue]
-
-        def compose(self) -> ComposeResult:
-            with horizontal_cls(id="main-layout"):  # type: ignore[reportCallIssue]
-                with vertical_cls(id="shell"):  # type: ignore[reportCallIssue]
-                    yield static_cls(_status_text(self.session), id="status")
-                    yield rich_log_cls(id="transcript", markup=True, wrap=True, highlight=True)
-                    yield static_cls("", id="thinking-indicator")
-                    with vertical_cls(id="composer-frame"):  # type: ignore[reportCallIssue]
-                        yield input_cls(
-                            placeholder='Ask anything... "What do I need to study next?"',
-                            suggester=SlashSuggester(self.completion_engine),
-                            id="composer",
-                        )
-                        yield static_cls(_footer_hints_text(self.session), id="footer-hints")
-                yield static_cls("", id="info-separator")
-                yield static_cls(_info_panel_default_text(self.session), id="info-panel")
-            yield option_list_cls(id="suggestions", classes="hidden", markup=False)
-
-        def on_mount(self) -> None:
-            self.title = "Hephaistos"
-            self.sub_title = "command-first study shell"
-            for index, entry in enumerate(self.state.transcript):
-                if index > 0:
-                    self._write_transcript_gap()
-                self._write_transcript_entry(entry)
-            composer = self.query_one("#composer", Input)
-            composer.select_on_focus = False
-            composer.focus()
-            self.set_focus(composer)
-
-        def on_click(self, event: events.Click) -> None:
-            composer = self.query_one("#composer", Input)
-            if self.focused is not composer:
-                composer.focus()
-                self.set_focus(composer)
-
-        def on_key(self, event: events.Key) -> None:
-            composer = self.query_one("#composer", Input)
-            if event.key == "ctrl+up":
-                self._focus_message(-1)
-                event.prevent_default()
-                event.stop()
-                return
-            if event.key == "ctrl+down":
-                self._focus_message(1)
-                event.prevent_default()
-                event.stop()
-                return
-            if event.key == "/" and not composer.value.strip():
-                self._open_search()
-                event.prevent_default()
-                event.stop()
-                return
-            if event.key == "up":
-                if self._completion_menu_visible():
-                    self._move_completion(-1)
-                else:
-                    self._history_previous()
-                event.prevent_default()
-                event.stop()
-                return
-            if event.key == "down":
-                if self._completion_menu_visible():
-                    self._move_completion(1)
-                else:
-                    self._history_next()
-                event.prevent_default()
-                event.stop()
-                return
-            if event.key == "escape" and self._completion_menu_visible():
-                self._hide_completions()
-                event.prevent_default()
-                event.stop()
-                return
-            if self.focused is not composer and event.character and event.is_printable:
-                composer.focus()
-                self.set_focus(composer)
-                composer.insert_text_at_cursor(event.character)
-                event.prevent_default()
-                event.stop()
-
-        def on_input_changed(self, event: Input.Changed) -> None:
-            if event.input.id == "composer":
-                self._refresh_completions()
-
-        def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-            if event.option_list.id != "suggestions":
-                return
-            self._apply_completion(event.index)
-            event.stop()
-
-        def on_input_submitted(self, event: Input.Submitted) -> None:
-            value = event.value.strip()
-            composer = self.query_one("#composer", Input)
-            composer.value = ""
-            self._hide_completions()
-            if not value:
-                return
-            if self.busy:
-                self.session.steering.enqueue(value)
-                self._record_history(value)
-                self._append_notice(f"Steering queued: {value}")
-                return
-            if value == "/sources" or value.startswith("/sources "):
-                self._record_history(value)
-                self._append_user(value, mark_working=False)
-                self._handle_sources(value)
-                return
-            if value == "/new":
-                self._record_history(value)
-                self._handle_new()
-                return
-            if _is_armory_command(value):
-                self._record_history(value)
-                self._append_user(value, mark_working=False)
-                self._handle_armory_browser(value)
-                return
-            if value.startswith(("/", "!")):
-                self._record_history(value)
-                self._append_user(value, mark_working=False)
-                self.state.pending_input = value
-                self.exit()
-                return
-            config_error = _config_error(self.session)
-            if config_error is not None:
-                self._append_error(config_error)
-                return
-            self._record_history(value)
-            self._append_user(value)
-            self.busy = True
-            self.abort_event.clear()
-            self._refresh_status("assistant working")
-            self.run_worker(lambda: self._run_turn(value), thread=True)
-
-        def action_cancel_turn(self) -> None:
-            if self.busy:
-                self.abort_event.set()
-                self._stop_thinking_animation()
-                self._append_notice("Interrupt requested.")
-
-        def action_clear_transcript(self) -> None:
-            self.state.transcript.clear()
-            self.query_one("#transcript", RichLog).clear()
-            self._append_notice("Transcript cleared.")
-
-        def action_complete(self) -> None:
-            if not self.completion_candidates:
-                self._refresh_completions()
-            if not self.completion_candidates:
-                return
-            suggestions = self.query_one("#suggestions", OptionList)
-            highlighted = suggestions.highlighted
-            self._apply_completion(highlighted if highlighted is not None else 0)
-
-        def _handle_sources(self, value: str) -> None:
-            _, _, args = value.partition(" ")
-            self._append_plain(_source_listing(self.session, args))
-
-        def _handle_new(self) -> None:
-            result = NewCommand().handle(self.session, "")
-            if result.new_session is not None:
-                self.session = result.new_session
-                self.state.transcript.clear()
-                self.query_one("#transcript", RichLog).clear()
-                self._append_notice("New chat started.")
-                self._refresh_status("ready")
-                self._focused_msg_index = None
-                self._update_info_panel()
-
-        def _open_search(self) -> None:
-            """Open the cross-armory search screen."""
-
-            def on_search_result(result: object) -> None:
-                if result is None:
-                    return
-                if not isinstance(result, SearchResult):
-                    return
-                src_path = result.source_path
-                if src_path.suffix.lower() == ".pdf" and src_path.exists():
-                    if sys.platform == "darwin":
-                        subprocess.Popen(["open", str(src_path)])  # nosec B603
-                    elif sys.platform == "linux":
-                        subprocess.Popen(["xdg-open", str(src_path)])  # nosec B603
-                    self._append_notice(f"Opened {src_path}")
-                else:
-                    preview = result.chunk_text[:200]
-                    self._append_notice(
-                        f"Found in {result.armory_name}/{result.source_rel}: {preview}"
-                    )
-
-            self.push_screen(SearchScreen(), on_search_result)
-
-        def _handle_armory_browser(self, value: str) -> None:
-            allow_create = "create" in value.strip().lower()
-            start = self.session.armory_path or None
-            screen = ArmoryBrowserScreen(start, allow_create=allow_create)
-
-            def on_result(result: Path | None) -> None:
-                if result is None:
-                    self._append_notice("Cancelled.")
-                    return
-                try:
-                    _validate_armory(result)
-                except Exception:
-                    self._append_error(f"Not a valid armory: {result}")
-                    return
-                self.session = _start_fresh_session(self.session, result)
-                self._refresh_status("ready")
-                src_count = self.session.source_file_count or 0
-                self._append_notice(f"Using armory {result}")
-                if src_count:
-                    self._append_notice(f"Loaded {src_count} file(s).")
-                self.query_one("#composer", Input).focus()
-
-            self.push_screen(screen, on_result)
-
-        def _run_turn(self, user_input: str) -> None:
-            parts: list[str] = []
-
-            def writer(text: str) -> None:
-                if text:
-                    parts.append(text)
-
-            try:
-                send_user_message(
-                    self.session,
-                    user_input,
-                    abort=self.abort_event,
-                    writer=writer,
-                )
-                reply = "".join(parts).strip()
-                if reply:
-                    self.call_from_thread(self._append_assistant_reply, reply)
-            except (StreamRecoveryError, EngineError) as exc:
-                provider = self.session.config.provider_slug or "the provider"
-                if is_network_error(exc):
-                    self.call_from_thread(self._append_notice, offline_message(provider))
-                else:
-                    self.call_from_thread(self._append_error, str(exc))
-            finally:
-                self.call_from_thread(self._finish_turn)
-
-        def _completion_menu_visible(self) -> bool:
-            suggestions = self.query_one("#suggestions", OptionList)
-            return bool(self.completion_candidates) and not suggestions.has_class("hidden")
-
-        def _refresh_completions(self) -> None:
-            composer = self.query_one("#composer", Input)
-            before_cursor = composer.value[: composer.cursor_position]
-            self.completion_candidates = self.completion_engine.candidates(
-                before_cursor,
-                _tui_command_suggestions(),
-            )
-            suggestions = self.query_one("#suggestions", OptionList)
-            if not self.completion_candidates:
-                suggestions.set_options([])
-                suggestions.add_class("hidden")
-                return
-            suggestions.set_options(
-                [
-                    self._format_completion_candidate(candidate)
-                    for candidate in self.completion_candidates
-                ]
-            )
-            suggestions.remove_class("hidden")
-            self.set_focus(suggestions)
-            suggestions.highlighted = 0
-            self.set_focus(composer)
-            self._position_suggestions()
-
-        def _position_suggestions(self) -> None:
-            suggestions = self.query_one("#suggestions", OptionList)
-            composer_frame = self.query_one("#composer-frame")
-            screen_height = self.size.height
-            screen_width = self.size.width
-            frame_region = composer_frame.region
-            offset_y = frame_region.y - screen_height
-            suggestions.styles.offset = (0, offset_y)
-            suggestions.styles.width = int(screen_width * 0.85)
-
-        def _hide_completions(self) -> None:
-            self.completion_candidates = []
-            suggestions = self.query_one("#suggestions", OptionList)
-            suggestions.set_options([])
-            suggestions.add_class("hidden")
-
-        def _move_completion(self, offset: int) -> None:
-            suggestions = self.query_one("#suggestions", OptionList)
-            if not self.completion_candidates:
-                return
-            current = suggestions.highlighted
-            if current is None:
-                current = 0
-            suggestions.highlighted = (current + offset) % len(self.completion_candidates)
-
-        def _apply_completion(self, index: int) -> None:
-            if not (0 <= index < len(self.completion_candidates)):
-                return
-            composer = self.query_one("#composer", Input)
-            candidate = self.completion_candidates[index]
-            before_cursor = composer.value[: composer.cursor_position]
-            after_cursor = composer.value[composer.cursor_position :]
-            replacement_start = len(before_cursor) + candidate.start_position
-            next_value = before_cursor[:replacement_start] + candidate.text + after_cursor
-            composer.value = next_value
-            composer.cursor_position = replacement_start + len(candidate.text)
-            composer.focus()
-            self.set_focus(composer)
-            self._refresh_completions()
-
-        def _format_completion_candidate(self, candidate: CompletionCandidate) -> str:
-            value = self._completion_preview(candidate).strip()
-            if candidate.description:
-                return f"{value:<22} {candidate.description}  "
-            return f"{value}  "
-
-        def _completion_preview(self, candidate: CompletionCandidate) -> str:
-            composer = self.query_one("#composer", Input)
-            before_cursor = composer.value[: composer.cursor_position]
-            replacement_start = len(before_cursor) + candidate.start_position
-            return before_cursor[:replacement_start] + candidate.text
-
-        def _record_history(self, value: str) -> None:
-            value = value.strip()
-            if not value:
-                return
-            if not self.state.history or self.state.history[-1] != value:
-                self.state.history.append(value)
-                self.state.history = self.state.history[-500:]
-                if self.state.history_file is not None:
-                    self.state.history_file.append_string(value)
-            self.state.history_index = None
-            self.state.history_draft = ""
-
-        def _history_previous(self) -> None:
-            if not self.state.history:
-                return
-            composer = self.query_one("#composer", Input)
-            if self.state.history_index is None:
-                self.state.history_draft = composer.value
-                self.state.history_index = len(self.state.history) - 1
-            else:
-                self.state.history_index = max(0, self.state.history_index - 1)
-            composer.value = self.state.history[self.state.history_index]
-            composer.cursor_position = len(composer.value)
-
-        def _history_next(self) -> None:
-            if self.state.history_index is None:
-                return
-            composer = self.query_one("#composer", Input)
-            if self.state.history_index >= len(self.state.history) - 1:
-                composer.value = self.state.history_draft
-                self.state.history_index = None
-                self.state.history_draft = ""
-            else:
-                self.state.history_index += 1
-                composer.value = self.state.history[self.state.history_index]
-            composer.cursor_position = len(composer.value)
-
-        def _write_transcript_entry(self, entry: _TuiTranscriptEntry) -> None:
-            log = self.query_one("#transcript", RichLog)
-            if entry.kind == "markdown":
-                log.write(Markdown(entry.content))
-            elif entry.kind == "ansi":
-                if _RichText is None:
-                    log.write(entry.content)
-                    return
-                log.write(_RichText.from_ansi(entry.content))
-            else:
-                log.write(entry.content)
-
-        def _write_transcript_gap(self) -> None:
-            self.query_one("#transcript", RichLog).write(_TRANSCRIPT_ENTRY_GAP)
-
-        def _append_entry(self, content: str, kind: str = "plain") -> None:
-            if self.state.transcript:
-                self._write_transcript_gap()
-            entry = _TuiTranscriptEntry(content, kind)
-            self.state.transcript.append(entry)
-            self._write_transcript_entry(entry)
-
-        def _append_plain(self, text: str) -> None:
-            self._append_entry(text)
-
-        def _append_user(self, text: str, *, mark_working: bool = True) -> None:
-            p = current_palette()
-            self._append_entry(f"[bold {p.text}]You:[/bold {p.text}] {text}")
-            if mark_working:
-                self._start_thinking_animation()
-
-        def _append_assistant_reply(self, text: str) -> None:
-            evidence = self.session.last_turn_evidence
-            enriched = enrich_reply(text, evidence)
-            entry = _TuiTranscriptEntry(enriched.markdown_text, "markdown")
-            if self.state.transcript:
-                self._write_transcript_gap()
-            self.state.transcript.append(entry)
-            log = self.query_one("#transcript", RichLog)
-            log.write(Markdown(enriched.markdown_text))
-
-        def _append_notice(self, text: str) -> None:
-            p = current_palette()
-            self._append_entry(f"[{p.dim}]{text}[/{p.dim}]")
-
-        def _append_error(self, text: str) -> None:
-            p = current_palette()
-            self._append_entry(f"[bold {p.error}]error:[/bold {p.error}] {text}")
-
-        def _finish_turn(self) -> None:
-            self.busy = False
-            self.abort_event.clear()
-            self._stop_thinking_animation()
-            self._refresh_status("ready")
-            self._refresh_footer_hints()
-            self._focused_msg_index = None
-            self._update_info_panel()
-
-        def _refresh_status(self, state: str = "ready") -> None:
-            status = self.query_one("#status", Static)
-            status.update(_status_text(self.session, state))
-
-        def _refresh_footer_hints(self) -> None:
-            hints = self.query_one("#footer-hints", Static)
-            hints.update(_footer_hints_text(self.session, busy=self.busy))
-
-        def _focus_message(self, direction: int) -> None:
-            """Navigate transcript focus for the info panel. direction: -1=up, +1=down."""
-            entries = [
-                e
-                for e in self.state.transcript
-                if e.kind in ("markdown", "plain")
-                and not e.content.startswith("[dim")
-                and not e.content.startswith("[#808080]")
-                and not e.content.startswith("[bold #CC3333]")
-            ]
-            if not entries:
-                return
-            if self._focused_msg_index is None:
-                self._focused_msg_index = len(entries) - 1 if direction < 0 else 0
-            else:
-                self._focused_msg_index = max(
-                    0, min(len(entries) - 1, self._focused_msg_index + direction)
-                )
-            entry = entries[self._focused_msg_index]
-            panel = self.query_one("#info-panel", Static)
-            panel.update(_info_panel_message_text(entry, self.session))
-
-        def _update_info_panel(self) -> None:
-            """Refresh the info panel to reflect current state."""
-            panel = self.query_one("#info-panel", Static)
-            if self._focused_msg_index is not None:
-                entries = [
-                    e
-                    for e in self.state.transcript
-                    if e.kind in ("markdown", "plain")
-                    and not e.content.startswith("[dim")
-                    and not e.content.startswith("[#808080]")
-                    and not e.content.startswith("[bold #CC3333]")
-                ]
-                if self._focused_msg_index < len(entries):
-                    panel.update(
-                        _info_panel_message_text(entries[self._focused_msg_index], self.session)
-                    )
-                    return
-            panel.update(_info_panel_default_text(self.session))
-
-        def _start_thinking_animation(self) -> None:
-            self._thinking_start = time.monotonic()
-            indicator = self.query_one("#thinking-indicator", Static)
-            indicator.update(f"[dim]{_THINKING_FRAMES[0]} thinking...[/dim]")
-            indicator.remove_class("hidden")
-            indicator.add_class("active")
-            self._refresh_footer_hints()
-            self._thinking_timer = self.set_interval(0.12, self._tick_thinking)
-
-        def _tick_thinking(self) -> None:
-            if not self.busy:
-                self._stop_thinking_animation()
-                return
-            elapsed = time.monotonic() - self._thinking_start
-            frame_idx = int(elapsed / 0.12) % len(_THINKING_FRAMES)
-            indicator = self.query_one("#thinking-indicator", Static)
-            indicator.update(f"[dim]{_THINKING_FRAMES[frame_idx]} thinking...[/dim]")
-
-        def _stop_thinking_animation(self) -> None:
-            if self._thinking_timer is not None:
-                self._thinking_timer.stop()  # type: ignore[union-attr]
-                self._thinking_timer = None
-            indicator = self.query_one("#thinking-indicator", Static)
-            indicator.update("")
-            indicator.remove_class("active")
-            indicator.add_class("hidden")
-            self._refresh_footer_hints()
-
     try:
         while True:
-            HephaistosTui(session_ref[0], state).run()
+            HephaistosTui(session_ref[0], state, palette).run()
 
             pending_input = state.pending_input
             state.pending_input = None

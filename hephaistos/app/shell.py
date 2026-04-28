@@ -342,22 +342,6 @@ def _report_engine_error(
                 "kind": "engine_error",
             },
         )
-        print_error(str(exc))
-        capture_exception(
-            exc,
-            context={
-                "provider": session.config.provider_slug,
-                "model": session.config.model,
-            },
-        )
-        capture_analytics(
-            "request_failed",
-            {
-                "provider": session.config.provider_slug or "unknown",
-                "model": session.config.model,
-                "kind": "engine_error",
-            },
-        )
 
 
 def _handle_input(

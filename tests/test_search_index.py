@@ -1,5 +1,6 @@
 """Tests for cross-armory search indexing."""
 
+# pyright: reportPrivateUsage=false, reportUnusedFunction=false
 from __future__ import annotations
 
 from pathlib import Path

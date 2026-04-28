@@ -1,5 +1,9 @@
 """Tests for the inline Textual armory browser screen."""
 
+# pyright: reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownVariableType=false
+# pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false, reportOptionalSubscript=false
+# pyright: reportUntypedBaseClass=false, reportGeneralTypeIssues=false, reportInvalidTypeForm=false
+# pyright: reportOptionalCall=false, reportAssignmentType=false, reportUnusedImport=false
 from __future__ import annotations
 
 import asyncio

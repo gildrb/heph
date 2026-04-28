@@ -1,5 +1,6 @@
 """Tests for the optional Textual shell wrapper."""
 
+# pyright: reportAttributeAccessIssue=false
 from __future__ import annotations
 
 import asyncio
