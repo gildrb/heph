@@ -847,6 +847,12 @@ def run_tui(session: ChatSession | None = None) -> None:
             composer.focus()
             self.set_focus(composer)
 
+        def on_click(self, event: events.Click) -> None:
+            composer = self.query_one("#composer", Input)
+            if self.focused is not composer:
+                composer.focus()
+                self.set_focus(composer)
+
         def on_key(self, event: events.Key) -> None:
             composer = self.query_one("#composer", Input)
             if event.key == "ctrl+up":
@@ -1077,6 +1083,8 @@ def run_tui(session: ChatSession | None = None) -> None:
             )
             suggestions.highlighted = 0
             suggestions.remove_class("hidden")
+            self.set_focus(suggestions)
+            self.set_focus(composer)
             self._position_suggestions()
 
         def _position_suggestions(self) -> None:
