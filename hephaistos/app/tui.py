@@ -1093,8 +1093,9 @@ def run_tui(session: ChatSession | None = None) -> None:
                 ]
             )
             suggestions.remove_class("hidden")
-            self.set_focus(composer)
+            self.set_focus(suggestions)
             suggestions.highlighted = 0
+            self.set_focus(composer)
             self._position_suggestions()
 
         def _position_suggestions(self) -> None:
