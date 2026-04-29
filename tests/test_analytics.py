@@ -55,17 +55,17 @@ def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("hephaistos.analytics.urllib.request.urlopen", _fake_urlopen)
 
     capture(
-        "shell_started",
+        "session_created",
         {
+            "mode": "plain",
             "model": "openai/gpt-5.4",
-            "source_file_count": 3,
             "path": "/tmp/secret",
         },
     )
 
     payload = responses[0]
     assert payload["api_key"] == "phc_test"
-    assert payload["event"] == "shell_started"
+    assert payload["event"] == "session_created"
     assert payload["distinct_id"] == "heph_test"
     properties = payload["properties"]
     assert isinstance(properties, dict)

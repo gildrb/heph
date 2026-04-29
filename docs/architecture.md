@@ -7,7 +7,7 @@ Hephaistos follows strict import boundaries enforced by `import-linter`. Only `a
 ```mermaid
 graph TD
     App[app] --> Chat[chat]
-    App --> Harness[harness]
+    App --> Agent[agent]
     App --> Providers[providers]
     App --> Armory[armory]
     App --> Study[study]
@@ -16,15 +16,16 @@ graph TD
     App --> Source[source]
     App --> Logging[logging]
     App --> Palette[palette]
+    App --> RAG[rag]
 
-    Chat --> Harness
+    Chat --> Agent
     Chat --> Providers
     Chat --> Logging
     Chat --> Memory
 
-    Harness --> Providers
-    Harness --> Logging
-    Harness --> Memory
+    Agent --> Providers
+    Agent --> Logging
+    Agent --> Memory
 
     Providers --> Logging
     Providers --> Palette
@@ -42,23 +43,24 @@ graph TD
     Providers -->|API calls| LLM[OpenAI / Anthropic / etc.]
     Providers -->|Key storage| Keyring[OS Keyring]
 
-    Harness -->|RAG index| FileStore[Armory Files]
+    Agent -->|RAG index| FileStore[Armory Files]
     Chat -->|Session state| FileStore
 ```
 
-The top layer is **app** (CLI shell, commands, workspace). Only **app** may import from
+The top layer is **app** (CLI, commands, workspace). Only **app** may import from
 other packages. All other packages communicate through their public APIs and must not
 import **app**. External services (LLM providers, OS keyring, armory files) are accessed
-through the **providers** and **harness** layers only.
+through the **providers** and **agent** layers only.
 
 ## Package layout
 
 ```
 hephaistos/
-  app/          CLI shell, commands, workspace, display — the top layer
+  app/          CLI, commands, workspace, display — the top layer
   chat/         Engine, orchestrator, session, storage — no app imports
-  harness/      Prompt building, persona, citation — no app imports
+  agent/        Prompt building, persona, citation, tools — no app imports
   providers/    LLM provider registry, config, auth — no app imports
+  rag/          RAG chunking, indexing, retrieval — no app imports
   armory/       Armory data and commands — no app imports
   study/        Study controller — no app imports
   memory/       Memory extraction and storage — no app imports
@@ -75,8 +77,9 @@ hephaistos/
 The following packages cannot import anything from `hephaistos.app`:
 
 - `hephaistos.chat`
-- `hephaistos.harness`
+- `hephaistos.agent`
 - `hephaistos.providers`
+- `hephaistos.rag`
 - `hephaistos.armory`
 - `hephaistos.study`
 - `hephaistos.memory`
@@ -88,10 +91,6 @@ The following packages cannot import anything from `hephaistos.app`:
 ### Forbidden: logging must not import app
 
 `hephaistos.logging` must not import from `hephaistos.app`.
-
-### Forbidden: app.commands must not import app.shell
-
-`hephaistos.app.commands` must not import from `hephaistos.app.shell`.
 
 ### Independent: chat.session and chat.orchestrator
 
@@ -146,7 +145,6 @@ graph TD
 
     Engine[chat.engine] --> Logs
     Orchestrator[chat.orchestrator] --> Traces
-    Shell[app.shell] --> Logs
 
     Traces --> Armory[<armory>/.hephaistos/traces/]
     Profiles --> Cache[~/.cache/hephaistos/profiles/]

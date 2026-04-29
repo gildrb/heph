@@ -22,4 +22,5 @@ max_features  # Protocol param (hephaistos/rag/retrieve.py)
 token_pattern  # Protocol param (hephaistos/rag/retrieve.py)
 
 # select_option() accepts keybindings for API compatibility but no longer uses it.
+# NOTE: kept for backward-compatible call signature — callers may still pass it.
 keybindings  # unused variable (hephaistos/app/menu.py)
