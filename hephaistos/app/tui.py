@@ -44,6 +44,7 @@ from hephaistos.chat.engine import EngineError, StreamRecoveryError, is_keyless_
 from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import ChatSession, send_user_message
 from hephaistos.fuzzy import ranked_matches
+from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.parameters.cli import load_config
 
 try:
@@ -117,6 +118,7 @@ def _status_lines(
         api = "configured"
     else:
         api = "missing"
+    mem_status = "on" if supermemory_configured() else "/memory"
     sources = session.source_file_count or 0
     source_str = str(sources) if sources else "none"
     state_tag = f" [{state}]" if state != "ready" else ""
@@ -125,6 +127,7 @@ def _status_lines(
         f"  armory {armory}"
         f"  model {model}"
         f"  api {api}"
+        f"  memory {mem_status}"
         f"  source {source_str}"
     )
 
@@ -144,6 +147,10 @@ def _status_text(session: ChatSession, state: str = "ready") -> Text:
         api = "missing"
         api_style = palette.error
 
+    mem_configured = supermemory_configured()
+    mem_status = "on" if mem_configured else "/memory"
+    mem_style = palette.configured if mem_configured else palette.dim
+
     if _RichText is None:
         raise TuiDependencyError(_tui_dependency_message())
 
@@ -152,12 +159,15 @@ def _status_text(session: ChatSession, state: str = "ready") -> Text:
     hep_idx = plain.index("Hephaistos")
     text.stylize(f"bold {palette.ember}", hep_idx, hep_idx + len("Hephaistos"))
 
-    for label in ("armory", "model", "api", "source"):
+    for label in ("armory", "model", "api", "memory", "source"):
         start = plain.index(label)
         text.stylize(f"dim {palette.dim}", start, start + len(label))
 
     api_start = plain.index(api, plain.index("api "))
     text.stylize(api_style, api_start, api_start + len(api))
+
+    mem_value_start = plain.index(mem_status, plain.index("memory "))
+    text.stylize(mem_style, mem_value_start, mem_value_start + len(mem_status))
     return text
 
 
