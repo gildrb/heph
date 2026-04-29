@@ -6,16 +6,17 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from hephaistos.app.display import (
+from hephaistos.logging import get_logger
+from hephaistos.terminal import (
     STYLE_ACCENT,
     STYLE_DIM,
+    STYLE_PROMPT,
+    MenuOption,
     direct_input,
     direct_print,
+    select_option,
     styled,
 )
-from hephaistos.app.menu import MenuOption, select_option
-from hephaistos.app.palette import STYLE_PROMPT
-from hephaistos.logging import get_logger
 from hephaistos.vocab.parser import scan_armory
 from hephaistos.vocab.scheduler import Rating, ScheduleResult, schedule_card, select_due_cards
 from hephaistos.vocab.state import VocabCardState, load_schedule, save_schedule

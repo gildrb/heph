@@ -213,6 +213,8 @@ source_modules = [
     "hephaistos.logging",
     "hephaistos.palette",
     "hephaistos.observability",
+    "hephaistos.vocab",
+    "hephaistos.terminal",
 ]
 forbidden_modules = ["hephaistos.app"]
 

@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import re
-import sys
-from typing import Protocol, runtime_checkable
-
-from hephaistos.app import palette
 from hephaistos.app.banner import ascii_logo, separator_line, wordmark
 from hephaistos.app.palette import (
-    RESET,
     STYLE_ACCENT,
     STYLE_DIM,
     STYLE_EMBER,
@@ -18,32 +12,25 @@ from hephaistos.app.palette import (
     STYLE_WARNING,
 )
 from hephaistos.parameters.settings import load_app_settings
+from hephaistos.terminal import (  # re-export shared terminal primitives
+    STYLE_ASSISTANT,
+    direct_input,
+    direct_print,
+    styled,
+    visible_len,
+)
 
-STYLE_ASSISTANT = palette.STYLE_ASSISTANT
-
-
-def styled(text: str, style: object) -> str:
-    return f"{style!s}{text}{RESET}"
-
-
-_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
-
-
-@runtime_checkable
-class _StdoutProxy(Protocol):
-    original_stdout: object
-
-
-@runtime_checkable
-class _TextOutput(Protocol):
-    def write(self, text: str, /) -> object: ...
-
-    def flush(self) -> object: ...
-
-
-def visible_len(text: str) -> int:
-    """Return the visible (non-ANSI) character count of a string."""
-    return len(_ANSI_RE.sub("", text))
+__all__ = [
+    "STYLE_ASSISTANT",
+    "direct_input",
+    "direct_print",
+    "print_error",
+    "print_info",
+    "print_shell_intro",
+    "print_success",
+    "styled",
+    "visible_len",
+]
 
 
 def print_error(msg: str) -> None:
@@ -211,30 +198,3 @@ def _format_source_summary(source_file_count: int, source_files: tuple[str, ...]
         return f"{source_file_count} file{'s' if source_file_count != 1 else ''}"
     suffix = f" +{source_file_count - len(visible)}" if source_file_count > len(visible) else ""
     return f"{', '.join(visible)}{suffix}"
-
-
-def _real_stdout() -> _TextOutput:
-    """Return the real terminal stdout, bypassing any ``patch_stdout`` proxy."""
-    out: object = sys.stdout
-    while isinstance(out, _StdoutProxy):
-        out = out.original_stdout
-    if not isinstance(out, _TextOutput):
-        raise TypeError("stdout proxy did not unwrap to a text stream")
-    return out
-
-
-def direct_print(text: str, end: str = "\n") -> None:
-    """Write directly to the real terminal, bypassing ``patch_stdout``."""
-    out = _real_stdout()
-    out.write(text + end)
-    out.flush()
-
-
-def direct_input(prompt: str = "") -> str:
-    """Read a line from stdin, bypassing any ``patch_stdout`` proxy."""
-    original = sys.stdout
-    sys.stdout = _real_stdout()
-    try:
-        return input(prompt)
-    finally:
-        sys.stdout = original
