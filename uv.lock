@@ -788,8 +788,6 @@ dependencies = [
     { name = "certifi" },
     { name = "keyring" },
     { name = "openai" },
-    { name = "pathspec" },
-    { name = "rapidfuzz" },
     { name = "rich" },
     { name = "supermemory" },
     { name = "textual" },
@@ -802,6 +800,12 @@ docling = [
 embeddings = [
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
+]
+fuzzy = [
+    { name = "rapidfuzz" },
+]
+rag = [
+    { name = "pathspec" },
 ]
 
 [package.dev-dependencies]
@@ -842,15 +846,15 @@ requires-dist = [
     { name = "docling", marker = "extra == 'docling'", specifier = ">=2.0.0" },
     { name = "keyring", specifier = ">=25.7.0" },
     { name = "openai", specifier = ">=1.0.0" },
-    { name = "pathspec", specifier = ">=0.12.0" },
-    { name = "rapidfuzz", specifier = ">=3.14.0" },
+    { name = "pathspec", marker = "extra == 'rag'", specifier = ">=0.12.0" },
+    { name = "rapidfuzz", marker = "extra == 'fuzzy'", specifier = ">=3.14.0" },
     { name = "rich", specifier = ">=14.0.0" },
     { name = "scikit-learn", marker = "extra == 'embeddings'", specifier = ">=1.0.0" },
     { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=3.0.0" },
     { name = "supermemory", specifier = ">=3.0.0" },
     { name = "textual", specifier = ">=6.0.0" },
 ]
-provides-extras = ["embeddings", "docling"]
+provides-extras = ["embeddings", "docling", "rag", "fuzzy"]
 
 [package.metadata.requires-dev]
 dev = [

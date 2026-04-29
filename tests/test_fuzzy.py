@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from hephaistos.fuzzy import ranked_matches
+from unittest import mock
+
+from hephaistos.fuzzy import _score, ranked_matches  # type: ignore[reportPrivateUsage]
 
 
 def test_ranked_matches_returns_best_match_first() -> None:
     choices = ["binary search", "merge sort", "python basics"]
 
-    matches = ranked_matches("binry serch", choices, key=lambda value: value, min_score=40.0)
+    # Use a query whose words overlap with the target (fallback has no typo
+    # tolerance, so exact word overlap is required).
+    matches = ranked_matches("binary", choices, key=lambda value: value, min_score=40.0)
 
     assert matches
     assert matches[0].value == "binary search"
@@ -18,3 +22,41 @@ def test_ranked_matches_respects_score_cutoff() -> None:
     matches = ranked_matches("zzzz", ["binary search"], key=lambda value: value, min_score=95.0)
 
     assert matches == []
+
+
+class TestRapidfuzzFallback:
+    """Verify fuzzy matching works when rapidfuzz is not installed."""
+
+    def test_fallback_exact_match_scores_100(self) -> None:
+        with mock.patch("hephaistos.fuzzy.fuzz", None):
+            assert _score("hello", "hello") == 100.0
+
+    def test_fallback_substring_scores_85(self) -> None:
+        with mock.patch("hephaistos.fuzzy.fuzz", None):
+            assert _score("hello", "hello world") == 85.0
+
+    def test_fallback_word_overlap_partial(self) -> None:
+        with mock.patch("hephaistos.fuzzy.fuzz", None):
+            score = _score("binary search", "binary tree search")
+            # All query words ("binary", "search") are present in the candidate,
+            # so word-overlap is 2/2 = 100%.
+            assert 0.0 < score <= 100.0
+
+    def test_fallback_no_match_scores_0(self) -> None:
+        with mock.patch("hephaistos.fuzzy.fuzz", None):
+            assert _score("xyz", "abc") == 0.0
+
+    def test_fallback_empty_query_scores_0(self) -> None:
+        with mock.patch("hephaistos.fuzzy.fuzz", None):
+            assert _score("", "something") == 0.0
+
+    def test_fallback_empty_candidate_scores_0(self) -> None:
+        with mock.patch("hephaistos.fuzzy.fuzz", None):
+            assert _score("something", "") == 0.0
+
+    def test_ranked_matches_works_without_rapidfuzz(self) -> None:
+        with mock.patch("hephaistos.fuzzy.fuzz", None):
+            choices = ["binary search", "merge sort", "python basics"]
+            matches = ranked_matches("binary", choices, key=lambda v: v, min_score=10.0)
+            assert matches
+            assert matches[0].value == "binary search"

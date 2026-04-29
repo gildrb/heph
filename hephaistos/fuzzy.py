@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 try:
-    from rapidfuzz import fuzz
+    from rapidfuzz import fuzz  # pyright: ignore[reportUnknownVariableType]
 except ImportError:
     fuzz = None  # type: ignore[assignment]
 
@@ -48,7 +48,7 @@ def ranked_matches[T](
 def _score(query: str, candidate: str) -> float:
     """Score a fuzzy match, falling back to simple substring checks."""
     if fuzz is not None:
-        return float(fuzz.WRatio(query, candidate))
+        return float(fuzz.WRatio(query, candidate))  # type: ignore[reportUnknownMemberType, reportUnknownArgumentType]
     normalized_query = query.casefold().strip()
     normalized_candidate = candidate.casefold().strip()
     if not normalized_query or not normalized_candidate:

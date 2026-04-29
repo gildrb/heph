@@ -376,7 +376,9 @@ def _load_ignore_spec(armory_path: Path) -> object:
         except OSError:
             _log.warning("failed to read armory ignore file", exc_info=True)
     if pathspec is not None:
-        return pathspec.PathSpec.from_lines("gitignore", patterns)
+        return pathspec.PathSpec.from_lines(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            "gitignore", patterns
+        )
     return tuple(pattern for pattern in patterns if pattern and not pattern.startswith("#"))
 
 
