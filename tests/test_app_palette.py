@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import pytest
-from prompt_toolkit.styles import Style, merge_styles
-from prompt_toolkit.styles.defaults import default_ui_style
-
 from hephaistos.app import palette
 
 
@@ -27,85 +23,30 @@ def test_style_tokens_render_from_current_theme() -> None:
 def test_set_theme_switches_palette() -> None:
     palette.set_theme("light")
 
-    menu_style = palette.menu_style_dict()
-
     assert palette.current_theme_name() == "light"
-    assert menu_style[""] == "fg:#2C241B"
+    p = palette.current_palette()
+    assert p.text == "#2C241B"
 
 
-def test_menu_style_dict_uses_transparent_background() -> None:
-    palette.set_theme("light")
+def test_set_theme_ignores_unknown() -> None:
+    palette.set_theme("nonexistent")
 
-    merged_style = merge_styles([default_ui_style(), Style.from_dict(palette.menu_style_dict())])
-
-    for style_name in (
-        "inline-menu.title",
-        "inline-menu.option",
-        "inline-menu.description",
-        "inline-menu.hint",
-    ):
-        attrs = merged_style.get_attrs_for_style_str(f"class:{style_name}")
-        assert attrs.bgcolor == "", f"{style_name} should be transparent"
+    assert palette.current_theme_name() == palette.DEFAULT_THEME
 
 
-_MENU_TRANSPARENT_STYLES: tuple[str, ...] = (
-    "inline-menu.title",
-    "inline-menu.option",
-    "inline-menu.description",
-    "inline-menu.hint",
-)
+def test_current_palette_returns_forge_by_default() -> None:
+    palette.set_theme("forge")
+    p = palette.current_palette()
 
-_MENU_HIGHLIGHTED_STYLES: tuple[str, ...] = (
-    "inline-menu.option.current",
-    "inline-menu.description.current",
-)
-
-_BROWSER_TRANSPARENT_STYLES: tuple[str, ...] = (
-    "browser.title",
-    "browser.path",
-    "browser.entry",
-    "browser.parent",
-)
-
-_BROWSER_HIGHLIGHTED_STYLES: tuple[str, ...] = (
-    "browser.entry.selected",
-    "browser.parent.selected",
-)
+    assert p.name == "forge"
+    assert p.accent == "#C8C8C8"
 
 
-@pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])
-def test_menu_styles_leave_background_transparent(theme: str) -> None:
-    palette.set_theme(theme)
-    merged = merge_styles([default_ui_style(), Style.from_dict(palette.menu_style_dict())])
-    for style_name in _MENU_TRANSPARENT_STYLES:
-        attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
-        assert attrs.bgcolor == "", f"{style_name} bgcolor should be transparent for theme {theme}"
-
-
-@pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])
-def test_menu_highlighted_styles_use_highlight_color(theme: str) -> None:
-    palette.set_theme(theme)
-    expected_bg = palette.current_palette().highlight.lstrip("#")
-    merged = merge_styles([default_ui_style(), Style.from_dict(palette.menu_style_dict())])
-    for style_name in _MENU_HIGHLIGHTED_STYLES:
-        attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
-        assert attrs.bgcolor == expected_bg, f"{style_name} bgcolor mismatch for theme {theme}"
-
-
-@pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])
-def test_browser_styles_leave_background_transparent(theme: str) -> None:
-    palette.set_theme(theme)
-    merged = merge_styles([default_ui_style(), Style.from_dict(palette.browser_style_dict())])
-    for style_name in _BROWSER_TRANSPARENT_STYLES:
-        attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
-        assert attrs.bgcolor == "", f"{style_name} bgcolor should be transparent for theme {theme}"
-
-
-@pytest.mark.parametrize("theme", ["forge", "light", "high_contrast"])
-def test_browser_highlighted_styles_use_highlight_color(theme: str) -> None:
-    palette.set_theme(theme)
-    expected_bg = palette.current_palette().highlight.lstrip("#")
-    merged = merge_styles([default_ui_style(), Style.from_dict(palette.browser_style_dict())])
-    for style_name in _BROWSER_HIGHLIGHTED_STYLES:
-        attrs = merged.get_attrs_for_style_str(f"class:{style_name}")
-        assert attrs.bgcolor == expected_bg, f"{style_name} bgcolor mismatch for theme {theme}"
+def test_all_theme_presets_are_valid_palettes() -> None:
+    for theme_name in palette.THEME_PRESETS:
+        palette.set_theme(theme_name)
+        p = palette.current_palette()
+        assert p.name == theme_name
+        assert p.text.startswith("#")
+        assert p.accent.startswith("#")
+        assert p.highlight.startswith("#")

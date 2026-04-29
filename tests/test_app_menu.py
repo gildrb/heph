@@ -3,23 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from prompt_toolkit.input import create_pipe_input
-from prompt_toolkit.output import DummyOutput
 
 from hephaistos.app import menu
-from hephaistos.app.menu import DEFAULT_MENU_KEYBINDINGS, MenuOption
-
-
-def _select_interactively(keys: str, options: list[MenuOption]) -> int | None:
-    with create_pipe_input() as pipe_input:
-        pipe_input.send_text(keys)
-        return menu._select_with_prompt_toolkit(  # type: ignore[reportPrivateUsage]
-            "Armory",
-            options,
-            DEFAULT_MENU_KEYBINDINGS,
-            input_obj=pipe_input,
-            output_obj=DummyOutput(),
-        )
+from hephaistos.app.menu import MenuOption
 
 
 def test_select_option_uses_prompt_fallback(
@@ -39,127 +25,6 @@ def test_select_option_uses_prompt_fallback(
     assert selected == 1
     assert "Open existing armory" in out
     assert "Create new armory" in out
-
-
-def test_prompt_toolkit_menu_uses_down_arrow_to_select_next_option() -> None:
-    selected = _select_interactively(
-        "\x1b[B\r",
-        [
-            MenuOption("Open existing armory", "Attach a workspace."),
-            MenuOption("Create new armory", "Initialize a workspace."),
-        ],
-    )
-
-    assert selected == 1
-
-
-def test_prompt_toolkit_menu_uses_up_arrow_to_wrap_to_last_option() -> None:
-    selected = _select_interactively(
-        "\x1b[A\r",
-        [
-            MenuOption("Open existing armory", "Attach a workspace."),
-            MenuOption("Create new armory", "Initialize a workspace."),
-        ],
-    )
-
-    assert selected == 1
-
-
-def test_prompt_toolkit_menu_starts_on_current_option() -> None:
-    selected = _select_interactively(
-        "\r",
-        [
-            MenuOption("Open existing armory", "Attach a workspace."),
-            MenuOption("Create new armory", "Initialize a workspace.", is_current=True),
-        ],
-    )
-
-    assert selected == 1
-
-
-def test_prompt_toolkit_menu_q_cancels() -> None:
-    selected = _select_interactively(
-        "q",
-        [MenuOption("Open existing armory", "Attach a workspace.")],
-    )
-
-    assert selected is None
-
-
-def test_prompt_toolkit_menu_erases_previous_frame_when_done(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured_kwargs: dict[str, object] = {}
-
-    class FakeApplication:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            _ = args
-            captured_kwargs.update(kwargs)
-
-        def run(self) -> int | None:
-            return 0
-
-    monkeypatch.setattr(menu, "Application", FakeApplication)
-
-    selected = menu._select_with_prompt_toolkit(  # type: ignore[reportPrivateUsage]
-        "Armory",
-        [MenuOption("Open existing armory", "Attach a workspace.")],
-        DEFAULT_MENU_KEYBINDINGS,
-        input_obj=None,
-        output_obj=DummyOutput(),
-    )
-
-    assert selected == 0
-    assert captured_kwargs["erase_when_done"] is True
-
-
-def test_prompt_toolkit_browser_erases_previous_frame_when_done(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured_kwargs: dict[str, object] = {}
-
-    class FakeApplication:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            _ = args
-            captured_kwargs.update(kwargs)
-
-        def run(self) -> Path | None:
-            return tmp_path
-
-    monkeypatch.setattr(menu, "Application", FakeApplication)
-
-    selected = menu._browse_with_prompt_toolkit(  # type: ignore[reportPrivateUsage]
-        "Default Armory",
-        tmp_path,
-        input_obj=None,
-        output_obj=DummyOutput(),
-    )
-
-    assert selected == tmp_path
-    assert captured_kwargs["erase_when_done"] is True
-
-
-def test_format_menu_uses_inline_menu_classes_only() -> None:
-    fragments = menu._format_menu(  # type: ignore[reportPrivateUsage]
-        "Settings",
-        [
-            MenuOption("Telemetry", "Usage analytics and crash reports"),
-            MenuOption("Appearance", "Theme: high_contrast", is_current=True),
-        ],
-        selected=1,
-    )
-
-    style_names = {style for style, _text in fragments if style}
-    assert style_names == {
-        "class:inline-menu.title",
-        "class:inline-menu.option",
-        "class:inline-menu.option.current",
-        "class:inline-menu.description",
-        "class:inline-menu.description.current",
-        "class:inline-menu.hint",
-    }
-    assert all(not style.startswith("class:menu") for style in style_names)
 
 
 def test_select_option_returns_none_for_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -301,3 +166,69 @@ def test_select_option_eof_returns_none(monkeypatch: pytest.MonkeyPatch) -> None
         [MenuOption("Open existing armory", "Attach a workspace.")],
     )
     assert selected is None
+
+
+# ---------------------------------------------------------------------------
+# Directory browser
+# ---------------------------------------------------------------------------
+
+
+def test_browse_directory_choose_current(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = iter(["c"])
+
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": next(calls))
+
+    result = menu.browse_directory("Test Browser", tmp_path)
+    assert result == tmp_path
+
+
+def test_browse_directory_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": "q")
+
+    result = menu.browse_directory("Test Browser", Path("/tmp"))
+    assert result is None
+
+
+def test_browse_directory_navigate_parent_and_cancel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    child = tmp_path / "subdir"
+    child.mkdir()
+    calls = iter(["1", "c"])
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": next(calls))
+
+    result = menu.browse_directory("Test", child)
+    assert result == tmp_path
+
+
+def test_browse_directory_keyboard_interrupt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def _raise(_: str = "") -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", _raise)
+
+    result = menu.browse_directory("Test", tmp_path)
+    assert result is None
+
+
+def test_browse_directory_eof(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def _raise(_: str = "") -> str:
+        raise EOFError
+
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", _raise)
+
+    result = menu.browse_directory("Test", tmp_path)
+    assert result is None
+
+
+def test_browse_directory_defaults_to_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = iter(["c"])
+    monkeypatch.setattr("hephaistos.app.menu.direct_input", lambda _prompt="": next(calls))
+    monkeypatch.setattr("hephaistos.app.menu.browse_directory", menu.browse_directory)
+
+    result = menu.browse_directory("Test")
+    assert result == Path.home()

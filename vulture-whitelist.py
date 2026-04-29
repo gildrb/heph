@@ -1,14 +1,5 @@
 # Vulture whitelist — false positives that are required by framework interfaces.
 
-# prompt_toolkit Completer protocol requires this parameter name exactly (reportIncompatibleMethodOverride).
-complete_event  # unused variable (hephaistos/app/shell.py)
-
-# prompt_toolkit Completer protocol — vulture sees the class but not the dynamic dispatch.
-_.get_completions  # used by prompt_toolkit (hephaistos/app/shell.py)
-
-# prompt_toolkit keybinding decorator — the decorated _ function is the callback.
-_  # unused function (hephaistos/app/shell.py)
-
 # BaseHTTPRequestHandler overrides — required by the HTTP server framework.
 _.do_GET  # used by http.server (hephaistos/providers/oauth.py)
 _.log_message  # used by http.server (hephaistos/providers/oauth.py)
@@ -23,9 +14,12 @@ ChatCompletionChunk  # unused import (hephaistos/chat/engine.py)
 # sentence-transformers / sklearn Protocol signatures — vulture sees the keyword-only
 # parameters as unused because they are never referenced inside the Protocol body, but
 # they define the shape of the external callables we pass these kwargs to.
-convert_to_numpy  # Protocol param (hephaistos/harness/rag/chunker.py, retrieve.py)
-show_progress_bar  # Protocol param (hephaistos/harness/rag/chunker.py, retrieve.py)
-stop_words  # Protocol param (hephaistos/harness/rag/retrieve.py)
-sublinear_tf  # Protocol param (hephaistos/harness/rag/retrieve.py)
-max_features  # Protocol param (hephaistos/harness/rag/retrieve.py)
-token_pattern  # Protocol param (hephaistos/harness/rag/retrieve.py)
+convert_to_numpy  # Protocol param (hephaistos/rag/chunker.py, retrieve.py)
+show_progress_bar  # Protocol param (hephaistos/rag/chunker.py, retrieve.py)
+stop_words  # Protocol param (hephaistos/rag/retrieve.py)
+sublinear_tf  # Protocol param (hephaistos/rag/retrieve.py)
+max_features  # Protocol param (hephaistos/rag/retrieve.py)
+token_pattern  # Protocol param (hephaistos/rag/retrieve.py)
+
+# select_option() accepts keybindings for API compatibility but no longer uses it.
+keybindings  # unused variable (hephaistos/app/menu.py)

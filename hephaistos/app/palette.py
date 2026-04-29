@@ -42,10 +42,8 @@ __all__ = [
     "THEME_PRESETS",
     "ThemePalette",
     "ansi_fg",
-    "browser_style_dict",
     "current_palette",
     "current_theme_name",
-    "menu_style_dict",
     "set_theme",
 ]
 
@@ -163,34 +161,6 @@ def style_code(style_name: str) -> str:
     if style_name == "success":
         return f"{BOLD}{ansi_fg(palette.success)}"
     return ""
-
-
-def menu_style_dict() -> dict[str, str]:
-    palette = current_palette()
-    return {
-        "": f"fg:{palette.text}",
-        "inline-menu.title": f"bold fg:{palette.text}",
-        "inline-menu.option": f"fg:{palette.text}",
-        "inline-menu.option.current": f"bg:{palette.highlight} fg:{palette.text} bold",
-        "inline-menu.description": f"fg:{palette.dim}",
-        "inline-menu.description.current": f"bg:{palette.highlight} fg:{palette.text}",
-        "inline-menu.badge": f"fg:{palette.accent}",
-        "inline-menu.hint": f"fg:{palette.dim}",
-    }
-
-
-def browser_style_dict() -> dict[str, str]:
-    palette = current_palette()
-    return {
-        "": f"fg:{palette.text}",
-        "browser.title": f"bold fg:{palette.text}",
-        "browser.path": f"fg:{palette.dim}",
-        "browser.entry": f"fg:{palette.text}",
-        "browser.entry.selected": f"bg:{palette.highlight} fg:{palette.text} bold",
-        "browser.parent": f"fg:{palette.dim}",
-        "browser.parent.selected": f"bg:{palette.highlight} fg:{palette.text} bold",
-        "browser.hint": f"fg:{palette.dim}",
-    }
 
 
 STYLE_PROMPT = _StyleToken("prompt")
