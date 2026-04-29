@@ -939,6 +939,11 @@ class HephaistosTui(App[None]):
             event.prevent_default()
             event.stop()
             return
+        if event.key == "tab":
+            self.action_complete()
+            event.prevent_default()
+            event.stop()
+            return
         if self.focused is not composer and event.character and event.is_printable:
             composer.focus()
             self.set_focus(composer)

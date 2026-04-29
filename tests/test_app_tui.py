@@ -573,6 +573,35 @@ def test_completion_menu_auto_highlights_first_item() -> None:
     asyncio.run(check_highlight())
 
 
+def test_tab_applies_highlighted_completion_in_composer() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_tab_completion() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+
+            await pilot.press("/")
+            await pilot.pause()
+            assert composer.value == "/"  # type: ignore[reportUnknownMemberType]
+            assert app.completion_candidates
+
+            await pilot.press("tab")
+            await pilot.pause()
+
+            assert composer.value == "/help "  # type: ignore[reportUnknownMemberType]
+            assert composer.cursor_position == len("/help ")  # type: ignore[reportUnknownMemberType]
+
+    asyncio.run(check_tab_completion())
+
+
 def test_slash_on_empty_composer_preserves_cursor_after_focus_swap() -> None:
     """Pressing / must show completions without selecting/highlighting the / character.
 
