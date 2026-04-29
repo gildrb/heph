@@ -42,7 +42,12 @@ from hephaistos.app.workspace import (  # type: ignore[reportPrivateUsage]
 )
 from hephaistos.armory.storage import validate as _validate_armory
 from hephaistos.chat.cli import resolve_armory_session
-from hephaistos.chat.engine import EngineError, StreamRecoveryError, is_keyless_endpoint
+from hephaistos.chat.engine import (
+    EngineError,
+    StreamRecoveryError,
+    is_keyless_endpoint,
+    missing_api_key_message,
+)
 from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import ChatSession, send_user_message
 from hephaistos.fuzzy import ranked_matches
@@ -112,8 +117,8 @@ def _status_lines(
 ) -> str:
     armory = str(session.armory_path) if session.armory_path is not None else "none"
     model = session.config.model or "none"
-    key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
     keyless = is_keyless_endpoint(session.config.base_url)
+    key_ok = keyless or bool(session.config.resolved_api_key)
     if keyless:
         api = "free"
     elif key_ok:
@@ -138,7 +143,7 @@ def _status_text(session: ChatSession, state: str = "ready") -> Text:
     plain = _status_lines(session, state)
     palette = current_palette()
     keyless = is_keyless_endpoint(session.config.base_url)
-    key_ok = bool(session.config.resolved_api_key) or keyless
+    key_ok = keyless or bool(session.config.resolved_api_key)
     if keyless:
         api = "free"
         api_style = palette.dim
@@ -188,7 +193,7 @@ def _footer_hints_text(session: ChatSession, *, busy: bool = False) -> Text:
             text.stylize(f"dim {palette.dim}", start, start + len(label))
         return text
 
-    key_ok = bool(session.config.resolved_api_key) or is_keyless_endpoint(session.config.base_url)
+    key_ok = is_keyless_endpoint(session.config.base_url) or bool(session.config.resolved_api_key)
     parts = ["enter send", "tab complete", "/help commands", "ctrl+d exit"]
     if not key_ok:
         parts.append("api missing")
@@ -309,8 +314,8 @@ def _config_error(session: ChatSession) -> str | None:
         return "No provider configured. Use /provider to select one."
     if not session.config.model:
         return "No model configured. Use /models to select one."
-    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
-        return "No API key found. Configure one via /api key, env var, or OAuth first."
+    if not is_keyless_endpoint(session.config.base_url) and not session.config.resolved_api_key:
+        return missing_api_key_message(session.config)
     return None
 
 
@@ -1048,12 +1053,6 @@ class HephaistosTui(App[None]):
                 for choice in choices
                 if query in f"{choice[0]} {choice[1]} {choice[2]}".lower()
             ]
-        active_slug = self.session.config.provider_slug
-        current_model = self.session.config.model
-        choices = sorted(
-            choices,
-            key=lambda choice: 0 if active_slug == choice[0] and current_model == choice[1] else 1,
-        )
         if not choices:
             self._append_notice("No matching models.")
             return

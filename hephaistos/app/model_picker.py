@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hephaistos.chat.engine import is_keyless_endpoint
 from hephaistos.chat.session import ChatSession
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.registry import get_registry as get_provider_registry
@@ -52,6 +53,8 @@ def configured_model_choices(
     pc = pc or ProviderConfig.load()
     registry = get_provider_registry()
     choices: list[tuple[str, str, str, bool]] = []
+    active = pc.get_active()
+    active_slug = active.slug if active is not None else ""
     for slug, provider in pc.providers.items():
         if slug == "custom" and not provider.models:
             continue
@@ -62,6 +65,7 @@ def configured_model_choices(
     return sorted(
         choices,
         key=lambda item: (
+            0 if item[0] == active_slug else 1,
             _MODEL_PROVIDER_ORDER.get(item[0], 50),
             0 if item[3] else 1,
             item[1].lower(),
@@ -74,6 +78,7 @@ def model_picker_columns(
     slug: str,
     model: str,
     display_name: str,
+    endpoint: str = "",
     is_free: bool,
     is_current: bool,
 ) -> tuple[str, str, str, str]:
@@ -81,10 +86,18 @@ def model_picker_columns(
     provider = _model_provider_label(slug, model, display_name)
     model_label = model.rsplit("/", 1)[1] if "/" in model else model
     source = _SOURCE_LABELS.get(slug, display_name.removesuffix(" (free)"))
-    tags = " ".join(
-        tag for tag in ("free" if is_free else "", "current" if is_current else "") if tag
-    )
+    free_tag = _free_tag(endpoint) if is_free else ""
+    tags = " ".join(tag for tag in (free_tag, "current" if is_current else "") if tag)
     return provider, model_label, source, tags
+
+
+def model_free_description(endpoint: str) -> str:
+    """Return user-facing free-model auth context for a provider endpoint."""
+    return "free, no API key" if is_keyless_endpoint(endpoint) else "free, API key required"
+
+
+def _free_tag(endpoint: str) -> str:
+    return "free" if is_keyless_endpoint(endpoint) else "free+key"
 
 
 def _model_provider_label(slug: str, model: str, display_name: str) -> str:

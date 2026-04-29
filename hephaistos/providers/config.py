@@ -162,6 +162,7 @@ class ProviderConfig:
             if not is_string_mapping(section):
                 continue
             providers[slug] = _sanitize_provider(slug, section)
+        _merge_missing_default_providers(providers)
         cfg = cls(providers=providers)
         invalidate_provider_cache(cfg, path=path)
         return cfg
@@ -169,6 +170,13 @@ class ProviderConfig:
 
 def providers_dir() -> Path:
     return _CONFIG_DIR
+
+
+def _merge_missing_default_providers(providers: dict[str, Provider]) -> None:
+    """Restore built-in providers omitted by older persisted config files."""
+    for slug, provider in default_config().providers.items():
+        if slug not in providers:
+            providers[slug] = provider
 
 
 def default_config() -> ProviderConfig:
@@ -183,19 +191,7 @@ def default_config() -> ProviderConfig:
                 current_model="openai",
                 models=[
                     "openai",
-                    "openai-large",
-                    "openai-reasoning",
                     "openai-fast",
-                    "mistral",
-                    "mistral-large",
-                    "mistral-reasoning",
-                    "qwen-coder",
-                    "deepseek-reasoning",
-                    "deepseek",
-                    "llama",
-                    "llama-scaleway",
-                    "gemini",
-                    "gemini-thinking",
                 ],
             ),
             "openrouter": Provider(

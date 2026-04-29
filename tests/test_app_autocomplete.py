@@ -60,3 +60,29 @@ def test_models_completion_starts_on_current_free_default() -> None:
     assert candidates[0].display_model == "openai"
     assert candidates[0].display_source == "Pollinations"
     assert candidates[0].display_tags == "free current"
+
+
+def test_models_completion_keeps_provider_grouping_when_current_model_is_elsewhere() -> None:
+    config = default_config()
+    config.set_active("openrouter")
+    config.providers["openrouter"].current_model = "arcee-ai/trinity-large-preview:free"
+    engine = SlashCompletionEngine(provider_config_loader=lambda: config)
+
+    candidates = engine.candidates("/models", [])
+
+    openrouter_candidates = [
+        candidate for candidate in candidates if candidate.display_source == "OpenRouter"
+    ]
+    assert candidates[: len(openrouter_candidates)] == openrouter_candidates
+    assert any(candidate.display_tags == "free+key current" for candidate in openrouter_candidates)
+
+
+def test_models_completion_marks_openrouter_free_models_as_key_required() -> None:
+    engine = SlashCompletionEngine(provider_config_loader=default_config)
+
+    candidates = engine.candidates("/models trinity", [])
+
+    assert candidates
+    assert candidates[0].text == "arcee-ai/trinity-large-preview:free "
+    assert candidates[0].display_source == "OpenRouter"
+    assert candidates[0].display_tags == "free+key"

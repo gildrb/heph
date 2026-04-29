@@ -199,20 +199,14 @@ class SlashCompletionEngine:
         active = self._provider_config_loader().get_active()
         current_model = active.current_model if active is not None else ""
         choices = configured_model_choices(self._provider_config_loader())
-        choices = sorted(
-            choices,
-            key=lambda item: (
-                0
-                if active is not None and active.slug == item[0] and item[1] == current_model
-                else 1
-            ),
-        )
         for slug, model, display_name, is_free in choices:
             is_current = active is not None and active.slug == slug and model == current_model
+            provider_config = self._provider_config_loader().providers[slug]
             provider, model_label, source, tags = model_picker_columns(
                 slug=slug,
                 model=model,
                 display_name=display_name,
+                endpoint=provider_config.endpoint,
                 is_free=is_free,
                 is_current=is_current,
             )

@@ -3,19 +3,7 @@
 from __future__ import annotations
 
 _PROVIDER_PREFIXES: dict[str, tuple[str, ...]] = {
-    "pollinations": (
-        "openai",
-        "openai-",
-        "mistral",
-        "mistral-",
-        "qwen-",
-        "deepseek",
-        "deepseek-",
-        "llama",
-        "llama-",
-        "gemini",
-        "gemini-",
-    ),
+    "pollinations": ("openai", "openai-fast"),
     "openrouter": (
         "openrouter/",
         "openai/",
@@ -51,6 +39,8 @@ def _matches_prefixes(model_name: str, prefixes: tuple[str, ...]) -> bool:
     normalized = model_name.strip().lower()
     if not normalized:
         return False
+    if prefixes == _PROVIDER_PREFIXES["pollinations"]:
+        return normalized in prefixes
     return any(normalized.startswith(prefix) for prefix in prefixes)
 
 

@@ -28,6 +28,7 @@ from hephaistos.chat.engine import (
     EngineError,
     StreamRecoveryError,
     is_keyless_endpoint,
+    missing_api_key_message,
 )
 from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import (
@@ -324,11 +325,8 @@ def _preflight_config_check(session: ChatSession) -> str | None:
         return "No provider configured. Use /provider use <slug> to select one."
     if not session.config.model:
         return "No model configured. Use /models to select one."
-    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
-        return (
-            "No API key found. "
-            "Configure one via /api key, environment variable, or OAuth (/login)."
-        )
+    if not is_keyless_endpoint(session.config.base_url) and not session.config.resolved_api_key:
+        return missing_api_key_message(session.config)
     return None
 
 

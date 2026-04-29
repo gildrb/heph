@@ -28,10 +28,11 @@ class ApiCommand(Command):
             slug = active.slug if active else ""
             env_var = active.api_key_env if active else ""
 
-            key = resolve_key(slug, env_var) if slug else ""
             if is_keyless_endpoint(s.config.base_url):
+                key = ""
                 key_display = styled("not required (free provider)", STYLE_DIM)
             else:
+                key = resolve_key(slug, env_var) if slug else ""
                 key_display = mask_key(key) if key else styled("not set", STYLE_DIM)
 
             source = ""

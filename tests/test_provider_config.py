@@ -40,24 +40,8 @@ def test_default_pollinations_models_match_supported_families() -> None:
     config = default_config()
 
     assert "pollinations" in config.providers
-    assert all(
-        model.startswith(
-            (
-                "openai",
-                "openai-",
-                "mistral",
-                "mistral-",
-                "qwen-",
-                "deepseek",
-                "deepseek-",
-                "llama",
-                "llama-",
-                "gemini",
-                "gemini-",
-            )
-        )
-        for model in config.providers["pollinations"].models
-    )
+    assert all(model.startswith(("openai",)) for model in config.providers["pollinations"].models)
+    assert config.providers["pollinations"].models == ["openai", "openai-fast"]
 
 
 def test_default_config_activates_pollinations_as_default() -> None:
@@ -79,6 +63,31 @@ def test_load_missing_config_stays_in_memory_until_saved(tmp_path: Path) -> None
 
     assert "zai" in loaded.providers
     assert not config_path.exists()
+
+
+def test_load_restores_missing_builtin_providers(tmp_path: Path) -> None:
+    config_path = tmp_path / "providers.toml"
+    config_path.write_text(
+        """
+[openrouter]
+display_name = "OpenRouter"
+endpoint = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+active = true
+current_model = "qwen/qwen3.6-plus:free"
+models = ["qwen/qwen3.6-plus:free"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = ProviderConfig.load(config_path)
+    active = loaded.get_active()
+
+    assert "pollinations" in loaded.providers
+    assert loaded.providers["pollinations"].models
+    assert active is not None
+    assert active.slug == "openrouter"
 
 
 def test_load_refreshes_when_provider_path_changes(tmp_path: Path) -> None:

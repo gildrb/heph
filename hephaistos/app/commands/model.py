@@ -6,7 +6,11 @@ from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.commands._base import Command, CommandResult, ensure_session
 from hephaistos.app.display import STYLE_DIM, print_error, print_info, print_success, styled
 from hephaistos.app.menu import MenuOption, select_option
-from hephaistos.app.model_picker import configured_model_choices, switch_model
+from hephaistos.app.model_picker import (
+    configured_model_choices,
+    model_free_description,
+    switch_model,
+)
 from hephaistos.chat.engine import is_keyless_endpoint
 from hephaistos.chat.session import ChatSession
 from hephaistos.providers.config import ProviderConfig
@@ -158,19 +162,13 @@ class ModelsCommand(Command):
 
         active = pc.get_active()
         current_model = s.config.model
-        choices = sorted(
-            choices,
-            key=lambda choice: 0
-            if active is not None and active.slug == choice[0] and choice[1] == current_model
-            else 1,
-        )
         options: list[MenuOption] = []
         model_map: list[tuple[str, str]] = []
         for slug, model, display_name, is_free in choices:
             is_current = active is not None and active.slug == slug and model == current_model
             desc = f"via {display_name}"
             if is_free:
-                desc += "  free"
+                desc += f"  {model_free_description(pc.providers[slug].endpoint)}"
             if is_current:
                 desc += "  current"
             options.append(MenuOption(model, desc, is_current=is_current))

@@ -44,6 +44,7 @@ from hephaistos.logging import Timer, get_logger, redact_text
 from hephaistos.observability import get_meter, get_tracer
 from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
+from hephaistos.providers.registry import get_registry as get_provider_registry
 
 
 class _SpanProtocol(Protocol):
@@ -119,6 +120,8 @@ class ChatConfig:
     def resolved_api_key(self) -> str:
         """Resolve the API key via keychain → env → volatile."""
         if self._provider_slug:
+            if not self._provider_env:
+                return self.api_key
             return resolve_key(self._provider_slug, self._provider_env)
         return self.api_key
 
@@ -312,17 +315,25 @@ def build_client(config: ChatConfig) -> OpenAI:
         raise EngineError("No model configured. Use /models to select one.")
     if not is_supported_model_for_endpoint(config.model, config.base_url):
         raise EngineError(f"Model unavailable for endpoint: {config.model}")
-    api_key = config.resolved_api_key
-    if not api_key:
-        # Some providers (e.g. Pollinations) work without an API key.
-        if _is_keyless_endpoint(config.base_url):
-            api_key = "no-key-required"
-        else:
-            raise EngineError(
-                "No API key found. Configure one via /api key, environment variable, "
-                "or OAuth (/login)."
-            )
+    if _is_keyless_endpoint(config.base_url):
+        api_key = "no-key-required"
+    else:
+        api_key = config.resolved_api_key
+        if not api_key:
+            raise EngineError(missing_api_key_message(config))
     return OpenAI(api_key=api_key, base_url=config.base_url)
+
+
+def missing_api_key_message(config: ChatConfig) -> str:
+    """Return a precise missing-key message for the active provider/model."""
+    model_info = get_provider_registry().get(config.model)
+    if model_info is not None and model_info.is_free:
+        return (
+            f"{config.model} is free-priced, but {model_info.display_name} is served through "
+            "a provider that still requires an API key. Configure one via /api key, "
+            "environment variable, or OAuth (/login)."
+        )
+    return "No API key found. Configure one via /api key, environment variable, or OAuth (/login)."
 
 
 def _normalize_url(url: str) -> str:

@@ -51,29 +51,14 @@ class TestFilterSupportedModels:
     def test_pollinations_keeps_matching_prefixes(self) -> None:
         models = [
             "openai",
-            "openai-large",
-            "openai-reasoning",
             "openai-fast",
+            "openai-large",
             "mistral",
-            "mistral-large",
-            "qwen-coder",
-            "deepseek-reasoning",
-            "deepseek",
-            "llama",
-            "llama-scaleway",
-            "gemini",
-            "gemini-thinking",
             "gpt-5.4",
             "glm-5",
         ]
         result = filter_supported_models(models, "pollinations")
-        assert "openai" in result
-        assert "openai-large" in result
-        assert "mistral" in result
-        assert "deepseek" in result
-        assert "gemini" in result
-        assert "gpt-5.4" not in result
-        assert "glm-5" not in result
+        assert result == ["openai", "openai-fast"]
 
 
 # ---------------------------------------------------------------------------
@@ -137,20 +122,14 @@ class TestIsSupportedModelForEndpoint:
             is True
         )
         assert (
-            is_supported_model_for_endpoint("mistral", "https://text.pollinations.ai/openai")
+            is_supported_model_for_endpoint("openai-fast", "https://text.pollinations.ai/openai")
             is True
         )
         assert (
-            is_supported_model_for_endpoint(
-                "gemini-thinking", "https://text.pollinations.ai/openai"
-            )
-            is True
-        )
-        assert (
-            is_supported_model_for_endpoint("gpt-5.4", "https://text.pollinations.ai/openai")
+            is_supported_model_for_endpoint("openai-large", "https://text.pollinations.ai/openai")
             is False
         )
         assert (
-            is_supported_model_for_endpoint("glm-5", "https://text.pollinations.ai/openai")
+            is_supported_model_for_endpoint("mistral", "https://text.pollinations.ai/openai")
             is False
         )
