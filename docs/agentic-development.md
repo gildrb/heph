@@ -4,15 +4,16 @@ This document describes how AI coding agents are used in the Hephaistos project.
 
 ## Shared Project Skills
 
-Hephaistos keeps the shared, repo-level agent context in vendor-neutral skill folders:
+Hephaistos keeps shared, repo-level agent context in a single vendor-neutral directory:
 
 | Location | Purpose |
 |---|---|
-| `.factory/skills/hephaistos/SKILL.md` | Thin Factory pointer back to the repo-native docs |
-| `.codex/skills/hephaistos/SKILL.md` | Thin Codex pointer back to the repo-native docs |
+| `.agents/skills/hephaistos/SKILL.md` | Thin pointer back to the repo-native docs |
+| `.agents/skills/qa/` | QA orchestrator skill and config |
+| `.agents/skills/qa-cli/` | Full regression test suite for TUI |
 | personal agent home directories | Personal prompts, helpers, or local agent config that should not be committed |
 
-## Why This Split
+## Conventions
 
 - Shared skills belong in the repository when they help contributors and agents understand the project.
 - Personal agent config belongs outside the repository.

@@ -44,19 +44,25 @@ site/
 node_modules/
 
 # IDEs
-.vscode/
 .zed/
 .idea/
+.vscode/*
+!.vscode/extensions.json
 
 # Agent tooling
 .claude/
 .superset/
-.factory/*
-!.factory/skills/
-!.factory/skills/**
-.codex/*
-!.codex/skills/
-!.codex/skills/**
+.factory/
+.codex/
+.agents/*
+!.agents/skills/
+!.agents/skills/**
+
+# Generated artifacts
+qa-results/
+droid-wiki/
+security-findings.json
+validated-findings.json
 
 # Project-specific
 /*-armory/

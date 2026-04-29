@@ -13,7 +13,7 @@ description: >
 
 ## Step 1: Load Configuration
 
-Read `.factory/skills/qa/config.yaml` for environment URLs, credentials, personas, and app definitions.
+Read `.agents/skills/qa/config.yaml` for environment URLs, credentials, personas, and app definitions.
 
 ## Step 2: Determine Target Environment
 
@@ -25,7 +25,7 @@ Run `git diff` to determine what changed. Map changed files to apps using the pa
 
 This project has a SINGLE app (the CLI/TUI). If ANY file under `hephaistos/**` or `tests/**` changed, the CLI app IS affected and the FULL regression suite MUST run.
 
-Files that don't match ANY app's path_patterns (e.g., `.factory/skills/**`, `docs/**`, `.github/**`, `scripts/**`) are NOT associated with any app. However, since this is a single-app project, even docs-only changes can benefit from a regression check. Use judgment:
+Files that don't match ANY app's path_patterns (e.g., `.agents/skills/**`, `docs/**`, `.github/**`, `scripts/**`) are NOT associated with any app. However, since this is a single-app project, even docs-only changes can benefit from a regression check. Use judgment:
 
 - If `hephaistos/**` or `tests/**` changed: run the FULL regression suite (all 40 flows)
 - If ONLY docs/CI/config changed: report INCONCLUSIVE ("No app code changed") but still run Flows 1-4 (launch, /status, /help, autocomplete) as a quick smoke test to verify the app still starts
@@ -43,7 +43,7 @@ If a pre-flight check fails, report it as BLOCKED with the specific error and re
 
 ## Step 5: Execute Full Regression Suite
 
-Read the sub-skill from `.factory/skills/qa-cli/SKILL.md`.
+Read the sub-skill from `.agents/skills/qa-cli/SKILL.md`.
 
 The sub-skill contains a full regression test suite with 40 flows covering every slash command in the application. Execute ALL 40 flows in sequence as documented.
 
@@ -89,7 +89,7 @@ TEST QUALITY REQUIREMENTS:
 
 ## Step 9: Generate Report
 
-Generate the report at `./qa-results/report.md` using `.factory/skills/qa/REPORT-TEMPLATE.md`.
+Generate the report at `./qa-results/report.md` using `.agents/skills/qa/REPORT-TEMPLATE.md`.
 
 The report MUST follow the template. Key rules:
 
