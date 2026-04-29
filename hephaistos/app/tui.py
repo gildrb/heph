@@ -396,12 +396,13 @@ Screen {{
     color: {p.text};
 }}
 #suggestions {{
-    position: absolute;
+    dock: bottom;
     height: auto;
-    max-height: 50%;
-    width: 80%;
+    max-height: 7;
+    min-width: 30;
+    width: 85%;
+    max-width: 85%;
     padding-right: 1;
-    margin-bottom: 1;
     background: {bg};
     color: {p.text};
     scrollbar-color: {p.highlight};
@@ -413,6 +414,10 @@ Screen {{
     scrollbar-corner-color: {bg};
     scrollbar-size-vertical: 1;
     layer: suggestions;
+    display: none;
+}}
+#suggestions.visible {{
+    display: block;
 }}
 .hidden {{
     visibility: hidden;
@@ -839,6 +844,7 @@ class HephaistosTui(App[None]):
                 yield w.static(_status_text(self.session), id="status")
                 yield w.rich_log(id="transcript", markup=True, wrap=True, highlight=True)
                 yield w.static("", id="thinking-indicator")
+                yield w.option_list(id="suggestions", markup=False)
                 with w.vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
                     yield w.input(
                         placeholder='Ask anything... "What do I need to study next?"',
@@ -848,7 +854,6 @@ class HephaistosTui(App[None]):
                     yield w.static(_footer_hints_text(self.session), id="footer-hints")
             yield w.static("", id="info-separator")
             yield w.static(_info_panel_default_text(self.session), id="info-panel")
-        yield w.option_list(id="suggestions", classes="hidden", markup=False)
 
     def on_mount(self) -> None:
         self.title = "Hephaistos"
@@ -1081,7 +1086,7 @@ class HephaistosTui(App[None]):
 
     def _completion_menu_visible(self) -> bool:
         suggestions = self.query_one("#suggestions", OptionList)
-        return bool(self.completion_candidates) and not suggestions.has_class("hidden")
+        return bool(self.completion_candidates) and suggestions.has_class("visible")
 
     def _refresh_completions(self) -> None:
         composer = self.query_one("#composer", Input)
@@ -1093,7 +1098,7 @@ class HephaistosTui(App[None]):
         suggestions = self.query_one("#suggestions", OptionList)
         if not self.completion_candidates:
             suggestions.set_options([])
-            suggestions.add_class("hidden")
+            suggestions.remove_class("visible")
             return
         suggestions.set_options(
             [
@@ -1101,27 +1106,15 @@ class HephaistosTui(App[None]):
                 for candidate in self.completion_candidates
             ]
         )
-        suggestions.remove_class("hidden")
-        self.set_focus(suggestions)
+        suggestions.add_class("visible")
         suggestions.highlighted = 0
-        self.set_focus(composer)
-        self._position_suggestions()
-
-    def _position_suggestions(self) -> None:
-        suggestions = self.query_one("#suggestions", OptionList)
-        composer_frame = self.query_one("#composer-frame")
-        screen_height = self.size.height
-        screen_width = self.size.width
-        frame_region = composer_frame.region
-        offset_y = frame_region.y - screen_height
-        suggestions.styles.offset = (0, offset_y)
-        suggestions.styles.width = int(screen_width * 0.85)
+        composer.focus()
 
     def _hide_completions(self) -> None:
         self.completion_candidates = []
         suggestions = self.query_one("#suggestions", OptionList)
         suggestions.set_options([])
-        suggestions.add_class("hidden")
+        suggestions.remove_class("visible")
 
     def _move_completion(self, offset: int) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
@@ -1144,7 +1137,6 @@ class HephaistosTui(App[None]):
         composer.value = next_value
         composer.cursor_position = replacement_start + len(candidate.text)
         composer.focus()
-        self.set_focus(composer)
         self._refresh_completions()
 
     def _format_completion_candidate(self, candidate: CompletionCandidate) -> str:
