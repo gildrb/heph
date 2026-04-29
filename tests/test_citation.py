@@ -9,9 +9,9 @@ from hephaistos.harness.citation import (
     verify_citations,
     verify_response,
 )
-from hephaistos.harness.rag.chunker import Chunk
-from hephaistos.harness.rag.context import TurnEvidence, build_turn_evidence
-from hephaistos.harness.rag.retrieve import ScoredChunk
+from hephaistos.rag.chunker import Chunk
+from hephaistos.rag.context import TurnEvidence, build_turn_evidence
+from hephaistos.rag.retrieve import ScoredChunk
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -14,7 +14,7 @@ from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.events import TurnCompleteEvent
 from hephaistos.chat.session import create_session
 from hephaistos.harness.dispatch import iter_agent_events
-from hephaistos.harness.rag.index import load_or_build
+from hephaistos.rag.index import load_or_build
 
 
 class _FakeTTY(io.StringIO):

@@ -23,7 +23,7 @@ def _validate_armory(args: argparse.Namespace) -> Path:
 
 def _cmd_source_list(args: argparse.Namespace) -> None:
     """List source documents in an armory."""
-    rag_index = importlib.import_module("hephaistos.harness.rag.index")
+    rag_index = importlib.import_module("hephaistos.rag.index")
 
     try:
         armory_path = _validate_armory(args)
@@ -42,7 +42,7 @@ def _cmd_source_list(args: argparse.Namespace) -> None:
 
 def _cmd_source_count(args: argparse.Namespace) -> None:
     """Show the count of source documents in an armory."""
-    rag_index = importlib.import_module("hephaistos.harness.rag.index")
+    rag_index = importlib.import_module("hephaistos.rag.index")
 
     try:
         armory_path = _validate_armory(args)
@@ -55,7 +55,7 @@ def _cmd_source_count(args: argparse.Namespace) -> None:
 
 def _cmd_source_index(args: argparse.Namespace) -> None:
     """Build or refresh the RAG index for source documents."""
-    rag_index = importlib.import_module("hephaistos.harness.rag.index")
+    rag_index = importlib.import_module("hephaistos.rag.index")
 
     try:
         armory_path = _validate_armory(args)

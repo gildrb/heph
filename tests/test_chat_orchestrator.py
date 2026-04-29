@@ -27,9 +27,9 @@ from hephaistos.chat.orchestrator import (
     _resolve_turn_evidence,  # type: ignore[reportPrivateUsage]
 )
 from hephaistos.chat.session import ChatSession
-from hephaistos.harness.rag import ScoredChunk, TurnEvidence
-from hephaistos.harness.rag.chunker import Chunk
-from hephaistos.harness.rag.context import EvidenceChunk
+from hephaistos.rag import ScoredChunk, TurnEvidence
+from hephaistos.rag.chunker import Chunk
+from hephaistos.rag.context import EvidenceChunk
 from hephaistos.study import StudyAction, StudyPhase, StudyTurnPlan
 from hephaistos.study.state import StudyState
 

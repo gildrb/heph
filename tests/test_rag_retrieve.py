@@ -9,10 +9,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hephaistos.harness.rag.chunker import Chunk, ChunkedDocument
-from hephaistos.harness.rag.index import ArmoryIndex
-from hephaistos.harness.rag.query_transform import TransformStrategy
-from hephaistos.harness.rag.retrieve import (
+from hephaistos.rag.chunker import Chunk, ChunkedDocument
+from hephaistos.rag.index import ArmoryIndex
+from hephaistos.rag.query_transform import TransformStrategy
+from hephaistos.rag.retrieve import (
     Bm25Retriever,
     CrossEncoderReranker,
     EmbeddingRetriever,
@@ -176,8 +176,8 @@ class TestTfidfRetriever:
         index = _make_index_with_chunks(chunks)
 
         with (
-            patch("hephaistos.harness.rag.retrieve._has_sklearn", True),
-            patch("hephaistos.harness.rag.retrieve._SklearnTfidfVectorizer", FakeVectorizer),
+            patch("hephaistos.rag.retrieve._has_sklearn", True),
+            patch("hephaistos.rag.retrieve._SklearnTfidfVectorizer", FakeVectorizer),
         ):
             TfidfRetriever(index)
 
@@ -210,7 +210,7 @@ class TestBm25Retriever:
             _make_chunk("Rust ownership and borrowing.", "rust.md", 0),
         ]
         index = _make_index_with_chunks(chunks)
-        retrieve_module = import_module("hephaistos.harness.rag.retrieve")
+        retrieve_module = import_module("hephaistos.rag.retrieve")
         monkeypatch.setattr(retrieve_module, "_Bm25Class", FakeBm25)
 
         retriever = Bm25Retriever(index)
@@ -225,7 +225,7 @@ class TestBm25Retriever:
                 raise AssertionError("empty token corpus should not be indexed")
 
         index = _make_index_with_chunks([_make_chunk("a I to the", "empty.md", 0)])
-        retrieve_module = import_module("hephaistos.harness.rag.retrieve")
+        retrieve_module = import_module("hephaistos.rag.retrieve")
         monkeypatch.setattr(retrieve_module, "_Bm25Class", ExplodingBm25)
 
         retriever = Bm25Retriever(index)
@@ -241,7 +241,7 @@ class TestBm25Retriever:
                 raise ValueError("max() iterable argument is empty")
 
         index = _make_index_with_chunks([_make_chunk("python", "python.md", 0)])
-        retrieve_module = import_module("hephaistos.harness.rag.retrieve")
+        retrieve_module = import_module("hephaistos.rag.retrieve")
         monkeypatch.setattr(retrieve_module, "_Bm25Class", FailingBm25)
 
         retriever = Bm25Retriever(index)
@@ -523,7 +523,7 @@ class TestHybridRetriever:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index)
@@ -539,7 +539,7 @@ class TestHybridRetriever:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=True,
         ):
             hybrid = HybridRetriever(index)
@@ -554,11 +554,11 @@ class TestHybridRetriever:
 
         with (
             patch(
-                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                "hephaistos.rag.retrieve.EmbeddingRetriever",
                 side_effect=ImportError("no torch"),
             ),
         ):
@@ -574,7 +574,7 @@ class TestHybridRetriever:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index)
@@ -598,11 +598,11 @@ class TestHybridRetriever:
 
         with (
             patch(
-                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                "hephaistos.rag.retrieve.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -623,11 +623,11 @@ class TestHybridRetriever:
 
         with (
             patch(
-                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                "hephaistos.rag.retrieve.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -647,11 +647,11 @@ class TestHybridRetriever:
 
         with (
             patch(
-                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                "hephaistos.rag.retrieve.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -822,11 +822,11 @@ class TestHybridRetrieverWithReranker:
 
         with (
             patch(
-                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                "hephaistos.rag.retrieve.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -853,7 +853,7 @@ class TestHybridRetrieverWithReranker:
         mock_reranker = MagicMock(spec=CrossEncoderReranker)
 
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, reranker=mock_reranker)
@@ -877,7 +877,7 @@ class TestHybridRetrieverWithReranker:
         ]
 
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index, reranker=mock_reranker)
@@ -903,7 +903,7 @@ class TestHybridRetrieverWithReranker:
         index = _make_index_with_chunks(chunks)
 
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             hybrid = HybridRetriever(index)
@@ -928,11 +928,11 @@ class TestHybridRetrieverWithReranker:
 
         with (
             patch(
-                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                "hephaistos.rag.retrieve.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
         ):
@@ -950,7 +950,7 @@ class TestCreateRetriever:
     def test_returns_tfidf_when_no_embeddings(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             r = _create_retriever(index)
@@ -959,7 +959,7 @@ class TestCreateRetriever:
     def test_returns_hybrid_when_embeddings_available(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=True,
         ):
             r = _create_retriever(index)
@@ -971,11 +971,11 @@ class TestCreateRetriever:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with (
             patch(
-                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
+                "hephaistos.rag.retrieve.CrossEncoderReranker",
                 side_effect=ImportError("no cross-encoder"),
             ),
         ):
@@ -987,11 +987,11 @@ class TestCreateRetriever:
         index = _make_index_with_chunks([_make_chunk("hello")])
         with (
             patch(
-                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                "hephaistos.rag.retrieve.EmbeddingRetriever",
                 side_effect=ImportError("nope"),
             ),
         ):
@@ -1011,7 +1011,7 @@ class TestRetrieveConvenience:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve("binary search algorithm", index)
@@ -1036,15 +1036,15 @@ class TestRetrieveConvenience:
 
         with (
             patch(
-                "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+                "hephaistos.rag.retrieve._is_sentence_transformers_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.EmbeddingRetriever",
+                "hephaistos.rag.retrieve.EmbeddingRetriever",
                 return_value=mock_embed,
             ),
             patch(
-                "hephaistos.harness.rag.retrieve.CrossEncoderReranker",
+                "hephaistos.rag.retrieve.CrossEncoderReranker",
                 return_value=mock_reranker,
             ),
         ):
@@ -1089,11 +1089,11 @@ class TestRetrieveConvenience:
 
         with (
             patch(
-                "hephaistos.harness.rag.retrieve.create_transformer",
+                "hephaistos.rag.retrieve.create_transformer",
                 return_value=_StubTransformer("hyde"),
             ),
             patch(
-                "hephaistos.harness.rag.retrieve._create_retriever",
+                "hephaistos.rag.retrieve._create_retriever",
                 side_effect=fake_create_retriever,
             ) as mock_create_retriever,
         ):
@@ -1122,7 +1122,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             # TF-IDF: "python" only matches the first chunk, second scores 0
@@ -1138,7 +1138,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             # "quantum" shares no tokens with "cooking" — scores will be ~0
@@ -1151,7 +1151,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve("python", index, min_score=0.0)
@@ -1163,7 +1163,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             # Default min_score=0.0 — all results returned
@@ -1176,7 +1176,7 @@ class TestMinScoreThreshold:
         ]
         index = _make_index_with_chunks(chunks)
         with patch(
-            "hephaistos.harness.rag.retrieve._is_sentence_transformers_available",
+            "hephaistos.rag.retrieve._is_sentence_transformers_available",
             return_value=False,
         ):
             results = retrieve("python programming", index, min_score=0.05)

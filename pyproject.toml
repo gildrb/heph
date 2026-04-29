@@ -168,6 +168,7 @@ min-similarity-lines = 8
 
 [tool.pylint.main]
 persistent = false
+ignore-paths = ["^hephaistos/harness/rag/"]  # temporary duplicate of hephaistos/rag/ — deleted in Phase 3
 
 [tool.pylint.reports]
 score = false

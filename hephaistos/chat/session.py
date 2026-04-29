@@ -22,11 +22,11 @@ from hephaistos.chat.usage import SessionUsage
 from hephaistos.harness.dispatch import SteeringQueue
 from hephaistos.harness.persona import Persona, resolve_persona
 from hephaistos.harness.prompt import build_system_prompt
-from hephaistos.harness.rag import ArmoryIndex, TurnEvidence, iter_source_files
 from hephaistos.harness.tools import ToolRegistry, default_registry
 from hephaistos.logging import TraceWriter, get_logger
 from hephaistos.memory import MemoryStore, load_memory
 from hephaistos.observability import set_session_context
+from hephaistos.rag import ArmoryIndex, TurnEvidence, iter_source_files
 from hephaistos.study import StudyState
 
 _log = get_logger("chat.session")

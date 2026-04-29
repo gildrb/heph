@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from hephaistos.harness.rag.chunker import Chunk
-from hephaistos.harness.rag.context import build_context, build_turn_evidence, estimate_tokens
-from hephaistos.harness.rag.retrieve import ScoredChunk
+from hephaistos.rag.chunker import Chunk
+from hephaistos.rag.context import build_context, build_turn_evidence, estimate_tokens
+from hephaistos.rag.retrieve import ScoredChunk
 
 
 def _make_scored(text: str, source: str = "test.md", score: float = 1.0) -> ScoredChunk:

@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from hephaistos.harness.rag.context import TurnEvidence
 from hephaistos.logging import get_logger
+from hephaistos.rag.context import TurnEvidence
 
 _log = get_logger("harness.citation")
 

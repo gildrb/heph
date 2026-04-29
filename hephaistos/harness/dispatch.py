@@ -33,9 +33,9 @@ from hephaistos.harness.compact import (
     estimate_messages_tokens,
     micro_compact,
 )
-from hephaistos.harness.rag.context import TurnEvidence
 from hephaistos.harness.tools import ToolRegistry, ToolResult, default_registry
 from hephaistos.logging import Timer, get_logger
+from hephaistos.rag.context import TurnEvidence
 
 _log = get_logger("harness.dispatch")
 

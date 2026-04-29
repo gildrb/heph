@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.harness.rag.chunker import ChunkStrategy
-from hephaistos.harness.rag.index import ArmoryIndex, build_index, load_or_build
+from hephaistos.rag.chunker import ChunkStrategy
+from hephaistos.rag.index import ArmoryIndex, build_index, load_or_build
 
 
 @pytest.fixture

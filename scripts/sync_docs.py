@@ -12,13 +12,13 @@ from typing import Final
 
 from hephaistos.app.cli import build_parser
 from hephaistos.app.commands import get_registry
-from hephaistos.harness.rag.retrieve import _EMBED_MODEL_ENV, _RERANK_MODEL_ENV
 from hephaistos.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
 from hephaistos.memory.extract import _EXTRACTION_MODEL_ENV
 from hephaistos.memory.supermemory import SUPERMEMORY_API_KEY_ENV, SUPERMEMORY_URL_ENV
 from hephaistos.parameters import cli as parameters_cli
 from hephaistos.providers.config import default_config
 from hephaistos.providers.keyring_store import GLOBAL_API_KEY_ENV
+from hephaistos.rag.retrieve import _EMBED_MODEL_ENV, _RERANK_MODEL_ENV
 from hephaistos.telemetry import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,

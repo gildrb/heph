@@ -23,7 +23,10 @@ from hephaistos.chat.titles import derive_title
 from hephaistos.chat.usage import ContextBudget, save_usage
 from hephaistos.harness.citation import verify_response
 from hephaistos.harness.dispatch import iter_agent_events
-from hephaistos.harness.rag import (
+from hephaistos.logging import Timer, get_logger
+from hephaistos.memory.extract import extract_and_store
+from hephaistos.observability import get_meter, get_tracer
+from hephaistos.rag import (
     ArmoryIndex,
     ScoredChunk,
     TransformStrategy,
@@ -32,10 +35,7 @@ from hephaistos.harness.rag import (
     load_or_build,
     retrieve,
 )
-from hephaistos.harness.rag.query_transform import PromptFn
-from hephaistos.logging import Timer, get_logger
-from hephaistos.memory.extract import extract_and_store
-from hephaistos.observability import get_meter, get_tracer
+from hephaistos.rag.query_transform import PromptFn
 from hephaistos.study import StudyState, StudyTurnPlan, apply_turn_result, plan_turn
 
 if TYPE_CHECKING:

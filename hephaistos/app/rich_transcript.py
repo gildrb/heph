@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from hephaistos.harness.rag.context import TurnEvidence
+from hephaistos.rag.context import TurnEvidence
 
 _CITATION_RE = re.compile(r"\[([Ee]\d+(?:\s*[,;]\s*[Ee]\d+)*)\]")
 _SINGLE_ID_RE = re.compile(r"[Ee](\d+)")

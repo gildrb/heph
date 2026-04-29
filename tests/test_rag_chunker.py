@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from hephaistos.harness.rag.chunker import (
+from hephaistos.rag.chunker import (
     _DOCLING_EXTENSIONS,  # type: ignore[reportPrivateUsage]
     ChunkStrategy,
     _convert_to_markdown,  # type: ignore[reportPrivateUsage]
@@ -274,7 +274,7 @@ class TestDoclingIntegration:
         mock_converter.convert.return_value = mock_result
 
         with patch(
-            "hephaistos.harness.rag.chunker._get_docling_converter",
+            "hephaistos.rag.chunker._get_docling_converter",
             return_value=mock_converter,
         ):
             md = _convert_to_markdown(pdf)
@@ -290,7 +290,7 @@ class TestDoclingIntegration:
         mock_converter.convert.side_effect = RuntimeError("conversion failed")
 
         with patch(
-            "hephaistos.harness.rag.chunker._get_docling_converter",
+            "hephaistos.rag.chunker._get_docling_converter",
             return_value=mock_converter,
         ):
             md = _convert_to_markdown(pdf)
@@ -314,11 +314,11 @@ class TestDoclingIntegration:
 
         with (
             patch(
-                "hephaistos.harness.rag.chunker._is_docling_available",
+                "hephaistos.rag.chunker._is_docling_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.chunker._get_docling_converter",
+                "hephaistos.rag.chunker._get_docling_converter",
                 return_value=mock_converter,
             ),
         ):
@@ -338,7 +338,7 @@ class TestDoclingIntegration:
         pdf.write_bytes(b"%PDF-1.4\x00binary")
 
         with patch(
-            "hephaistos.harness.rag.chunker._is_docling_available",
+            "hephaistos.rag.chunker._is_docling_available",
             return_value=False,
         ):
             doc = chunk_file(pdf, armory)
@@ -358,11 +358,11 @@ class TestDoclingIntegration:
 
         with (
             patch(
-                "hephaistos.harness.rag.chunker._is_docling_available",
+                "hephaistos.rag.chunker._is_docling_available",
                 return_value=True,
             ),
             patch(
-                "hephaistos.harness.rag.chunker._get_docling_converter",
+                "hephaistos.rag.chunker._get_docling_converter",
                 return_value=mock_converter,
             ),
         ):

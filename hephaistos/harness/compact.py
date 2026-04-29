@@ -29,8 +29,8 @@ from hephaistos.chat.engine import (
     build_client,
     to_chat_completion_messages,
 )
-from hephaistos.harness.rag.context import estimate_tokens
 from hephaistos.logging import get_logger
+from hephaistos.rag.context import estimate_tokens
 
 _log = get_logger("harness.compact")
 

@@ -6,8 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hephaistos.harness.rag.index import iter_source_files
 from hephaistos.parameters.settings import load_raw_settings, save_setting
+from hephaistos.rag.index import iter_source_files
 
 _SETTINGS_KEY = "known_armories"
 

@@ -7,8 +7,8 @@ from hephaistos.app.rich_transcript import (
     evidence_summary_text,
     extract_cited_ids,
 )
-from hephaistos.harness.rag.chunker import Chunk
-from hephaistos.harness.rag.context import EvidenceChunk, TurnEvidence
+from hephaistos.rag.chunker import Chunk
+from hephaistos.rag.context import EvidenceChunk, TurnEvidence
 
 
 def _make_chunk(source: str, index: int, text: str) -> Chunk:
