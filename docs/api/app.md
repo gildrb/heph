@@ -2,6 +2,9 @@
 
 CLI entrypoint, commands, menus, display, palette.
 
+`commands` is now a package with per-concern modules (`armory`, `auth`, `compact`,
+`display`, `help`, `memory`, `model`, `persona`, `session`, `settings`, `study`).
+
 ::: hephaistos.app.cli
 ::: hephaistos.app.commands
 ::: hephaistos.app.workspace

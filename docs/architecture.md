@@ -17,6 +17,7 @@ graph TD
     App --> Logging[logging]
     App --> Palette[palette]
     App --> RAG[rag]
+    App --> Vocab[vocab]
 
     Chat --> Agent
     Chat --> Providers
@@ -26,6 +27,8 @@ graph TD
     Agent --> Providers
     Agent --> Logging
     Agent --> Memory
+
+    Vocab --> Logging
 
     Providers --> Logging
     Providers --> Palette
@@ -66,6 +69,7 @@ hephaistos/
   memory/       Memory extraction and storage — no app imports
   parameters/   Parameter management CLI — no app imports
   source/       Source management — no app imports
+  vocab/        Vocabulary drill, scheduler, state — no app imports
   logging.py    Shared logging — must NOT import app
   palette.py    ANSI color primitives — must NOT import app
 ```
@@ -85,6 +89,7 @@ The following packages cannot import anything from `hephaistos.app`:
 - `hephaistos.memory`
 - `hephaistos.parameters`
 - `hephaistos.source`
+- `hephaistos.vocab`
 - `hephaistos.logging`
 - `hephaistos.palette`
 

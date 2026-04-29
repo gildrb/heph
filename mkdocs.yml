@@ -34,7 +34,8 @@ nav:
     - app: api/app.md
     - armory: api/armory.md
     - chat: api/chat.md
-    - harness: api/harness.md
+    - agent: api/agent.md
+    - rag: api/rag.md
     - memory: api/memory.md
     - parameters: api/parameters.md
     - providers: api/providers.md

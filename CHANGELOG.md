@@ -11,11 +11,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Source-management and persistent config CLI commands.
 - Persona switching, direct terminal I/O helpers, and an extensible armory tool registry.
 - OAuth support plus optional document conversion via `docling`.
+- Memory status indicator in the TUI status bar.
 
 ### Changed
 
 - Revamped the TTY shell UI, streaming engine, and turn orchestrator flow.
 - Refined plain-chat prompting, RAG index handling, and tool security boundaries.
+- Removed classic prompt-toolkit shell (`shell.py`, `keybindings.py` deleted).
+- Split `commands.py` into `app/commands/` package with per-concern modules.
+- Split `harness/` into top-level `agent/` and `rag/` packages.
+- Renamed `_build_client` to `build_client` (public API).
+- Removed `prompt-toolkit` dependency.
+- Moved `pathspec` and `rapidfuzz` to optional dependency groups.
 
 ### Fixed
 
