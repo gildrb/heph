@@ -675,6 +675,21 @@ def _slash_suggestion(engine: SlashCompletionEngine, value: str) -> str | None:
     return engine.suggestion(value, _tui_command_suggestions())
 
 
+_COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
+
+
+def _completion_menu_scroll_y(
+    highlighted: int,
+    option_count: int,
+    rendered_height: int,
+) -> int:
+    visible_rows = rendered_height if rendered_height > 0 else _COMPLETION_MENU_MAX_VISIBLE_ROWS
+    visible_rows = max(1, min(option_count, visible_rows, _COMPLETION_MENU_MAX_VISIBLE_ROWS))
+    max_scroll_y = max(0, option_count - visible_rows)
+    centered_scroll_y = highlighted - (visible_rows // 2)
+    return min(max(centered_scroll_y, 0), max_scroll_y)
+
+
 def _tui_command_suggestions() -> list[CommandSuggestion]:
     suggestions = get_registry().suggestions()
     suggestions.append(
@@ -1125,7 +1140,13 @@ class HephaistosTui(App[None]):
         current = suggestions.highlighted
         if current is None:
             current = 0
-        suggestions.highlighted = (current + offset) % len(self.completion_candidates)
+        highlighted = (current + offset) % len(self.completion_candidates)
+        suggestions.highlighted = highlighted
+        suggestions.scroll_y = _completion_menu_scroll_y(
+            highlighted,
+            len(self.completion_candidates),
+            suggestions.size.height,
+        )
 
     def _apply_completion(self, index: int) -> None:
         if not (0 <= index < len(self.completion_candidates)):

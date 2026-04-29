@@ -14,8 +14,10 @@ from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
 
 if TYPE_CHECKING:
+    from textual.app import App as TextualApp
     from textual.screen import Screen
     from textual.widget import Widget
+    from textual.widgets import OptionList as TextualOptionList
 
 
 def _plain_session() -> ChatSession:
@@ -674,3 +676,93 @@ def test_slash_on_empty_composer_preserves_cursor_after_focus_swap() -> None:
             assert composer.cursor_position == 2
 
     asyncio.run(check_cursor_preserved())
+
+
+def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_scroll_policy() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.press("/")
+            await pilot.pause()
+
+            suggestions = cast(
+                "TextualOptionList",
+                app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
+            )
+
+            assert suggestions.highlighted == 0
+            assert suggestions.scroll_y == 0
+            assert [c.text.strip() for c in app.completion_candidates[:6]] == [
+                "help",
+                "exit",
+                "login",
+                "logout",
+                "status",
+                "save",
+            ]
+
+            expected = (
+                (1, 0),
+                (2, 0),
+                (3, 0),
+                (4, 1),
+                (5, 2),
+            )
+            for highlighted, scroll_y in expected:
+                await pilot.press("down")
+                await pilot.pause()
+
+                assert suggestions.highlighted == highlighted
+                assert suggestions.scroll_y == scroll_y
+
+    asyncio.run(check_scroll_policy())
+
+
+def test_completion_menu_highlight_moves_down_at_bottom() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_bottom_policy() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.press("/")
+            await pilot.pause()
+
+            suggestions = cast(
+                "TextualOptionList",
+                app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
+            )
+            visible_rows = min(
+                suggestions.option_count,
+                suggestions.size.height,
+                7,
+            )
+            last_index = suggestions.option_count - 1
+            last_scroll_y = suggestions.option_count - visible_rows
+
+            for _ in range(last_index):
+                await pilot.press("down")
+            await pilot.pause()
+
+            assert suggestions.highlighted == last_index
+            assert suggestions.scroll_y == last_scroll_y
+            highlighted = suggestions.highlighted
+            assert highlighted is not None
+            assert highlighted - suggestions.scroll_y == visible_rows - 1
+
+    asyncio.run(check_bottom_policy())

@@ -10,6 +10,8 @@ kw  # unused variable (tests/test_oauth.py, tests/test_tool_registry.py)
 # Used only in string-annotated cast() — vulture cannot detect string references.
 Stream  # unused import (hephaistos/chat/engine.py)
 ChatCompletionChunk  # unused import (hephaistos/chat/engine.py)
+TextualApp  # unused import (tests/test_app_tui.py)
+TextualOptionList  # unused import (tests/test_app_tui.py)
 
 # sentence-transformers / sklearn Protocol signatures — vulture sees the keyword-only
 # parameters as unused because they are never referenced inside the Protocol body, but
