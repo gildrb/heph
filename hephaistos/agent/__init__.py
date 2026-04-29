@@ -1,6 +1,6 @@
-"""Agent harness: tool definitions and dispatch loop."""
+"""Agent harness: tool definitions, dispatch loop, and prompt building."""
 
-from hephaistos.harness.dispatch import (
+from hephaistos.agent.dispatch import (
     ToolCall,
     ToolCallFunction,
     agent_loop,
@@ -9,8 +9,8 @@ from hephaistos.harness.dispatch import (
     merge_tool_call_deltas,
     summarize_result,
 )
-from hephaistos.harness.prompt import SystemPrompt, build_system_prompt_sections, render_tool_docs
-from hephaistos.harness.tools import ToolRegistry, ToolResult, ToolSpec, default_registry
+from hephaistos.agent.prompt import SystemPrompt, build_system_prompt_sections, render_tool_docs
+from hephaistos.agent.tools import ToolRegistry, ToolResult, ToolSpec, default_registry
 
 __all__ = [
     "SystemPrompt",

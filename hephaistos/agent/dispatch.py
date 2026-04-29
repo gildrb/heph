@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import TypedDict
 
 from hephaistos._types import is_string_mapping
+from hephaistos.agent.compact import (
+    auto_compact,
+    estimate_messages_tokens,
+    micro_compact,
+)
+from hephaistos.agent.tools import ToolRegistry, ToolResult, default_registry
 from hephaistos.chat._api_types import ApiMessage, ContentPart, ToolCallDelta, UsagePayload
 from hephaistos.chat.engine import (
     ChatConfig,
@@ -28,16 +34,10 @@ from hephaistos.chat.events import (
     render_turn_event,
 )
 from hephaistos.chat.usage import ContextBudget, SessionUsage, TokenUsage
-from hephaistos.harness.compact import (
-    auto_compact,
-    estimate_messages_tokens,
-    micro_compact,
-)
-from hephaistos.harness.tools import ToolRegistry, ToolResult, default_registry
 from hephaistos.logging import Timer, get_logger
 from hephaistos.rag.context import TurnEvidence
 
-_log = get_logger("harness.dispatch")
+_log = get_logger("agent.dispatch")
 
 _MAX_TURNS = 20
 _MAX_RESULT_DISPLAY = 200
@@ -154,7 +154,7 @@ def execute_tool_calls(
             continue
 
         if registry.is_control_tool(name):
-            content = f"Control tool handled by harness: {name}"
+            content = f"Control tool handled by agent: {name}"
             results.append(
                 {
                     "role": "tool",

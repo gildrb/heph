@@ -134,6 +134,7 @@ line-ending = "lf"
 
 [tool.ruff.lint.per-file-ignores]
 "hephaistos/providers/registry.py" = ["E501"]  # model data definitions are inherently long
+"scripts/check_repo_policies.py" = ["N802"]  # visit_* methods required by AST visitor pattern
 "vulture-whitelist.py" = ["E501", "B018", "F821"]  # bare names are intentional vulture hints
 
 [tool.ruff.lint.flake8-pytest-style]
@@ -168,7 +169,7 @@ min-similarity-lines = 8
 
 [tool.pylint.main]
 persistent = false
-ignore-paths = ["^hephaistos/harness/rag/"]  # temporary duplicate of hephaistos/rag/ — deleted in Phase 3
+ignore-paths = []
 
 [tool.pylint.reports]
 score = false
@@ -198,7 +199,8 @@ name = "non-app packages must not import app"
 type = "forbidden"
 source_modules = [
     "hephaistos.chat",
-    "hephaistos.harness",
+    "hephaistos.agent",
+    "hephaistos.rag",
     "hephaistos.providers",
     "hephaistos.armory",
     "hephaistos.study",

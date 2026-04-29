@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from hephaistos.agent.persona import get_persona, list_personas
 from hephaistos.app.commands._base import Command, CommandResult, ensure_session
 from hephaistos.app.display import print_error, print_info, print_success
 from hephaistos.app.menu import MenuOption, select_option
 from hephaistos.chat.session import replace_system_prompt
-from hephaistos.harness.persona import get_persona, list_personas
 
 
 class PersonaCommand(Command):

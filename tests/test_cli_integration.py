@@ -7,13 +7,13 @@ from unittest.mock import patch
 import pytest
 
 import hephaistos.app.cli as app_cli
+from hephaistos.agent.dispatch import iter_agent_events
 from hephaistos.app.cli import build_parser, run_argv
 from hephaistos.app.tui import TuiDependencyError
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.events import TurnCompleteEvent
 from hephaistos.chat.session import create_session
-from hephaistos.harness.dispatch import iter_agent_events
 from hephaistos.rag.index import load_or_build
 
 

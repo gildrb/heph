@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hephaistos.harness.persona import DEFAULT, TUTOR, get_persona, list_personas, resolve_persona
+from hephaistos.agent.persona import DEFAULT, TUTOR, get_persona, list_personas, resolve_persona
 
 
 def test_get_persona_returns_registered_persona_or_none() -> None:

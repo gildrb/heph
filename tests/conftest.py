@@ -19,12 +19,12 @@ import hephaistos.parameters.settings as _settings_mod
 import hephaistos.providers.config as _provider_config_mod
 import hephaistos.providers.keyring_store as _ks
 import hephaistos.telemetry as _telemetry_mod
+from hephaistos.agent.tools import ToolHandlerResult, ToolSpec
 from hephaistos.app.palette import set_theme
 from hephaistos.armory.storage import initialize
 from hephaistos.chat._api_types import ApiMessage
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_session
-from hephaistos.harness.tools import ToolHandlerResult, ToolSpec
 
 
 def _reset_diagnostics_module_objects() -> None:

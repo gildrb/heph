@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from hephaistos.harness.dispatch import SteeringQueue
+from hephaistos.agent.dispatch import SteeringQueue
 
 __all__ = ["SteeringQueue"]

@@ -8,15 +8,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hephaistos.chat._api_types import ApiMessage, ToolCallDelta
-from hephaistos.chat.engine import Conversation
-from hephaistos.harness.compact import (
+from hephaistos.agent.compact import (
     KEEP_RECENT,
     auto_compact,
     estimate_messages_tokens,
     micro_compact,
 )
-from hephaistos.harness.dispatch import _sync_conversation  # type: ignore[reportPrivateUsage]
+from hephaistos.agent.dispatch import _sync_conversation  # type: ignore[reportPrivateUsage]
+from hephaistos.chat._api_types import ApiMessage, ToolCallDelta
+from hephaistos.chat.engine import Conversation
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -221,7 +221,7 @@ class TestAutoCompact:
         messages = _build_messages(3)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
-            "hephaistos.harness.compact.build_client",
+            "hephaistos.agent.compact.build_client",
             lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
@@ -248,7 +248,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
-            "hephaistos.harness.compact.build_client",
+            "hephaistos.agent.compact.build_client",
             lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
@@ -273,7 +273,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=5)
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
-            "hephaistos.harness.compact.build_client",
+            "hephaistos.agent.compact.build_client",
             lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
@@ -293,7 +293,7 @@ class TestAutoCompact:
         messages = _build_multi_exchange(n_exchanges=4)
         config, mock_client = self._mock_config_and_client(summary="Key fact: the answer is 42.")
         monkeypatch.setattr(
-            "hephaistos.harness.compact.build_client",
+            "hephaistos.agent.compact.build_client",
             lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
@@ -314,7 +314,7 @@ class TestAutoCompact:
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = RuntimeError("no API key")
         monkeypatch.setattr(
-            "hephaistos.harness.compact.build_client",
+            "hephaistos.agent.compact.build_client",
             lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.harness.persona import TUTOR
-from hephaistos.harness.prompt import build_system_prompt, build_system_prompt_sections
+from hephaistos.agent.persona import TUTOR
+from hephaistos.agent.prompt import build_system_prompt, build_system_prompt_sections
 
 
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:

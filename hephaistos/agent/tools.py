@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Literal, NotRequired, Required, TypedDict
 from urllib.parse import urlparse
 
-from hephaistos.harness.mutation_queue import get_queue
+from hephaistos.agent.mutation_queue import get_queue
 
 
 def safe_path(workspace: Path, rel_path: str) -> Path:

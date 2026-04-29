@@ -6,7 +6,7 @@ import http.client
 import urllib.error
 from unittest.mock import MagicMock, patch
 
-from hephaistos.harness.tools import (
+from hephaistos.agent.tools import (
     TOOL_SCHEMAS,
     BashResult,
     get_handler,
@@ -109,7 +109,7 @@ class TestWebFetch:
         mock_response.__enter__ = lambda s: s  # type: ignore[reportUnknownLambdaType]
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("hephaistos.harness.tools.urllib.request.urlopen", return_value=mock_response):
+        with patch("hephaistos.agent.tools.urllib.request.urlopen", return_value=mock_response):
             result = run_web_fetch("https://example.com/test")
 
         assert "Source: https://example.com/test" in result
@@ -118,7 +118,7 @@ class TestWebFetch:
 
     def test_fetch_http_error(self):
         with patch(
-            "hephaistos.harness.tools.urllib.request.urlopen",
+            "hephaistos.agent.tools.urllib.request.urlopen",
             side_effect=urllib.error.HTTPError(
                 "url",
                 404,
@@ -136,7 +136,7 @@ class TestWebFetch:
         mock_response.__enter__ = lambda s: s  # type: ignore[reportUnknownLambdaType]
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("hephaistos.harness.tools.urllib.request.urlopen", return_value=mock_response):
+        with patch("hephaistos.agent.tools.urllib.request.urlopen", return_value=mock_response):
             result = run_web_fetch("https://example.com/image.png")
             assert "non-text content" in result
 

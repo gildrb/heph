@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hephaistos.harness.citation import (
+from hephaistos.agent.citation import (
     VerificationResult,
     extract_citations,
     format_verification_notice,

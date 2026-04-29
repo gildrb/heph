@@ -32,7 +32,7 @@ from hephaistos.chat.engine import (
 from hephaistos.logging import get_logger
 from hephaistos.rag.context import estimate_tokens
 
-_log = get_logger("harness.compact")
+_log = get_logger("agent.compact")
 
 KEEP_RECENT: int = 3  # tool results left untouched by micro_compact
 KEEP_RECENT_EXCHANGES: int = 2  # complete exchanges preserved verbatim by auto_compact

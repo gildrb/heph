@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from hephaistos.harness.persona import list_personas
+from hephaistos.agent.persona import list_personas
 from hephaistos.providers.config import Provider, ProviderConfig
 
 

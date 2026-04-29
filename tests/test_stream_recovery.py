@@ -10,6 +10,7 @@ import httpx
 import pytest
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
+from hephaistos.agent.dispatch import agent_loop
 from hephaistos.chat.engine import (
     ChatConfig,
     Conversation,
@@ -24,7 +25,6 @@ from hephaistos.chat.engine import (
 from hephaistos.chat.events import AssistantDeltaEvent
 from hephaistos.chat.orchestrator import TurnOrchestrator
 from hephaistos.chat.session import ChatSession, send_user_message
-from hephaistos.harness.dispatch import agent_loop
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -570,7 +570,7 @@ class TestAgentLoopRetry:
         ]
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
-        with patch("hephaistos.harness.dispatch._build_client", return_value=mock_client):
+        with patch("hephaistos.agent.dispatch._build_client", return_value=mock_client):
             result = list(agent_loop(_config(), _conv(), workspace=_workspace(), retry=retry))
 
         assert "".join(result) == "Done"
@@ -583,7 +583,7 @@ class TestAgentLoopRetry:
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
         with (
-            patch("hephaistos.harness.dispatch._build_client", return_value=mock_client),
+            patch("hephaistos.agent.dispatch._build_client", return_value=mock_client),
             pytest.raises(StreamRecoveryError) as exc_info,
         ):
             list(agent_loop(_config(), _conv(), workspace=_workspace(), retry=retry))
@@ -597,7 +597,7 @@ class TestAgentLoopRetry:
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
         with (
-            patch("hephaistos.harness.dispatch._build_client", return_value=mock_client),
+            patch("hephaistos.agent.dispatch._build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM request failed"),
         ):
             list(agent_loop(_config(), _conv(), workspace=_workspace(), retry=retry))

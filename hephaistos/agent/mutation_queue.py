@@ -17,7 +17,7 @@ from pathlib import Path
 
 from hephaistos.logging import Timer, get_logger
 
-_log = get_logger("harness.mutation_queue")
+_log = get_logger("agent.mutation_queue")
 
 # Type for mutation functions: takes kwargs, returns result string
 MutationFn = Callable[..., str]

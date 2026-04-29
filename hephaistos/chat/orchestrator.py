@@ -8,6 +8,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from hephaistos.agent.citation import verify_response
+from hephaistos.agent.dispatch import iter_agent_events
 from hephaistos.chat.engine import (
     ChatConfig,
     Conversation,
@@ -21,8 +23,6 @@ from hephaistos.chat.engine import (
 from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
 from hephaistos.chat.titles import derive_title
 from hephaistos.chat.usage import ContextBudget, save_usage
-from hephaistos.harness.citation import verify_response
-from hephaistos.harness.dispatch import iter_agent_events
 from hephaistos.logging import Timer, get_logger
 from hephaistos.memory.extract import extract_and_store
 from hephaistos.observability import get_meter, get_tracer

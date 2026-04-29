@@ -8,18 +8,15 @@ from pathlib import Path
 import pytest
 from conftest import message_text
 
-import hephaistos.harness.dispatch as dispatch_mod
-from hephaistos.chat._api_types import ApiMessage
-from hephaistos.chat.engine import ChatConfig, CompletionDelta, Conversation
-from hephaistos.chat.events import AssistantDeltaEvent, CompactRequestEvent, TurnCompleteEvent
-from hephaistos.harness.dispatch import (
+import hephaistos.agent.dispatch as dispatch_mod
+from hephaistos.agent.dispatch import (
     ToolCall,
     execute_tool_calls,
     format_tool_args,
     merge_tool_call_deltas,
     summarize_result,
 )
-from hephaistos.harness.tools import (
+from hephaistos.agent.tools import (
     TOOL_SCHEMAS,
     get_handler,
     run_bash,
@@ -29,6 +26,9 @@ from hephaistos.harness.tools import (
     run_write_file,
     safe_path,
 )
+from hephaistos.chat._api_types import ApiMessage
+from hephaistos.chat.engine import ChatConfig, CompletionDelta, Conversation
+from hephaistos.chat.events import AssistantDeltaEvent, CompactRequestEvent, TurnCompleteEvent
 
 # ---------------------------------------------------------------------------
 # safe_path

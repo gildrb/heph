@@ -16,12 +16,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hephaistos.harness.persona import DEFAULT as _DEFAULT_PERSONA
-from hephaistos.harness.persona import Persona
-from hephaistos.harness.tools import ToolRegistry, ToolSchema, default_registry
+from hephaistos.agent.persona import DEFAULT as _DEFAULT_PERSONA
+from hephaistos.agent.persona import Persona
+from hephaistos.agent.tools import ToolRegistry, ToolSchema, default_registry
 from hephaistos.logging import get_logger
 
-_log = get_logger("harness.prompt")
+_log = get_logger("agent.prompt")
 
 _ANTI_HALLUCINATION = """\
 ## Accuracy Rules (CRITICAL — violation is the worst possible outcome)

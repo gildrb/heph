@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from hephaistos.logging import get_logger
 from hephaistos.rag.context import TurnEvidence
 
-_log = get_logger("harness.citation")
+_log = get_logger("agent.citation")
 
 _EVIDENCE_CITATION_RE = re.compile(r"\[((?:e|E)\d+(?:\s*[,;]\s*(?:e|E)\d+)*)\]")
 _EVIDENCE_ID_RE = re.compile(r"(?:e|E)\d+")
