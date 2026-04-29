@@ -20,7 +20,7 @@ from hephaistos.chat.engine import (
     ChatConfig,
     Conversation,
     RetryConfig,
-    _build_client,  # type: ignore[reportPrivateUsage]
+    build_client,
     stream_completion,
 )
 from hephaistos.chat.events import (
@@ -537,7 +537,7 @@ def iter_agent_events(
                 tools=schemas or None,
                 abort=abort,
                 retry=retry,
-                client_factory=_build_client,
+                client_factory=build_client,
             ):
                 if delta.content:
                     collected_parts.append(delta.content)

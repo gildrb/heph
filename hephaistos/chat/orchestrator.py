@@ -16,7 +16,7 @@ from hephaistos.chat.engine import (
     EngineError,
     RetryConfig,
     StreamRecoveryError,
-    _build_client,  # type: ignore[reportPrivateUsage]
+    build_client,
     stream_completion,
     to_chat_completion_messages,
 )
@@ -175,7 +175,7 @@ class TurnOrchestrator:
             session.conversation,
             abort=abort,
             retry=self.retry,
-            client_factory=_build_client,
+            client_factory=build_client,
         ):
             if not delta.content:
                 continue
@@ -373,7 +373,7 @@ def _build_prompt_fn(config: ChatConfig) -> PromptFn:
     def _prompt(prompt_text: str) -> str:
         conv = Conversation()
         conv.add("user", prompt_text)
-        client = _build_client(config)
+        client = build_client(config)
         messages = to_chat_completion_messages(conv.to_api_messages())
         resp = client.chat.completions.create(
             model=config.model,

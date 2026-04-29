@@ -304,7 +304,7 @@ def _log_error_summary(exc: Exception) -> str:
     return str(exc)
 
 
-def _build_client(config: ChatConfig) -> OpenAI:
+def build_client(config: ChatConfig) -> OpenAI:
     """Create an OpenAI client from the given config."""
     if not config.base_url:
         raise EngineError("No provider configured. Use /provider use <slug> to select one.")
@@ -341,10 +341,6 @@ def _is_keyless_endpoint(base_url: str) -> bool:
 
 
 is_keyless_endpoint = _is_keyless_endpoint
-
-
-# Public alias so callers don't need to reference the private name.
-build_client = _build_client
 
 
 def is_retryable_error(exc: Exception) -> bool:
@@ -433,7 +429,7 @@ def stream_completion(
     span.set_attribute("gen_ai.request.model", config.model)
     span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)
     retry = retry or RetryConfig()
-    client_factory = client_factory or _build_client
+    client_factory = client_factory or build_client
     api_messages = messages.to_api_messages() if isinstance(messages, Conversation) else messages
     msg_count = len(api_messages)
     _log.debug(
@@ -613,7 +609,7 @@ def stream_reply(
         conversation,
         abort=abort,
         retry=retry,
-        client_factory=_build_client,
+        client_factory=build_client,
     ):
         if delta.content:
             yield delta.content
