@@ -391,12 +391,14 @@ Screen {{
     height: auto;
     width: auto;
     max-width: 100%;
+    margin-top: 1;
     padding: 0 0;
     background: {bg};
     color: {p.text};
 }}
 #suggestions {{
     dock: bottom;
+    margin-bottom: 3;
     height: auto;
     max-height: 7;
     min-width: 30;
@@ -458,7 +460,6 @@ OptionList:focus > .option-list--option-highlighted {{
     height: 1;
     width: auto;
     max-width: 100%;
-    margin-top: 1;
     background: {bg};
     color: {p.dim};
 }}

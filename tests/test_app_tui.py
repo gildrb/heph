@@ -136,6 +136,24 @@ def test_tui_css_prevents_full_width_status_and_composer_bars() -> None:
         assert "max-width: 100%;" in block
 
 
+def test_tui_css_positions_suggestions_above_composer_spacer() -> None:
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
+
+    composer_start = css.index("#composer-frame {")
+    composer_end = css.index("}", composer_start)
+    composer_block = css[composer_start:composer_end]
+    suggestions_start = css.index("#suggestions {")
+    suggestions_end = css.index("}", suggestions_start)
+    suggestions_block = css[suggestions_start:suggestions_end]
+    footer_start = css.index("#footer-hints {")
+    footer_end = css.index("}", footer_start)
+    footer_block = css[footer_start:footer_end]
+
+    assert "margin-top: 1;" in composer_block
+    assert "margin-bottom: 3;" in suggestions_block
+    assert "margin-top" not in footer_block
+
+
 def test_status_and_footer_hints_segments_do_not_paint_black_background() -> None:
     if tui.Static is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
