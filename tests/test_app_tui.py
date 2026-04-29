@@ -602,6 +602,41 @@ def test_tab_applies_highlighted_completion_in_composer() -> None:
     asyncio.run(check_tab_completion())
 
 
+def test_models_completion_menu_uses_readable_columns() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _keyless_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_model_columns() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.pause()
+
+            first = app._format_completion_candidate(  # type: ignore[reportPrivateUsage]
+                tui.CompletionCandidate(
+                    text=" openai ",
+                    description="Pollinations",
+                    start_position=0,
+                    display_provider="OpenAI",
+                    display_model="openai",
+                    display_source="Pollinations",
+                    display_tags="free current",
+                )
+            )
+
+            assert first.startswith("OpenAI         openai")
+            assert "Pollinations" in first
+            assert "free current" in first
+            assert "/models" not in first
+
+    asyncio.run(check_model_columns())
+
+
 def test_slash_on_empty_composer_preserves_cursor_after_focus_swap() -> None:
     """Pressing / must show completions without selecting/highlighting the / character.
 

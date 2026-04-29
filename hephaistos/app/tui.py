@@ -1240,6 +1240,13 @@ class HephaistosTui(App[None]):
         self._refresh_completions()
 
     def _format_completion_candidate(self, candidate: CompletionCandidate) -> str:
+        if candidate.display_provider:
+            return (
+                f"{candidate.display_provider:<14} "
+                f"{candidate.display_model:<34} "
+                f"{candidate.display_source:<16} "
+                f"{candidate.display_tags}  "
+            )
         value = self._completion_preview(candidate).strip()
         if candidate.description:
             return f"{value:<22} {candidate.description}  "

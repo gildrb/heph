@@ -56,5 +56,7 @@ def test_models_completion_starts_on_current_free_default() -> None:
     candidates = engine.candidates("/models", [])
 
     assert candidates[0].text == " openai "
-    assert "free" in candidates[0].description
-    assert "current" in candidates[0].description
+    assert candidates[0].display_provider == "OpenAI"
+    assert candidates[0].display_model == "openai"
+    assert candidates[0].display_source == "Pollinations"
+    assert candidates[0].display_tags == "free current"
