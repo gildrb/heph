@@ -7,7 +7,7 @@ from pathlib import Path
 from hephaistos.app.commands._base import Command, CommandResult, ensure_session
 from hephaistos.app.commands.auth import ApiCommand, LoginCommand, LogoutCommand
 from hephaistos.app.commands.memory import MemoryCommand
-from hephaistos.app.commands.model import ModelCommand, ProviderCommand
+from hephaistos.app.commands.model import ModelsCommand, ProviderCommand
 from hephaistos.app.display import STYLE_DIM, print_error, print_info, print_success, styled
 from hephaistos.app.menu import MenuOption, browse_directory, select_option
 from hephaistos.app.palette import THEME_PRESETS, current_theme_name, set_theme
@@ -81,7 +81,7 @@ class SettingsCommand(Command):
             elif selected == 3:
                 self._startup_menu()
             elif selected == 4:
-                ModelCommand().handle(s, "")
+                ModelsCommand().handle(s, "")
             elif selected == 5:
                 MemoryCommand().handle(s, "status")
             else:

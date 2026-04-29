@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from hephaistos.agent.persona import list_personas
+from hephaistos.app.model_picker import configured_model_choices
 from hephaistos.providers.config import Provider, ProviderConfig
 
 
@@ -55,6 +56,16 @@ class SlashCompletionEngine:
 
         body = stripped[1:]
 
+        if body.lower() == "models":
+            return [
+                CompletionCandidate(
+                    text=" " + suggestion + " ",
+                    description=description,
+                    start_position=0,
+                )
+                for suggestion, description in self._model_picker_suggestions([])
+            ]
+
         if not body or " " not in body:
             prefix = body.lower()
             seen: set[str] = set()
@@ -91,7 +102,11 @@ class SlashCompletionEngine:
         candidates = []
         for suggestion, description in self._argument_suggestions(cmd_name, arg_parts):
             current = arg_parts[-1] if arg_parts else ""
-            if current and not suggestion.lower().startswith(current.lower()):
+            if (
+                cmd_name != "models"
+                and current
+                and not suggestion.lower().startswith(current.lower())
+            ):
                 continue
             suffix = "" if suggestion.endswith(" ") else " "
             candidates.append(
@@ -135,11 +150,8 @@ class SlashCompletionEngine:
         if cmd_name == "provider":
             return self._provider_suggestions(arg_parts)
 
-        if cmd_name == "model":
-            return [(model, f"via {slug}") for slug, model in self._all_models()]
-
         if cmd_name == "models":
-            return [("study", "Low-cost model recommendations for study sessions")]
+            return self._model_picker_suggestions(arg_parts)
 
         if cmd_name == "memory":
             return [
@@ -181,12 +193,29 @@ class SlashCompletionEngine:
 
         return []
 
-    def _all_models(self) -> list[tuple[str, str]]:
-        providers = self._cached_providers
-        models: list[tuple[str, str]] = []
-        for slug, provider in providers.items():
-            models.extend((slug, model) for model in provider.models)
-        return models
+    def _model_picker_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
+        query = " ".join(arg_parts).strip().lower()
+        suggestions: list[tuple[str, str]] = []
+        active = self._provider_config_loader().get_active()
+        current_model = active.current_model if active is not None else ""
+        choices = configured_model_choices(self._provider_config_loader())
+        choices = sorted(
+            choices,
+            key=lambda item: 0
+            if active is not None and active.slug == item[0] and item[1] == current_model
+            else 1,
+        )
+        for slug, model, display_name, is_free in choices:
+            haystack = f"{model} {display_name} {slug}".lower()
+            if query and query not in haystack:
+                continue
+            parts = [f"via {display_name}"]
+            if is_free:
+                parts.append("free")
+            if active is not None and active.slug == slug and model == current_model:
+                parts.append("current")
+            suggestions.append((model, "  ".join(parts)))
+        return suggestions
 
     def _persona_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
         if len(arg_parts) > 1:

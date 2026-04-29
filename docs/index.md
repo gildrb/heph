@@ -93,7 +93,7 @@ Inside the shell:
 
 ```text
 /provider
-/model
+/models
 /api key <your-key>
 ```
 
@@ -205,7 +205,7 @@ The default provider config includes:
 - Z.AI
 - Custom OpenAI-compatible endpoint
 
-Switch inside the shell with `/provider` and `/model`, or set
+Switch inside the shell with `/provider` and `/models`, or set
 `HEPHAISTOS_BASE_URL` and `HEPHAISTOS_MODEL` for your own endpoint. The armory
 stays the same when the model changes.
 
@@ -241,7 +241,6 @@ Useful shell commands:
 | /chats | List saved chats in the active armory |
 | /sessions | List or resume saved sessions |
 | /resume [id-prefix] | Resume the latest saved chat, or pass an ID prefix |
-| /model | Show or switch the active model |
 | /api | Manage API key (keychain) or base URL |
 | /compact | Summarize conversation to reduce context size |
 | /history | Show conversation turn count and token estimate |
@@ -254,7 +253,7 @@ Useful shell commands:
 | /remind | Show upcoming study reminders and due cards |
 | /edit | Edit and resend the last user message |
 | /provider | Show or switch LLM provider and model |
-| /models | List all available models across providers |
+| /models | Pick the active model |
 | /recommend | Recommend models for study sessions |
 | /memory | Manage study memory and Supermemory setup |
 | /persona | Show or switch the agent persona |

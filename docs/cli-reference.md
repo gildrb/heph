@@ -43,7 +43,6 @@ new docs.
 | /chats | List saved chats in the active armory |
 | /sessions | List or resume saved sessions |
 | /resume [id-prefix] | Resume the latest saved chat, or pass an ID prefix |
-| /model | Show or switch the active model |
 | /api | Manage API key (keychain) or base URL |
 | /compact | Summarize conversation to reduce context size |
 | /history | Show conversation turn count and token estimate |
@@ -56,7 +55,7 @@ new docs.
 | /remind | Show upcoming study reminders and due cards |
 | /edit | Edit and resend the last user message |
 | /provider | Show or switch LLM provider and model |
-| /models | List all available models across providers |
+| /models | Pick the active model |
 | /recommend | Recommend models for study sessions |
 | /memory | Manage study memory and Supermemory setup |
 | /persona | Show or switch the agent persona |

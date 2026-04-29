@@ -1,6 +1,6 @@
 # Default parameters for Hephaistos.
 # Provider, model, API key, and global shell preferences are configured via
-# /provider, /model, /api, /settings, or environment variables — not here.
+# /provider, /models, /api, /settings, or environment variables — not here.
 
 max_tokens = 4096
 

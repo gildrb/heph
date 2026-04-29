@@ -81,7 +81,7 @@ Inside the shell:
 
 ```text
 /provider
-/model
+/models
 /api key <your-key>
 ```
 
@@ -188,7 +188,7 @@ The default provider config includes:
 - Z.AI
 - Custom OpenAI-compatible endpoint
 
-Switch inside the shell with `/provider` and `/model`, or set
+Switch inside the shell with `/provider` and `/models`, or set
 `HEPHAISTOS_BASE_URL` and `HEPHAISTOS_MODEL` for your own endpoint. The armory
 stays the same when the model changes.
 

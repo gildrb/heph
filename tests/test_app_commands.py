@@ -10,6 +10,7 @@ import hephaistos.app.commands.model as _commands_model
 import hephaistos.app.commands.persona as _commands_persona
 import hephaistos.app.commands.session as _commands_session
 from hephaistos.app import commands
+from hephaistos.app.menu import MenuOption
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession, create_plain_session
 from hephaistos.providers.config import default_config
@@ -132,7 +133,18 @@ def test_stats_command_reports_current_session(capsys: pytest.CaptureFixture[str
     assert "Assistant:  1 messages" in out
 
 
-def test_model_command_validates_against_session_endpoint(
+def test_command_registry_uses_models_not_model() -> None:
+    registry = commands.get_registry()
+    suggestions = registry.suggestions()
+    names = {suggestion.name for suggestion in suggestions}
+
+    assert registry.find("model") is None
+    assert registry.find("models") is not None
+    assert "model" not in names
+    assert "models" in names
+
+
+def test_models_command_switches_selected_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = ChatConfig(
@@ -148,10 +160,24 @@ def test_model_command_validates_against_session_endpoint(
     messages: list[tuple[str, str]] = []
 
     monkeypatch.setattr(
-        commands.ProviderConfig,
+        _commands_model.ProviderConfig,
         "load",
         classmethod(lambda _cls: default_config()),  # type: ignore[reportUnknownLambdaType]
     )
+
+    def select_gpt_53_codex(_title: str, options: list[MenuOption]) -> int:
+        return next(
+            index for index, option in enumerate(options) if option.label == "gpt-5.3-codex"
+        )
+
+    monkeypatch.setattr(_commands_model, "select_option", select_gpt_53_codex)
+
+    def switch(session: ChatSession, slug: str, model: str) -> bool:
+        session.config.model = model
+        session.config.apply_provider_reference(slug, "")
+        return True
+
+    monkeypatch.setattr(_commands_model, "switch_model", switch)
     monkeypatch.setattr(
         _commands_model,
         "print_success",
@@ -163,11 +189,11 @@ def test_model_command_validates_against_session_endpoint(
         lambda msg: messages.append(("error", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
 
-    result = commands.ModelCommand().handle(session, "gpt-4o-mini")
+    result = commands.ModelsCommand().handle(session, "gpt-5.3-codex")
 
     assert result.output is None
-    assert session.config.model == "gpt-4o-mini"
-    assert messages == [("success", "Model: gpt-5.4 -> gpt-4o-mini")]
+    assert session.config.model == "gpt-5.3-codex"
+    assert messages == [("success", "Switched to OpenAI Codex / gpt-5.3-codex")]
 
 
 def test_clear_command_supports_plain_chat(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,7 +236,7 @@ def test_persona_command_updates_plain_chat_system_prompt(
     assert "No armory or source documents are attached" in after
 
 
-def test_model_command_rejects_unsupported_model_for_known_endpoint(
+def test_models_command_reports_no_matching_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = ChatConfig(
@@ -226,7 +252,7 @@ def test_model_command_rejects_unsupported_model_for_known_endpoint(
     messages: list[tuple[str, str]] = []
 
     monkeypatch.setattr(
-        commands.ProviderConfig,
+        _commands_model.ProviderConfig,
         "load",
         classmethod(lambda _cls: default_config()),  # type: ignore[reportUnknownLambdaType]
     )
@@ -241,11 +267,11 @@ def test_model_command_rejects_unsupported_model_for_known_endpoint(
         lambda msg: messages.append(("error", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
 
-    result = commands.ModelCommand().handle(session, "glm-5-turbo")
+    result = commands.ModelsCommand().handle(session, "does-not-exist")
 
     assert result.output is None
     assert session.config.model == "gpt-5.4"
-    assert messages == [("error", "Model unavailable.")]
+    assert messages == []
 
 
 # ---------------------------------------------------------------------------

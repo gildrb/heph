@@ -6,84 +6,11 @@ from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.commands._base import Command, CommandResult, ensure_session
 from hephaistos.app.display import STYLE_DIM, print_error, print_info, print_success, styled
 from hephaistos.app.menu import MenuOption, select_option
-from hephaistos.app.palette import STYLE_PROMPT
+from hephaistos.app.model_picker import configured_model_choices, switch_model
 from hephaistos.chat.engine import is_keyless_endpoint
 from hephaistos.chat.session import ChatSession
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.registry import get_registry as get_provider_registry
-
-
-class ModelCommand(Command):
-    name = "model"
-    description = "Show or switch the active model"
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        s = ensure_session(session)
-        if args.strip():
-            model_name = args.strip()
-            if not is_supported_model_for_endpoint(model_name, s.config.base_url):
-                print_error("Model unavailable.")
-                return CommandResult()
-            old = s.config.model
-            s.config.model = model_name
-            print_success(f"Model: {old} -> {s.config.model}")
-            capture_analytics("model_changed", {"from_model": old, "to_model": s.config.model})
-            return CommandResult()
-        pc = ProviderConfig.load()
-        active = pc.get_active()
-        current_model = s.config.model
-        options: list[MenuOption] = []
-        model_map: list[tuple[str, str]] = []  # parallel to options: (slug, model)
-
-        for slug, provider in pc.providers.items():
-            if slug == "custom" and not provider.models:
-                continue
-            for model in provider.models:
-                is_current = (provider.active and model == current_model) or (
-                    not active and model == current_model
-                )
-                desc = f"via {provider.display_name}"
-                if is_current:
-                    desc += " ← current"
-                options.append(MenuOption(model, desc, is_current=is_current))
-                model_map.append((slug, model))
-
-        if not options:
-            key_label = (
-                "not needed (free provider)"
-                if is_keyless_endpoint(s.config.base_url)
-                else ("configured" if s.config.resolved_api_key else styled("not set", STYLE_DIM))
-            )
-            lines = [
-                f"  Model:   {s.config.model}",
-                f"  API:     {s.config.base_url}",
-                f"  Key:     {key_label}",
-                "",
-                "  No models configured. Use /provider to set up providers.",
-            ]
-            print("\n".join(lines))
-            return CommandResult()
-
-        selected = select_option("Model", options)
-        if selected is None:
-            return CommandResult()
-
-        slug, model = model_map[selected]
-        pc.set_active(slug)
-        p = pc.providers[slug]
-        p.current_model = model
-        pc.apply_to_config(s.config)
-        pc.save()
-        print_success(f"Switched to {p.display_name} / {model}")
-        capture_analytics(
-            "model_changed",
-            {
-                "provider": slug,
-                "to_model": model,
-            },
-        )
-        return CommandResult()
 
 
 class ProviderCommand(Command):
@@ -199,38 +126,67 @@ class ProviderCommand(Command):
 
 class ModelsCommand(Command):
     name = "models"
-    description = "List all available models across providers"
+    description = "Pick the active model"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        registry = get_provider_registry()
-        models = registry.list_models()
-        if args.strip().lower() == "study":
-            models = [model for model in models if "study" in model.tags]
+        s = ensure_session(session)
+        query = args.strip().lower()
+        pc = ProviderConfig.load()
+        choices = configured_model_choices(pc)
+        if query:
+            choices = [
+                choice
+                for choice in choices
+                if query in choice[1].lower() or query in choice[2].lower()
+            ]
 
-        if not models:
-            print_info("No models in registry.")
+        if not choices:
+            key_label = (
+                "not needed (free provider)"
+                if is_keyless_endpoint(s.config.base_url)
+                else ("configured" if s.config.resolved_api_key else styled("not set", STYLE_DIM))
+            )
+            lines = [
+                f"  Model:   {s.config.model}",
+                f"  API:     {s.config.base_url}",
+                f"  Key:     {key_label}",
+                "",
+                "  No matching models configured. Use /provider to set up providers.",
+            ]
+            print("\n".join(lines))
             return CommandResult()
-        if args.strip().lower() == "study":
-            print_info(
-                "Study picks favor low cost, speed, and instruction following because "
-                "Hephaistos handles RAG retrieval and citation checks."
-            )
-        current_provider = ""
-        for m in models:
-            if m.provider != current_provider:
-                current_provider = m.provider
-                print(f"\n  {styled(current_provider, STYLE_PROMPT)}")
 
-            price = (
-                f"${m.prompt_price_per_1k:.4f}/${m.completion_price_per_1k:.4f}"
-                if not m.is_free
-                else "free"
-            )
-            ctx = f"{m.context_window // 1000}k ctx"
-            tags = f" [{', '.join(m.tags)}]" if m.tags else ""
-            print(f"    {m.name:<45} {ctx:<12} {price}{tags}")
+        active = pc.get_active()
+        current_model = s.config.model
+        choices = sorted(
+            choices,
+            key=lambda choice: 0
+            if active is not None and active.slug == choice[0] and choice[1] == current_model
+            else 1,
+        )
+        options: list[MenuOption] = []
+        model_map: list[tuple[str, str]] = []
+        for slug, model, display_name, is_free in choices:
+            is_current = active is not None and active.slug == slug and model == current_model
+            desc = f"via {display_name}"
+            if is_free:
+                desc += "  free"
+            if is_current:
+                desc += "  current"
+            options.append(MenuOption(model, desc, is_current=is_current))
+            model_map.append((slug, model))
 
-        print()
+        selected = select_option("Model", options)
+        if selected is None:
+            return CommandResult()
+
+        slug, model = model_map[selected]
+        if not switch_model(s, slug, model):
+            print_error("Model unavailable.")
+            return CommandResult()
+        provider = ProviderConfig.load().providers[slug]
+        capture_analytics("model_changed", {"provider": slug, "to_model": model})
+        print_success(f"Switched to {provider.display_name} / {model}")
         return CommandResult()
 
 
@@ -239,4 +195,23 @@ class RecommendCommand(Command):
     description = "Recommend models for study sessions"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        return ModelsCommand().handle(session, "study")
+        registry = get_provider_registry()
+        models = [model for model in registry.list_models() if "study" in model.tags]
+        if not models:
+            print_info("No study models in registry.")
+            return CommandResult()
+        print_info(
+            "Study picks favor low cost, speed, and instruction following because "
+            "Hephaistos handles RAG retrieval and citation checks."
+        )
+        for model in models:
+            price = (
+                "free"
+                if model.is_free
+                else (f"${model.prompt_price_per_1k:.4f}/${model.completion_price_per_1k:.4f}")
+            )
+            ctx = f"{model.context_window // 1000}k ctx"
+            tags = f" [{', '.join(model.tags)}]" if model.tags else ""
+            print(f"  {model.name:<45} {ctx:<12} {price}{tags}")
+        print()
+        return CommandResult()

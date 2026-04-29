@@ -39,3 +39,22 @@ def test_slash_completion_returns_textual_full_value() -> None:
     suggestion = engine.suggestion("/sta", commands)
 
     assert suggestion == "/status "
+
+
+def test_models_completion_searches_all_model_text() -> None:
+    engine = SlashCompletionEngine(provider_config_loader=default_config)
+
+    candidates = engine.candidates("/models gl", [])
+
+    assert any(candidate.text == "glm-5 " for candidate in candidates)
+    assert any(candidate.text == "z-ai/glm-5 " for candidate in candidates)
+
+
+def test_models_completion_starts_on_current_free_default() -> None:
+    engine = SlashCompletionEngine(provider_config_loader=default_config)
+
+    candidates = engine.candidates("/models", [])
+
+    assert candidates[0].text == " openai "
+    assert "free" in candidates[0].description
+    assert "current" in candidates[0].description

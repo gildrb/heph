@@ -35,7 +35,6 @@ from hephaistos.app.commands.memory import (
     store_key,
 )
 from hephaistos.app.commands.model import (
-    ModelCommand,
     ModelsCommand,
     ProviderCommand,
     RecommendCommand,
@@ -107,7 +106,6 @@ def get_registry() -> CommandRegistry:
             ChatsCommand,
             SessionsCommand,
             ResumeCommand,
-            ModelCommand,
             ApiCommand,
             CompactCommand,
             HistoryCommand,
@@ -160,7 +158,6 @@ __all__ = [
     "LoginCommand",
     "LogoutCommand",
     "MemoryCommand",
-    "ModelCommand",
     "ModelsCommand",
     "NewCommand",
     "PersonaCommand",

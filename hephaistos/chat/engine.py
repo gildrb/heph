@@ -309,7 +309,7 @@ def build_client(config: ChatConfig) -> OpenAI:
     if not config.base_url:
         raise EngineError("No provider configured. Use /provider use <slug> to select one.")
     if not config.model:
-        raise EngineError("No model configured. Use /model to select one.")
+        raise EngineError("No model configured. Use /models to select one.")
     if not is_supported_model_for_endpoint(config.model, config.base_url):
         raise EngineError(f"Model unavailable for endpoint: {config.model}")
     api_key = config.resolved_api_key

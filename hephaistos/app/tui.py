@@ -19,6 +19,7 @@ from io import StringIO
 from typing import TYPE_CHECKING, ClassVar
 
 from hephaistos import __version__
+from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.armory_browser import ArmoryBrowserScreen
 from hephaistos.app.autocomplete import (
     CommandSuggestion,
@@ -27,6 +28,7 @@ from hephaistos.app.autocomplete import (
 )
 from hephaistos.app.commands import NewCommand, get_registry
 from hephaistos.app.input_history import InputHistory
+from hephaistos.app.model_picker import configured_model_choices, switch_model
 from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.app.rich_transcript import enrich_reply, evidence_summary_text
 from hephaistos.app.search_index import SearchResult
@@ -306,7 +308,7 @@ def _config_error(session: ChatSession) -> str | None:
     if not session.config.base_url:
         return "No provider configured. Use /provider to select one."
     if not session.config.model:
-        return "No model configured. Use /model to select one."
+        return "No model configured. Use /models to select one."
     if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
         return "No API key found. Configure one via /api key, env var, or OAuth first."
     return None
@@ -420,6 +422,9 @@ Screen {{
 }}
 #suggestions.visible {{
     display: block;
+}}
+#suggestions.model-picker {{
+    max-height: 20;
 }}
 .hidden {{
     visibility: hidden;
@@ -676,15 +681,17 @@ def _slash_suggestion(engine: SlashCompletionEngine, value: str) -> str | None:
 
 
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
+_MODEL_MENU_MAX_VISIBLE_ROWS = 20
 
 
 def _completion_menu_scroll_y(
     highlighted: int,
     option_count: int,
     rendered_height: int,
+    max_visible_rows: int = _COMPLETION_MENU_MAX_VISIBLE_ROWS,
 ) -> int:
-    visible_rows = rendered_height if rendered_height > 0 else _COMPLETION_MENU_MAX_VISIBLE_ROWS
-    visible_rows = max(1, min(option_count, visible_rows, _COMPLETION_MENU_MAX_VISIBLE_ROWS))
+    visible_rows = rendered_height if rendered_height > 0 else max_visible_rows
+    visible_rows = max(1, min(option_count, visible_rows, max_visible_rows))
     max_scroll_y = max(0, option_count - visible_rows)
     centered_scroll_y = highlighted - (visible_rows // 2)
     return min(max(centered_scroll_y, 0), max_scroll_y)
@@ -753,7 +760,6 @@ _TERMINAL_INTERACTIVE_COMMANDS = {
     "edit",
     "login",
     "logout",
-    "model",
     "persona",
     "resume",
     "settings",
@@ -773,14 +779,17 @@ def _pending_input_requires_terminal(value: str) -> bool:
 
     if command_name == "memory":
         return arg_text.lower().startswith("setup")
-    if command_name == "model":
-        return not arg_text
     if command_name == "persona":
         return not arg_text
     if command_name == "vocab":
         return arg_text.lower() != "status"
 
     return command_name in _TERMINAL_INTERACTIVE_COMMANDS
+
+
+def _is_models_input(value: str) -> bool:
+    stripped = value.lstrip().lower()
+    return stripped == "/models" or stripped.startswith("/models ")
 
 
 def _is_armory_command(value: str) -> bool:
@@ -950,6 +959,13 @@ class HephaistosTui(App[None]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()
         composer = self.query_one("#composer", Input)
+        if value == "/models" or value.startswith("/models "):
+            self._record_history(value)
+            self._append_user(value, mark_working=False)
+            self._handle_models(value)
+            composer.value = ""
+            self._hide_completions()
+            return
         composer.value = ""
         self._hide_completions()
         if not value:
@@ -1016,6 +1032,54 @@ class HephaistosTui(App[None]):
     def _handle_sources(self, value: str) -> None:
         _, _, args = value.partition(" ")
         self._append_plain(_source_listing(self.session, args))
+
+    def _handle_models(self, value: str) -> None:
+        _, _, args = value.partition(" ")
+        query = args.strip().lower()
+        choices = configured_model_choices()
+        if query:
+            choices = [
+                choice
+                for choice in choices
+                if query in f"{choice[0]} {choice[1]} {choice[2]}".lower()
+            ]
+        active_slug = self.session.config.provider_slug
+        current_model = self.session.config.model
+        choices = sorted(
+            choices,
+            key=lambda choice: 0 if active_slug == choice[0] and current_model == choice[1] else 1,
+        )
+        if not choices:
+            self._append_notice("No matching models.")
+            return
+
+        highlighted = self.query_one("#suggestions", OptionList).highlighted
+        selected = highlighted if highlighted is not None else 0
+        selected_model = ""
+        if 0 <= selected < len(self.completion_candidates):
+            selected_model = self.completion_candidates[selected].text.strip()
+        if selected_model:
+            matching_choice = next(
+                (choice for choice in choices if choice[1] == selected_model),
+                None,
+            )
+        else:
+            matching_choice = choices[0]
+        if matching_choice is None:
+            self._append_notice("No matching models.")
+            return
+        slug, model, display_name, _is_free = matching_choice
+        old_model = self.session.config.model
+        if not switch_model(self.session, slug, model):
+            self._append_error("Model unavailable.")
+            return
+        capture_analytics(
+            "model_changed",
+            {"provider": slug, "from_model": old_model, "to_model": model},
+        )
+        self._refresh_status("ready")
+        self._update_info_panel()
+        self._append_notice(f"Switched to {display_name} / {model}")
 
     def _handle_new(self) -> None:
         result = NewCommand().handle(self.session, "")
@@ -1108,6 +1172,7 @@ class HephaistosTui(App[None]):
     def _refresh_completions(self) -> None:
         composer = self.query_one("#composer", Input)
         before_cursor = composer.value[: composer.cursor_position]
+        is_model_picker = _is_models_input(before_cursor)
         self.completion_candidates = self.completion_engine.candidates(
             before_cursor,
             _tui_command_suggestions(),
@@ -1116,7 +1181,12 @@ class HephaistosTui(App[None]):
         if not self.completion_candidates:
             suggestions.set_options([])
             suggestions.remove_class("visible")
+            suggestions.remove_class("model-picker")
             return
+        if is_model_picker:
+            suggestions.add_class("model-picker")
+        else:
+            suggestions.remove_class("model-picker")
         suggestions.set_options(
             [
                 self._format_completion_candidate(candidate)
@@ -1132,6 +1202,7 @@ class HephaistosTui(App[None]):
         suggestions = self.query_one("#suggestions", OptionList)
         suggestions.set_options([])
         suggestions.remove_class("visible")
+        suggestions.remove_class("model-picker")
 
     def _move_completion(self, offset: int) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
@@ -1146,6 +1217,7 @@ class HephaistosTui(App[None]):
             highlighted,
             len(self.completion_candidates),
             suggestions.size.height,
+            _MODEL_MENU_MAX_VISIBLE_ROWS if suggestions.has_class("model-picker") else 7,
         )
 
     def _apply_completion(self, index: int) -> None:

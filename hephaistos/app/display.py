@@ -49,7 +49,7 @@ def _progressive_hints(session_count: int) -> list[str]:
     """Return keybind hint lines that evolve with user experience.
 
     Tier 0 (new):     enter, tab, ctrl+c, ctrl+d, /help
-    Tier 1 (3+):      + /vocab, /model, /theme
+    Tier 1 (3+):      + /vocab, /models, /theme
     Tier 2 (5+):      + ! shell, \\ continuation
     Always:           /help
     """
@@ -63,7 +63,7 @@ def _progressive_hints(session_count: int) -> list[str]:
     if session_count >= 3:
         tier1 = (
             f"{styled('/vocab', STYLE_ACCENT)} drill"
-            f"  {styled('/model', STYLE_ACCENT)} model"
+            f"  {styled('/models', STYLE_ACCENT)} model"
             f"  {styled('/theme', STYLE_ACCENT)} theme"
         )
         parts.append(tier1)
