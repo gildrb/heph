@@ -151,7 +151,7 @@ def test_tui_css_positions_suggestions_above_composer_spacer() -> None:
 
     assert "margin-top: 1;" in composer_block
     assert "margin-bottom: 3;" in suggestions_block
-    assert "margin-top" not in footer_block
+    assert "margin-top: 1;" in footer_block
 
 
 def test_status_and_footer_hints_segments_do_not_paint_black_background() -> None:

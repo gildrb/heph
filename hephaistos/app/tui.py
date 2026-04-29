@@ -460,6 +460,7 @@ OptionList:focus > .option-list--option-highlighted {{
     height: 1;
     width: auto;
     max-width: 100%;
+    margin-top: 1;
     background: {bg};
     color: {p.dim};
 }}
