@@ -1,14 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import cProfile
 import importlib
-import pstats
 import sys
-import tracemalloc
 from collections.abc import Callable
-from datetime import UTC, datetime
-from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
@@ -30,8 +25,9 @@ class HephaistosArgumentParser(argparse.ArgumentParser):
 
 
 def _package_version() -> str:
+    metadata = importlib.import_module("importlib.metadata")
     try:
-        return _pkg_version("hephaistos")
+        return metadata.version("hephaistos")
     except Exception:
         return "0.1.0"
 
@@ -296,10 +292,12 @@ def main() -> None:
 
     _prof = None
     if _profile:
-        _prof = cProfile.Profile()
+        _cprofile = importlib.import_module("cProfile")
+        _prof = _cprofile.Profile()
         _prof.enable()
 
     if _profile_memory:
+        tracemalloc = importlib.import_module("tracemalloc")
         tracemalloc.start()
 
     try:
@@ -325,6 +323,8 @@ def main() -> None:
 
 def _report_memory() -> None:
     """Print top memory allocations from tracemalloc."""
+    tracemalloc = importlib.import_module("tracemalloc")
+
     snapshot = tracemalloc.take_snapshot()
     tracemalloc.stop()
     top = snapshot.statistics("lineno")[:20]
@@ -334,15 +334,18 @@ def _report_memory() -> None:
     sys.stderr.write("\n")
 
 
-def _report_profile(prof: cProfile.Profile) -> None:
+def _report_profile(prof: object) -> None:
     """Save cProfile results and print summary."""
-    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    datetime_mod = importlib.import_module("datetime")
+    pstats = importlib.import_module("pstats")
+
+    ts = datetime_mod.datetime.now(datetime_mod.UTC).strftime("%Y%m%dT%H%M%SZ")
     profile_dir = Path.home() / ".cache" / "hephaistos" / "profiles"
     profile_dir.mkdir(parents=True, exist_ok=True)
     profile_path = profile_dir / f"{ts}.prof"
-    prof.dump_stats(str(profile_path))
+    prof.dump_stats(str(profile_path))  # type: ignore[reportUnknownMemberType]
 
     sys.stderr.write(f"\n=== CPU Profile saved to {profile_path} ===\n")
-    stats = pstats.Stats(prof, stream=sys.stderr)
+    stats = pstats.Stats(prof, stream=sys.stderr)  # type: ignore[reportUnknownArgumentType]
     stats.strip_dirs().sort_stats("cumulative").print_stats(20)
     sys.stderr.write("\n")
