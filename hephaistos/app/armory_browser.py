@@ -40,6 +40,7 @@ except ImportError:
 
 from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
+from hephaistos.materials import count_material_files
 
 _PARENT_LABEL = ".."
 _NEW_ARMORY_LABEL = "+ new armory"
@@ -198,6 +199,21 @@ def _format_entry(entry: _DirEntry) -> str:
     return entry.label
 
 
+def armory_detail(path: Path) -> str:
+    """Return the detail panel text for a directory entry."""
+    if not _is_armory(path):
+        return f"{path.name}\n\nfolder\nchoose only if initialized\n\n{path}"
+    material_count = count_material_files(path)
+    return (
+        f"{path.name}\n\n"
+        "valid armory\n"
+        f"{material_count} material file{'s' if material_count != 1 else ''}\n\n"
+        "User files: materials/\n"
+        "Internal state: .hephaistos/\n\n"
+        f"{path}"
+    )
+
+
 class ArmoryBrowserScreen(ModalScreen[Path | None]):
     """Modal directory browser for selecting or creating an armory.
 
@@ -285,14 +301,17 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             detail.update("Parent directory\n\nMove up one folder.")
             return
         if entry.is_create:
-            detail.update("New armory\n\nCreate a local study workspace here.")
+            detail.update(
+                "New armory\n\n"
+                "Create a local study workspace here.\n\n"
+                "Hephaistos will create materials/ for user files and .hephaistos/ "
+                "for internal state."
+            )
             return
         if entry.path is None:
             detail.update("")
             return
-        kind = "valid armory" if _is_armory(entry.path) else "folder"
-        marker = "ready to open" if _is_armory(entry.path) else "choose only if initialized"
-        detail.update(f"{entry.path.name}\n\n{kind}\n{marker}\n\n{entry.path}")
+        detail.update(armory_detail(entry.path))
 
     def _highlighted_entry(self) -> _DirEntry | None:
         ol = self.query_one("#armory-list", OptionList)

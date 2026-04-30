@@ -21,6 +21,7 @@ from hephaistos.app.display import (
 )
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.menu import MenuOption, browse_directory, select_option
+from hephaistos.app.search_index import add_known_armory
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
@@ -104,6 +105,7 @@ def _start_fresh_session(
         print_success("Detached armory. Plain chat mode.")
         capture_analytics("armory_detached", {"model": new_session.config.model})
         return new_session
+    add_known_armory(armory_path)
     print_success(f"Using armory {armory_path}")
     if new_session.source_file_count:
         print_info(f"Loaded {new_session.source_file_count} file(s).")

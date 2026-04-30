@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from hephaistos.app import tui
+from hephaistos.app.armory_browser import armory_detail
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
@@ -85,9 +86,10 @@ def test_footer_hints_show_idle_shortcuts() -> None:
 
     assert "enter" in plain
     assert "tab" in plain
-    assert "/help" in plain
+    assert "ctrl+p" in plain
+    assert "ctrl+a" in plain
     assert "ctrl+d" in plain
-    assert "armory" not in plain
+    assert "ctrl+a armory" in plain
     assert "test-model" not in plain
 
 
@@ -436,6 +438,86 @@ def test_armory_command_mode_validates_supported_subcommands() -> None:
 
     assert tui._armory_command_mode("/armory detach") is None  # type: ignore[reportPrivateUsage]
     assert "Usage: /armory" in tui._armory_usage_message()  # type: ignore[reportPrivateUsage]
+
+
+def test_armory_browser_detail_describes_material_layout(tmp_path: Path) -> None:
+    armory = tmp_path / "exam-prep"
+    initialize(armory)
+    (armory / "materials" / "exam.md").write_text("# Exam\n", encoding="utf-8")
+
+    detail = armory_detail(armory)
+
+    assert "valid armory" in detail
+    assert "1 material file" in detail
+    assert "User files: materials/" in detail
+    assert "Internal state: .hephaistos/" in detail
+
+
+def test_ctrl_p_opens_command_palette() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_command_palette() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.press("ctrl+p")
+            await pilot.pause()
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            suggestions = cast(
+                "TextualOptionList",
+                app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
+            )
+
+            assert composer.value == "/"  # type: ignore[reportUnknownMemberType]
+            assert composer.cursor_position == 1  # type: ignore[reportUnknownMemberType]
+            assert suggestions.has_class("visible")
+            assert app.completion_candidates
+
+    asyncio.run(check_command_palette())
+
+
+def test_armory_home_text_includes_recent_armories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    known = [tmp_path / "linear-algebra", tmp_path / "algorithms"]
+    monkeypatch.setattr(tui, "load_known_armories", lambda: known)
+
+    text = tui._armory_home_text()  # type: ignore[reportPrivateUsage]
+
+    assert "No armory attached." in text
+    assert "ctrl+a" in text
+    assert "materials/" in text
+    assert "Recent armories:" in text
+    assert "linear-algebra" in text
+    assert "algorithms" in text
+
+
+def test_plain_tui_shows_armory_home_notice() -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_home_notice() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            assert app.state.armory_home_shown is True
+            assert any("No armory attached" in entry.content for entry in app.state.transcript)
+            assert any("materials/" in entry.content for entry in app.state.transcript)
+            assert any("ctrl+a" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_home_notice())
 
 
 def test_handle_armory_browser_invalid_subcommand_shows_usage() -> None:

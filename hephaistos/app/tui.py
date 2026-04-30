@@ -32,7 +32,7 @@ from hephaistos.app.materials_view import material_listing
 from hephaistos.app.model_picker import configured_model_choices, switch_model
 from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.app.rich_transcript import enrich_reply, evidence_summary_text
-from hephaistos.app.search_index import SearchResult
+from hephaistos.app.search_index import SearchResult, load_known_armories
 from hephaistos.app.search_screen import SearchScreen
 from hephaistos.app.transparent import (
     make_blank_background_cls,
@@ -201,18 +201,24 @@ def _footer_hints_text(session: ChatSession, *, busy: bool = False) -> Text:
         return text
 
     key_ok = is_keyless_endpoint(session.config.base_url) or bool(session.config.resolved_api_key)
-    parts = ["enter send", "tab complete", "/help commands", "ctrl+d exit"]
+    parts = [
+        "enter send",
+        "tab complete",
+        "ctrl+p commands",
+        "ctrl+a armory",
+        "ctrl+d exit",
+    ]
     if not key_ok:
         parts.append("api missing")
     plain = "  ".join(parts)
     text = _RichText(plain, style=palette.dim)
-    for label in ("enter", "tab", "/help", "ctrl+c", "ctrl+d"):
+    for label in ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+c", "ctrl+d"):
         try:
             start = plain.index(label)
         except ValueError:
             continue
         text.stylize(f"dim {palette.dim}", start, start + len(label))
-    for label in ("/help",):
+    for label in ("ctrl+p",):
         try:
             start = plain.index(label)
         except ValueError:
@@ -254,6 +260,22 @@ def _info_panel_default_text(session: ChatSession) -> Text:
         except ValueError:
             pass
     return text
+
+
+def _armory_home_text() -> str:
+    """Return the no-armory home card shown on first TUI launch."""
+    recent = load_known_armories()[:5]
+    lines = [
+        "No armory attached.",
+        "",
+        "Press ctrl+a to open or create an armory.",
+        "Put study files in materials/.",
+        "Hephaistos handles indexing, retrieval, memory, chats, traces, and usage.",
+    ]
+    if recent:
+        lines.extend(["", "Recent armories:"])
+        lines.extend(f"  {path.name}  {path}" for path in recent)
+    return "\n".join(lines)
 
 
 def _info_panel_message_text(
@@ -653,6 +675,7 @@ class _TuiRuntimeState:
     history_index: int | None = None
     history_draft: str = ""
     pending_input: str | None = None
+    armory_home_shown: bool = False
 
 
 class _TuiCaptureWriter(StringIO):
@@ -768,6 +791,8 @@ class SlashSuggester(Suggester):  # type: ignore[misc]
 class HephaistosTui(App[None]):
     BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
         Binding("tab", "complete", "Complete"),
+        Binding("ctrl+p", "command_palette", "Commands", show=False),
+        Binding("ctrl+a", "open_armory_home", "Armory", show=False),
         Binding("ctrl+s", "open_search", "Search", show=False),
         Binding("ctrl+c", "cancel_turn", "Cancel", show=False),
         Binding("ctrl+l", "clear_transcript", "Clear"),
@@ -825,6 +850,9 @@ class HephaistosTui(App[None]):
         composer.select_on_focus = False
         composer.focus()
         self.set_focus(composer)
+        if self.session.armory_path is None and not self.state.armory_home_shown:
+            self.state.armory_home_shown = True
+            self._append_armory_home()
 
     def on_click(self, event: events.Click) -> None:
         composer = self.query_one("#composer", Input)
@@ -958,6 +986,18 @@ class HephaistosTui(App[None]):
     def action_open_search(self) -> None:
         self._open_search()
 
+    def action_command_palette(self) -> None:
+        composer = self.query_one("#composer", Input)
+        composer.focus()
+        self.set_focus(composer)
+        if not composer.value.startswith("/"):
+            composer.value = "/"
+            composer.cursor_position = 1
+        self._refresh_completions()
+
+    def action_open_armory_home(self) -> None:
+        self._handle_armory_browser("/armory")
+
     def action_complete(self) -> None:
         if not self.completion_candidates:
             self._refresh_completions()
@@ -966,6 +1006,9 @@ class HephaistosTui(App[None]):
         suggestions = self.query_one("#suggestions", OptionList)
         highlighted = suggestions.highlighted
         self._apply_completion(highlighted if highlighted is not None else 0)
+
+    def _append_armory_home(self) -> None:
+        self._append_plain(_armory_home_text())
 
     def _handle_sources(self, value: str) -> None:
         _, _, args = value.partition(" ")
