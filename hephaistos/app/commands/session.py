@@ -17,8 +17,10 @@ from hephaistos.app.display import (
 from hephaistos.app.menu import confirm
 from hephaistos.app.palette import STYLE_PROMPT
 from hephaistos.app.workspace import (
+    create_armory_command,
     handle_armory_command,
     list_saved_chats,
+    open_armory_command,
     resume_saved_chat,
 )
 from hephaistos.chat import storage as chat_storage
@@ -169,8 +171,17 @@ class ArmoryCommand(Command):
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
-        new = handle_armory_command(s)
-        return CommandResult(new_session=new)
+        subcmd = args.strip().lower()
+        if subcmd in ("", "menu", "manage"):
+            new = handle_armory_command(s)
+            return CommandResult(new_session=new)
+        if subcmd == "open":
+            return CommandResult(new_session=open_armory_command(s))
+        if subcmd in ("create", "new"):
+            return CommandResult(new_session=create_armory_command(s))
+        print_error("Usage: /armory [open|create]")
+        print_info("Open or create a local study armory for source files and saved chats.")
+        return CommandResult()
 
 
 class ChatsCommand(Command):

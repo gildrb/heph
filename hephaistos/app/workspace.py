@@ -501,6 +501,8 @@ def _create_startup_session(config: ChatConfig) -> ChatSession:  # pyright: igno
 resume_saved_chat = _resume_saved_chat
 list_saved_chats = _list_saved_chats
 handle_armory_command = _handle_armory_command
+open_armory_command = _open_armory
+create_armory_command = _create_armory
 start_fresh_session = _start_fresh_session
 handle_input = _handle_input
 get_history_path = _get_history_path

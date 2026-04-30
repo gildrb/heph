@@ -125,6 +125,29 @@ def test_browser_screen_compose_and_mount(tmp_path: Path) -> None:
     asyncio.run(run_screen())
 
 
+def test_browser_arrow_keys_move_highlight(tmp_path: Path) -> None:
+    _make_dirs(tmp_path, "alpha", "beta")
+
+    async def run_keys() -> None:
+        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        app = _ShellApp()
+        async with app.run_test(size=(100, 28)) as pilot:
+            await app.push_screen(screen)
+            await pilot.pause()
+            ol = screen.query_one("#armory-list", armory_browser.OptionList)
+            assert ol.highlighted == 0
+
+            await pilot.press("down")
+            await pilot.pause()
+            assert ol.highlighted == 1
+
+            await pilot.press("up")
+            await pilot.pause()
+            assert ol.highlighted == 0
+
+    asyncio.run(run_keys())
+
+
 def test_browser_navigates_into_child_via_action(tmp_path: Path) -> None:
     child = _make_dirs(tmp_path, "child")[0]
 
@@ -232,6 +255,35 @@ def test_browser_new_armory_creates_and_dismisses(tmp_path: Path) -> None:
     assert result_path is not None
     assert result_path.name == "test-armory"
     assert (result_path / MARKER_FILE).exists()
+
+
+def test_browser_new_armory_surfaces_creation_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fail_initialize(_path: Path) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(armory_browser, "initialize", fail_initialize)
+
+    async def run_error() -> None:
+        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        app = _ShellApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await app.push_screen(screen)
+            await pilot.pause()
+            screen._start_new_armory()
+            await pilot.pause()
+            inp = screen.query_one("#armory-new-input", armory_browser.Input)
+            screen.on_input_submitted(
+                armory_browser.Input.Submitted(inp, "blocked", "blocked")  # type: ignore[arg-type]
+            )
+            await pilot.pause()
+            error = screen.query_one("#armory-error", armory_browser.Static)
+            assert "Could not create armory" in str(error.render())
+            assert screen._creating is True
+
+    asyncio.run(run_error())
 
 
 def test_browser_new_armory_empty_name_cancels_create(tmp_path: Path) -> None:

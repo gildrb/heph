@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from hephaistos.app import tui
+from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
 from hephaistos.providers import catalog
@@ -418,12 +419,144 @@ def test_is_armory_command_matches_inline_forms() -> None:
     assert tui._is_armory_command("/armory")  # type: ignore[reportPrivateUsage]
     assert tui._is_armory_command("/armory open")  # type: ignore[reportPrivateUsage]
     assert tui._is_armory_command("/armory create")  # type: ignore[reportPrivateUsage]
+    assert tui._is_armory_command("/armory detach")  # type: ignore[reportPrivateUsage]
     assert tui._is_armory_command("  /armory  ")  # type: ignore[reportPrivateUsage]
     assert tui._is_armory_command("/ARMORY OPEN")  # type: ignore[reportPrivateUsage]
 
-    assert not tui._is_armory_command("/armory detach")  # type: ignore[reportPrivateUsage]
     assert not tui._is_armory_command("/model")  # type: ignore[reportPrivateUsage]
     assert not tui._is_armory_command("hello")  # type: ignore[reportPrivateUsage]
+
+
+def test_armory_command_mode_validates_supported_subcommands() -> None:
+    assert tui._armory_command_mode("/armory") == "manage"  # type: ignore[reportPrivateUsage]
+    assert tui._armory_command_mode("/armory menu") == "manage"  # type: ignore[reportPrivateUsage]
+    assert tui._armory_command_mode("/armory open") == "open"  # type: ignore[reportPrivateUsage]
+    assert tui._armory_command_mode("/armory create") == "create"  # type: ignore[reportPrivateUsage]
+    assert tui._armory_command_mode("/armory new") == "create"  # type: ignore[reportPrivateUsage]
+
+    assert tui._armory_command_mode("/armory detach") is None  # type: ignore[reportPrivateUsage]
+    assert "Usage: /armory" in tui._armory_usage_message()  # type: ignore[reportPrivateUsage]
+
+
+def test_handle_armory_browser_invalid_subcommand_shows_usage() -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_invalid_usage() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._handle_armory_browser("/armory detach")  # type: ignore[reportPrivateUsage]
+            assert any("Usage: /armory" in entry.content for entry in app.state.transcript)
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            assert app.focused is composer  # type: ignore[reportUnknownMemberType]
+
+    asyncio.run(check_invalid_usage())
+
+
+def test_handle_armory_browser_cancel_keeps_current_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    def fake_push_screen(screen: object, callback: object | None = None) -> None:
+        assert isinstance(screen, tui.ArmoryBrowserScreen)
+        if callable(callback):
+            callback(None)
+
+    async def check_cancel() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            monkeypatch.setattr(app, "push_screen", fake_push_screen)
+            app._handle_armory_browser("/armory")  # type: ignore[reportPrivateUsage]
+            assert app.session is session
+            assert any("Cancelled." in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_cancel())
+
+
+def test_handle_armory_browser_rejects_invalid_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    def fake_push_screen(screen: object, callback: object | None = None) -> None:
+        assert isinstance(screen, tui.ArmoryBrowserScreen)
+        if callable(callback):
+            callback(tmp_path)
+
+    async def check_invalid_directory() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            monkeypatch.setattr(app, "push_screen", fake_push_screen)
+            app._handle_armory_browser("/armory open")  # type: ignore[reportPrivateUsage]
+            assert any("Not a valid armory" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_invalid_directory())
+
+
+def test_handle_armory_browser_switches_to_selected_armory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    armory_path = tmp_path / "study"
+    initialize(armory_path)
+    session = _plain_session()
+    new_session = _plain_session()
+    new_session.armory_path = armory_path
+    new_session.source_file_count = 1
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    def fake_push_screen(screen: object, callback: object | None = None) -> None:
+        assert isinstance(screen, tui.ArmoryBrowserScreen)
+        if callable(callback):
+            callback(armory_path)
+
+    def fake_start_fresh(current: ChatSession, selected: Path | None) -> ChatSession:
+        assert current is session
+        assert selected == armory_path
+        return new_session
+
+    async def check_switch() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            monkeypatch.setattr(app, "push_screen", fake_push_screen)
+            monkeypatch.setattr(tui, "start_fresh_session", fake_start_fresh)
+            app._handle_armory_browser("/armory open")  # type: ignore[reportPrivateUsage]
+            assert app.session is new_session
+            assert any("Using armory" in entry.content for entry in app.state.transcript)
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            assert app.focused is composer  # type: ignore[reportUnknownMemberType]
+
+    asyncio.run(check_switch())
 
 
 def test_click_refocuses_composer() -> None:

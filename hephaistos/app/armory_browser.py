@@ -24,13 +24,14 @@ try:
     from textual import events
     from textual.app import ComposeResult
     from textual.binding import Binding
-    from textual.containers import Vertical
+    from textual.containers import Horizontal, Vertical
     from textual.screen import ModalScreen
     from textual.widgets import Input, OptionList, Static
 except ImportError:
     events = None  # type: ignore[assignment]
     ComposeResult = None  # type: ignore[assignment,misc]
     Binding = None  # type: ignore[assignment,misc]
+    Horizontal = None  # type: ignore[assignment,misc]
     Vertical = None  # type: ignore[assignment,misc]
     ModalScreen = object  # type: ignore[assignment,misc]
     Input = None  # type: ignore[assignment,misc]
@@ -38,12 +39,12 @@ except ImportError:
     Static = None  # type: ignore[assignment,misc]
 
 from hephaistos.app.palette import ThemePalette, current_palette
-from hephaistos.armory.storage import MARKER_FILE, initialize
+from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
 
-_PARENT_LABEL = "..  (parent)"
-_NEW_ARMORY_LABEL = "\u271b New armory..."
-_DIR_ICON = "\U0001f4c1 "
-_ARMORY_BADGE = "  \u2713 armory"
+_PARENT_LABEL = ".."
+_NEW_ARMORY_LABEL = "+ new armory"
+_DIR_PREFIX = "  "
+_ARMORY_BADGE = "  armory"
 
 
 def _armory_browser_css(p: ThemePalette) -> str:
@@ -60,13 +61,13 @@ ArmoryBrowserScreen {{
     align: center middle;
 }}
 #armory-dialog {{
-    width: 60;
-    max-width: 90%;
-    height: auto;
-    max-height: 80%;
+    width: 96;
+    max-width: 92%;
+    height: 28;
+    max-height: 82%;
     padding: 1 2;
     background: {bg};
-    border: round {border_color};
+    border: solid {border_color};
     color: {text_color};
 }}
 #armory-title {{
@@ -80,15 +81,26 @@ ArmoryBrowserScreen {{
     width: 100%;
     margin-bottom: 1;
 }}
-#armory-list {{
+#armory-body {{
+    layout: horizontal;
+    height: 1fr;
     width: 100%;
-    height: auto;
-    max-height: 16;
+}}
+#armory-list {{
+    width: 1fr;
+    height: 100%;
     background: transparent;
     border: none;
     padding: 0;
     color: {text_color};
     scrollbar-size: 0 0;
+}}
+#armory-detail {{
+    width: 34;
+    height: 100%;
+    padding: 0 1;
+    border-left: solid {border_color};
+    color: {dim_color};
 }}
 #armory-list > .option-list--option {{
     background: transparent;
@@ -104,6 +116,11 @@ ArmoryBrowserScreen {{
     background: {highlight_color};
     color: {text_color};
     padding: 0;
+}}
+#armory-error {{
+    color: {p.error};
+    width: 100%;
+    margin-top: 0;
 }}
 #armory-hint {{
     color: {dim_color};
@@ -172,7 +189,7 @@ def _build_entries(
         entries.append(_DirEntry(_NEW_ARMORY_LABEL, is_create=True))
     for child in _list_child_dirs(current):
         badge = _ARMORY_BADGE if _is_armory(child) else ""
-        entries.append(_DirEntry(f"{_DIR_ICON}{child.name}{badge}", path=child))
+        entries.append(_DirEntry(f"{_DIR_PREFIX}{child.name}{badge}", path=child))
     return entries
 
 
@@ -202,26 +219,31 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         start: Path | None = None,
         *,
         allow_create: bool = True,
+        title: str = "Armory",
     ) -> None:
         super().__init__()
         self._current = (start or Path.cwd()).resolve()
         self._allow_create = allow_create
+        self._title = title
         self._creating = False
         self._entries: list[_DirEntry] = []
         self.CSS = _armory_browser_css(current_palette())
 
     def compose(self) -> ComposeResult:
         p = current_palette()
-        title = f"[bold {p.ember}]\u2301 Armory[/bold {p.ember}]"
+        title = f"[bold {p.ember}]\u2301 {self._title}[/bold {p.ember}]"
         with Vertical(id="armory-dialog"):
             yield Static(title, id="armory-title", markup=True)
             yield Static("", id="armory-path")
-            yield OptionList(id="armory-list")
+            with Horizontal(id="armory-body"):
+                yield OptionList(id="armory-list")
+                yield Static("", id="armory-detail")
             with Vertical(id="armory-new-input-container"):
                 yield Input(
                     placeholder="Armory name...",
                     id="armory-new-input",
                 )
+            yield Static("", id="armory-error")
             yield Static(
                 "\u2191\u2193 navigate  enter open  c choose  n new  esc cancel",
                 id="armory-hint",
@@ -236,6 +258,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         ol.focus()
 
     def _refresh(self) -> None:
+        self._set_error("")
         self._entries = _build_entries(self._current, self._allow_create)
         path_widget = self.query_one("#armory-path", Static)
         path_widget.update(str(self._current))
@@ -246,6 +269,30 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             ol.add_option(_format_entry(entry))
         if self._entries:
             ol.highlighted = 0
+        self._update_detail()
+
+    def _set_error(self, message: str) -> None:
+        error = self.query_one("#armory-error", Static)
+        error.update(message)
+
+    def _update_detail(self) -> None:
+        detail = self.query_one("#armory-detail", Static)
+        entry = self._highlighted_entry()
+        if entry is None:
+            detail.update("No selection")
+            return
+        if entry.is_parent:
+            detail.update("Parent directory\n\nMove up one folder.")
+            return
+        if entry.is_create:
+            detail.update("New armory\n\nCreate a local study workspace here.")
+            return
+        if entry.path is None:
+            detail.update("")
+            return
+        kind = "valid armory" if _is_armory(entry.path) else "folder"
+        marker = "ready to open" if _is_armory(entry.path) else "choose only if initialized"
+        detail.update(f"{entry.path.name}\n\n{kind}\n{marker}\n\n{entry.path}")
 
     def _highlighted_entry(self) -> _DirEntry | None:
         ol = self.query_one("#armory-list", OptionList)
@@ -268,6 +315,16 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         elif entry.path is not None:
             self._current = entry.path
             self._refresh()
+
+    def _move_highlight(self, offset: int) -> None:
+        if not self._entries:
+            return
+        ol = self.query_one("#armory-list", OptionList)
+        current = ol.highlighted
+        if current is None:
+            current = 0
+        ol.highlighted = (current + offset) % len(self._entries)
+        self._update_detail()
 
     def action_activate(self) -> None:
         """Enter key: drill into directory or activate special entry."""
@@ -336,8 +393,8 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         armory_path = self._current / name
         try:
             initialize(armory_path)
-        except OSError:
-            self._stop_new_armory()
+        except (ArmoryError, OSError) as exc:
+            self._set_error(f"Could not create armory: {exc}")
             return
         self.dismiss(armory_path)
 
@@ -354,6 +411,18 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         # Let OptionList handle up/down/enter natively for list navigation.
         # We only intercept our custom action keys here if the OptionList
         # doesn't already handle them via BINDINGS.
+        if event.key in ("up", "k"):
+            self._move_highlight(-1)
+            event.prevent_default()
+            event.stop()
+            return
+
+        if event.key in ("down", "j"):
+            self._move_highlight(1)
+            event.prevent_default()
+            event.stop()
+            return
+
         if event.key in ("c", "n", "q"):
             # These are handled by BINDINGS -> action_* methods.
             # But we need to stop propagation so the parent TUI doesn't

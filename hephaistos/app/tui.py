@@ -46,6 +46,7 @@ from hephaistos.app.workspace import (
     save_on_exit,
     start_fresh_session,
 )
+from hephaistos.armory.storage import ArmoryError
 from hephaistos.armory.storage import validate as _validate_armory
 from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.session import ChatSession, send_user_message
@@ -710,7 +711,24 @@ def _is_models_input(value: str) -> bool:
 def _is_armory_command(value: str) -> bool:
     """Return True when *value* is a /armory command handled inline by the TUI."""
     stripped = value.strip().lower()
-    return stripped in ("/armory", "/armory open", "/armory create")
+    return stripped == "/armory" or stripped.startswith("/armory ")
+
+
+def _armory_command_mode(value: str) -> str | None:
+    """Return the TUI armory browser mode, or None for invalid usage."""
+    parts = value.strip().lower().split()
+    command = tuple(parts)
+    if command in (("/armory",), ("/armory", "menu")):
+        return "manage"
+    if command == ("/armory", "open"):
+        return "open"
+    if command in (("/armory", "create"), ("/armory", "new")):
+        return "create"
+    return None
+
+
+def _armory_usage_message() -> str:
+    return "Usage: /armory [open|create]\nOpen or create a local study armory."
 
 
 def _run_shell_escape_captured(command: str) -> str:
@@ -1030,26 +1048,50 @@ class HephaistosTui(App[None]):
         self.push_screen(SearchScreen(), on_search_result)
 
     def _handle_armory_browser(self, value: str) -> None:
-        allow_create = "create" in value.strip().lower()
+        mode = _armory_command_mode(value)
+        composer = self.query_one("#composer", Input)
+        if mode is None:
+            self._append_error(_armory_usage_message())
+            composer.focus()
+            return
+
+        allow_create = mode in ("manage", "create")
+        title = {
+            "manage": "Armory",
+            "open": "Open armory",
+            "create": "Create armory",
+        }[mode]
         start = self.session.armory_path or None
-        screen = ArmoryBrowserScreen(start, allow_create=allow_create)
+        screen = ArmoryBrowserScreen(start, allow_create=allow_create, title=title)
 
         def on_result(result: Path | None) -> None:
             if result is None:
                 self._append_notice("Cancelled.")
+                composer.focus()
                 return
             try:
                 _validate_armory(result)
-            except Exception:
-                self._append_error(f"Not a valid armory: {result}")
+            except OSError as exc:
+                self._append_error(f"Could not read armory: {exc}")
+                composer.focus()
                 return
+            except ArmoryError as exc:
+                self._append_error(f"Not a valid armory: {exc}")
+                composer.focus()
+                return
+            previous = self.session
             self.session = start_fresh_session(self.session, result)
             self._refresh_status("ready")
+            self._focused_msg_index = None
+            self._update_info_panel()
             src_count = self.session.source_file_count or 0
-            self._append_notice(f"Using armory {result}")
-            if src_count:
-                self._append_notice(f"Loaded {src_count} file(s).")
-            self.query_one("#composer", Input).focus()
+            if self.session is previous:
+                self._append_error(f"Could not open armory: {result}")
+            else:
+                self._append_notice(f"Using armory {result}")
+                if src_count:
+                    self._append_notice(f"Loaded {src_count} file(s).")
+            composer.focus()
 
         self.push_screen(screen, on_result)
 
