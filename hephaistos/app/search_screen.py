@@ -1,3 +1,4 @@
+# pylint: disable=duplicate-code
 # pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false
 # pyright: reportUntypedBaseClass=false, reportGeneralTypeIssues=false
 # pyright: reportUnknownVariableType=false, reportInvalidTypeArguments=false

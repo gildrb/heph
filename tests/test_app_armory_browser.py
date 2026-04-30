@@ -22,11 +22,12 @@ pytestmark = pytest.mark.skipif(
 
 try:
     from textual.app import App, ComposeResult
-    from textual.widgets import Input, Static
+    from textual.widgets import Input, OptionList, Static
 except ImportError:
     App = None  # type: ignore[assignment,misc]
     ComposeResult = None  # type: ignore[assignment,misc]
     Input = None  # type: ignore[assignment,misc]
+    OptionList = None  # type: ignore[assignment,misc]
     Static = None  # type: ignore[assignment,misc]
 
 
@@ -75,35 +76,37 @@ def test_is_armory_detects_marker(tmp_path: Path) -> None:
     assert not armory_browser._is_armory(plain)
 
 
-def test_browser_entries_include_parent_and_create(tmp_path: Path) -> None:
-    screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+def test_build_entries_include_parent_and_create(tmp_path: Path) -> None:
+    entries = armory_browser._build_entries(tmp_path, allow_create=True)
 
-    entries = screen._entries()
-
-    assert entries[0] == armory_browser._PARENT_LABEL
-    assert entries[1] == armory_browser._NEW_ARMORY_LABEL
+    assert entries[0].is_parent
+    assert entries[0].label == armory_browser._PARENT_LABEL
+    assert entries[1].is_create
+    assert entries[1].label == armory_browser._NEW_ARMORY_LABEL
     assert len(entries) >= 2
 
 
-def test_browser_entries_without_create_flag(tmp_path: Path) -> None:
+def test_build_entries_without_create_flag(tmp_path: Path) -> None:
     _make_dirs(tmp_path, "alpha", "beta")
-    screen = armory_browser.ArmoryBrowserScreen(start=tmp_path, allow_create=False)
+    entries = armory_browser._build_entries(tmp_path, allow_create=False)
 
-    entries = screen._entries()
+    labels = [e.label for e in entries]
+    assert not any(e.is_create for e in entries)
+    assert any("alpha" in label for label in labels)
+    assert any("beta" in label for label in labels)
 
-    assert armory_browser._NEW_ARMORY_LABEL not in entries
-    assert "alpha" in entries
-    assert "beta" in entries
 
-
-def test_browser_child_path_returns_correct_dir(tmp_path: Path) -> None:
+def test_build_entries_returns_correct_paths(tmp_path: Path) -> None:
     alpha, beta = _make_dirs(tmp_path, "alpha", "beta")
-    screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
-    # entries: 0=parent, 1=new-armory, 2=alpha, 3=beta
-    assert screen._child_path(2) == alpha
-    assert screen._child_path(3) == beta
-    assert screen._child_path(0) is None
-    assert screen._child_path(1) is None
+    entries = armory_browser._build_entries(tmp_path, allow_create=True)
+
+    # entries: 0=parent, 1=create, 2=alpha, 3=beta
+    assert entries[0].path is None
+    assert entries[0].is_parent
+    assert entries[1].path is None
+    assert entries[1].is_create
+    assert entries[2].path == alpha
+    assert entries[3].path == beta
 
 
 def test_browser_screen_compose_and_mount(tmp_path: Path) -> None:
@@ -122,7 +125,7 @@ def test_browser_screen_compose_and_mount(tmp_path: Path) -> None:
     asyncio.run(run_screen())
 
 
-def test_browser_navigates_into_child(tmp_path: Path) -> None:
+def test_browser_navigates_into_child_via_action(tmp_path: Path) -> None:
     child = _make_dirs(tmp_path, "child")[0]
 
     async def run_nav() -> None:
@@ -131,16 +134,18 @@ def test_browser_navigates_into_child(tmp_path: Path) -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
-            # Entry index 2 = "child" (after parent + new-armory)
-            screen._selected = 2
-            screen._navigate_into()
+            # Highlight the child entry (index 2: parent=0, create=1, child=2)
+            ol = screen.query_one("#armory-list", armory_browser.OptionList)
+            ol.highlighted = 2
+            await pilot.pause()
+            screen.action_activate()
             await pilot.pause()
             assert screen._current == child
 
     asyncio.run(run_nav())
 
 
-def test_browser_navigates_to_parent(tmp_path: Path) -> None:
+def test_browser_navigates_to_parent_via_action(tmp_path: Path) -> None:
     child_dir = tmp_path / "child"
     child_dir.mkdir()
 
@@ -150,15 +155,18 @@ def test_browser_navigates_to_parent(tmp_path: Path) -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
-            screen._selected = 0
-            screen._navigate_into()
+            # Parent is always index 0
+            ol = screen.query_one("#armory-list", armory_browser.OptionList)
+            ol.highlighted = 0
+            await pilot.pause()
+            screen.action_activate()
             await pilot.pause()
             assert screen._current == tmp_path
 
     asyncio.run(run_nav())
 
 
-def test_browser_choose_current_dismisses_with_path(tmp_path: Path) -> None:
+def test_browser_choose_dismisses_with_path(tmp_path: Path) -> None:
     result_path: Path | None = None
 
     def on_result(path: Path | None) -> None:
@@ -171,7 +179,7 @@ def test_browser_choose_current_dismisses_with_path(tmp_path: Path) -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen, on_result)
             await pilot.pause()
-            screen._choose_current()
+            screen.action_choose()
             await pilot.pause()
 
     asyncio.run(run_choose())
@@ -191,7 +199,7 @@ def test_browser_cancel_dismisses_with_none(tmp_path: Path) -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen, on_result)
             await pilot.pause()
-            screen._cancel()
+            screen.action_cancel()
             await pilot.pause()
 
     asyncio.run(run_cancel())
