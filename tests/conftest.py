@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable, Generator
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+# Avoid writing .pyc files during test runs
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 import hephaistos.chat.engine as _engine_mod
 import hephaistos.chat.orchestrator as _orch_mod
@@ -26,26 +30,33 @@ from hephaistos.chat._api_types import ApiMessage
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_session
 
+# Cache noop diagnostics objects to avoid recreating per test
+_NOOP_TRACER = _obs_mod._NoopTracer()  # type: ignore[reportPrivateUsage]
+_NOOP_METER = _obs_mod._NoopMeter()  # type: ignore[reportPrivateUsage]
+_NOOP_HISTOGRAM = _obs_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
+_NOOP_COUNTER = _obs_mod._NoopCounter()  # type: ignore[reportPrivateUsage]
+_NOOP_GAUGE = _obs_mod._NoopGauge()  # type: ignore[reportPrivateUsage]
+
 
 def _reset_diagnostics_module_objects() -> None:
     """Replace module-level diagnostics objects with no-ops to isolate tests."""
-    _noop_tracer = _obs_mod._NoopTracer()  # type: ignore[reportPrivateUsage]
-    _noop_meter = _obs_mod._NoopMeter()  # type: ignore[reportPrivateUsage]
+    _noop_tracer = _NOOP_TRACER
+    _noop_meter = _NOOP_METER
 
     # engine.py
     _engine_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]
     _engine_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
-    _engine_mod._llm_duration_hist = _obs_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
-    _engine_mod._llm_token_counter = _obs_mod._NoopCounter()  # type: ignore[reportPrivateUsage]
+    _engine_mod._llm_duration_hist = _NOOP_HISTOGRAM  # type: ignore[reportPrivateUsage]
+    _engine_mod._llm_token_counter = _NOOP_COUNTER  # type: ignore[reportPrivateUsage]
 
     # resilience.py
     _res_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
-    _res_mod._state_gauge = _obs_mod._NoopGauge()  # type: ignore[reportPrivateUsage]
+    _res_mod._state_gauge = _NOOP_GAUGE  # type: ignore[reportPrivateUsage]
 
     # orchestrator.py
     _orch_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]
     _orch_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
-    _orch_mod._rag_duration_hist = _obs_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
+    _orch_mod._rag_duration_hist = _NOOP_HISTOGRAM  # type: ignore[reportPrivateUsage]
 
 
 @pytest.fixture(autouse=True)

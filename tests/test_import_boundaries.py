@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -203,8 +204,9 @@ def test_import_linter_config_references_new_packages() -> None:
 
 def test_import_linter_exits_clean() -> None:
     """lint-imports must exit 0 with all contracts kept."""
+    lint_code = "from importlinter.cli import lint_imports_command; lint_imports_command()"
     result = subprocess.run(
-        ["uv", "run", "lint-imports"],
+        [sys.executable, "-c", lint_code],
         capture_output=True,
         text=True,
         cwd=str(HERE.parent),

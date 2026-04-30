@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import json
 import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import cast
 
@@ -19,7 +21,7 @@ def _imported_modules_after_import(module_name: str) -> set[str]:
         "print(json.dumps(sorted(sys.modules)))\n"
     )
     result = subprocess.run(
-        ["uv", "run", "python", "-c", code],
+        [sys.executable, "-c", code],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -35,7 +37,7 @@ def _imported_modules_after_import(module_name: str) -> set[str]:
 
 def test_copyable_packages_do_not_load_app_or_chat_session() -> None:
     forbidden = {"hephaistos.app.tui", "hephaistos.app.workspace", "hephaistos.chat.session"}
-    for module_name in (
+    module_names = (
         "hephaistos.runtime",
         "hephaistos.providers",
         "hephaistos.materials",
@@ -44,8 +46,12 @@ def test_copyable_packages_do_not_load_app_or_chat_session() -> None:
         "hephaistos.armory",
         "hephaistos.study",
         "hephaistos.vocab",
-    ):
-        loaded = _imported_modules_after_import(module_name)
+    )
+    with ThreadPoolExecutor(max_workers=len(module_names)) as pool:
+        module_results = list(
+            zip(module_names, pool.map(_imported_modules_after_import, module_names), strict=True)
+        )
+    for module_name, loaded in module_results:
         assert not forbidden.intersection(loaded), module_name
 
 
