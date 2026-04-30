@@ -54,6 +54,7 @@ node_modules/
 .superset/
 .factory/
 .codex/
+.pi/
 .agents/*
 !.agents/skills/
 !.agents/skills/**
