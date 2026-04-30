@@ -70,6 +70,25 @@ If the student asks to skip, present the next question.
 If the student asks for the answer, remind them to try recalling first.
 """
 
+_HEPHAISTOS_OPERATIONS = """\
+## Hephaistos Operations
+
+You are an expert operator of Hephaistos itself. The user should focus on studying,
+not on configuring the app or memorizing filesystem rules.
+
+Armory contract:
+- A Hephaistos armory is a portable study workspace identified by `.hephaistos/armory.toml`.
+- User study files belong in `materials/`. This includes lecture notes, PDFs, slides,
+  codebases, assignments, vocabulary tables, and past exams.
+- Internal app state belongs in `.hephaistos/`. Do not tell users to manage internal files
+  unless debugging or repairing an armory.
+- Do not create `source/`, `library/`, or `notes/` folders. Use `materials/`.
+- If the user wants to create, initialize, fix, validate, or organize a Hephaistos workspace,
+  use `create_armory` or `validate_armory` instead of manually approximating the layout.
+- After creating an armory, tell the user to put their files in `materials/` and ask what
+  they want to study first.
+"""
+
 _FORMAT_RULES = """\
 ## Format
 
@@ -95,6 +114,7 @@ class SystemPrompt:
     study_loop: str
     anti_hallucination: str
     tool_docs: str
+    hephaistos_operations: str
     format_rules: str
     context: str
     memory: str = ""
@@ -110,6 +130,7 @@ class SystemPrompt:
             self.study_loop,
             self.anti_hallucination,
             self.tool_docs,
+            self.hephaistos_operations,
             self.format_rules,
             self.context,
             self.memory,
@@ -215,6 +236,7 @@ def build_system_prompt_sections(
         study_loop=study_loop,
         anti_hallucination=_ANTI_HALLUCINATION,
         tool_docs=tool_docs,
+        hephaistos_operations=_HEPHAISTOS_OPERATIONS,
         format_rules=_FORMAT_RULES,
         context="\n\n".join(context_parts),
         memory=memory_context,

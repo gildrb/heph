@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import urllib.error
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from hephaistos.agent.tools import (
@@ -11,6 +12,8 @@ from hephaistos.agent.tools import (
     BashResult,
     get_handler,
     run_bash,
+    run_create_armory,
+    run_validate_armory,
     run_web_fetch,
 )
 
@@ -89,6 +92,48 @@ class TestRunBash:
 
 
 # ---------------------------------------------------------------------------
+# armory tools
+# ---------------------------------------------------------------------------
+
+
+class TestArmoryTools:
+    def test_create_armory_builds_canonical_layout(self, tmp_path: Path) -> None:
+        result = run_create_armory("linear-algebra", workspace=tmp_path)
+
+        assert result.success is True
+        assert "materials/" in result.content
+        assert (tmp_path / "linear-algebra" / "materials").is_dir()
+        assert (tmp_path / "linear-algebra" / ".hephaistos" / "armory.toml").is_file()
+        assert (tmp_path / "linear-algebra" / ".hephaistos" / "chats").is_dir()
+        assert not (tmp_path / "linear-algebra" / "source").exists()
+        assert not (tmp_path / "linear-algebra" / "library").exists()
+        assert not (tmp_path / "linear-algebra" / "notes").exists()
+
+    def test_create_armory_rejects_workspace_escape(self, tmp_path: Path) -> None:
+        result = run_create_armory("../outside", workspace=tmp_path)
+
+        assert result.success is False
+        assert result.error == "path_escape"
+
+    def test_validate_armory_reports_valid_layout(self, tmp_path: Path) -> None:
+        run_create_armory("exam-prep", workspace=tmp_path)
+
+        result = run_validate_armory("exam-prep", workspace=tmp_path)
+
+        assert result.success is True
+        assert "Valid Hephaistos armory" in result.content
+        assert result.metadata["materials_dir"] == "materials"
+
+    def test_validate_armory_reports_missing_marker(self, tmp_path: Path) -> None:
+        (tmp_path / "not-armory").mkdir()
+
+        result = run_validate_armory("not-armory", workspace=tmp_path)
+
+        assert result.success is False
+        assert result.error == "invalid_armory"
+
+
+# ---------------------------------------------------------------------------
 # web_fetch
 # ---------------------------------------------------------------------------
 
@@ -151,9 +196,18 @@ class TestToolSchemas:
         names = [s["function"]["name"] for s in TOOL_SCHEMAS]
         assert "web_fetch" in names
 
+    def test_armory_tool_schemas_exist(self):
+        names = [s["function"]["name"] for s in TOOL_SCHEMAS]
+        assert "create_armory" in names
+        assert "validate_armory" in names
+
     def test_web_fetch_handler_registered(self):
         handler = get_handler("web_fetch")
         assert handler is not None
+
+    def test_armory_handlers_registered(self):
+        assert get_handler("create_armory") is not None
+        assert get_handler("validate_armory") is not None
 
     def test_all_schemas_have_required_fields(self):
         for schema in TOOL_SCHEMAS:

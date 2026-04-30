@@ -44,6 +44,14 @@ from hephaistos.agent.tool_schema import (
     ToolSchema,
     ToolSpec,
 )
+from hephaistos.armory.storage import (
+    ARMORY_DIRS,
+    MARKER_FILE,
+    ArmoryValidationError,
+    initialize,
+    read_marker,
+    validate,
+)
 
 
 def safe_path(workspace: Path, rel_path: str) -> Path:
@@ -292,6 +300,28 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
         },
     ),
     _tool(
+        "create_armory",
+        (
+            "Create or repair a Hephaistos armory with the canonical layout: "
+            "materials/ for user study files and .hephaistos/ for internal state."
+        ),
+        {
+            "path": _string("Relative path from workspace root for the armory folder."),
+        },
+        required=("path",),
+    ),
+    _tool(
+        "validate_armory",
+        (
+            "Validate that a folder is a Hephaistos armory. Reports missing required "
+            "directories and marker metadata without modifying files."
+        ),
+        {
+            "path": _string("Relative path from workspace root for the armory folder."),
+        },
+        required=("path",),
+    ),
+    _tool(
         "search_files",
         (
             "Search for a text pattern across files in the workspace. "
@@ -530,6 +560,83 @@ def run_list_files(
     return "\n".join(lines)
 
 
+def run_create_armory(
+    path: str,
+    *,
+    workspace: Path,
+    **_kwargs: object,
+) -> ToolResult:
+    """Create or repair a Hephaistos armory inside the workspace."""
+    try:
+        target = safe_path(workspace, path)
+    except ValueError as exc:
+        return ToolResult(success=False, content=str(exc), error="path_escape")
+    try:
+        initialize(target)
+        marker = read_marker(target)
+    except OSError as exc:
+        return ToolResult(
+            success=False,
+            content=f"Error creating armory: {exc}",
+            error="io_error",
+        )
+
+    created_paths = [str((target / dirname).relative_to(target)) for dirname in ARMORY_DIRS]
+    marker_rel = str(MARKER_FILE)
+    lines = [
+        f"Armory ready: {target}",
+        "User study files belong in materials/.",
+        "Internal Hephaistos state belongs in .hephaistos/.",
+        "Required layout:",
+        *(f"  - {dirname}/" for dirname in created_paths),
+        f"  - {marker_rel}",
+    ]
+    return ToolResult(
+        success=True,
+        content="\n".join(lines),
+        metadata={
+            "path": str(target),
+            "layout_version": marker.get("version", 0),
+            "materials_dir": "materials",
+            "marker": marker_rel,
+        },
+    )
+
+
+def run_validate_armory(
+    path: str,
+    *,
+    workspace: Path,
+    **_kwargs: object,
+) -> ToolResult:
+    """Validate a Hephaistos armory inside the workspace."""
+    try:
+        target = safe_path(workspace, path)
+    except ValueError as exc:
+        return ToolResult(success=False, content=str(exc), error="path_escape")
+    try:
+        validate(target)
+        marker = read_marker(target)
+    except ArmoryValidationError as exc:
+        return ToolResult(success=False, content=str(exc), error="invalid_armory")
+    except OSError as exc:
+        return ToolResult(success=False, content=f"Error reading armory: {exc}", error="io_error")
+
+    return ToolResult(
+        success=True,
+        content=(
+            f"Valid Hephaistos armory: {target}\n"
+            "Use materials/ for user study files. .hephaistos/ is internal state."
+        ),
+        metadata={
+            "path": str(target),
+            "layout_version": marker.get("version", 0),
+            "materials_dir": "materials",
+            "marker": str(MARKER_FILE),
+        },
+    )
+
+
 def run_search_files(
     pattern: str,
     *,
@@ -727,6 +834,8 @@ _HANDLERS: dict[str, Callable[..., ToolHandlerResult]] = {
     "write_file": _queued_write_file,
     "edit_file": _queued_edit_file,
     "list_files": run_list_files,
+    "create_armory": run_create_armory,
+    "validate_armory": run_validate_armory,
     "search_files": run_search_files,
     "web_fetch": run_web_fetch,
 }

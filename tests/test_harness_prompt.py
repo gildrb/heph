@@ -13,6 +13,7 @@ def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
     assert "## Study Loop" in prompt
     assert "## Accuracy Rules" in prompt
     assert "## Tools" in prompt
+    assert "## Hephaistos Operations" in prompt
     assert "## Format" in prompt
 
 
@@ -79,10 +80,22 @@ def test_build_system_prompt_sections_render_matches_string_builder(armory: Path
     )
     assert sections.tool_docs.startswith("## Tools")
     assert "### read_file" in sections.tool_docs
+    assert "materials/" in sections.hephaistos_operations
 
 
 def test_tool_docs_are_generated_from_registry_schema() -> None:
     prompt = build_system_prompt()
 
     assert "### web_fetch" in prompt
+    assert "### create_armory" in prompt
+    assert "### validate_armory" in prompt
     assert "- `url` (required): The URL to fetch" in prompt
+
+
+def test_hephaistos_operations_teaches_armory_contract() -> None:
+    prompt = build_system_prompt()
+
+    assert "A Hephaistos armory is a portable study workspace" in prompt
+    assert "materials/" in prompt
+    assert "Do not create `source/`, `library/`, or `notes/` folders" in prompt
+    assert "use `create_armory` or `validate_armory`" in prompt
