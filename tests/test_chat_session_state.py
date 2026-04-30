@@ -15,8 +15,8 @@ from hephaistos.study import StudyFeedbackType, StudyPhase
 def _make_armory(tmp_path: Path) -> Path:
     armory = tmp_path / "armory"
     initialize(armory)
-    (armory / "source").mkdir(exist_ok=True)
-    (armory / "source" / "exam.md").write_text("# Exam\n\nQ1\n\nAnswer: 4\n")
+    (armory / "materials").mkdir(exist_ok=True)
+    (armory / "materials" / "exam.md").write_text("# Exam\n\nQ1\n\nAnswer: 4\n")
     return armory
 
 
@@ -29,7 +29,7 @@ def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     session.study_state.phase = StudyPhase.RECALL
     session.study_state.current_item = "Q1"
     session.study_state.retrieval_query = "Q1"
-    session.study_state.expected_source_refs = ["source/exam.md#chunk=0"]
+    session.study_state.expected_source_refs = ["materials/exam.md#chunk=0"]
     session.study_state.attempt_count = 3
     session.study_state.last_feedback_type = StudyFeedbackType.PARTIAL
 
@@ -39,7 +39,7 @@ def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     assert resumed.study_state.phase is StudyPhase.RECALL
     assert resumed.study_state.current_item == "Q1"
     assert resumed.study_state.retrieval_query == "Q1"
-    assert resumed.study_state.expected_source_refs == ["source/exam.md#chunk=0"]
+    assert resumed.study_state.expected_source_refs == ["materials/exam.md#chunk=0"]
     assert resumed.study_state.attempt_count == 3
     assert resumed.study_state.last_feedback_type is StudyFeedbackType.PARTIAL
 
@@ -48,12 +48,12 @@ def test_session_source_scan_respects_armory_ignore(tmp_path: Path) -> None:
     armory = tmp_path / "armory"
     initialize(armory)
     (armory / ".hephaistosignore").write_text(
-        "source/ignored.md\nlibrary/private/\n",
+        "materials/ignored.md\nmaterials/private/\n",
         encoding="utf-8",
     )
-    (armory / "source" / "visible.md").write_text("# Visible\n\nUseful material.\n")
-    (armory / "source" / "ignored.md").write_text("# Ignored\n\nDo not expose.\n")
-    private = armory / "library" / "private"
+    (armory / "materials" / "visible.md").write_text("# Visible\n\nUseful material.\n")
+    (armory / "materials" / "ignored.md").write_text("# Ignored\n\nDo not expose.\n")
+    private = armory / "materials" / "private"
     private.mkdir()
     (private / "notes.md").write_text("# Private\n\nDo not expose.\n")
 
@@ -63,18 +63,18 @@ def test_session_source_scan_respects_armory_ignore(tmp_path: Path) -> None:
     )
 
     assert session.source_file_count == 1
-    assert session.source_files == ("source/visible.md",)
+    assert session.source_files == ("materials/visible.md",)
     system_prompt = session.conversation.messages[0].content
-    assert "source/visible.md" in system_prompt
-    assert "source/ignored.md" not in system_prompt
-    assert "library/private/notes.md" not in system_prompt
+    assert "materials/visible.md" in system_prompt
+    assert "materials/ignored.md" not in system_prompt
+    assert "materials/private/notes.md" not in system_prompt
 
 
 def test_ignored_sources_do_not_make_armory_startable(tmp_path: Path) -> None:
     armory = tmp_path / "armory"
     initialize(armory)
-    (armory / ".hephaistosignore").write_text("source/ignored.md\n", encoding="utf-8")
-    (armory / "source" / "ignored.md").write_text("# Ignored\n\nOnly ignored material.\n")
+    (armory / ".hephaistosignore").write_text("materials/ignored.md\n", encoding="utf-8")
+    (armory / "materials" / "ignored.md").write_text("# Ignored\n\nOnly ignored material.\n")
 
     with pytest.raises(SessionError, match="no study materials"):
         create_session(

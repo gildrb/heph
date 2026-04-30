@@ -176,25 +176,24 @@ def make_tool_spec(
 
 @pytest.fixture
 def armory(tmp_path: Path) -> Path:
-    """Create a minimal armory with source files."""
+    """Create a minimal armory with material files."""
     arm = tmp_path / "test-armory"
-    (arm / "source").mkdir(parents=True)
-    (arm / "library").mkdir(parents=True)
+    (arm / "materials").mkdir(parents=True)
     (arm / ".hephaistos").mkdir(parents=True)
 
-    (arm / "source" / "python.md").write_text(
+    (arm / "materials" / "python.md").write_text(
         "# Python Basics\n\n"
         "Python is a high-level programming language.\n\n"
         "Variables are dynamically typed.\n\n"
         "Functions use the `def` keyword.\n"
     )
-    (arm / "source" / "rust.md").write_text(
+    (arm / "materials" / "rust.md").write_text(
         "# Rust Basics\n\n"
         "Rust is a systems programming language.\n\n"
         "Ownership and borrowing are core concepts.\n\n"
         "Cargo is the build tool.\n"
     )
-    (arm / "library" / "algorithms.md").write_text(
+    (arm / "materials" / "algorithms.md").write_text(
         "# Algorithms\n\n"
         "Binary search runs in O(log n) time.\n\n"
         "Quick sort has average O(n log n) complexity.\n\n"
@@ -208,8 +207,8 @@ def chat_session(tmp_path: Path):
     """Create a session attached to a valid armory."""
     armory_path = tmp_path / "test-armory"
     initialize(armory_path)
-    (armory_path / "source").mkdir(exist_ok=True)
-    (armory_path / "source" / "exam.md").write_text(
+    (armory_path / "materials").mkdir(exist_ok=True)
+    (armory_path / "materials" / "exam.md").write_text(
         "# Past Exam\n## Q1\nWhat is 2+2?\n\nAnswer: 4\n"
     )
     return create_session(

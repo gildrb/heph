@@ -49,8 +49,8 @@ def _derive_presentation_query(user_input: str, state: StudyState) -> str:
     if cleaned and not _SKIP_RE.fullmatch(cleaned.lower()):
         return cleaned
     if state.current_item:
-        return f"different source-backed item from {state.current_item}"
-    return "next source-backed study item"
+        return f"different material-backed item from {state.current_item}"
+    return "next material-backed study item"
 
 
 def _present_prompt(item: str) -> str:
@@ -58,12 +58,12 @@ def _present_prompt(item: str) -> str:
         "Controlled study state machine. Execute the PRESENT phase.\n"
         f"Current item: {item}\n"
         "Rules:\n"
-        "- Use only the retrieved source material for this item.\n"
+        "- Use only the retrieved material for this item.\n"
         "- Present the complete solution or method once, concisely.\n"
-        "- Cite the source filename whenever you state a factual step or value.\n"
+        "- Cite evidence IDs whenever you state a factual step or value.\n"
         "- End with exactly: Say ready when you want recall.\n"
         "- If no retrieved source material is available, say the armory does not "
-        "cover this item and ask for a more specific source-backed prompt.\n"
+        "cover this item and ask for a more specific material-backed prompt.\n"
         "- Do not switch into assessment or extra tutoring."
     )
 
@@ -105,10 +105,10 @@ def _hint_prompt(item: str) -> str:
         "Controlled study state machine. Execute HINT.\n"
         f"Current item: {item}\n"
         "Rules:\n"
-        "- Use only the stored source context for this item.\n"
+        "- Use only the stored material context for this item.\n"
         "- Give exactly one first-step hint.\n"
         "- Do not reveal later steps or the full answer.\n"
-        "- If no grounded source context is available, say no grounded hint is available.\n"
+        "- If no grounded material context is available, say no grounded hint is available.\n"
         "- Keep it to one short sentence."
     )
 
@@ -119,14 +119,14 @@ def _assess_prompt(item: str, attempt_count: int) -> str:
         f"Current item: {item}\n"
         f"Attempt number: {attempt_count + 1}\n"
         "Rules:\n"
-        "- Evaluate the student's attempt against the retrieved source material only.\n"
+        "- Evaluate the student's attempt against the retrieved material only.\n"
         "- Start the reply with exactly one label: CORRECT:, PARTIAL:, or WRONG:.\n"
         "- CORRECT: one short sentence only. Do not restate the solution.\n"
         "- PARTIAL: state only what is missing in one sentence. "
         "Do not fill in the missing content.\n"
         "- WRONG: give only the first-step hint in one sentence. Do not reveal later steps.\n"
         "- No praise. No encouragement. No extra exposition.\n"
-        "- If source material is missing, default to PARTIAL: "
+        "- If material evidence is missing, default to PARTIAL: "
         "and say grounded assessment is unavailable."
     )
 

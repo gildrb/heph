@@ -33,11 +33,10 @@ from hephaistos.vocab.state import (
 def vocab_armory(tmp_path: Path) -> Path:
     """Create an armory with vocabulary markdown files."""
     arm = tmp_path / "vocab-armory"
-    (arm / "source").mkdir(parents=True)
-    (arm / "library").mkdir(parents=True)
+    (arm / "materials").mkdir(parents=True)
     (arm / ".hephaistos").mkdir(parents=True)
 
-    (arm / "source" / "french.md").write_text(
+    (arm / "materials" / "french.md").write_text(
         "# French Vocabulary\n\n"
         "| word | translation |\n"
         "|------|-------------|\n"
@@ -48,7 +47,7 @@ def vocab_armory(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
 
-    (arm / "library" / "german.md").write_text(
+    (arm / "materials" / "german.md").write_text(
         "# German Words\n\n"
         "| front | back |\n"
         "|-------|------|\n"
@@ -58,7 +57,7 @@ def vocab_armory(tmp_path: Path) -> Path:
     )
 
     # A non-vocab file (no matching table headers).
-    (arm / "source" / "notes.md").write_text(
+    (arm / "materials" / "notes.md").write_text(
         "# Study Notes\n\n| topic | detail |\n|-------|--------|\n| Math | Algebra |\n",
         encoding="utf-8",
     )
@@ -70,9 +69,9 @@ def vocab_armory(tmp_path: Path) -> Path:
 def empty_armory(tmp_path: Path) -> Path:
     """Create an armory with no vocab files."""
     arm = tmp_path / "empty-armory"
-    (arm / "source").mkdir(parents=True)
+    (arm / "materials").mkdir(parents=True)
     (arm / ".hephaistos").mkdir(parents=True)
-    (arm / "source" / "notes.md").write_text("# Just notes\n\nNo tables here.\n")
+    (arm / "materials" / "notes.md").write_text("# Just notes\n\nNo tables here.\n")
     return arm
 
 
@@ -83,20 +82,20 @@ def empty_armory(tmp_path: Path) -> Path:
 
 class TestVocabParser:
     def test_parse_vocab_file_word_translation(self, vocab_armory: Path) -> None:
-        cards = parse_vocab_file(vocab_armory / "source" / "french.md", vocab_armory)
+        cards = parse_vocab_file(vocab_armory / "materials" / "french.md", vocab_armory)
         assert len(cards) == 4
         assert cards[0].front == "Bonjour"
         assert cards[0].back == "Hello"
-        assert cards[0].source_file == "source/french.md"
+        assert cards[0].source_file == "materials/french.md"
 
     def test_parse_vocab_file_front_back(self, vocab_armory: Path) -> None:
-        cards = parse_vocab_file(vocab_armory / "library" / "german.md", vocab_armory)
+        cards = parse_vocab_file(vocab_armory / "materials" / "german.md", vocab_armory)
         assert len(cards) == 2
         assert cards[0].front == "Hallo"
         assert cards[0].back == "Hello"
 
     def test_non_vocab_file_not_parsed(self, vocab_armory: Path) -> None:
-        cards = parse_vocab_file(vocab_armory / "source" / "notes.md", vocab_armory)
+        cards = parse_vocab_file(vocab_armory / "materials" / "notes.md", vocab_armory)
         assert len(cards) == 0
 
     def test_scan_armory_finds_all_vocab(self, vocab_armory: Path) -> None:
@@ -117,49 +116,49 @@ class TestVocabParser:
 
     def test_term_definition_columns(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / "source").mkdir(parents=True)
+        (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir()
-        (arm / "source" / "glossary.md").write_text(
+        (arm / "materials" / "glossary.md").write_text(
             "| term | definition |\n"
             "|------|------------|\n"
             "| API | Application Programming Interface |\n"
             "| SDK | Software Development Kit |\n",
         )
-        cards = parse_vocab_file(arm / "source" / "glossary.md", arm)
+        cards = parse_vocab_file(arm / "materials" / "glossary.md", arm)
         assert len(cards) == 2
         assert cards[0].front == "API"
 
     def test_source_target_columns(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / "source").mkdir(parents=True)
+        (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir()
-        (arm / "source" / "spanish.md").write_text(
+        (arm / "materials" / "spanish.md").write_text(
             "| source | target |\n|--------|--------|\n| Hola | Hello |\n",
         )
-        cards = parse_vocab_file(arm / "source" / "spanish.md", arm)
+        cards = parse_vocab_file(arm / "materials" / "spanish.md", arm)
         assert len(cards) == 1
         assert cards[0].front == "Hola"
 
     def test_skips_empty_cells(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / "source").mkdir(parents=True)
+        (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir()
-        (arm / "source" / "sparse.md").write_text(
+        (arm / "materials" / "sparse.md").write_text(
             "| word | translation |\n"
             "|------|-------------|\n"
             "| Hello |  |\n"
             "|  | World |\n"
             "| Foo | Bar |\n",
         )
-        cards = parse_vocab_file(arm / "source" / "sparse.md", arm)
+        cards = parse_vocab_file(arm / "materials" / "sparse.md", arm)
         assert len(cards) == 1
         assert cards[0].front == "Foo"
 
     def test_multiple_tables_in_one_file(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / "source").mkdir(parents=True)
+        (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir()
-        (arm / "source" / "multi.md").write_text(
+        (arm / "materials" / "multi.md").write_text(
             "# Part 1\n\n"
             "| word | translation |\n"
             "|------|-------------|\n"
@@ -169,7 +168,7 @@ class TestVocabParser:
             "|-------|------|\n"
             "| Two | Zwei |\n",
         )
-        cards = parse_vocab_file(arm / "source" / "multi.md", arm)
+        cards = parse_vocab_file(arm / "materials" / "multi.md", arm)
         assert len(cards) == 2
 
 
@@ -183,7 +182,7 @@ class TestScheduler:
         defaults: dict[str, object] = {
             "front": "test",
             "back": "answer",
-            "source_file": "source/test.md",
+            "source_file": "materials/test.md",
             "repetitions": 0,
             "easiness": 2.5,
             "interval": 0,
@@ -314,8 +313,8 @@ class TestSelectDueCards:
 
 class TestVocabCardState:
     def test_key_generation(self) -> None:
-        state = VocabCardState(front="Hello", back="Bonjour", source_file="source/vocab.md")
-        assert state.key == "source/vocab.md:Hello"
+        state = VocabCardState(front="Hello", back="Bonjour", source_file="materials/vocab.md")
+        assert state.key == "materials/vocab.md:Hello"
 
     def test_is_new(self) -> None:
         new = VocabCardState(front="a", back="b", source_file="test.md")
@@ -327,7 +326,7 @@ class TestVocabCardState:
         original = VocabCardState(
             front="Bonjour",
             back="Hello",
-            source_file="source/vocab.md",
+            source_file="materials/vocab.md",
             repetitions=3,
             easiness=2.36,
             interval=15,
@@ -343,7 +342,7 @@ class TestVocabCardState:
         assert restored.interval == original.interval
 
     def test_from_card(self) -> None:
-        card = VocabCard(front="Hello", back="Bonjour", source_file="source/v.md")
+        card = VocabCard(front="Hello", back="Bonjour", source_file="materials/v.md")
         state = VocabCardState.from_card(card)
         assert state.front == "Hello"
         assert state.back == "Bonjour"
@@ -379,10 +378,10 @@ class TestVocabScheduleStore:
 
     def test_sync_with_deck_updates_and_removes_stale_cards(self, tmp_path: Path) -> None:
         arm = tmp_path / "arm"
-        (arm / "source").mkdir(parents=True)
+        (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir(parents=True)
 
-        vocab_file = arm / "source" / "vocab.md"
+        vocab_file = arm / "materials" / "vocab.md"
         vocab_file.write_text(
             "| word | translation |\n"
             "|------|-------------|\n"
@@ -394,7 +393,7 @@ class TestVocabScheduleStore:
         store = VocabScheduleStore(arm)
         assert store.sync_with_deck(scan_armory(arm)) == 2
 
-        hello = store.cards["source/vocab.md:Hello"]
+        hello = store.cards["materials/vocab.md:Hello"]
         hello.repetitions = 3
         hello.easiness = 2.7
         hello.interval = 12
@@ -410,9 +409,9 @@ class TestVocabScheduleStore:
 
         added = store.sync_with_deck(scan_armory(arm))
         assert added == 1
-        assert set(store.cards) == {"source/vocab.md:Hello", "source/vocab.md:Thanks"}
+        assert set(store.cards) == {"materials/vocab.md:Hello", "materials/vocab.md:Thanks"}
 
-        updated_hello = store.cards["source/vocab.md:Hello"]
+        updated_hello = store.cards["materials/vocab.md:Hello"]
         assert updated_hello.back == "Salut"
         assert updated_hello.repetitions == 3
         assert updated_hello.easiness == 2.7
@@ -582,10 +581,10 @@ class TestDrillIntegration:
     def test_json_file_structure(self, tmp_path: Path) -> None:
         """Verify the saved JSON file has the expected structure."""
         arm = tmp_path / "arm"
-        (arm / "source").mkdir(parents=True)
+        (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir(parents=True)
 
-        (arm / "source" / "vocab.md").write_text(
+        (arm / "materials" / "vocab.md").write_text(
             "| word | translation |\n"
             "|------|-------------|\n"
             "| Hello | Bonjour |\n"

@@ -1,4 +1,4 @@
-"""Armory index: scans source/library, chunks files, persists to disk.
+"""Armory index: scans materials, chunks files, persists to disk.
 
 The index stores all chunks with metadata and content hashes for
 incremental rebuild detection.
@@ -150,7 +150,7 @@ class ArmoryIndex:
         return sum(len(doc.chunks) for doc in self.documents)
 
     def build(self) -> None:
-        """Scan source directories and build the chunk index."""
+        """Scan material files and build the chunk index."""
         timer = Timer()
         self.documents = []
         self._file_hashes = {}
@@ -306,7 +306,7 @@ class ArmoryIndex:
         return True
 
     def is_stale(self) -> bool:
-        """Check if any source files changed since last index build."""
+        """Check if any material files changed since last index build."""
         if not self._file_hashes:
             return True
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from hephaistos.logging import get_logger
+from hephaistos.materials import MATERIALS_DIR
 
 _log = get_logger("vocab.parser")
 
@@ -141,16 +142,14 @@ def parse_vocab_file(file_path: Path, armory_root: Path) -> list[VocabCard]:
 def scan_armory(armory_path: Path) -> VocabDeck:
     """Scan an armory for vocabulary markdown files.
 
-    Searches ``source/`` and ``library/`` subdirectories for ``*.md`` files
-    containing recognizable vocabulary tables.
+    Searches the armory ``materials/`` directory for ``*.md`` files containing
+    recognizable vocabulary tables.
     """
     deck = VocabDeck()
-    search_dirs = [armory_path / "source", armory_path / "library"]
+    materials_dir = armory_path / MATERIALS_DIR
 
-    for search_dir in search_dirs:
-        if not search_dir.is_dir():
-            continue
-        for md_file in sorted(search_dir.rglob("*.md")):
+    if materials_dir.is_dir():
+        for md_file in sorted(materials_dir.rglob("*.md")):
             if md_file.name.startswith("."):
                 continue
             cards = parse_vocab_file(md_file, armory_path)

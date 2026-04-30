@@ -216,8 +216,8 @@ def test_golden_path_init_source_index_dry_run(tmp_path: Path) -> None:
     initialize(armory_path)
     assert (armory_path / ".hephaistos" / "armory.toml").is_file()
 
-    # Step 2: Add source documents
-    source_dir = armory_path / "source"
+    # Step 2: Add material documents
+    source_dir = armory_path / "materials"
     (source_dir / "basics.md").write_text(
         "# Basics\n\nPython is a programming language.\n\nVariables store values.\n",
         encoding="utf-8",

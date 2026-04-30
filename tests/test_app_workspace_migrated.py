@@ -35,8 +35,8 @@ def initialized_armory(tmp_path: Path) -> Path:
     """Create a properly initialized armory that passes validate_armory_path."""
     armory_path = tmp_path / "test-armory"
     initialize(armory_path)
-    # Add a source file so create_session() doesn't reject the armory
-    (armory_path / "source" / "notes.md").write_text("# Notes\nSome study content.\n")
+    # Add a material file so create_session() doesn't reject the armory
+    (armory_path / "materials" / "notes.md").write_text("# Notes\nSome study content.\n")
     return armory_path
 
 

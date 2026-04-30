@@ -153,7 +153,7 @@ def _create_armory(session: ChatSession) -> ChatSession:
         return _start_fresh_session(session, armory_path)
     except SessionError as exc:
         print_error(str(exc))
-        print_info("Add source files and use /armory to attach it.")
+        print_info("Add files to materials/ and use /armory to attach it.")
         return session
 
 

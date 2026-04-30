@@ -59,7 +59,7 @@ class HistoryCommand(Command):
 
 class EvidenceCommand(Command):
     name = "evidence"
-    description = "Show sources retrieved for the last turn"
+    description = "Show retrieved evidence for the last turn"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -180,7 +180,7 @@ class StatsCommand(Command):
             return [
                 "",
                 "Vocabulary:",
-                "  No vocab cards yet. Add Q&A pairs to your source files.",
+                "  No vocab cards yet. Add Q&A pairs to your materials.",
             ]
 
         cards = store.card_list

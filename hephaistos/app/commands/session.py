@@ -180,7 +180,7 @@ class ArmoryCommand(Command):
         if subcmd in ("create", "new"):
             return CommandResult(new_session=create_armory_command(s))
         print_error("Usage: /armory [open|create]")
-        print_info("Open or create a local study armory for source files and saved chats.")
+        print_info("Open or create a local study armory for materials and saved chats.")
         return CommandResult()
 
 

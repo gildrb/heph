@@ -246,12 +246,12 @@ Useful shell commands:
 | /api | Manage API key (keychain) or base URL |
 | /compact | Summarize conversation to reduce context size |
 | /history | Show conversation turn count and token estimate |
-| /evidence | Show sources retrieved for the last turn |
+| /evidence | Show retrieved evidence for the last turn |
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
 | /stats | Show session, armory, and study progress stats |
 | /export | Export the current session to a markdown file |
-| /import | Import files into the armory source directory |
+| /import | Import files into the armory materials directory |
 | /remind | Show upcoming study reminders and due cards |
 | /edit | Edit and resend the last user message |
 | /provider | Show or switch LLM provider and model |

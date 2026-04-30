@@ -7,7 +7,7 @@ from hephaistos.agent.prompt import build_system_prompt, build_system_prompt_sec
 
 
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
-    prompt = build_system_prompt(armory_path=armory, source_files=["source/python.md"])
+    prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
     assert prompt.startswith("Hephaistos. A study drill engine.")
     assert "## Study Loop" in prompt
@@ -20,7 +20,7 @@ def test_custom_system_prompt_replaces_default_role_block(armory: Path) -> None:
     prompt_file = armory / ".hephaistos" / "system_prompt.md"
     prompt_file.write_text("Custom persona.", encoding="utf-8")
 
-    prompt = build_system_prompt(armory_path=armory, source_files=["source/python.md"])
+    prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
     assert prompt.startswith("Custom persona.")
     assert "Hephaistos. A study drill engine." not in prompt
@@ -31,27 +31,27 @@ def test_blank_custom_system_prompt_falls_back_to_default_persona(armory: Path) 
     prompt_file = armory / ".hephaistos" / "system_prompt.md"
     prompt_file.write_text("   \n", encoding="utf-8")
 
-    prompt = build_system_prompt(armory_path=armory, source_files=["source/python.md"])
+    prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
     assert prompt.startswith("Hephaistos. A study drill engine.")
     assert "## Study Loop" in prompt
 
 
-def test_build_system_prompt_truncates_source_file_list(armory: Path) -> None:
-    source_files = [f"source/file_{i}.md" for i in range(60)]
+def test_build_system_prompt_truncates_material_file_list(armory: Path) -> None:
+    material_files = [f"materials/file_{i}.md" for i in range(60)]
 
-    prompt = build_system_prompt(armory_path=armory, source_files=source_files)
+    prompt = build_system_prompt(armory_path=armory, source_files=material_files)
 
-    assert "Available source files:" in prompt
-    assert "source/file_0.md" in prompt
-    assert "source/file_49.md" in prompt
-    assert "source/file_50.md" not in prompt
+    assert "Available material files:" in prompt
+    assert "materials/file_0.md" in prompt
+    assert "materials/file_49.md" in prompt
+    assert "materials/file_50.md" not in prompt
 
 
 def test_build_system_prompt_appends_memory_context(armory: Path) -> None:
     prompt = build_system_prompt(
         armory_path=armory,
-        source_files=["source/python.md"],
+        source_files=["materials/python.md"],
         memory_context="## Memory\n- Already studied binary search.",
     )
 
@@ -68,11 +68,14 @@ def test_build_system_prompt_without_armory_uses_persona_study_loop_and_date() -
 
 
 def test_build_system_prompt_sections_render_matches_string_builder(armory: Path) -> None:
-    sections = build_system_prompt_sections(armory_path=armory, source_files=["source/python.md"])
+    sections = build_system_prompt_sections(
+        armory_path=armory,
+        source_files=["materials/python.md"],
+    )
 
     assert sections.render() == build_system_prompt(
         armory_path=armory,
-        source_files=["source/python.md"],
+        source_files=["materials/python.md"],
     )
     assert sections.tool_docs.startswith("## Tools")
     assert "### read_file" in sections.tool_docs

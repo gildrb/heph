@@ -72,7 +72,7 @@ class VocabCommand(Command):
             f"  New:          {stats['new']}",
             f"  Due now:      {stats['due']}",
             f"  Mastered:     {stats['mastered']}",
-            f"  Source files: {', '.join(deck.source_files) if deck.source_files else 'none'}",
+            f"  Material files: {', '.join(deck.source_files) if deck.source_files else 'none'}",
         ]
         print("\n".join(lines))
         return CommandResult()
@@ -115,7 +115,7 @@ class RemindCommand(Command):
         now = datetime.now(UTC)
 
         if not all_cards:
-            print_info("No vocab cards yet. Add Q&A pairs to your source files.")
+            print_info("No vocab cards yet. Add Q&A pairs to your materials.")
             return CommandResult()
 
         lines: list[str] = []

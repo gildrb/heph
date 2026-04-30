@@ -3,7 +3,7 @@
 Builds a structured system prompt that gives the LLM:
 1. Its role as a study drill engine
 2. Tool documentation (so it knows exactly how to use each tool)
-3. Anti-hallucination directives (cite sources, never fabricate)
+3. Anti-hallucination directives (cite evidence, never fabricate)
 4. Context: current date, armory info, memory of what's been studied
 
 This is the single most important file for answer quality — a well-informed
@@ -168,7 +168,7 @@ def build_system_prompt_sections(
     armory_path :
         Path to the armory workspace (for context and custom prompt).
     source_files :
-        List of source file names available in the armory.
+        List of material file names available in the armory.
     memory_context :
         Pre-built memory context string (from MemoryStore.build_system_context).
     persona :
@@ -208,7 +208,7 @@ def build_system_prompt_sections(
         context_parts.append(f"Armory workspace: {armory_path}")
         if source_files:
             file_list = "\n".join(f"  - {f}" for f in source_files[:50])
-            context_parts.append(f"Available source files:\n{file_list}")
+            context_parts.append(f"Available material files:\n{file_list}")
 
     return SystemPrompt(
         role=role,

@@ -16,7 +16,7 @@ from hephaistos.app.search_index import (
 
 class ImportCommand(Command):
     name = "import"
-    description = "Import files into the armory source directory"
+    description = "Import files into the armory materials directory"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -34,7 +34,7 @@ class ImportCommand(Command):
             print_error(f"Path not found: {source}")
             return CommandResult()
 
-        dest_dir = s.armory_path / "source"
+        dest_dir = s.armory_path / "materials"
         dest_dir.mkdir(parents=True, exist_ok=True)
         imported: list[str] = []
 

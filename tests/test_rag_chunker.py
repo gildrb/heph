@@ -70,13 +70,13 @@ class TestChunkFile:
     def test_chunk_text_file(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
         armory.mkdir()
-        (armory / "source").mkdir()
-        src = armory / "source" / "notes.md"
+        (armory / "materials").mkdir()
+        src = armory / "materials" / "notes.md"
         src.write_text("# Notes\n\nSome study content here.\n")
 
         doc = chunk_file(src, armory)
         assert doc is not None
-        assert doc.source == "source/notes.md"
+        assert doc.source == "materials/notes.md"
         assert len(doc.chunks) >= 1
         assert doc.content_hash != ""
 
@@ -300,7 +300,7 @@ class TestDoclingIntegration:
     def test_chunk_docling_file_via_chunk_file(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
         armory.mkdir()
-        src = armory / "source"
+        src = armory / "materials"
         src.mkdir()
         pdf = src / "report.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00binary content")
@@ -325,7 +325,7 @@ class TestDoclingIntegration:
             doc = chunk_file(pdf, armory)
 
         assert doc is not None
-        assert doc.source == "source/report.pdf"
+        assert doc.source == "materials/report.pdf"
         assert len(doc.chunks) >= 1
         assert doc.content_hash != ""
         # Markdown heading chunking should have run

@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hephaistos.materials import iter_material_files
+from hephaistos.materials import MATERIALS_DIR, iter_material_files
 from hephaistos.parameters.settings import load_raw_settings, save_setting
 
 _SETTINGS_KEY = "known_armories"
@@ -24,9 +24,9 @@ class SearchResult:
 
     @property
     def source_path(self) -> Path:
-        if self.source_rel.startswith(("source/", "library/")):
+        if self.source_rel.startswith(f"{MATERIALS_DIR}/"):
             return self.armory_path / self.source_rel
-        return self.armory_path / "source" / self.source_rel
+        return self.armory_path / MATERIALS_DIR / self.source_rel
 
     @property
     def armory_name(self) -> str:

@@ -6,8 +6,24 @@ import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
-ARMORY_DIRS = ("source", "library", "notes", "chats", "parameters", ".hephaistos")
+MATERIALS_DIR = "materials"
+INTERNAL_DIR = ".hephaistos"
+GENERATED_DIR = ".hephaistos/generated"
+CHATS_DIR = ".hephaistos/chats"
+TRACES_DIR = ".hephaistos/traces"
+USAGE_DIR = ".hephaistos/usage"
+TOOLS_DIR = ".hephaistos/tools"
+ARMORY_DIRS = (
+    MATERIALS_DIR,
+    INTERNAL_DIR,
+    GENERATED_DIR,
+    CHATS_DIR,
+    TRACES_DIR,
+    USAGE_DIR,
+    TOOLS_DIR,
+)
 MARKER_FILE = Path(".hephaistos/armory.toml")
+LAYOUT_VERSION = 2
 
 
 class ArmoryError(Exception):
@@ -34,7 +50,7 @@ def initialize(path: Path) -> None:
     if not marker_path.exists():
         created_at = datetime.now(UTC).isoformat()
         marker_path.write_text(
-            f'version = 1\ncreated_at = "{created_at}"\n',
+            f'version = {LAYOUT_VERSION}\ncreated_at = "{created_at}"\n',
             encoding="utf-8",
         )
 

@@ -311,12 +311,12 @@ def test_tui_slash_suggestion_includes_tui_source_command() -> None:
 
 def test_source_listing_filters_with_fuzzy_match() -> None:
     session = _plain_session()
-    session.source_files = ("source/binary-search.md", "library/calculus.md")
+    session.source_files = ("materials/binary-search.md", "materials/calculus.md")
     session.source_file_count = 2
 
     listing = tui._source_listing(session, "binary")  # type: ignore[reportPrivateUsage]
 
-    assert listing.splitlines()[0] == "@source/binary-search.md"
+    assert listing.splitlines()[0] == "@materials/binary-search.md"
 
 
 def test_run_tui_reports_missing_textual(monkeypatch: pytest.MonkeyPatch) -> None:

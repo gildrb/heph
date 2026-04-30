@@ -1,4 +1,4 @@
-"""Chat history persistence within an armory's chats/ directory.
+"""Chat history persistence within an armory's internal chats directory.
 
 Each chat session is stored as a JSON file named by its session ID.
 """
@@ -18,7 +18,7 @@ from hephaistos.runtime import Conversation, Message
 
 _log = get_logger("chat.storage")
 
-CHATS_DIR = "chats"
+CHATS_DIR = ".hephaistos/chats"
 
 
 class ChatStorageError(Exception):

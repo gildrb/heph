@@ -60,7 +60,7 @@ def test_save_preserves_created_at(tmp_path: Path) -> None:
     conv.add("user", "First message")
     save(armory, session_id, conv, title="v1")
 
-    path = armory / "chats" / f"{session_id}.json"
+    path = armory / ".hephaistos" / "chats" / f"{session_id}.json"
     data = json.loads(path.read_text())
     original_created = data["created_at"]
 

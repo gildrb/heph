@@ -13,25 +13,24 @@ from hephaistos.rag.index import ArmoryIndex, build_index, load_or_build
 
 @pytest.fixture
 def armory(tmp_path: Path) -> Path:
-    """Create a minimal armory with source files."""
+    """Create a minimal armory with material files."""
     arm = tmp_path / "test-armory"
-    (arm / "source").mkdir(parents=True)
-    (arm / "library").mkdir(parents=True)
+    (arm / "materials").mkdir(parents=True)
     (arm / ".hephaistos").mkdir(parents=True)
 
-    (arm / "source" / "python.md").write_text(
+    (arm / "materials" / "python.md").write_text(
         "# Python Basics\n\n"
         "Python is a high-level programming language.\n\n"
         "Variables are dynamically typed.\n\n"
         "Functions use the `def` keyword.\n"
     )
-    (arm / "source" / "rust.md").write_text(
+    (arm / "materials" / "rust.md").write_text(
         "# Rust Basics\n\n"
         "Rust is a systems programming language.\n\n"
         "Ownership and borrowing are core concepts.\n\n"
         "Cargo is the build tool.\n"
     )
-    (arm / "library" / "algorithms.md").write_text(
+    (arm / "materials" / "algorithms.md").write_text(
         "# Algorithms\n\n"
         "Binary search runs in O(log n) time.\n\n"
         "Quick sort has average O(n log n) complexity.\n\n"
@@ -45,9 +44,9 @@ class TestArmoryIndexBuild:
         index = ArmoryIndex(armory)
         index.build()
         sources = {doc.source for doc in index.documents}
-        assert "source/python.md" in sources
-        assert "source/rust.md" in sources
-        assert "library/algorithms.md" in sources
+        assert "materials/python.md" in sources
+        assert "materials/rust.md" in sources
+        assert "materials/algorithms.md" in sources
 
     def test_build_creates_chunks(self, armory: Path) -> None:
         index = ArmoryIndex(armory)
@@ -57,8 +56,13 @@ class TestArmoryIndexBuild:
     def test_all_chunks_have_source(self, armory: Path) -> None:
         index = ArmoryIndex(armory)
         index.build()
+        expected_sources = {
+            "materials/python.md",
+            "materials/rust.md",
+            "materials/algorithms.md",
+        }
         for chunk in index.all_chunks:
-            assert chunk.source in ("source/python.md", "source/rust.md", "library/algorithms.md")
+            assert chunk.source in expected_sources
 
 
 class TestArmoryIndexPersist:
@@ -107,7 +111,7 @@ class TestArmoryIndexStaleness:
         index.build()
         assert not index.is_stale()
 
-        (armory / "source" / "new.md").write_text("# New content\n")
+        (armory / "materials" / "new.md").write_text("# New content\n")
         assert index.is_stale()
 
     def test_edited_file_makes_stale(self, armory: Path) -> None:
@@ -115,11 +119,11 @@ class TestArmoryIndexStaleness:
         index.build()
         assert not index.is_stale()
 
-        (armory / "source" / "python.md").write_text("# Changed content\n")
+        (armory / "materials" / "python.md").write_text("# Changed content\n")
         assert index.is_stale()
 
     def test_unsupported_file_does_not_make_fresh_index_stale(self, armory: Path) -> None:
-        (armory / "source" / "data.bin").write_bytes(b"\x00\x01\x02\x03")
+        (armory / "materials" / "data.bin").write_bytes(b"\x00\x01\x02\x03")
 
         index = ArmoryIndex(armory)
         index.build()
@@ -151,10 +155,10 @@ class TestLoadOrBuild:
 
     def test_rebuilds_when_stale(self, armory: Path) -> None:
         build_index(armory)
-        (armory / "source" / "extra.md").write_text("# Extra\n")
+        (armory / "materials" / "extra.md").write_text("# Extra\n")
         index = load_or_build(armory)
         sources = {doc.source for doc in index.documents}
-        assert "source/extra.md" in sources
+        assert "materials/extra.md" in sources
 
     def test_builds_when_no_index(self, armory: Path) -> None:
         index = load_or_build(armory)
@@ -163,16 +167,16 @@ class TestLoadOrBuild:
 
 class TestArmoryIndexSkips:
     def test_skips_dotfiles(self, armory: Path) -> None:
-        (armory / "source" / ".hidden.md").write_text("hidden content\n")
+        (armory / "materials" / ".hidden.md").write_text("hidden content\n")
         index = ArmoryIndex(armory)
         index.build()
         sources = {doc.source for doc in index.documents}
-        assert "source/.hidden.md" not in sources
+        assert "materials/.hidden.md" not in sources
 
     def test_skips_armory_ignore_patterns(self, armory: Path) -> None:
-        (armory / ".hephaistosignore").write_text("source/ignored.md\nlibrary/private/\n")
-        (armory / "source" / "ignored.md").write_text("ignored content\n")
-        private = armory / "library" / "private"
+        (armory / ".hephaistosignore").write_text("materials/ignored.md\nmaterials/private/\n")
+        (armory / "materials" / "ignored.md").write_text("ignored content\n")
+        private = armory / "materials" / "private"
         private.mkdir()
         (private / "notes.md").write_text("private content\n")
 
@@ -180,19 +184,19 @@ class TestArmoryIndexSkips:
         index.build()
 
         sources = {doc.source for doc in index.documents}
-        assert "source/ignored.md" not in sources
-        assert "library/private/notes.md" not in sources
+        assert "materials/ignored.md" not in sources
+        assert "materials/private/notes.md" not in sources
 
     def test_skips_binary(self, armory: Path) -> None:
-        (armory / "source" / "data.bin").write_bytes(b"\x00\x01\x02\x03")
+        (armory / "materials" / "data.bin").write_bytes(b"\x00\x01\x02\x03")
         index = ArmoryIndex(armory)
         index.build()
         sources = {doc.source for doc in index.documents}
-        assert "source/data.bin" not in sources
+        assert "materials/data.bin" not in sources
 
     def test_handles_empty_dirs(self, tmp_path: Path) -> None:
         arm = tmp_path / "empty-armory"
-        (arm / "source").mkdir(parents=True)
+        (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir(parents=True)
 
         index = ArmoryIndex(arm)

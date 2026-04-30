@@ -10,12 +10,12 @@ def material_listing(session: ChatSession, query: str = "") -> str:
     """Return a compact material listing for the active chat session."""
     files = list(session.source_files)
     if not files:
-        return "No source files are attached."
+        return "No material files are attached."
     if query.strip():
         matches = ranked_matches(query, files, key=lambda value: value, limit=12, min_score=35.0)
         files = [match.value for match in matches]
         if not files:
-            return f"No sources match: {query}"
+            return f"No materials match: {query}"
     visible = files[:16]
     body = "\n".join(f"@{name}" for name in visible)
     if len(files) > len(visible):

@@ -115,7 +115,7 @@ def print_shell_intro(
         f" {styled('\u00b7', STYLE_DIM)} "
         f"{styled('api', STYLE_DIM)} {api_status}"
         f" {styled('\u00b7', STYLE_DIM)} "
-        f"{styled('source', STYLE_DIM)} {source_status}"
+        f"{styled('materials', STYLE_DIM)} {source_status}"
     )
     for hint_line in hints:
         print(f"  {hint_line}")
@@ -167,7 +167,7 @@ def format_shell_header(
         ("class:header.dim", "api "),
         (api_style, api_status),
         ("class:header.dim", " \u00b7 "),
-        ("class:header.dim", "source "),
+        ("class:header.dim", "materials "),
         (source_style, source_text),
         ("", "\n"),
         ("class:header.dim", "  enter "),

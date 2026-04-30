@@ -142,7 +142,7 @@ def _status_lines(
         f"  model {model}"
         f"  api {api}"
         f"  memory {mem_status}"
-        f"  source {source_str}"
+        f"  materials {source_str}"
     )
 
 
@@ -173,7 +173,7 @@ def _status_text(session: ChatSession, state: str = "ready") -> Text:
     hep_idx = plain.index("Hephaistos")
     text.stylize(f"bold {palette.ember}", hep_idx, hep_idx + len("Hephaistos"))
 
-    for label in ("armory", "model", "api", "memory", "source"):
+    for label in ("armory", "model", "api", "memory", "materials"):
         start = plain.index(label)
         text.stylize(f"dim {palette.dim}", start, start + len(label))
 
@@ -225,7 +225,7 @@ def _footer_hints_text(session: ChatSession, *, busy: bool = False) -> Text:
 
 
 def _info_panel_default_text(session: ChatSession) -> Text:
-    """Build the default info panel content showing armory, model, sources."""
+    """Build the default info panel content showing armory, model, materials."""
     if _RichText is None:
         raise TuiDependencyError(_tui_dependency_message())
     title = session.title or "New conversation"
@@ -240,14 +240,14 @@ def _info_panel_default_text(session: ChatSession) -> Text:
         "\u2500" * 26,
         f"armory  {armory_name}",
         f"model   {model}",
-        f"sources {source_str}",
+        f"materials {source_str}",
         f"evidence {evidence_str}",
     ]
     plain = "\n".join(lines)
     text = _RichText(plain, style="#808080")
     title_end = len(lines[0])
     text.stylize("bold #9B4A2E", 0, title_end)
-    for label in ("armory", "model", "sources", "evidence"):
+    for label in ("armory", "model", "materials", "evidence"):
         try:
             start = plain.index(label)
             text.stylize("dim #808080", start, start + len(label))
@@ -618,7 +618,7 @@ def _tui_command_suggestions() -> list[CommandSuggestion]:
     suggestions.append(
         CommandSuggestion(
             name="sources",
-            description="List or fuzzy-filter source files",
+            description="List or fuzzy-filter material files",
         )
     )
     return suggestions

@@ -9,14 +9,14 @@ from hephaistos.armory.storage import initialize
 
 
 def _make_armory(tmp_path: Path) -> Path:
-    """Create a minimal armory with sample source files."""
+    """Create a minimal armory with sample material files."""
     armory_path = tmp_path / "test-armory"
     initialize(armory_path)
-    (armory_path / "source" / "python.md").write_text(
+    (armory_path / "materials" / "python.md").write_text(
         "# Python\n\nPython is a programming language.\n"
     )
-    (armory_path / "source" / "rust.md").write_text("# Rust\n\nRust is a systems language.\n")
-    (armory_path / "library" / "algorithms.md").write_text(
+    (armory_path / "materials" / "rust.md").write_text("# Rust\n\nRust is a systems language.\n")
+    (armory_path / "materials" / "algorithms.md").write_text(
         "# Algorithms\n\nBinary search runs in O(log n).\n"
     )
     return armory_path
@@ -29,9 +29,9 @@ def test_source_list_shows_files(tmp_path: Path, capsys: pytest.CaptureFixture[s
     run_argv(parser, ["source", "list", str(armory_path)])
 
     out = capsys.readouterr().out
-    assert "library/algorithms.md" in out
-    assert "source/python.md" in out
-    assert "source/rust.md" in out
+    assert "materials/algorithms.md" in out
+    assert "materials/python.md" in out
+    assert "materials/rust.md" in out
 
 
 def test_materials_list_shows_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -41,9 +41,9 @@ def test_materials_list_shows_files(tmp_path: Path, capsys: pytest.CaptureFixtur
     run_argv(parser, ["materials", "list", str(armory_path)])
 
     out = capsys.readouterr().out
-    assert "library/algorithms.md" in out
-    assert "source/python.md" in out
-    assert "source/rust.md" in out
+    assert "materials/algorithms.md" in out
+    assert "materials/python.md" in out
+    assert "materials/rust.md" in out
 
 
 def test_source_list_empty_armory(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -132,7 +132,6 @@ def test_source_index_builds_index(tmp_path: Path, capsys: pytest.CaptureFixture
     assert "Indexed" in out
     assert "documents" in out
     assert "chunks" in out
-    # Verify the index file was created
     assert (armory_path / ".hephaistos" / "rag_index.json").is_file()
 
 
@@ -167,14 +166,14 @@ def test_source_index_fails_for_invalid_armory(
 def test_source_list_ignores_dotfiles(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     armory_path = tmp_path / "dotfile-armory"
     initialize(armory_path)
-    (armory_path / "source" / "visible.md").write_text("# Visible\n")
-    (armory_path / "source" / ".hidden.md").write_text("# Hidden\n")
+    (armory_path / "materials" / "visible.md").write_text("# Visible\n")
+    (armory_path / "materials" / ".hidden.md").write_text("# Hidden\n")
     parser = build_parser()
 
     run_argv(parser, ["source", "list", str(armory_path)])
 
     out = capsys.readouterr().out
-    assert "source/visible.md" in out
+    assert "materials/visible.md" in out
     assert ".hidden.md" not in out
 
 
@@ -183,10 +182,10 @@ def test_source_list_respects_armory_ignore(
 ) -> None:
     armory_path = tmp_path / "ignored-armory"
     initialize(armory_path)
-    (armory_path / ".hephaistosignore").write_text("source/ignored.md\nlibrary/private/\n")
-    (armory_path / "source" / "visible.md").write_text("# Visible\n")
-    (armory_path / "source" / "ignored.md").write_text("# Ignored\n")
-    private = armory_path / "library" / "private"
+    (armory_path / ".hephaistosignore").write_text("materials/ignored.md\nmaterials/private/\n")
+    (armory_path / "materials" / "visible.md").write_text("# Visible\n")
+    (armory_path / "materials" / "ignored.md").write_text("# Ignored\n")
+    private = armory_path / "materials" / "private"
     private.mkdir()
     (private / "notes.md").write_text("# Private\n")
     parser = build_parser()
@@ -194,6 +193,6 @@ def test_source_list_respects_armory_ignore(
     run_argv(parser, ["source", "list", str(armory_path)])
 
     out = capsys.readouterr().out
-    assert "source/visible.md" in out
-    assert "source/ignored.md" not in out
-    assert "library/private/notes.md" not in out
+    assert "materials/visible.md" in out
+    assert "materials/ignored.md" not in out
+    assert "materials/private/notes.md" not in out

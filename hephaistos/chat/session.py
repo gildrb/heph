@@ -228,8 +228,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     source_file_count, source_files = _scan_source_files(armory_path)
     if source_file_count == 0:
         raise SessionError(
-            f"Armory has no study materials. Add past exams to {armory_path}/source/ "
-            "or reference material to library/."
+            f"Armory has no study materials. Add your files to {armory_path}/materials/."
         )
 
     conversation = Conversation()

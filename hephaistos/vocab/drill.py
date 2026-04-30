@@ -129,8 +129,7 @@ def run_drill(armory_path: Path, *, card_limit: int = 0) -> DrillResult | None:
         direct_print(styled("  No vocabulary files found in this armory.", STYLE_DIM))
         direct_print(
             styled(
-                "  Add a markdown file with a table (columns: word, translation) "
-                "to source/ or library/.",
+                "  Add a markdown file with a table (columns: word, translation) to materials/.",
                 STYLE_DIM,
             )
         )

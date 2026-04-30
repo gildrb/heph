@@ -25,11 +25,11 @@ def _clear_settings_cache() -> None:
     invalidate_settings_cache()
 
 
-def _make_source_file(armory: Path, name: str, content: str) -> Path:
-    """Create a source file in an armory's source directory."""
-    source_dir = armory / "source"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    path = source_dir / name
+def _make_material_file(armory: Path, name: str, content: str) -> Path:
+    """Create a material file in an armory's materials directory."""
+    materials_dir = armory / "materials"
+    materials_dir.mkdir(parents=True, exist_ok=True)
+    path = materials_dir / name
     path.write_text(content, encoding="utf-8")
     return path
 
@@ -59,14 +59,14 @@ def test_search_result_properties(tmp_path: Path) -> None:
         score=0.9,
     )
     assert result.armory_name == tmp_path.name
-    assert result.source_path == tmp_path / "source" / "notes.md"
+    assert result.source_path == tmp_path / "materials" / "notes.md"
 
 
 def test_cross_armory_index_search_finds_matches(tmp_path: Path) -> None:
     armory = tmp_path / "test-armory"
     initialize(armory)
     content = "Binary search is O(log n). Quick sort is O(n log n)."
-    _make_source_file(armory, "algorithms.md", content)
+    _make_material_file(armory, "algorithms.md", content)
 
     index = CrossArmoryIndex()
     index.build([armory])
@@ -85,7 +85,7 @@ def test_cross_armory_index_search_empty_query_returns_empty() -> None:
 def test_cross_armory_index_search_no_results(tmp_path: Path) -> None:
     armory = tmp_path / "empty-armory"
     initialize(armory)
-    _make_source_file(armory, "notes.md", "The weather is nice today.")
+    _make_material_file(armory, "notes.md", "The weather is nice today.")
 
     index = CrossArmoryIndex()
     index.build([armory])

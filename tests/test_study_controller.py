@@ -122,16 +122,16 @@ def test_missing_assessment_prefix_defaults_to_partial() -> None:
     assert next_state.attempt_count == 1
 
 
-def test_skip_without_current_item_requests_next_source_backed_item() -> None:
+def test_skip_without_current_item_requests_next_material_backed_item() -> None:
     state = StudyState()
 
     plan = plan_turn(state, "skip")
 
     assert plan.action is StudyAction.PRESENT
-    assert plan.retrieval_query == "next source-backed study item"
+    assert plan.retrieval_query == "next material-backed study item"
 
 
-def test_skip_with_current_item_requests_different_source_backed_item() -> None:
+def test_skip_with_current_item_requests_different_material_backed_item() -> None:
     state = StudyState(
         phase=StudyPhase.RECALL,
         current_item="Q1",
@@ -141,7 +141,7 @@ def test_skip_with_current_item_requests_different_source_backed_item() -> None:
     plan = plan_turn(state, "skip")
 
     assert plan.action is StudyAction.PRESENT
-    assert plan.retrieval_query == "different source-backed item from Q1"
+    assert plan.retrieval_query == "different material-backed item from Q1"
 
 
 def test_waiting_for_ready_reminder_keeps_waiting_state() -> None:

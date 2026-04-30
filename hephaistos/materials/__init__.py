@@ -1,9 +1,8 @@
 """Study material discovery for armories.
 
-The on-disk armory layout still uses ``source/`` for primary study material
-and ``library/`` for reference material. This package owns the domain language
-and file-discovery rules so retrieval, sessions, and CLI commands do not each
-carry their own idea of what "source" means.
+User study files live under ``materials/``. Hephaistos infers the role of files
+inside that folder instead of requiring users to classify them into separate
+buckets.
 """
 
 from __future__ import annotations
@@ -23,9 +22,10 @@ except ImportError:
 
 _log = get_logger("materials")
 
-MaterialKind = Literal["source", "library"]
+MaterialKind = Literal["materials"]
 
-MATERIAL_DIRS: tuple[MaterialKind, ...] = ("source", "library")
+MATERIALS_DIR = "materials"
+MATERIAL_DIRS: tuple[MaterialKind, ...] = (MATERIALS_DIR,)
 IGNORE_FILE = ".hephaistosignore"
 DEFAULT_IGNORE_PATTERNS: tuple[str, ...] = (
     ".git/",
@@ -52,15 +52,13 @@ class MaterialFile:
 def material_kind(rel_path: str | Path) -> MaterialKind | None:
     """Return the material kind for a relative armory path."""
     first = Path(rel_path).parts[0] if Path(rel_path).parts else ""
-    if first == "source":
-        return "source"
-    if first == "library":
-        return "library"
+    if first == MATERIALS_DIR:
+        return "materials"
     return None
 
 
 def iter_materials(armory_path: Path) -> Iterator[MaterialFile]:
-    """Yield visible source/library material files using armory ignore rules."""
+    """Yield visible material files using armory ignore rules."""
     ignore_spec = _load_ignore_spec(armory_path)
     for dirname in MATERIAL_DIRS:
         folder = armory_path / dirname
@@ -135,6 +133,7 @@ def _matches_ignore(ignore_spec: object, rel_path: str) -> bool:
 __all__ = [
     "DEFAULT_IGNORE_PATTERNS",
     "IGNORE_FILE",
+    "MATERIALS_DIR",
     "MATERIAL_DIRS",
     "MaterialFile",
     "MaterialKind",
