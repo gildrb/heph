@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -12,7 +13,6 @@ from hephaistos.armory.storage import (
     normalize_path,
     validate,
 )
-from hephaistos.materials import count_material_files, iter_material_files
 
 IndexHandler = Callable[[argparse.Namespace], None]
 
@@ -32,7 +32,8 @@ def _cmd_materials_list(args: argparse.Namespace) -> None:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    files = list(iter_material_files(armory_path))
+    _materials = importlib.import_module("hephaistos.materials")
+    files = list(_materials.iter_material_files(armory_path))
     if not files:
         print("No study materials found.")
         return
@@ -49,7 +50,8 @@ def _cmd_materials_count(args: argparse.Namespace) -> None:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    print(count_material_files(armory_path))
+    _materials = importlib.import_module("hephaistos.materials")
+    print(_materials.count_material_files(armory_path))
 
 
 def _cmd_missing_index_handler(_args: argparse.Namespace) -> None:
