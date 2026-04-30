@@ -17,9 +17,6 @@ from hephaistos.armory.storage import ArmoryError, normalize_path, validate
 from hephaistos.materials.cli import register as register_materials_commands
 from hephaistos.materials.cli import register_source_alias
 from hephaistos.observability import init_observability, shutdown_observability
-from hephaistos.parameters.cli import (
-    register as register_config_commands,
-)
 from hephaistos.parameters.settings import (
     load_raw_settings,
     save_raw_settings,
@@ -264,6 +261,7 @@ def build_parser() -> argparse.ArgumentParser:
     list_cmd.add_argument("path", help="Path to the armory folder.")
     list_cmd.set_defaults(handler=_chat_handler("list"))
 
+    register_config_commands = importlib.import_module("hephaistos.parameters.cli").register
     register_config_commands(subparsers)
     _hide_subparser(subparsers, "start")
     _hide_subparser(subparsers, "chat")
