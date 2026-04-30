@@ -18,15 +18,16 @@ from hephaistos.agent.tools import ToolRegistry, default_registry
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig, Conversation, Message
 from hephaistos.chat.events import render_turn_event
 from hephaistos.chat.orchestrator import TurnOrchestrator
 from hephaistos.chat.titles import derive_title as _derive_title
 from hephaistos.chat.usage import SessionUsage
 from hephaistos.logging import TraceWriter, get_logger
+from hephaistos.materials import iter_material_files
 from hephaistos.memory import MemoryStore, load_memory
 from hephaistos.observability import set_session_context
-from hephaistos.rag import ArmoryIndex, TurnEvidence, iter_source_files
+from hephaistos.rag import ArmoryIndex, TurnEvidence
+from hephaistos.runtime import ChatConfig, Conversation, Message
 from hephaistos.study import StudyState
 
 _log = get_logger("chat.session")
@@ -106,16 +107,16 @@ class SessionError(Exception):
 
 _SYSTEM_PROMPT_FALLBACK = (
     "Hephaistos. A study drill engine.\n"
-    "You need an armory with source documents to study. No armory is attached.\n"
+    "You need an armory with study materials to study. No armory is attached.\n"
     "Tell the user to create one: run `heph armory init <path>` or type /armory "
     "in the shell. Say nothing else."
 )
 
 _PLAIN_CHAT_CONTEXT = (
-    "No armory or source documents are attached. Workspace tools are unavailable.\n"
+    "No armory or study materials are attached. Workspace tools are unavailable.\n"
     "Do not answer general-knowledge questions or chat. Do not fabricate evidence.\n"
     "Tell the user to create an armory (`heph armory init <path>` or /armory) and "
-    "add source documents to begin studying. Be terse."
+    "add study materials to begin studying. Be terse."
 )
 
 
@@ -141,10 +142,10 @@ def validate_armory_path(path_str: str) -> Path:
 
 
 def _scan_source_files(armory_path: Path) -> tuple[int, list[str]]:
-    """Count source files and collect relative paths in a single pass."""
+    """Count material files and collect relative paths in a single pass."""
     count = 0
     names: list[str] = []
-    for file_path in iter_source_files(armory_path):
+    for file_path in iter_material_files(armory_path):
         count += 1
         names.append(str(file_path.relative_to(armory_path)))
     return count, names
@@ -227,7 +228,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     source_file_count, source_files = _scan_source_files(armory_path)
     if source_file_count == 0:
         raise SessionError(
-            f"Armory has no source documents. Add past exams to {armory_path}/source/ "
+            f"Armory has no study materials. Add past exams to {armory_path}/source/ "
             "or reference material to library/."
         )
 

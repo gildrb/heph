@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from hephaistos.chat.engine import is_keyless_endpoint
 from hephaistos.chat.session import ChatSession
+from hephaistos.providers.catalog import hydrate_provider_models
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.registry import get_registry as get_provider_registry
+from hephaistos.runtime import is_keyless_endpoint
 
 _MODEL_PROVIDER_ORDER = {
-    "pollinations": 0,
+    "openrouter": 0,
     "openai-codex": 1,
-    "openrouter": 2,
-    "zai": 3,
+    "zai": 2,
+    "pollinations": 3,
     "custom": 99,
 }
 
@@ -51,10 +52,9 @@ def configured_model_choices(
 ) -> list[tuple[str, str, str, bool]]:
     """Return configured models as (provider slug, model, display label, free)."""
     pc = pc or ProviderConfig.load()
+    hydrate_provider_models(pc)
     registry = get_provider_registry()
     choices: list[tuple[str, str, str, bool]] = []
-    active = pc.get_active()
-    active_slug = active.slug if active is not None else ""
     for slug, provider in pc.providers.items():
         if slug == "custom" and not provider.models:
             continue
@@ -65,7 +65,6 @@ def configured_model_choices(
     return sorted(
         choices,
         key=lambda item: (
-            0 if item[0] == active_slug else 1,
             _MODEL_PROVIDER_ORDER.get(item[0], 50),
             0 if item[3] else 1,
             item[1].lower(),

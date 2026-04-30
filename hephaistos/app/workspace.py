@@ -23,14 +23,6 @@ from hephaistos.app.input_history import InputHistory
 from hephaistos.app.menu import MenuOption, browse_directory, select_option
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import (
-    ChatConfig,
-    EngineError,
-    StreamRecoveryError,
-    is_keyless_endpoint,
-    missing_api_key_message,
-)
-from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import (
     ChatSession,
     SessionError,
@@ -45,6 +37,15 @@ from hephaistos.chat.session import (
 )
 from hephaistos.fuzzy import ranked_matches
 from hephaistos.observability import capture_exception
+from hephaistos.runtime import (
+    ChatConfig,
+    EngineError,
+    StreamRecoveryError,
+    is_keyless_endpoint,
+    is_network_error,
+    missing_api_key_message,
+    offline_message,
+)
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 
@@ -500,3 +501,8 @@ def _create_startup_session(config: ChatConfig) -> ChatSession:  # pyright: igno
 resume_saved_chat = _resume_saved_chat
 list_saved_chats = _list_saved_chats
 handle_armory_command = _handle_armory_command
+start_fresh_session = _start_fresh_session
+handle_input = _handle_input
+get_history_path = _get_history_path
+save_on_exit = _save_on_exit
+create_startup_session = _create_startup_session

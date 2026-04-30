@@ -33,26 +33,27 @@ from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.app.rich_transcript import enrich_reply, evidence_summary_text
 from hephaistos.app.search_index import SearchResult
 from hephaistos.app.search_screen import SearchScreen
-from hephaistos.app.workspace import (  # type: ignore[reportPrivateUsage]
-    _create_startup_session,
-    _get_history_path,
-    _handle_input,
-    _save_on_exit,
-    _start_fresh_session,
+from hephaistos.app.workspace import (
+    create_startup_session,
+    get_history_path,
+    handle_input,
+    save_on_exit,
+    start_fresh_session,
 )
 from hephaistos.armory.storage import validate as _validate_armory
 from hephaistos.chat.cli import resolve_armory_session
-from hephaistos.chat.engine import (
-    EngineError,
-    StreamRecoveryError,
-    is_keyless_endpoint,
-    missing_api_key_message,
-)
-from hephaistos.chat.resilience import is_network_error, offline_message
 from hephaistos.chat.session import ChatSession, send_user_message
 from hephaistos.fuzzy import ranked_matches
 from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.parameters.cli import load_config
+from hephaistos.runtime import (
+    EngineError,
+    StreamRecoveryError,
+    is_keyless_endpoint,
+    is_network_error,
+    missing_api_key_message,
+    offline_message,
+)
 
 try:
     from rich.markdown import Markdown
@@ -1133,7 +1134,7 @@ class HephaistosTui(App[None]):
             except Exception:
                 self._append_error(f"Not a valid armory: {result}")
                 return
-            self.session = _start_fresh_session(self.session, result)
+            self.session = start_fresh_session(self.session, result)
             self._refresh_status("ready")
             src_count = self.session.source_file_count or 0
             self._append_notice(f"Using armory {result}")
@@ -1446,11 +1447,11 @@ def run_tui(session: ChatSession | None = None) -> None:
         raise TuiDependencyError(_tui_dependency_message())
 
     if session is None:
-        session = _create_startup_session(load_config())
+        session = create_startup_session(load_config())
 
     palette = current_palette()
     session_ref: list[ChatSession] = [session]
-    history_path = _get_history_path(session)
+    history_path = get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
     history_obj = InputHistory.load(history_path)
     state = _TuiRuntimeState(
@@ -1475,7 +1476,7 @@ def run_tui(session: ChatSession | None = None) -> None:
 
             history = InputHistory(state.history)
             if _pending_input_requires_terminal(pending_input):
-                new_session, should_continue = _handle_input(
+                new_session, should_continue = handle_input(
                     session_ref[0],
                     pending_input,
                     history,
@@ -1489,7 +1490,7 @@ def run_tui(session: ChatSession | None = None) -> None:
             stdout = _TuiCaptureWriter()
             stderr = _TuiCaptureWriter()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                new_session, should_continue = _handle_input(
+                new_session, should_continue = handle_input(
                     session_ref[0],
                     pending_input,
                     history,
@@ -1505,7 +1506,7 @@ def run_tui(session: ChatSession | None = None) -> None:
     finally:
         if state.history_obj is not None:
             state.history_obj.save(history_path)
-        _save_on_exit(session_ref[0])
+        save_on_exit(session_ref[0])
 
 
 def run_tui_for_path(path: Path | None) -> None:

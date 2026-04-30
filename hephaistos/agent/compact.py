@@ -22,15 +22,15 @@ from pathlib import Path
 from openai.types.chat import ChatCompletion
 
 from hephaistos._types import is_object_list, is_string_mapping
-from hephaistos.chat._api_types import ApiMessage
-from hephaistos.chat.engine import (
+from hephaistos.logging import get_logger
+from hephaistos.rag.context import estimate_tokens
+from hephaistos.runtime import (
+    ApiMessage,
     ChatConfig,
     Conversation,
     build_client,
     to_chat_completion_messages,
 )
-from hephaistos.logging import get_logger
-from hephaistos.rag.context import estimate_tokens
 
 _log = get_logger("agent.compact")
 

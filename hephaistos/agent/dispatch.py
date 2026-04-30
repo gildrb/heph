@@ -15,14 +15,6 @@ from hephaistos.agent.compact import (
     micro_compact,
 )
 from hephaistos.agent.tools import ToolRegistry, ToolResult, default_registry
-from hephaistos.chat._api_types import ApiMessage, ContentPart, ToolCallDelta, UsagePayload
-from hephaistos.chat.engine import (
-    ChatConfig,
-    Conversation,
-    RetryConfig,
-    build_client,
-    stream_completion,
-)
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
@@ -36,6 +28,17 @@ from hephaistos.chat.events import (
 from hephaistos.chat.usage import ContextBudget, SessionUsage, TokenUsage
 from hephaistos.logging import Timer, get_logger
 from hephaistos.rag.context import TurnEvidence
+from hephaistos.runtime import (
+    ApiMessage,
+    ChatConfig,
+    ContentPart,
+    Conversation,
+    RetryConfig,
+    ToolCallDelta,
+    UsagePayload,
+    build_client,
+    stream_completion,
+)
 
 _log = get_logger("agent.dispatch")
 

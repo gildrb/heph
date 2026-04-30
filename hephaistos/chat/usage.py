@@ -21,8 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from hephaistos._types import is_string_mapping
-from hephaistos.chat._api_types import ApiMessage, ContentPart, UsagePayload
 from hephaistos.logging import get_logger
+from hephaistos.runtime import ApiMessage, ContentPart, UsagePayload
 
 _log = get_logger("chat.usage")
 _MODEL_PRICING: dict[str, tuple[float, float]] = {

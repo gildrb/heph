@@ -6,8 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hephaistos.materials import iter_material_files
 from hephaistos.parameters.settings import load_raw_settings, save_setting
-from hephaistos.rag.index import iter_source_files
 
 _SETTINGS_KEY = "known_armories"
 
@@ -24,6 +24,8 @@ class SearchResult:
 
     @property
     def source_path(self) -> Path:
+        if self.source_rel.startswith(("source/", "library/")):
+            return self.armory_path / self.source_rel
         return self.armory_path / "source" / self.source_rel
 
     @property
@@ -73,7 +75,7 @@ def remove_known_armory(path: Path) -> list[Path]:
 class CrossArmoryIndex:
     """Lightweight search index across multiple armories.
 
-    Builds a simple keyword-frequency index over source chunks.
+    Builds a simple keyword-frequency index over material chunks.
     For production use, this would be replaced with embedding-based search.
     """
 
@@ -89,13 +91,13 @@ class CrossArmoryIndex:
                 continue
 
     def _index_armory(self, armory_path: Path) -> None:
-        """Index source files from a single armory."""
-        for source_file in iter_source_files(armory_path):
+        """Index material files from a single armory."""
+        for material_file in iter_material_files(armory_path):
             try:
-                text = source_file.read_text(encoding="utf-8", errors="replace")
+                text = material_file.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            rel = str(source_file.relative_to(armory_path / "source"))
+            rel = str(material_file.relative_to(armory_path))
             chunks = _chunk_text(text, max_chars=500, overlap=100)
             for idx, chunk in enumerate(chunks):
                 self.entries.append(

@@ -15,7 +15,7 @@ When RAG search returns poor or missing results, follow this runbook.
    cat my-armory/.hephaistos/armory.toml
    ```
 
-2. **Check source files exist** — only `source/` and `library/` are indexed:
+2. **Check material files exist** — only `source/` and `library/` are indexed:
    ```bash
    ls my-armory/source/
    ls my-armory/library/
@@ -41,8 +41,8 @@ When RAG search returns poor or missing results, follow this runbook.
 
 | Problem | Fix |
 |---------|-----|
-| Missing index | Run `heph source index <path>` to rebuild |
-| Stale index | Re-index after adding/modifying source files |
+| Missing index | Run `heph materials index <path>` to rebuild |
+| Stale index | Re-index after adding/modifying material files |
 | Low scores | Improve source document quality; split large files into focused sections |
 | No source files | Add documents to `source/` or `library/` directories |
 | Hidden files indexed | Move them out of `source/` or rename without leading dot |
@@ -52,10 +52,10 @@ When RAG search returns poor or missing results, follow this runbook.
 
 ```bash
 # From the armory directory
-uv run heph source index .
+uv run heph materials index .
 
 # Or from any directory
-uv run heph source index /path/to/armory
+uv run heph materials index /path/to/armory
 ```
 
 This rebuilds the RAG index from all files in `source/` and `library/`.

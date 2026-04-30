@@ -76,7 +76,7 @@ def test_ignored_sources_do_not_make_armory_startable(tmp_path: Path) -> None:
     (armory / ".hephaistosignore").write_text("source/ignored.md\n", encoding="utf-8")
     (armory / "source" / "ignored.md").write_text("# Ignored\n\nOnly ignored material.\n")
 
-    with pytest.raises(SessionError, match="no source documents"):
+    with pytest.raises(SessionError, match="no study materials"):
         create_session(
             ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
             armory,

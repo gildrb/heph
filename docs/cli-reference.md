@@ -11,9 +11,9 @@
 | `hephaistos [path]` | Equivalent long entrypoint for `heph`. |
 | `heph armory init <path>` | Create a new armory folder. |
 | `heph armory open <path>` | Open and validate an armory. |
-| `heph source list <path>` | List source documents. |
-| `heph source count <path>` | Count source documents. |
-| `heph source index <path>` | Build or refresh the RAG index. |
+| `heph materials list <path>` | List study material files. |
+| `heph materials count <path>` | Count study material files. |
+| `heph materials index <path>` | Build or refresh the RAG index. |
 | `heph config show` | Display current configuration. |
 | `heph config set <key> <value>` | Set a configuration parameter. |
 | `heph chat start <path>` | Start a new chat session in an armory. |
@@ -21,6 +21,9 @@
 | `heph chat list <path>` | List chat sessions in an armory. |
 | `heph start [path]` | Hidden backwards-compatible alias for `heph [path]`. |
 | `heph tui [path]` | Explicit alias for the default Textual TUI. |
+| `heph source list <path>` | Deprecated alias for `heph materials list <path>`. |
+| `heph source count <path>` | Deprecated alias for `heph materials count <path>`. |
+| `heph source index <path>` | Deprecated alias for `heph materials index <path>`. |
 
 `heph` is the canonical public command. `hephaistos` is an
 equivalent long entrypoint. `heph start [path]` stays available as

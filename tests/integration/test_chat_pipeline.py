@@ -176,7 +176,7 @@ class TestStreamReplyPipeline:
         ]
         client = _mock_client(*chunks)
 
-        with patch("hephaistos.chat.engine.build_client", return_value=client):
+        with patch("hephaistos.runtime.engine.build_client", return_value=client):
             result = list(
                 stream_reply(
                     config,

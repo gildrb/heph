@@ -34,6 +34,18 @@ def test_source_list_shows_files(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert "source/rust.md" in out
 
 
+def test_materials_list_shows_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    armory_path = _make_armory(tmp_path)
+    parser = build_parser()
+
+    run_argv(parser, ["materials", "list", str(armory_path)])
+
+    out = capsys.readouterr().out
+    assert "library/algorithms.md" in out
+    assert "source/python.md" in out
+    assert "source/rust.md" in out
+
+
 def test_source_list_empty_armory(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     armory_path = tmp_path / "empty-armory"
     initialize(armory_path)
@@ -42,7 +54,7 @@ def test_source_list_empty_armory(tmp_path: Path, capsys: pytest.CaptureFixture[
     run_argv(parser, ["source", "list", str(armory_path)])
 
     out = capsys.readouterr().out
-    assert "No source documents found." in out
+    assert "No study materials found." in out
 
 
 def test_source_count_returns_file_count(
@@ -52,6 +64,18 @@ def test_source_count_returns_file_count(
     parser = build_parser()
 
     run_argv(parser, ["source", "count", str(armory_path)])
+
+    out = capsys.readouterr().out
+    assert "3" in out
+
+
+def test_materials_count_returns_file_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    armory_path = _make_armory(tmp_path)
+    parser = build_parser()
+
+    run_argv(parser, ["materials", "count", str(armory_path)])
 
     out = capsys.readouterr().out
     assert "3" in out
@@ -109,6 +133,19 @@ def test_source_index_builds_index(tmp_path: Path, capsys: pytest.CaptureFixture
     assert "documents" in out
     assert "chunks" in out
     # Verify the index file was created
+    assert (armory_path / ".hephaistos" / "rag_index.json").is_file()
+
+
+def test_materials_index_builds_index(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    armory_path = _make_armory(tmp_path)
+    parser = build_parser()
+
+    run_argv(parser, ["materials", "index", str(armory_path)])
+
+    out = capsys.readouterr().out
+    assert "Indexed" in out
+    assert "documents" in out
+    assert "chunks" in out
     assert (armory_path / ".hephaistos" / "rag_index.json").is_file()
 
 

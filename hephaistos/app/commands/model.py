@@ -11,10 +11,10 @@ from hephaistos.app.model_picker import (
     model_free_description,
     switch_model,
 )
-from hephaistos.chat.engine import is_keyless_endpoint
 from hephaistos.chat.session import ChatSession
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.registry import get_registry as get_provider_registry
+from hephaistos.runtime import is_keyless_endpoint
 
 
 class ProviderCommand(Command):

@@ -13,8 +13,8 @@ from typing import TypedDict
 from uuid import uuid4
 
 from hephaistos._types import is_object_list, is_string_mapping
-from hephaistos.chat.engine import Conversation, Message
 from hephaistos.logging import get_logger
+from hephaistos.runtime import Conversation, Message
 
 _log = get_logger("chat.storage")
 

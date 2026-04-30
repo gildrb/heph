@@ -86,6 +86,7 @@ models = ["qwen/qwen3.6-plus:free"]
 
     assert "pollinations" in loaded.providers
     assert loaded.providers["pollinations"].models
+    assert loaded.providers["pollinations"].active is False
     assert active is not None
     assert active.slug == "openrouter"
 
@@ -139,9 +140,9 @@ display_name = "OpenRouter"
 endpoint = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
 active = true
-current_model = "legacy/vendor-model"
+current_model = "legacy-model"
 models = [
-  "legacy/vendor-model",
+  "legacy-model",
   "openai/gpt-5.4",
   "google/gemini-3-flash-preview",
 ]
@@ -223,10 +224,10 @@ def test_supported_model_for_zai_endpoint_accepts_trailing_slash_variants() -> N
 def test_model_registry_ignores_unsupported_models() -> None:
     registry = ModelRegistry(
         [
-            ModelInfo("legacy/vendor-model", "openrouter", "Legacy", 1, 1, 0.1, 0.2),
+            ModelInfo("legacy-model", "openrouter", "Legacy", 1, 1, 0.1, 0.2),
             ModelInfo("gpt-5.4", "openai-codex", "GPT-5.4", 1, 1, 0.1, 0.2),
         ]
     )
 
-    assert registry.get("legacy/vendor-model") is None
+    assert registry.get("legacy-model") is None
     assert registry.get("gpt-5.4") is not None

@@ -10,33 +10,29 @@ from typing import TYPE_CHECKING
 
 from hephaistos.agent.citation import verify_response
 from hephaistos.agent.dispatch import iter_agent_events
-from hephaistos.chat.engine import (
-    ChatConfig,
-    Conversation,
+from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
+from hephaistos.chat.evidence import (
+    ResolvedTurnPlan,
+)
+from hephaistos.chat.evidence import (
+    evidence_refs as _evidence_refs,
+)
+from hephaistos.chat.evidence import (
+    resolve_turn_evidence as _resolve_turn_evidence,
+)
+from hephaistos.chat.titles import derive_title
+from hephaistos.chat.usage import save_usage
+from hephaistos.logging import Timer, get_logger
+from hephaistos.memory.workflow import schedule_memory_extraction
+from hephaistos.observability import get_meter, get_tracer
+from hephaistos.runtime import (
     EngineError,
     RetryConfig,
     StreamRecoveryError,
     build_client,
     stream_completion,
-    to_chat_completion_messages,
 )
-from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnEvent
-from hephaistos.chat.titles import derive_title
-from hephaistos.chat.usage import ContextBudget, save_usage
-from hephaistos.logging import Timer, get_logger
-from hephaistos.memory.extract import extract_and_store
-from hephaistos.observability import get_meter, get_tracer
-from hephaistos.rag import (
-    ArmoryIndex,
-    ScoredChunk,
-    TransformStrategy,
-    TurnEvidence,
-    build_turn_evidence,
-    load_or_build,
-    retrieve,
-)
-from hephaistos.rag.query_transform import PromptFn
-from hephaistos.study import StudyState, StudyTurnPlan, apply_turn_result, plan_turn
+from hephaistos.study import StudyState, apply_turn_result, plan_turn
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -49,15 +45,6 @@ _rag_duration_hist = _meter.create_histogram(
     unit="ms",
     description="Duration of RAG retrieval queries",
 )
-_RAG_MIN_SCORE = 0.1
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedTurnPlan:
-    """A controller plan plus any retrieved turn evidence."""
-
-    study_plan: StudyTurnPlan | None = None
-    turn_evidence: TurnEvidence | None = None
 
 
 @dataclass(slots=True)
@@ -297,31 +284,13 @@ class TurnOrchestrator:
             evidence_refs=_evidence_refs(resolved.turn_evidence),
         )
 
-        if session.memory is not None and len(self.last_reply) >= 100:
-            try:
-                mem = session.memory
-                cfg = session.config
-                reply = self.last_reply
-                evidence = ", ".join(_evidence_refs(resolved.turn_evidence))
-
-                def _bg_extract() -> None:
-                    try:
-                        added = extract_and_store(cfg, mem, user_input, reply, evidence)
-                        if added:
-                            _log.info(
-                                "memory updated",
-                                extra={"fields": {"new_entries": added}},
-                            )
-                    except Exception:
-                        _log.warning("memory extraction failed", exc_info=True)
-
-                threading.Thread(
-                    target=_bg_extract,
-                    name="hephaistos-mem-extract",
-                    daemon=True,
-                ).start()
-            except Exception:
-                _log.warning("memory extraction failed", exc_info=True)
+        schedule_memory_extraction(
+            config=session.config,
+            memory=session.memory,
+            user_input=user_input,
+            reply=self.last_reply,
+            evidence=", ".join(_evidence_refs(resolved.turn_evidence)),
+        )
 
         if session.armory_path is not None:
             with contextlib.suppress(Exception):
@@ -334,168 +303,3 @@ class TurnOrchestrator:
             if message.role == "assistant":
                 message.content = content
                 return
-
-
-def _evidence_refs(turn_evidence: TurnEvidence | None) -> list[str]:
-    if not turn_evidence:
-        return []
-    return [f"{item.source}#chunk={item.chunk_index}" for item in turn_evidence.items]
-
-
-def _parse_source_ref(ref: str) -> tuple[str, int] | None:
-    source, sep, suffix = ref.partition("#chunk=")
-    if not sep:
-        return None
-    try:
-        return source, int(suffix)
-    except ValueError:
-        return None
-
-
-_FLAG_STRATEGY_MAP: dict[str, TransformStrategy] = {
-    "rag_expansion": TransformStrategy.EXPANSION,
-    "rag_hyde": TransformStrategy.HYDE,
-    "rag_multi_query": TransformStrategy.MULTI_QUERY,
-}
-
-
-def _resolve_transform_strategy(config: ChatConfig) -> TransformStrategy:
-    """Resolve RAG query-transform strategy from feature flags."""
-    for flag, strategy in _FLAG_STRATEGY_MAP.items():
-        if config.is_feature_enabled(flag):
-            return strategy
-    return TransformStrategy.EXPANSION
-
-
-def _build_prompt_fn(config: ChatConfig) -> PromptFn:
-    """Build a prompt function for LLM-based query transforms."""
-
-    def _prompt(prompt_text: str) -> str:
-        conv = Conversation()
-        conv.add("user", prompt_text)
-        client = build_client(config)
-        messages = to_chat_completion_messages(conv.to_api_messages())
-        resp = client.chat.completions.create(
-            model=config.model,
-            messages=messages,
-            max_tokens=500,
-            stream=False,
-        )
-        content = resp.choices[0].message.content
-        return content if isinstance(content, str) else ""
-
-    return _prompt
-
-
-def _ensure_rag_index(session: ChatSession) -> ArmoryIndex | None:
-    if session.armory_path is None:
-        return None
-    if session.rag_index is None:
-        session.rag_index = load_or_build(session.armory_path)
-    return session.rag_index
-
-
-def _adaptive_rag_budget(session: ChatSession) -> int:
-    budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
-    api_msgs = session.conversation.to_api_messages()
-    remaining = budget.tokens_remaining(api_msgs)  # type: ignore[arg-type]
-    return min(session.config.rag_context_budget, max(200, int(remaining * 0.3)))
-
-
-def _build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvidence | None:
-    if session.armory_path is None:
-        return None
-    try:
-        timer = Timer()
-        index = _ensure_rag_index(session)
-        if index is None:
-            return None
-
-        strategy = _resolve_transform_strategy(session.config)
-        prompt_fn: PromptFn | None = None
-        if strategy in (TransformStrategy.HYDE, TransformStrategy.MULTI_QUERY):
-            prompt_fn = _build_prompt_fn(session.config)
-
-        with timer:
-            scored = retrieve(
-                query,
-                index,
-                top_k=5,
-                min_score=_RAG_MIN_SCORE,
-                transform_strategy=strategy,
-                prompt_fn=prompt_fn,
-            )
-        if not scored:
-            _log.info(
-                "rag retrieve: no relevant results",
-                extra={
-                    "fields": {
-                        "query_len": len(query),
-                        "latency_ms": timer.ms,
-                        "min_score": _RAG_MIN_SCORE,
-                    }
-                },
-            )
-            return None
-
-        scores = [sc.score for sc in scored]
-        _log.info(
-            "rag retrieve",
-            extra={
-                "fields": {
-                    "query_len": len(query),
-                    "retrieved": len(scored),
-                    "top_score": round(scores[0], 4) if scores else 0,
-                    "latency_ms": round(timer.ms, 1),
-                }
-            },
-        )
-        session.trace.record_rag_retrieve(
-            query=query,
-            top_k=5,
-            retrieved=len(scored),
-            scores=scores,
-            latency_ms=timer.ms,
-        )
-        return build_turn_evidence(scored, max_tokens=_adaptive_rag_budget(session))
-    except Exception:
-        _log.warning("turn evidence build failed", exc_info=True)
-        return None
-
-
-def _build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> TurnEvidence | None:
-    try:
-        index = _ensure_rag_index(session)
-        if index is None or not refs:
-            return None
-
-        by_key = {(chunk.source, chunk.index): chunk for chunk in index.all_chunks}
-        scored: list[ScoredChunk] = []
-        total = len(refs)
-        for pos, ref in enumerate(refs):
-            parsed = _parse_source_ref(ref)
-            if parsed is None:
-                continue
-            chunk = by_key.get(parsed)
-            if chunk is None:
-                continue
-            scored.append(ScoredChunk(chunk=chunk, score=float(total - pos)))
-        if not scored:
-            return None
-        return build_turn_evidence(scored, max_tokens=_adaptive_rag_budget(session))
-    except Exception:
-        _log.warning("turn evidence rebuild from refs failed", exc_info=True)
-        return None
-
-
-def _resolve_turn_evidence(session: ChatSession, plan: StudyTurnPlan) -> TurnEvidence | None:
-    if plan.use_expected_source_refs and session.study_state.expected_source_refs:
-        turn_evidence = _build_turn_evidence_from_refs(
-            session,
-            session.study_state.expected_source_refs,
-        )
-        if turn_evidence:
-            return turn_evidence
-    if plan.retrieval_query:
-        return _build_turn_evidence_from_query(session, plan.retrieval_query)
-    return None

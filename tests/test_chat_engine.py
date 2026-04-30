@@ -30,7 +30,7 @@ def test_keyless_provider_does_not_resolve_key(monkeypatch: pytest.MonkeyPatch) 
         raise AssertionError("resolved key")
 
     monkeypatch.setattr(
-        "hephaistos.chat.engine.resolve_key",
+        "hephaistos.runtime.engine.resolve_key",
         fail_resolve,
     )
 
@@ -57,7 +57,7 @@ def test_build_client_rejects_unavailable_model_for_known_endpoint() -> None:
     config = ChatConfig(
         api_key="test-key",
         base_url="https://openrouter.ai/api/v1",
-        model="legacy/vendor-model",
+        model="legacy-model",
     )
     with pytest.raises(EngineError, match="Model unavailable for endpoint"):
         build_client(config)

@@ -6,17 +6,7 @@ _PROVIDER_PREFIXES: dict[str, tuple[str, ...]] = {
     "pollinations": ("openai", "openai-fast"),
     "openrouter": (
         "openrouter/",
-        "openai/",
-        "google/",
-        "qwen/",
-        "stepfun/",
-        "minimax/",
-        "z-ai/",
-        "moonshotai/",
-        "xiaomi/",
-        "x-ai/",
-        "nvidia/",
-        "arcee-ai/",
+        "/",
     ),
     "openai-codex": ("gpt-",),
     "zai": ("glm-",),
@@ -41,6 +31,8 @@ def _matches_prefixes(model_name: str, prefixes: tuple[str, ...]) -> bool:
         return False
     if prefixes == _PROVIDER_PREFIXES["pollinations"]:
         return normalized in prefixes
+    if "/" in prefixes:
+        return "/" in normalized
     return any(normalized.startswith(prefix) for prefix in prefixes)
 
 

@@ -13,7 +13,10 @@ from hephaistos.app import commands
 from hephaistos.app.menu import MenuOption
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession, create_plain_session
+from hephaistos.providers import catalog
+from hephaistos.providers.catalog import LiveProviderCatalog
 from hephaistos.providers.config import default_config
+from hephaistos.providers.registry import ModelInfo
 
 
 def test_command_registry_includes_login_logout() -> None:
@@ -196,6 +199,76 @@ def test_models_command_switches_selected_model(
     assert messages == [("success", "Switched to OpenAI Codex / gpt-5.3-codex")]
 
 
+def test_models_command_shows_live_openrouter_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    catalog.invalidate_catalog_cache()
+    pc = default_config()
+    pc.set_active("openrouter")
+    pc.providers["openrouter"].current_model = "openai/gpt-5.4"
+    session = ChatSession(
+        config=ChatConfig(
+            api_key="test-key",
+            base_url="https://openrouter.ai/api/v1",
+            model="openai/gpt-5.4",
+        ),
+        conversation=Conversation(),
+        session_id="session-1",
+    )
+
+    def fake_fetch(_endpoint: str) -> LiveProviderCatalog:
+        return LiveProviderCatalog(
+            models=[
+                "anthropic/claude-sonnet-latest",
+                "poolside/laguna-m.1:free",
+            ],
+            metadata=[
+                ModelInfo(
+                    "anthropic/claude-sonnet-latest",
+                    "openrouter",
+                    "Anthropic Claude Sonnet Latest",
+                    1_000_000,
+                    128_000,
+                    0.003,
+                    0.015,
+                ),
+                ModelInfo(
+                    "poolside/laguna-m.1:free",
+                    "openrouter",
+                    "Poolside Laguna M.1 (free)",
+                    131_072,
+                    8_192,
+                    0.0,
+                    0.0,
+                    tags=("free",),
+                ),
+            ],
+        )
+
+    visible_options: list[MenuOption] = []
+
+    def capture_options(_title: str, options: list[MenuOption]) -> None:
+        visible_options.extend(options)
+
+    monkeypatch.setattr(catalog, "_fetch_openrouter_catalog", fake_fetch)
+    monkeypatch.setattr(
+        _commands_model.ProviderConfig,
+        "load",
+        classmethod(lambda _cls: pc),  # type: ignore[reportUnknownLambdaType]
+    )
+    monkeypatch.setattr(_commands_model, "select_option", capture_options)
+
+    commands.ModelsCommand().handle(session, "")
+
+    labels = [option.label for option in visible_options]
+    assert labels[:2] == [
+        "poolside/laguna-m.1:free",
+        "anthropic/claude-sonnet-latest",
+    ]
+    assert visible_options[0].description == "via OpenRouter  free, API key required"
+
+
 def test_clear_command_supports_plain_chat(monkeypatch: pytest.MonkeyPatch) -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
     session.conversation.add("user", "hello")
@@ -233,7 +306,7 @@ def test_persona_command_updates_plain_chat_system_prompt(
     assert session.persona.slug == "tutor"
     assert after != before
     assert "patient tutor" in after
-    assert "No armory or source documents are attached" in after
+    assert "No armory or study materials are attached" in after
 
 
 def test_models_command_reports_no_matching_model(

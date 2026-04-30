@@ -50,16 +50,16 @@ def test_models_completion_searches_all_model_text() -> None:
     assert any(candidate.text == "z-ai/glm-5 " for candidate in candidates)
 
 
-def test_models_completion_starts_on_current_free_default() -> None:
+def test_models_completion_starts_with_openrouter_provider_group() -> None:
     engine = SlashCompletionEngine(provider_config_loader=default_config)
 
     candidates = engine.candidates("/models", [])
 
-    assert candidates[0].text == " openai "
-    assert candidates[0].display_provider == "OpenAI"
-    assert candidates[0].display_model == "openai"
-    assert candidates[0].display_source == "Pollinations"
-    assert candidates[0].display_tags == "free current"
+    openrouter_candidates = [
+        candidate for candidate in candidates if candidate.display_source == "OpenRouter"
+    ]
+    assert openrouter_candidates
+    assert candidates[: len(openrouter_candidates)] == openrouter_candidates
 
 
 def test_models_completion_keeps_provider_grouping_when_current_model_is_elsewhere() -> None:

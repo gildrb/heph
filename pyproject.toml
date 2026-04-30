@@ -208,8 +208,10 @@ source_modules = [
     "hephaistos.armory",
     "hephaistos.study",
     "hephaistos.memory",
+    "hephaistos.materials",
     "hephaistos.parameters",
     "hephaistos.source",
+    "hephaistos.runtime",
     "hephaistos.logging",
     "hephaistos.palette",
     "hephaistos.observability",
@@ -219,10 +221,35 @@ source_modules = [
 forbidden_modules = ["hephaistos.app"]
 
 [[tool.importlinter.contracts]]
+name = "materials must not import app, chat, agent, or rag"
+type = "forbidden"
+source_modules = ["hephaistos.materials"]
+forbidden_modules = ["hephaistos.app", "hephaistos.chat", "hephaistos.agent", "hephaistos.rag"]
+
+[[tool.importlinter.contracts]]
 name = "rag must not import agent, chat, or app"
 type = "forbidden"
 source_modules = ["hephaistos.rag"]
 forbidden_modules = ["hephaistos.agent", "hephaistos.chat", "hephaistos.app"]
+
+[[tool.importlinter.contracts]]
+name = "runtime must stay below product workflows"
+type = "forbidden"
+source_modules = ["hephaistos.runtime"]
+forbidden_modules = [
+    "hephaistos.app",
+    "hephaistos.chat",
+    "hephaistos.agent",
+    "hephaistos.rag",
+    "hephaistos.study",
+    "hephaistos.materials",
+]
+
+[[tool.importlinter.contracts]]
+name = "providers must not import chat"
+type = "forbidden"
+source_modules = ["hephaistos.providers"]
+forbidden_modules = ["hephaistos.chat"]
 
 [[tool.importlinter.contracts]]
 name = "agent must not import chat.session"

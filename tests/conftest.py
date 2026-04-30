@@ -72,6 +72,7 @@ def _isolate_global_state(  # pyright: ignore[reportUnusedFunction]
         "_INSTALL_ID_PATH",
         config_dir / "install_id.json",
     )
+    monkeypatch.setenv("HEPHAISTOS_DISABLE_LIVE_MODELS", "1")
     root = logging.getLogger("hephaistos")
     root.handlers.clear()
     root.setLevel(logging.WARNING)

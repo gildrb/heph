@@ -197,6 +197,8 @@ def test_import_linter_config_references_new_packages() -> None:
     assert "hephaistos.rag" in pyproject
     assert "hephaistos.agent" in pyproject
     assert "hephaistos.chat" in pyproject
+    assert "hephaistos.materials" in pyproject
+    assert "hephaistos.runtime" in pyproject
 
 
 def test_import_linter_exits_clean() -> None:

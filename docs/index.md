@@ -5,12 +5,12 @@
 **A local-first study agent that works with your files and any LLM.**
 
 Hephaistos helps you study from your own material. Create an armory, put your
-source files inside it, and chat with an agent that retrieves the relevant parts
-of those files before answering. After each answer, Hephaistos checks that the
+study materials inside it, and chat with an agent that retrieves the relevant
+parts of those files before answering. After each answer, Hephaistos checks that the
 citations point to evidence it actually retrieved, then stores study memory for
 that armory so you can continue where you left off.
 
-Your workspace is just a folder on disk. Your source files, notes, saved chats,
+Your workspace is just a folder on disk. Your materials, notes, saved chats,
 retrieval index, and study memory stay with the armory instead of being locked
 inside one model vendor's project format. Use Pollinations AI (free, zero-config),
 OpenRouter, OpenAI, Z.AI, or any OpenAI-compatible endpoint you configure.
@@ -124,7 +124,7 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 ## Why Hephaistos
 
 - **Armories are portable study workspaces.** An armory is a normal directory
-  with source files, reference material, notes, saved chats, retrieval state,
+  with primary materials, reference material, notes, saved chats, retrieval state,
   and memory for that subject.
 - **Answers are grounded in your files.** Hephaistos indexes `source/` and
   `library/`, retrieves relevant chunks for each question, and gives the model
@@ -135,25 +135,25 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 - **Each armory remembers what you studied.** After substantive exchanges,
   Hephaistos extracts learned concepts into `.hephaistos/memory.json` and uses
   that memory in future sessions for the same armory.
-- **The study loop is recall-first.** Hephaistos can present a source-backed
+- **The study loop is recall-first.** Hephaistos can present a material-backed
   solution, ask you to recall it, assess your attempt against the retrieved
-  source, and give small hints instead of dumping the answer again.
+  material, and give small hints instead of dumping the answer again.
 - **The model is swappable.** Your armory is not tied to one LLM. Switch
-  providers or models while keeping the same source files, chats, notes, and
+  providers or models while keeping the same materials, chats, notes, and
   memory.
 
 ## How It Works
 
 1. Put primary material in `source/` and reference material in `library/`.
 2. Start a chat in the armory.
-3. For each source-backed question, Hephaistos builds or loads the local RAG
+3. For each material-backed question, Hephaistos builds or loads the local RAG
    index, retrieves relevant chunks, and passes them to the model as citable
    evidence.
 4. The answer is checked for valid evidence citations.
 5. Useful concepts from the exchange are saved as armory memory for later
    sessions.
 
-If an armory has no source files, `heph <path>` asks you to add material before
+If an armory has no study materials, `heph <path>` asks you to add material before
 starting a study session.
 
 ## Armory Layout
@@ -173,7 +173,9 @@ my-armory/
 ```
 
 Only `source/` and `library/` are retrieved for answers. Hidden files inside
-those folders are skipped.
+those folders are skipped. In docs and code, **materials** means this study-file
+domain. `source/` remains the on-disk folder for primary materials, and
+`source` in citations still means the provenance path for a retrieved chunk.
 
 ## Retrieval
 
@@ -191,7 +193,7 @@ ODT, ODS, ODP, and RTF can be converted into Markdown before indexing.
 You can prebuild or refresh the index:
 
 ```bash
-heph source index ~/armories/exams
+heph materials index ~/armories/exams
 ```
 
 ## Bring Your Own Model
@@ -216,9 +218,9 @@ heph                          Launch the TUI in plain-chat mode or attach the cu
 heph <path>                   Launch the TUI attached to a specific armory path.
 heph armory init <path>       Create a new armory folder.
 heph armory open <path>       Open and validate an armory.
-heph source list <path>       List source documents.
-heph source count <path>      Count source documents.
-heph source index <path>      Build or refresh the RAG index.
+heph materials list <path>    List study material files.
+heph materials count <path>   Count study material files.
+heph materials index <path>   Build or refresh the RAG index.
 heph chat resume <path> <id>  Resume an existing chat session.
 heph chat list <path>         List chat sessions in an armory.
 heph start [path]             Hidden backwards-compatible alias for `heph [path]`.

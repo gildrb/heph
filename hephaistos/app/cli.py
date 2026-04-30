@@ -13,6 +13,9 @@ from pathlib import Path
 
 from hephaistos.analytics import init_analytics, shutdown_analytics
 from hephaistos.armory.cli import register as register_armory_commands
+from hephaistos.armory.storage import ArmoryError, normalize_path, validate
+from hephaistos.materials.cli import register as register_materials_commands
+from hephaistos.materials.cli import register_source_alias
 from hephaistos.observability import init_observability, shutdown_observability
 from hephaistos.parameters.cli import (
     register as register_config_commands,
@@ -21,7 +24,6 @@ from hephaistos.parameters.settings import (
     load_raw_settings,
     save_raw_settings,
 )
-from hephaistos.source.cli import register as register_source_commands
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
 _HELP_OPTIONS_HEADER = "Options:"
@@ -74,6 +76,20 @@ def _cmd_tui(args: argparse.Namespace) -> None:
         raise SystemExit(2) from exc
 
 
+def _cmd_materials_index(args: argparse.Namespace) -> None:
+    """Build or refresh the RAG index for study materials."""
+    rag_index = importlib.import_module("hephaistos.rag.index")
+    try:
+        armory_path = normalize_path(args.path)
+        validate(armory_path)
+    except (ArmoryError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+    index = rag_index.build_index(armory_path)
+    print(f"Indexed {len(index.documents)} documents ({index.chunk_count} chunks)")
+
+
 def _get_subcommand_names(parser: argparse.ArgumentParser) -> set[str]:
     """Return the set of registered subcommand names."""
     for action in parser._actions:  # type: ignore[reportPrivateUsage]
@@ -117,13 +133,13 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
     lines = [
         f"Usage: {parser.prog} [options] [command] [path]",
         "",
-        "Hephaistos is a local-first study shell with armories and source indexing.",
+        "Hephaistos is a local-first study shell with armories and materials indexing.",
         "",
         _HELP_EXAMPLES_HEADER,
         f"  {parser.prog}                         Start the interactive TUI",
         f"  {parser.prog} <path>                  Attach an armory path",
         f"  {parser.prog} armory init <path>      Create an armory",
-        f"  {parser.prog} source index <path>     Build the source index",
+        f"  {parser.prog} materials index <path>  Build the materials index",
         "",
         _HELP_COMMANDS_HEADER,
         *_format_rows(commands),
@@ -205,7 +221,8 @@ def build_parser() -> argparse.ArgumentParser:
     tui.set_defaults(handler=_cmd_tui)
 
     register_armory_commands(subparsers)
-    register_source_commands(subparsers)
+    register_materials_commands(subparsers, index_handler=_cmd_materials_index)
+    register_source_alias(subparsers, index_handler=_cmd_materials_index)
 
     # Chat subcommands are hidden.  We register stub handlers here that
     # lazily import the real implementation (and the heavy openai /

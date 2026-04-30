@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hephaistos.chat.engine import Conversation
+from hephaistos.runtime import Conversation
 
 
 def derive_title(conversation: Conversation) -> str:

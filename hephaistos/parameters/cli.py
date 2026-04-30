@@ -8,12 +8,12 @@ import os
 import sys
 from pathlib import Path
 
-from hephaistos.chat.engine import ChatConfig, is_keyless_endpoint
 from hephaistos.parameters import settings as settings_store
 from hephaistos.providers.config import (
     ProviderConfig,
     default_config,
 )
+from hephaistos.runtime import ChatConfig, is_keyless_endpoint
 from hephaistos.telemetry import (
     analytics_backend_available,
     analytics_enabled,

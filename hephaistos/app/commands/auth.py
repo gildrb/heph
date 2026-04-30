@@ -8,10 +8,10 @@ from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.commands._base import Command, CommandResult, ensure_session
 from hephaistos.app.display import STYLE_DIM, print_error, print_info, print_success, styled
 from hephaistos.app.menu import MenuOption, confirm, select_option
-from hephaistos.chat.engine import is_keyless_endpoint
 from hephaistos.providers import keyring_store, oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import mask_key, resolve_key, set_volatile, store_key
+from hephaistos.runtime import is_keyless_endpoint
 
 
 class ApiCommand(Command):

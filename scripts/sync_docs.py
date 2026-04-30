@@ -134,6 +134,9 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "hephaistos [path]": "Equivalent long entrypoint for `heph`.",
     "heph start [path]": "Hidden backwards-compatible alias for `heph [path]`.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
+    "heph source list <path>": "Deprecated alias for `heph materials list <path>`.",
+    "heph source count <path>": "Deprecated alias for `heph materials count <path>`.",
+    "heph source index <path>": "Deprecated alias for `heph materials index <path>`.",
 }
 
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
@@ -148,7 +151,8 @@ LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     ),
     (
         re.compile(r"\bsource\s+reindex\b"),
-        "Use `source index` because the CLI subcommand is `index`.",
+        "Use `materials index` because `materials` is the preferred CLI namespace "
+        "and the subcommand is `index`.",
     ),
 )
 
@@ -206,23 +210,24 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     subparsers = get_subparsers_action(parser)
     top_level = list(subparsers.choices.keys())
 
-    if "armory" not in top_level or "source" not in top_level or "config" not in top_level:
+    required_visible = {"armory", "materials", "source", "config"}
+    if not required_visible.issubset(top_level):
         raise RuntimeError("The top-level CLI surface changed; update sync_docs.py.")
     if "chat" not in top_level or "start" not in top_level:
         raise RuntimeError("Expected hidden `chat` and `start` commands to exist.")
 
     armory_parser = subparsers.choices["armory"]
-    source_parser = subparsers.choices["source"]
+    materials_parser = subparsers.choices["materials"]
     config_parser = subparsers.choices["config"]
     chat_parser = subparsers.choices["chat"]
 
     armory_sub = get_subparsers_action(armory_parser)
-    source_sub = get_subparsers_action(source_parser)
+    materials_sub = get_subparsers_action(materials_parser)
     config_sub = get_subparsers_action(config_parser)
     chat_sub = get_subparsers_action(chat_parser)
 
     armory_help = build_help_map(armory_sub)
-    source_help = build_help_map(source_sub)
+    materials_help = build_help_map(materials_sub)
     config_help = build_help_map(config_sub)
     chat_help = build_help_map(chat_sub)
 
@@ -238,9 +243,9 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         ),
         CommandLine(f"{short_command} armory init <path>", armory_help["init"]),
         CommandLine(f"{short_command} armory open <path>", armory_help["open"]),
-        CommandLine(f"{short_command} source list <path>", source_help["list"]),
-        CommandLine(f"{short_command} source count <path>", source_help["count"]),
-        CommandLine(f"{short_command} source index <path>", source_help["index"]),
+        CommandLine(f"{short_command} materials list <path>", materials_help["list"]),
+        CommandLine(f"{short_command} materials count <path>", materials_help["count"]),
+        CommandLine(f"{short_command} materials index <path>", materials_help["index"]),
         CommandLine(f"{short_command} config show", config_help["show"]),
         CommandLine(f"{short_command} config set <key> <value>", config_help["set"]),
         CommandLine(f"{short_command} chat start <path>", chat_help["start"]),
@@ -253,6 +258,18 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(
             f"{short_command} tui [path]",
             CLI_COMMAND_DESCRIPTIONS[f"{short_command} tui [path]"],
+        ),
+        CommandLine(
+            f"{short_command} source list <path>",
+            CLI_COMMAND_DESCRIPTIONS[f"{short_command} source list <path>"],
+        ),
+        CommandLine(
+            f"{short_command} source count <path>",
+            CLI_COMMAND_DESCRIPTIONS[f"{short_command} source count <path>"],
+        ),
+        CommandLine(
+            f"{short_command} source index <path>",
+            CLI_COMMAND_DESCRIPTIONS[f"{short_command} source index <path>"],
         ),
     )
 
@@ -267,9 +284,9 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
         f"{short_command} <path>",
         f"{short_command} armory init <path>",
         f"{short_command} armory open <path>",
-        f"{short_command} source list <path>",
-        f"{short_command} source count <path>",
-        f"{short_command} source index <path>",
+        f"{short_command} materials list <path>",
+        f"{short_command} materials count <path>",
+        f"{short_command} materials index <path>",
         f"{short_command} chat resume <path> <id>",
         f"{short_command} chat list <path>",
         f"{short_command} start [path]",

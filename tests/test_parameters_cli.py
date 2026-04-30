@@ -389,7 +389,7 @@ def test_load_config_falls_back_when_active_provider_has_no_key(
     )
     # Ensure no key is resolved for openrouter.
     monkeypatch.setattr(
-        "hephaistos.chat.engine.resolve_key",
+        "hephaistos.runtime.engine.resolve_key",
         lambda _slug, _env="": "",  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
 
@@ -448,7 +448,7 @@ def test_load_config_no_fallback_when_key_present(
         classmethod(lambda _cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
     monkeypatch.setattr(
-        "hephaistos.chat.engine.resolve_key",
+        "hephaistos.runtime.engine.resolve_key",
         lambda _slug, _env="": "sk-test-key",  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
 

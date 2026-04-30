@@ -9,11 +9,12 @@ graph TD
     App[app] --> Chat[chat]
     App --> Agent[agent]
     App --> Providers[providers]
+    App --> Runtime[runtime]
     App --> Armory[armory]
     App --> Study[study]
     App --> Memory[memory]
     App --> Parameters[parameters]
-    App --> Source[source]
+    App --> Materials[materials]
     App --> Logging[logging]
     App --> Palette[palette]
     App --> RAG[rag]
@@ -21,12 +22,19 @@ graph TD
 
     Chat --> Agent
     Chat --> Providers
+    Chat --> Runtime
     Chat --> Logging
     Chat --> Memory
 
     Agent --> Providers
+    Agent --> Runtime
     Agent --> Logging
     Agent --> Memory
+
+    Memory --> Runtime
+    Parameters --> Runtime
+
+    RAG --> Materials
 
     Vocab --> Logging
 
@@ -39,11 +47,11 @@ graph TD
 
     Parameters --> Logging
 
-    Source --> Logging
+    Materials --> Logging
 
     Logging --> Palette
 
-    Providers -->|API calls| LLM[OpenAI / Anthropic / etc.]
+    Runtime -->|API calls| LLM[OpenAI / Anthropic / etc.]
     Providers -->|Key storage| Keyring[OS Keyring]
 
     Agent -->|RAG index| FileStore[Armory Files]
@@ -52,23 +60,26 @@ graph TD
 
 The top layer is **app** (CLI, commands, workspace). Only **app** may import from
 other packages. All other packages communicate through their public APIs and must not
-import **app**. External services (LLM providers, OS keyring, armory files) are accessed
-through the **providers** and **agent** layers only.
+import **app**. Shared LLM request primitives live in **runtime** so chat, agent,
+memory, parameters, and providers do not import each other just to share message
+types or streaming helpers.
 
 ## Package layout
 
 ```
 hephaistos/
   app/          CLI, commands, workspace, display — the top layer
-  chat/         Engine, orchestrator, session, storage — no app imports
+  chat/         Session lifecycle, storage, turn orchestration — no app imports
+  runtime/      Shared LLM messages, config, client streaming, retry helpers
   agent/        Prompt building, persona, citation, tools — no app imports
   providers/    LLM provider registry, config, auth — no app imports
   rag/          RAG chunking, indexing, retrieval — no app imports
+  materials/    Study-file discovery, ignore rules, source/library classification
   armory/       Armory data and commands — no app imports
   study/        Study controller — no app imports
   memory/       Memory extraction and storage — no app imports
   parameters/   Parameter management CLI — no app imports
-  source/       Source management — no app imports
+  source/       Deprecated CLI compatibility alias for materials
   vocab/        Vocabulary drill, scheduler, state — no app imports
   logging.py    Shared logging — must NOT import app
   palette.py    ANSI color primitives — must NOT import app
@@ -88,7 +99,9 @@ The following packages cannot import anything from `hephaistos.app`:
 - `hephaistos.study`
 - `hephaistos.memory`
 - `hephaistos.parameters`
+- `hephaistos.materials`
 - `hephaistos.source`
+- `hephaistos.runtime`
 - `hephaistos.vocab`
 - `hephaistos.logging`
 - `hephaistos.palette`
@@ -100,6 +113,21 @@ The following packages cannot import anything from `hephaistos.app`:
 ### Independent: chat.session and chat.orchestrator
 
 `hephaistos.chat.session` and `hephaistos.chat.orchestrator` must be independent at runtime (no direct runtime imports between them).
+
+### Independent: materials
+
+`hephaistos.materials` owns study material discovery and ignore-policy parsing.
+It must not import `hephaistos.app`, `hephaistos.chat`, `hephaistos.agent`, or
+`hephaistos.rag`. `hephaistos.rag` may import `materials`, but that dependency
+is one-way.
+
+### Low level: runtime
+
+`hephaistos.runtime` owns shared LLM primitives such as `ChatConfig`,
+`Conversation`, message conversion, client construction, streaming completion,
+and retry helpers. It must not import `app`, `chat`, `agent`, `rag`, `study`, or
+`materials`. Providers may be used by runtime, but providers must not import
+`chat`.
 
 ## Armory layout
 
@@ -122,7 +150,10 @@ my-armory/
   parameters/           # reserved workspace parameters directory
 ```
 
-Only `source/` and `library/` are used for retrieval. Hidden files inside those directories are skipped by the indexer.
+Only `source/` and `library/` are used for retrieval. Hidden files inside those
+directories are skipped by the materials scanner. `source/` is the folder for
+primary study materials, `library/` is the folder for reference materials, and
+`source` in citations or chunk metadata remains the provenance path.
 
 ## Study memory
 

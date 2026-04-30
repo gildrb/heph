@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from hephaistos.chat.engine import Conversation, Message, stream_reply
+from hephaistos.chat.compaction import compact_session
 from hephaistos.chat.session import ChatSession
 
 if TYPE_CHECKING:
@@ -82,33 +81,4 @@ def pct(part: int, total: int) -> str:
 
 def do_compact(session: ChatSession) -> None:
     """Run the compact logic: summarize conversation and replace messages."""
-    non_system = [m for m in session.conversation.messages if m.role != "system"]
-    summary_prompt = (
-        "Summarize the following conversation in a concise paragraph. "
-        "Preserve key facts, decisions, and context needed to continue.\n\n"
-    )
-    for msg in non_system:
-        summary_prompt += f"{msg.role}: {msg.content}\n"
-
-    temp = Conversation()
-    temp.add("system", "You are a helpful assistant that summarizes conversations.")
-    temp.add("user", summary_prompt)
-
-    parts: list[str] = []
-    for chunk in stream_reply(session.config, temp):
-        sys.stdout.write(chunk)
-        sys.stdout.flush()
-        parts.append(chunk)
-    summary = "".join(parts)
-    sys.stdout.write("\n")
-    sys.stdout.flush()
-
-    system_msgs = [m for m in session.conversation.messages if m.role == "system"]
-    session.conversation.messages = [
-        *system_msgs,
-        Message(
-            role="system",
-            content="[Conversation summary] " + summary,
-        ),
-    ]
-    session.dirty = True
+    compact_session(session)

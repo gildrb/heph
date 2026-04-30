@@ -12,6 +12,10 @@ import pytest
 from hephaistos.app import tui
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
+from hephaistos.providers import catalog
+from hephaistos.providers.catalog import LiveProviderCatalog
+from hephaistos.providers.config import default_config
+from hephaistos.providers.registry import ModelInfo
 
 if TYPE_CHECKING:
     from textual.app import App as TextualApp
@@ -635,6 +639,80 @@ def test_models_completion_menu_uses_readable_columns() -> None:
             assert "/models" not in first
 
     asyncio.run(check_model_columns())
+
+
+def test_models_completion_menu_includes_live_openrouter_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    catalog.invalidate_catalog_cache()
+    config = default_config()
+    config.set_active("openrouter")
+
+    def fake_fetch(_endpoint: str) -> LiveProviderCatalog:
+        return LiveProviderCatalog(
+            models=[
+                "anthropic/claude-sonnet-latest",
+                "poolside/laguna-m.1:free",
+            ],
+            metadata=[
+                ModelInfo(
+                    "anthropic/claude-sonnet-latest",
+                    "openrouter",
+                    "Anthropic Claude Sonnet Latest",
+                    1_000_000,
+                    128_000,
+                    0.003,
+                    0.015,
+                ),
+                ModelInfo(
+                    "poolside/laguna-m.1:free",
+                    "openrouter",
+                    "Poolside Laguna M.1 (free)",
+                    131_072,
+                    8_192,
+                    0.0,
+                    0.0,
+                    tags=("free",),
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(catalog, "_fetch_openrouter_catalog", fake_fetch)
+    app = tui.HephaistosTui(
+        _configured_status_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app.completion_engine = tui.SlashCompletionEngine(provider_config_loader=lambda: config)
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_live_models_visible() -> None:
+        async with typed_app.run_test(size=(140, 28)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "/models"
+            composer.cursor_position = len("/models")  # type: ignore[reportUnknownMemberType]
+            app._refresh_completions()  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+
+            suggestions = cast(
+                "TextualOptionList",
+                app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
+            )
+            visible_models = [candidate.text.strip() for candidate in app.completion_candidates]
+
+            assert suggestions.option_count == len(app.completion_candidates)
+            assert visible_models[:2] == [
+                "poolside/laguna-m.1:free",
+                "anthropic/claude-sonnet-latest",
+            ]
+            assert suggestions.has_class("visible")
+            assert suggestions.has_class("model-picker")
+
+    asyncio.run(check_live_models_visible())
 
 
 def test_slash_on_empty_composer_preserves_cursor_after_focus_swap() -> None:

@@ -1,5 +1,5 @@
 # `hephaistos.source`
 
-Source document management.
+Deprecated compatibility CLI namespace for `hephaistos.materials`.
 
 ::: hephaistos.source.cli

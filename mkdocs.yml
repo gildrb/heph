@@ -36,10 +36,11 @@ nav:
     - chat: api/chat.md
     - agent: api/agent.md
     - rag: api/rag.md
+    - materials: api/materials.md
     - memory: api/memory.md
     - parameters: api/parameters.md
     - providers: api/providers.md
-    - source: api/source.md
+    - source (compatibility): api/source.md
     - study: api/study.md
   - Changelog: changelog.md
 

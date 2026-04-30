@@ -22,7 +22,6 @@ from hephaistos.app.workspace import (
     resume_saved_chat,
 )
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import is_keyless_endpoint
 from hephaistos.chat.session import (
     ChatSession,
     SessionError,
@@ -31,6 +30,7 @@ from hephaistos.chat.session import (
     save_session,
     session_has_messages,
 )
+from hephaistos.runtime import is_keyless_endpoint
 
 
 class StatusCommand(Command):

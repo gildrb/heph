@@ -15,17 +15,17 @@ from hephaistos.chat.engine import (
     StreamRecoveryError,
 )
 from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent
-from hephaistos.chat.orchestrator import (
+from hephaistos.chat.evidence import (
     ResolvedTurnPlan,
-    TurnOrchestrator,
-    _adaptive_rag_budget,  # type: ignore[reportPrivateUsage]
-    _build_turn_evidence_from_query,  # type: ignore[reportPrivateUsage]
-    _build_turn_evidence_from_refs,  # type: ignore[reportPrivateUsage]
-    _ensure_rag_index,  # type: ignore[reportPrivateUsage]
-    _evidence_refs,  # type: ignore[reportPrivateUsage]
-    _parse_source_ref,  # type: ignore[reportPrivateUsage]
-    _resolve_turn_evidence,  # type: ignore[reportPrivateUsage]
+    adaptive_rag_budget,
+    build_turn_evidence_from_query,
+    build_turn_evidence_from_refs,
+    ensure_rag_index,
+    evidence_refs,
+    parse_source_ref,
+    resolve_turn_evidence,
 )
+from hephaistos.chat.orchestrator import TurnOrchestrator
 from hephaistos.chat.session import ChatSession
 from hephaistos.rag import ScoredChunk, TurnEvidence
 from hephaistos.rag.chunker import Chunk
@@ -139,16 +139,16 @@ class TestResolvedTurnPlan:
 
 class TestEvidenceRefs:
     def test_none_returns_empty(self) -> None:
-        assert _evidence_refs(None) == []
+        assert evidence_refs(None) == []
 
     def test_empty_turn_evidence(self) -> None:
-        assert _evidence_refs(TurnEvidence()) == []
+        assert evidence_refs(TurnEvidence()) == []
 
     def test_with_items(self) -> None:
         ec1 = _make_evidence_chunk(source="foo.py", index=0, evidence_id="E1")
         ec2 = _make_evidence_chunk(source="bar.py", index=3, evidence_id="E2")
         evidence = _make_turn_evidence(ec1, ec2)
-        refs = _evidence_refs(evidence)
+        refs = evidence_refs(evidence)
         assert refs == ["foo.py#chunk=0", "bar.py#chunk=3"]
 
 
@@ -159,17 +159,17 @@ class TestEvidenceRefs:
 
 class TestParseSourceRef:
     def test_valid_ref(self) -> None:
-        result = _parse_source_ref("source.py#chunk=3")
+        result = parse_source_ref("source.py#chunk=3")
         assert result == ("source.py", 3)
 
     def test_no_chunk(self) -> None:
-        assert _parse_source_ref("source.py") is None
+        assert parse_source_ref("source.py") is None
 
     def test_invalid_format(self) -> None:
-        assert _parse_source_ref("garbage") is None
+        assert parse_source_ref("garbage") is None
 
     def test_empty_string(self) -> None:
-        assert _parse_source_ref("") is None
+        assert parse_source_ref("") is None
 
 
 # ---------------------------------------------------------------------------
@@ -422,53 +422,53 @@ class TestTurnOrchestratorErrors:
 
 
 class TestHelperFunctions:
-    def test_ensure_rag_index_no_armory(self) -> None:
+    def testensure_rag_index_no_armory(self) -> None:
         session = _make_plain_session()
-        assert _ensure_rag_index(session) is None
+        assert ensure_rag_index(session) is None
 
-    @patch("hephaistos.chat.orchestrator.load_or_build")
-    def test_ensure_rag_index_loads(self, mock_load: MagicMock) -> None:
+    @patch("hephaistos.chat.evidence.load_or_build")
+    def testensure_rag_index_loads(self, mock_load: MagicMock) -> None:
         mock_index = MagicMock()
         mock_load.return_value = mock_index
         session = _make_study_session()
-        result = _ensure_rag_index(session)
+        result = ensure_rag_index(session)
         assert result is mock_index
         mock_load.assert_called_once_with(session.armory_path)
 
-    @patch("hephaistos.chat.orchestrator.load_or_build")
-    def test_ensure_rag_index_cached(self, mock_load: MagicMock) -> None:
+    @patch("hephaistos.chat.evidence.load_or_build")
+    def testensure_rag_index_cached(self, mock_load: MagicMock) -> None:
         mock_index = MagicMock()
         mock_load.return_value = mock_index
         session = _make_study_session()
         # First call loads
-        _ensure_rag_index(session)
+        ensure_rag_index(session)
         # Second call should use cache
-        _ensure_rag_index(session)
+        ensure_rag_index(session)
         mock_load.assert_called_once()
 
-    @patch("hephaistos.chat.orchestrator.ContextBudget")
-    def test_adaptive_rag_budget_minimum(self, mock_budget_cls: MagicMock) -> None:
+    @patch("hephaistos.chat.evidence.ContextBudget")
+    def testadaptive_rag_budget_minimum(self, mock_budget_cls: MagicMock) -> None:
         mock_budget = MagicMock()
         mock_budget.tokens_remaining.return_value = 10
         mock_budget_cls.return_value = mock_budget
         session = _make_plain_session()
-        budget = _adaptive_rag_budget(session)
+        budget = adaptive_rag_budget(session)
         assert budget >= 200
 
-    @patch("hephaistos.chat.orchestrator.ContextBudget")
-    def test_adaptive_rag_budget_capped(self, mock_budget_cls: MagicMock) -> None:
+    @patch("hephaistos.chat.evidence.ContextBudget")
+    def testadaptive_rag_budget_capped(self, mock_budget_cls: MagicMock) -> None:
         mock_budget = MagicMock()
         # Very large remaining → should be capped by rag_context_budget
         mock_budget.tokens_remaining.return_value = 1_000_000
         mock_budget_cls.return_value = mock_budget
         session = _make_plain_session()
-        budget = _adaptive_rag_budget(session)
+        budget = adaptive_rag_budget(session)
         assert budget <= session.config.rag_context_budget
 
-    @patch("hephaistos.chat.orchestrator.build_turn_evidence")
-    @patch("hephaistos.chat.orchestrator.retrieve")
-    @patch("hephaistos.chat.orchestrator._ensure_rag_index")
-    def test_build_turn_evidence_from_query_success(
+    @patch("hephaistos.chat.evidence.build_turn_evidence")
+    @patch("hephaistos.chat.evidence.retrieve")
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def testbuild_turn_evidence_from_query_success(
         self,
         mock_ensure: MagicMock,
         mock_retrieve: MagicMock,
@@ -483,38 +483,38 @@ class TestHelperFunctions:
         mock_build.return_value = expected
 
         session = _make_study_session()
-        result = _build_turn_evidence_from_query(session, "test query")
+        result = build_turn_evidence_from_query(session, "test query")
         assert result is expected
         mock_retrieve.assert_called_once()
 
-    @patch("hephaistos.chat.orchestrator._ensure_rag_index")
-    def test_build_turn_evidence_from_query_no_results(
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def testbuild_turn_evidence_from_query_no_results(
         self,
         mock_ensure: MagicMock,
     ) -> None:
         mock_index = MagicMock()
         mock_ensure.return_value = mock_index
         # Patch retrieve at module level
-        with patch("hephaistos.chat.orchestrator.retrieve", return_value=[]):
+        with patch("hephaistos.chat.evidence.retrieve", return_value=[]):
             session = _make_study_session()
-            result = _build_turn_evidence_from_query(session, "test query")
+            result = build_turn_evidence_from_query(session, "test query")
         assert result is None
 
-    @patch("hephaistos.chat.orchestrator._ensure_rag_index")
-    def test_build_turn_evidence_from_query_error(
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def testbuild_turn_evidence_from_query_error(
         self,
         mock_ensure: MagicMock,
     ) -> None:
         mock_index = MagicMock()
         mock_ensure.return_value = mock_index
-        with patch("hephaistos.chat.orchestrator.retrieve", side_effect=RuntimeError("fail")):
+        with patch("hephaistos.chat.evidence.retrieve", side_effect=RuntimeError("fail")):
             session = _make_study_session()
-            result = _build_turn_evidence_from_query(session, "test query")
+            result = build_turn_evidence_from_query(session, "test query")
         assert result is None
 
-    @patch("hephaistos.chat.orchestrator.build_turn_evidence")
-    @patch("hephaistos.chat.orchestrator._ensure_rag_index")
-    def test_build_turn_evidence_from_refs_success(
+    @patch("hephaistos.chat.evidence.build_turn_evidence")
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def testbuild_turn_evidence_from_refs_success(
         self,
         mock_ensure: MagicMock,
         mock_build: MagicMock,
@@ -528,22 +528,22 @@ class TestHelperFunctions:
         mock_build.return_value = expected
 
         session = _make_study_session()
-        result = _build_turn_evidence_from_refs(session, ["source.py#chunk=3"])
+        result = build_turn_evidence_from_refs(session, ["source.py#chunk=3"])
         assert result is expected
 
-    @patch("hephaistos.chat.orchestrator._ensure_rag_index")
-    def test_build_turn_evidence_from_refs_error(
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def testbuild_turn_evidence_from_refs_error(
         self,
         mock_ensure: MagicMock,
     ) -> None:
         mock_ensure.side_effect = RuntimeError("fail")
         session = _make_study_session()
-        result = _build_turn_evidence_from_refs(session, ["source.py#chunk=0"])
+        result = build_turn_evidence_from_refs(session, ["source.py#chunk=0"])
         assert result is None
 
-    @patch("hephaistos.chat.orchestrator._build_turn_evidence_from_refs")
-    @patch("hephaistos.chat.orchestrator._build_turn_evidence_from_query")
-    def test_resolve_turn_evidence_uses_refs(
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
+    def testresolve_turn_evidence_uses_refs(
         self,
         mock_query: MagicMock,
         mock_refs: MagicMock,
@@ -554,15 +554,15 @@ class TestHelperFunctions:
 
         session = _make_study_session()
         session.study_state.expected_source_refs = ["source.py#chunk=0"]
-        result = _resolve_turn_evidence(session, plan)
+        result = resolve_turn_evidence(session, plan)
 
         assert result is evidence
         mock_refs.assert_called_once()
         mock_query.assert_not_called()
 
-    @patch("hephaistos.chat.orchestrator._build_turn_evidence_from_refs")
-    @patch("hephaistos.chat.orchestrator._build_turn_evidence_from_query")
-    def test_resolve_turn_evidence_falls_back_to_query(
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
+    def testresolve_turn_evidence_falls_back_to_query(
         self,
         mock_query: MagicMock,
         mock_refs: MagicMock,
@@ -578,7 +578,7 @@ class TestHelperFunctions:
 
         session = _make_study_session()
         session.study_state.expected_source_refs = ["source.py#chunk=0"]
-        result = _resolve_turn_evidence(session, plan)
+        result = resolve_turn_evidence(session, plan)
 
         assert result is evidence
         mock_refs.assert_called_once()

@@ -20,15 +20,15 @@ from typing import TypedDict
 from openai.types.chat import ChatCompletion
 
 from hephaistos._types import is_object_list, is_string_mapping
-from hephaistos.chat.engine import (
+from hephaistos.logging import Timer, get_logger
+from hephaistos.memory import MemoryStore, save_memory
+from hephaistos.memory.supermemory import SupermemoryStore
+from hephaistos.runtime import (
     ChatConfig,
     Conversation,
     build_client,
     to_chat_completion_messages,
 )
-from hephaistos.logging import Timer, get_logger
-from hephaistos.memory import MemoryStore, save_memory
-from hephaistos.memory.supermemory import SupermemoryStore
 
 _log = get_logger("memory.extract")
 _EXTRACTION_MODEL_ENV = "HEPHAISTOS_EXTRACTION_MODEL"

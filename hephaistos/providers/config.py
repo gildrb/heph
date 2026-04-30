@@ -19,7 +19,7 @@ from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import filter_supported_models
 
 if TYPE_CHECKING:
-    from hephaistos.chat.engine import ChatConfig
+    from hephaistos.runtime import ChatConfig
 
 _CONFIG_DIR = Path.home() / ".config" / "hephaistos"
 _PROVIDERS_FILE = _CONFIG_DIR / "providers.toml"
@@ -174,8 +174,11 @@ def providers_dir() -> Path:
 
 def _merge_missing_default_providers(providers: dict[str, Provider]) -> None:
     """Restore built-in providers omitted by older persisted config files."""
+    has_active_provider = any(provider.active for provider in providers.values())
     for slug, provider in default_config().providers.items():
         if slug not in providers:
+            if has_active_provider:
+                provider.active = False
             providers[slug] = provider
 
 

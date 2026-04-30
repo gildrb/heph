@@ -22,13 +22,15 @@ class TestFilterSupportedModels:
             "openai/gpt-5.4",
             "google/gemini-3-flash-preview",
             "qwen/qwen3-72b",
-            "legacy/unknown-model",
+            "anthropic/claude-sonnet-latest",
+            "not-a-provider-model",
         ]
         result = filter_supported_models(models, "openrouter")
         assert "openai/gpt-5.4" in result
         assert "google/gemini-3-flash-preview" in result
         assert "qwen/qwen3-72b" in result
-        assert "legacy/unknown-model" not in result
+        assert "anthropic/claude-sonnet-latest" in result
+        assert "not-a-provider-model" not in result
 
     def test_openai_codex_keeps_gpt_prefix(self) -> None:
         models = ["gpt-5.4", "gpt-5.4-mini", "glm-5", "random-model"]
