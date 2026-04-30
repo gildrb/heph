@@ -67,3 +67,11 @@ validated-findings.json
 # Project-specific
 /*-armory/
 **/.hephaistos/
+
+# Autoresearch (local experiment state, not for upload)
+autoresearch.md
+autoresearch.sh
+autoresearch.checks.sh
+autoresearch.jsonl
+autoresearch.ideas.md
+autoresearch_helper.py
