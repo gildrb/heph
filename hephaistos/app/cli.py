@@ -1,29 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import cProfile
 import importlib
-import pstats
 import sys
-import tracemalloc
-from collections.abc import Callable
-from datetime import UTC, datetime
-from importlib.metadata import version as _pkg_version
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from hephaistos.analytics import init_analytics, shutdown_analytics
-from hephaistos.armory.cli import register as register_armory_commands
-from hephaistos.armory.storage import ArmoryError, normalize_path, validate
-from hephaistos.materials.cli import register as register_materials_commands
-from hephaistos.materials.cli import register_source_alias
-from hephaistos.observability import init_observability, shutdown_observability
-from hephaistos.parameters.cli import (
-    register as register_config_commands,
-)
-from hephaistos.parameters.settings import (
-    load_raw_settings,
-    save_raw_settings,
-)
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
 _HELP_OPTIONS_HEADER = "Options:"
@@ -44,8 +27,9 @@ class HephaistosArgumentParser(argparse.ArgumentParser):
 
 
 def _package_version() -> str:
+    metadata = importlib.import_module("importlib.metadata")
     try:
-        return _pkg_version("hephaistos")
+        return metadata.version("hephaistos")
     except Exception:
         return "0.1.0"
 
@@ -66,11 +50,12 @@ def _hide_subparser(
 
 def _cmd_tui(args: argparse.Namespace) -> None:
     """Start the Textual shell."""
+    pathlib = importlib.import_module("pathlib")
     tui = importlib.import_module("hephaistos.app.tui")
 
     try:
         path = getattr(args, "path", None)
-        tui.run_tui_for_path(Path(path) if path else None)
+        tui.run_tui_for_path(pathlib.Path(path) if path else None)
     except tui.TuiDependencyError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
@@ -79,10 +64,11 @@ def _cmd_tui(args: argparse.Namespace) -> None:
 def _cmd_materials_index(args: argparse.Namespace) -> None:
     """Build or refresh the RAG index for study materials."""
     rag_index = importlib.import_module("hephaistos.rag.index")
+    armory_storage = importlib.import_module("hephaistos.armory.storage")
     try:
-        armory_path = normalize_path(args.path)
-        validate(armory_path)
-    except (ArmoryError, OSError) as exc:
+        armory_path = armory_storage.normalize_path(args.path)
+        armory_storage.validate(armory_path)
+    except (armory_storage.ArmoryError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
@@ -178,7 +164,8 @@ def _normalise_tui_alias(argv: list[str]) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    prog = Path(sys.argv[0]).name or "hephaistos"
+    pathlib = importlib.import_module("pathlib")
+    prog = pathlib.Path(sys.argv[0]).name or "hephaistos"
     parser = HephaistosArgumentParser(
         prog=prog,
         description="TUI-first study CLI.",
@@ -220,9 +207,12 @@ def build_parser() -> argparse.ArgumentParser:
     tui.add_argument("path", nargs="?", help="Armory path to attach")
     tui.set_defaults(handler=_cmd_tui)
 
-    register_armory_commands(subparsers)
-    register_materials_commands(subparsers, index_handler=_cmd_materials_index)
-    register_source_alias(subparsers, index_handler=_cmd_materials_index)
+    armory_cli = importlib.import_module("hephaistos.armory.cli")
+    armory_cli.register(subparsers)
+
+    materials_cli = importlib.import_module("hephaistos.materials.cli")
+    materials_cli.register(subparsers, index_handler=_cmd_materials_index)
+    materials_cli.register_source_alias(subparsers, index_handler=_cmd_materials_index)
 
     # Chat subcommands are hidden.  We register stub handlers here that
     # lazily import the real implementation (and the heavy openai /
@@ -264,6 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
     list_cmd.add_argument("path", help="Path to the armory folder.")
     list_cmd.set_defaults(handler=_chat_handler("list"))
 
+    register_config_commands = importlib.import_module("hephaistos.parameters.cli").register
     register_config_commands(subparsers)
     _hide_subparser(subparsers, "start")
     _hide_subparser(subparsers, "chat")
@@ -282,15 +273,19 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 def _increment_session_count() -> None:
     """Bump the persisted session count (used for progressive keybind hints)."""
-    settings = load_raw_settings()
+    settings_mod = importlib.import_module("hephaistos.parameters.settings")
+    settings = settings_mod.load_raw_settings()
     count = int(settings.get("session_count", 0) or 0) + 1  # type: ignore[reportArgumentType]
     settings["session_count"] = count
-    save_raw_settings(settings)
+    settings_mod.save_raw_settings(settings)
 
 
 def main() -> None:
-    init_analytics()
-    init_observability()
+    analytics = importlib.import_module("hephaistos.analytics")
+    observability = importlib.import_module("hephaistos.observability")
+
+    analytics.init_analytics()
+    observability.init_observability()
 
     # Track session count for progressive keybind hints.
     _increment_session_count()
@@ -301,10 +296,12 @@ def main() -> None:
 
     _prof = None
     if _profile:
-        _prof = cProfile.Profile()
+        _cprofile = importlib.import_module("cProfile")
+        _prof = _cprofile.Profile()
         _prof.enable()
 
     if _profile_memory:
+        tracemalloc = importlib.import_module("tracemalloc")
         tracemalloc.start()
 
     try:
@@ -324,12 +321,14 @@ def main() -> None:
         if _profile and _prof is not None:
             _prof.disable()
             _report_profile(_prof)
-        shutdown_analytics()
-        shutdown_observability()
+        analytics.shutdown_analytics()
+        observability.shutdown_observability()
 
 
 def _report_memory() -> None:
     """Print top memory allocations from tracemalloc."""
+    tracemalloc = importlib.import_module("tracemalloc")
+
     snapshot = tracemalloc.take_snapshot()
     tracemalloc.stop()
     top = snapshot.statistics("lineno")[:20]
@@ -339,15 +338,19 @@ def _report_memory() -> None:
     sys.stderr.write("\n")
 
 
-def _report_profile(prof: cProfile.Profile) -> None:
+def _report_profile(prof: object) -> None:
     """Save cProfile results and print summary."""
-    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    profile_dir = Path.home() / ".cache" / "hephaistos" / "profiles"
+    datetime_mod = importlib.import_module("datetime")
+    pathlib = importlib.import_module("pathlib")
+    pstats = importlib.import_module("pstats")
+
+    ts = datetime_mod.datetime.now(datetime_mod.UTC).strftime("%Y%m%dT%H%M%SZ")
+    profile_dir = pathlib.Path.home() / ".cache" / "hephaistos" / "profiles"
     profile_dir.mkdir(parents=True, exist_ok=True)
     profile_path = profile_dir / f"{ts}.prof"
-    prof.dump_stats(str(profile_path))
+    prof.dump_stats(str(profile_path))  # type: ignore[reportUnknownMemberType]
 
     sys.stderr.write(f"\n=== CPU Profile saved to {profile_path} ===\n")
-    stats = pstats.Stats(prof, stream=sys.stderr)
+    stats = pstats.Stats(prof, stream=sys.stderr)  # type: ignore[reportUnknownArgumentType]
     stats.strip_dirs().sort_stats("cumulative").print_stats(20)
     sys.stderr.write("\n")

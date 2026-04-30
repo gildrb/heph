@@ -4,24 +4,16 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from hephaistos.parameters import settings as settings_store
-from hephaistos.providers.config import (
-    ProviderConfig,
-    default_config,
-)
-from hephaistos.runtime import ChatConfig, is_keyless_endpoint
-from hephaistos.telemetry import (
-    analytics_backend_available,
-    analytics_enabled,
-    analytics_env_override,
-    crash_reports_backend_available,
-    crash_reports_enabled,
-    crash_reports_env_override,
-)
+
+if TYPE_CHECKING:
+    from hephaistos.runtime import ChatConfig
 
 _DEFAULTS_FILE = settings_store._DEFAULTS_FILE  # type: ignore[reportPrivateUsage]
 _USER_CONFIG_DIR = settings_store._USER_CONFIG_DIR  # type: ignore[reportPrivateUsage]
@@ -54,8 +46,11 @@ def _save_user_override(  # pyright: ignore[reportUnusedFunction]
 
 def load_config(armory_path: Path | None = None) -> ChatConfig:
     """Load ChatConfig from defaults + provider config + user overrides + env vars."""
+    providers_config = importlib.import_module("hephaistos.providers.config")
+    runtime = importlib.import_module("hephaistos.runtime")
+
     _ = armory_path
-    config = ChatConfig()
+    config = runtime.ChatConfig()
     toml_path = settings_store._DEFAULTS_FILE  # type: ignore[reportPrivateUsage]
     if toml_path.is_file():
         toml = _parse_toml_simple(toml_path)
@@ -68,11 +63,11 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
                 config.max_tokens = int(toml["max_tokens"])
 
     try:
-        pc = ProviderConfig.load()
+        pc = providers_config.ProviderConfig.load()
         pc.apply_to_config(config)
         if (
             config.base_url
-            and not is_keyless_endpoint(config.base_url)
+            and not runtime.is_keyless_endpoint(config.base_url)
             and not config.resolved_api_key
         ):
             print(
@@ -80,7 +75,7 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
                 "falling back to Pollinations AI (free)",
                 file=sys.stderr,
             )
-            default_config().apply_to_config(config)
+            providers_config.default_config().apply_to_config(config)
     except Exception as exc:
         print(f"warning: could not load provider config: {exc}", file=sys.stderr)
 
@@ -141,19 +136,21 @@ _BOOL_KEYS = {"analytics_enabled", "crash_reports_enabled", "supermemory_enabled
 
 
 def _effective_setting_value(key: str) -> str:
+    telemetry = importlib.import_module("hephaistos.telemetry")
+
     app_settings = settings_store.load_app_settings()
     if key == "theme":
         return app_settings.theme
     if key == "default_armory_path":
         return app_settings.default_armory_path or "(not set)"
     if key == "analytics_enabled":
-        suffix = " (env override)" if analytics_env_override() else ""
-        availability = "available" if analytics_backend_available() else "unavailable"
-        return f"{str(analytics_enabled()).lower()}{suffix} [{availability}]"
+        suffix = " (env override)" if telemetry.analytics_env_override() else ""
+        availability = "available" if telemetry.analytics_backend_available() else "unavailable"
+        return f"{str(telemetry.analytics_enabled()).lower()}{suffix} [{availability}]"
     if key == "crash_reports_enabled":
-        suffix = " (env override)" if crash_reports_env_override() else ""
-        availability = "available" if crash_reports_backend_available() else "unavailable"
-        return f"{str(crash_reports_enabled()).lower()}{suffix} [{availability}]"
+        suffix = " (env override)" if telemetry.crash_reports_env_override() else ""
+        avail = "available" if telemetry.crash_reports_backend_available() else "unavailable"
+        return f"{str(telemetry.crash_reports_enabled()).lower()}{suffix} [{avail}]"
     if key == "supermemory_enabled":
         return str(app_settings.supermemory_enabled).lower()
     if key == "supermemory_profile":
