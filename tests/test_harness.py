@@ -77,7 +77,7 @@ class TestBash:
         assert "error" in result
 
     def test_timeout(self) -> None:
-        result = run_bash("sleep 60")
+        result = run_bash("sleep 60", timeout=1)
         assert "timed out" in result.lower() or "exit code" in result.lower()
 
 
