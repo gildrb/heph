@@ -11,17 +11,6 @@ from datetime import UTC, datetime
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
-from hephaistos.analytics import init_analytics, shutdown_analytics
-from hephaistos.armory.cli import register as register_armory_commands
-from hephaistos.armory.storage import ArmoryError, normalize_path, validate
-from hephaistos.materials.cli import register as register_materials_commands
-from hephaistos.materials.cli import register_source_alias
-from hephaistos.observability import init_observability, shutdown_observability
-from hephaistos.parameters.settings import (
-    load_raw_settings,
-    save_raw_settings,
-)
-
 _HELP_COMMANDS_HEADER = "Essential commands:"
 _HELP_OPTIONS_HEADER = "Options:"
 _HELP_EXAMPLES_HEADER = "Examples:"
@@ -76,10 +65,11 @@ def _cmd_tui(args: argparse.Namespace) -> None:
 def _cmd_materials_index(args: argparse.Namespace) -> None:
     """Build or refresh the RAG index for study materials."""
     rag_index = importlib.import_module("hephaistos.rag.index")
+    armory_storage = importlib.import_module("hephaistos.armory.storage")
     try:
-        armory_path = normalize_path(args.path)
-        validate(armory_path)
-    except (ArmoryError, OSError) as exc:
+        armory_path = armory_storage.normalize_path(args.path)
+        armory_storage.validate(armory_path)
+    except (armory_storage.ArmoryError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
@@ -217,9 +207,12 @@ def build_parser() -> argparse.ArgumentParser:
     tui.add_argument("path", nargs="?", help="Armory path to attach")
     tui.set_defaults(handler=_cmd_tui)
 
-    register_armory_commands(subparsers)
-    register_materials_commands(subparsers, index_handler=_cmd_materials_index)
-    register_source_alias(subparsers, index_handler=_cmd_materials_index)
+    armory_cli = importlib.import_module("hephaistos.armory.cli")
+    armory_cli.register(subparsers)
+
+    materials_cli = importlib.import_module("hephaistos.materials.cli")
+    materials_cli.register(subparsers, index_handler=_cmd_materials_index)
+    materials_cli.register_source_alias(subparsers, index_handler=_cmd_materials_index)
 
     # Chat subcommands are hidden.  We register stub handlers here that
     # lazily import the real implementation (and the heavy openai /
@@ -280,15 +273,19 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
 
 def _increment_session_count() -> None:
     """Bump the persisted session count (used for progressive keybind hints)."""
-    settings = load_raw_settings()
+    settings_mod = importlib.import_module("hephaistos.parameters.settings")
+    settings = settings_mod.load_raw_settings()
     count = int(settings.get("session_count", 0) or 0) + 1  # type: ignore[reportArgumentType]
     settings["session_count"] = count
-    save_raw_settings(settings)
+    settings_mod.save_raw_settings(settings)
 
 
 def main() -> None:
-    init_analytics()
-    init_observability()
+    analytics = importlib.import_module("hephaistos.analytics")
+    observability = importlib.import_module("hephaistos.observability")
+
+    analytics.init_analytics()
+    observability.init_observability()
 
     # Track session count for progressive keybind hints.
     _increment_session_count()
@@ -322,8 +319,8 @@ def main() -> None:
         if _profile and _prof is not None:
             _prof.disable()
             _report_profile(_prof)
-        shutdown_analytics()
-        shutdown_observability()
+        analytics.shutdown_analytics()
+        observability.shutdown_observability()
 
 
 def _report_memory() -> None:
