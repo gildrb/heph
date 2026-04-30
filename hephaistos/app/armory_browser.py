@@ -33,79 +33,78 @@ except ImportError:
     Input = None  # type: ignore[assignment,misc]
     Static = None  # type: ignore[assignment,misc]
 
+from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.armory.storage import MARKER_FILE, initialize
 
 _PARENT_LABEL = "..  (parent)"
 _NEW_ARMORY_LABEL = "\u271b New armory..."
 _DIR_ICON = "\U0001f4c1 "
-_ARMORY_BADGE = "  \u2713 armory"
 
-_ARMORY_BROWSER_CSS = """
-ArmoryBrowserScreen {
+_SPECIAL_ENTRIES = (_PARENT_LABEL, _NEW_ARMORY_LABEL)
+
+
+def _armory_browser_css(p: ThemePalette) -> str:
+    """Generate CSS from the active theme palette."""
+    bg = "transparent" if p.is_transparent else p.background
+    border_color = p.stone
+    text_color = p.text
+    dim_color = p.dim
+    ember_color = p.ember
+
+    return f"""
+ArmoryBrowserScreen {{
     align: center middle;
-}
-#armory-dialog {
+}}
+#armory-dialog {{
     width: 60;
     max-width: 90%;
     height: auto;
     max-height: 80%;
     padding: 1 2;
-    background: #1C1C1C;
-    border: round #555555;
-    color: #E0E0E0;
-}
-#armory-title {
+    background: {bg};
+    border: round {border_color};
+    color: {text_color};
+}}
+#armory-title {{
     text-style: bold;
-    color: #9B4A2E;
+    color: {ember_color};
     width: 100%;
     margin-bottom: 0;
-}
-#armory-path {
-    color: #808080;
+}}
+#armory-path {{
+    color: {dim_color};
     width: 100%;
     margin-bottom: 1;
-}
-#armory-list {
+}}
+#armory-list {{
     width: 100%;
     height: auto;
     max-height: 16;
     background: transparent;
-}
-#armory-hint {
-    color: #808080;
+}}
+#armory-hint {{
+    color: {dim_color};
     width: 100%;
     margin-top: 0;
-}
-#armory-new-input-container {
+}}
+#armory-new-input-container {{
     height: auto;
     width: 100%;
     padding: 0 1;
     display: none;
     background: transparent;
-}
-#armory-new-input-container.active {
+}}
+#armory-new-input-container.active {{
     display: block;
-}
-#armory-new-input {
+}}
+#armory-new-input {{
     height: 1;
     width: 100%;
-    background: #1C1C1C;
-    color: #FFFFFF;
+    background: {bg};
+    color: {text_color};
     border: none;
-}
+}}
 """
-
-_SPECIAL_ENTRIES = (_PARENT_LABEL, _NEW_ARMORY_LABEL)
-
-# Style tokens for inline rendering
-_STYLE_SELECTED = "bold #FFFFFF on #333333"
-_STYLE_NORMAL = "#E0E0E0"
-_STYLE_PARENT = "#808080"
-_STYLE_PARENT_SEL = "bold #FFFFFF on #333333"
-_STYLE_NEW = "#9B4A2E"
-_STYLE_NEW_SEL = "bold #FFFFFF on #333333"
-_STYLE_BADGE = "#7F9A6A"
-_STYLE_BADGE_SEL = "bold #7F9A6A on #333333"
 
 
 def _list_child_dirs(path: Path) -> list[Path]:
@@ -121,14 +120,26 @@ def _is_armory(path: Path) -> bool:
     return (path / MARKER_FILE).exists()
 
 
+def _inline_styles(p: ThemePalette) -> dict[str, str]:
+    """Return theme-driven Rich markup style strings for list rendering."""
+    return {
+        "selected": f"bold {p.text} on {p.highlight}",
+        "normal": p.text,
+        "parent": p.dim,
+        "parent_sel": f"bold {p.text} on {p.highlight}",
+        "new": p.ember,
+        "new_sel": f"bold {p.text} on {p.highlight}",
+        "badge": p.configured,
+        "badge_sel": f"bold {p.configured} on {p.highlight}",
+    }
+
+
 class ArmoryBrowserScreen(ModalScreen[Path | None]):
     """Modal directory browser for selecting or creating an armory.
 
     Returns the chosen *Path* when the user picks a directory, or *None*
     when cancelled.
     """
-
-    CSS = _ARMORY_BROWSER_CSS
 
     BINDINGS: ClassVar[list[Binding]] = []  # type: ignore[assignment]
 
@@ -143,10 +154,13 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         self._selected = 0
         self._allow_create = allow_create
         self._creating = False
+        self.CSS = _armory_browser_css(current_palette())
 
     def compose(self) -> ComposeResult:
+        p = current_palette()
         with Vertical(id="armory-dialog"):
-            yield Static("Armory Browser", id="armory-title")
+            title = f"[bold {p.ember}]\u2301 Armory[/bold {p.ember}]"
+            yield Static(title, id="armory-title", markup=True)
             yield Static("", id="armory-path")
             yield Static("", id="armory-list", markup=True)
             with Vertical(id="armory-new-input-container"):
@@ -190,17 +204,18 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     def _render_list(self) -> None:
         list_widget = self.query_one("#armory-list", Static)
         entries = self._entries()
+        s = _inline_styles(current_palette())
         lines: list[str] = []
         for index, name in enumerate(entries):
             is_sel = index == self._selected
 
             if name == _PARENT_LABEL:
-                style = _STYLE_PARENT_SEL if is_sel else _STYLE_PARENT
+                style = s["parent_sel"] if is_sel else s["parent"]
                 indicator = " \u25b8 " if is_sel else "   "
                 lines.append(f"[{style}]{indicator}{name}[/{style}]")
 
             elif name == _NEW_ARMORY_LABEL:
-                style = _STYLE_NEW_SEL if is_sel else _STYLE_NEW
+                style = s["new_sel"] if is_sel else s["new"]
                 indicator = " \u25b8 " if is_sel else "   "
                 lines.append(f"[{style}]{indicator}{name}[/{style}]")
 
@@ -210,16 +225,14 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
                 if is_sel:
                     indicator = " \u25b8 "
                     badge = (
-                        f" [{_STYLE_BADGE_SEL}]\u2713 armory[/{_STYLE_BADGE_SEL}]"
-                        if has_badge
-                        else ""
+                        f" [{s['badge_sel']}]\u2713 armory[/{s['badge_sel']}]" if has_badge else ""
                     )
                     lines.append(
-                        f"[{_STYLE_SELECTED}]{indicator}{_DIR_ICON}{name}{badge}[/{_STYLE_SELECTED}]"
+                        f"[{s['selected']}]{indicator}{_DIR_ICON}{name}{badge}[/{s['selected']}]"
                     )
                 else:
-                    badge = f" [{_STYLE_BADGE}]\u2713 armory[/{_STYLE_BADGE}]" if has_badge else ""
-                    lines.append(f"   [{_STYLE_NORMAL}]{_DIR_ICON}{name}[/{_STYLE_NORMAL}]{badge}")
+                    badge = f" [{s['badge']}]\u2713 armory[/{s['badge']}]" if has_badge else ""
+                    lines.append(f"   [{s['normal']}]{_DIR_ICON}{name}[/{s['normal']}]{badge}")
 
         list_widget.update("\n".join(lines))
 

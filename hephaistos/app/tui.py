@@ -34,6 +34,11 @@ from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.app.rich_transcript import enrich_reply, evidence_summary_text
 from hephaistos.app.search_index import SearchResult
 from hephaistos.app.search_screen import SearchScreen
+from hephaistos.app.transparent import (
+    make_blank_background_cls,
+    make_transparent_cls,
+    nonfocus_rich_log_class,
+)
 from hephaistos.app.workspace import (
     create_startup_session,
     get_history_path,
@@ -509,89 +514,6 @@ Input > .input--selection {{
 _THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
-def _make_blank_background_cls(base_cls: type) -> type:
-    """Return a subclass of *base_cls* that renders empty cells with no background.
-
-    Used for Screen, Vertical, and Horizontal in transparent themes.
-    """
-    if Strip is None or _RichStyle is None:
-        raise TuiDependencyError(_tui_dependency_message())
-    strip_class = Strip
-    transparent_style = _RichStyle()
-
-    class BlankBackgroundWidget(base_cls):  # type: ignore[misc]
-        def render_line(self, _y: int) -> Strip:
-            return strip_class.blank(self.size.width, transparent_style)
-
-    return BlankBackgroundWidget
-
-
-def _make_transparent_cls(base_cls: type) -> type:
-    """Return a subclass of *base_cls* that strips synthetic black backgrounds.
-
-    Used for Static, RichLog, Input, and OptionList in transparent themes.
-    """
-    if Strip is None or _RichStyle is None:
-        raise TuiDependencyError(_tui_dependency_message())
-
-    class TransparentWidget(base_cls):  # type: ignore[misc]
-        def render_line(self, y: int) -> Strip:
-            return _transparent_strip(super().render_line(y), self.size.width)
-
-    return TransparentWidget
-
-
-def _style_without_black_background(style: _RichStyle | None) -> _RichStyle:
-    if _RichStyle is None:
-        raise TuiDependencyError(_tui_dependency_message())
-    if style is None:
-        return _RichStyle()
-    bgcolor = style.bgcolor
-    triplet = bgcolor.triplet if bgcolor is not None else None
-    if triplet is None or (triplet.red, triplet.green, triplet.blue) != (0, 0, 0):
-        return style
-    return _RichStyle(
-        color=style.color,
-        bold=style.bold,
-        dim=style.dim,
-        italic=style.italic,
-        underline=style.underline,
-        blink=style.blink,
-        blink2=style.blink2,
-        reverse=style.reverse,
-        conceal=style.conceal,
-        strike=style.strike,
-        underline2=style.underline2,
-        frame=style.frame,
-        encircle=style.encircle,
-        overline=style.overline,
-        link=style.link,
-        meta=style.meta or None,
-    )
-
-
-def _transparent_strip(strip: Strip, cell_length: int) -> Strip:
-    """Drop synthetic black backgrounds and pad short rows with transparent cells."""
-    if Segment is None:
-        raise TuiDependencyError(_tui_dependency_message())
-    changed = False
-    segments: list[Segment] = []
-    for segment in strip:
-        style = _style_without_black_background(segment.style)
-        changed = changed or style is not segment.style
-        segments.append(segment._replace(style=style))
-    if not changed:
-        return strip.extend_cell_length(cell_length, _RichStyle())
-    return Strip(segments, strip.cell_length).extend_cell_length(cell_length, _RichStyle())
-
-
-def _nonfocus_rich_log_class() -> type[RichLog]:
-    class NonFocusRichLog(RichLog):  # type: ignore[misc]
-        can_focus = False
-
-    return NonFocusRichLog
-
-
 @dataclass
 class _WidgetClasses:
     """Palette-dependent widget classes for compose()."""
@@ -607,26 +529,26 @@ class _WidgetClasses:
     @classmethod
     def from_palette(cls, palette: ThemePalette) -> _WidgetClasses:
         if palette.is_transparent:
-            transparent_rich_log_base = _make_transparent_cls(RichLog)
+            transparent_rich_log_base = make_transparent_cls(RichLog)
 
             class TransparentNonFocusRichLog(transparent_rich_log_base):  # type: ignore[misc]
                 can_focus = False
 
             return cls(
-                screen=_make_blank_background_cls(Screen),
-                vertical=_make_blank_background_cls(Vertical),
-                horizontal=_make_blank_background_cls(Horizontal),
-                static=_make_transparent_cls(Static),
+                screen=make_blank_background_cls(Screen),
+                vertical=make_blank_background_cls(Vertical),
+                horizontal=make_blank_background_cls(Horizontal),
+                static=make_transparent_cls(Static),
                 rich_log=TransparentNonFocusRichLog,
-                input=_make_transparent_cls(Input),
-                option_list=_make_transparent_cls(OptionList),
+                input=make_transparent_cls(Input),
+                option_list=make_transparent_cls(OptionList),
             )
         return cls(
             screen=Screen,
             vertical=Vertical,
             horizontal=Horizontal,
             static=Static,
-            rich_log=_nonfocus_rich_log_class(),
+            rich_log=nonfocus_rich_log_class(),
             input=Input,
             option_list=OptionList,
         )
@@ -637,23 +559,23 @@ class _WidgetClasses:
 
 
 def _transparent_screen_class() -> type:
-    return _make_blank_background_cls(Screen)
+    return make_blank_background_cls(Screen)
 
 
 def _transparent_vertical_class() -> type:
-    return _make_blank_background_cls(Vertical)
+    return make_blank_background_cls(Vertical)
 
 
 def _transparent_horizontal_class() -> type:
-    return _make_blank_background_cls(Horizontal)
+    return make_blank_background_cls(Horizontal)
 
 
 def _transparent_static_class() -> type:
-    return _make_transparent_cls(Static)
+    return make_transparent_cls(Static)
 
 
 def _transparent_rich_log_class() -> type:
-    base = _make_transparent_cls(RichLog)
+    base = make_transparent_cls(RichLog)
 
     class TransparentNonFocusRichLog(base):  # type: ignore[misc]
         can_focus = False
@@ -662,11 +584,11 @@ def _transparent_rich_log_class() -> type:
 
 
 def _transparent_input_class() -> type:
-    return _make_transparent_cls(Input)
+    return make_transparent_cls(Input)
 
 
 def _transparent_option_list_class() -> type:
-    return _make_transparent_cls(OptionList)
+    return make_transparent_cls(OptionList)
 
 
 def _slash_suggestion(engine: SlashCompletionEngine, value: str) -> str | None:
