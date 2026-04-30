@@ -4,7 +4,6 @@ import argparse
 import importlib
 import sys
 from collections.abc import Callable
-from pathlib import Path
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
 _HELP_OPTIONS_HEADER = "Options:"
@@ -48,11 +47,12 @@ def _hide_subparser(
 
 def _cmd_tui(args: argparse.Namespace) -> None:
     """Start the Textual shell."""
+    pathlib = importlib.import_module("pathlib")
     tui = importlib.import_module("hephaistos.app.tui")
 
     try:
         path = getattr(args, "path", None)
-        tui.run_tui_for_path(Path(path) if path else None)
+        tui.run_tui_for_path(pathlib.Path(path) if path else None)
     except tui.TuiDependencyError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
@@ -161,7 +161,8 @@ def _normalise_tui_alias(argv: list[str]) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    prog = Path(sys.argv[0]).name or "hephaistos"
+    pathlib = importlib.import_module("pathlib")
+    prog = pathlib.Path(sys.argv[0]).name or "hephaistos"
     parser = HephaistosArgumentParser(
         prog=prog,
         description="TUI-first study CLI.",
@@ -337,10 +338,11 @@ def _report_memory() -> None:
 def _report_profile(prof: object) -> None:
     """Save cProfile results and print summary."""
     datetime_mod = importlib.import_module("datetime")
+    pathlib = importlib.import_module("pathlib")
     pstats = importlib.import_module("pstats")
 
     ts = datetime_mod.datetime.now(datetime_mod.UTC).strftime("%Y%m%dT%H%M%SZ")
-    profile_dir = Path.home() / ".cache" / "hephaistos" / "profiles"
+    profile_dir = pathlib.Path.home() / ".cache" / "hephaistos" / "profiles"
     profile_dir.mkdir(parents=True, exist_ok=True)
     profile_path = profile_dir / f"{ts}.prof"
     prof.dump_stats(str(profile_path))  # type: ignore[reportUnknownMemberType]
