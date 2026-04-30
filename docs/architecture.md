@@ -1,6 +1,23 @@
 # Architecture
 
-Hephaistos follows strict import boundaries enforced by `import-linter`. Only `app` may import from other packages; all other packages are forbidden from importing `app`.
+Hephaistos follows strict import boundaries enforced by `import-linter`. Only
+`app` may import from every package; lower tiers must stay copyable and must
+not depend on product workflows.
+
+## Architecture tiers
+
+- **Core reusable packages**: `runtime`, `providers`, `logging`, `palette`, `_types`.
+  These are the most copyable packages and must not import product workflow
+  packages.
+- **Domain reusable packages**: `materials`, `rag`, `memory`, `armory`, `vocab`,
+  `study`. These may model Hephaistos concepts, but must not depend on `app`,
+  TUI adapters, CLI command handlers, or chat session orchestration.
+- **Application services**: `chat` and focused workflow modules. These compose
+  core/domain packages into session lifecycle, evidence, memory workflows, and
+  turn orchestration.
+- **Adapters**: `app`, `source`, CLI/TUI/shell compatibility modules. These may
+  depend broadly, but reusable decisions should be promoted into services or
+  domain packages instead of staying in adapter code.
 
 ## Dependency flow
 
@@ -126,8 +143,20 @@ is one-way.
 `hephaistos.runtime` owns shared LLM primitives such as `ChatConfig`,
 `Conversation`, message conversion, client construction, streaming completion,
 and retry helpers. It must not import `app`, `chat`, `agent`, `rag`, `study`, or
-`materials`. Providers may be used by runtime, but providers must not import
-`chat`.
+`materials`, `memory`, or `armory`. Providers may be used by runtime, but
+providers must not import product workflow packages.
+
+### Core: providers
+
+`hephaistos.providers` owns provider configuration, model catalogs, registry
+metadata, and key resolution. It must not import `app`, `chat`, `agent`, `rag`,
+`study`, or `materials`.
+
+### Domain: memory and study
+
+`hephaistos.memory` may use `runtime` to extract concepts, but it must not
+import `app`, `chat`, or `agent`. `hephaistos.study` stays a pure
+controller/state layer and must not import `app`, `chat`, `agent`, or `rag`.
 
 ## Armory layout
 

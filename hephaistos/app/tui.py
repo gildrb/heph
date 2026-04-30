@@ -28,6 +28,7 @@ from hephaistos.app.autocomplete import (
 )
 from hephaistos.app.commands import NewCommand, get_registry
 from hephaistos.app.input_history import InputHistory
+from hephaistos.app.materials_view import material_listing
 from hephaistos.app.model_picker import configured_model_choices, switch_model
 from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.app.rich_transcript import enrich_reply, evidence_summary_text
@@ -43,7 +44,6 @@ from hephaistos.app.workspace import (
 from hephaistos.armory.storage import validate as _validate_armory
 from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.session import ChatSession, send_user_message
-from hephaistos.fuzzy import ranked_matches
 from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.parameters.cli import load_config
 from hephaistos.runtime import (
@@ -294,22 +294,6 @@ def _info_panel_message_text(
     return text
 
 
-def _source_listing(session: ChatSession, query: str = "") -> str:
-    files = list(session.source_files)
-    if not files:
-        return "No source files are attached."
-    if query.strip():
-        matches = ranked_matches(query, files, key=lambda value: value, limit=12, min_score=35.0)
-        files = [match.value for match in matches]
-        if not files:
-            return f"No sources match: {query}"
-    visible = files[:16]
-    body = "\n".join(f"@{name}" for name in visible)
-    if len(files) > len(visible):
-        body += f"\n... {len(files) - len(visible)} more"
-    return body
-
-
 def _config_error(session: ChatSession) -> str | None:
     if not session.config.base_url:
         return "No provider configured. Use /provider to select one."
@@ -318,6 +302,9 @@ def _config_error(session: ChatSession) -> str | None:
     if not is_keyless_endpoint(session.config.base_url) and not session.config.resolved_api_key:
         return missing_api_key_message(session.config)
     return None
+
+
+_source_listing = material_listing
 
 
 def _tui_css() -> str:
@@ -1042,7 +1029,7 @@ class HephaistosTui(App[None]):
 
     def _handle_sources(self, value: str) -> None:
         _, _, args = value.partition(" ")
-        self._append_plain(_source_listing(self.session, args))
+        self._append_plain(material_listing(self.session, args))
 
     def _handle_models(self, value: str) -> None:
         _, _, args = value.partition(" ")

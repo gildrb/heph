@@ -22,7 +22,6 @@ import os
 import re
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Protocol, cast, runtime_checkable
 
 try:
@@ -52,7 +51,6 @@ except ImportError:
     _ImportedSentenceTransformer = None
 
 from hephaistos.logging import get_logger
-from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.index import ArmoryIndex
 from hephaistos.rag.query_transform import (
     PromptFn,
@@ -60,6 +58,7 @@ from hephaistos.rag.query_transform import (
     TransformStrategy,
     create_transformer,
 )
+from hephaistos.rag.retrieval_types import RerankerProtocol, RetrieverProtocol, ScoredChunk
 
 _log = get_logger("rag.retrieve")
 
@@ -245,36 +244,6 @@ else:
 _Bm25Class: _Bm25Factory | None = (
     None if _imported_bm25s is None else cast("_Bm25Factory", _imported_bm25s.BM25)
 )
-
-
-@dataclass(frozen=True, slots=True)
-class ScoredChunk:
-    chunk: Chunk
-    score: float
-
-
-@runtime_checkable
-class RetrieverProtocol(Protocol):
-    """Minimal interface every retriever must implement."""
-
-    def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]: ...
-
-
-@runtime_checkable
-class RerankerProtocol(Protocol):
-    """Interface for post-retrieval re-rankers.
-
-    A re-ranker takes a list of candidate ``ScoredChunk`` objects produced by
-    a retriever and re-scores them (typically with a cross-encoder) to
-    improve precision.  The returned list is sorted by the new scores.
-    """
-
-    def rerank(
-        self,
-        query: str,
-        candidates: list[ScoredChunk],
-        top_k: int = 5,
-    ) -> list[ScoredChunk]: ...
 
 
 def _tokenize(text: str) -> list[str]:

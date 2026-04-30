@@ -343,3 +343,14 @@ def save_memory(store: MemoryStore) -> Path:
     if store._dirty:  # type: ignore[reportPrivateUsage]
         return store.save()
     return store._path  # type: ignore[reportPrivateUsage]
+
+
+__all__ = [
+    "MemoryEntry",
+    "MemoryEntryPayload",
+    "MemoryStore",
+    "SupermemoryStore",
+    "load_memory",
+    "save_memory",
+    "supermemory_configured",
+]
