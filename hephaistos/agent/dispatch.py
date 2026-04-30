@@ -158,6 +158,26 @@ def _record_usage(
     usage.estimate_from_chars(prompt_chars, len(text), model)
 
 
+def _drain_steering_events(
+    steering: SteeringQueue | None,
+    api_messages: list[ApiMessage],
+    conversation: Conversation,
+    *,
+    turn_idx: int | None = None,
+) -> Iterator[NoticeEvent]:
+    if steering is None:
+        return
+    for message in steering.drain():
+        api_messages.append({"role": "user", "content": message})
+        conversation.add("user", message)
+        yield NoticeEvent(f"Steering: {message[:100]}", code="steering")
+        if turn_idx is not None:
+            _log.info(
+                "steering message injected",
+                extra={"fields": {"message_len": len(message), "turn": turn_idx}},
+            )
+
+
 def iter_agent_events(
     config: ChatConfig,
     conversation: Conversation,
@@ -285,11 +305,7 @@ def iter_agent_events(
             conversation.add("assistant", collected_text)
             tokens_remaining = budget.tokens_remaining(api_messages)
 
-            if steering is not None:
-                for message in steering.drain():
-                    api_messages.append({"role": "user", "content": message})
-                    conversation.add("user", message)
-                    yield NoticeEvent(f"Steering: {message[:100]}", code="steering")
+            yield from _drain_steering_events(steering, api_messages, conversation)
 
             _log.info(
                 "agent_loop complete",
@@ -410,20 +426,12 @@ def iter_agent_events(
                 error=tool_result.get("tool_error"),
             )
 
-        if steering is not None:
-            for message in steering.drain():
-                api_messages.append({"role": "user", "content": message})
-                conversation.add("user", message)
-                yield NoticeEvent(f"Steering: {message[:100]}", code="steering")
-                _log.info(
-                    "steering message injected",
-                    extra={
-                        "fields": {
-                            "message_len": len(message),
-                            "turn": turn_idx,
-                        }
-                    },
-                )
+        yield from _drain_steering_events(
+            steering,
+            api_messages,
+            conversation,
+            turn_idx=turn_idx,
+        )
 
         if any(registry.is_control_tool(name) for name in tool_names):
             yield NoticeEvent("Compacting conversation...", code="manual_compact")

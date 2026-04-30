@@ -17,6 +17,7 @@ from hephaistos.rag import (
     retrieve,
 )
 from hephaistos.rag.query_transform import PromptFn
+from hephaistos.rag.retrieval_types import EvidenceReference
 from hephaistos.runtime import (
     ChatConfig,
     Conversation,
@@ -44,18 +45,17 @@ def evidence_refs(turn_evidence: TurnEvidence | None) -> list[str]:
     """Return stable source/chunk references for turn evidence."""
     if not turn_evidence:
         return []
-    return [f"{item.source}#chunk={item.chunk_index}" for item in turn_evidence.items]
+    return [
+        EvidenceReference(item.source, item.chunk_index).render() for item in turn_evidence.items
+    ]
 
 
 def parse_source_ref(ref: str) -> tuple[str, int] | None:
     """Parse ``path#chunk=N`` evidence references."""
-    source, sep, suffix = ref.partition("#chunk=")
-    if not sep:
+    parsed = EvidenceReference.parse(ref)
+    if parsed is None:
         return None
-    try:
-        return source, int(suffix)
-    except ValueError:
-        return None
+    return parsed.source, parsed.chunk_index
 
 
 _FLAG_STRATEGY_MAP: dict[str, TransformStrategy] = {

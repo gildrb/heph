@@ -27,6 +27,7 @@ from hephaistos.memory.workflow import schedule_memory_extraction
 from hephaistos.observability import get_meter, get_tracer
 from hephaistos.runtime import (
     EngineError,
+    Message,
     RetryConfig,
     StreamRecoveryError,
     build_client,
@@ -85,17 +86,7 @@ class TurnOrchestrator:
         try:
             with timer:
                 if session.armory_path is not None:
-                    rag_span = _tracer.start_span("rag.retrieval")
-                    rag_timer = Timer()
-                    with rag_timer:
-                        resolved = self._resolve_turn_plan(user_input)
-                    session.last_turn_evidence = resolved.turn_evidence
-                    if resolved.turn_evidence is not None:
-                        rag_span.set_attribute("rag.retrieved", len(resolved.turn_evidence.items))
-                    rag_span.end()
-                    _rag_duration_hist.record(
-                        rag_timer.ms, {"armory": str(session.armory_path or "none")}
-                    )
+                    resolved = self._resolve_timed_turn_plan(user_input)
                     for event in self._iter_study_events(
                         resolved,
                         original_study_state,
@@ -121,8 +112,7 @@ class TurnOrchestrator:
                     }
                 },
             )
-            session.conversation.messages = original_messages
-            session.study_state = original_study_state
+            self._rollback_turn(original_messages, original_study_state)
             session.dirty = True
             raise
         except EngineError as exc:
@@ -136,8 +126,7 @@ class TurnOrchestrator:
                     }
                 },
             )
-            session.conversation.messages = original_messages
-            session.study_state = original_study_state
+            self._rollback_turn(original_messages, original_study_state)
             raise
         except Exception:
             _log.error(
@@ -150,8 +139,7 @@ class TurnOrchestrator:
                 },
                 exc_info=True,
             )
-            session.conversation.messages = original_messages
-            session.study_state = original_study_state
+            self._rollback_turn(original_messages, original_study_state)
             raise
 
     def _iter_plain_events(self, *, abort: threading.Event | None) -> Iterator[TurnEvent]:
@@ -238,12 +226,33 @@ class TurnOrchestrator:
         if plan.buffer_response and final_reply:
             yield AssistantDeltaEvent(final_reply)
 
+    def _resolve_timed_turn_plan(self, user_input: str) -> ResolvedTurnPlan:
+        session = self.session
+        rag_span = _tracer.start_span("rag.retrieval")
+        rag_timer = Timer()
+        with rag_timer:
+            resolved = self._resolve_turn_plan(user_input)
+        session.last_turn_evidence = resolved.turn_evidence
+        if resolved.turn_evidence is not None:
+            rag_span.set_attribute("rag.retrieved", len(resolved.turn_evidence.items))
+        rag_span.end()
+        _rag_duration_hist.record(rag_timer.ms, {"armory": str(session.armory_path or "none")})
+        return resolved
+
     def _resolve_turn_plan(self, user_input: str) -> ResolvedTurnPlan:
         plan = plan_turn(self.session.study_state, user_input)
         return ResolvedTurnPlan(
             study_plan=plan,
             turn_evidence=_resolve_turn_evidence(self.session, plan),
         )
+
+    def _rollback_turn(
+        self,
+        original_messages: list[Message],
+        original_study_state: StudyState,
+    ) -> None:
+        self.session.conversation.messages = original_messages
+        self.session.study_state = original_study_state
 
     def _finalize_successful_turn(
         self,

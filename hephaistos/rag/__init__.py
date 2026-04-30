@@ -28,7 +28,12 @@ from hephaistos.rag.query_transform import (
     create_transformer,
     transform_query,
 )
-from hephaistos.rag.retrieval_types import RerankerProtocol, RetrieverProtocol, ScoredChunk
+from hephaistos.rag.retrieval_types import (
+    EvidenceReference,
+    RerankerProtocol,
+    RetrieverProtocol,
+    ScoredChunk,
+)
 from hephaistos.rag.retrieve import (
     CrossEncoderReranker,
     EmbeddingRetriever,
@@ -45,6 +50,7 @@ __all__ = [
     "CrossEncoderReranker",
     "EmbeddingRetriever",
     "EvidenceChunk",
+    "EvidenceReference",
     "HyDETransformer",
     "HybridRetriever",
     "IdentityTransformer",
