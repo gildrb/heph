@@ -14,6 +14,19 @@ from hephaistos.chat.engine import (
 )
 
 
+def test_build_client_allows_pollinations_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HEPHAISTOS_API_KEY", raising=False)
+    config = ChatConfig(
+        api_key="",
+        base_url="https://text.pollinations.ai/openai",
+        model="openai",
+    )
+
+    client = build_client(config)
+
+    assert client.api_key == "no-key-required"
+
+
 def test_build_client_raises_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HEPHAISTOS_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

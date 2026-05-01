@@ -327,7 +327,7 @@ def _config_error(session: ChatSession) -> str | None:
         return "No provider configured. Use /provider to select one."
     if not session.config.model:
         return "No model configured. Use /models to select one."
-    if not is_keyless_endpoint(session.config.base_url) and not session.config.resolved_api_key:
+    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
         return missing_api_key_message(session.config)
     return None
 

@@ -113,6 +113,10 @@ def test_footer_hints_show_api_missing_when_unconfigured() -> None:
     assert "api missing" in plain
 
 
+def test_tui_config_error_allows_pollinations_without_api_key() -> None:
+    assert tui._config_error(_keyless_session()) is None  # type: ignore[reportPrivateUsage]
+
+
 def test_tui_css_keeps_surface_transparent() -> None:
     css = tui._tui_css()  # type: ignore[reportPrivateUsage]
 

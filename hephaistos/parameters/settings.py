@@ -89,7 +89,6 @@ class AppSettings:
 @dataclass
 class _SettingsCache:
     path: Path | None = None
-    stamp: tuple[bool, int | None, int | None] | None = None
     data: dict[str, object] | None = None
 
 
@@ -175,25 +174,8 @@ def normalize_setting_value(key: str, value: object) -> object:
 _settings_cache = _SettingsCache()
 
 
-def _settings_file_stamp(path: Path) -> tuple[bool, int | None, int | None]:
-    try:
-        stat = path.stat()
-    except OSError:
-        return (False, None, None)
-    return (True, stat.st_mtime_ns, stat.st_size)
-
-
-def _cached_settings_for(path: Path) -> dict[str, object] | None:
-    if _settings_cache.data is None or _settings_cache.path != path:
-        return None
-    if _settings_cache.stamp != _settings_file_stamp(path):
-        return None
-    return _settings_cache.data
-
-
 def _update_settings_cache(path: Path, settings: dict[str, object]) -> dict[str, object]:
     _settings_cache.path = path
-    _settings_cache.stamp = _settings_file_stamp(path)
     _settings_cache.data = settings
     return settings
 
@@ -201,7 +183,6 @@ def _update_settings_cache(path: Path, settings: dict[str, object]) -> dict[str,
 def invalidate_settings_cache() -> None:
     """Clear the in-process settings cache (used by tests and edge cases)."""
     _settings_cache.path = None
-    _settings_cache.stamp = None
     _settings_cache.data = None
 
 
@@ -212,9 +193,6 @@ def load_raw_settings() -> dict[str, object]:
     config path or backing file changes.
     """
     path = _USER_CONFIG_FILE
-    cached = _cached_settings_for(path)
-    if cached is not None:
-        return cached
     if not path.is_file():
         return _update_settings_cache(path, {})
     with contextlib.suppress(Exception):

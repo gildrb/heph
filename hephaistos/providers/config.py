@@ -52,6 +52,24 @@ def _provider_cache(path: Path) -> ProviderConfig | None:
     return _provider_cache_ref.config
 
 
+def _merge_default_providers(config: ProviderConfig) -> ProviderConfig:
+    defaults = default_config()
+    changed = False
+    for slug, provider in defaults.providers.items():
+        if slug not in config.providers:
+            provider.active = False
+            config.providers[slug] = provider
+            changed = True
+
+    if config.get_active() is None:
+        config.providers["pollinations"].active = True
+        changed = True
+
+    if changed:
+        return ProviderConfig(providers=config.providers)
+    return config
+
+
 def invalidate_provider_cache(
     replacement: ProviderConfig | None = None, *, path: Path | None = None
 ) -> None:
@@ -163,7 +181,7 @@ class ProviderConfig:
                 continue
             providers[slug] = _sanitize_provider(slug, section)
         _merge_missing_default_providers(providers)
-        cfg = cls(providers=providers)
+        cfg = _merge_default_providers(cls(providers=providers))
         invalidate_provider_cache(cfg, path=path)
         return cfg
 
