@@ -347,6 +347,26 @@ def test_browser_new_armory_submission_does_not_bubble_to_chat(tmp_path: Path) -
     asyncio.run(run_new())
 
 
+def test_new_armory_path_rejects_escape_names(tmp_path: Path) -> None:
+    bad_names = ("../outside", "/tmp/outside", "nested/armory")
+
+    for name in bad_names:
+        path, error = armory_browser.new_armory_path(tmp_path, name)
+        assert path is None
+        assert error is not None
+
+
+def test_new_armory_path_rejects_existing_folder(tmp_path: Path) -> None:
+    existing = tmp_path / "existing"
+    existing.mkdir()
+
+    path, error = armory_browser.new_armory_path(tmp_path, "existing")
+
+    assert path is None
+    assert error is not None
+    assert "already exists" in error
+
+
 def test_browser_new_armory_refuses_unwritable_parent(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

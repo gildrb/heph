@@ -187,6 +187,21 @@ def _creation_parent_error(path: Path) -> str | None:
     return None
 
 
+def new_armory_path(parent: Path, name: str) -> tuple[Path | None, str | None]:
+    """Return a safe child path for a new armory name, or a user-facing error."""
+    candidate = Path(name)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return None, "Armory name must stay inside the selected folder."
+    if len(candidate.parts) != 1:
+        return None, "Armory name must be a single folder name."
+    if not candidate.name:
+        return None, "Armory name is required."
+    path = parent / candidate.name
+    if path.exists():
+        return None, f"A folder named '{candidate.name}' already exists. Choose another name."
+    return path, None
+
+
 def _default_start_path(start: Path | None) -> Path:
     """Return a safe initial browser location."""
     if start is not None:
@@ -917,7 +932,10 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         if parent_error is not None:
             self._set_error(parent_error)
             return
-        armory_path = self._current / name
+        armory_path, name_error = new_armory_path(self._current, name)
+        if name_error is not None or armory_path is None:
+            self._set_error(name_error or "Invalid armory name.")
+            return
         try:
             initialize(armory_path)
         except (ArmoryError, OSError) as exc:

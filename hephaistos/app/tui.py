@@ -28,6 +28,7 @@ from hephaistos.app.armory_browser import (
     build_entries,
     build_parent_entries,
     file_detail,
+    new_armory_path,
 )
 from hephaistos.app.autocomplete import (
     CommandSuggestion,
@@ -1415,7 +1416,12 @@ class HephaistosTui(App[None]):
         if parent_error is not None:
             self.query_one("#armory-error-inline", Static).update(parent_error)
             return
-        armory_path = self._armory_current / name
+        armory_path, name_error = new_armory_path(self._armory_current, name)
+        if name_error is not None or armory_path is None:
+            self.query_one("#armory-error-inline", Static).update(
+                name_error or "Invalid armory name."
+            )
+            return
         try:
             initialize(armory_path)
         except (ArmoryError, OSError) as exc:

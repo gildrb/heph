@@ -651,6 +651,61 @@ def test_armory_inline_new_armory_uses_composer_without_chat_transcript(tmp_path
     asyncio.run(check_create())
 
 
+def test_armory_inline_create_rejects_existing_folder(tmp_path: Path) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    (tmp_path / "existing").mkdir()
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_reject_existing() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("create")  # type: ignore[reportPrivateUsage]
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "existing"
+            await pilot.press("enter")
+            await pilot.pause()
+            error = app.query_one("#armory-error-inline", tui.Static)  # type: ignore[reportPrivateUsage]
+            assert "already exists" in str(error.render())  # type: ignore[reportUnknownMemberType]
+            assert not (tmp_path / "existing" / ".hephaistos").exists()
+            assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+
+    asyncio.run(check_reject_existing())
+
+
+def test_armory_inline_create_rejects_path_escape(tmp_path: Path) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_reject_escape() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("create")  # type: ignore[reportPrivateUsage]
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "../outside"
+            await pilot.press("enter")
+            await pilot.pause()
+            error = app.query_one("#armory-error-inline", tui.Static)  # type: ignore[reportPrivateUsage]
+            assert "inside the selected folder" in str(error.render())  # type: ignore[reportUnknownMemberType]
+            assert not (tmp_path.parent / "outside").exists()
+            assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+
+    asyncio.run(check_reject_escape())
+
+
 def test_armory_inline_escape_clears_filter_then_exits(tmp_path: Path) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
