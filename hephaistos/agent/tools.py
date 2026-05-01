@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import importlib.util
 import ipaddress
+import os
 import re
+import shlex
+import shutil
 import socket
 import subprocess  # nosec B404
 import sys
@@ -354,10 +357,13 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
 
 _BASH_TIMEOUT = 30
 _MAX_READ_CHARS = 50_000
+_RTK_TIMEOUT_BUFFER_SECONDS = 5
 _WEB_FETCH_TIMEOUT = 15
 _WEB_FETCH_MAX_CHARS = 20_000
 _WEB_USER_AGENT = "Hephaistos/0.1 (study agent)"
 _MAX_SEARCH_RESULTS = 50
+_RTK_SHELL_META_CHARS = frozenset("|&;<>(){}[]*$?`!~\n")
+_RTK_TRUTHY = frozenset({"1", "true", "yes", "on", "enabled"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,6 +388,52 @@ class BashResult:
         elif self.exit_code != 0:
             parts.append(f"[exit code {self.exit_code}]")
         return "\n".join(parts) if parts else "(no output)"
+
+
+def _rtk_enabled() -> bool:
+    """Return whether model-generated bash calls should go through RTK."""
+    return os.environ.get("HEPHAISTOS_RTK", "").strip().lower() in _RTK_TRUTHY
+
+
+def _rtk_ultra_compact() -> bool:
+    """Return whether RTK should use its ultra-compact output mode."""
+    return os.environ.get("HEPHAISTOS_RTK_ULTRA", "").strip().lower() in _RTK_TRUTHY
+
+
+def _rtk_min_command_chars() -> int:
+    """Return the minimum command length for RTK rewrites."""
+    raw = os.environ.get("HEPHAISTOS_RTK_MIN_COMMAND_CHARS", "0").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
+def _rtk_command_prefix(command: str) -> list[str] | None:
+    """Return an RTK argv prefix for a simple shell command, if safe to rewrite."""
+    stripped = command.strip()
+    if not stripped or stripped.startswith("rtk "):
+        return None
+    if len(stripped) < _rtk_min_command_chars():
+        return None
+    if any(char in stripped for char in _RTK_SHELL_META_CHARS):
+        return None
+
+    try:
+        argv = shlex.split(stripped)
+    except ValueError:
+        return None
+    if not argv:
+        return None
+
+    rtk_path = shutil.which("rtk")
+    if rtk_path is None:
+        return None
+
+    prefix = [rtk_path]
+    if _rtk_ultra_compact():
+        prefix.append("--ultra-compact")
+    return [*prefix, *argv]
 
 
 def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str:
@@ -411,15 +463,41 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
 
     actual_timeout = _BASH_TIMEOUT if timeout is None else timeout
     start = time.monotonic()
+    rtk_argv = _rtk_command_prefix(command) if _rtk_enabled() else None
     try:
-        result = subprocess.run(  # nosec B602
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=actual_timeout,
-            check=False,
-        )  # nosec B602
+        if rtk_argv is None:
+            result = subprocess.run(  # nosec B602
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=actual_timeout,
+                check=False,
+            )  # nosec B602
+        else:
+            try:
+                result = subprocess.run(
+                    rtk_argv,
+                    shell=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=actual_timeout + _RTK_TIMEOUT_BUFFER_SECONDS,
+                    check=False,
+                )
+            except OSError as exc:
+                fallback = subprocess.run(  # nosec B602
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=actual_timeout,
+                    check=False,
+                )  # nosec B602
+                fallback.stdout = (
+                    f"[rtk unavailable: {exc}; used original command output]\n"
+                    f"{fallback.stdout or ''}"
+                )
+                result = fallback
         elapsed = time.monotonic() - start
         br = BashResult(
             stdout=result.stdout or "",

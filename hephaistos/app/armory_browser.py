@@ -39,6 +39,7 @@ except ImportError:
     Static = None  # type: ignore[assignment,misc]
 
 from hephaistos.app.palette import ThemePalette, current_palette
+from hephaistos.app.search_index import load_known_armory_entries
 from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
 from hephaistos.materials import count_material_files
 
@@ -46,6 +47,8 @@ _PARENT_LABEL = ".."
 _NEW_ARMORY_LABEL = "+ new armory"
 _DIR_PREFIX = "  "
 _ARMORY_BADGE = "  armory"
+_RECENT_PREFIX = "recent  "
+_MISSING_BADGE = "  missing"
 
 
 def _armory_browser_css(p: ThemePalette) -> str:
@@ -164,7 +167,7 @@ def _is_armory(path: Path) -> bool:
 class _DirEntry:
     """Lightweight wrapper pairing a display label with a Path or action."""
 
-    __slots__ = ("is_create", "is_parent", "label", "path")
+    __slots__ = ("is_create", "is_missing", "is_parent", "is_recent", "label", "path")
 
     def __init__(
         self,
@@ -173,19 +176,42 @@ class _DirEntry:
         *,
         is_parent: bool = False,
         is_create: bool = False,
+        is_recent: bool = False,
+        is_missing: bool = False,
     ) -> None:
         self.label = label
         self.path = path
         self.is_parent = is_parent
         self.is_create = is_create
+        self.is_recent = is_recent
+        self.is_missing = is_missing
 
 
-def _build_entries(
+def _recent_entries() -> list[_DirEntry]:
+    """Return recent armories as quick-open entries."""
+    entries: list[_DirEntry] = []
+    for known in load_known_armory_entries()[:5]:
+        badge = _MISSING_BADGE if known.missing else _ARMORY_BADGE
+        entries.append(
+            _DirEntry(
+                f"{_RECENT_PREFIX}{known.path.name}{badge}",
+                path=known.path,
+                is_recent=True,
+                is_missing=known.missing,
+            )
+        )
+    return entries
+
+
+def build_entries(
     current: Path,
     allow_create: bool,
 ) -> list[_DirEntry]:
     """Build the ordered list of browser entries."""
-    entries: list[_DirEntry] = [_DirEntry(_PARENT_LABEL, is_parent=True)]
+    entries = _recent_entries()
+    if entries:
+        entries.append(_DirEntry(""))
+    entries.append(_DirEntry(_PARENT_LABEL, is_parent=True))
     if allow_create:
         entries.append(_DirEntry(_NEW_ARMORY_LABEL, is_create=True))
     for child in _list_child_dirs(current):
@@ -201,6 +227,13 @@ def _format_entry(entry: _DirEntry) -> str:
 
 def armory_detail(path: Path) -> str:
     """Return the detail panel text for a directory entry."""
+    if not path.exists():
+        return (
+            f"{path.name}\n\n"
+            "missing recent armory\n"
+            "locate it with open/create or remove later\n\n"
+            f"{path}"
+        )
     if not _is_armory(path):
         return f"{path.name}\n\nfolder\nchoose only if initialized\n\n{path}"
     material_count = count_material_files(path)
@@ -275,7 +308,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def _refresh(self) -> None:
         self._set_error("")
-        self._entries = _build_entries(self._current, self._allow_create)
+        self._entries = build_entries(self._current, self._allow_create)
         path_widget = self.query_one("#armory-path", Static)
         path_widget.update(str(self._current))
 
@@ -296,6 +329,9 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         entry = self._highlighted_entry()
         if entry is None:
             detail.update("No selection")
+            return
+        if not entry.label:
+            detail.update("Recent armories\n\nEnter opens a recent armory directly.")
             return
         if entry.is_parent:
             detail.update("Parent directory\n\nMove up one folder.")
@@ -327,10 +363,17 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             self._refresh()
 
     def _navigate_into(self, entry: _DirEntry) -> None:
+        if not entry.label:
+            return
         if entry.is_parent:
             self._navigate_parent()
         elif entry.is_create:
             self._start_new_armory()
+        elif entry.is_recent and entry.path is not None:
+            if entry.is_missing or not entry.path.exists():
+                self._set_error(f"Missing armory: {entry.path}")
+                return
+            self.dismiss(entry.path)
         elif entry.path is not None:
             self._current = entry.path
             self._refresh()

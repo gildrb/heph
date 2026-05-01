@@ -13,6 +13,7 @@ from hephaistos.app.search_index import (
     _chunk_text,
     add_known_armory,
     load_known_armories,
+    load_known_armory_entries,
     remove_known_armory,
 )
 from hephaistos.armory.storage import initialize
@@ -118,6 +119,30 @@ def test_known_armories_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     paths = remove_known_armory(armory)
     assert len(paths) == 0
+
+
+def test_known_armory_entries_include_missing_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = tmp_path / "existing"
+    initialize(existing)
+    missing = tmp_path / "missing"
+    raw_settings: dict[str, object] = {"known_armories": [str(existing), str(missing)]}
+
+    def fake_load() -> dict[str, object]:
+        return dict(raw_settings)
+
+    monkeypatch.setattr("hephaistos.app.search_index.load_raw_settings", fake_load)
+
+    entries = load_known_armory_entries()
+
+    assert entries[0].path == existing
+    assert entries[0].exists is True
+    assert entries[0].valid is True
+    assert entries[1].path == missing
+    assert entries[1].missing is True
+    assert load_known_armories() == [existing]
 
 
 def test_add_known_armory_no_duplicates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

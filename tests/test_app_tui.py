@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from hephaistos.app import tui
-from hephaistos.app.armory_browser import armory_detail
+from hephaistos.app.armory_browser import armory_detail, build_entries
+from hephaistos.app.search_index import KnownArmory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
@@ -438,6 +439,29 @@ def test_armory_command_mode_validates_supported_subcommands() -> None:
 
     assert tui._armory_command_mode("/armory detach") is None  # type: ignore[reportPrivateUsage]
     assert "Usage: /armory" in tui._armory_usage_message()  # type: ignore[reportPrivateUsage]
+
+
+def test_armory_browser_entries_include_recent_and_missing_armories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = tmp_path / "exam-prep"
+    initialize(existing)
+    missing = tmp_path / "missing"
+    monkeypatch.setattr(
+        "hephaistos.app.armory_browser.load_known_armory_entries",
+        lambda: [
+            KnownArmory(existing, exists=True, valid=True),
+            KnownArmory(missing, exists=False, valid=False),
+        ],
+    )
+
+    entries = build_entries(tmp_path, allow_create=True)
+    labels = [entry.label for entry in entries]
+
+    assert labels[0].startswith("recent  exam-prep")
+    assert labels[1].startswith("recent  missing")
+    assert "missing" in labels[1]
 
 
 def test_armory_browser_detail_describes_material_layout(tmp_path: Path) -> None:

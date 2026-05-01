@@ -6,10 +6,24 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hephaistos.armory.storage import MARKER_FILE
 from hephaistos.materials import MATERIALS_DIR, iter_material_files
 from hephaistos.parameters.settings import load_raw_settings, save_setting
 
 _SETTINGS_KEY = "known_armories"
+
+
+@dataclass(frozen=True, slots=True)
+class KnownArmory:
+    """Persisted armory path with current filesystem status."""
+
+    path: Path
+    exists: bool
+    valid: bool
+
+    @property
+    def missing(self) -> bool:
+        return not self.exists
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,18 +47,28 @@ class SearchResult:
         return self.armory_path.name
 
 
-def load_known_armories() -> list[Path]:
-    """Load the list of indexed armory paths from settings."""
+def load_known_armory_entries() -> list[KnownArmory]:
+    """Load persisted armory paths with current filesystem status."""
     raw = load_raw_settings()
     entries = raw.get(_SETTINGS_KEY)
     if not isinstance(entries, list):
         return []
-    paths: list[Path] = []
+    armories: list[KnownArmory] = []
+    seen: set[Path] = set()
     for entry in entries:  # type: ignore[reportUnknownVariableType]
-        p = Path(str(entry)).expanduser().resolve()
-        if p.is_dir():
-            paths.append(p)
-    return paths
+        path = Path(str(entry)).expanduser().resolve()
+        if path in seen:
+            continue
+        seen.add(path)
+        exists = path.is_dir()
+        valid = exists and (path / MARKER_FILE).is_file()
+        armories.append(KnownArmory(path=path, exists=exists, valid=valid))
+    return armories
+
+
+def load_known_armories() -> list[Path]:
+    """Load known armory paths that still exist on disk."""
+    return [entry.path for entry in load_known_armory_entries() if entry.exists]
 
 
 def save_known_armories(paths: list[Path]) -> None:
@@ -55,9 +79,9 @@ def save_known_armories(paths: list[Path]) -> None:
 def add_known_armory(path: Path) -> list[Path]:
     """Add an armory to the known list. Returns the updated list."""
     path = path.expanduser().resolve()
-    paths = load_known_armories()
+    paths = [entry.path for entry in load_known_armory_entries()]
     if path not in paths:
-        paths.append(path)
+        paths.insert(0, path)
         save_known_armories(paths)
     return paths
 
@@ -65,7 +89,7 @@ def add_known_armory(path: Path) -> list[Path]:
 def remove_known_armory(path: Path) -> list[Path]:
     """Remove an armory from the known list. Returns the updated list."""
     path = path.expanduser().resolve()
-    paths = load_known_armories()
+    paths = [entry.path for entry in load_known_armory_entries()]
     paths = [p for p in paths if p != path]
     save_known_armories(paths)
     return paths

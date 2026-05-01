@@ -85,6 +85,111 @@ class TestRunBash:
         result = run_bash("echo fast", timeout=10)
         assert "fast" in result
 
+    def test_rtk_disabled_uses_original_shell(self):
+        completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
+        with (
+            patch.dict("os.environ", {"HEPHAISTOS_RTK": "0"}, clear=False),
+            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+        ):
+            result = run_bash("echo hello")
+
+        assert result == "hello\n"
+        run.assert_called_once()
+        assert run.call_args.args == ("echo hello",)
+        assert run.call_args.kwargs["shell"] is True
+
+    def test_rtk_enabled_rewrites_simple_command(self):
+        completed = MagicMock(stdout="compact\n", stderr="", returncode=0)
+        with (
+            patch.dict("os.environ", {"HEPHAISTOS_RTK": "1"}, clear=False),
+            patch("hephaistos.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+        ):
+            result = run_bash("git status")
+
+        assert result == "compact\n"
+        run.assert_called_once()
+        assert run.call_args.args == (["/usr/local/bin/rtk", "git", "status"],)
+        assert run.call_args.kwargs["shell"] is False
+
+    def test_rtk_enabled_uses_ultra_compact_flag(self):
+        completed = MagicMock(stdout="compact\n", stderr="", returncode=0)
+        with (
+            patch.dict(
+                "os.environ",
+                {"HEPHAISTOS_RTK": "1", "HEPHAISTOS_RTK_ULTRA": "1"},
+                clear=False,
+            ),
+            patch("hephaistos.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+        ):
+            run_bash("git status")
+
+        assert run.call_args.args == (["/usr/local/bin/rtk", "--ultra-compact", "git", "status"],)
+
+    def test_rtk_missing_falls_back_to_original_shell(self):
+        completed = MagicMock(stdout="original\n", stderr="", returncode=0)
+        with (
+            patch.dict("os.environ", {"HEPHAISTOS_RTK": "1"}, clear=False),
+            patch("hephaistos.agent.tools.shutil.which", return_value=None),
+            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+        ):
+            result = run_bash("git status")
+
+        assert result == "original\n"
+        assert run.call_args.args == ("git status",)
+        assert run.call_args.kwargs["shell"] is True
+
+    def test_rtk_execution_failure_falls_back_with_marker(self):
+        completed = MagicMock(stdout="original\n", stderr="", returncode=0)
+        with (
+            patch.dict("os.environ", {"HEPHAISTOS_RTK": "1"}, clear=False),
+            patch("hephaistos.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
+            patch(
+                "hephaistos.agent.tools.subprocess.run",
+                side_effect=[OSError("missing"), completed],
+            ) as run,
+        ):
+            result = run_bash("git status")
+
+        assert "[rtk unavailable: missing; used original command output]" in result
+        assert "original" in result
+        assert run.call_count == 2
+        assert run.call_args.args == ("git status",)
+        assert run.call_args.kwargs["shell"] is True
+
+    def test_rtk_min_command_chars_skips_short_commands(self):
+        completed = MagicMock(stdout="short\n", stderr="", returncode=0)
+        with (
+            patch.dict(
+                "os.environ",
+                {"HEPHAISTOS_RTK": "1", "HEPHAISTOS_RTK_MIN_COMMAND_CHARS": "999"},
+                clear=False,
+            ),
+            patch("hephaistos.agent.tools.shutil.which") as which,
+            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+        ):
+            result = run_bash("ls")
+
+        assert result == "short\n"
+        which.assert_not_called()
+        assert run.call_args.args == ("ls",)
+        assert run.call_args.kwargs["shell"] is True
+
+    def test_rtk_skips_shell_metachar_commands(self):
+        completed = MagicMock(stdout="hello\n", stderr="", returncode=0)
+        with (
+            patch.dict("os.environ", {"HEPHAISTOS_RTK": "1"}, clear=False),
+            patch("hephaistos.agent.tools.shutil.which") as which,
+            patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
+        ):
+            result = run_bash("echo hello >&2")
+
+        assert result == "hello\n"
+        which.assert_not_called()
+        assert run.call_args.args == ("echo hello >&2",)
+        assert run.call_args.kwargs["shell"] is True
+
     def test_output_truncated(self):
         # Generate very large output
         result = run_bash("python3 -c \"print('x' * 100000)\"")

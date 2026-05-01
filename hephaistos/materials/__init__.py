@@ -23,6 +23,16 @@ except ImportError:
 _log = get_logger("materials")
 
 MaterialKind = Literal["materials"]
+MaterialRole = Literal[
+    "assignment",
+    "codebase",
+    "lecture",
+    "past_exam",
+    "reference",
+    "slides",
+    "textbook",
+    "vocabulary",
+]
 
 MATERIALS_DIR = "materials"
 MATERIAL_DIRS: tuple[MaterialKind, ...] = (MATERIALS_DIR,)
@@ -47,6 +57,9 @@ class MaterialFile:
     path: Path
     rel_path: str
     kind: MaterialKind
+    role: MaterialRole
+    confidence: float
+    reason: str
 
 
 def material_kind(rel_path: str | Path) -> MaterialKind | None:
@@ -55,6 +68,37 @@ def material_kind(rel_path: str | Path) -> MaterialKind | None:
     if first == MATERIALS_DIR:
         return "materials"
     return None
+
+
+def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]:
+    """Infer a study material role from its path.
+
+    This keeps the filesystem simple for users while giving Hephaistos useful
+    retrieval/study hints. The heuristic is intentionally transparent and cheap;
+    model-assisted classification can refine it later.
+    """
+    path = Path(rel_path)
+    normalized = "/".join(part.lower() for part in path.parts)
+    suffix = path.suffix.lower()
+
+    if any(token in normalized for token in ("exam", "past-paper", "past_paper", "mock")):
+        return "past_exam", 0.9, "path suggests an exam or past paper"
+    if any(token in normalized for token in ("assignment", "homework", "problem-set", "pset")):
+        return "assignment", 0.85, "path suggests assigned problems"
+    if any(token in normalized for token in ("vocab", "glossary", "flashcard")):
+        return "vocabulary", 0.85, "path suggests vocabulary practice"
+    if any(token in normalized for token in ("lecture", "seminar", "class-notes")):
+        return "lecture", 0.8, "path suggests lecture material"
+    if any(token in normalized for token in ("slide", "deck", "presentation")) or suffix in (
+        ".ppt",
+        ".pptx",
+    ):
+        return "slides", 0.8, "path or file type suggests slides"
+    if any(token in normalized for token in ("book", "textbook", "chapter")):
+        return "textbook", 0.8, "path suggests a textbook or chapter"
+    if suffix in (".py", ".js", ".ts", ".java", ".go", ".rs", ".cpp", ".c", ".h"):
+        return "codebase", 0.75, "file extension suggests source code"
+    return "reference", 0.5, "default material role"
 
 
 def iter_materials(armory_path: Path) -> Iterator[MaterialFile]:
@@ -73,7 +117,15 @@ def iter_materials(armory_path: Path) -> Iterator[MaterialFile]:
             rel = str(file_path.relative_to(armory_path))
             if _matches_ignore(ignore_spec, rel):
                 continue
-            yield MaterialFile(path=file_path, rel_path=rel, kind=dirname)
+            role, confidence, reason = infer_material_role(rel)
+            yield MaterialFile(
+                path=file_path,
+                rel_path=rel,
+                kind=dirname,
+                role=role,
+                confidence=confidence,
+                reason=reason,
+            )
 
 
 def iter_material_files(armory_path: Path) -> Iterator[Path]:
@@ -137,7 +189,9 @@ __all__ = [
     "MATERIAL_DIRS",
     "MaterialFile",
     "MaterialKind",
+    "MaterialRole",
     "count_material_files",
+    "infer_material_role",
     "iter_material_files",
     "iter_materials",
     "material_kind",

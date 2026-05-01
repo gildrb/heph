@@ -54,6 +54,7 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "supermemory_enabled",
 )
 INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
+    "known_armories",
     "supermemory_onboarding_seen",
     "telemetry_notice_seen",
     "session_count",

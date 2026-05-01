@@ -5,6 +5,7 @@ from pathlib import Path
 from hephaistos.armory.storage import initialize
 from hephaistos.materials import (
     count_material_files,
+    infer_material_role,
     iter_material_files,
     material_kind,
     material_manifest,
@@ -35,10 +36,11 @@ def test_material_manifest_classifies_material_kind(tmp_path: Path) -> None:
 
     manifest = material_manifest(armory)
 
-    assert [(item.rel_path, item.kind) for item in manifest] == [
-        ("materials/exam.md", "materials"),
-        ("materials/notes.md", "materials"),
+    assert [(item.rel_path, item.kind, item.role) for item in manifest] == [
+        ("materials/exam.md", "materials", "past_exam"),
+        ("materials/notes.md", "materials", "reference"),
     ]
+    assert manifest[0].confidence > manifest[1].confidence
 
 
 def test_hidden_files_are_skipped(tmp_path: Path) -> None:
@@ -77,3 +79,22 @@ def test_empty_armory_has_no_materials(tmp_path: Path) -> None:
 def test_material_kind_from_relative_path() -> None:
     assert material_kind("materials/exam.md") == "materials"
     assert material_kind(".hephaistos/generated/ref.md") is None
+
+
+def test_infer_material_role_uses_path_hints() -> None:
+    cases = {
+        "materials/past-exams/2023.pdf": "past_exam",
+        "materials/homework/sheet-1.md": "assignment",
+        "materials/vocab/french.md": "vocabulary",
+        "materials/lectures/week-1.md": "lecture",
+        "materials/slides/deck.pptx": "slides",
+        "materials/book/chapter-2.pdf": "textbook",
+        "materials/project/main.py": "codebase",
+        "materials/misc/context.md": "reference",
+    }
+
+    for rel_path, expected_role in cases.items():
+        role, confidence, reason = infer_material_role(rel_path)
+        assert role == expected_role
+        assert 0.0 <= confidence <= 1.0
+        assert reason

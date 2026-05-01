@@ -77,7 +77,7 @@ def test_is_armory_detects_marker(tmp_path: Path) -> None:
 
 
 def test_build_entries_include_parent_and_create(tmp_path: Path) -> None:
-    entries = armory_browser._build_entries(tmp_path, allow_create=True)
+    entries = armory_browser.build_entries(tmp_path, allow_create=True)
 
     assert entries[0].is_parent
     assert entries[0].label == armory_browser._PARENT_LABEL
@@ -88,7 +88,7 @@ def test_build_entries_include_parent_and_create(tmp_path: Path) -> None:
 
 def test_build_entries_without_create_flag(tmp_path: Path) -> None:
     _make_dirs(tmp_path, "alpha", "beta")
-    entries = armory_browser._build_entries(tmp_path, allow_create=False)
+    entries = armory_browser.build_entries(tmp_path, allow_create=False)
 
     labels = [e.label for e in entries]
     assert not any(e.is_create for e in entries)
@@ -98,7 +98,7 @@ def test_build_entries_without_create_flag(tmp_path: Path) -> None:
 
 def test_build_entries_returns_correct_paths(tmp_path: Path) -> None:
     alpha, beta = _make_dirs(tmp_path, "alpha", "beta")
-    entries = armory_browser._build_entries(tmp_path, allow_create=True)
+    entries = armory_browser.build_entries(tmp_path, allow_create=True)
 
     # entries: 0=parent, 1=create, 2=alpha, 3=beta
     assert entries[0].path is None

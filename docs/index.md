@@ -264,6 +264,23 @@ Useful shell commands:
 | /usage | Show token usage and cost for this session |
 | /vocab | Vocabulary drill with spaced repetition |
 
+## RTK Shell Output Compression
+
+Hephaistos can optionally route simple model-generated `bash` tool calls through
+[`rtk`](https://github.com/rtk-ai/rtk) before the output is returned to the
+model. This is disabled by default and only affects agent tool calls, not
+user-entered `!` shell escapes in the TUI.
+
+```bash
+export HEPHAISTOS_RTK=1
+export HEPHAISTOS_RTK_ULTRA=1                  # optional
+export HEPHAISTOS_RTK_MIN_COMMAND_CHARS=20     # optional
+```
+
+Commands that use shell metacharacters such as pipes, redirects, or control
+operators run normally so shell behavior stays unchanged. If `rtk` is not
+installed, Hephaistos falls back to the original command output.
+
 ## Custom Study Prompts
 
 Every armory can define its own study behavior with:
