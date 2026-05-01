@@ -791,12 +791,12 @@ class SlashSuggester(Suggester):  # type: ignore[misc]
 class HephaistosTui(App[None]):
     BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
         Binding("tab", "complete", "Complete"),
-        Binding("ctrl+p", "command_palette", "Commands", show=False),
-        Binding("ctrl+a", "open_armory_home", "Armory", show=False),
-        Binding("ctrl+s", "open_search", "Search", show=False),
-        Binding("ctrl+c", "cancel_turn", "Cancel", show=False),
-        Binding("ctrl+l", "clear_transcript", "Clear"),
-        Binding("ctrl+d", "quit", "Quit"),
+        Binding("ctrl+p", "command_palette", "Commands", show=False, priority=True),
+        Binding("ctrl+a", "open_armory_home", "Armory", show=False, priority=True),
+        Binding("ctrl+s", "open_search", "Search", show=False, priority=True),
+        Binding("ctrl+c", "cancel_turn", "Cancel", show=False, priority=True),
+        Binding("ctrl+l", "clear_transcript", "Clear", priority=True),
+        Binding("ctrl+d", "quit", "Quit", priority=True),
     ]
 
     def __init__(
