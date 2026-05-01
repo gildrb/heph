@@ -21,6 +21,7 @@ environments where Textual is not installed.
 
 from __future__ import annotations
 
+import os
 import stat
 import time
 from pathlib import Path
@@ -28,6 +29,7 @@ from typing import ClassVar
 
 from hephaistos.app.palette import ThemePalette, current_palette
 from hephaistos.app.search_index import load_known_armory_entries
+from hephaistos.app.transparent import transparent_strip
 from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
 from hephaistos.fuzzy import ranked_matches
 from hephaistos.materials import count_material_files
@@ -38,6 +40,7 @@ try:
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
     from textual.screen import ModalScreen
+    from textual.strip import Strip
     from textual.widgets import Input, OptionList, Static
 except ImportError:
     events = None  # type: ignore[assignment]
@@ -46,6 +49,7 @@ except ImportError:
     Horizontal = None  # type: ignore[assignment,misc]
     Vertical = None  # type: ignore[assignment,misc]
     ModalScreen = object  # type: ignore[assignment,misc]
+    Strip = None  # type: ignore[assignment,misc]
     Input = None  # type: ignore[assignment,misc]
     OptionList = None  # type: ignore[assignment,misc]
     Static = None  # type: ignore[assignment,misc]
@@ -167,6 +171,32 @@ def _format_size(size: int) -> str:
     return f"{size / (1024 * 1024):.1f} MB"
 
 
+def _is_writable_directory(path: Path) -> bool:
+    """Return True when *path* is a directory Hephaistos may create inside."""
+    return path.exists() and path.is_dir() and os.access(path, os.W_OK | os.X_OK)
+
+
+def _creation_parent_error(path: Path) -> str | None:
+    """Return a user-facing create error for *path*, or None when writable."""
+    if not path.exists():
+        return f"Cannot create an armory here because the folder no longer exists: {path}"
+    if not path.is_dir():
+        return f"Cannot create an armory here because this is not a folder: {path}"
+    if not _is_writable_directory(path):
+        return f"Cannot create an armory in a read-only folder: {path}"
+    return None
+
+
+def _default_start_path(start: Path | None) -> Path:
+    """Return a safe initial browser location."""
+    if start is not None:
+        return start.resolve()
+    cwd = Path.cwd().resolve()
+    if _is_writable_directory(cwd):
+        return cwd
+    return Path.home().resolve()
+
+
 def _file_preview_text(path: Path) -> str:
     """Return a short text preview for a file, or empty string."""
     suffix = path.suffix.lower()
@@ -199,6 +229,7 @@ class _DirEntry:
         "is_file",
         "is_missing",
         "is_parent",
+        "is_place",
         "is_recent",
         "label",
         "path",
@@ -214,6 +245,7 @@ class _DirEntry:
         is_recent: bool = False,
         is_missing: bool = False,
         is_file: bool = False,
+        is_place: bool = False,
     ) -> None:
         self.label = label
         self.path = path
@@ -222,6 +254,28 @@ class _DirEntry:
         self.is_recent = is_recent
         self.is_missing = is_missing
         self.is_file = is_file
+        self.is_place = is_place
+
+
+def _place_entries() -> list[_DirEntry]:
+    """Return quick navigation entries for common user locations."""
+    candidates = (
+        ("home", Path.home()),
+        ("cwd", Path.cwd()),
+        ("desktop", Path.home() / "Desktop"),
+        ("documents", Path.home() / "Documents"),
+        ("downloads", Path.home() / "Downloads"),
+        ("root", Path("/")),
+    )
+    entries: list[_DirEntry] = []
+    seen: set[Path] = set()
+    for label, path in candidates:
+        resolved = path.resolve()
+        if resolved in seen or not resolved.exists() or not resolved.is_dir():
+            continue
+        seen.add(resolved)
+        entries.append(_DirEntry(f"place   {label:<9} {resolved}", path=resolved, is_place=True))
+    return entries
 
 
 def _recent_entries() -> list[_DirEntry]:
@@ -246,9 +300,14 @@ def build_entries(
     *,
     show_files: bool = False,
     filter_query: str = "",
+    show_places: bool = False,
 ) -> list[_DirEntry]:
     """Build the ordered list of browser entries for the current column."""
-    entries = _recent_entries()
+    entries = _place_entries() if show_places else []
+    recent = _recent_entries()
+    if entries and recent:
+        entries.append(_DirEntry(""))
+    entries.extend(recent)
     if entries:
         entries.append(_DirEntry(""))
     entries.append(_DirEntry(_PARENT_LABEL, is_parent=True))
@@ -384,6 +443,8 @@ def _armory_browser_css(p: ThemePalette) -> str:
     return f"""
 ArmoryBrowserScreen {{
     align: center middle;
+    background: transparent;
+    background-tint: transparent;
 }}
 #armory-dialog {{
     width: 112;
@@ -392,7 +453,8 @@ ArmoryBrowserScreen {{
     max-height: 88%;
     padding: 1 2;
     background: {bg};
-    border: round {border_color};
+    background-tint: transparent;
+    border: none;
     color: {text_color};
 }}
 #armory-title {{
@@ -532,7 +594,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         title: str = "Armory",
     ) -> None:
         super().__init__()
-        self._current = (start or Path.cwd()).resolve()
+        self._current = _default_start_path(start)
         self._allow_create = allow_create
         self._title = title
         self._creating = False
@@ -576,6 +638,18 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         self._refresh()
         self._focus_current_col()
 
+    def render_line(self, y: int) -> Strip:
+        """Strip Textual's synthetic black modal background in transparent themes."""
+        return transparent_strip(super().render_line(y), self.size.width)
+
+    def on_app_focus(self, event: events.AppFocus) -> None:
+        self._focus_current_col()
+        event.stop()
+
+    def on_click(self, event: events.Click) -> None:
+        self._focus_current_col()
+        event.stop()
+
     # -----------------------------------------------------------------------
     # Focus helpers
     # -----------------------------------------------------------------------
@@ -596,6 +670,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             self._allow_create,
             show_files=show_files,
             filter_query=self._filter_query,
+            show_places=True,
         )
         self._parent_entries = build_parent_entries(self._current)
 
@@ -644,6 +719,9 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             return
         if entry.is_parent:
             preview.update("Parent directory\n\nMove up one folder.\n\nLeft/h also navigates up.")
+            return
+        if entry.is_place:
+            preview.update(f"Place\n\nJump to:\n{entry.path}")
             return
         if entry.is_create:
             preview.update(
@@ -808,6 +886,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
                 self._allow_create,
                 show_files=show_files,
                 filter_query=self._filter_query,
+                show_places=True,
             )
             cur_ol = self.query_one("#armory-current-col", OptionList)
             cur_ol.clear_options()
@@ -822,13 +901,19 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "armory-filter":
+            event.stop()
             self._accept_filter()
             return
         if event.input.id != "armory-new-input":
             return
+        event.stop()
         name = event.value.strip()
         if not name:
             self._stop_new_armory()
+            return
+        parent_error = _creation_parent_error(self._current)
+        if parent_error is not None:
+            self._set_error(parent_error)
             return
         armory_path = self._current / name
         try:

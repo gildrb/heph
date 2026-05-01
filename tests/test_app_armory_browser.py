@@ -38,6 +38,17 @@ class _ShellApp(App[None]):
         yield Static("test", id="placeholder")
 
 
+class _SubmissionCountingApp(_ShellApp):
+    """Host app that records bubbled input submissions."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.submission_count = 0
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.submission_count += 1
+
+
 def _make_dirs(parent: Path, *names: str) -> list[Path]:
     """Create child directories under *parent* and return them."""
     dirs: list[Path] = []
@@ -96,6 +107,14 @@ def test_build_entries_without_create_flag(tmp_path: Path) -> None:
     assert any("beta" in label for label in labels)
 
 
+def test_build_entries_can_include_common_places(tmp_path: Path) -> None:
+    entries = armory_browser.build_entries(tmp_path, allow_create=True, show_places=True)
+
+    labels = [entry.label for entry in entries]
+    assert any(label.startswith("place   home") for label in labels)
+    assert any(entry.path == Path("/") for entry in entries)
+
+
 def test_build_entries_returns_correct_paths(tmp_path: Path) -> None:
     alpha, beta = _make_dirs(tmp_path, "alpha", "beta")
     entries = armory_browser.build_entries(tmp_path, allow_create=True)
@@ -123,6 +142,17 @@ def test_browser_screen_compose_and_mount(tmp_path: Path) -> None:
             assert str(tmp_path.name) in str(rendered)
 
     asyncio.run(run_screen())
+
+
+def test_browser_css_uses_borderless_transparent_surface() -> None:
+    css = armory_browser._armory_browser_css(armory_browser.current_palette())
+
+    dialog_start = css.index("#armory-dialog {")
+    dialog_end = css.index("}", dialog_start)
+    dialog_block = css[dialog_start:dialog_end]
+    assert "border: none" in dialog_block
+    assert "background-tint: transparent" in dialog_block
+    assert "border: round" not in css
 
 
 def test_browser_arrow_keys_move_highlight(tmp_path: Path) -> None:
@@ -157,9 +187,10 @@ def test_browser_navigates_into_child_via_action(tmp_path: Path) -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
-            # Highlight the child entry (index 2: parent=0, create=1, child=2)
             ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
-            ol.highlighted = 2
+            ol.highlighted = next(
+                index for index, entry in enumerate(screen._entries) if entry.path == child
+            )
             await pilot.pause()
             screen.action_activate()
             await pilot.pause()
@@ -178,7 +209,9 @@ def test_browser_right_arrow_navigates_into_child(tmp_path: Path) -> None:
             await app.push_screen(screen)
             await pilot.pause()
             ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
-            ol.highlighted = 2
+            ol.highlighted = next(
+                index for index, entry in enumerate(screen._entries) if entry.path == child
+            )
             await pilot.press("right")
             await pilot.pause()
             assert screen._current == child
@@ -196,9 +229,10 @@ def test_browser_navigates_to_parent_via_action(tmp_path: Path) -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
-            # Parent is always index 0
             ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
-            ol.highlighted = 0
+            ol.highlighted = next(
+                index for index, entry in enumerate(screen._entries) if entry.is_parent
+            )
             await pilot.pause()
             screen.action_activate()
             await pilot.pause()
@@ -293,6 +327,52 @@ def test_browser_new_armory_creates_and_dismisses(tmp_path: Path) -> None:
     assert result_path is not None
     assert result_path.name == "test-armory"
     assert (result_path / MARKER_FILE).exists()
+
+
+def test_browser_new_armory_submission_does_not_bubble_to_chat(tmp_path: Path) -> None:
+    async def run_new() -> None:
+        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        app = _SubmissionCountingApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await app.push_screen(screen)
+            await pilot.pause()
+            screen._start_new_armory()
+            await pilot.pause()
+            inp = screen.query_one("#armory-new-input", armory_browser.Input)
+            inp.value = "maths"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.submission_count == 0
+
+    asyncio.run(run_new())
+
+
+def test_browser_new_armory_refuses_unwritable_parent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def not_writable(_path: Path) -> bool:
+        return False
+
+    monkeypatch.setattr(armory_browser, "_is_writable_directory", not_writable)
+
+    async def run_error() -> None:
+        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        app = _ShellApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await app.push_screen(screen)
+            await pilot.pause()
+            screen._start_new_armory()
+            await pilot.pause()
+            inp = screen.query_one("#armory-new-input", armory_browser.Input)
+            inp.value = "blocked"
+            await pilot.press("enter")
+            await pilot.pause()
+            error = screen.query_one("#armory-error", armory_browser.Static)
+            assert "read-only folder" in str(error.render())
+            assert not (tmp_path / "blocked").exists()
+
+    asyncio.run(run_error())
 
 
 def test_browser_new_armory_surfaces_creation_errors(
