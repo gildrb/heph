@@ -303,16 +303,9 @@ def build_entries(
     show_places: bool = False,
 ) -> list[_DirEntry]:
     """Build the ordered list of browser entries for the current column."""
-    entries = _place_entries() if show_places else []
-    recent = _recent_entries()
-    if entries and recent:
-        entries.append(_DirEntry(""))
-    entries.extend(recent)
-    if entries:
-        entries.append(_DirEntry(""))
-    entries.append(_DirEntry(_PARENT_LABEL, is_parent=True))
-    if allow_create:
-        entries.append(_DirEntry(_NEW_ARMORY_LABEL, is_create=True))
+    place_entries = _place_entries() if show_places else []
+    recent_entries = _recent_entries()
+    entries: list[_DirEntry] = []
 
     child_entries: list[_DirEntry] = []
     children = _list_entries(current, show_files=show_files)
@@ -328,17 +321,26 @@ def build_entries(
             _DirEntry(f"{prefix}{child.name}{badge}", path=child, is_file=is_file)
         )
 
-    # Apply fuzzy filter to child entries only
     if filter_query.strip():
+        searchable = [*place_entries, *recent_entries, *child_entries]
         matches = ranked_matches(
             filter_query,
-            child_entries,
+            searchable,
             key=lambda e: e.label.strip(),
             limit=50,
             min_score=30.0,
         )
-        child_entries = [m.value for m in matches]
+        return [m.value for m in matches]
 
+    entries.extend(place_entries)
+    if entries and recent_entries:
+        entries.append(_DirEntry(""))
+    entries.extend(recent_entries)
+    if entries:
+        entries.append(_DirEntry(""))
+    entries.append(_DirEntry(_PARENT_LABEL, is_parent=True))
+    if allow_create:
+        entries.append(_DirEntry(_NEW_ARMORY_LABEL, is_create=True))
     entries.extend(child_entries)
     return entries
 

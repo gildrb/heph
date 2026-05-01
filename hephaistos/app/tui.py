@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, ClassVar
 from hephaistos import __version__
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.armory_browser import (
-    ArmoryBrowserScreen,
     _creation_parent_error,
     _DirEntry,
     armory_detail,
@@ -189,6 +188,32 @@ def _status_text(session: ChatSession, state: str = "ready") -> Text:
 
     mem_value_start = plain.index(mem_status, plain.index("memory "))
     text.stylize(mem_style, mem_value_start, mem_value_start + len(mem_status))
+    return text
+
+
+def _armory_footer_hints_text(*, creating: bool = False, filtering: bool = False) -> Text:
+    """Build footer hints for inline armory mode."""
+    if _RichText is None:
+        raise TuiDependencyError(_tui_dependency_message())
+
+    palette = current_palette()
+    if creating:
+        parts = ["armory", "enter create", "esc cancel"]
+    elif filtering:
+        parts = ["armory", "enter open", "esc clear", "arrows move", "n new"]
+    else:
+        parts = ["armory", "type filter", "enter open", "c choose", "n new", "esc close"]
+    plain = "  ".join(parts)
+    text = _RichText(plain, style=palette.dim)
+    for label in ("armory", "enter", "esc", "arrows", "type", "c", "n"):
+        start = 0
+        while True:
+            idx = plain.find(label, start)
+            if idx == -1:
+                break
+            style = f"bold {palette.ember}" if label == "armory" else palette.dim
+            text.stylize(style, idx, idx + len(label))
+            start = idx + len(label)
     return text
 
 
@@ -416,6 +441,7 @@ Screen {{
     height: 2;
     color: {p.dim};
     background: {bg};
+    text-style: bold;
 }}
 #armory-columns-inline {{
     layout: horizontal;
@@ -423,7 +449,7 @@ Screen {{
     width: 100%;
 }}
 #armory-parent-inline {{
-    width: 24;
+    width: 26;
     height: 100%;
     border-right: solid {p.stone};
     padding: 0 1 0 0;
@@ -439,8 +465,12 @@ Screen {{
     color: {p.text};
     scrollbar-size: 0 0;
 }}
+#armory-current-inline > .option-list--option-highlighted {{
+    background: {p.highlight};
+    color: {p.text};
+}}
 #armory-preview-inline {{
-    width: 38;
+    width: 40;
     height: 100%;
     padding: 0 1;
     border-left: solid {p.stone};
@@ -930,14 +960,13 @@ class HephaistosTui(App[None]):
             self._append_armory_home()
 
     def on_app_focus(self, event: events.AppFocus) -> None:
-        if isinstance(self.screen, ArmoryBrowserScreen):
-            self.screen._focus_current_col()  # type: ignore[reportPrivateUsage]
+        if self._armory_inline_active:
+            composer = self.query_one("#composer", Input)
+            composer.focus()
+            self.set_focus(composer)
             event.stop()
 
     def on_click(self, event: events.Click) -> None:
-        if isinstance(self.screen, ArmoryBrowserScreen):
-            self.screen._focus_current_col()  # type: ignore[reportPrivateUsage]
-            return
         composer = self.query_one("#composer", Input)
         if self.focused is not composer:
             composer.focus()
@@ -1003,6 +1032,7 @@ class HephaistosTui(App[None]):
                 if not self._armory_creating:
                     self._armory_filter = event.value
                     self._refresh_armory_inline()
+                self._refresh_footer_hints()
                 return
             self._refresh_completions()
 
@@ -1237,6 +1267,7 @@ class HephaistosTui(App[None]):
         )
         self._hide_completions()
         self._refresh_armory_inline(mode=mode)
+        self._refresh_footer_hints()
         composer.focus()
         self.set_focus(composer)
 
@@ -1250,10 +1281,13 @@ class HephaistosTui(App[None]):
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = 'Ask anything... "What do I need to study next?"'
+        self._refresh_footer_hints()
         composer.focus()
         self.set_focus(composer)
 
     def _refresh_armory_inline(self, *, mode: str = "manage") -> None:
+        current = self.query_one("#armory-current-inline", OptionList)
+        previous_key = self._armory_selection_key()
         self._armory_entries = build_entries(
             self._armory_current,
             allow_create=self._armory_mode in ("manage", "create"),
@@ -1267,20 +1301,46 @@ class HephaistosTui(App[None]):
             if self._armory_creating
             else "arrows navigate · enter/right open · c choose · n new · esc close"
         )
-        header.update(f"armory · {self._armory_current}\n{mode_hint}")
+        filter_hint = f" · filter: {self._armory_filter}" if self._armory_filter else ""
+        count_hint = f" · {len(self._armory_entries)} item(s)"
+        header.update(f"armory · {self._armory_current}{filter_hint}{count_hint}\n{mode_hint}")
         parent = self.query_one("#armory-parent-inline", OptionList)
         parent.clear_options()
         for label, _path in self._armory_parent_entries:
             parent.add_option(label)
-        current = self.query_one("#armory-current-inline", OptionList)
         current.clear_options()
         for entry in self._armory_entries:
             current.add_option(entry.label)
-        if self._armory_entries and current.highlighted is None:
+        current.highlighted = self._armory_index_for_key(previous_key)
+        if current.highlighted is None and self._armory_entries:
             current.highlighted = 0
-        if self._armory_entries and current.highlighted is not None:
-            current.highlighted = min(current.highlighted, len(self._armory_entries) - 1)
         self._update_armory_preview()
+
+    def _armory_selection_key(self) -> tuple[str, str] | None:
+        entry = self._armory_highlighted_entry()
+        if entry is None:
+            return None
+        if entry.path is not None:
+            return ("path", str(entry.path))
+        if entry.is_parent:
+            return ("parent", entry.label)
+        if entry.is_create:
+            return ("create", entry.label)
+        return ("label", entry.label)
+
+    def _armory_index_for_key(self, key: tuple[str, str] | None) -> int | None:
+        if key is None:
+            return None
+        for index, entry in enumerate(self._armory_entries):
+            if entry.path is not None and key == ("path", str(entry.path)):
+                return index
+            if entry.path is None and key == ("label", entry.label):
+                return index
+            if entry.is_parent and key == ("parent", entry.label):
+                return index
+            if entry.is_create and key == ("create", entry.label):
+                return index
+        return None
 
     def _armory_highlighted_entry(self) -> _DirEntry | None:
         current = self.query_one("#armory-current-inline", OptionList)
@@ -1293,7 +1353,12 @@ class HephaistosTui(App[None]):
         preview = self.query_one("#armory-preview-inline", Static)
         entry = self._armory_highlighted_entry()
         if entry is None:
-            preview.update("No selection")
+            if self._armory_filter:
+                preview.update(
+                    f"No matches\n\nFilter: {self._armory_filter}\n\nEsc clears the filter."
+                )
+            else:
+                preview.update("No selection")
             return
         if entry.path is None:
             preview.update(entry.label or "")
@@ -1336,6 +1401,7 @@ class HephaistosTui(App[None]):
         composer.value = ""
         composer.placeholder = "New armory name..."
         self._refresh_armory_inline()
+        self._refresh_footer_hints()
         composer.focus()
 
     def _create_inline_armory(self, name: str) -> None:
@@ -1343,6 +1409,7 @@ class HephaistosTui(App[None]):
             self._armory_creating = False
             self.query_one("#composer", Input).placeholder = "Filter armory paths..."
             self._refresh_armory_inline()
+            self._refresh_footer_hints()
             return
         parent_error = _creation_parent_error(self._armory_current)
         if parent_error is not None:
@@ -1392,10 +1459,12 @@ class HephaistosTui(App[None]):
                 composer.value = ""
                 composer.placeholder = "Filter armory paths..."
                 self._refresh_armory_inline()
+                self._refresh_footer_hints()
             elif composer.value:
                 composer.value = ""
                 self._armory_filter = ""
                 self._refresh_armory_inline()
+                self._refresh_footer_hints()
             else:
                 self._close_armory_inline()
             event.prevent_default()
@@ -1658,6 +1727,14 @@ class HephaistosTui(App[None]):
 
     def _refresh_footer_hints(self) -> None:
         hints = self.query_one("#footer-hints", Static)
+        if self._armory_inline_active:
+            hints.update(
+                _armory_footer_hints_text(
+                    creating=self._armory_creating,
+                    filtering=bool(self._armory_filter),
+                )
+            )
+            return
         hints.update(_footer_hints_text(self.session, busy=self.busy))
 
     def _focus_message(self, direction: int) -> None:

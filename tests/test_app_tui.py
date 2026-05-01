@@ -651,6 +651,213 @@ def test_armory_inline_new_armory_uses_composer_without_chat_transcript(tmp_path
     asyncio.run(check_create())
 
 
+def test_armory_inline_escape_clears_filter_then_exits(tmp_path: Path) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_escape_flow() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "math"
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+            assert composer.value == ""
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app._armory_inline_active is False  # type: ignore[reportPrivateUsage]
+
+    asyncio.run(check_escape_flow())
+
+
+def test_armory_inline_escape_cancels_create_then_exits(tmp_path: Path) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_create_escape() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("create")  # type: ignore[reportPrivateUsage]
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "math"
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+            assert app._armory_creating is False  # type: ignore[reportPrivateUsage]
+            assert composer.value == ""
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app._armory_inline_active is False  # type: ignore[reportPrivateUsage]
+            assert not (tmp_path / "math").exists()
+
+    asyncio.run(check_create_escape())
+
+
+def test_armory_footer_hints_follow_mode() -> None:
+    normal = tui._armory_footer_hints_text()  # type: ignore[reportPrivateUsage]
+    filtering = tui._armory_footer_hints_text(filtering=True)  # type: ignore[reportPrivateUsage]
+    creating = tui._armory_footer_hints_text(creating=True)  # type: ignore[reportPrivateUsage]
+
+    assert "type filter" in normal.plain
+    assert "esc clear" in filtering.plain
+    assert "enter create" in creating.plain
+
+
+def test_armory_footer_restores_after_exit(tmp_path: Path) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_footer_restore() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            hints = app.query_one("#footer-hints", tui.Static)  # type: ignore[reportPrivateUsage]
+            assert "armory" in str(hints.render())  # type: ignore[reportUnknownMemberType]
+            await pilot.press("escape")
+            await pilot.pause()
+            assert "enter send" in str(hints.render())  # type: ignore[reportUnknownMemberType]
+
+    asyncio.run(check_footer_restore())
+
+
+def test_armory_inline_click_keeps_composer_as_control(tmp_path: Path) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    (tmp_path / "math").mkdir()
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_click_focus() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            await pilot.click("#armory-current-inline", offset=(2, 1))
+            await pilot.pause()
+            assert app.focused is composer  # type: ignore[reportUnknownMemberType]
+            assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+
+    asyncio.run(check_click_focus())
+
+
+def test_armory_inline_transparent_surface_does_not_paint_black(tmp_path: Path) -> None:
+    if tui.Input is None or tui.Strip is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_transparency() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+            widgets: tuple[Widget, ...] = (
+                cast("Widget", app.query_one("#armory-inline")),  # type: ignore[reportUnknownMemberType]
+                cast("Widget", app.query_one("#armory-header")),  # type: ignore[reportUnknownMemberType]
+                cast("Widget", app.query_one("#armory-current-inline")),  # type: ignore[reportUnknownMemberType]
+                cast("Widget", app.query_one("#armory-preview-inline")),  # type: ignore[reportUnknownMemberType]
+            )
+            for widget in widgets:
+                for line_number in range(widget.size.height):
+                    strip = widget.render_line(line_number)
+                    assert all("on #000000" not in str(segment.style) for segment in strip)
+
+    asyncio.run(check_transparency())
+
+
+def test_armory_inline_header_shows_filter_and_no_matches(tmp_path: Path) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_empty_filter() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "no-such-folder"
+            await pilot.pause()
+            header = app.query_one("#armory-header", tui.Static)  # type: ignore[reportPrivateUsage]
+            preview = app.query_one("#armory-preview-inline", tui.Static)  # type: ignore[reportPrivateUsage]
+            assert "filter: no-such-folder" in str(header.render())  # type: ignore[reportUnknownMemberType]
+            assert "No matches" in str(preview.render())  # type: ignore[reportUnknownMemberType]
+
+    asyncio.run(check_empty_filter())
+
+
+def test_armory_inline_preserves_selection_across_refresh(tmp_path: Path) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    alpha = tmp_path / "alpha"
+    beta = tmp_path / "beta"
+    alpha.mkdir()
+    beta.mkdir()
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_selection() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            current = app.query_one("#armory-current-inline", tui.OptionList)  # type: ignore[reportPrivateUsage]
+            current.highlighted = next(
+                index
+                for index, entry in enumerate(app._armory_entries)  # type: ignore[reportPrivateUsage]
+                if entry.path == beta
+            )
+            app._refresh_armory_inline()  # type: ignore[reportPrivateUsage]
+            selected = app._armory_highlighted_entry()  # type: ignore[reportPrivateUsage]
+            assert selected is not None
+            assert selected.path == beta
+
+    asyncio.run(check_selection())
+
+
 def test_armory_inline_open_mode_disables_new_shortcut() -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
