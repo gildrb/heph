@@ -42,7 +42,7 @@ new docs.
 | /save | Save current chat to armory |
 | /clear | Start a fresh chat session |
 | /new | Start a new chat (saves previous automatically) |
-| /armory | Open the armory management menu |
+| /armory | Browse, open, or create armories |
 | /chats | List saved chats in the active armory |
 | /sessions | List or resume saved sessions |
 | /resume [id-prefix] | Resume the latest saved chat, or pass an ID prefix |

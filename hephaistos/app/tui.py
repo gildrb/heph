@@ -843,7 +843,7 @@ def _armory_command_mode(value: str) -> str | None:
 
 
 def _armory_usage_message() -> str:
-    return "Usage: /armory [open|create]\nOpen or create a local study armory."
+    return "Usage: /armory [open|create]\nBrowse, open, or create a local study armory."
 
 
 def _run_shell_escape_captured(command: str) -> str:

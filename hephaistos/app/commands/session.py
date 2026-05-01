@@ -167,7 +167,7 @@ class NewCommand(Command):
 
 class ArmoryCommand(Command):
     name = "armory"
-    description = "Open the armory management menu"
+    description = "Browse, open, or create armories"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -180,7 +180,7 @@ class ArmoryCommand(Command):
         if subcmd in ("create", "new"):
             return CommandResult(new_session=create_armory_command(s))
         print_error("Usage: /armory [open|create]")
-        print_info("Open or create a local study armory for materials and saved chats.")
+        print_info("Browse, open, or create a local study armory for materials and saved chats.")
         return CommandResult()
 
 
