@@ -952,7 +952,6 @@ class HephaistosTui(App[None]):
             return
         if _is_armory_command(value):
             self._record_history(value)
-            self._append_user(value, mark_working=False)
             self._handle_armory_browser(value)
             return
         if value.startswith(("/", "!")):

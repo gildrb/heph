@@ -134,7 +134,7 @@ def test_browser_arrow_keys_move_highlight(tmp_path: Path) -> None:
         async with app.run_test(size=(100, 28)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
-            ol = screen.query_one("#armory-list", armory_browser.OptionList)
+            ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
             assert ol.highlighted == 0
 
             await pilot.press("down")
@@ -158,10 +158,28 @@ def test_browser_navigates_into_child_via_action(tmp_path: Path) -> None:
             await app.push_screen(screen)
             await pilot.pause()
             # Highlight the child entry (index 2: parent=0, create=1, child=2)
-            ol = screen.query_one("#armory-list", armory_browser.OptionList)
+            ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
             ol.highlighted = 2
             await pilot.pause()
             screen.action_activate()
+            await pilot.pause()
+            assert screen._current == child
+
+    asyncio.run(run_nav())
+
+
+def test_browser_right_arrow_navigates_into_child(tmp_path: Path) -> None:
+    child = _make_dirs(tmp_path, "child")[0]
+
+    async def run_nav() -> None:
+        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        app = _ShellApp()
+        async with app.run_test(size=(100, 28)) as pilot:
+            await app.push_screen(screen)
+            await pilot.pause()
+            ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
+            ol.highlighted = 2
+            await pilot.press("right")
             await pilot.pause()
             assert screen._current == child
 
@@ -179,7 +197,7 @@ def test_browser_navigates_to_parent_via_action(tmp_path: Path) -> None:
             await app.push_screen(screen)
             await pilot.pause()
             # Parent is always index 0
-            ol = screen.query_one("#armory-list", armory_browser.OptionList)
+            ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
             ol.highlighted = 0
             await pilot.pause()
             screen.action_activate()

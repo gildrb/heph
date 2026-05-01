@@ -569,6 +569,36 @@ def test_handle_armory_browser_invalid_subcommand_shows_usage() -> None:
     asyncio.run(check_invalid_usage())
 
 
+def test_armory_input_executes_without_user_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    def fake_handle_armory_browser(value: str) -> None:
+        assert value == "/armory"
+        app._append_notice("opened armory browser")  # type: ignore[reportPrivateUsage]
+
+    async def check_inline_command() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(app, "_handle_armory_browser", fake_handle_armory_browser)
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "/armory"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert not any("You:" in entry.content for entry in app.state.transcript)
+            assert any("opened armory browser" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_inline_command())
+
+
 def test_handle_armory_browser_cancel_keeps_current_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
