@@ -20,6 +20,7 @@ from hephaistos.agent.persona import DEFAULT as _DEFAULT_PERSONA
 from hephaistos.agent.persona import Persona
 from hephaistos.agent.tools import ToolRegistry, ToolSchema, default_registry
 from hephaistos.logging import get_logger
+from hephaistos.materials import MaterialRole, infer_material_role
 
 _log = get_logger("agent.prompt")
 
@@ -156,6 +157,25 @@ def render_tool_docs(schemas: list[ToolSchema]) -> str:
     return "\n".join(lines)
 
 
+def _material_role_summary(source_files: list[str]) -> str:
+    """Render cheap material role hints for the model."""
+    counts: dict[MaterialRole, int] = {}
+    examples: dict[MaterialRole, str] = {}
+    for rel_path in source_files:
+        role, _confidence, _reason = infer_material_role(rel_path)
+        counts[role] = counts.get(role, 0) + 1
+        examples.setdefault(role, rel_path)
+    if not counts:
+        return ""
+    lines = ["Material role hints:"]
+    for role, count in sorted(counts.items()):
+        label = role.replace("_", " ")
+        example = examples[role]
+        plural = "s" if count != 1 else ""
+        lines.append(f"  - {label}: {count} file{plural}; e.g. {example}")
+    return "\n".join(lines)
+
+
 def _load_custom_prompt(armory_path: Path) -> str | None:
     """Load a custom system prompt from the armory, if one exists.
 
@@ -230,6 +250,9 @@ def build_system_prompt_sections(
         if source_files:
             file_list = "\n".join(f"  - {f}" for f in source_files[:50])
             context_parts.append(f"Available material files:\n{file_list}")
+            role_summary = _material_role_summary(source_files)
+            if role_summary:
+                context_parts.append(role_summary)
 
     return SystemPrompt(
         role=role,
