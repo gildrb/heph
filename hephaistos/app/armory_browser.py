@@ -485,16 +485,22 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             event.stop()
             return
 
-        if event.key in ("c", "n", "q"):
-            # These are handled by BINDINGS -> action_* methods.
-            # But we need to stop propagation so the parent TUI doesn't
-            # intercept them.
+        if event.key == "c":
+            self.action_choose()
+            event.prevent_default()
             event.stop()
             return
 
-        if event.key == "escape":
-            event.stop()
+        if event.key == "n":
+            self.action_new_armory()
             event.prevent_default()
+            event.stop()
+            return
+
+        if event.key in ("escape", "q"):
+            self.action_cancel()
+            event.prevent_default()
+            event.stop()
             return
 
         # All other keys (up, down, enter, etc.) flow to OptionList naturally.

@@ -229,6 +229,26 @@ def test_browser_cancel_dismisses_with_none(tmp_path: Path) -> None:
     assert result_path is None
 
 
+def test_browser_escape_key_dismisses_with_none(tmp_path: Path) -> None:
+    result_path: Path | None = "NOT_NONE"  # sentinel
+
+    def on_result(path: Path | None) -> None:
+        nonlocal result_path
+        result_path = path
+
+    async def run_cancel() -> None:
+        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        app = _ShellApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await app.push_screen(screen, on_result)
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+
+    asyncio.run(run_cancel())
+    assert result_path is None
+
+
 def test_browser_new_armory_creates_and_dismisses(tmp_path: Path) -> None:
     result_path: Path | None = None
 
