@@ -12,6 +12,7 @@ from hephaistos.providers.keyring_store import (
     _SERVICE_PREFIX,  # type: ignore[reportPrivateUsage]
     _USERNAME,  # type: ignore[reportPrivateUsage]
     _keychain_cache,  # type: ignore[reportPrivateUsage]
+    clear_key,
     get_volatile,
     mask_key,
     resolve_key,
@@ -71,6 +72,11 @@ class TestVolatileStore:
     def test_get_missing_returns_none(self) -> None:
         assert get_volatile("nonexistent-slug") is None
 
+    def test_clear_key_removes_volatile_key(self) -> None:
+        set_volatile(_TEST_SLUG, "volatile-key")
+        assert clear_key(_TEST_SLUG) is True
+        assert get_volatile(_TEST_SLUG) is None
+
 
 # ---------------------------------------------------------------------------
 # Keychain round-trip (may fail gracefully if keychain is locked)
@@ -84,6 +90,14 @@ class TestKeychainRoundTrip:
         except Exception:
             pytest.skip("keychain not available in this environment")
         assert retrieve_key(_TEST_SLUG) == "test-secret-key"
+
+    def test_clear_key_removes_keychain_key(self) -> None:
+        try:
+            store_key(_TEST_SLUG, "test-secret-key")
+        except Exception:
+            pytest.skip("keychain not available in this environment")
+        assert clear_key(_TEST_SLUG) is True
+        assert retrieve_key(_TEST_SLUG) is None
 
     def test_transient_keyring_errors_are_not_cached(
         self, monkeypatch: pytest.MonkeyPatch

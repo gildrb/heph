@@ -12,7 +12,7 @@ from __future__ import annotations
 from hephaistos.app.autocomplete import CommandSuggestion
 from hephaistos.app.commands._base import Command, CommandResult, set_registry_fn
 from hephaistos.app.commands.armory import ExportCommand, ImportCommand, IndexCommand
-from hephaistos.app.commands.auth import ApiCommand, LoginCommand, LogoutCommand
+from hephaistos.app.commands.auth import LoginCommand, LogoutCommand
 from hephaistos.app.commands.compact import CompactCommand
 from hephaistos.app.commands.display import (
     CostCommand,
@@ -34,11 +34,7 @@ from hephaistos.app.commands.memory import (
     set_volatile,
     store_key,
 )
-from hephaistos.app.commands.model import (
-    ModelsCommand,
-    ProviderCommand,
-    RecommendCommand,
-)
+from hephaistos.app.commands.model import ModelsCommand, RecommendCommand
 from hephaistos.app.commands.persona import PersonaCommand
 from hephaistos.app.commands.session import (
     ArmoryCommand,
@@ -99,7 +95,6 @@ def get_registry() -> CommandRegistry:
             StatusCommand,
             NewCommand,
             ArmoryCommand,
-            ApiCommand,
             CompactCommand,
             HistoryCommand,
             EvidenceCommand,
@@ -110,7 +105,6 @@ def get_registry() -> CommandRegistry:
             ImportCommand,
             RemindCommand,
             EditCommand,
-            ProviderCommand,
             ModelsCommand,
             RecommendCommand,
             MemoryCommand,
@@ -131,7 +125,6 @@ set_registry_fn(get_registry)
 
 __all__ = [
     # Command classes (for direct import)
-    "ApiCommand",
     "ArmoryCommand",
     "ClearCommand",
     "Command",
@@ -153,7 +146,6 @@ __all__ = [
     "ModelsCommand",
     "NewCommand",
     "PersonaCommand",
-    "ProviderCommand",
     "ProviderConfig",
     "QuitCommand",
     "RecommendCommand",

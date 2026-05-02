@@ -11,121 +11,9 @@ from hephaistos.app.model_picker import (
     model_free_description,
     switch_model,
 )
-from hephaistos.chat.session import ChatSession
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.registry import get_registry as get_provider_registry
 from hephaistos.runtime import is_keyless_endpoint
-
-
-class ProviderCommand(Command):
-    name = "provider"
-    description = "Show or switch LLM provider and model"
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        s = ensure_session(session)
-        pc = ProviderConfig.load()
-        parts = args.strip().split()
-
-        if not parts:
-            return self._show(pc)
-
-        sub = parts[0].lower()
-        if sub == "use" and len(parts) >= 2:
-            slug = parts[1].lower()
-            model = parts[2] if len(parts) >= 3 else ""
-            return self._use(pc, s, slug, model)
-        if sub == "model" and len(parts) >= 2:
-            return self._set_model(pc, s, parts[1])
-
-        print_error("Usage: /provider [use <slug> [model] | model <name>]")
-        return CommandResult()
-
-    @staticmethod
-    def _show(pc: ProviderConfig) -> CommandResult:
-        active = pc.get_active()
-        if active:
-            print(f"  Current: {active.resolved_model} via {active.display_name}")
-        else:
-            print_info("No active provider configured.")
-        print()
-        print("  Configured providers & models:")
-
-        for slug, p in pc.providers.items():
-            bracket = f"    [{slug}]"
-            if p.active:
-                bracket += " \u2190 active"
-            print(bracket)
-
-            if slug == "custom":
-                print(f"      endpoint: {p.endpoint}")
-                print(f"      {styled('(use /provider use custom <model> to set)', STYLE_DIM)}")
-            else:
-                for m in p.models:
-                    line = f"      {m}"
-                    if p.active and m == p.current_model:
-                        line += " \u2190 current"
-                    print(line)
-            print()
-
-        return CommandResult()
-
-    @staticmethod
-    def _use(pc: ProviderConfig, session: ChatSession, slug: str, model: str) -> CommandResult:
-        if slug not in pc.providers:
-            print_error(f"Unknown provider: {slug}")
-            print_info(f"Available: {', '.join(pc.providers)}")
-            return CommandResult()
-
-        pc.set_active(slug)
-        p = pc.providers[slug]
-
-        if model:
-            if model in p.models:
-                p.current_model = model
-            elif p.models:
-                print_error(f"Model '{model}' not found in {slug}")
-                print_info(f"Available: {', '.join(p.models)}")
-                pc.apply_to_config(session.config)
-                pc.save()
-                return CommandResult()
-        elif not p.current_model and p.models:
-            p.current_model = p.models[0]
-
-        pc.apply_to_config(session.config)
-        pc.save()
-        print_success(f"Switched to {p.display_name} / {p.resolved_model}")
-        capture_analytics(
-            "provider_changed",
-            {
-                "provider": slug,
-                "model": p.resolved_model,
-            },
-        )
-        return CommandResult()
-
-    @staticmethod
-    def _set_model(pc: ProviderConfig, session: ChatSession, model: str) -> CommandResult:
-        active = pc.get_active()
-        if active is None:
-            print_error("No active provider. Use /provider use <slug> first.")
-            return CommandResult()
-        if model not in active.models:
-            print_error(f"Model '{model}' not found in {active.slug}")
-            print_info(f"Available: {', '.join(active.models)}")
-            return CommandResult()
-
-        active.current_model = model
-        pc.apply_to_config(session.config)
-        pc.save()
-        print_success(f"Model: {model}")
-        capture_analytics(
-            "model_changed",
-            {
-                "provider": active.slug,
-                "to_model": model,
-            },
-        )
-        return CommandResult()
 
 
 class ModelsCommand(Command):
@@ -155,7 +43,7 @@ class ModelsCommand(Command):
                 f"  API:     {s.config.base_url}",
                 f"  Key:     {key_label}",
                 "",
-                "  No matching models configured. Use /provider to set up providers.",
+                "  No matching models available. Use /login to connect a provider.",
             ]
             print("\n".join(lines))
             return CommandResult()

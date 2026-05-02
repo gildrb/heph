@@ -304,8 +304,8 @@ class TestStreamReplyRetry:
         msg = str(exc_info.value)
         assert mock_client.chat.completions.create.call_count == 1
         assert "Insufficient balance or no resource package. Please recharge." in msg
-        assert "/api key" in msg
         assert "/login" in msg
+        assert "/models" in msg
         assert "{'error'" not in msg
 
     def test_mid_stream_failure_with_partial_raises_recovery(self) -> None:

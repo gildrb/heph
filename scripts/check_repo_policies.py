@@ -60,6 +60,11 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
             "importlib.import_module",
         }
     ),
+    "hephaistos/cli/main.py": frozenset(
+        {
+            "importlib.import_module",
+        }
+    ),
     "hephaistos/materials/cli.py": frozenset(
         {
             "importlib.import_module",

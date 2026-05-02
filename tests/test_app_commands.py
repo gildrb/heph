@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-import hephaistos.app.commands.auth as _commands_auth
 import hephaistos.app.commands.memory as _commands_memory
 import hephaistos.app.commands.model as _commands_model
 import hephaistos.app.commands.persona as _commands_persona
@@ -175,6 +174,7 @@ def test_command_registry_uses_models_not_model() -> None:
 def test_models_command_switches_selected_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     cfg = ChatConfig(
         api_key="test-key",
         base_url="https://api.openai.com/v1",
@@ -228,6 +228,7 @@ def test_models_command_shows_live_openrouter_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     catalog.invalidate_catalog_cache()
     pc = default_config()
     pc.set_active("openrouter")
@@ -465,66 +466,6 @@ def test_edit_command_no_messages(
     commands.EditCommand().handle(session, "")
     out = capsys.readouterr().out
     assert "No user messages" in out
-
-
-def test_api_command_set_url(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.ApiCommand().handle(session, "url https://api.example.com/v1")
-
-    out = capsys.readouterr().out
-    assert "Base URL:" in out
-    assert session.config.base_url == "https://api.example.com/v1"
-
-
-def test_api_command_set_url_missing_value(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.ApiCommand().handle(session, "url")
-    out = capsys.readouterr().out
-    assert "Usage:" in out
-
-
-def test_api_command_set_key(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    monkeypatch.setattr(
-        commands.ProviderConfig,
-        "load",
-        classmethod(lambda cls: default_config()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-    )
-    monkeypatch.setattr(_commands_auth, "store_key", lambda *_a: None)  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-
-    commands.ApiCommand().handle(session, "key sk-test-123")
-    out = capsys.readouterr().out
-    assert "key saved" in out.lower() or "API key" in out
-
-
-def test_api_command_set_key_missing_value(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.ApiCommand().handle(session, "key")
-    out = capsys.readouterr().out
-    assert "Usage:" in out
-
-
-def test_api_command_unknown_subcommand(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.ApiCommand().handle(session, "bogus value")
-    out = capsys.readouterr().out
-    assert "Unknown subcommand" in out
 
 
 def test_tokens_command_invalid_arg(

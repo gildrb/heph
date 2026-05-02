@@ -121,9 +121,7 @@ def print_shell_intro(
         print(f"  {hint_line}")
     if not has_api_key and not is_keyless:
         print(
-            "  "
-            f"{styled('configure api', STYLE_WARNING)} "
-            f"{styled('/api key <your-key>', STYLE_ACCENT)}"
+            f"  {styled('connect model access', STYLE_WARNING)} {styled('/login', STYLE_ACCENT)}"
         )
     print()
 
@@ -183,8 +181,8 @@ def format_shell_header(
         fragments.extend(
             [
                 ("", "\n"),
-                ("class:header.warning", "  configure api "),
-                ("class:header.accent", "/api key <your-key>"),
+                ("class:header.warning", "  connect model access "),
+                ("class:header.accent", "/login"),
             ]
         )
     return fragments

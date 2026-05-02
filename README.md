@@ -92,9 +92,8 @@ opens the interactive shell. From a source checkout, use `uv run heph`.
 Inside the shell:
 
 ```text
-/provider
+/login
 /models
-/api key <your-key>
 ```
 
 You can also use environment variables such as `OPENROUTER_API_KEY`,
@@ -111,8 +110,7 @@ Use `/settings` for cross-session preferences such as:
 - default startup armory fallback
 - default model selection
 
-Credential flows stay on their existing commands: `/provider`, `/api`,
-`/login`, and `/logout`.
+Credential flows live in `/login` and `/logout`; model selection lives in `/models`.
 
 PostHog is used only for anonymous, opt-in usage/error visibility for the
 maintainer. Sentry is used only for redacted, opt-in crash reporting. The
@@ -207,9 +205,9 @@ The default provider config includes:
 - Z.AI
 - Custom OpenAI-compatible endpoint
 
-Switch inside the shell with `/provider` and `/models`, or set
-`HEPHAISTOS_BASE_URL` and `HEPHAISTOS_MODEL` for your own endpoint. The armory
-stays the same when the model changes.
+Connect access inside the shell with `/login`, then switch models with `/models`.
+You can also set `HEPHAISTOS_BASE_URL` and `HEPHAISTOS_MODEL` for your own endpoint.
+The armory stays the same when the model changes.
 
 ## Common Commands
 
@@ -234,12 +232,11 @@ Useful shell commands:
 |---|---|
 | /help | Show available commands |
 | /exit | Leave the shell |
-| /login | Authenticate via OAuth |
-| /logout | Clear stored OAuth credentials |
+| /login | Authenticate with a subscription or API key |
+| /logout | Clear stored subscription or API-key credentials |
 | /status | Show armory, session, and model info |
 | /new | Start a new chat |
 | /armory | Browse, open, or create armories |
-| /api | Manage API key (keychain) or base URL |
 | /compact | Summarize conversation to reduce context size |
 | /history | List or resume saved study chats |
 | /evidence | Show retrieved evidence for the last turn |
@@ -250,7 +247,6 @@ Useful shell commands:
 | /import | Import files into the armory materials directory |
 | /remind | Show upcoming study reminders and due cards |
 | /edit | Edit and resend the last user message |
-| /provider | Show or switch LLM provider and model |
 | /models | Pick the active model |
 | /recommend | Recommend models for study sessions |
 | /memory | Manage study memory and Supermemory setup |

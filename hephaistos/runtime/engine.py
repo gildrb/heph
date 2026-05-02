@@ -196,10 +196,7 @@ _ACCOUNT_SETUP_ERROR_TERMS = (
     "credit",
     "quota exceeded",
 )
-_ACCOUNT_SETUP_HINT = (
-    "Configure a valid API key with /api key <your-key>, switch provider with /provider, "
-    "or authenticate with /login."
-)
+_ACCOUNT_SETUP_HINT = "Use /login to connect a subscription or API key, then /models."
 
 
 @dataclass
@@ -310,7 +307,7 @@ def _log_error_summary(exc: Exception) -> str:
 def build_client(config: ChatConfig) -> OpenAI:
     """Create an OpenAI client from the given config."""
     if not config.base_url:
-        raise EngineError("No provider configured. Use /provider use <slug> to select one.")
+        raise EngineError("No model source configured. Use /login, then /models.")
     if not config.model:
         raise EngineError("No model configured. Use /models to select one.")
     if not is_supported_model_for_endpoint(config.model, config.base_url):
@@ -330,10 +327,10 @@ def missing_api_key_message(config: ChatConfig) -> str:
     if model_info is not None and model_info.is_free:
         return (
             f"{config.model} is free-priced, but {model_info.display_name} is served through "
-            "a provider that still requires an API key. Configure one via /api key, "
-            "environment variable, or OAuth (/login)."
+            "a provider that still requires an API key. Use /login or set an environment "
+            "variable."
         )
-    return "No API key found. Configure one via /api key, environment variable, or OAuth (/login)."
+    return "No API key found. Use /login or set an environment variable."
 
 
 def _normalize_url(url: str) -> str:
