@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hephaistos.app.provider_access import provider_is_accessible
 from hephaistos.chat.session import ChatSession
 from hephaistos.providers.catalog import hydrate_provider_models
 from hephaistos.providers.config import ProviderConfig
@@ -57,6 +58,8 @@ def configured_model_choices(
     choices: list[tuple[str, str, str, bool]] = []
     for slug, provider in pc.providers.items():
         if slug == "custom" and not provider.models:
+            continue
+        if not provider_is_accessible(provider):
             continue
         for model in provider.models:
             info = registry.get(model)

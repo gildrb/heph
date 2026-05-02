@@ -136,17 +136,6 @@ class SlashCompletionEngine:
         cmd_name: str,
         arg_parts: list[str],
     ) -> list[tuple[str, str]]:
-        if cmd_name == "api":
-            if len(arg_parts) <= 1:
-                return [
-                    ("key", "Store an API key for the active provider"),
-                    ("url", "Override the provider base URL"),
-                ]
-            return []
-
-        if cmd_name == "provider":
-            return self._provider_suggestions(arg_parts)
-
         if cmd_name == "memory":
             return [
                 ("status", "Show memory backend and Supermemory setup"),
@@ -157,33 +146,6 @@ class SlashCompletionEngine:
 
         if cmd_name == "persona":
             return self._persona_suggestions(arg_parts)
-
-        return []
-
-    def _provider_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
-        if len(arg_parts) <= 1:
-            return [
-                ("use", "Switch active provider (and optional model)"),
-                ("model", "Switch model within the active provider"),
-            ]
-
-        subcmd = arg_parts[0].lower()
-        providers = self._cached_providers
-
-        if subcmd == "use":
-            if len(arg_parts) == 2:
-                return [(slug, provider.display_name) for slug, provider in providers.items()]
-            if len(arg_parts) == 3:
-                provider = providers.get(arg_parts[1].lower())
-                if provider is None:
-                    return []
-                return [(model, provider.display_name) for model in provider.models]
-
-        if subcmd == "model":
-            active = self._provider_config_loader().get_active()
-            if active is None:
-                return []
-            return [(model, active.display_name) for model in active.models]
 
         return []
 

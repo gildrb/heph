@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from hephaistos.app.autocomplete import CommandSuggestion, SlashCompletionEngine
 from hephaistos.providers.config import default_config
 
@@ -24,14 +26,6 @@ def test_slash_completion_matches_command_aliases() -> None:
     assert candidates[0].start_position == -1
 
 
-def test_slash_completion_suggests_provider_arguments() -> None:
-    engine = SlashCompletionEngine(provider_config_loader=default_config)
-
-    candidates = engine.candidates("/provider use za", [])
-
-    assert any(candidate.text == "zai " for candidate in candidates)
-
-
 def test_slash_completion_returns_textual_full_value() -> None:
     engine = SlashCompletionEngine(provider_config_loader=default_config)
     commands = [CommandSuggestion(name="status", description="Show status")]
@@ -41,16 +35,22 @@ def test_slash_completion_returns_textual_full_value() -> None:
     assert suggestion == "/status "
 
 
-def test_models_completion_searches_all_model_text() -> None:
+def test_models_completion_searches_accessible_model_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ZAI_API_KEY", "test-key")
     engine = SlashCompletionEngine(provider_config_loader=default_config)
 
     candidates = engine.candidates("/models gl", [])
 
     assert any(candidate.text == "glm-5 " for candidate in candidates)
-    assert any(candidate.text == "z-ai/glm-5 " for candidate in candidates)
+    assert any(candidate.text == "glm-5-turbo " for candidate in candidates)
 
 
-def test_models_completion_starts_with_openrouter_provider_group() -> None:
+def test_models_completion_starts_with_openrouter_provider_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     engine = SlashCompletionEngine(provider_config_loader=default_config)
 
     candidates = engine.candidates("/models", [])
@@ -62,7 +62,10 @@ def test_models_completion_starts_with_openrouter_provider_group() -> None:
     assert candidates[: len(openrouter_candidates)] == openrouter_candidates
 
 
-def test_models_completion_keeps_provider_grouping_when_current_model_is_elsewhere() -> None:
+def test_models_completion_keeps_provider_grouping_when_current_model_is_elsewhere(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     config = default_config()
     config.set_active("openrouter")
     config.providers["openrouter"].current_model = "arcee-ai/trinity-large-preview:free"
@@ -77,7 +80,10 @@ def test_models_completion_keeps_provider_grouping_when_current_model_is_elsewhe
     assert any(candidate.display_tags == "free+key current" for candidate in openrouter_candidates)
 
 
-def test_models_completion_marks_openrouter_free_models_as_key_required() -> None:
+def test_models_completion_marks_openrouter_free_models_as_key_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     engine = SlashCompletionEngine(provider_config_loader=default_config)
 
     candidates = engine.candidates("/models trinity", [])

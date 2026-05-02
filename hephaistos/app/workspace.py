@@ -325,7 +325,7 @@ def _run_shell_command(cmd: str) -> None:
 def _preflight_config_check(session: ChatSession) -> str | None:
     """Return an error message if the session config is unusable, else None."""
     if not session.config.base_url:
-        return "No provider configured. Use /provider use <slug> to select one."
+        return "No model source configured. Use /login, then /models."
     if not session.config.model:
         return "No model configured. Use /models to select one."
     if not is_keyless_endpoint(session.config.base_url) and not session.config.resolved_api_key:

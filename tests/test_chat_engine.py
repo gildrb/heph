@@ -63,7 +63,7 @@ def test_missing_api_key_message_explains_free_openrouter_auth() -> None:
 
     assert "free-priced" in message
     assert "still requires an API key" in message
-    assert "/api key" in message
+    assert "/login" in message
 
 
 def test_build_client_rejects_unavailable_model_for_known_endpoint() -> None:

@@ -14,7 +14,7 @@ Fallback order for key resolution:
 
 1. OS keychain (keyring)
 2. Environment variable (the ``api_key_env`` field in provider config)
-3. In-memory override from ``/api key`` (volatile, session-scoped)
+3. In-memory override from interactive login flows (volatile, session-scoped)
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ _SERVICE_PREFIX = "hephaistos"
 _USERNAME = "api_key"
 GLOBAL_API_KEY_ENV: Final[str] = "HEPHAISTOS_API_KEY"
 
-# Module-level volatile override cache.  Keys set via /api key live here
+# Module-level volatile override cache for keys that could not be persisted.
 _volatile: dict[str, str] = {}
 
 # In-process cache for keychain lookups (avoids OS keychain round-trip per API call).
@@ -64,6 +64,21 @@ def retrieve_key(slug: str) -> str | None:
     return result
 
 
+def clear_key(slug: str) -> bool:
+    """Remove a stored or volatile API key for the given provider slug."""
+    removed = _volatile.pop(slug, None) is not None
+    cached = _keychain_cache.pop(slug, None)
+    if cached is not None:
+        removed = True
+    try:
+        keyring.delete_password(_service_name(slug), _USERNAME)
+    except KeyringError:
+        return removed
+    except Exception:
+        return removed
+    return True
+
+
 def has_key(slug: str) -> bool:
     """Return ``True`` if a key exists in the OS keychain for this slug."""
     return retrieve_key(slug) is not None
@@ -72,8 +87,8 @@ def has_key(slug: str) -> bool:
 def set_volatile(slug: str, api_key: str) -> None:
     """Store a key in volatile memory only (not persisted).
 
-    Used by ``/api key`` when keychain storage is unavailable or when
-    the user explicitly wants a session-scoped key.
+    Used when keychain storage is unavailable or when the user explicitly
+    wants a session-scoped key.
     """
     _volatile[slug] = api_key
     _keychain_cache.pop(slug, None)

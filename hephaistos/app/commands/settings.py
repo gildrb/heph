@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from hephaistos.app.commands._base import Command, CommandResult, ensure_session
-from hephaistos.app.commands.auth import ApiCommand, LoginCommand, LogoutCommand
+from hephaistos.app.commands.auth import LoginCommand, LogoutCommand
 from hephaistos.app.commands.memory import MemoryCommand
-from hephaistos.app.commands.model import ModelsCommand, ProviderCommand
+from hephaistos.app.commands.model import ModelsCommand
 from hephaistos.app.display import STYLE_DIM, print_error, print_info, print_success, styled
 from hephaistos.app.menu import MenuOption, browse_directory, select_option
 from hephaistos.app.palette import THEME_PRESETS, current_theme_name, set_theme
@@ -64,8 +64,8 @@ class SettingsCommand(Command):
                     "Local memory and Supermemory setup",
                 ),
                 MenuOption(
-                    "Provider & credentials",
-                    "Reuse /provider, /api, /login, and /logout flows",
+                    "Accounts & credentials",
+                    "Connect or clear subscription/API-key access",
                 ),
                 MenuOption("Back", "Return to the chat prompt."),
             ]
@@ -214,24 +214,17 @@ class SettingsCommand(Command):
             active = ProviderConfig.load().get_active()
             provider_label = active.display_name if active else "none"
             options = [
-                MenuOption("Provider status", f"Current: {provider_label}"),
-                MenuOption("API key status", "Reuse the /api command"),
-                MenuOption("Login OAuth", "Reuse the /login flow"),
-                MenuOption("Logout OAuth", "Reuse the /logout flow"),
+                MenuOption("Current access", f"Model source: {provider_label}"),
+                MenuOption("Login", "Connect a subscription or API key"),
+                MenuOption("Logout", "Clear stored subscription or API-key access"),
                 MenuOption("Back", "Return to settings."),
             ]
-            selected = select_option("Provider & Credentials", options)
+            selected = select_option("Accounts & Credentials", options)
             if selected is None or selected == len(options) - 1:
                 return
             if selected == 0:
-                ProviderCommand().handle(session, "")
-                print_info("Use /provider use <slug> to switch providers directly.")
+                ModelsCommand().handle(session, "")
             elif selected == 1:
-                ApiCommand().handle(session, "")
-                print_info(
-                    "Use /api key <key> or /api url <url> to change credentials or endpoint."
-                )
-            elif selected == 2:
                 LoginCommand().handle(session, "")
-            elif selected == 3:
+            elif selected == 2:
                 LogoutCommand().handle(session, "")

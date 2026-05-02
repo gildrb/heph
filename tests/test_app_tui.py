@@ -295,7 +295,7 @@ def test_command_help_is_command_first() -> None:
     help_text = tui._command_help()  # type: ignore[reportPrivateUsage]
 
     assert "/help" in help_text
-    assert "/provider" in help_text
+    assert "/models" in help_text
     assert "/sources" in help_text
     assert "/status" in help_text
 

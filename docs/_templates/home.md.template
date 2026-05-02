@@ -80,9 +80,8 @@ opens the interactive shell. From a source checkout, use `uv run heph`.
 Inside the shell:
 
 ```text
-/provider
+/login
 /models
-/api key <your-key>
 ```
 
 You can also use environment variables such as `OPENROUTER_API_KEY`,
@@ -99,8 +98,7 @@ Use `/settings` for cross-session preferences such as:
 - default startup armory fallback
 - default model selection
 
-Credential flows stay on their existing commands: `/provider`, `/api`,
-`/login`, and `/logout`.
+Credential flows live in `/login` and `/logout`; model selection lives in `/models`.
 
 [[TELEMETRY_CONTRACT]]
 
@@ -190,9 +188,9 @@ The default provider config includes:
 - Z.AI
 - Custom OpenAI-compatible endpoint
 
-Switch inside the shell with `/provider` and `/models`, or set
-`HEPHAISTOS_BASE_URL` and `HEPHAISTOS_MODEL` for your own endpoint. The armory
-stays the same when the model changes.
+Connect access inside the shell with `/login`, then switch models with `/models`.
+You can also set `HEPHAISTOS_BASE_URL` and `HEPHAISTOS_MODEL` for your own endpoint.
+The armory stays the same when the model changes.
 
 ## Common Commands
 

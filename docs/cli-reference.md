@@ -36,12 +36,11 @@ new docs.
 |---|---|
 | /help | Show available commands |
 | /exit | Leave the shell |
-| /login | Authenticate via OAuth |
-| /logout | Clear stored OAuth credentials |
+| /login | Authenticate with a subscription or API key |
+| /logout | Clear stored subscription or API-key credentials |
 | /status | Show armory, session, and model info |
 | /new | Start a new chat |
 | /armory | Browse, open, or create armories |
-| /api | Manage API key (keychain) or base URL |
 | /compact | Summarize conversation to reduce context size |
 | /history | List or resume saved study chats |
 | /evidence | Show retrieved evidence for the last turn |
@@ -52,7 +51,6 @@ new docs.
 | /import | Import files into the armory materials directory |
 | /remind | Show upcoming study reminders and due cards |
 | /edit | Edit and resend the last user message |
-| /provider | Show or switch LLM provider and model |
 | /models | Pick the active model |
 | /recommend | Recommend models for study sessions |
 | /memory | Manage study memory and Supermemory setup |

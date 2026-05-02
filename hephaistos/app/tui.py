@@ -358,7 +358,7 @@ def _info_panel_message_text(
 
 def _config_error(session: ChatSession) -> str | None:
     if not session.config.base_url:
-        return "No provider configured. Use /provider to select one."
+        return "No model source configured. Use /login, then /models."
     if not session.config.model:
         return "No model configured. Use /models to select one."
     if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):

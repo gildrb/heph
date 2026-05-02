@@ -1,4 +1,4 @@
-"""Authentication commands: api, login, logout."""
+"""Authentication commands: login and logout."""
 
 from __future__ import annotations
 
@@ -6,101 +6,40 @@ import os
 
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.commands._base import Command, CommandResult, ensure_session
-from hephaistos.app.display import STYLE_DIM, print_error, print_info, print_success, styled
+from hephaistos.app.display import print_error, print_info, print_success
 from hephaistos.app.menu import MenuOption, confirm, select_option
+from hephaistos.app.provider_access import activate_provider
 from hephaistos.providers import keyring_store, oauth
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.providers.keyring_store import mask_key, resolve_key, set_volatile, store_key
-from hephaistos.runtime import is_keyless_endpoint
-
-
-class ApiCommand(Command):
-    name = "api"
-    description = "Manage API key (keychain) or base URL"
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        s = ensure_session(session)
-        parts = args.strip().split(maxsplit=1)
-
-        if not parts:
-            pc = ProviderConfig.load()
-            active = pc.get_active()
-            slug = active.slug if active else ""
-            env_var = active.api_key_env if active else ""
-
-            if is_keyless_endpoint(s.config.base_url):
-                key = ""
-                key_display = styled("not required (free provider)", STYLE_DIM)
-            else:
-                key = resolve_key(slug, env_var) if slug else ""
-                key_display = mask_key(key) if key else styled("not set", STYLE_DIM)
-
-            source = ""
-            if key:
-                if keyring_store.retrieve_key(slug):
-                    source = "keychain"
-                elif env_var and os.environ.get(env_var, "").strip():
-                    source = f"env ({env_var})"
-                elif keyring_store.get_volatile(slug):
-                    source = "volatile (session-only)"
-                else:
-                    source = "unknown"
-
-            lines = [
-                f"  Base URL:  {s.config.base_url}",
-                f"  API Key:   {key_display}",
-            ]
-            if source:
-                lines.append(f"  Source:    {source}")
-            print("\n".join(lines))
-            return CommandResult()
-
-        subcmd = parts[0].lower()
-        value = parts[1] if len(parts) > 1 else ""
-
-        if subcmd in ("key", "set-key", "apikey"):
-            if not value:
-                print_error("Usage: /api key <your-api-key>")
-                return CommandResult()
-
-            raw_key = value.strip()
-            pc = ProviderConfig.load()
-            active = pc.get_active()
-            slug = active.slug if active else "custom"
-            try:
-                store_key(slug, raw_key)
-                print_success(f"API key saved to keychain for '{slug}'.")
-            except Exception:
-                set_volatile(slug, raw_key)
-                print_success("API key set for this session only (keychain unavailable).")
-            return CommandResult()
-
-        if subcmd in ("url", "base-url", "baseurl"):
-            if not value:
-                print_error("Usage: /api url <base-url>")
-                return CommandResult()
-            s.config.base_url = value.strip().rstrip("/")
-            print_success(f"Base URL: {s.config.base_url}")
-            return CommandResult()
-
-        print_error(f"Unknown subcommand: {subcmd}")
-        print_info("Usage: /api key <key> | /api url <url>")
-        return CommandResult()
+from hephaistos.providers.keyring_store import clear_key, get_volatile, set_volatile, store_key
+from hephaistos.terminal import direct_input
 
 
 class LoginCommand(Command):
     name = "login"
-    description = "Authenticate via OAuth"
+    description = "Authenticate with a subscription or API key"
 
     def handle(self, session: object, args: str) -> CommandResult:
         options = [
             MenuOption("OpenAI Codex", "ChatGPT Plus/Pro subscription"),
+            MenuOption("OpenRouter API key", "Unlock OpenRouter models"),
+            MenuOption("Z.AI API key", "Unlock GLM models"),
+            MenuOption("Custom endpoint", "OpenAI-compatible base URL, model, and API key"),
         ]
 
         selected = select_option("Login to provider", options)
         if selected is None:
             return CommandResult()
+        if selected == 0:
+            return self._login_openai_codex(session)
+        if selected == 1:
+            return self._login_api_key(session, "openrouter")
+        if selected == 2:
+            return self._login_api_key(session, "zai")
+        return self._login_custom_endpoint(session)
 
+    @staticmethod
+    def _login_openai_codex(session: object) -> CommandResult:
         try:
             creds = oauth.login_openai_codex()
         except RuntimeError as exc:
@@ -111,15 +50,9 @@ class LoginCommand(Command):
             return CommandResult()
 
         set_volatile("openai-codex", creds.access_token)
-
         s = ensure_session(session)
         pc = ProviderConfig.load()
-        pc.set_active("openai-codex")
-        p = pc.providers["openai-codex"]
-        if not p.current_model and p.models:
-            p.current_model = p.models[0]
-        pc.apply_to_config(s.config)
-        pc.save()
+        p = activate_provider(pc, s, "openai-codex")
         print_success(
             f"Logged in to OpenAI Codex (account: {creds.account_id or 'unknown'}) "
             f"— switched to {p.resolved_model}"
@@ -127,40 +60,151 @@ class LoginCommand(Command):
         capture_analytics("oauth_login", {"provider": "openai-codex", "model": p.resolved_model})
         return CommandResult()
 
+    @staticmethod
+    def _login_custom_endpoint(session: object) -> CommandResult:
+        s = ensure_session(session)
+        pc = ProviderConfig.load()
+        provider = pc.providers["custom"]
+        try:
+            endpoint = direct_input("  OpenAI-compatible base URL > ").strip().rstrip("/")
+            model = direct_input("  Model name > ").strip()
+            raw_key = direct_input("  API key > ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print_info("Cancelled.")
+            return CommandResult()
+        if not endpoint:
+            print_error("Base URL is required.")
+            return CommandResult()
+        if not model:
+            print_error("Model name is required.")
+            return CommandResult()
+        if not raw_key:
+            print_error("API key is required.")
+            return CommandResult()
+
+        provider.endpoint = endpoint
+        provider.models = [model]
+        provider.current_model = model
+        try:
+            store_key("custom", raw_key)
+            storage = "keychain"
+        except Exception:
+            set_volatile("custom", raw_key)
+            storage = "this session only (keychain unavailable)"
+
+        p = activate_provider(pc, s, "custom")
+        print_success(
+            f"Custom endpoint saved to {storage}; switched to {p.display_name} / {model}"
+        )
+        capture_analytics("api_key_login", {"provider": "custom", "model": model})
+        return CommandResult()
+
+    @staticmethod
+    def _login_api_key(session: object, slug: str) -> CommandResult:
+        s = ensure_session(session)
+        pc = ProviderConfig.load()
+        provider = pc.providers[slug]
+        try:
+            raw_key = direct_input(f"  {provider.display_name} API key > ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print_info("Cancelled.")
+            return CommandResult()
+        if not raw_key:
+            print_error("API key is required.")
+            return CommandResult()
+
+        try:
+            store_key(slug, raw_key)
+            storage = "keychain"
+        except Exception:
+            set_volatile(slug, raw_key)
+            storage = "this session only (keychain unavailable)"
+
+        p = activate_provider(pc, s, slug)
+        print_success(
+            f"API key saved to {storage}; switched to {p.display_name} / {p.resolved_model}"
+        )
+        capture_analytics("api_key_login", {"provider": slug, "model": p.resolved_model})
+        return CommandResult()
+
+
+def _logout_targets() -> list[tuple[str, str, str]]:
+    pc = ProviderConfig.load()
+    targets: list[tuple[str, str, str]] = []
+    oauth_providers = set(oauth.list_providers())
+    for slug in sorted(oauth_providers):
+        display = pc.providers[slug].display_name if slug in pc.providers else slug
+        targets.append((slug, "oauth", f"{display} subscription"))
+
+    for slug, provider in pc.providers.items():
+        has_keychain_key = keyring_store.retrieve_key(slug) is not None
+        has_volatile_key = get_volatile(slug) is not None
+        if not has_keychain_key and not has_volatile_key:
+            continue
+        source = "keychain" if has_keychain_key else "session-only key"
+        targets.append((slug, "api_key", f"{provider.display_name} API key ({source})"))
+    return targets
+
+
+def _env_only_targets() -> list[str]:
+    pc = ProviderConfig.load()
+    targets: list[str] = []
+    for slug, provider in pc.providers.items():
+        if keyring_store.retrieve_key(slug) is not None or get_volatile(slug) is not None:
+            continue
+        if provider.api_key_env and os.environ.get(provider.api_key_env, "").strip():
+            targets.append(slug)
+    return targets
+
+
+def _clear_logout_target(slug: str, kind: str) -> None:
+    if kind == "oauth":
+        oauth.clear_credentials(slug)
+        return
+    clear_key(slug)
+
 
 class LogoutCommand(Command):
     name = "logout"
-    description = "Clear stored OAuth credentials"
+    description = "Clear stored subscription or API-key credentials"
 
     def handle(self, session: object, args: str) -> CommandResult:
-        providers = oauth.list_providers()
-        if not providers:
-            print_info("No OAuth sessions found.")
+        credentials = _logout_targets()
+        env_locked = _env_only_targets()
+        if not credentials:
+            if env_locked:
+                print_info(
+                    "No stored credentials found. Environment-provided keys must be unset "
+                    "outside Hephaistos."
+                )
+            else:
+                print_info("No stored credentials found.")
             return CommandResult()
 
-        if len(providers) == 1:
-            slug = providers[0]
+        if len(credentials) == 1:
+            slug, kind, _description = credentials[0]
             if confirm(f"Log out of {slug}?", default=True):
-                oauth.clear_credentials(slug)
+                _clear_logout_target(slug, kind)
                 print_success(f"Logged out of {slug}.")
+                capture_analytics("logout", {"provider": slug, "kind": kind})
             else:
                 print_info("Cancelled.")
             return CommandResult()
 
-        options = [MenuOption(p, "") for p in providers]
-        options.append(MenuOption("All", "Log out of every provider"))
+        options = [MenuOption(slug, description) for slug, _kind, description in credentials]
+        options.append(MenuOption("All", "Clear every stored subscription and API key"))
         selected = select_option("Log out of", options)
         if selected is None:
             return CommandResult()
 
         if selected == len(options) - 1:
-            for p in providers:
-                oauth.clear_credentials(p)
-            print_success("Logged out of all providers.")
-            capture_analytics("oauth_logout", {"provider": "all"})
+            for slug, kind, _description in credentials:
+                _clear_logout_target(slug, kind)
+            print_success("Logged out of all stored providers.")
+            capture_analytics("logout", {"provider": "all", "kind": "all"})
         else:
-            slug = providers[selected]
-            oauth.clear_credentials(slug)
+            slug, kind, _description = credentials[selected]
+            _clear_logout_target(slug, kind)
             print_success(f"Logged out of {slug}.")
-            capture_analytics("oauth_logout", {"provider": slug})
+            capture_analytics("logout", {"provider": slug, "kind": kind})
         return CommandResult()
