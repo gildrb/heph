@@ -99,8 +99,6 @@ def get_registry() -> CommandRegistry:
             StatusCommand,
             NewCommand,
             ArmoryCommand,
-            SessionsCommand,
-            ResumeCommand,
             ApiCommand,
             CompactCommand,
             HistoryCommand,

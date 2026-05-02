@@ -41,11 +41,9 @@ new docs.
 | /status | Show armory, session, and model info |
 | /new | Start a new chat |
 | /armory | Browse, open, or create armories |
-| /sessions | Switch between saved sessions |
-| /resume [id-prefix] | Resume the latest saved chat, or pass an ID prefix |
 | /api | Manage API key (keychain) or base URL |
 | /compact | Summarize conversation to reduce context size |
-| /history | Show conversation turn count and token estimate |
+| /history | List or resume saved study chats |
 | /evidence | Show retrieved evidence for the last turn |
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |

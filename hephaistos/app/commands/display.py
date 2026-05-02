@@ -13,6 +13,7 @@ from hephaistos.app.commands._base import (
     pct,
 )
 from hephaistos.app.display import print_error, print_info, print_success
+from hephaistos.app.workspace import list_saved_chats, resume_saved_chat
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import ChatSession
 from hephaistos.chat.usage import load_usage_summaries
@@ -23,16 +24,34 @@ from hephaistos.vocab.state import load_schedule, save_schedule
 
 class HistoryCommand(Command):
     name = "history"
-    description = "Show conversation turn count and token estimate"
+    description = "List or resume saved study chats"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
-        user_msgs = [m for m in s.conversation.messages if m.role == "user"]
-        asst_msgs = [m for m in s.conversation.messages if m.role == "assistant"]
-        tool_msgs = [m for m in s.conversation.messages if m.role == "tool"]
-        total_chars = sum(len(m.content) for m in s.conversation.messages)
+        subcmd = args.strip()
+        normalized = subcmd.lower()
+        if normalized in ("stats", "current"):
+            self._print_current_chat_stats(s)
+            return CommandResult()
+        if s.armory_path is None:
+            print_info("Attach an armory to view saved chat history.")
+            return CommandResult()
+        if normalized in ("", "list", "recent"):
+            list_saved_chats(s)
+            return CommandResult()
+        if normalized in ("browse", "menu"):
+            return CommandResult(new_session=resume_saved_chat(s, "browse"))
+        if normalized in ("resume", "last", "latest"):
+            return CommandResult(new_session=resume_saved_chat(s, "latest"))
+        return CommandResult(new_session=resume_saved_chat(s, subcmd))
+
+    def _print_current_chat_stats(self, session: ChatSession) -> None:
+        user_msgs = [m for m in session.conversation.messages if m.role == "user"]
+        asst_msgs = [m for m in session.conversation.messages if m.role == "assistant"]
+        tool_msgs = [m for m in session.conversation.messages if m.role == "tool"]
+        total_chars = sum(len(m.content) for m in session.conversation.messages)
         est_tokens = total_chars // 4
-        usage_summary = s.usage.summary()
+        usage_summary = session.usage.summary()
         lines = [
             f"  Turns:     {len(user_msgs)}",
             f"  User:      {len(user_msgs)} messages",
@@ -40,13 +59,13 @@ class HistoryCommand(Command):
         ]
         if tool_msgs:
             lines.append(f"  Tool:      {len(tool_msgs)} results")
-        mem_count = len(s.memory.entries) if s.memory else 0
+        mem_count = len(session.memory.entries) if session.memory else 0
         lines.extend(
             [
                 f"  Memory:    {mem_count} concepts learned",
                 f"  Chars:     {total_chars}",
                 f"  ~Tokens:   ~{est_tokens}",
-                f"  Max tokens: {s.config.max_tokens}",
+                f"  Max tokens: {session.config.max_tokens}",
                 "",
                 f"  API calls: {usage_summary['api_calls']}",
                 f"  Tokens:    {usage_summary['total_tokens']}",
@@ -54,7 +73,6 @@ class HistoryCommand(Command):
             ]
         )
         print("\n".join(lines))
-        return CommandResult()
 
 
 class EvidenceCommand(Command):

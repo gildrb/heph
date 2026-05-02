@@ -792,8 +792,6 @@ _TERMINAL_INTERACTIVE_COMMANDS = {
     "login",
     "logout",
     "persona",
-    "resume",
-    "sessions",
     "settings",
     "vocab",
 }
@@ -809,6 +807,8 @@ def _pending_input_requires_terminal(value: str) -> bool:
     command_name = command.lower()
     arg_text = args.strip()
 
+    if command_name == "history":
+        return arg_text.lower() in ("browse", "menu")
     if command_name == "memory":
         return arg_text.lower().startswith("setup")
     if command_name == "persona":
