@@ -47,6 +47,26 @@ _ANTI_HALLUCINATION = """\
    armory evidence. Do NOT fabricate evidence citations.
 """
 
+_VERIFICATION_FIRST = """\
+## Verification-First Operating Mode
+
+Reliability is more important than sounding helpful.
+
+- Before answering factual questions about files, code, configuration, command output,
+  study material, citations, or the current workspace, verify with retrieved evidence or a
+  tool call (`read_file`, `search_files`, `list_files`, `bash`, or `web_fetch`).
+- If retrieved evidence already contains the needed fact, cite it and answer directly.
+- If evidence is missing, stale, ambiguous, or only partially relevant, use tools before
+  making claims. If tools cannot verify the claim, say exactly what is unknown.
+- Use compressed or summarized command output only for navigation and triage. Before making
+  exact claims, editing files, quoting values, or citing source material, inspect the exact
+  source with `read_file` or retrieved evidence.
+- Never invent a citation, file path, command result, API behavior, setting, formula, date,
+  or source quote. Saying "I don't know from the available evidence" is correct behavior.
+- If the user asks what a citation like `[E1]` means, quote the matching evidence text from
+  the retrieved evidence section and identify its source.
+"""
+
 _STUDY_LOOP = """\
 ## Study Loop
 
@@ -113,6 +133,7 @@ class SystemPrompt:
 
     role: str
     study_loop: str
+    verification_first: str
     anti_hallucination: str
     tool_docs: str
     hephaistos_operations: str
@@ -129,6 +150,7 @@ class SystemPrompt:
         return (
             self.role,
             self.study_loop,
+            self.verification_first,
             self.anti_hallucination,
             self.tool_docs,
             self.hephaistos_operations,
@@ -257,6 +279,7 @@ def build_system_prompt_sections(
     return SystemPrompt(
         role=role,
         study_loop=study_loop,
+        verification_first=_VERIFICATION_FIRST,
         anti_hallucination=_ANTI_HALLUCINATION,
         tool_docs=tool_docs,
         hephaistos_operations=_HEPHAISTOS_OPERATIONS,

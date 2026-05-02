@@ -98,10 +98,10 @@ class TestRunBash:
         assert run.call_args.args == ("echo hello",)
         assert run.call_args.kwargs["shell"] is True
 
-    def test_rtk_enabled_rewrites_simple_command(self):
+    def test_rtk_default_rewrites_simple_command_when_available(self):
         completed = MagicMock(stdout="compact\n", stderr="", returncode=0)
         with (
-            patch.dict("os.environ", {"HEPHAISTOS_RTK": "1"}, clear=False),
+            patch.dict("os.environ", {}, clear=True),
             patch("hephaistos.agent.tools.shutil.which", return_value="/usr/local/bin/rtk"),
             patch("hephaistos.agent.tools.subprocess.run", return_value=completed) as run,
         ):

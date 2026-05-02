@@ -391,8 +391,17 @@ class BashResult:
 
 
 def _rtk_enabled() -> bool:
-    """Return whether model-generated bash calls should go through RTK."""
-    return os.environ.get("HEPHAISTOS_RTK", "").strip().lower() in _RTK_TRUTHY
+    """Return whether model-generated bash calls should go through RTK.
+
+    RTK is reliability-safe only as a best-effort filter for simple command
+    output: missing RTK falls back to the original command, and commands with
+    shell metacharacters are never rewritten.  Enable that safe path by default
+    when available; allow operators to opt out with ``HEPHAISTOS_RTK=0``.
+    """
+    raw = os.environ.get("HEPHAISTOS_RTK")
+    if raw is None:
+        return True
+    return raw.strip().lower() in _RTK_TRUTHY
 
 
 def _rtk_ultra_compact() -> bool:

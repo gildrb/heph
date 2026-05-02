@@ -12,6 +12,7 @@ def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
     assert prompt.startswith("Hephaistos. A study drill engine.")
     assert "## Study Loop" in prompt
     assert "## Accuracy Rules" in prompt
+    assert "## Verification-First Operating Mode" in prompt
     assert "## Tools" in prompt
     assert "## Hephaistos Operations" in prompt
     assert "## Format" in prompt
@@ -82,6 +83,13 @@ def test_build_system_prompt_without_armory_uses_persona_study_loop_and_date() -
     assert "## Study Loop" in prompt
     assert "Current date: " in prompt
     assert "Armory workspace:" not in prompt
+
+
+def test_build_system_prompt_instructs_citation_inspection(armory: Path) -> None:
+    prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
+
+    assert "If the user asks what a citation like `[E1]` means" in prompt
+    assert "quote the matching evidence text" in prompt
 
 
 def test_build_system_prompt_sections_render_matches_string_builder(armory: Path) -> None:

@@ -166,8 +166,21 @@ class TestListFiles:
 
 
 class TestToolSchemas:
-    def test_schema_count(self) -> None:
-        assert len(TOOL_SCHEMAS) == 8
+    def test_schema_names_match_registered_tools(self) -> None:
+        names = {schema["function"]["name"] for schema in TOOL_SCHEMAS}
+
+        assert names == {
+            "bash",
+            "compact",
+            "create_armory",
+            "edit_file",
+            "list_files",
+            "read_file",
+            "search_files",
+            "validate_armory",
+            "web_fetch",
+            "write_file",
+        }
 
     def test_all_have_function_type(self) -> None:
         for schema in TOOL_SCHEMAS:
@@ -387,6 +400,30 @@ class TestIterAgentEvents:
         assert isinstance(complete, TurnCompleteEvent)
         assert complete.full_text == "hello"
         assert complete.finish_reason == "stop"
+
+    def test_first_turn_without_evidence_requires_tool_choice(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        seen_tool_choice: list[object | None] = []
+
+        def fake_stream(*_args: object, **kwargs: object):
+            seen_tool_choice.append(kwargs.get("tool_choice"))
+            yield CompletionDelta(content="hello")
+            yield CompletionDelta(finish_reason="stop")
+
+        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+
+        list(
+            dispatch_mod.iter_agent_events(
+                ChatConfig(base_url="https://example.invalid", model="test-model"),
+                Conversation(),
+                workspace,
+            )
+        )
+
+        assert seen_tool_choice == ["required"]
 
     def test_compact_tool_emits_control_event(
         self,

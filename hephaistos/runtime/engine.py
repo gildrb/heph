@@ -433,6 +433,7 @@ def stream_completion(
     abort: threading.Event | None = None,
     retry: RetryConfig | None = None,
     client_factory: Callable[[ChatConfig], OpenAI] | None = None,
+    tool_choice: object | None = None,
 ) -> Iterator[CompletionDelta]:
     """Stream raw completion deltas with shared retry/recovery handling."""
     span = _tracer.start_span("llm.completion")
@@ -476,6 +477,8 @@ def stream_completion(
         }
         if tools:
             request_kwargs["tools"] = list(tools)
+            if tool_choice is not None:
+                request_kwargs["tool_choice"] = tool_choice
 
         try:
             with timer:

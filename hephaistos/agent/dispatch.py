@@ -279,6 +279,7 @@ def iter_agent_events(
 
         with turn_timer:
             schemas = registry.schemas if tool_schemas is None else tool_schemas
+            require_verification_tool = turn_idx == 0 and bool(schemas) and not bool(turn_evidence)
             for delta in stream_completion(
                 config,
                 llm_messages,
@@ -286,6 +287,7 @@ def iter_agent_events(
                 abort=abort,
                 retry=retry,
                 client_factory=build_client,
+                tool_choice="required" if require_verification_tool else None,
             ):
                 if delta.content:
                     collected_parts.append(delta.content)
