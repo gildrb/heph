@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 import hephaistos.app.cli as app_cli
+import hephaistos.cli.main as cli_main
 from hephaistos.agent.dispatch import iter_agent_events
 from hephaistos.app.cli import build_parser, run_argv
 from hephaistos.app.tui import TuiDependencyError
@@ -191,6 +192,21 @@ def test_tui_flag_alias_help(
     assert "usage: heph tui" in capsys.readouterr().out
 
 
+def test_chat_ask_dispatches_without_tui(monkeypatch: pytest.MonkeyPatch) -> None:
+    parser = build_parser()
+    captured: tuple[str, list[str]] | None = None
+
+    def fake_ask(args: object) -> None:
+        nonlocal captured
+        captured = (args.path, args.prompt)  # type: ignore[attr-defined]
+
+    monkeypatch.setattr("hephaistos.chat.cli._cmd_chat_ask", fake_ask)
+
+    run_argv(parser, ["chat", "ask", "notes", "what", "is", "rag?"])
+
+    assert captured == ("notes", ["what", "is", "rag?"])
+
+
 def test_tui_command_reports_missing_dependency(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -326,7 +342,7 @@ def test_main_with_path_and_profile_flag(tmp_path: Path, monkeypatch: pytest.Mon
     def _noop_report(_prof: object) -> None:
         pass
 
-    monkeypatch.setattr(app_cli, "_report_profile", _noop_report)
+    monkeypatch.setattr(cli_main, "_report_profile", _noop_report)
 
     with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
         app_cli.main()

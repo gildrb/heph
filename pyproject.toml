@@ -54,8 +54,8 @@ fuzzy = [
 ]
 
 [project.scripts]
-hephaistos = "hephaistos.app.cli:main"
-heph = "hephaistos.app.cli:main"
+hephaistos = "hephaistos.cli.main:main"
+heph = "hephaistos.cli.main:main"
 
 [build-system]
 requires = ["uv_build>=0.10.1,<0.11.0"]

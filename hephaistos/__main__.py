@@ -1,4 +1,4 @@
-from hephaistos.app.cli import main
+from hephaistos.cli.main import main
 
 if __name__ == "__main__":
     main()

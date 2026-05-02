@@ -14,6 +14,7 @@ from hephaistos.chat.session import (
     create_session,
     list_armory_sessions,
     resume_session,
+    send_user_message,
     validate_armory_path,
 )
 from hephaistos.parameters.cli import load_config
@@ -57,6 +58,16 @@ def _cmd_chat_resume(args: argparse.Namespace, *, run_tui: Callable[..., None]) 
     run_tui(session)
 
 
+def _cmd_chat_ask(args: argparse.Namespace) -> None:
+    """Run one non-interactive chat turn against an armory."""
+    session = resolve_armory_session(args.path)
+    prompt = " ".join(args.prompt).strip()
+    if not prompt:
+        print("error: prompt is required", file=sys.stderr)
+        raise SystemExit(2)
+    send_user_message(session, prompt)
+
+
 def _cmd_chat_list(args: argparse.Namespace) -> None:
     """List all chat sessions in the armory."""
     try:
@@ -94,6 +105,11 @@ def register(
     )
     start.add_argument("path", help="Path to the armory folder.")
     start.set_defaults(handler=lambda a: _cmd_chat_start(a, run_tui=run_tui))  # type: ignore[arg-type]
+
+    ask = chat_sub.add_parser("ask", help="Ask one question without opening the TUI.")
+    ask.add_argument("path", help="Path to the armory folder.")
+    ask.add_argument("prompt", nargs="+", help="Question or instruction to send.")
+    ask.set_defaults(handler=_cmd_chat_ask)
 
     resume = chat_sub.add_parser(
         "resume",
