@@ -95,7 +95,6 @@ def get_registry() -> CommandRegistry:
         for cmd_class in (
             HelpCommand,
             ExitCommand,
-            QuitCommand,
             LoginCommand,
             LogoutCommand,
             StatusCommand,

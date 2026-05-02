@@ -19,6 +19,29 @@ from hephaistos.providers.config import default_config
 from hephaistos.providers.registry import ModelInfo
 
 
+def test_command_registry_has_unique_names_and_aliases() -> None:
+    registry = commands.get_registry()
+    names = [cmd.name for cmd in registry.commands]
+    aliases = [alias for cmd in registry.commands for alias in cmd.aliases]
+    command_tokens = names + aliases
+
+    assert all(name for name in names)
+    assert len(names) == len(set(names))
+    assert len(command_tokens) == len(set(command_tokens))
+    assert not any(alias.startswith("/") for alias in aliases)
+
+
+def test_command_registry_suggestions_include_only_visible_commands() -> None:
+    registry = commands.get_registry()
+    suggested_names = {suggestion.name for suggestion in registry.suggestions()}
+    visible_names = {cmd.name for cmd in registry.commands if not cmd.hidden}
+    hidden_names = {cmd.name for cmd in registry.commands if cmd.hidden}
+
+    assert suggested_names == visible_names
+    assert suggested_names.isdisjoint(hidden_names)
+    assert all(suggestion.description for suggestion in registry.suggestions())
+
+
 def test_command_registry_includes_login_logout() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()

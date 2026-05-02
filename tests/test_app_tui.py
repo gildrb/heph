@@ -339,6 +339,56 @@ def test_run_tui_reports_missing_textual(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "-m pip install -e ." in message
 
 
+@pytest.mark.parametrize(
+    ("pending_input", "expected_output"),
+    [
+        ("/help", "Commands"),
+        ("/status", "Model:"),
+        ("!echo shell-ok", "shell-ok"),
+    ],
+)
+def test_run_tui_appends_pending_command_output_to_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+    pending_input: str,
+    expected_output: str,
+) -> None:
+    captured_state: tui._TuiRuntimeState | None = None  # type: ignore[reportPrivateUsage]
+    run_count = 0
+
+    class FakeTui:
+        def __init__(
+            self,
+            _session: ChatSession,
+            state: tui._TuiRuntimeState,  # type: ignore[reportPrivateUsage]
+            _palette: tui.ThemePalette,
+        ) -> None:
+            nonlocal captured_state
+            captured_state = state
+
+        def run(self) -> None:
+            nonlocal run_count
+            run_count += 1
+            assert captured_state is not None
+            if run_count == 1:
+                captured_state.pending_input = pending_input
+
+    def fake_save_on_exit(_session: ChatSession) -> None:
+        return
+
+    def fake_load_history(_cls: type[tui.InputHistory], _path: Path) -> tui.InputHistory:
+        return tui.InputHistory()
+
+    monkeypatch.setattr(tui, "HephaistosTui", FakeTui)
+    monkeypatch.setattr(tui, "save_on_exit", fake_save_on_exit)
+    monkeypatch.setattr(tui.InputHistory, "load", classmethod(fake_load_history))
+
+    tui.run_tui(_plain_session())
+
+    assert captured_state is not None
+    assert run_count == 2
+    assert any(expected_output in entry.content for entry in captured_state.transcript)
+
+
 def test_run_tui_for_path_resolves_armory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -432,6 +482,53 @@ def test_is_armory_command_matches_inline_forms() -> None:
 
     assert not tui._is_armory_command("/model")  # type: ignore[reportPrivateUsage]
     assert not tui._is_armory_command("hello")  # type: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize(
+    ("value", "route"),
+    [
+        ("", tui._TuiInputRoute.EMPTY),  # type: ignore[reportPrivateUsage]
+        ("   ", tui._TuiInputRoute.EMPTY),  # type: ignore[reportPrivateUsage]
+        ("hello", tui._TuiInputRoute.CHAT),  # type: ignore[reportPrivateUsage]
+        ("/models", tui._TuiInputRoute.MODELS),  # type: ignore[reportPrivateUsage]
+        ("/models openai", tui._TuiInputRoute.MODELS),  # type: ignore[reportPrivateUsage]
+        ("/sources", tui._TuiInputRoute.SOURCES),  # type: ignore[reportPrivateUsage]
+        ("/sources notes", tui._TuiInputRoute.SOURCES),  # type: ignore[reportPrivateUsage]
+        ("/new", tui._TuiInputRoute.NEW),  # type: ignore[reportPrivateUsage]
+        ("/armory", tui._TuiInputRoute.ARMORY),  # type: ignore[reportPrivateUsage]
+        ("/armory open", tui._TuiInputRoute.ARMORY),  # type: ignore[reportPrivateUsage]
+        ("/help", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
+        ("!echo hi", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
+    ],
+)
+def test_tui_input_route_classifies_submissions(
+    value: str,
+    route: tui._TuiInputRoute,  # type: ignore[reportPrivateUsage]
+) -> None:
+    assert tui._tui_input_route(value) == route  # type: ignore[reportPrivateUsage]
+
+
+def test_pending_terminal_commands_are_registered() -> None:
+    registered = {cmd.name for cmd in tui.get_registry().commands}
+
+    assert registered >= tui._TERMINAL_INTERACTIVE_COMMANDS  # type: ignore[reportPrivateUsage]
+
+
+def test_tui_input_route_covers_visible_command_suggestions() -> None:
+    routes = {
+        f"/{suggestion.name}": tui._tui_input_route(f"/{suggestion.name}")  # type: ignore[reportPrivateUsage]
+        for suggestion in tui._tui_command_suggestions()  # type: ignore[reportPrivateUsage]
+    }
+
+    assert routes["/models"] is tui._TuiInputRoute.MODELS  # type: ignore[reportPrivateUsage]
+    assert routes["/sources"] is tui._TuiInputRoute.SOURCES  # type: ignore[reportPrivateUsage]
+    assert routes["/new"] is tui._TuiInputRoute.NEW  # type: ignore[reportPrivateUsage]
+    assert routes["/armory"] is tui._TuiInputRoute.ARMORY  # type: ignore[reportPrivateUsage]
+    assert all(
+        route is tui._TuiInputRoute.EXTERNAL  # type: ignore[reportPrivateUsage]
+        for command, route in routes.items()
+        if command not in {"/models", "/sources", "/new", "/armory"}
+    )
 
 
 def test_armory_command_mode_validates_supported_subcommands() -> None:
@@ -597,6 +694,82 @@ def test_armory_input_executes_without_user_transcript(
             assert any("opened armory browser" in entry.content for entry in app.state.transcript)
 
     asyncio.run(check_inline_command())
+
+
+@pytest.mark.parametrize(
+    "command_input",
+    [
+        *(f"/{suggestion.name}" for suggestion in tui._tui_command_suggestions()),  # type: ignore[reportPrivateUsage]
+        "!echo shell",
+    ],
+)
+def test_command_input_executes_without_user_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+    command_input: str,
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_command_input() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(app, "exit", lambda: None)
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = command_input
+            await pilot.press("enter")
+            await pilot.pause()
+            assert not any("You:" in entry.content for entry in app.state.transcript)
+            if command_input == "/armory":
+                assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+            elif command_input == "/new":
+                assert any("New chat started" in entry.content for entry in app.state.transcript)
+            elif command_input.startswith(("/models", "/sources", "/help", "/status", "!")):
+                assert app.state.pending_input is None
+                assert app.state.transcript
+            elif tui._pending_input_requires_terminal(command_input):  # type: ignore[reportPrivateUsage]
+                assert app.state.pending_input == command_input
+            else:
+                assert app.state.pending_input is None
+
+    asyncio.run(check_command_input())
+
+
+def test_help_executes_inline_without_restarting_tui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    exit_calls = 0
+
+    def fake_exit() -> None:
+        nonlocal exit_calls
+        exit_calls += 1
+
+    async def check_inline_help() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(app, "exit", fake_exit)
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "/help"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert exit_calls == 0
+            assert app.state.pending_input is None
+            assert any("Commands" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_inline_help())
 
 
 def test_armory_inline_composer_filters_without_chat_transcript(tmp_path: Path) -> None:
@@ -797,6 +970,29 @@ def test_armory_footer_restores_after_exit(tmp_path: Path) -> None:
             assert "enter send" in str(hints.render())  # type: ignore[reportUnknownMemberType]
 
     asyncio.run(check_footer_restore())
+
+
+def test_armory_inline_app_focus_recovers_composer_control(tmp_path: Path) -> None:
+    if tui.Input is None or tui.events is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    app._armory_current = tmp_path  # type: ignore[reportPrivateUsage]
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_app_focus() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            app.set_focus(None)  # type: ignore[reportUnknownMemberType]
+            app.on_app_focus(tui.events.AppFocus())  # type: ignore[reportPrivateUsage]
+            assert app.focused is composer  # type: ignore[reportUnknownMemberType]
+
+    asyncio.run(check_app_focus())
 
 
 def test_armory_inline_click_keeps_composer_as_control(tmp_path: Path) -> None:

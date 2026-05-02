@@ -15,6 +15,7 @@ import threading
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
+from enum import Enum
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
@@ -787,12 +788,14 @@ class _TuiCaptureWriter(StringIO):
 
 
 _TERMINAL_INTERACTIVE_COMMANDS = {
+    "chats",
     "clear",
     "edit",
     "login",
     "logout",
     "persona",
     "resume",
+    "sessions",
     "settings",
     "vocab",
 }
@@ -827,6 +830,34 @@ def _is_armory_command(value: str) -> bool:
     """Return True when *value* is a /armory command handled inline by the TUI."""
     stripped = value.strip().lower()
     return stripped == "/armory" or stripped.startswith("/armory ")
+
+
+class _TuiInputRoute(Enum):
+    EMPTY = "empty"
+    MODELS = "models"
+    SOURCES = "sources"
+    NEW = "new"
+    ARMORY = "armory"
+    EXTERNAL = "external"
+    CHAT = "chat"
+
+
+def _tui_input_route(value: str) -> _TuiInputRoute:
+    """Classify submitted TUI input before dispatching side effects."""
+    stripped = value.strip()
+    if not stripped:
+        return _TuiInputRoute.EMPTY
+    if _is_models_input(stripped):
+        return _TuiInputRoute.MODELS
+    if stripped == "/sources" or stripped.startswith("/sources "):
+        return _TuiInputRoute.SOURCES
+    if stripped == "/new":
+        return _TuiInputRoute.NEW
+    if _is_armory_command(stripped):
+        return _TuiInputRoute.ARMORY
+    if stripped.startswith(("/", "!")):
+        return _TuiInputRoute.EXTERNAL
+    return _TuiInputRoute.CHAT
 
 
 def _armory_command_mode(value: str) -> str | None:
@@ -1079,40 +1110,37 @@ class HephaistosTui(App[None]):
                 self._armory_open_highlighted()
                 self._refresh_armory_inline()
             return
-        if value == "/models" or value.startswith("/models "):
+        route = _tui_input_route(value)
+        if route is _TuiInputRoute.MODELS:
             self._record_history(value)
-            self._append_user(value, mark_working=False)
             self._handle_models(value)
             composer.value = ""
             self._hide_completions()
             return
         composer.value = ""
         self._hide_completions()
-        if not value:
+        if route is _TuiInputRoute.EMPTY:
             return
         if self.busy:
             self.session.steering.enqueue(value)
             self._record_history(value)
             self._append_notice(f"Steering queued: {value}")
             return
-        if value == "/sources" or value.startswith("/sources "):
+        if route is _TuiInputRoute.SOURCES:
             self._record_history(value)
-            self._append_user(value, mark_working=False)
             self._handle_sources(value)
             return
-        if value == "/new":
+        if route is _TuiInputRoute.NEW:
             self._record_history(value)
             self._handle_new()
             return
-        if _is_armory_command(value):
+        if route is _TuiInputRoute.ARMORY:
             self._record_history(value)
             self._handle_armory_browser(value)
             return
-        if value.startswith(("/", "!")):
+        if route is _TuiInputRoute.EXTERNAL:
             self._record_history(value)
-            self._append_user(value, mark_working=False)
-            self.state.pending_input = value
-            self.exit()
+            self._handle_external_input(value)
             return
         config_error = _config_error(self.session)
         if config_error is not None:
@@ -1219,6 +1247,32 @@ class HephaistosTui(App[None]):
             self._refresh_status("ready")
             self._focused_msg_index = None
             self._update_info_panel()
+
+    def _handle_external_input(self, value: str) -> None:
+        if value.startswith("!"):
+            output = _run_shell_escape_captured(value[1:].strip())
+            if output:
+                self._append_entry(output, "ansi")
+            return
+        if _pending_input_requires_terminal(value):
+            self.state.pending_input = value
+            self.exit()
+            return
+
+        history = InputHistory(self.state.history)
+        stdout = _TuiCaptureWriter()
+        stderr = _TuiCaptureWriter()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            new_session, should_continue = handle_input(self.session, value, history)
+        self.session = new_session
+        self.state.history = history.entries
+        output = _command_output_text(stdout, stderr)
+        if output:
+            self._append_entry(output, "ansi")
+        self._refresh_status("ready")
+        self._update_info_panel()
+        if not should_continue:
+            self.exit()
 
     def _open_search(self) -> None:
         """Open the cross-armory search screen."""

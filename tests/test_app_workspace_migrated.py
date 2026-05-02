@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hephaistos.app import commands
+from hephaistos.app.commands import CommandResult
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.workspace import (
     _create_startup_session,  # type: ignore[reportPrivateUsage]
@@ -191,6 +193,87 @@ class TestHandleInput:
         history = InputHistory()
         _new_session, should_continue = _handle_input(session, "/exit", history)
         assert should_continue is False
+
+    @pytest.mark.parametrize(
+        "command_name",
+        [cmd.name for cmd in commands.get_registry().commands],
+    )
+    def test_registered_command_input_invokes_handler(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        command_name: str,
+    ) -> None:
+        session = self._make_session()
+        history = InputHistory()
+        registry = commands.get_registry()
+        command = registry.find(command_name)
+        assert command is not None
+        calls: list[tuple[ChatSession, str]] = []
+
+        def fake_handle(active_session: ChatSession, args: str) -> CommandResult:
+            calls.append((active_session, args))
+            return CommandResult()
+
+        monkeypatch.setattr(command, "handle", fake_handle)
+
+        new_session, should_continue = _handle_input(
+            session,
+            f"/{command_name} sentinel args",
+            history,
+        )
+
+        assert should_continue is True
+        assert new_session is session
+        assert calls == [(session, "sentinel args")]
+        assert history.entries[-1] == f"/{command_name} sentinel args"
+
+    @pytest.mark.parametrize(
+        ("alias", "command_name"),
+        [(alias, cmd.name) for cmd in commands.get_registry().commands for alias in cmd.aliases],
+    )
+    def test_registered_command_alias_invokes_handler(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        alias: str,
+        command_name: str,
+    ) -> None:
+        session = self._make_session()
+        history = InputHistory()
+        command = commands.get_registry().find(command_name)
+        assert command is not None
+        calls: list[str] = []
+
+        def fake_handle(_active_session: ChatSession, args: str) -> CommandResult:
+            calls.append(args)
+            return CommandResult()
+
+        monkeypatch.setattr(command, "handle", fake_handle)
+
+        _new_session, should_continue = _handle_input(
+            session,
+            f"/{alias} alias args",
+            history,
+        )
+
+        assert should_continue is True
+        assert calls == ["alias args"]
+        assert history.entries[-1] == f"/{alias} alias args"
+
+    def test_help_command_output_is_printed_by_input_dispatch(
+        self,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        session = self._make_session()
+        history = InputHistory()
+
+        _new_session, should_continue = _handle_input(session, "/help", history)
+
+        output = capsys.readouterr().out
+        assert should_continue is True
+        assert "Commands" in output
+        assert "/help" in output
+        assert "/status" in output
+        assert history.entries[-1] == "/help"
 
 
 # ---------------------------------------------------------------------------
