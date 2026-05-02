@@ -382,6 +382,9 @@ def send_user_message(
     if orchestrator.last_reply:
         _write("\n")
     session.mark_activity()
+    if session.armory_path is not None and session.dirty and session_has_messages(session):
+        with contextlib.suppress(chat_storage.ChatStorageError):
+            save_session(session)
     return orchestrator.last_reply
 
 

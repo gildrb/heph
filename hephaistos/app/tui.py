@@ -788,8 +788,6 @@ class _TuiCaptureWriter(StringIO):
 
 
 _TERMINAL_INTERACTIVE_COMMANDS = {
-    "chats",
-    "clear",
     "edit",
     "login",
     "logout",
@@ -918,7 +916,7 @@ class HephaistosTui(App[None]):
         Binding("ctrl+a", "open_armory_home", "Armory", show=False, priority=True),
         Binding("ctrl+s", "open_search", "Search", show=False, priority=True),
         Binding("ctrl+c", "cancel_turn", "Cancel", show=False, priority=True),
-        Binding("ctrl+l", "clear_transcript", "Clear", priority=True),
+        Binding("ctrl+l", "clear_transcript", "Screen", priority=True),
         Binding("ctrl+d", "quit", "Quit", priority=True),
     ]
 
@@ -1162,7 +1160,7 @@ class HephaistosTui(App[None]):
     def action_clear_transcript(self) -> None:
         self.state.transcript.clear()
         self.query_one("#transcript", RichLog).clear()
-        self._append_notice("Transcript cleared.")
+        self._append_notice("Screen cleared.")
 
     def action_open_search(self) -> None:
         self._open_search()

@@ -39,12 +39,9 @@ new docs.
 | /login | Authenticate via OAuth |
 | /logout | Clear stored OAuth credentials |
 | /status | Show armory, session, and model info |
-| /save | Save current chat to armory |
-| /clear | Start a fresh chat session |
-| /new | Start a new chat (saves previous automatically) |
+| /new | Start a new chat |
 | /armory | Browse, open, or create armories |
-| /chats | List saved chats in the active armory |
-| /sessions | List or resume saved sessions |
+| /sessions | Switch between saved sessions |
 | /resume [id-prefix] | Resume the latest saved chat, or pass an ID prefix |
 | /api | Manage API key (keychain) or base URL |
 | /compact | Summarize conversation to reduce context size |

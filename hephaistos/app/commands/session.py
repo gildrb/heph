@@ -1,4 +1,4 @@
-"""Session management commands: status, save, clear, new, chats, sessions, resume, edit."""
+"""Session management commands: status, new, sessions, resume, edit."""
 
 from __future__ import annotations
 
@@ -137,7 +137,7 @@ class ClearCommand(Command):
 
 class NewCommand(Command):
     name = "new"
-    description = "Start a new chat (saves previous automatically)"
+    description = "Start a new chat"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -196,7 +196,7 @@ class ChatsCommand(Command):
 
 class SessionsCommand(Command):
     name = "sessions"
-    description = "List or resume saved sessions"
+    description = "Switch between saved sessions"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)

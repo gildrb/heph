@@ -107,15 +107,15 @@ def test_recommend_command_lists_study_models(capsys: pytest.CaptureFixture[str]
     assert "study" in out
 
 
-def test_command_registry_includes_saved_chat_shortcuts() -> None:
+def test_command_registry_includes_session_switching_commands() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()
     names = {suggestion.name for suggestion in suggestions}
 
-    assert registry.find("chats") is not None
+    assert registry.find("chats") is None
     assert registry.find("sessions") is not None
     assert registry.find("resume") is not None
-    assert "chats" in names
+    assert "chats" not in names
     assert "sessions" in names
     assert "resume" in names
 

@@ -42,7 +42,6 @@ from hephaistos.app.commands.model import (
 from hephaistos.app.commands.persona import PersonaCommand
 from hephaistos.app.commands.session import (
     ArmoryCommand,
-    ChatsCommand,
     ClearCommand,
     EditCommand,
     NewCommand,
@@ -98,11 +97,8 @@ def get_registry() -> CommandRegistry:
             LoginCommand,
             LogoutCommand,
             StatusCommand,
-            SaveCommand,
-            ClearCommand,
             NewCommand,
             ArmoryCommand,
-            ChatsCommand,
             SessionsCommand,
             ResumeCommand,
             ApiCommand,
@@ -139,7 +135,6 @@ __all__ = [
     # Command classes (for direct import)
     "ApiCommand",
     "ArmoryCommand",
-    "ChatsCommand",
     "ClearCommand",
     "Command",
     "CommandRegistry",
