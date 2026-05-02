@@ -78,8 +78,7 @@ class StatusCommand(Command):
             f"  Cost:      ${usage_summary['cost_usd']:.4f}",
             f"  Dirty:     {'yes' if s.dirty else 'no'}",
         ]
-        print("\n".join(lines))
-        return CommandResult()
+        return CommandResult(output="\n".join(lines))
 
 
 class SaveCommand(Command):
@@ -91,10 +90,8 @@ class SaveCommand(Command):
         try:
             path = save_session(s)
         except chat_storage.ChatStorageError as exc:
-            print_error(str(exc))
-            return CommandResult()
-        print_success(f"Saved to {path}")
-        return CommandResult()
+            return CommandResult(output=f"error: {exc}")
+        return CommandResult(output=f"Saved to {path}")
 
 
 class ClearCommand(Command):

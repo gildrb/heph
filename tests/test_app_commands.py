@@ -402,10 +402,10 @@ def test_status_command_reports_model(
 ) -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
 
-    commands.StatusCommand().handle(session, "")
+    result = commands.StatusCommand().handle(session, "")
 
-    out = capsys.readouterr().out
-    assert "Model:" in out
+    assert result.output is not None
+    assert "Model:" in result.output
 
 
 def test_history_command_no_armory(
@@ -442,9 +442,9 @@ def test_save_command_plain_session(
         lambda _s: Path("/fake/saved.json"),  # type: ignore[reportUnknownLambdaType]
     )
 
-    commands.SaveCommand().handle(session, "")
-    out = capsys.readouterr().out
-    assert "Saved" in out
+    result = commands.SaveCommand().handle(session, "")
+    assert result.output is not None
+    assert "Saved" in result.output
 
 
 def test_compact_command_empty_session(

@@ -12,7 +12,7 @@ from hephaistos.app.cli import build_parser, run_argv
 from hephaistos.app.tui import TuiDependencyError
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
-from hephaistos.chat.events import TurnCompleteEvent
+from hephaistos.chat.events import AssistantDeltaEvent, TurnCompleteEvent
 from hephaistos.chat.session import create_session
 from hephaistos.rag.index import load_or_build
 
@@ -33,7 +33,7 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "armory" in help_text
     assert "start           " not in help_text
     assert "shell           " not in help_text
-    assert "chat" not in help_text
+    assert "chat" in help_text
     assert "source" in help_text
     assert "tui" in help_text
     assert "parameters" not in help_text
@@ -189,6 +189,39 @@ def test_tui_flag_alias_help(
 
     assert exc_info.value.code == 0
     assert "usage: heph tui" in capsys.readouterr().out
+
+
+def test_chat_ask_dispatches_without_tui_import(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+    armory_path = tmp_path / "integration-armory"
+    initialize(armory_path)
+    source_dir = armory_path / "materials"
+    (source_dir / "basics.md").write_text("Python stores values in variables.\n", encoding="utf-8")
+    prompts: list[str] = []
+
+    def fake_events(session: object, prompt: str) -> list[AssistantDeltaEvent | TurnCompleteEvent]:
+        prompts.append(prompt)
+        return [
+            AssistantDeltaEvent("answer"),
+            TurnCompleteEvent(
+                "answer",
+                turn_index=1,
+                latency_ms=1.0,
+                finish_reason="stop",
+                tokens_remaining=1,
+            ),
+        ]
+
+    monkeypatch.setattr("hephaistos.chat.cli.iter_chat_events", fake_events)
+
+    run_argv(parser, ["chat", "ask", str(armory_path), "what", "is", "Python?"])
+
+    assert prompts == ["what is Python?"]
+    assert "answer" in capsys.readouterr().out
 
 
 def test_tui_command_reports_missing_dependency(

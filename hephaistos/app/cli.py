@@ -3,10 +3,6 @@ from __future__ import annotations
 import argparse
 import importlib
 import sys
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
 _HELP_OPTIONS_HEADER = "Options:"
@@ -214,50 +210,16 @@ def build_parser() -> argparse.ArgumentParser:
     materials_cli.register(subparsers, index_handler=_cmd_materials_index)
     materials_cli.register_source_alias(subparsers, index_handler=_cmd_materials_index)
 
-    # Chat subcommands are hidden.  We register stub handlers here that
-    # lazily import the real implementation (and the heavy openai /
-    # sentence_transformers chain) only when `heph chat …` is invoked.
-    chat = subparsers.add_parser(
-        "chat",
-        help=argparse.SUPPRESS,
-        description="Chat with an LLM.",
-    )
-    chat_sub = chat.add_subparsers(dest="chat_command", required=True)
+    def _run_chat_tui(session: object) -> None:
+        tui_mod = importlib.import_module("hephaistos.app.tui")
+        tui_mod.run_tui(session)
 
-    def _chat_handler(
-        chat_cmd: str,
-    ) -> Callable[[argparse.Namespace], None]:
-        """Return a stub handler that lazily loads chat.cli and dispatches."""
-
-        def _handler(args: argparse.Namespace) -> None:
-            chat_cli = importlib.import_module("hephaistos.chat.cli")
-            tui_mod = importlib.import_module("hephaistos.app.tui")
-            if chat_cmd == "start":
-                chat_cli._cmd_chat_start(args, run_tui=tui_mod.run_tui)
-            elif chat_cmd == "resume":
-                chat_cli._cmd_chat_resume(args, run_tui=tui_mod.run_tui)
-            elif chat_cmd == "list":
-                chat_cli._cmd_chat_list(args)
-
-        return _handler
-
-    start = chat_sub.add_parser("start", help="Start a new chat session in an armory.")
-    start.add_argument("path", help="Path to the armory folder.")
-    start.set_defaults(handler=_chat_handler("start"))
-
-    resume = chat_sub.add_parser("resume", help="Resume an existing chat session.")
-    resume.add_argument("path", help="Path to the armory folder.")
-    resume.add_argument("session_id", help="Session ID to resume.")
-    resume.set_defaults(handler=_chat_handler("resume"))
-
-    list_cmd = chat_sub.add_parser("list", help="List chat sessions in an armory.")
-    list_cmd.add_argument("path", help="Path to the armory folder.")
-    list_cmd.set_defaults(handler=_chat_handler("list"))
+    chat_cli = importlib.import_module("hephaistos.chat.cli")
+    chat_cli.register(subparsers, run_tui=_run_chat_tui)
 
     register_config_commands = importlib.import_module("hephaistos.parameters.cli").register
     register_config_commands(subparsers)
     _hide_subparser(subparsers, "start")
-    _hide_subparser(subparsers, "chat")
 
     return parser
 

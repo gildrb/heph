@@ -214,17 +214,18 @@ stays the same when the model changes.
 ## Common Commands
 
 ```text
-heph                          Launch the TUI in plain-chat mode or attach the current armory.
-heph <path>                   Launch the TUI attached to a specific armory path.
-heph armory init <path>       Create a new armory folder.
-heph armory open <path>       Open and validate an armory.
-heph materials list <path>    List study material files.
-heph materials count <path>   Count study material files.
-heph materials index <path>   Build or refresh the RAG index.
-heph chat resume <path> <id>  Resume an existing chat session.
-heph chat list <path>         List chat sessions in an armory.
-heph start [path]             Hidden backwards-compatible alias for `heph [path]`.
-heph tui [path]               Explicit alias for the default Textual TUI.
+heph                           Launch the TUI in plain-chat mode or attach the current armory.
+heph <path>                    Launch the TUI attached to a specific armory path.
+heph armory init <path>        Create a new armory folder.
+heph armory open <path>        Open and validate an armory.
+heph materials list <path>     List study material files.
+heph materials count <path>    Count study material files.
+heph materials index <path>    Build or refresh the RAG index.
+heph chat resume <path> <id>   Resume an existing chat session.
+heph chat ask <path> [prompt]  Run one non-interactive chat turn.
+heph chat list <path>          List chat sessions in an armory.
+heph start [path]              Hidden backwards-compatible alias for `heph [path]`.
+heph tui [path]                Explicit alias for the default Textual TUI.
 ```
 
 Useful shell commands:

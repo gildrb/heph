@@ -58,8 +58,10 @@ from hephaistos.app.workspace import (
 )
 from hephaistos.armory.storage import ArmoryError, initialize
 from hephaistos.armory.storage import validate as _validate_armory
+from hephaistos.chat.automation import iter_chat_events
 from hephaistos.chat.cli import resolve_armory_session
-from hephaistos.chat.session import ChatSession, send_user_message
+from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, ToolCallEvent, ToolResultEvent
+from hephaistos.chat.session import ChatSession
 from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.parameters.cli import load_config
 from hephaistos.runtime import (
@@ -1572,18 +1574,16 @@ class HephaistosTui(App[None]):
 
     def _run_turn(self, user_input: str) -> None:
         parts: list[str] = []
-
-        def writer(text: str) -> None:
-            if text:
-                parts.append(text)
-
         try:
-            send_user_message(
-                self.session,
-                user_input,
-                abort=self.abort_event,
-                writer=writer,
-            )
+            for event in iter_chat_events(self.session, user_input, abort=self.abort_event):
+                if isinstance(event, AssistantDeltaEvent):
+                    parts.append(event.delta)
+                elif isinstance(event, ToolCallEvent):
+                    self.call_from_thread(self._append_notice, event.display)
+                elif isinstance(event, ToolResultEvent):
+                    self.call_from_thread(self._append_notice, event.summary)
+                elif isinstance(event, NoticeEvent):
+                    self.call_from_thread(self._append_notice, event.message)
             reply = "".join(parts).strip()
             if reply:
                 self.call_from_thread(self._append_assistant_reply, reply)

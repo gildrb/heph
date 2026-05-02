@@ -250,6 +250,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(f"{short_command} config set <key> <value>", config_help["set"]),
         CommandLine(f"{short_command} chat start <path>", chat_help["start"]),
         CommandLine(f"{short_command} chat resume <path> <id>", chat_help["resume"]),
+        CommandLine(f"{short_command} chat ask <path> [prompt]", chat_help["ask"]),
         CommandLine(f"{short_command} chat list <path>", chat_help["list"]),
         CommandLine(
             f"{short_command} start [path]",
@@ -288,6 +289,7 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
         f"{short_command} materials count <path>",
         f"{short_command} materials index <path>",
         f"{short_command} chat resume <path> <id>",
+        f"{short_command} chat ask <path> [prompt]",
         f"{short_command} chat list <path>",
         f"{short_command} start [path]",
         f"{short_command} tui [path]",

@@ -2,23 +2,17 @@
 
 from __future__ import annotations
 
-import importlib
-import subprocess  # nosec B404
-import threading
 from collections.abc import Sequence
 from pathlib import Path
 
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app.display import (
-    STYLE_ASSISTANT,
-    STYLE_DIM,
-    STYLE_ERROR,
     direct_input,
     print_error,
     print_info,
     print_success,
-    styled,
 )
+from hephaistos.app.input_dispatch import dispatch_input, run_shell_command
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.menu import MenuOption, browse_directory, select_option
 from hephaistos.app.search_index import add_known_armory
@@ -32,21 +26,11 @@ from hephaistos.chat.session import (
     list_armory_sessions,
     resume_session,
     save_session,
-    send_user_message,
     session_has_messages,
     validate_armory_path,
 )
 from hephaistos.fuzzy import ranked_matches
-from hephaistos.observability import capture_exception
-from hephaistos.runtime import (
-    ChatConfig,
-    EngineError,
-    StreamRecoveryError,
-    is_keyless_endpoint,
-    is_network_error,
-    missing_api_key_message,
-    offline_message,
-)
+from hephaistos.runtime import ChatConfig
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 
@@ -309,85 +293,8 @@ def _discover_startup_armory() -> Path | None:
 
 
 def _run_shell_command(cmd: str) -> None:
-    """Execute a shell command and display output.
-
-    **Security note**: This is the user-initiated ``!`` shell escape.
-    Commands run with the full privileges of the current user.  The
-    ``!`` prefix makes this intentional and user-controlled.
-    """
-    print(styled(f"$ {cmd}", STYLE_DIM))
-    try:
-        subprocess.run(cmd, shell=True, capture_output=False, text=True, check=False)  # nosec B602
-    except Exception as exc:
-        print_error(str(exc))
-
-
-def _preflight_config_check(session: ChatSession) -> str | None:
-    """Return an error message if the session config is unusable, else None."""
-    if not session.config.base_url:
-        return "No provider configured. Use /provider use <slug> to select one."
-    if not session.config.model:
-        return "No model configured. Use /models to select one."
-    if not is_keyless_endpoint(session.config.base_url) and not session.config.resolved_api_key:
-        return missing_api_key_message(session.config)
-    return None
-
-
-def _report_engine_error(
-    exc: EngineError | StreamRecoveryError,
-    session: ChatSession,
-) -> None:
-    """Display an engine error and capture local diagnostic context."""
-    provider = session.config.provider_slug or "the provider"
-
-    if isinstance(exc, StreamRecoveryError):
-        if is_network_error(exc):
-            print(offline_message(provider))
-        else:
-            msg = (
-                f"{styled('warning:', STYLE_ERROR)} "
-                f"Stream interrupted — connection lost after partial reply."
-            )
-            if exc.partial_content:
-                msg += f" ({len(exc.partial_content)} chars received)"
-            print(msg)
-        capture_exception(
-            exc,
-            context={
-                "provider": provider,
-                "model": session.config.model,
-                "partial_content_length": len(exc.partial_content),
-            },
-        )
-        capture_analytics(
-            "request_failed",
-            {
-                "provider": provider,
-                "model": session.config.model,
-                "kind": "stream_recovery",
-                "partial_content_length": len(exc.partial_content),
-            },
-        )
-    else:
-        if is_network_error(exc):
-            print(offline_message(provider))
-        else:
-            print_error(str(exc))
-        capture_exception(
-            exc,
-            context={
-                "provider": provider,
-                "model": session.config.model,
-            },
-        )
-        capture_analytics(
-            "request_failed",
-            {
-                "provider": provider,
-                "model": session.config.model,
-                "kind": "engine_error",
-            },
-        )
+    """Backward-compatible wrapper for tests and older callers."""
+    run_shell_command(cmd)
 
 
 def _handle_input(  # pyright: ignore[reportUnusedFunction]
@@ -396,79 +303,15 @@ def _handle_input(  # pyright: ignore[reportUnusedFunction]
     history: InputHistory,
     streaming: bool = False,
 ) -> tuple[ChatSession, bool]:
-    """Process a single input. Returns (session, should_continue).
-
-    If *streaming* is True, the agent is currently running. The input is
-    enqueued as a steering message instead of being processed normally.
-    """
-    if not user_input or not user_input.strip():
-        return session, True
-    if streaming:
-        session.steering.enqueue(user_input)
-        return session, True
-    if user_input.startswith("!"):
-        cmd = user_input[1:].strip()
-        if cmd:
-            history.add(user_input)
-            _run_shell_command(cmd)
-        return session, True
-    if user_input.startswith("/"):
-        history.add(user_input)
-        stripped = user_input.strip()
-        if stripped == "/":
-            registry = importlib.import_module("hephaistos.app.commands").get_registry()
-            cmd = registry.find("help")
-            if cmd:
-                cmd.handle(session, "")
-            return session, True
-        space_idx = stripped.find(" ")
-        if space_idx == -1:
-            cmd_name = stripped[1:].lower()
-            cmd_args = ""
-        else:
-            cmd_name = stripped[1:space_idx].lower()
-            cmd_args = stripped[space_idx + 1 :].strip()
-
-        registry = importlib.import_module("hephaistos.app.commands").get_registry()
-        cmd = registry.find(cmd_name)
-        if cmd is None:
-            print_error(f"Unknown command: {stripped}")
-            print_info("Type /help for available commands.")
-            return session, True
-
-        result = cmd.handle(session, cmd_args)
-
-        if result.should_exit:
-            return session, False
-
-        if result.new_session is not None:
-            session = result.new_session
-        if result.output and result.output.startswith("__RESEND__:"):
-            new_input = result.output[len("__RESEND__:") :]
-            history.add(new_input)
-            config_error = _preflight_config_check(session)
-            if config_error:
-                print_error(config_error)
-                return session, True
-            abort = threading.Event()
-            reply_prefix = f"\r{styled('Hephaistos:', STYLE_ASSISTANT)} "
-            try:
-                send_user_message(session, new_input, abort=abort, reply_prefix=reply_prefix)
-            except (StreamRecoveryError, EngineError) as exc:
-                _report_engine_error(exc, session)
-        return session, True
-    history.add(user_input)
-    config_error = _preflight_config_check(session)
-    if config_error:
-        print_error(config_error)
-        return session, True
-    abort = threading.Event()
-    reply_prefix = f"\r{styled('Hephaistos:', STYLE_ASSISTANT)} "
-    try:
-        send_user_message(session, user_input, abort=abort, reply_prefix=reply_prefix)
-    except (StreamRecoveryError, EngineError) as exc:
-        _report_engine_error(exc, session)
-    return session, True
+    """Process a single input. Returns (session, should_continue)."""
+    result = dispatch_input(
+        session,
+        user_input,
+        history,
+        streaming=streaming,
+        shell_runner=_run_shell_command,
+    )
+    return result.session, result.should_continue
 
 
 def _get_history_path(session: ChatSession) -> Path:  # pyright: ignore[reportUnusedFunction]

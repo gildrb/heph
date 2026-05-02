@@ -1665,7 +1665,7 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
                 "login",
                 "logout",
                 "status",
-                "save",
+                "new",
             ]
 
             expected = (

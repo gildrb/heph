@@ -18,6 +18,7 @@
 | `heph config set <key> <value>` | Set a configuration parameter. |
 | `heph chat start <path>` | Start a new chat session in an armory. |
 | `heph chat resume <path> <id>` | Resume an existing chat session. |
+| `heph chat ask <path> [prompt]` | Run one non-interactive chat turn. |
 | `heph chat list <path>` | List chat sessions in an armory. |
 | `heph start [path]` | Hidden backwards-compatible alias for `heph [path]`. |
 | `heph tui [path]` | Explicit alias for the default Textual TUI. |
