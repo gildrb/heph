@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import io
 from pathlib import Path
 from unittest.mock import patch
@@ -16,8 +15,6 @@ from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.events import TurnCompleteEvent
 from hephaistos.chat.session import create_session
 from hephaistos.rag.index import load_or_build
-
-cli_main = importlib.import_module("hephaistos.cli.main")
 
 
 class _FakeTTY(io.StringIO):
@@ -344,7 +341,7 @@ def test_main_with_path_and_profile_flag(tmp_path: Path, monkeypatch: pytest.Mon
     def _noop_report(_prof: object) -> None:
         pass
 
-    monkeypatch.setattr(cli_main, "_report_profile", _noop_report)
+    monkeypatch.setitem(app_cli.main.__globals__, "_report_profile", _noop_report)
 
     with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
         app_cli.main()

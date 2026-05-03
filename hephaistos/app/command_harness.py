@@ -7,9 +7,10 @@ unknown commands remains with the caller.
 
 from __future__ import annotations
 
-import importlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
+
+from hephaistos.app.commands import get_registry
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -62,7 +63,7 @@ def parse_slash_command(value: str) -> SlashCommandInvocation:
 def dispatch_slash_command(session: object, value: str) -> SlashCommandDispatch:
     """Execute one slash command against the global command registry."""
     invocation = parse_slash_command(value)
-    registry = importlib.import_module("hephaistos.app.commands").get_registry()
+    registry = get_registry()
     cmd = registry.find(invocation.name)
     if cmd is None:
         return SlashCommandDispatch(False, None, invocation)

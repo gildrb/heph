@@ -59,7 +59,7 @@ def configured_model_choices(
     for slug, provider in pc.providers.items():
         if slug == "custom" and not provider.models:
             continue
-        if not provider_is_accessible(provider):
+        if not provider_is_accessible(provider) and not provider.active:
             continue
         for model in provider.models:
             info = registry.get(model)

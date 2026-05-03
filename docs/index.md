@@ -220,7 +220,7 @@ heph materials list <path>     List study material files.
 heph materials count <path>    Count study material files.
 heph materials index <path>    Build or refresh the RAG index.
 heph chat resume <path> <id>   Resume an existing chat session.
-heph chat ask <path> [prompt]  Run one non-interactive chat turn.
+heph chat ask <path> [prompt]  Ask one question without opening the TUI.
 heph chat list <path>          List chat sessions in an armory.
 heph start [path]              Hidden backwards-compatible alias for `heph [path]`.
 heph tui [path]                Explicit alias for the default Textual TUI.

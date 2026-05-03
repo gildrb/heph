@@ -1,4 +1,5 @@
 """Armory and session workspace actions shared by commands and TUI."""
+# pylint: disable=duplicate-code
 
 from __future__ import annotations
 
@@ -443,6 +444,8 @@ def _handle_input(  # pyright: ignore[reportUnusedFunction]
 
         if result.new_session is not None:
             session = result.new_session
+        if result.output and not result.output.startswith("__RESEND__:"):
+            print(result.output)
         if result.output and result.output.startswith("__RESEND__:"):
             new_input = result.output[len("__RESEND__:") :]
             history.add(new_input)
