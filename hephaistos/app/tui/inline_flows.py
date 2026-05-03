@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hephaistos.app.provider_access import activate_provider
-from hephaistos.app.tui_flow_state import InlineFlow
+from hephaistos.app.tui.flow_state import InlineFlow
 from hephaistos.providers import oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import (

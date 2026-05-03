@@ -14,23 +14,16 @@ import sys
 import threading
 import time
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import dataclass, field
-from enum import Enum
-from io import StringIO
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from hephaistos import __version__
 from hephaistos.analytics import capture as capture_analytics
-from hephaistos.app import tui_armory as _tui_armory
 from hephaistos.app import workspace as _workspace
 from hephaistos.app.armory_browser import _DirEntry
-from hephaistos.app.autocomplete import (
-    CommandSuggestion,
-    CompletionCandidate,
-    SlashCompletionEngine,
-)
-from hephaistos.app.commands import NewCommand, get_registry
+from hephaistos.app.autocomplete import CompletionCandidate, SlashCompletionEngine
+from hephaistos.app.commands import NewCommand
+from hephaistos.app.commands import get_registry as _get_registry
 from hephaistos.app.input_history import InputHistory
 from hephaistos.app.materials_view import material_listing
 from hephaistos.app.model_picker import configured_model_choices, switch_model
@@ -43,30 +36,42 @@ from hephaistos.app.transparent import (
     make_transparent_cls,
     nonfocus_rich_log_class,
 )
-from hephaistos.app.tui_armory import TuiArmoryMixin
-from hephaistos.app.tui_flow_state import InlineFlow
-from hephaistos.app.tui_inline_flows import TuiInlineFlowMixin
-from hephaistos.app.tui_style import _tui_css
-from hephaistos.app.tui_transcript import TuiTranscriptMixin
+from hephaistos.app.tui import armory as _tui_armory
+from hephaistos.app.tui.armory import TuiArmoryMixin
+from hephaistos.app.tui.dependencies import TuiDependencyError, tui_dependency_message
+from hephaistos.app.tui.flow_state import InlineFlow
+from hephaistos.app.tui.inline_flows import TuiInlineFlowMixin
+from hephaistos.app.tui.routing import (
+    TERMINAL_INTERACTIVE_COMMANDS,
+    TuiInputRoute,
+    is_armory_command,
+    is_models_input,
+    pending_input_requires_terminal,
+    tui_input_route,
+)
+from hephaistos.app.tui.session_state import TuiCaptureWriter, TuiRuntimeState, TuiTranscriptEntry
+from hephaistos.app.tui.shell import command_output_text, run_shell_escape_captured
+from hephaistos.app.tui.slash_command import (
+    command_help,
+    slash_suggestion,
+    tui_command_suggestions,
+)
+from hephaistos.app.tui.status import config_error, status_lines
+from hephaistos.app.tui.streaming import run_tui_turn
+from hephaistos.app.tui.style import _tui_css
+from hephaistos.app.tui.transcript import TuiTranscriptMixin
 from hephaistos.app.workspace import (
     create_startup_session,
     get_history_path,
     handle_input,
     save_on_exit,
 )
-from hephaistos.chat.automation import iter_chat_events
 from hephaistos.chat.cli import resolve_armory_session
-from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, ToolCallEvent, ToolResultEvent
 from hephaistos.chat.session import ChatSession
 from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.parameters.cli import load_config
 from hephaistos.runtime import (
-    EngineError,
-    StreamRecoveryError,
     is_keyless_endpoint,
-    is_network_error,
-    missing_api_key_message,
-    offline_message,
 )
 
 try:
@@ -106,53 +111,16 @@ if TYPE_CHECKING:
 
 
 start_fresh_session = _workspace.start_fresh_session
-
-
-class TuiDependencyError(RuntimeError):
-    """Raised when the optional Textual dependency group is missing."""
+get_registry = _get_registry
 
 
 _TRANSCRIPT_ENTRY_GAP = ""
 
 
-def _tui_dependency_message() -> str:
-    return (
-        "Textual UI dependencies are not available in this Python environment.\n"
-        f"Current Python: {sys.executable}\n"
-        "From a source checkout, sync dependencies from the repository root:\n"
-        "  uv sync --frozen\n"
-        "For an installed or editable `heph` entrypoint, reinstall Hephaistos "
-        "into that same Python environment from the repository root:\n"
-        f"  {sys.executable} -m pip install -e ."
-    )
+_tui_dependency_message = tui_dependency_message
 
 
-def _status_lines(
-    session: ChatSession,
-    state: str = "ready",
-) -> str:
-    armory = str(session.armory_path) if session.armory_path is not None else "none"
-    model = session.config.model or "none"
-    keyless = is_keyless_endpoint(session.config.base_url)
-    key_ok = keyless or bool(session.config.resolved_api_key)
-    if keyless:
-        api = "free"
-    elif key_ok:
-        api = "configured"
-    else:
-        api = "missing"
-    mem_status = "on" if supermemory_configured() else "/memory"
-    sources = session.source_file_count or 0
-    source_str = str(sources) if sources else "none"
-    state_tag = f" [{state}]" if state != "ready" else ""
-    return (
-        f"Hephaistos v{__version__}{state_tag}"
-        f"  armory {armory}"
-        f"  model {model}"
-        f"  api {api}"
-        f"  memory {mem_status}"
-        f"  materials {source_str}"
-    )
+_status_lines = status_lines
 
 
 def _status_text(session: ChatSession, state: str = "ready") -> Text:
@@ -357,14 +325,7 @@ def _info_panel_message_text(
     return text
 
 
-def _config_error(session: ChatSession) -> str | None:
-    if not session.config.base_url:
-        return "No model source configured. Use /login, then /models."
-    if not session.config.model:
-        return "No model configured. Use /models to select one."
-    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
-        return missing_api_key_message(session.config)
-    return None
+_config_error = config_error
 
 
 _source_listing = material_listing
@@ -452,8 +413,7 @@ def _transparent_option_list_class() -> type:
     return make_transparent_cls(OptionList)
 
 
-def _slash_suggestion(engine: SlashCompletionEngine, value: str) -> str | None:
-    return engine.suggestion(value, _tui_command_suggestions())
+_slash_suggestion = slash_suggestion
 
 
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
@@ -473,161 +433,23 @@ def _completion_menu_scroll_y(
     return min(max(centered_scroll_y, 0), max_scroll_y)
 
 
-def _tui_command_suggestions() -> list[CommandSuggestion]:
-    suggestions = get_registry().suggestions()
-    suggestions.append(
-        CommandSuggestion(
-            name="sources",
-            description="List or fuzzy-filter material files",
-        )
-    )
-    return suggestions
+_tui_command_suggestions = tui_command_suggestions
+_command_help = command_help
 
 
-def _command_help() -> str:  # pyright: ignore[reportUnusedFunction]
-    suggestions = _tui_command_suggestions()
-    max_name = max(len(s.name) for s in suggestions)
-    lines: list[str] = []
-    for s in sorted(suggestions, key=lambda s: s.name):
-        padded = f"  /{s.name}".ljust(max_name + 4)
-        lines.append(f"{padded} {s.description}")
-    return "\n".join(lines)
+_TuiTranscriptEntry = TuiTranscriptEntry
+_TuiRuntimeState = TuiRuntimeState
+_TuiCaptureWriter = TuiCaptureWriter
+_TERMINAL_INTERACTIVE_COMMANDS = TERMINAL_INTERACTIVE_COMMANDS
+_pending_input_requires_terminal = pending_input_requires_terminal
+_is_models_input = is_models_input
+_is_armory_command = is_armory_command
+_tui_input_route = tui_input_route
+_TuiInputRoute = TuiInputRoute
 
 
-def _command_output_text(stdout: StringIO, stderr: StringIO) -> str:
-    parts = (stdout.getvalue().strip(), stderr.getvalue().strip())
-    return "\n".join(part for part in parts if part)
-
-
-@dataclass
-class _TuiTranscriptEntry:
-    content: str
-    kind: str = "plain"
-
-
-@dataclass
-class _TuiRuntimeState:
-    transcript: list[_TuiTranscriptEntry] = field(default_factory=list)
-    history: list[str] = field(default_factory=list)
-    history_obj: InputHistory | None = None
-    history_index: int | None = None
-    history_draft: str = ""
-    pending_input: str | None = None
-    armory_home_shown: bool = False
-
-
-class _TuiCaptureWriter(StringIO):
-    """TTY-like stream for shared shell commands while the Textual app is parked."""
-
-    encoding = "utf-8"
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.original_stdout = sys.stdout
-
-    def isatty(self) -> bool:
-        return True
-
-    def fileno(self) -> int:
-        return self.original_stdout.fileno()
-
-
-_TERMINAL_INTERACTIVE_COMMANDS = {
-    "edit",
-    "login",
-    "logout",
-    "persona",
-    "settings",
-    "vocab",
-}
-
-
-def _pending_input_requires_terminal(value: str) -> bool:
-    """Return True when a shared slash command should own the real terminal."""
-    stripped = value.strip()
-    if not stripped.startswith("/"):
-        return False
-
-    command, _, args = stripped[1:].partition(" ")
-    command_name = command.lower()
-    arg_text = args.strip()
-
-    if command_name in {"login", "logout", "settings"}:
-        return False
-    if command_name == "history":
-        return arg_text.lower() in ("browse", "menu")
-    if command_name == "memory":
-        return arg_text.lower().startswith("setup")
-    if command_name == "persona":
-        return not arg_text
-    if command_name == "vocab":
-        return arg_text.lower() != "status"
-
-    return command_name in _TERMINAL_INTERACTIVE_COMMANDS
-
-
-def _is_models_input(value: str) -> bool:
-    stripped = value.lstrip().lower()
-    return stripped == "/models" or stripped.startswith("/models ")
-
-
-def _is_armory_command(value: str) -> bool:
-    """Return True when *value* is a /armory command handled inline by the TUI."""
-    stripped = value.strip().lower()
-    return stripped == "/armory" or stripped.startswith("/armory ")
-
-
-class _TuiInputRoute(Enum):
-    EMPTY = "empty"
-    MODELS = "models"
-    SOURCES = "sources"
-    NEW = "new"
-    ARMORY = "armory"
-    EXTERNAL = "external"
-    CHAT = "chat"
-
-
-def _tui_input_route(value: str) -> _TuiInputRoute:
-    """Classify submitted TUI input before dispatching side effects."""
-    stripped = value.strip()
-    if not stripped:
-        return _TuiInputRoute.EMPTY
-    if _is_models_input(stripped):
-        return _TuiInputRoute.MODELS
-    if stripped == "/sources" or stripped.startswith("/sources "):
-        return _TuiInputRoute.SOURCES
-    if stripped == "/new":
-        return _TuiInputRoute.NEW
-    if _is_armory_command(stripped):
-        return _TuiInputRoute.ARMORY
-    if stripped.startswith(("/", "!")):
-        return _TuiInputRoute.EXTERNAL
-    return _TuiInputRoute.CHAT
-
-
-def _run_shell_escape_captured(command: str) -> str:
-    """Run a user-requested shell escape and return output for the TUI transcript."""
-    if not command:
-        return ""
-
-    parts = [f"$ {command}"]
-    try:
-        result = subprocess.run(  # nosec B602
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError as exc:
-        parts.append(f"error: {exc}")
-        return "\n".join(parts)
-
-    if result.stdout:
-        parts.append(result.stdout.rstrip("\n"))
-    if result.stderr:
-        parts.append(result.stderr.rstrip("\n"))
-    return "\n".join(parts)
+_command_output_text = command_output_text
+_run_shell_escape_captured = run_shell_escape_captured
 
 
 class SlashSuggester(Suggester):  # type: ignore[misc]
@@ -1044,28 +866,27 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self.push_screen(SearchScreen(), on_search_result)
 
     def _run_turn(self, user_input: str) -> None:
-        parts: list[str] = []
-        try:
-            for event in iter_chat_events(self.session, user_input, abort=self.abort_event):
-                if isinstance(event, AssistantDeltaEvent):
-                    parts.append(event.delta)
-                elif isinstance(event, ToolCallEvent):
-                    self.call_from_thread(self._append_notice, event.display)
-                elif isinstance(event, ToolResultEvent):
-                    self.call_from_thread(self._append_notice, event.summary)
-                elif isinstance(event, NoticeEvent):
-                    self.call_from_thread(self._append_notice, event.message)
-            reply = "".join(parts).strip()
-            if reply:
-                self.call_from_thread(self._append_assistant_reply, reply)
-        except (StreamRecoveryError, EngineError) as exc:
-            provider = self.session.config.provider_slug or "the provider"
-            if is_network_error(exc):
-                self.call_from_thread(self._append_notice, offline_message(provider))
-            else:
-                self.call_from_thread(self._append_error, str(exc))
-        finally:
+        def on_reply(reply: str) -> None:
+            self.call_from_thread(self._append_assistant_reply, reply)
+
+        def on_notice(notice: str) -> None:
+            self.call_from_thread(self._append_notice, notice)
+
+        def on_error(error: str) -> None:
+            self.call_from_thread(self._append_error, error)
+
+        def on_finish() -> None:
             self.call_from_thread(self._finish_turn)
+
+        run_tui_turn(
+            self.session,
+            user_input,
+            self.abort_event,
+            on_reply=on_reply,
+            on_notice=on_notice,
+            on_error=on_error,
+            on_finish=on_finish,
+        )
 
     def _completion_menu_visible(self) -> bool:
         suggestions = self.query_one("#suggestions", OptionList)
