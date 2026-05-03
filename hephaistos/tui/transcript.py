@@ -40,7 +40,7 @@ class TuiTranscriptMixin:
     def _append_entry(self, content: str, kind: str = "plain") -> None:
         if self.state.transcript:
             self._write_transcript_gap()
-        tui_module = sys.modules["hephaistos.app.tui"]
+        tui_module = sys.modules["hephaistos.tui"]
         entry = tui_module._TuiTranscriptEntry(content, kind)
         self.state.transcript.append(entry)
         self._write_transcript_entry(entry)
@@ -57,7 +57,7 @@ class TuiTranscriptMixin:
     def _append_assistant_reply(self, text: str) -> None:
         evidence = self.session.last_turn_evidence
         enriched = enrich_reply(text, evidence)
-        tui_module = sys.modules["hephaistos.app.tui"]
+        tui_module = sys.modules["hephaistos.tui"]
         entry = tui_module._TuiTranscriptEntry(enriched.markdown_text, "markdown")
         if self.state.transcript:
             self._write_transcript_gap()
@@ -84,20 +84,20 @@ class TuiTranscriptMixin:
 
     def _refresh_status(self, state: str = "ready") -> None:
         status = self.query_one("#status", Static)
-        tui_module = sys.modules["hephaistos.app.tui"]
+        tui_module = sys.modules["hephaistos.tui"]
         status.update(tui_module._status_text(self.session, state))
 
     def _refresh_footer_hints(self) -> None:
         hints = self.query_one("#footer-hints", Static)
         if self._armory_inline_active:
             hints.update(
-                sys.modules["hephaistos.app.tui"]._armory_footer_hints_text(
+                sys.modules["hephaistos.tui"]._armory_footer_hints_text(
                     creating=self._armory_creating,
                     filtering=bool(self._armory_filter),
                 )
             )
             return
-        tui_module = sys.modules["hephaistos.app.tui"]
+        tui_module = sys.modules["hephaistos.tui"]
         hints.update(tui_module._footer_hints_text(self.session, busy=self.busy))
 
     def _focus_message(self, direction: int) -> None:
@@ -120,7 +120,7 @@ class TuiTranscriptMixin:
             )
         entry = entries[self._focused_msg_index]
         panel = self.query_one("#info-panel", Static)
-        tui_module = sys.modules["hephaistos.app.tui"]
+        tui_module = sys.modules["hephaistos.tui"]
         panel.update(tui_module._info_panel_message_text(entry, self.session))
 
     def _update_info_panel(self) -> None:
@@ -137,10 +137,10 @@ class TuiTranscriptMixin:
             ]
             if self._focused_msg_index < len(entries):
                 panel.update(
-                    sys.modules["hephaistos.app.tui"]._info_panel_message_text(
+                    sys.modules["hephaistos.tui"]._info_panel_message_text(
                         entries[self._focused_msg_index], self.session
                     )
                 )
                 return
-        tui_module = sys.modules["hephaistos.app.tui"]
+        tui_module = sys.modules["hephaistos.tui"]
         panel.update(tui_module._info_panel_default_text(self.session))

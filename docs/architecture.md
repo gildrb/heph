@@ -15,15 +15,19 @@ not depend on product workflows.
 - **Application services**: `chat` and focused workflow modules. These compose
   core/domain packages into session lifecycle, evidence, memory workflows, and
   turn orchestration.
-- **Adapters**: `app`, `source`, CLI/TUI/shell compatibility modules. These may
-  depend broadly, but reusable decisions should be promoted into services or
-  domain packages instead of staying in adapter code.
+- **Adapters**: `cli`, `tui`, `app`, `source`, and shell compatibility modules.
+  These may depend broadly, but reusable decisions should be promoted into services
+  or domain packages instead of staying in adapter code.
 
 ## Dependency flow
 
 ```mermaid
 graph TD
-    App[app] --> Chat[chat]
+    CLI[cli] --> App[app]
+    CLI --> TUI[tui]
+    TUI --> App
+    TUI --> Chat[chat]
+    App[app] --> Chat
     App --> Agent[agent]
     App --> Providers[providers]
     App --> Runtime[runtime]
@@ -75,17 +79,20 @@ graph TD
     Chat -->|Session state| FileStore
 ```
 
-The top layer is **app** (CLI, commands, workspace). Only **app** may import from
-other packages. All other packages communicate through their public APIs and must not
-import **app**. Shared LLM request primitives live in **runtime** so chat, agent,
-memory, parameters, and providers do not import each other just to share message
-types or streaming helpers.
+The top layer is the adapter surface: **cli**, **tui**, and **app**. `cli` is the
+public command dispatcher, `tui` is the interactive Textual adapter, and `app`
+holds shared command/workspace compatibility code. Reusable packages communicate
+through their public APIs and must not import adapter packages. Shared LLM request
+primitives live in **runtime** so chat, agent, memory, parameters, and providers do
+not import each other just to share message types or streaming helpers.
 
 ## Package layout
 
 ```
 hephaistos/
-  app/          CLI, commands, workspace, display — the top layer
+  cli/          Public command dispatcher and CLI argument parsing
+  tui/          Textual interactive adapter: widgets, key handling, rendering
+  app/          Shared command/workspace compatibility adapters
   chat/         Session lifecycle, storage, turn orchestration — no app imports
   runtime/      Shared LLM messages, config, client streaming, retry helpers
   agent/        Prompt building, persona, citation, tools — no app imports
@@ -104,9 +111,9 @@ hephaistos/
 
 ## Import rules
 
-### Forbidden: non-app packages must not import app
+### Forbidden: reusable packages must not import adapters
 
-The following packages cannot import anything from `hephaistos.app`:
+The following packages cannot import anything from `hephaistos.app` or `hephaistos.tui`:
 
 - `hephaistos.chat`
 - `hephaistos.agent`
@@ -123,9 +130,9 @@ The following packages cannot import anything from `hephaistos.app`:
 - `hephaistos.logging`
 - `hephaistos.palette`
 
-### Forbidden: logging must not import app
+### Forbidden: logging must not import adapters
 
-`hephaistos.logging` must not import from `hephaistos.app`.
+`hephaistos.logging` must not import from `hephaistos.app` or `hephaistos.tui`.
 
 ### Independent: chat.session and chat.orchestrator
 

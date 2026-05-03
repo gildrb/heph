@@ -251,7 +251,7 @@ class TuiArmoryMixin:
             self.query_one("#armory-error-inline", Static).update(f"Not a valid armory: {exc}")
             return
         previous = self.session
-        tui_module = sys.modules["hephaistos.app.tui"]
+        tui_module = sys.modules["hephaistos.tui"]
         self.session = tui_module.start_fresh_session(self.session, path)
         if self.session is previous:
             self.query_one("#armory-error-inline", Static).update(f"Could not open armory: {path}")

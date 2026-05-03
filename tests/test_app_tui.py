@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from hephaistos.app import tui
+from hephaistos import tui
 from hephaistos.app.armory_browser import armory_detail, build_entries
 from hephaistos.app.search_index import KnownArmory
 from hephaistos.armory.storage import initialize

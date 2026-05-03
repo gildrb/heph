@@ -9,12 +9,12 @@ import pytest
 import hephaistos.app.cli as app_cli
 from hephaistos.agent.dispatch import iter_agent_events
 from hephaistos.app.cli import build_parser, run_argv
-from hephaistos.app.tui import TuiDependencyError
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.events import TurnCompleteEvent
 from hephaistos.chat.session import create_session
 from hephaistos.rag.index import load_or_build
+from hephaistos.tui import TuiDependencyError
 
 
 class _FakeTTY(io.StringIO):
@@ -77,7 +77,7 @@ def test_main_without_args_uses_tui(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app_cli.sys, "stdin", _FakeTTY(True))
     monkeypatch.setattr(app_cli.sys, "stdout", _FakeTTY(True))
 
-    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
         app_cli.main()
 
     assert called
@@ -95,7 +95,7 @@ def test_main_without_args_uses_tui_on_non_tty(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(app_cli.sys, "stdin", _FakeTTY(False))
     monkeypatch.setattr(app_cli.sys, "stdout", _FakeTTY(False))
 
-    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
         app_cli.main()
 
     assert called
@@ -110,7 +110,7 @@ def test_start_command_launches_tui_without_path() -> None:
         called = True
         assert path is None
 
-    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
         run_argv(parser, ["start"])
 
     assert called
@@ -128,7 +128,7 @@ def test_start_command_with_path_launches_tui_with_path(
         nonlocal captured_path
         captured_path = path
 
-    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
         run_argv(parser, ["start", str(armory_path)])
 
     assert captured_path == armory_path
@@ -143,7 +143,7 @@ def test_bare_path_dispatches_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(app_cli.sys, "argv", ["heph", str(tmp_path)])
 
-    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
         app_cli.main()
 
     assert captured_path == tmp_path
@@ -157,7 +157,7 @@ def test_tui_command_dispatches_with_path() -> None:
         nonlocal captured_path
         captured_path = path
 
-    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
         run_argv(parser, ["tui", "notes"])
 
     assert captured_path == Path("notes")
@@ -172,7 +172,7 @@ def test_tui_flag_alias_dispatches_tui(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(app_cli.sys, "argv", ["heph", "--tui"])
 
-    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
         app_cli.main()
 
     assert captured_path is None
@@ -215,7 +215,7 @@ def test_tui_command_reports_missing_dependency(
         raise TuiDependencyError("missing textual")
 
     with (
-        patch("hephaistos.app.tui.run_tui_for_path", fake_tui),
+        patch("hephaistos.tui.run_tui_for_path", fake_tui),
         pytest.raises(SystemExit) as exc_info,
     ):
         run_argv(parser, ["tui"])
@@ -343,7 +343,7 @@ def test_main_with_path_and_profile_flag(tmp_path: Path, monkeypatch: pytest.Mon
 
     monkeypatch.setitem(app_cli.main.__globals__, "_report_profile", _noop_report)
 
-    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
         app_cli.main()
 
     assert captured_path == tmp_path
@@ -359,7 +359,7 @@ def test_bare_path_with_nonexistent_path(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(app_cli.sys, "argv", ["heph", "/nonexistent/path"])
 
-    with patch("hephaistos.app.tui.run_tui_for_path", fake_tui):
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
         app_cli.main()
 
     assert captured_path == Path("/nonexistent/path")

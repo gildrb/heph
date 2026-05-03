@@ -16,7 +16,7 @@ import time
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.app import workspace as _workspace
@@ -28,7 +28,6 @@ from hephaistos.app.input_history import InputHistory
 from hephaistos.app.materials_view import material_listing
 from hephaistos.app.model_picker import configured_model_choices, switch_model
 from hephaistos.app.palette import ThemePalette, current_palette
-from hephaistos.app.rich_transcript import evidence_summary_text
 from hephaistos.app.search_index import SearchResult, load_known_armories
 from hephaistos.app.search_screen import SearchScreen
 from hephaistos.app.transparent import (
@@ -36,30 +35,6 @@ from hephaistos.app.transparent import (
     make_transparent_cls,
     nonfocus_rich_log_class,
 )
-from hephaistos.app.tui import armory as _tui_armory
-from hephaistos.app.tui.armory import TuiArmoryMixin
-from hephaistos.app.tui.dependencies import TuiDependencyError, tui_dependency_message
-from hephaistos.app.tui.flow_state import InlineFlow
-from hephaistos.app.tui.inline_flows import TuiInlineFlowMixin
-from hephaistos.app.tui.routing import (
-    TERMINAL_INTERACTIVE_COMMANDS,
-    TuiInputRoute,
-    is_armory_command,
-    is_models_input,
-    pending_input_requires_terminal,
-    tui_input_route,
-)
-from hephaistos.app.tui.session_state import TuiCaptureWriter, TuiRuntimeState, TuiTranscriptEntry
-from hephaistos.app.tui.shell import command_output_text, run_shell_escape_captured
-from hephaistos.app.tui.slash_command import (
-    command_help,
-    slash_suggestion,
-    tui_command_suggestions,
-)
-from hephaistos.app.tui.status import config_error, status_lines
-from hephaistos.app.tui.streaming import run_tui_turn
-from hephaistos.app.tui.style import _tui_css
-from hephaistos.app.tui.transcript import TuiTranscriptMixin
 from hephaistos.app.workspace import (
     create_startup_session,
     get_history_path,
@@ -68,11 +43,39 @@ from hephaistos.app.workspace import (
 )
 from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.session import ChatSession
-from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.parameters.cli import load_config
-from hephaistos.runtime import (
-    is_keyless_endpoint,
+from hephaistos.tui import armory as _tui_armory
+from hephaistos.tui.armory import TuiArmoryMixin
+from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
+from hephaistos.tui.display_text import (
+    armory_footer_hints_text,
+    armory_home_text,
+    footer_hints_text,
+    info_panel_default_text,
+    info_panel_message_text,
+    status_text,
 )
+from hephaistos.tui.flow_state import InlineFlow
+from hephaistos.tui.inline_flows import TuiInlineFlowMixin
+from hephaistos.tui.routing import (
+    TERMINAL_INTERACTIVE_COMMANDS,
+    TuiInputRoute,
+    is_armory_command,
+    is_models_input,
+    pending_input_requires_terminal,
+    tui_input_route,
+)
+from hephaistos.tui.session_state import TuiCaptureWriter, TuiRuntimeState, TuiTranscriptEntry
+from hephaistos.tui.shell import command_output_text, run_shell_escape_captured
+from hephaistos.tui.slash_command import (
+    command_help,
+    slash_suggestion,
+    tui_command_suggestions,
+)
+from hephaistos.tui.status import config_error, status_lines
+from hephaistos.tui.streaming import run_tui_turn
+from hephaistos.tui.style import _tui_css
+from hephaistos.tui.transcript import TuiTranscriptMixin
 
 try:
     from rich.markdown import Markdown
@@ -106,10 +109,6 @@ except ImportError:
     RichLog = None  # type: ignore[assignment]
     Static = None  # type: ignore[assignment]
 
-if TYPE_CHECKING:
-    from rich.text import Text
-
-
 start_fresh_session = _workspace.start_fresh_session
 get_registry = _get_registry
 
@@ -121,208 +120,30 @@ _tui_dependency_message = tui_dependency_message
 
 
 _status_lines = status_lines
-
-
-def _status_text(session: ChatSession, state: str = "ready") -> Text:
-    plain = _status_lines(session, state)
-    palette = current_palette()
-    keyless = is_keyless_endpoint(session.config.base_url)
-    key_ok = keyless or bool(session.config.resolved_api_key)
-    if keyless:
-        api = "free"
-        api_style = palette.dim
-    elif key_ok:
-        api = "configured"
-        api_style = palette.configured
-    else:
-        api = "missing"
-        api_style = palette.error
-
-    mem_configured = supermemory_configured()
-    mem_status = "on" if mem_configured else "/memory"
-    mem_style = palette.configured if mem_configured else palette.dim
-
-    if _RichText is None:
-        raise TuiDependencyError(_tui_dependency_message())
-
-    text = _RichText(plain, style=palette.dim)
-
-    hep_idx = plain.index("Hephaistos")
-    text.stylize(f"bold {palette.ember}", hep_idx, hep_idx + len("Hephaistos"))
-
-    for label in ("armory", "model", "api", "memory", "materials"):
-        start = plain.index(label)
-        text.stylize(f"dim {palette.dim}", start, start + len(label))
-
-    api_start = plain.index(api, plain.index("api "))
-    text.stylize(api_style, api_start, api_start + len(api))
-
-    mem_value_start = plain.index(mem_status, plain.index("memory "))
-    text.stylize(mem_style, mem_value_start, mem_value_start + len(mem_status))
-    return text
-
-
-def _armory_footer_hints_text(*, creating: bool = False, filtering: bool = False) -> Text:
-    """Build footer hints for inline armory mode."""
-    if _RichText is None:
-        raise TuiDependencyError(_tui_dependency_message())
-
-    palette = current_palette()
-    if creating:
-        parts = ["armory", "enter create", "esc cancel"]
-    elif filtering:
-        parts = ["armory", "enter open", "esc clear", "arrows move", "n new"]
-    else:
-        parts = ["armory", "type filter", "enter open", "c choose", "n new", "esc close"]
-    plain = "  ".join(parts)
-    text = _RichText(plain, style=palette.dim)
-    for label in ("armory", "enter", "esc", "arrows", "type", "c", "n"):
-        start = 0
-        while True:
-            idx = plain.find(label, start)
-            if idx == -1:
-                break
-            style = f"bold {palette.ember}" if label == "armory" else palette.dim
-            text.stylize(style, idx, idx + len(label))
-            start = idx + len(label)
-    return text
-
-
-def _footer_hints_text(session: ChatSession, *, busy: bool = False) -> Text:
-    """Build contextual footer hints that change based on current state."""
-    if _RichText is None:
-        raise TuiDependencyError(_tui_dependency_message())
-
-    palette = current_palette()
-
-    if busy:
-        plain = "ctrl+c cancel"
-        text = _RichText(plain, style=palette.dim)
-        for label in ("ctrl+c",):
-            start = plain.index(label)
-            text.stylize(f"dim {palette.dim}", start, start + len(label))
-        return text
-
-    key_ok = is_keyless_endpoint(session.config.base_url) or bool(session.config.resolved_api_key)
-    parts = [
-        "enter send",
-        "tab complete",
-        "ctrl+p commands",
-        "ctrl+a armory",
-        "ctrl+d exit",
-    ]
-    if not key_ok:
-        parts.append("api missing")
-    plain = "  ".join(parts)
-    text = _RichText(plain, style=palette.dim)
-    for label in ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+c", "ctrl+d"):
-        try:
-            start = plain.index(label)
-        except ValueError:
-            continue
-        text.stylize(f"dim {palette.dim}", start, start + len(label))
-    for label in ("ctrl+p",):
-        try:
-            start = plain.index(label)
-        except ValueError:
-            continue
-        text.stylize(f"bold {palette.ember}", start, start + len(label))
-    if "api missing" in plain:
-        api_start = plain.index("api missing")
-        text.stylize(palette.error, api_start, api_start + len("api missing"))
-    return text
-
-
-def _info_panel_default_text(session: ChatSession) -> Text:
-    """Build the default info panel content showing armory, model, materials."""
-    if _RichText is None:
-        raise TuiDependencyError(_tui_dependency_message())
-    title = session.title or "New conversation"
-    armory_name = session.armory_path.name if session.armory_path is not None else "none"
-    model = session.config.model or "none"
-    sources = session.source_file_count or 0
-    source_str = str(sources) if sources else "none"
-    evidence_str = evidence_summary_text(session.last_turn_evidence)
-
-    lines: list[str] = [
-        title,
-        "\u2500" * 26,
-        f"armory  {armory_name}",
-        f"model   {model}",
-        f"materials {source_str}",
-        f"evidence {evidence_str}",
-    ]
-    plain = "\n".join(lines)
-    text = _RichText(plain, style="#808080")
-    title_end = len(lines[0])
-    text.stylize("bold #9B4A2E", 0, title_end)
-    for label in ("armory", "model", "materials", "evidence"):
-        try:
-            start = plain.index(label)
-            text.stylize("dim #808080", start, start + len(label))
-        except ValueError:
-            pass
-    return text
+_status_text = status_text
+_armory_footer_hints_text = armory_footer_hints_text
+_footer_hints_text = footer_hints_text
+_info_panel_default_text = info_panel_default_text
 
 
 def _armory_home_text() -> str:
-    """Return the no-armory home card shown on first TUI launch."""
     recent = load_known_armories()[:5]
+    if not recent:
+        return armory_home_text()
     lines = [
         "No armory attached.",
         "",
         "Press ctrl+a to open or create an armory.",
         "Put study files in materials/.",
         "Hephaistos handles indexing, retrieval, memory, chats, traces, and usage.",
+        "",
+        "Recent armories:",
     ]
-    if recent:
-        lines.extend(["", "Recent armories:"])
-        lines.extend(f"  {path.name}  {path}" for path in recent)
+    lines.extend(f"  {path.name}  {path}" for path in recent)
     return "\n".join(lines)
 
 
-def _info_panel_message_text(
-    entry: _TuiTranscriptEntry,
-    session: ChatSession,
-) -> Text:
-    """Build info panel content for a focused transcript message."""
-    if _RichText is None:
-        raise TuiDependencyError(_tui_dependency_message())
-
-    is_user = entry.content.startswith("[bold #E0E0E0]You:")
-    is_assistant = entry.kind == "markdown" and "Hephaistos:" in entry.content
-
-    if is_user:
-        content = entry.content.replace("[bold #E0E0E0]You:[/bold #E0E0E0] ", "")
-        preview = content[:120] + ("..." if len(content) > 120 else "")
-        sep = "\u2500" * 26
-        plain = f"You message\n{sep}\n{preview}"
-    elif is_assistant:
-        model = session.config.model or "unknown"
-        evidence_str = evidence_summary_text(session.last_turn_evidence)
-        usage = session.usage.summary()
-        sep = "\u2500" * 26
-        plain = (
-            f"Assistant reply\n{sep}"
-            f"\nmodel   {model}"
-            f"\ntokens  {usage['total_tokens']}"
-            f"\ncost    ${usage['cost_usd']:.4f}"
-            f"\nevidence {evidence_str}"
-        )
-    else:
-        sep = "\u2500" * 26
-        plain = f"Message\n{sep}\n{entry.kind}"
-
-    text = _RichText(plain, style="#808080")
-    first_newline = plain.index("\n") if "\n" in plain else len(plain)
-    text.stylize("bold #9B4A2E", 0, first_newline)
-    for label in ("model", "tokens", "cost", "evidence"):
-        try:
-            start = plain.index(label)
-            text.stylize("dim #808080", start, start + len(label))
-        except ValueError:
-            pass
-    return text
+_info_panel_message_text = info_panel_message_text
 
 
 _config_error = config_error

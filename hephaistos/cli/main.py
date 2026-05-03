@@ -51,7 +51,7 @@ def _hide_subparser(
 def _cmd_tui(args: argparse.Namespace) -> None:
     """Start the Textual shell."""
     pathlib = importlib.import_module("pathlib")
-    tui = importlib.import_module("hephaistos.app.tui")
+    tui = importlib.import_module("hephaistos.tui")
 
     try:
         path = getattr(args, "path", None)
@@ -237,7 +237,7 @@ def build_parser() -> argparse.ArgumentParser:
             if chat_cmd == "list":
                 chat_cli._cmd_chat_list(args)
                 return
-            tui_mod = importlib.import_module("hephaistos.app.tui")
+            tui_mod = importlib.import_module("hephaistos.tui")
             if chat_cmd == "start":
                 chat_cli._cmd_chat_start(args, run_tui=tui_mod.run_tui)
             elif chat_cmd == "resume":

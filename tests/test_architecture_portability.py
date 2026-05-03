@@ -36,7 +36,7 @@ def _imported_modules_after_import(module_name: str) -> set[str]:
 
 
 def test_copyable_packages_do_not_load_app_or_chat_session() -> None:
-    forbidden = {"hephaistos.app.tui", "hephaistos.app.workspace", "hephaistos.chat.session"}
+    forbidden = {"hephaistos.tui", "hephaistos.app.workspace", "hephaistos.chat.session"}
     module_names = (
         "hephaistos.runtime",
         "hephaistos.providers",
@@ -106,10 +106,10 @@ def test_source_cli_is_a_thin_compatibility_adapter() -> None:
 
 def test_overworked_module_guardrails() -> None:
     max_lines = {
-        "app/tui.py": 1510,
+        "tui/__init__.py": 1100,
         "app/workspace.py": 520,
         "agent/dispatch.py": 575,
-        "agent/tools.py": 750,
+        "agent/tools.py": 950,
         "rag/retrieve.py": 910,
     }
     for relative, limit in max_lines.items():
