@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from hephaistos.commands.model_picker import configured_model_choices
 from hephaistos.providers import catalog
 from hephaistos.providers.catalog import LiveProviderCatalog
 from hephaistos.providers.config import default_config
+from hephaistos.providers.model_choices import configured_model_choices
 from hephaistos.providers.registry import ModelInfo, get_registry
 
 

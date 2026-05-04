@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from hephaistos.agent.persona import list_personas
-from hephaistos.commands.model_picker import configured_model_choices, model_picker_columns
 from hephaistos.providers.config import Provider, ProviderConfig
+from hephaistos.providers.model_choices import configured_model_choices, model_picker_columns
 
 
 @dataclass(frozen=True)

@@ -40,6 +40,7 @@ from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 from hephaistos._types import is_string_mapping
 from hephaistos.logging import Timer, get_logger, redact_text
 from hephaistos.observability import get_meter, get_tracer
+from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.registry import get_registry as get_provider_registry
@@ -312,7 +313,7 @@ def build_client(config: ChatConfig) -> OpenAI:
         raise EngineError("No model configured. Use /models to select one.")
     if not is_supported_model_for_endpoint(config.model, config.base_url):
         raise EngineError(f"Model unavailable for endpoint: {config.model}")
-    if _is_keyless_endpoint(config.base_url):
+    if is_keyless_endpoint(config.base_url):
         api_key = "no-key-required"
     else:
         api_key = config.resolved_api_key
@@ -331,24 +332,6 @@ def missing_api_key_message(config: ChatConfig) -> str:
             "variable."
         )
     return "No API key found. Use /login or set an environment variable."
-
-
-def _normalize_url(url: str) -> str:
-    return url.strip().rstrip("/")
-
-
-_KEYLESS_ENDPOINTS = frozenset(
-    {
-        _normalize_url("https://text.pollinations.ai/openai"),
-    }
-)
-
-
-def _is_keyless_endpoint(base_url: str) -> bool:
-    return _normalize_url(base_url) in _KEYLESS_ENDPOINTS
-
-
-is_keyless_endpoint = _is_keyless_endpoint
 
 
 def is_retryable_error(exc: Exception) -> bool:

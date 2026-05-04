@@ -285,6 +285,7 @@ forbidden_modules = [
     "hephaistos.chat",
     "hephaistos.agent",
     "hephaistos.rag",
+    "hephaistos.runtime",
     "hephaistos.study",
     "hephaistos.materials",
 ]
