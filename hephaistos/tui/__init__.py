@@ -15,12 +15,12 @@ from pathlib import Path
 from typing import ClassVar
 
 from hephaistos import armory_actions as _armory_actions
-from hephaistos.analytics import capture as capture_analytics
 from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands import NewCommand
 from hephaistos.commands import get_registry as _get_registry
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.input_history import InputHistory
 from hephaistos.parameters.cli import load_config
 from hephaistos.providers.model_choices import configured_model_choices

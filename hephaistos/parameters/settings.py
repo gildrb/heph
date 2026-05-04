@@ -24,7 +24,7 @@ BOOL_KEYS: Final[frozenset[str]] = frozenset(
         "crash_reports_enabled",
         "supermemory_enabled",
         "supermemory_onboarding_seen",
-        "telemetry_notice_seen",
+        "privacy_notice_seen",
     }
 )
 STRING_KEYS: Final[frozenset[str]] = frozenset(
@@ -56,7 +56,7 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
 INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "known_armories",
     "supermemory_onboarding_seen",
-    "telemetry_notice_seen",
+    "privacy_notice_seen",
     "session_count",
 )
 ALLOWED_CONFIG_KEYS: Final[frozenset[str]] = frozenset(
@@ -82,7 +82,7 @@ class AppSettings:
     supermemory_enabled: bool = False
     supermemory_profile: str = "heph-study"
     supermemory_onboarding_seen: bool = False
-    telemetry_notice_seen: bool = False
+    privacy_notice_seen: bool = False
     session_count: int = 0
 
 
@@ -226,7 +226,7 @@ def clear_setting(key: str) -> None:
 
 
 def load_app_settings() -> AppSettings:
-    """Return typed app settings for the shell and telemetry surfaces."""
+    """Return typed app settings for the shell and privacy and diagnostics surfaces."""
     raw = load_raw_settings()
     theme = str(raw.get("theme", DEFAULT_THEME)).strip().lower() or DEFAULT_THEME
     if theme not in THEME_PRESETS:
@@ -247,7 +247,7 @@ def load_app_settings() -> AppSettings:
         supermemory_onboarding_seen=_coerce_bool(
             raw.get("supermemory_onboarding_seen"), default=False
         ),
-        telemetry_notice_seen=_coerce_bool(raw.get("telemetry_notice_seen"), default=False),
+        privacy_notice_seen=_coerce_bool(raw.get("privacy_notice_seen"), default=False),
         session_count=int(raw.get("session_count", 0) or 0),  # type: ignore[reportArgumentType]  # ty:ignore[invalid-argument-type]
     )
 

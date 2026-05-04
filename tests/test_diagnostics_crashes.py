@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from hephaistos.observability import (
+from hephaistos.diagnostics.crashes import (
     _REDACTED,  # type: ignore[reportPrivateUsage]
     _redact_event,  # type: ignore[reportPrivateUsage]
     _scrub_value,  # type: ignore[reportPrivateUsage]
     add_breadcrumb,
     capture_exception,
     init_alerting,
+    init_diagnostics,
     init_metrics,
-    init_observability,
     init_sentry,
     init_tracing,
     set_session_context,
-    shutdown_observability,
+    shutdown_diagnostics,
 )
 
 
@@ -52,8 +52,8 @@ class TestLocalNoops:
         init_tracing()
         init_metrics()
         init_alerting()
-        init_observability()
-        shutdown_observability()
+        init_diagnostics()
+        shutdown_diagnostics()
 
     def test_set_session_context_is_noop(self) -> None:
         set_session_context(session_id="abc", armory="armory", provider="openai", model="gpt-5")

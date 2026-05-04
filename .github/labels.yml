@@ -18,7 +18,7 @@
   color: "0075ca"
   description: "Knowledge base management"
 
-- name: "area/observability"
+- name: "area/diagnostics"
   color: "0075ca"
   description: "Logging, profiling, traces, and diagnostics"
 

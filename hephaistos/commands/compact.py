@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from hephaistos.analytics import capture as capture_analytics
 from hephaistos.chat.session import session_has_messages
 from hephaistos.commands._base import Command, CommandResult, do_compact, ensure_session
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.terminal_display import STYLE_DIM, print_info, print_success, styled
 
 

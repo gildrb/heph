@@ -136,7 +136,7 @@ _BOOL_KEYS = {"analytics_enabled", "crash_reports_enabled", "supermemory_enabled
 
 
 def _effective_setting_value(key: str) -> str:
-    telemetry = importlib.import_module("hephaistos.telemetry")
+    privacy = importlib.import_module("hephaistos.privacy.consent")
 
     app_settings = settings_store.load_app_settings()
     if key == "theme":
@@ -144,13 +144,13 @@ def _effective_setting_value(key: str) -> str:
     if key == "default_armory_path":
         return app_settings.default_armory_path or "(not set)"
     if key == "analytics_enabled":
-        suffix = " (env override)" if telemetry.analytics_env_override() else ""
-        availability = "available" if telemetry.analytics_backend_available() else "unavailable"
-        return f"{str(telemetry.analytics_enabled()).lower()}{suffix} [{availability}]"
+        suffix = " (env override)" if privacy.analytics_env_override() else ""
+        availability = "available" if privacy.analytics_backend_available() else "unavailable"
+        return f"{str(privacy.analytics_enabled()).lower()}{suffix} [{availability}]"
     if key == "crash_reports_enabled":
-        suffix = " (env override)" if telemetry.crash_reports_env_override() else ""
-        avail = "available" if telemetry.crash_reports_backend_available() else "unavailable"
-        return f"{str(telemetry.crash_reports_enabled()).lower()}{suffix} [{avail}]"
+        suffix = " (env override)" if privacy.crash_reports_env_override() else ""
+        avail = "available" if privacy.crash_reports_backend_available() else "unavailable"
+        return f"{str(privacy.crash_reports_enabled()).lower()}{suffix} [{avail}]"
     if key == "supermemory_enabled":
         return str(app_settings.supermemory_enabled).lower()
     if key == "supermemory_profile":

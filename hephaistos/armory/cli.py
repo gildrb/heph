@@ -48,7 +48,7 @@ def _cmd_armory_init(args: argparse.Namespace) -> None:
         post_init(armory_path)
     print(f"Initialized armory at {armory_path}")
     print(f"Open it later with: heph {armory_path.name}")
-    analytics = importlib.import_module("hephaistos.analytics")
+    analytics = importlib.import_module("hephaistos.diagnostics.events")
     analytics.capture("armory_created", {"mode": "cli"})
 
 

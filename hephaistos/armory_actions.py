@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.analytics import capture as capture_analytics
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat.session import (
     ChatSession,
@@ -13,6 +12,7 @@ from hephaistos.chat.session import (
     create_session,
     validate_armory_path,
 )
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.saved_chats import list_saved_chats, resume_saved_chat, save_before_switch
 from hephaistos.search_index import add_known_armory
 from hephaistos.terminal import MenuOption, browse_directory, select_option

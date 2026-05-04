@@ -16,17 +16,17 @@ uv run heph armory init PATH    # create a new armory
 ```
 
 ## Docs Sync
-<!-- sync-docs:telemetry-docs-contract:start -->
-- Telemetry rule: PostHog is anonymous opt-in maintainer visibility only; Sentry
+<!-- sync-docs:privacy-diagnostics-docs-contract:start -->
+- Privacy and diagnostics rule: PostHog is anonymous opt-in maintainer visibility only; Sentry
   is redacted opt-in crash reporting only.
-- Preserve the public safe-stub split in `hephaistos/_telemetry_release.py`.
-  Official release builds inject telemetry values in CI; source, editable, and
+- Preserve the public safe-stub split in `hephaistos/privacy/release.py`.
+  Official release builds inject privacy and diagnostics backend values in CI; source, editable, and
   Git installs must stay bare by default.
-- When CLI commands, telemetry surfaces, or README-adjacent docs change, run
+- When CLI commands, privacy or diagnostics surfaces, or README-adjacent docs change, run
   `uv run python -m scripts.sync_docs` and keep `README.md`, `docs/index.md`,
-  `docs/cli-reference.md`, `AGENTS.md`, and the architecture telemetry section
+  `docs/cli-reference.md`, `AGENTS.md`, and the architecture privacy and diagnostics section
   aligned.
-<!-- sync-docs:telemetry-docs-contract:end -->
+<!-- sync-docs:privacy-diagnostics-docs-contract:end -->
 
 ## Lint & Format
 ```bash

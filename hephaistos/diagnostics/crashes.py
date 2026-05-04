@@ -16,7 +16,7 @@ from typing import Final, Self
 from hephaistos import __version__
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import get_logger, redact_text
-from hephaistos.telemetry import (
+from hephaistos.privacy.consent import (
     crash_reports_backend_available,
     crash_reports_enabled,
     release_channel,
@@ -24,7 +24,7 @@ from hephaistos.telemetry import (
     sentry_dsn,
 )
 
-_log = get_logger("observability")
+_log = get_logger("diagnostics")
 
 
 class _NoopSpan:
@@ -346,12 +346,12 @@ def send_alert(level: int, title: str, body: str) -> None:
     """Compatibility no-op retained for the public CLI."""
 
 
-def init_observability() -> None:
+def init_diagnostics() -> None:
     """Initialise local diagnostics helpers and optional crash reporting."""
     init_sentry()
 
 
-def shutdown_observability() -> None:
+def shutdown_diagnostics() -> None:
     """Flush local diagnostics helpers."""
 
 

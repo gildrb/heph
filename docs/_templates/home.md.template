@@ -41,7 +41,7 @@ Or install the latest main branch directly from GitHub:
 
 Official release installs can optionally enable anonymous usage analytics and
 crash reports from `/settings`. They are off by default. Source, editable, and
-Git installs stay bare by default and do not show the telemetry opt-in hint.
+Git installs stay bare by default and do not show the privacy and diagnostics opt-in hint.
 
 ### From Source
 
@@ -89,11 +89,11 @@ You can also use environment variables such as `OPENROUTER_API_KEY`,
 `HEPHAISTOS_MODEL`. The default provider (Pollinations AI) works without any
 API key.
 
-### Settings And Telemetry
+### Privacy & Diagnostics
 
 Use `/settings` for cross-session preferences such as:
 
-- telemetry opt-in for anonymous analytics and crash reports
+- privacy and diagnostics opt-in for anonymous analytics and crash reports
 - theme preset selection
 - default startup armory fallback
 - default model selection

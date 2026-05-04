@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from contextlib import suppress
 
-from hephaistos.analytics import capture as capture_analytics
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
     ChatSession,
@@ -14,6 +13,7 @@ from hephaistos.chat.session import (
     save_session,
     session_has_messages,
 )
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.terminal_display import print_error, print_info, print_success
 
 

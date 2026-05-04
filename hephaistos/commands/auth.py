@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 
-from hephaistos.analytics import capture as capture_analytics
 from hephaistos.chat.provider_selection import activate_provider_for_session
 from hephaistos.commands._base import Command, CommandResult, ensure_session
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.providers import keyring_store, oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import clear_key, get_volatile, set_volatile, store_key

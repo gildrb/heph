@@ -15,8 +15,7 @@ from hephaistos.parameters.settings import (
     load_app_settings,
     save_setting,
 )
-from hephaistos.providers.config import ProviderConfig
-from hephaistos.telemetry import (
+from hephaistos.privacy.consent import (
     analytics_backend_available,
     analytics_enabled,
     analytics_env_override,
@@ -24,6 +23,7 @@ from hephaistos.telemetry import (
     crash_reports_enabled,
     crash_reports_env_override,
 )
+from hephaistos.providers.config import ProviderConfig
 from hephaistos.terminal import (
     MenuOption,
     browse_directory,
@@ -50,7 +50,7 @@ class SettingsCommand(Command):
                     f"Mode: {mode_label}",
                 ),
                 MenuOption(
-                    "Telemetry",
+                    "Privacy & Diagnostics",
                     "Usage analytics and crash reports",
                 ),
                 MenuOption(
@@ -81,7 +81,7 @@ class SettingsCommand(Command):
             if selected == 0:
                 self._interface_menu()
             elif selected == 1:
-                self._telemetry_menu()
+                self._privacy_menu()
             elif selected == 2:
                 self._appearance_menu()
             elif selected == 3:
@@ -108,7 +108,7 @@ class SettingsCommand(Command):
                 return
 
     @staticmethod
-    def _telemetry_description(
+    def _privacy_description(
         *,
         enabled: bool,
         available: bool,
@@ -119,13 +119,13 @@ class SettingsCommand(Command):
         suffix = " · env override active" if overridden else ""
         return f"{status} · {availability}{suffix}"
 
-    def _telemetry_menu(self) -> None:
+    def _privacy_menu(self) -> None:
         while True:
             settings = load_app_settings()
             options = [
                 MenuOption(
                     f"[{'x' if analytics_enabled() else ' '}] Usage analytics",
-                    self._telemetry_description(
+                    self._privacy_description(
                         enabled=analytics_enabled(),
                         available=analytics_backend_available(),
                         overridden=analytics_env_override(),
@@ -133,7 +133,7 @@ class SettingsCommand(Command):
                 ),
                 MenuOption(
                     f"[{'x' if crash_reports_enabled() else ' '}] Crash reports",
-                    self._telemetry_description(
+                    self._privacy_description(
                         enabled=crash_reports_enabled(),
                         available=crash_reports_backend_available(),
                         overridden=crash_reports_env_override(),
@@ -141,7 +141,7 @@ class SettingsCommand(Command):
                 ),
                 MenuOption("Back", "Return to settings."),
             ]
-            selected = select_option("Telemetry", options)
+            selected = select_option("Privacy & Diagnostics", options)
             if selected is None or selected == len(options) - 1:
                 return
             if selected == 0:

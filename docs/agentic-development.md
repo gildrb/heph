@@ -17,10 +17,10 @@ Hephaistos keeps shared, repo-level agent context in a single vendor-neutral dir
 
 - Shared skills belong in the repository when they help contributors and agents understand the project.
 - Personal agent config belongs outside the repository.
-- Maintainer-only telemetry or vendor-specific setup should stay out of shared skills.
+- Maintainer-only diagnostics or vendor-specific setup should stay out of shared skills.
 - `AGENTS.md` and `docs/architecture.md` are the authoritative agent-facing surfaces.
 - Repo-local skill files should stay thin and point back to those repo-native docs.
-- When CLI or telemetry docs change, run `uv run python -m scripts.sync_docs`.
+- When CLI or privacy/diagnostics docs change, run `uv run python -m scripts.sync_docs`.
 - Before opening a PR, run `uv run python -m scripts.check_repo_policies` to catch explicit `Any` usage and deferred imports.
 
 ## Agent Co-Authorship

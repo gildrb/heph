@@ -38,8 +38,8 @@ from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
 from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 
 from hephaistos._types import is_string_mapping
+from hephaistos.diagnostics.crashes import get_meter, get_tracer
 from hephaistos.logging import Timer, get_logger, redact_text
-from hephaistos.observability import get_meter, get_tracer
 from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import is_supported_model_for_endpoint

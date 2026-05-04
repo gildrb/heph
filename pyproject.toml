@@ -217,7 +217,8 @@ source_modules = [
     "hephaistos.runtime",
     "hephaistos.logging",
     "hephaistos.palette",
-    "hephaistos.observability",
+    "hephaistos.privacy",
+    "hephaistos.diagnostics",
     "hephaistos.vocab",
 ]
 forbidden_modules = [
@@ -312,9 +313,9 @@ modules = ["hephaistos.chat.session", "hephaistos.chat.orchestrator"]
 ignore_imports = ["hephaistos.chat.session -> hephaistos.chat.orchestrator"]
 
 [[tool.importlinter.contracts]]
-name = "observability must not import adapters"
+name = "diagnostics must not import adapters"
 type = "forbidden"
-source_modules = ["hephaistos.observability"]
+source_modules = ["hephaistos.diagnostics"]
 forbidden_modules = [
     "hephaistos.cli",
     "hephaistos.commands",

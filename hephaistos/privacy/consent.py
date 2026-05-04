@@ -1,4 +1,4 @@
-"""Shared telemetry configuration and consent helpers."""
+"""Shared privacy and diagnostics configuration and consent helpers."""
 
 from __future__ import annotations
 
@@ -14,23 +14,23 @@ from pathlib import Path
 from typing import Final
 
 from hephaistos import __version__
-from hephaistos._telemetry_release import (
-    POSTHOG_HOST as _RELEASE_POSTHOG_HOST,
-)
-from hephaistos._telemetry_release import (
-    POSTHOG_PROJECT_TOKEN as _RELEASE_POSTHOG_PROJECT_TOKEN,
-)
-from hephaistos._telemetry_release import (
-    RELEASE_CHANNEL as _RELEASE_CHANNEL,
-)
-from hephaistos._telemetry_release import (
-    RELEASE_VERSION as _RELEASE_VERSION,
-)
-from hephaistos._telemetry_release import (
-    SENTRY_DSN as _RELEASE_SENTRY_DSN,
-)
 from hephaistos._types import is_string_mapping
 from hephaistos.parameters.settings import load_app_settings, load_raw_settings, save_raw_settings
+from hephaistos.privacy.release import (
+    POSTHOG_HOST as _RELEASE_POSTHOG_HOST,
+)
+from hephaistos.privacy.release import (
+    POSTHOG_PROJECT_TOKEN as _RELEASE_POSTHOG_PROJECT_TOKEN,
+)
+from hephaistos.privacy.release import (
+    RELEASE_CHANNEL as _RELEASE_CHANNEL,
+)
+from hephaistos.privacy.release import (
+    RELEASE_VERSION as _RELEASE_VERSION,
+)
+from hephaistos.privacy.release import (
+    SENTRY_DSN as _RELEASE_SENTRY_DSN,
+)
 
 _INSTALL_ID_PATH: Final[Path] = Path.home() / ".config" / "hephaistos" / "install_id.json"
 
@@ -49,7 +49,7 @@ _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
 
 
 @dataclass(frozen=True)
-class TelemetryReleaseConfig:
+class PrivacyReleaseConfig:
     posthog_host: str = ""
     posthog_project_token: str = ""
     sentry_dsn: str = ""
@@ -72,8 +72,8 @@ def _env_bool(name: str) -> bool | None:
     return None
 
 
-def release_config() -> TelemetryReleaseConfig:
-    return TelemetryReleaseConfig(
+def release_config() -> PrivacyReleaseConfig:
+    return PrivacyReleaseConfig(
         posthog_host=_clean(_RELEASE_POSTHOG_HOST),
         posthog_project_token=_clean(_RELEASE_POSTHOG_PROJECT_TOKEN),
         sentry_dsn=_clean(_RELEASE_SENTRY_DSN),
@@ -155,8 +155,8 @@ def _has_direct_url() -> bool:
 
 def is_official_install() -> bool:
     config = release_config()
-    has_release_telemetry = bool(config.posthog_project_token or config.sentry_dsn)
-    return has_release_telemetry and not _has_direct_url()
+    has_release_diagnostics = bool(config.posthog_project_token or config.sentry_dsn)
+    return has_release_diagnostics and not _has_direct_url()
 
 
 def install_id() -> str:
@@ -191,12 +191,12 @@ def runtime_context() -> dict[str, str]:
     }
 
 
-def should_show_telemetry_notice() -> bool:
+def should_show_privacy_notice() -> bool:
     settings = load_app_settings()
-    return is_official_install() and not settings.telemetry_notice_seen
+    return is_official_install() and not settings.privacy_notice_seen
 
 
-def mark_telemetry_notice_seen() -> None:
+def mark_privacy_notice_seen() -> None:
     settings = load_raw_settings()
-    settings["telemetry_notice_seen"] = True
+    settings["privacy_notice_seen"] = True
     save_raw_settings(settings)

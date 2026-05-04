@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from hephaistos.analytics import capture as capture_analytics
 from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
@@ -15,6 +14,7 @@ from hephaistos.chat.session import (
     save_session,
     validate_armory_path,
 )
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.fuzzy import ranked_matches
 from hephaistos.terminal import MenuOption, select_option
 from hephaistos.terminal_display import direct_input, print_error, print_info, print_success

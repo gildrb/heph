@@ -136,9 +136,9 @@ The following packages cannot import anything from adapter packages:
 - `hephaistos.logging`
 - `hephaistos.palette`
 
-### Forbidden: logging and observability must not import adapters
+### Forbidden: logging and diagnostics must not import adapters
 
-`hephaistos.logging` and `hephaistos.observability` must not import from
+`hephaistos.logging` and `hephaistos.diagnostics.crashes` must not import from
 `hephaistos.cli`, `hephaistos.commands`, or `hephaistos.tui`.
 
 ### Independent: chat.session and chat.orchestrator
@@ -248,25 +248,25 @@ graph TD
 - `py-spy` available in dev dependencies for flame graphs
 - Profiles saved to `~/.cache/hephaistos/profiles/`
 
-<!-- sync-docs:telemetry-architecture:start -->
-## Telemetry
+<!-- sync-docs:privacy-diagnostics-architecture:start -->
+## Privacy & Diagnostics
 
-Hephaistos keeps telemetry optional and maintainer-facing.
+Hephaistos keeps privacy-impacting diagnostics optional and maintainer-facing.
 
-- `hephaistos.analytics` sends anonymous PostHog events only when a backend is
+- `hephaistos.diagnostics.events` sends anonymous PostHog events only when a backend is
   configured and the user explicitly opts in.
-- `hephaistos.observability` sends redacted Sentry crash reports only when a
+- `hephaistos.diagnostics.crashes` sends redacted Sentry crash reports only when a
   backend is configured and the user explicitly opts in.
-- `hephaistos/_telemetry_release.py` is committed as a safe stub in the public
+- `hephaistos/privacy/release.py` is committed as a safe stub in the public
   repository. Official release and edge workflows overwrite it in CI before
   building artifacts.
 - Source, editable, and Git installs stay bare by default. Forks and custom
   builds can wire their own endpoints with `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
   `HEPHAISTOS_POSTHOG_HOST`, and `HEPHAISTOS_SENTRY_DSN`.
-- Agents and contributors should preserve this split: telemetry exists only for
+- Agents and contributors should preserve this split: diagnostics exist only for
   opt-in maintainer visibility into usage/errors and is never a required product
   dependency.
-<!-- sync-docs:telemetry-architecture:end -->
+<!-- sync-docs:privacy-diagnostics-architecture:end -->
 
 ### Runbooks
 

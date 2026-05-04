@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from hephaistos.analytics import capture as capture_analytics
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands._base import Command, CommandResult, ensure_session
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.terminal import (
     STYLE_PROMPT,
     MenuOption,

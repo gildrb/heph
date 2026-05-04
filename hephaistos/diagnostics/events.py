@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from typing import Final
 
 from hephaistos.logging import get_logger, redact_text
-from hephaistos.telemetry import (
+from hephaistos.privacy.consent import (
     analytics_backend_available,
     analytics_enabled,
     install_id,

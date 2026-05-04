@@ -1,4 +1,4 @@
-"""Tests for the structured logging and observability module."""
+"""Tests for the structured logging and diagnostics module."""
 
 from __future__ import annotations
 

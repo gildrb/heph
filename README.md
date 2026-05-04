@@ -49,7 +49,7 @@ uv tool install git+https://github.com/gildrb/hephaistos
 
 Official release installs can optionally enable anonymous usage analytics and
 crash reports from `/settings`. They are off by default. Source, editable, and
-Git installs stay bare by default and do not show the telemetry opt-in hint.
+Git installs stay bare by default and do not show the privacy and diagnostics opt-in hint.
 
 ### From Source
 
@@ -101,11 +101,11 @@ You can also use environment variables such as `OPENROUTER_API_KEY`,
 `HEPHAISTOS_MODEL`. The default provider (Pollinations AI) works without any
 API key.
 
-### Settings And Telemetry
+### Privacy & Diagnostics
 
 Use `/settings` for cross-session preferences such as:
 
-- telemetry opt-in for anonymous analytics and crash reports
+- privacy and diagnostics opt-in for anonymous analytics and crash reports
 - theme preset selection
 - default startup armory fallback
 - default model selection
@@ -114,8 +114,8 @@ Credential flows live in `/login` and `/logout`; model selection lives in `/mode
 
 PostHog is used only for anonymous, opt-in usage/error visibility for the
 maintainer. Sentry is used only for redacted, opt-in crash reporting. The
-public repository ships `hephaistos/_telemetry_release.py` as a safe stub;
-official release builds inject telemetry values during CI, and forks or custom
+public repository ships `hephaistos/privacy/release.py` as a safe stub;
+official release builds inject privacy and diagnostics backend values during CI, and forks or custom
 builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 `HEPHAISTOS_POSTHOG_HOST`, and `HEPHAISTOS_SENTRY_DSN`.
 

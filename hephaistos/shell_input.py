@@ -7,10 +7,10 @@ import threading
 from collections.abc import Callable
 from typing import Protocol
 
-from hephaistos.analytics import capture as capture_analytics
 from hephaistos.chat.session import ChatSession, send_user_message
+from hephaistos.diagnostics.crashes import capture_exception
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.input_history import InputHistory
-from hephaistos.observability import capture_exception
 from hephaistos.runtime import (
     EngineError,
     StreamRecoveryError,

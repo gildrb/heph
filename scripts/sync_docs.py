@@ -16,16 +16,16 @@ from hephaistos.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
 from hephaistos.memory.extract import _EXTRACTION_MODEL_ENV
 from hephaistos.memory.supermemory import SUPERMEMORY_API_KEY_ENV, SUPERMEMORY_URL_ENV
 from hephaistos.parameters import cli as parameters_cli
-from hephaistos.providers.config import default_config
-from hephaistos.providers.keyring_store import GLOBAL_API_KEY_ENV
-from hephaistos.rag.retrieve import _EMBED_MODEL_ENV, _RERANK_MODEL_ENV
-from hephaistos.telemetry import (
+from hephaistos.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
     CRASH_REPORTS_ENABLED_ENV,
     POSTHOG_HOST_ENV,
     POSTHOG_TOKEN_ENV,
     SENTRY_DSN_ENV,
 )
+from hephaistos.providers.config import default_config
+from hephaistos.providers.keyring_store import GLOBAL_API_KEY_ENV
+from hephaistos.rag.retrieve import _EMBED_MODEL_ENV, _RERANK_MODEL_ENV
 
 ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH: Final[Path] = ROOT / "pyproject.toml"
@@ -38,8 +38,8 @@ TEMPLATES_DIR: Final[Path] = ROOT / "docs" / "_templates"
 FRAGMENTS_DIR: Final[Path] = ROOT / "docs" / "_fragments"
 
 GENERATED_NOTICE: Final[str] = "<!-- Managed by scripts/sync_docs.py. Do not edit directly. -->"
-AGENTS_BLOCK_NAME: Final[str] = "telemetry-docs-contract"
-ARCHITECTURE_BLOCK_NAME: Final[str] = "telemetry-architecture"
+AGENTS_BLOCK_NAME: Final[str] = "privacy-diagnostics-docs-contract"
+ARCHITECTURE_BLOCK_NAME: Final[str] = "privacy-diagnostics-architecture"
 
 PLACEHOLDER_RE: Final[re.Pattern[str]] = re.compile(r"\[\[([A-Z0-9_]+)\]\]")
 BLOCK_START_TEMPLATE: Final[str] = "<!-- sync-docs:{name}:start -->"
@@ -82,9 +82,9 @@ class DocsModel:
     cli_reference_commands: tuple[CommandLine, ...]
     slash_commands: tuple[CommandLine, ...]
     env_vars: tuple[EnvVarDoc, ...]
-    telemetry_contract: str
+    privacy_diagnostics_contract: str
     agents_contract: str
-    architecture_telemetry: str
+    architecture_privacy_diagnostics: str
 
 
 @dataclass(frozen=True)
@@ -381,9 +381,9 @@ def collect_docs_model(root: Path) -> DocsModel:
         cli_reference_commands=collect_cli_commands(short_command, long_command),
         slash_commands=collect_slash_commands(),
         env_vars=collect_env_vars(),
-        telemetry_contract=load_fragment("telemetry-contract.md"),
-        agents_contract=load_fragment("agents-telemetry-contract.md"),
-        architecture_telemetry=load_fragment("telemetry-architecture.md"),
+        privacy_diagnostics_contract=load_fragment("privacy-diagnostics-contract.md"),
+        agents_contract=load_fragment("agents-privacy-diagnostics-contract.md"),
+        architecture_privacy_diagnostics=load_fragment("privacy-diagnostics-architecture.md"),
     )
 
 
@@ -476,7 +476,7 @@ def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
         "GIT_INSTALL_BLOCK": "```bash\nuv tool install git+https://github.com/gildrb/hephaistos\n```",
         "CREATE_ARMORY_BLOCK": render_create_armory_block(model),
         "EQUIVALENT_ENTRYPOINT_NOTE": compatibility,
-        "TELEMETRY_CONTRACT": model.telemetry_contract,
+        "TELEMETRY_CONTRACT": model.privacy_diagnostics_contract,
         "COMMON_COMMANDS_BLOCK": render_command_block(model.common_commands),
         "SLASH_COMMANDS_TABLE": render_slash_commands_table(model.slash_commands),
         "FOOTER_SECTION": render_home_footer(docs_index=docs_index).strip(),
@@ -526,7 +526,7 @@ def render_targets(root: Path) -> tuple[SyncTarget, ...]:
     architecture_updated = replace_managed_block(
         architecture_text,
         ARCHITECTURE_BLOCK_NAME,
-        model.architecture_telemetry,
+        model.architecture_privacy_diagnostics,
     )
     return (
         SyncTarget(README_PATH, render_home_doc(model, docs_index=False)),

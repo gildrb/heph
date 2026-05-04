@@ -16,13 +16,13 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 import hephaistos.chat.engine as _engine_mod
 import hephaistos.chat.orchestrator as _orch_mod
 import hephaistos.chat.resilience as _res_mod
+import hephaistos.diagnostics.crashes as _obs_mod
 import hephaistos.logging as _log_mod
-import hephaistos.observability as _obs_mod
 import hephaistos.parameters.cli as _params_cli
 import hephaistos.parameters.settings as _settings_mod
+import hephaistos.privacy.consent as _privacy_mod
 import hephaistos.providers.config as _provider_config_mod
 import hephaistos.providers.keyring_store as _ks
-import hephaistos.telemetry as _telemetry_mod
 from hephaistos.agent.tools import ToolHandlerResult, ToolSpec
 from hephaistos.armory.storage import initialize
 from hephaistos.chat._api_types import ApiMessage
@@ -79,7 +79,7 @@ def _isolate_global_state(  # ty: ignore
     monkeypatch.setattr(_params_cli, "_USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr(_params_cli, "_USER_CONFIG_FILE", config_file)
     monkeypatch.setattr(
-        _telemetry_mod,
+        _privacy_mod,
         "_INSTALL_ID_PATH",
         config_dir / "install_id.json",
     )

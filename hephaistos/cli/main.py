@@ -399,11 +399,11 @@ def _increment_session_count() -> None:
 
 
 def main() -> None:
-    analytics = importlib.import_module("hephaistos.analytics")
-    observability = importlib.import_module("hephaistos.observability")
+    analytics = importlib.import_module("hephaistos.diagnostics.events")
+    diagnostics = importlib.import_module("hephaistos.diagnostics.crashes")
 
     analytics.init_analytics()
-    observability.init_observability()
+    diagnostics.init_diagnostics()
 
     # Track session count for progressive keybind hints.
     _increment_session_count()
@@ -439,7 +439,7 @@ def main() -> None:
             _prof.disable()
             _report_profile(_prof)
         analytics.shutdown_analytics()
-        observability.shutdown_observability()
+        diagnostics.shutdown_diagnostics()
 
 
 def _report_memory() -> None:

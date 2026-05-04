@@ -18,8 +18,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from hephaistos.diagnostics.crashes import get_meter
 from hephaistos.logging import get_logger
-from hephaistos.observability import get_meter
 
 _log = get_logger("chat.resilience")
 _meter = get_meter("chat.resilience")

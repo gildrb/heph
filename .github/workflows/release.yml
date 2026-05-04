@@ -61,7 +61,7 @@ jobs:
       - name: Pytest
         run: uv run pytest
 
-      - name: Inject release telemetry config
+      - name: Inject release privacy and diagnostics config
         env:
           HEPHAISTOS_POSTHOG_HOST: ${{ secrets.HEPHAISTOS_POSTHOG_HOST }}
           HEPHAISTOS_POSTHOG_PROJECT_TOKEN: ${{ secrets.HEPHAISTOS_POSTHOG_PROJECT_TOKEN }}
@@ -78,11 +78,11 @@ jobs:
               stripped = value.strip()
               return json.dumps(stripped) if stripped else "None"
 
-          target = Path("hephaistos/_telemetry_release.py")
+          target = Path("hephaistos/privacy/release.py")
           target.write_text(
               "\n".join(
                   [
-                      '"""Release-time telemetry configuration."""',
+                      '"""Release-time privacy and diagnostics configuration."""',
                       "",
                       "from __future__ import annotations",
                       "",

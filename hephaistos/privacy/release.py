@@ -1,4 +1,4 @@
-"""Release-time telemetry configuration.
+"""Release-time privacy and diagnostics configuration.
 
 This file is tracked with safe stub values in the repository. Official release
 workflows overwrite it in the CI workspace just before building artifacts.

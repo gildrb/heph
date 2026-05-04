@@ -22,9 +22,9 @@ from hephaistos.chat.evidence import (
 )
 from hephaistos.chat.titles import derive_title
 from hephaistos.chat.usage import save_usage
+from hephaistos.diagnostics.crashes import get_meter, get_tracer
 from hephaistos.logging import Timer, get_logger
 from hephaistos.memory.workflow import schedule_memory_extraction
-from hephaistos.observability import get_meter, get_tracer
 from hephaistos.runtime import (
     EngineError,
     Message,

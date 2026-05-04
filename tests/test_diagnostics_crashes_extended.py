@@ -1,9 +1,8 @@
-"""Tests for the local diagnostics shims exposed via hephaistos.observability."""
+"""Tests for the local diagnostics shims exposed via hephaistos.diagnostics.crashes."""
 
 from __future__ import annotations
 
-from hephaistos.logging import _get_trace_context  # type: ignore[reportPrivateUsage]
-from hephaistos.observability import (
+from hephaistos.diagnostics.crashes import (
     _NoopCounter,  # type: ignore[reportPrivateUsage]
     _NoopGauge,  # type: ignore[reportPrivateUsage]
     _NoopHistogram,  # type: ignore[reportPrivateUsage]
@@ -14,6 +13,7 @@ from hephaistos.observability import (
     get_meter,
     get_tracer,
 )
+from hephaistos.logging import _get_trace_context  # type: ignore[reportPrivateUsage]
 
 
 class TestNoopClasses:

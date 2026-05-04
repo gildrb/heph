@@ -15,17 +15,17 @@ from hephaistos.agent.dispatch import SteeringQueue
 from hephaistos.agent.persona import Persona, resolve_persona
 from hephaistos.agent.prompt import build_system_prompt
 from hephaistos.agent.tools import ToolRegistry, default_registry
-from hephaistos.analytics import capture as capture_analytics
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.events import render_turn_event
 from hephaistos.chat.orchestrator import TurnOrchestrator
 from hephaistos.chat.titles import derive_title as _derive_title
 from hephaistos.chat.usage import SessionUsage
+from hephaistos.diagnostics.crashes import set_session_context
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.logging import TraceWriter, get_logger
 from hephaistos.materials import iter_material_files
 from hephaistos.memory import MemoryStore, load_memory
-from hephaistos.observability import set_session_context
 from hephaistos.rag import ArmoryIndex, TurnEvidence
 from hephaistos.runtime import ChatConfig, Conversation, Message
 from hephaistos.study import StudyState
