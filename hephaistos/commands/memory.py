@@ -4,16 +4,8 @@ from __future__ import annotations
 
 import os
 
-from hephaistos.app.commands._base import Command, CommandResult, ensure_session
-from hephaistos.app.display import (
-    STYLE_DIM,
-    direct_input,
-    print_error,
-    print_info,
-    print_success,
-    styled,
-)
 from hephaistos.chat.session import ChatSession
+from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.memory.supermemory import (
     SUPERMEMORY_API_KEY_ENV,
     SUPERMEMORY_DEFAULT_PROFILE,
@@ -27,6 +19,14 @@ from hephaistos.parameters.settings import (
 )
 from hephaistos.providers import keyring_store
 from hephaistos.providers.keyring_store import mask_key, set_volatile, store_key
+from hephaistos.terminal_display import (
+    STYLE_DIM,
+    direct_input,
+    print_error,
+    print_info,
+    print_success,
+    styled,
+)
 
 
 def _supermemory_key_source() -> str:

@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.app.commands._base import Command, CommandResult, ensure_session
-from hephaistos.app.commands.auth import LoginCommand, LogoutCommand
-from hephaistos.app.commands.memory import MemoryCommand
-from hephaistos.app.commands.model import ModelsCommand
-from hephaistos.app.display import STYLE_DIM, print_error, print_info, print_success, styled
-from hephaistos.app.menu import MenuOption, browse_directory, select_option
-from hephaistos.app.palette import THEME_PRESETS, current_theme_name, set_theme
 from hephaistos.chat.session import validate_armory_path
+from hephaistos.commands._base import Command, CommandResult, ensure_session
+from hephaistos.commands.auth import LoginCommand, LogoutCommand
+from hephaistos.commands.memory import MemoryCommand
+from hephaistos.commands.model import ModelsCommand
 from hephaistos.parameters.settings import (
+    THEME_PRESETS,
     clear_setting,
     load_app_settings,
     save_setting,
@@ -26,6 +24,14 @@ from hephaistos.telemetry import (
     crash_reports_enabled,
     crash_reports_env_override,
 )
+from hephaistos.terminal import (
+    MenuOption,
+    browse_directory,
+    current_theme_name,
+    select_option,
+    set_theme,
+)
+from hephaistos.terminal_display import STYLE_DIM, print_error, print_info, print_success, styled
 
 
 class SettingsCommand(Command):

@@ -5,8 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from hephaistos.analytics import capture as capture_analytics
-from hephaistos.app.commands._base import Command, CommandResult, ensure_session
-from hephaistos.app.display import (
+from hephaistos.chat.session import ChatSession
+from hephaistos.commands._base import Command, CommandResult, ensure_session
+from hephaistos.terminal import confirm
+from hephaistos.terminal_display import (
     STYLE_ACCENT,
     STYLE_DIM,
     STYLE_SUCCESS,
@@ -15,8 +17,6 @@ from hephaistos.app.display import (
     print_success,
     styled,
 )
-from hephaistos.app.menu import confirm
-from hephaistos.chat.session import ChatSession
 from hephaistos.vocab.drill import run_drill
 from hephaistos.vocab.parser import scan_armory
 from hephaistos.vocab.scheduler import select_due_cards

@@ -36,7 +36,7 @@ def _imported_modules_after_import(module_name: str) -> set[str]:
 
 
 def test_copyable_packages_do_not_load_app_or_chat_session() -> None:
-    forbidden = {"hephaistos.tui", "hephaistos.app.workspace", "hephaistos.chat.session"}
+    forbidden = {"hephaistos.tui", "hephaistos.workspace", "hephaistos.chat.session"}
     module_names = (
         "hephaistos.runtime",
         "hephaistos.providers",

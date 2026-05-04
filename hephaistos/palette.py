@@ -2,7 +2,7 @@
 
 This module exists so that ``hephaistos.logging`` (an infra module) can
 use terminal colour helpers without importing from the ``app`` package.
-Higher-level style composites live in ``hephaistos.app.palette``.
+Higher-level style composites live in ``hephaistos.terminal``.
 """
 
 from __future__ import annotations

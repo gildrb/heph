@@ -9,7 +9,7 @@ from hephaistos.chat.compaction import compact_session
 from hephaistos.chat.session import ChatSession
 
 if TYPE_CHECKING:
-    from hephaistos.app.commands import CommandRegistry
+    from hephaistos.commands import CommandRegistry
 
 
 class CommandResult:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from hephaistos.app.autocomplete import CommandSuggestion, SlashCompletionEngine
+from hephaistos.commands.autocomplete import CommandSuggestion, SlashCompletionEngine
 from hephaistos.providers.config import default_config
 
 

@@ -10,8 +10,6 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from hephaistos import tui
-from hephaistos.app.armory_browser import armory_detail, build_entries
-from hephaistos.app.search_index import KnownArmory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
@@ -19,6 +17,8 @@ from hephaistos.providers import catalog
 from hephaistos.providers.catalog import LiveProviderCatalog
 from hephaistos.providers.config import default_config
 from hephaistos.providers.registry import ModelInfo
+from hephaistos.search_index import KnownArmory
+from hephaistos.tui.armory_browser import armory_detail, build_entries
 
 if TYPE_CHECKING:
     from textual.app import App as TextualApp
@@ -550,7 +550,7 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
     initialize(existing)
     missing = tmp_path / "missing"
     monkeypatch.setattr(
-        "hephaistos.app.armory_browser.load_known_armory_entries",
+        "hephaistos.tui.armory_browser.load_known_armory_entries",
         lambda: [
             KnownArmory(existing, exists=True, valid=True),
             KnownArmory(missing, exists=False, valid=False),

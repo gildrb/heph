@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.app import menu
-from hephaistos.app.menu import MenuOption
+import hephaistos.terminal as menu
+from hephaistos.terminal import MenuOption
 
 
 def test_select_option_uses_prompt_fallback(
@@ -228,7 +228,7 @@ def test_browse_directory_defaults_to_home(
 ) -> None:
     calls = iter(["c"])
     monkeypatch.setattr("hephaistos.terminal.direct_input", lambda _prompt="": next(calls))
-    monkeypatch.setattr("hephaistos.app.menu.browse_directory", menu.browse_directory)
+    monkeypatch.setattr("hephaistos.terminal.browse_directory", menu.browse_directory)
 
     result = menu.browse_directory("Test")
     assert result == Path.home()

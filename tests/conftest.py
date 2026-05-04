@@ -24,11 +24,11 @@ import hephaistos.providers.config as _provider_config_mod
 import hephaistos.providers.keyring_store as _ks
 import hephaistos.telemetry as _telemetry_mod
 from hephaistos.agent.tools import ToolHandlerResult, ToolSpec
-from hephaistos.app.palette import set_theme
 from hephaistos.armory.storage import initialize
 from hephaistos.chat._api_types import ApiMessage
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_session
+from hephaistos.terminal import set_theme
 
 # Cache noop diagnostics objects to avoid recreating per test
 _NOOP_TRACER = _obs_mod._NoopTracer()  # type: ignore[reportPrivateUsage]

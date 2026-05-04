@@ -14,21 +14,21 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hephaistos.app import commands
-from hephaistos.app.commands import CommandResult
-from hephaistos.app.input_history import InputHistory
-from hephaistos.app.workspace import (
-    _create_startup_session,  # type: ignore[reportPrivateUsage]
-    _discover_startup_armory,  # type: ignore[reportPrivateUsage]
-    _get_history_path,  # type: ignore[reportPrivateUsage]
-    _handle_input,  # type: ignore[reportPrivateUsage]
-    _save_on_exit,  # type: ignore[reportPrivateUsage]
-)
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import (
     ChatSession,
     create_plain_session,
     create_session,
+)
+from hephaistos.commands import CommandResult
+from hephaistos.input_history import InputHistory
+from hephaistos.workspace import (
+    _create_startup_session,  # type: ignore[reportPrivateUsage]
+    _discover_startup_armory,  # type: ignore[reportPrivateUsage]
+    _get_history_path,  # type: ignore[reportPrivateUsage]
+    _handle_input,  # type: ignore[reportPrivateUsage]
+    _save_on_exit,  # type: ignore[reportPrivateUsage]
 )
 
 
@@ -173,7 +173,7 @@ class TestHandleInput:
     def test_shell_escape_adds_to_history(self) -> None:
         session = self._make_session()
         history = InputHistory()
-        with patch("hephaistos.app.workspace._run_shell_command"):
+        with patch("hephaistos.workspace._run_shell_command"):
             _new_session, should_continue = _handle_input(session, "!echo hi", history)
         assert should_continue is True
         assert "echo hi" in str(

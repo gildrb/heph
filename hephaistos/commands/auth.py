@@ -5,14 +5,13 @@ from __future__ import annotations
 import os
 
 from hephaistos.analytics import capture as capture_analytics
-from hephaistos.app.commands._base import Command, CommandResult, ensure_session
-from hephaistos.app.display import print_error, print_info, print_success
-from hephaistos.app.menu import MenuOption, confirm, select_option
-from hephaistos.app.provider_access import activate_provider
+from hephaistos.commands._base import Command, CommandResult, ensure_session
+from hephaistos.commands.provider_access import activate_provider
 from hephaistos.providers import keyring_store, oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import clear_key, get_volatile, set_volatile, store_key
-from hephaistos.terminal import direct_input
+from hephaistos.terminal import MenuOption, confirm, direct_input, select_option
+from hephaistos.terminal_display import print_error, print_info, print_success
 
 
 class LoginCommand(Command):

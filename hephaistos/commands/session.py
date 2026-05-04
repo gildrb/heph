@@ -5,24 +5,6 @@ from __future__ import annotations
 from contextlib import suppress
 
 from hephaistos.analytics import capture as capture_analytics
-from hephaistos.app.commands._base import Command, CommandResult, ensure_session
-from hephaistos.app.display import (
-    STYLE_DIM,
-    direct_input,
-    print_error,
-    print_info,
-    print_success,
-    styled,
-)
-from hephaistos.app.menu import confirm
-from hephaistos.app.palette import STYLE_PROMPT
-from hephaistos.app.workspace import (
-    create_armory_command,
-    handle_armory_command,
-    list_saved_chats,
-    open_armory_command,
-    resume_saved_chat,
-)
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
     ChatSession,
@@ -32,7 +14,24 @@ from hephaistos.chat.session import (
     save_session,
     session_has_messages,
 )
+from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.runtime import is_keyless_endpoint
+from hephaistos.terminal import STYLE_PROMPT, confirm
+from hephaistos.terminal_display import (
+    STYLE_DIM,
+    direct_input,
+    print_error,
+    print_info,
+    print_success,
+    styled,
+)
+from hephaistos.workspace import (
+    create_armory_command,
+    handle_armory_command,
+    list_saved_chats,
+    open_armory_command,
+    resume_saved_chat,
+)
 
 
 class StatusCommand(Command):

@@ -5,21 +5,21 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from hephaistos.app.commands._base import (
+from hephaistos.chat import storage as chat_storage
+from hephaistos.chat.session import ChatSession
+from hephaistos.chat.usage import load_usage_summaries
+from hephaistos.commands._base import (
     Command,
     CommandResult,
     ensure_session,
     format_duration,
     pct,
 )
-from hephaistos.app.display import print_error, print_info, print_success
-from hephaistos.app.workspace import list_saved_chats, resume_saved_chat
-from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.session import ChatSession
-from hephaistos.chat.usage import load_usage_summaries
 from hephaistos.study.state import StudyFeedbackType
+from hephaistos.terminal_display import print_error, print_info, print_success
 from hephaistos.vocab.parser import scan_armory
 from hephaistos.vocab.state import load_schedule, save_schedule
+from hephaistos.workspace import list_saved_chats, resume_saved_chat
 
 
 class HistoryCommand(Command):

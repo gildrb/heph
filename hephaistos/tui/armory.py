@@ -7,7 +7,10 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hephaistos.app.armory_browser import (
+from hephaistos.armory.storage import ArmoryError, initialize
+from hephaistos.armory.storage import validate as _validate_armory
+from hephaistos.search_index import add_known_armory
+from hephaistos.tui.armory_browser import (
     _creation_parent_error,
     _DirEntry,
     armory_detail,
@@ -16,9 +19,6 @@ from hephaistos.app.armory_browser import (
     file_detail,
     new_armory_path,
 )
-from hephaistos.app.search_index import add_known_armory
-from hephaistos.armory.storage import ArmoryError, initialize
-from hephaistos.armory.storage import validate as _validate_armory
 
 try:
     from textual.widgets import Input, OptionList, RichLog, Static

@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.app import armory_browser
 from hephaistos.armory.storage import MARKER_FILE, initialize
+from hephaistos.tui import armory_browser
 
 # Skip the entire module if Textual is not installed.
 pytestmark = pytest.mark.skipif(

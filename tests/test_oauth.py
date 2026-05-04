@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from hephaistos.app.commands import LogoutCommand, get_registry
+from hephaistos.commands import LogoutCommand, get_registry
 from hephaistos.providers.oauth import (
     OAuthCredentials,
     _ssl_context,  # type: ignore[reportPrivateUsage]
@@ -234,7 +234,7 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("info", msg))
 
     monkeypatch.setattr(
-        "hephaistos.app.commands.auth.print_info",
+        "hephaistos.commands.auth.print_info",
         _capture_info,
     )
     cmd = LogoutCommand()
@@ -253,7 +253,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         return True
 
     monkeypatch.setattr(
-        "hephaistos.app.commands.auth.confirm",
+        "hephaistos.commands.auth.confirm",
         _confirm,
     )
     cleared: list[str] = []
@@ -267,7 +267,7 @@ def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
         messages.append(("success", msg))
 
     monkeypatch.setattr(
-        "hephaistos.app.commands.auth.print_success",
+        "hephaistos.commands.auth.print_success",
         _capture_success,
     )
     cmd = LogoutCommand()

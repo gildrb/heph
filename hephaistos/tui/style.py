@@ -1,7 +1,7 @@
 # pyright: reportUnusedFunction=false
 from __future__ import annotations
 
-from hephaistos.app.palette import current_palette
+from hephaistos.terminal import current_palette
 
 
 def _tui_css() -> str:

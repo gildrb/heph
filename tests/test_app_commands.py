@@ -4,18 +4,18 @@ from pathlib import Path
 
 import pytest
 
-import hephaistos.app.commands.memory as _commands_memory
-import hephaistos.app.commands.model as _commands_model
-import hephaistos.app.commands.persona as _commands_persona
-import hephaistos.app.commands.session as _commands_session
+import hephaistos.commands.memory as _commands_memory
+import hephaistos.commands.model as _commands_model
+import hephaistos.commands.persona as _commands_persona
+import hephaistos.commands.session as _commands_session
 from hephaistos.app import commands
-from hephaistos.app.menu import MenuOption
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession, create_plain_session
 from hephaistos.providers import catalog
 from hephaistos.providers.catalog import LiveProviderCatalog
 from hephaistos.providers.config import default_config
 from hephaistos.providers.registry import ModelInfo
+from hephaistos.terminal import MenuOption
 
 
 def test_command_registry_has_unique_names_and_aliases() -> None:

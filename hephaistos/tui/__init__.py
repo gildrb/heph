@@ -18,34 +18,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
+import hephaistos.workspace as _workspace
 from hephaistos.analytics import capture as capture_analytics
-from hephaistos.app import workspace as _workspace
-from hephaistos.app.armory_browser import _DirEntry
-from hephaistos.app.autocomplete import CompletionCandidate, SlashCompletionEngine
-from hephaistos.app.commands import NewCommand
-from hephaistos.app.commands import get_registry as _get_registry
-from hephaistos.app.input_history import InputHistory
-from hephaistos.app.materials_view import material_listing
-from hephaistos.app.model_picker import configured_model_choices, switch_model
-from hephaistos.app.palette import ThemePalette, current_palette
-from hephaistos.app.search_index import SearchResult, load_known_armories
-from hephaistos.app.search_screen import SearchScreen
-from hephaistos.app.transparent import (
-    make_blank_background_cls,
-    make_transparent_cls,
-    nonfocus_rich_log_class,
-)
-from hephaistos.app.workspace import (
-    create_startup_session,
-    get_history_path,
-    handle_input,
-    save_on_exit,
-)
 from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.session import ChatSession
+from hephaistos.commands import NewCommand
+from hephaistos.commands import get_registry as _get_registry
+from hephaistos.commands.autocomplete import CompletionCandidate, SlashCompletionEngine
+from hephaistos.commands.model_picker import configured_model_choices, switch_model
+from hephaistos.input_history import InputHistory
 from hephaistos.parameters.cli import load_config
+from hephaistos.search_index import SearchResult, load_known_armories
+from hephaistos.terminal import ThemePalette, current_palette
 from hephaistos.tui import armory as _tui_armory
 from hephaistos.tui.armory import TuiArmoryMixin
+from hephaistos.tui.armory_browser import _DirEntry
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
 from hephaistos.tui.display_text import (
     armory_footer_hints_text,
@@ -57,6 +44,7 @@ from hephaistos.tui.display_text import (
 )
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.inline_flows import TuiInlineFlowMixin
+from hephaistos.tui.materials_view import material_listing
 from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
     TuiInputRoute,
@@ -65,6 +53,7 @@ from hephaistos.tui.routing import (
     pending_input_requires_terminal,
     tui_input_route,
 )
+from hephaistos.tui.search_screen import SearchScreen
 from hephaistos.tui.session_state import TuiCaptureWriter, TuiRuntimeState, TuiTranscriptEntry
 from hephaistos.tui.shell import command_output_text, run_shell_escape_captured
 from hephaistos.tui.slash_command import (
@@ -76,6 +65,17 @@ from hephaistos.tui.status import config_error, status_lines
 from hephaistos.tui.streaming import run_tui_turn
 from hephaistos.tui.style import _tui_css
 from hephaistos.tui.transcript import TuiTranscriptMixin
+from hephaistos.tui.transparent import (
+    make_blank_background_cls,
+    make_transparent_cls,
+    nonfocus_rich_log_class,
+)
+from hephaistos.workspace import (
+    create_startup_session,
+    get_history_path,
+    handle_input,
+    save_on_exit,
+)
 
 try:
     from rich.markdown import Markdown

@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import sys
 
-from hephaistos.app.palette import current_palette
-from hephaistos.app.rich_transcript import enrich_reply
+from hephaistos.terminal import current_palette
+from hephaistos.tui.rich_transcript import enrich_reply
 
 try:
     from rich.markdown import Markdown

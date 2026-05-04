@@ -5,13 +5,13 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from hephaistos.app.commands._base import Command, CommandResult, ensure_session
-from hephaistos.app.display import print_error, print_info, print_success
-from hephaistos.app.search_index import (
+from hephaistos.commands._base import Command, CommandResult, ensure_session
+from hephaistos.search_index import (
     add_known_armory,
     load_known_armories,
     remove_known_armory,
 )
+from hephaistos.terminal_display import print_error, print_info, print_success
 
 
 class ImportCommand(Command):

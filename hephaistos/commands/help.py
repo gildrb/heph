@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from hephaistos.app.commands._base import Command, CommandResult, get_registry_lazy
-from hephaistos.app.display import print_info, styled
-from hephaistos.app.palette import STYLE_PROMPT
+from hephaistos.commands._base import Command, CommandResult, get_registry_lazy
+from hephaistos.terminal import STYLE_PROMPT
+from hephaistos.terminal_display import print_info, styled
 
 
 class HelpCommand(Command):

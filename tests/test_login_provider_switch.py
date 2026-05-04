@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-import hephaistos.app.commands.auth as _commands_auth
+import hephaistos.commands.auth as _commands_auth
 from hephaistos.app import commands
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession

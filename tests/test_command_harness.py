@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hephaistos.app.command_harness import parse_slash_command
+from hephaistos.commands.harness import parse_slash_command
 
 
 def test_parse_slash_command_defaults_bare_slash_to_help() -> None:
