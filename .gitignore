@@ -55,6 +55,7 @@ node_modules/
 .factory/
 .codex/
 .pi/
+.deepsec/
 .agents/*
 !.agents/skills/
 !.agents/skills/**
