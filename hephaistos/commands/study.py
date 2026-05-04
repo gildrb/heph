@@ -7,7 +7,14 @@ from datetime import UTC, datetime
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands._base import Command, CommandResult, ensure_session
-from hephaistos.terminal import confirm
+from hephaistos.terminal import (
+    STYLE_PROMPT,
+    MenuOption,
+    confirm,
+    direct_input,
+    direct_print,
+    select_option,
+)
 from hephaistos.terminal_display import (
     STYLE_ACCENT,
     STYLE_DIM,
@@ -19,8 +26,38 @@ from hephaistos.terminal_display import (
 )
 from hephaistos.vocab.drill import run_drill
 from hephaistos.vocab.parser import scan_armory
-from hephaistos.vocab.scheduler import select_due_cards
+from hephaistos.vocab.scheduler import Rating, select_due_cards
 from hephaistos.vocab.state import VocabCardState, load_schedule, save_schedule
+
+_HARD_OPTION = MenuOption("Hard", "had to think about it")
+_GOOD_OPTION = MenuOption("Good", "knew it")
+_EASY_OPTION = MenuOption("Easy", "instant recall")
+_RATING_OPTIONS = [_HARD_OPTION, _GOOD_OPTION, _EASY_OPTION]
+
+
+class TerminalDrillUi:
+    """Terminal adapter for the reusable vocabulary drill workflow."""
+
+    def print_line(self, text: str = "") -> None:
+        direct_print(text)
+
+    def prompt_answer(self, prompt: str) -> str:
+        return direct_input(prompt)
+
+    def prompt_rating(self) -> Rating | None:
+        selected = select_option("How did it feel?", _RATING_OPTIONS)
+        if selected is None:
+            return None
+        return [Rating.HARD, Rating.GOOD, Rating.EASY][selected]
+
+    def format_prompt(self, text: str) -> str:
+        return styled(text, STYLE_PROMPT)
+
+    def format_accent(self, text: str) -> str:
+        return styled(text, STYLE_ACCENT)
+
+    def format_dim(self, text: str) -> str:
+        return styled(text, STYLE_DIM)
 
 
 class VocabCommand(Command):
@@ -42,7 +79,7 @@ class VocabCommand(Command):
             return self._reset(s)
 
         # Default: start drill.
-        result = run_drill(s.armory_path)
+        result = run_drill(s.armory_path, TerminalDrillUi())
         if result and result.cards_reviewed > 0:
             capture_analytics(
                 "vocab_drill",

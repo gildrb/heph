@@ -79,21 +79,24 @@ graph TD
     Chat -->|Session state| FileStore
 ```
 
-The top layer is the adapter surface: **cli**, **tui**, and **app**. `cli` is the
-public command dispatcher, `tui` is the interactive Textual adapter, and `app`
-holds shared command/workspace compatibility code. Reusable packages communicate
-through their public APIs and must not import adapter packages. Shared LLM request
-primitives live in **runtime** so chat, agent, memory, parameters, and providers do
-not import each other just to share message types or streaming helpers.
+The top layer is the adapter surface: **cli**, **commands**, **tui**, **app**,
+and root-level shell compatibility modules such as `terminal`, `terminal_display`,
+`workspace`, `search_index`, and `input_history`. `cli` is the public command
+dispatcher, `commands` contains slash-command handlers, `tui` is the interactive
+Textual adapter, and `app` holds shared command/workspace compatibility code. Reusable packages communicate through their
+public APIs and must not import adapter packages. Shared LLM request primitives
+live in **runtime** so chat, agent, memory, parameters, and providers do not
+import each other just to share message types or streaming helpers.
 
 ## Package layout
 
 ```
 hephaistos/
   cli/          Public command dispatcher and CLI argument parsing
+  commands/     Slash-command handlers for shell/TUI adapters
   tui/          Textual interactive adapter: widgets, key handling, rendering
   app/          Shared command/workspace compatibility adapters
-  chat/         Session lifecycle, storage, turn orchestration — no app imports
+  chat/         Session lifecycle, storage, turn orchestration — no adapter imports
   runtime/      Shared LLM messages, config, client streaming, retry helpers
   agent/        Prompt building, persona, citation, tools — no app imports
   providers/    LLM provider registry, config, auth — no app imports
@@ -113,7 +116,10 @@ hephaistos/
 
 ### Forbidden: reusable packages must not import adapters
 
-The following packages cannot import anything from `hephaistos.app` or `hephaistos.tui`:
+The following packages cannot import anything from adapter packages:
+`hephaistos.app`, `hephaistos.cli`, `hephaistos.commands`, `hephaistos.tui`,
+`hephaistos.terminal`, `hephaistos.terminal_display`, `hephaistos.workspace`,
+`hephaistos.search_index`, or `hephaistos.input_history`:
 
 - `hephaistos.chat`
 - `hephaistos.agent`
@@ -130,9 +136,10 @@ The following packages cannot import anything from `hephaistos.app` or `hephaist
 - `hephaistos.logging`
 - `hephaistos.palette`
 
-### Forbidden: logging must not import adapters
+### Forbidden: logging and observability must not import adapters
 
-`hephaistos.logging` must not import from `hephaistos.app` or `hephaistos.tui`.
+`hephaistos.logging` and `hephaistos.observability` must not import from
+`hephaistos.app`, `hephaistos.cli`, `hephaistos.commands`, or `hephaistos.tui`.
 
 ### Independent: chat.session and chat.orchestrator
 
