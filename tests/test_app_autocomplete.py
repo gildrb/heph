@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from hephaistos.commands.autocomplete import CommandSuggestion, SlashCompletionEngine
+from hephaistos.commands.suggestions import CommandSuggestion
 from hephaistos.providers.config import default_config
+from hephaistos.tui.slash_completion import SlashCompletionEngine
 
 
 def test_command_suggestion_smoke() -> None:

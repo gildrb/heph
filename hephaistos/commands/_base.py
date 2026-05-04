@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 from hephaistos.chat.compaction import compact_session
 from hephaistos.chat.session import ChatSession
 
-if TYPE_CHECKING:
-    from hephaistos.commands import CommandRegistry
+
+class CommandRegistryProtocol(Protocol):
+    commands: list[Command]
+
+    def find(self, name: str) -> Command | None: ...
+
+    def suggestions(self) -> object: ...
 
 
 class CommandResult:
@@ -40,15 +45,15 @@ class Command:
 
 # Lazy registry accessor — avoids circular imports between __init__.py and
 # sub-modules that need to enumerate commands (e.g. HelpCommand).
-_registry_fn: Callable[[], CommandRegistry] | None = None
+_registry_fn: Callable[[], CommandRegistryProtocol] | None = None
 
 
-def set_registry_fn(fn: Callable[[], CommandRegistry]) -> None:
+def set_registry_fn(fn: Callable[[], CommandRegistryProtocol]) -> None:
     global _registry_fn  # noqa: PLW0603
     _registry_fn = fn
 
 
-def get_registry_lazy() -> CommandRegistry:
+def get_registry_lazy() -> CommandRegistryProtocol:
     """Return the CommandRegistry by calling the lazy getter set by __init__.py."""
     if _registry_fn is None:
         msg = "Registry not initialized — call set_registry_fn first"

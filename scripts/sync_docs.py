@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from hephaistos.app.cli import build_parser
-from hephaistos.app.commands import get_registry
+from hephaistos.cli.main import build_parser
+from hephaistos.commands import get_registry
 from hephaistos.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
 from hephaistos.memory.extract import _EXTRACTION_MODEL_ENV
 from hephaistos.memory.supermemory import SUPERMEMORY_API_KEY_ENV, SUPERMEMORY_URL_ENV

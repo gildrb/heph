@@ -31,7 +31,9 @@ nav:
   - Architecture: architecture.md
   - CLI Reference: cli-reference.md
   - API Reference:
-    - app: api/app.md
+    - cli: api/cli.md
+    - commands: api/commands.md
+    - tui: api/tui.md
     - armory: api/armory.md
     - chat: api/chat.md
     - agent: api/agent.md

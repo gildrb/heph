@@ -13,7 +13,6 @@ from hephaistos.chat.session import save_session
 from hephaistos.commands._base import Command, CommandResult, set_registry_fn
 from hephaistos.commands.armory import ExportCommand, ImportCommand, IndexCommand
 from hephaistos.commands.auth import LoginCommand, LogoutCommand
-from hephaistos.commands.autocomplete import CommandSuggestion
 from hephaistos.commands.compact import CompactCommand
 from hephaistos.commands.display import (
     CostCommand,
@@ -49,6 +48,7 @@ from hephaistos.commands.session import (
 )
 from hephaistos.commands.settings import SettingsCommand
 from hephaistos.commands.study import RemindCommand, VocabCommand
+from hephaistos.commands.suggestions import CommandSuggestion
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.terminal import confirm
 from hephaistos.terminal_display import (
@@ -56,6 +56,7 @@ from hephaistos.terminal_display import (
     print_info,
     print_success,
 )
+from hephaistos.workspace import set_command_registry_fn
 
 
 class CommandRegistry:
@@ -118,9 +119,10 @@ def get_registry() -> CommandRegistry:
     return _registry
 
 
-# Wire up the lazy registry accessor so sub-modules (e.g. HelpCommand)
-# can access the registry without creating a circular import.
+# Wire up lazy registry accessors so sub-modules and workspace input handling
+# can access the registry without creating circular imports.
 set_registry_fn(get_registry)
+set_command_registry_fn(get_registry)
 
 
 __all__ = [

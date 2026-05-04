@@ -6,13 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
-import hephaistos.app.cli as app_cli
 from hephaistos.agent.dispatch import iter_agent_events
-from hephaistos.app.cli import build_parser, run_argv
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.events import TurnCompleteEvent
 from hephaistos.chat.session import create_session
+from hephaistos.cli.main import _inject_default_subcommand, build_parser, run_argv
+from hephaistos.cli.main import main as cli_main
+from hephaistos.cli.main import sys as cli_sys
 from hephaistos.rag.index import load_or_build
 from hephaistos.tui import TuiDependencyError
 
@@ -73,12 +74,12 @@ def test_main_without_args_uses_tui(monkeypatch: pytest.MonkeyPatch) -> None:
         called = True
         assert path is None
 
-    monkeypatch.setattr(app_cli.sys, "argv", ["heph"])
-    monkeypatch.setattr(app_cli.sys, "stdin", _FakeTTY(True))
-    monkeypatch.setattr(app_cli.sys, "stdout", _FakeTTY(True))
+    monkeypatch.setattr(cli_sys, "argv", ["heph"])
+    monkeypatch.setattr(cli_sys, "stdin", _FakeTTY(True))
+    monkeypatch.setattr(cli_sys, "stdout", _FakeTTY(True))
 
     with patch("hephaistos.tui.run_tui_for_path", fake_tui):
-        app_cli.main()
+        cli_main()
 
     assert called
 
@@ -91,12 +92,12 @@ def test_main_without_args_uses_tui_on_non_tty(monkeypatch: pytest.MonkeyPatch) 
         called = True
         assert path is None
 
-    monkeypatch.setattr(app_cli.sys, "argv", ["heph"])
-    monkeypatch.setattr(app_cli.sys, "stdin", _FakeTTY(False))
-    monkeypatch.setattr(app_cli.sys, "stdout", _FakeTTY(False))
+    monkeypatch.setattr(cli_sys, "argv", ["heph"])
+    monkeypatch.setattr(cli_sys, "stdin", _FakeTTY(False))
+    monkeypatch.setattr(cli_sys, "stdout", _FakeTTY(False))
 
     with patch("hephaistos.tui.run_tui_for_path", fake_tui):
-        app_cli.main()
+        cli_main()
 
     assert called
 
@@ -141,10 +142,10 @@ def test_bare_path_dispatches_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         nonlocal captured_path
         captured_path = path
 
-    monkeypatch.setattr(app_cli.sys, "argv", ["heph", str(tmp_path)])
+    monkeypatch.setattr(cli_sys, "argv", ["heph", str(tmp_path)])
 
     with patch("hephaistos.tui.run_tui_for_path", fake_tui):
-        app_cli.main()
+        cli_main()
 
     assert captured_path == tmp_path
 
@@ -170,10 +171,10 @@ def test_tui_flag_alias_dispatches_tui(monkeypatch: pytest.MonkeyPatch) -> None:
         nonlocal captured_path
         captured_path = path
 
-    monkeypatch.setattr(app_cli.sys, "argv", ["heph", "--tui"])
+    monkeypatch.setattr(cli_sys, "argv", ["heph", "--tui"])
 
     with patch("hephaistos.tui.run_tui_for_path", fake_tui):
-        app_cli.main()
+        cli_main()
 
     assert captured_path is None
 
@@ -182,10 +183,10 @@ def test_tui_flag_alias_help(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(app_cli.sys, "argv", ["heph", "--tui", "help"])
+    monkeypatch.setattr(cli_sys, "argv", ["heph", "--tui", "help"])
 
     with pytest.raises(SystemExit) as exc_info:
-        app_cli.main()
+        cli_main()
 
     assert exc_info.value.code == 0
     assert "usage: heph tui" in capsys.readouterr().out
@@ -275,13 +276,13 @@ def test_golden_path_init_source_index_dry_run(tmp_path: Path) -> None:
 
 def test_inject_default_subcommand_empty_args() -> None:
     """No args at all → inject 'tui'."""
-    result = app_cli._inject_default_subcommand([], {"armory", "tui", "source"})  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand([], {"armory", "tui", "source"})  # type: ignore[reportPrivateUsage]
     assert result == ["tui"]
 
 
 def test_inject_default_subcommand_bare_path() -> None:
     """A bare path that isn't a known command → inject 'tui' before it."""
-    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
         ["/tmp/my-armory"],
         {"armory", "tui", "source"},
     )
@@ -290,7 +291,7 @@ def test_inject_default_subcommand_bare_path() -> None:
 
 def test_inject_default_subcommand_flags_before_path() -> None:
     """Flags before the path are skipped, 'tui' injected before the path."""
-    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
         ["--profile", "/tmp/armory"],
         {"armory", "tui", "source"},
     )
@@ -299,7 +300,7 @@ def test_inject_default_subcommand_flags_before_path() -> None:
 
 def test_inject_default_subcommand_known_command_unchanged() -> None:
     """A known subcommand is left unchanged — argparse handles it."""
-    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
         ["armory", "init", "/tmp/armory"],
         {"armory", "tui", "source"},
     )
@@ -308,7 +309,7 @@ def test_inject_default_subcommand_known_command_unchanged() -> None:
 
 def test_inject_default_subcommand_flags_only() -> None:
     """Only flags, no positional → return unchanged (argparse will show help or error)."""
-    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
         ["--version"],
         {"armory", "tui", "source"},
     )
@@ -317,7 +318,7 @@ def test_inject_default_subcommand_flags_only() -> None:
 
 def test_inject_default_subcommand_relative_path() -> None:
     """Relative paths that aren't known commands get 'tui' injected."""
-    result = app_cli._inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
         ["./my-armory"],
         {"armory", "tui", "source"},
     )
@@ -335,16 +336,16 @@ def test_main_with_path_and_profile_flag(tmp_path: Path, monkeypatch: pytest.Mon
         nonlocal captured_path
         captured_path = path
 
-    monkeypatch.setattr(app_cli.sys, "argv", ["heph", "--profile", str(tmp_path)])
+    monkeypatch.setattr(cli_sys, "argv", ["heph", "--profile", str(tmp_path)])
 
     # Stub profiling to avoid actual cProfile/pstats work
     def _noop_report(_prof: object) -> None:
         pass
 
-    monkeypatch.setitem(app_cli.main.__globals__, "_report_profile", _noop_report)
+    monkeypatch.setitem(cli_main.__globals__, "_report_profile", _noop_report)
 
     with patch("hephaistos.tui.run_tui_for_path", fake_tui):
-        app_cli.main()
+        cli_main()
 
     assert captured_path == tmp_path
 
@@ -357,9 +358,9 @@ def test_bare_path_with_nonexistent_path(monkeypatch: pytest.MonkeyPatch) -> Non
         nonlocal captured_path
         captured_path = path
 
-    monkeypatch.setattr(app_cli.sys, "argv", ["heph", "/nonexistent/path"])
+    monkeypatch.setattr(cli_sys, "argv", ["heph", "/nonexistent/path"])
 
     with patch("hephaistos.tui.run_tui_for_path", fake_tui):
-        app_cli.main()
+        cli_main()
 
     assert captured_path == Path("/nonexistent/path")

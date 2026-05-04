@@ -195,7 +195,6 @@ name = "logging must not import adapters"
 type = "forbidden"
 source_modules = ["hephaistos.logging"]
 forbidden_modules = [
-    "hephaistos.app",
     "hephaistos.cli",
     "hephaistos.commands",
     "hephaistos.tui",
@@ -222,7 +221,6 @@ source_modules = [
     "hephaistos.vocab",
 ]
 forbidden_modules = [
-    "hephaistos.app",
     "hephaistos.cli",
     "hephaistos.commands",
     "hephaistos.input_history",
@@ -238,7 +236,6 @@ name = "materials must not import app, chat, agent, or rag"
 type = "forbidden"
 source_modules = ["hephaistos.materials"]
 forbidden_modules = [
-    "hephaistos.app",
     "hephaistos.tui",
     "hephaistos.chat",
     "hephaistos.agent",
@@ -253,7 +250,6 @@ source_modules = ["hephaistos.rag"]
 forbidden_modules = [
     "hephaistos.agent",
     "hephaistos.chat",
-    "hephaistos.app",
     "hephaistos.tui",
     "hephaistos.study",
 ]
@@ -263,7 +259,6 @@ name = "runtime must stay below product workflows"
 type = "forbidden"
 source_modules = ["hephaistos.runtime"]
 forbidden_modules = [
-    "hephaistos.app",
     "hephaistos.tui",
     "hephaistos.chat",
     "hephaistos.agent",
@@ -279,7 +274,6 @@ name = "providers must stay below product workflows"
 type = "forbidden"
 source_modules = ["hephaistos.providers"]
 forbidden_modules = [
-    "hephaistos.app",
     "hephaistos.tui",
     "hephaistos.chat",
     "hephaistos.agent",
@@ -293,14 +287,13 @@ forbidden_modules = [
 name = "memory must not import app, chat, or agent"
 type = "forbidden"
 source_modules = ["hephaistos.memory"]
-forbidden_modules = ["hephaistos.app", "hephaistos.tui", "hephaistos.chat", "hephaistos.agent"]
+forbidden_modules = ["hephaistos.tui", "hephaistos.chat", "hephaistos.agent"]
 
 [[tool.importlinter.contracts]]
 name = "study must remain a pure controller layer"
 type = "forbidden"
 source_modules = ["hephaistos.study"]
 forbidden_modules = [
-    "hephaistos.app",
     "hephaistos.tui",
     "hephaistos.chat",
     "hephaistos.agent",
@@ -324,11 +317,22 @@ name = "observability must not import adapters"
 type = "forbidden"
 source_modules = ["hephaistos.observability"]
 forbidden_modules = [
-    "hephaistos.app",
     "hephaistos.cli",
     "hephaistos.commands",
     "hephaistos.tui",
 ]
+
+[[tool.importlinter.contracts]]
+name = "workspace must not import commands"
+type = "forbidden"
+source_modules = ["hephaistos.workspace"]
+forbidden_modules = ["hephaistos.commands"]
+
+[[tool.importlinter.contracts]]
+name = "commands must not import tui or app"
+type = "forbidden"
+source_modules = ["hephaistos.commands"]
+forbidden_modules = ["hephaistos.tui"]
 
 [tool.deptry]
 extend_exclude = ["tests"]

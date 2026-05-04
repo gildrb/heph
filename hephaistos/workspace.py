@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import subprocess  # nosec B404
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Protocol
 
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
@@ -23,7 +24,6 @@ from hephaistos.chat.session import (
     session_has_messages,
     validate_armory_path,
 )
-from hephaistos.commands._base import get_registry_lazy
 from hephaistos.fuzzy import ranked_matches
 from hephaistos.input_history import InputHistory
 from hephaistos.observability import capture_exception
@@ -50,6 +50,37 @@ from hephaistos.terminal_display import (
 )
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
+
+
+class _CommandResultProtocol(Protocol):
+    should_exit: bool
+    new_session: ChatSession | None
+    output: str | None
+
+
+class _CommandProtocol(Protocol):
+    def handle(self, session: object, args: str) -> _CommandResultProtocol: ...
+
+
+class _CommandRegistryProtocol(Protocol):
+    def find(self, name: str) -> _CommandProtocol | None: ...
+
+
+_command_registry_fn: Callable[[], _CommandRegistryProtocol] | None = None
+
+
+def set_command_registry_fn(fn: Callable[[], _CommandRegistryProtocol]) -> None:
+    """Install the slash-command registry used by shell input handling."""
+    global _command_registry_fn  # noqa: PLW0603
+    _command_registry_fn = fn
+
+
+def _get_command_registry() -> _CommandRegistryProtocol:
+    if _command_registry_fn is None:
+        msg = "Command registry not initialized"
+        raise RuntimeError(msg)
+    return _command_registry_fn()
+
 
 ARMORY_MENU_OPTIONS = [
     MenuOption("Open existing armory", "Attach a workspace and load its study context."),
@@ -417,7 +448,7 @@ def _handle_input(  # ty: ignore
         history.add(user_input)
         stripped = user_input.strip()
         if stripped == "/":
-            registry = get_registry_lazy()
+            registry = _get_command_registry()
             cmd = registry.find("help")
             if cmd:
                 cmd.handle(session, "")
@@ -430,7 +461,7 @@ def _handle_input(  # ty: ignore
             cmd_name = stripped[1:space_idx].lower()
             cmd_args = stripped[space_idx + 1 :].strip()
 
-        registry = get_registry_lazy()
+        registry = _get_command_registry()
         cmd = registry.find(cmd_name)
         if cmd is None:
             print_error(f"Unknown command: {stripped}")

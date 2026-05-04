@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.app.cli import build_parser, run_argv
+from hephaistos.cli.main import build_parser, run_argv
 
 
 def test_init_armory_returns_success_message(

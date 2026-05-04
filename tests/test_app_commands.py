@@ -8,7 +8,7 @@ import hephaistos.commands.memory as _commands_memory
 import hephaistos.commands.model as _commands_model
 import hephaistos.commands.persona as _commands_persona
 import hephaistos.commands.session as _commands_session
-from hephaistos.app import commands
+from hephaistos import commands
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession, create_plain_session
 from hephaistos.providers import catalog

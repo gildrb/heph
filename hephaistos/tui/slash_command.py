@@ -7,7 +7,8 @@ names/help text, while TUI and shell adapters decide how to render or apply them
 from __future__ import annotations
 
 from hephaistos.commands import get_registry
-from hephaistos.commands.autocomplete import CommandSuggestion, SlashCompletionEngine
+from hephaistos.commands.suggestions import CommandSuggestion
+from hephaistos.tui.slash_completion import SlashCompletionEngine
 
 
 def tui_command_suggestions() -> list[CommandSuggestion]:

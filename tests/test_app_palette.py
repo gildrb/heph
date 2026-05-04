@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from hephaistos.app import palette
+import hephaistos.terminal as palette
+from hephaistos.parameters.settings import THEME_PRESETS
 
 
 def test_ansi_fg_returns_truecolor_escape_sequence() -> None:
@@ -43,7 +44,7 @@ def test_current_palette_returns_forge_by_default() -> None:
 
 
 def test_all_theme_presets_are_valid_palettes() -> None:
-    for theme_name in palette.THEME_PRESETS:
+    for theme_name in THEME_PRESETS:
         palette.set_theme(theme_name)
         p = palette.current_palette()
         assert p.name == theme_name

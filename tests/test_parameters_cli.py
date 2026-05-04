@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from hephaistos.app.cli import build_parser, run_argv
 from hephaistos.chat.engine import ChatConfig
+from hephaistos.cli.main import build_parser, run_argv
 from hephaistos.parameters import cli as params_cli
 
 

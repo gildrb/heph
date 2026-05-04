@@ -21,7 +21,6 @@ from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands import NewCommand
 from hephaistos.commands import get_registry as _get_registry
-from hephaistos.commands.autocomplete import CompletionCandidate, SlashCompletionEngine
 from hephaistos.input_history import InputHistory
 from hephaistos.parameters.cli import load_config
 from hephaistos.providers.model_choices import configured_model_choices
@@ -58,6 +57,7 @@ from hephaistos.tui.slash_command import (
     slash_suggestion,
     tui_command_suggestions,
 )
+from hephaistos.tui.slash_completion import CompletionCandidate, SlashCompletionEngine
 from hephaistos.tui.status import config_error, status_lines
 from hephaistos.tui.streaming import run_tui_turn
 from hephaistos.tui.style import _tui_css

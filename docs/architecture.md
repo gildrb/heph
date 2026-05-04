@@ -15,31 +15,30 @@ not depend on product workflows.
 - **Application services**: `chat` and focused workflow modules. These compose
   core/domain packages into session lifecycle, evidence, memory workflows, and
   turn orchestration.
-- **Adapters**: `cli`, `tui`, `app`, `source`, and shell compatibility modules.
-  These may depend broadly, but reusable decisions should be promoted into services
-  or domain packages instead of staying in adapter code.
+- **Adapters**: `cli`, `commands`, `tui`, `source`, and shell compatibility
+  modules. These may depend broadly, but reusable decisions should be promoted
+  into services or domain packages instead of staying in adapter code.
 
 ## Dependency flow
 
 ```mermaid
 graph TD
-    CLI[cli] --> App[app]
-    CLI --> TUI[tui]
-    TUI --> App
+    CLI[cli] --> TUI[tui]
+    CLI --> Commands[commands]
     TUI --> Chat[chat]
-    App[app] --> Chat
-    App --> Agent[agent]
-    App --> Providers[providers]
-    App --> Runtime[runtime]
-    App --> Armory[armory]
-    App --> Study[study]
-    App --> Memory[memory]
-    App --> Parameters[parameters]
-    App --> Materials[materials]
-    App --> Logging[logging]
-    App --> Palette[palette]
-    App --> RAG[rag]
-    App --> Vocab[vocab]
+    TUI --> Commands
+    Commands --> Chat
+    Commands --> Providers[providers]
+    Commands --> Runtime[runtime]
+    Commands --> Armory[armory]
+    Commands --> Study[study]
+    Commands --> Memory[memory]
+    Commands --> Parameters[parameters]
+    Commands --> Materials[materials]
+    Commands --> Logging[logging]
+    Commands --> Palette[palette]
+    Commands --> RAG[rag]
+    Commands --> Vocab[vocab]
 
     Chat --> Agent
     Chat --> Providers
@@ -79,14 +78,14 @@ graph TD
     Chat -->|Session state| FileStore
 ```
 
-The top layer is the adapter surface: **cli**, **commands**, **tui**, **app**,
-and root-level shell compatibility modules such as `terminal`, `terminal_display`,
+The top layer is the adapter surface: **cli**, **commands**, **tui**, and
+root-level shell compatibility modules such as `terminal`, `terminal_display`,
 `workspace`, `search_index`, and `input_history`. `cli` is the public command
-dispatcher, `commands` contains slash-command handlers, `tui` is the interactive
-Textual adapter, and `app` holds shared command/workspace compatibility code. Reusable packages communicate through their
-public APIs and must not import adapter packages. Shared LLM request primitives
-live in **runtime** so chat, agent, memory, parameters, and providers do not
-import each other just to share message types or streaming helpers.
+dispatcher, `commands` contains slash-command handlers, and `tui` is the
+interactive Textual adapter. Reusable packages communicate through their public
+APIs and must not import adapter packages. Shared LLM request primitives live in
+**runtime** so chat, agent, memory, parameters, and providers do not import each
+other just to share message types or streaming helpers.
 
 ## Package layout
 
@@ -95,7 +94,6 @@ hephaistos/
   cli/          Public command dispatcher and CLI argument parsing
   commands/     Slash-command handlers for shell/TUI adapters
   tui/          Textual interactive adapter: widgets, key handling, rendering
-  app/          Shared command/workspace compatibility adapters
   chat/         Session lifecycle, storage, turn orchestration — no adapter imports
   runtime/      Shared LLM messages, config, client streaming, retry helpers
   agent/        Prompt building, persona, citation, tools — no app imports
@@ -117,7 +115,7 @@ hephaistos/
 ### Forbidden: reusable packages must not import adapters
 
 The following packages cannot import anything from adapter packages:
-`hephaistos.app`, `hephaistos.cli`, `hephaistos.commands`, `hephaistos.tui`,
+`hephaistos.cli`, `hephaistos.commands`, `hephaistos.tui`,
 `hephaistos.terminal`, `hephaistos.terminal_display`, `hephaistos.workspace`,
 `hephaistos.search_index`, or `hephaistos.input_history`:
 
@@ -139,7 +137,7 @@ The following packages cannot import anything from adapter packages:
 ### Forbidden: logging and observability must not import adapters
 
 `hephaistos.logging` and `hephaistos.observability` must not import from
-`hephaistos.app`, `hephaistos.cli`, `hephaistos.commands`, or `hephaistos.tui`.
+`hephaistos.cli`, `hephaistos.commands`, or `hephaistos.tui`.
 
 ### Independent: chat.session and chat.orchestrator
 
@@ -148,8 +146,8 @@ The following packages cannot import anything from adapter packages:
 ### Independent: materials
 
 `hephaistos.materials` owns study material discovery and ignore-policy parsing.
-It must not import `hephaistos.app`, `hephaistos.chat`, `hephaistos.agent`, or
-`hephaistos.rag`. `hephaistos.rag` may import `materials`, but that dependency
+It must not import `hephaistos.chat`, `hephaistos.agent`, or `hephaistos.rag`.
+`hephaistos.rag` may import `materials`, but that dependency
 is one-way.
 
 ### Low level: runtime
