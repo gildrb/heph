@@ -228,7 +228,6 @@ forbidden_modules = [
     "hephaistos.terminal",
     "hephaistos.terminal_display",
     "hephaistos.tui",
-    "hephaistos.workspace",
 ]
 
 [[tool.importlinter.contracts]]
@@ -323,10 +322,10 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "workspace must not import commands"
+name = "commands must not import workspace"
 type = "forbidden"
-source_modules = ["hephaistos.workspace"]
-forbidden_modules = ["hephaistos.commands"]
+source_modules = ["hephaistos.commands"]
+forbidden_modules = []
 
 [[tool.importlinter.contracts]]
 name = "commands must not import tui or app"

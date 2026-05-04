@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
-import hephaistos.workspace as _workspace
+from hephaistos import armory_actions as _armory_actions
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.chat.cli import resolve_armory_session
 from hephaistos.chat.model_selection import switch_model
@@ -70,6 +70,8 @@ from hephaistos.tui.transparent import (
     nonfocus_rich_log_class,
 )
 
+start_fresh_session = _armory_actions.start_fresh_session
+
 try:
     from rich.markdown import Markdown
     from rich.segment import Segment
@@ -102,7 +104,6 @@ except ImportError:
     RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
-start_fresh_session = _workspace.start_fresh_session
 get_registry = _get_registry
 
 

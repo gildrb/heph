@@ -6,10 +6,11 @@
 
 | Command | Description |
 |---|---|
-| `heph` | Launch the TUI in plain-chat mode or attach the current armory. |
-| `heph <path>` | Launch the TUI attached to a specific armory path. |
+| `heph` | Open your current armory or plain chat. |
+| `heph <name-or-path>` | Open a known armory by name, e.g. `heph gdp`, or by path. |
 | `hephaistos [path]` | Equivalent long entrypoint for `heph`. |
-| `heph armory init <path>` | Create a new armory folder. |
+| `heph armory <name> [parent]` | Create a named armory in ~/Armories or in <parent>/Armories. |
+| `heph armory init <name-or-path>` | Create a new named armory folder. |
 | `heph armory open <path>` | Open and validate an armory. |
 | `heph materials list <path>` | List study material files. |
 | `heph materials count <path>` | Count study material files. |

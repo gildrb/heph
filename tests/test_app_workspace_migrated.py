@@ -1,10 +1,4 @@
-"""Tests for the 5 shared functions migrated from shell.py to workspace.py.
-
-These functions are: create_startup_session, get_history_path, handle_input,
-save_on_exit, discover_startup_armory.
-
-Validates VAL-STRUCT-003: Shared functions from shell.py migrated.
-"""
+"""Tests for shared session lifecycle and shell input helpers."""
 
 from __future__ import annotations
 
@@ -282,10 +276,10 @@ class TestHandleInput:
 
 
 class TestImportability:
-    """Verify all 5 migrated functions are importable from workspace."""
+    """Verify migrated functions are importable from canonical modules."""
 
     def test_all_functions_importable(self) -> None:
-        """All 5 migrated functions are callable from workspace.py."""
+        """Migrated functions are callable from their focused modules."""
         assert callable(create_startup_session)
         assert callable(get_history_path)
         assert callable(handle_input)

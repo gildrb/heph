@@ -8,7 +8,7 @@ import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, cast
 
 from hephaistos.cli.main import build_parser
 from hephaistos.commands import get_registry
@@ -101,6 +101,9 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HEPHAISTOS_FEATURE_FLAGS": "Comma-separated feature flags.",
     "HEPHAISTOS_ANALYTICS_ENABLED": "Override the saved analytics opt-in (`true`/`false`).",
     "HEPHAISTOS_API_KEY": "Global API key override that applies to any provider.",
+    "HEPHAISTOS_ARMORY_HOME": (
+        "Default parent folder for named armories (`~/Armories` by default)."
+    ),
     "HEPHAISTOS_CRASH_REPORTS_ENABLED": "Override the saved crash-report opt-in (`true`/`false`).",
     "HEPHAISTOS_EMBED_MODEL": "Override the embedding model used by retrieval.",
     "HEPHAISTOS_EXTRACTION_MODEL": "Override the model used for background memory extraction.",
@@ -129,9 +132,12 @@ SHELL_SIGNATURE_OVERRIDES: Final[dict[str, str]] = {
 }
 
 CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
-    "heph": "Launch the TUI in plain-chat mode or attach the current armory.",
-    "heph <path>": "Launch the TUI attached to a specific armory path.",
+    "heph": "Open your current armory or plain chat.",
+    "heph <name-or-path>": "Open a known armory by name, e.g. `heph gdp`, or by path.",
     "hephaistos [path]": "Equivalent long entrypoint for `heph`.",
+    "heph armory <name> [parent]": (
+        "Create a named armory in ~/Armories or in <parent>/Armories."
+    ),
     "heph start [path]": "Hidden backwards-compatible alias for `heph [path]`.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
     "heph source list <path>": "Deprecated alias for `heph materials list <path>`.",
@@ -142,12 +148,12 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     (
         re.compile(r"\bheph\s+start\b"),
-        "Use `heph` or `heph <path>` as the primary command. Reserve `start` for the "
+        "Use `heph` or `heph <name-or-path>` as the primary command. Reserve `start` for the "
         "generated compatibility note only.",
     ),
     (
         re.compile(r"\bhephaistos\s+start\b"),
-        "Use `hephaistos` or `hephaistos <path>` as the primary long-form command.",
+        "Use `hephaistos` or `hephaistos <name-or-path>` as the primary long-form command.",
     ),
     (
         re.compile(r"\bsource\s+reindex\b"),
@@ -173,9 +179,10 @@ def load_pyproject(path: Path) -> dict[str, object]:
 
 
 def load_project_scripts(pyproject_path: Path) -> dict[str, str]:
-    project = load_pyproject(pyproject_path).get("project", {})
-    if not isinstance(project, dict):
+    project_raw = load_pyproject(pyproject_path).get("project", {})
+    if not isinstance(project_raw, dict):
         raise TypeError("pyproject.toml is missing [project].")
+    project = cast("dict[str, object]", project_raw)
     scripts = project.get("scripts", {})
     if not isinstance(scripts, dict):
         raise TypeError("pyproject.toml is missing [project.scripts].")
@@ -201,7 +208,7 @@ def get_subparsers_action(
 ) -> _argparse._SubParsersAction[argparse.ArgumentParser]:  # type: ignore[reportPrivateUsage]
     for action in parser._actions:  # type: ignore[reportPrivateUsage]
         if isinstance(action, _argparse._SubParsersAction):  # type: ignore[reportPrivateUsage]
-            return action
+            return cast("_argparse._SubParsersAction[argparse.ArgumentParser]", action)
     raise RuntimeError(f"Parser {parser.prog!r} does not define subcommands.")
 
 
@@ -234,14 +241,18 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     return (
         CommandLine(short_command, CLI_COMMAND_DESCRIPTIONS[short_command]),
         CommandLine(
-            f"{short_command} <path>",
-            CLI_COMMAND_DESCRIPTIONS[f"{short_command} <path>"],
+            f"{short_command} <name-or-path>",
+            CLI_COMMAND_DESCRIPTIONS[f"{short_command} <name-or-path>"],
         ),
         CommandLine(
             f"{long_command} [path]",
             CLI_COMMAND_DESCRIPTIONS[f"{long_command} [path]"],
         ),
-        CommandLine(f"{short_command} armory init <path>", armory_help["init"]),
+        CommandLine(
+            f"{short_command} armory <name> [parent]",
+            CLI_COMMAND_DESCRIPTIONS[f"{short_command} armory <name> [parent]"],
+        ),
+        CommandLine(f"{short_command} armory init <name-or-path>", armory_help["init"]),
         CommandLine(f"{short_command} armory open <path>", armory_help["open"]),
         CommandLine(f"{short_command} materials list <path>", materials_help["list"]),
         CommandLine(f"{short_command} materials count <path>", materials_help["count"]),
@@ -282,8 +293,9 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
     }
     selected = (
         short_command,
-        f"{short_command} <path>",
-        f"{short_command} armory init <path>",
+        f"{short_command} <name-or-path>",
+        f"{short_command} armory <name> [parent]",
+        f"{short_command} armory init <name-or-path>",
         f"{short_command} armory open <path>",
         f"{short_command} materials list <path>",
         f"{short_command} materials count <path>",

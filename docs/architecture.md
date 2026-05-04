@@ -80,7 +80,8 @@ graph TD
 
 The top layer is the adapter surface: **cli**, **commands**, **tui**, and
 root-level shell compatibility modules such as `terminal`, `terminal_display`,
-`workspace`, `search_index`, and `input_history`. `cli` is the public command
+`shell_input`, `session_lifecycle`, `armory_actions`, `saved_chats`,
+`search_index`, and `input_history`. `cli` is the public command
 dispatcher, `commands` contains slash-command handlers, and `tui` is the
 interactive Textual adapter. Reusable packages communicate through their public
 APIs and must not import adapter packages. Shared LLM request primitives live in
@@ -116,8 +117,9 @@ hephaistos/
 
 The following packages cannot import anything from adapter packages:
 `hephaistos.cli`, `hephaistos.commands`, `hephaistos.tui`,
-`hephaistos.terminal`, `hephaistos.terminal_display`, `hephaistos.workspace`,
-`hephaistos.search_index`, or `hephaistos.input_history`:
+`hephaistos.terminal`, `hephaistos.terminal_display`, `hephaistos.shell_input`,
+`hephaistos.session_lifecycle`, `hephaistos.armory_actions`,
+`hephaistos.saved_chats`, `hephaistos.search_index`, or `hephaistos.input_history`:
 
 - `hephaistos.chat`
 - `hephaistos.agent`

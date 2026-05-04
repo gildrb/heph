@@ -35,8 +35,14 @@ def _imported_modules_after_import(module_name: str) -> set[str]:
     return {item for item in modules if isinstance(item, str)}
 
 
-def test_copyable_packages_do_not_load_app_or_chat_session() -> None:
-    forbidden = {"hephaistos.tui", "hephaistos.workspace", "hephaistos.chat.session"}
+def test_copyable_packages_do_not_load_adapters_or_chat_session() -> None:
+    forbidden = {
+        "hephaistos.armory_actions",
+        "hephaistos.saved_chats",
+        "hephaistos.shell_input",
+        "hephaistos.tui",
+        "hephaistos.chat.session",
+    }
     module_names = (
         "hephaistos.runtime",
         "hephaistos.providers",
@@ -107,7 +113,12 @@ def test_source_cli_is_a_thin_compatibility_adapter() -> None:
 def test_overworked_module_guardrails() -> None:
     max_lines = {
         "tui/__init__.py": 1100,
-        "app/workspace.py": 520,
+        "armory_actions.py": 180,
+        "saved_chats.py": 190,
+        "session_actions.py": 80,
+        "session_lifecycle.py": 80,
+        "session_status.py": 80,
+        "shell_input.py": 240,
         "agent/dispatch.py": 575,
         "agent/tools.py": 950,
         "rag/retrieve.py": 910,

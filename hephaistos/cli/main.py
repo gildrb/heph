@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import shutil
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -35,7 +37,7 @@ def _package_version() -> str:
 
 
 def _version_string() -> str:
-    """Lazy version string — avoids importlib.metadata scan at import time."""
+    """Lazy version string - avoids importlib.metadata scan at import time."""
     return f"%(prog)s {_package_version()}"
 
 
@@ -48,14 +50,42 @@ def _hide_subparser(
     ]
 
 
+def _resolve_armory_argument(path: str | None) -> Path | None:
+    """Resolve a path or known armory shortcut for TUI startup."""
+    if not path:
+        return None
+    candidate = Path(path)
+    if candidate.exists() or any(separator in path for separator in ("/", "\\")):
+        return candidate
+
+    search_index = importlib.import_module("hephaistos.search_index")
+    matches = [
+        entry.path
+        for entry in search_index.load_known_armory_entries()
+        if entry.valid and entry.path.name.lower() == path.lower()
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    prefix_matches = [
+        entry.path
+        for entry in search_index.load_known_armory_entries()
+        if entry.valid and entry.path.name.lower().startswith(path.lower())
+    ]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    if len(matches) > 1 or len(prefix_matches) > 1:
+        print(f"error: armory shortcut '{path}' is ambiguous", file=sys.stderr)
+        raise SystemExit(2)
+    return candidate
+
+
 def _cmd_tui(args: argparse.Namespace) -> None:
     """Start the Textual shell."""
-    pathlib = importlib.import_module("pathlib")
     tui = importlib.import_module("hephaistos.tui")
 
     try:
         path = getattr(args, "path", None)
-        tui.run_tui_for_path(pathlib.Path(path) if path else None)
+        tui.run_tui_for_path(_resolve_armory_argument(path))
     except tui.TuiDependencyError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
@@ -119,13 +149,13 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
     lines = [
         f"Usage: {parser.prog} [options] [command] [path]",
         "",
-        "Hephaistos is a local-first study shell with armories and materials indexing.",
-        "",
+        "Hephaistos opens a study armory and starts an interactive AI study session.",
         _HELP_EXAMPLES_HEADER,
-        f"  {parser.prog}                         Start the interactive TUI",
-        f"  {parser.prog} <path>                  Attach an armory path",
-        f"  {parser.prog} armory init <path>      Create an armory",
-        f"  {parser.prog} materials index <path>  Build the materials index",
+        f"  {parser.prog}                         Open your current armory or plain chat",
+        f"  {parser.prog} gdp                     Open the known armory named gdp",
+        f"  {parser.prog} ./gdp                   Open an armory by path",
+        f"  {parser.prog} armory mfi-1           Create ~/Armories/mfi-1",
+        f"  {parser.prog} armory mfi-1 ./Code    Create ./Code/Armories/mfi-1",
         "",
         _HELP_COMMANDS_HEADER,
         *_format_rows(commands),
@@ -133,7 +163,8 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
         _HELP_OPTIONS_HEADER,
         *_format_rows(options),
         "",
-        "Inside Hephaistos, type /help for the full interactive command reference.",
+        "Tip: name armories after modules, e.g. gdp or swt, then open them with `heph gdp`.",
+        "Inside Hephaistos, type /help for chat commands like /status, /model, and /study.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -149,6 +180,75 @@ def _inject_default_subcommand(argv: list[str], known_commands: set[str]) -> lis
                 return [*argv[:i], "tui", *argv[i:]]
             break
     return argv
+
+
+def _known_armory_homes() -> list[Path]:
+    search_index = importlib.import_module("hephaistos.search_index")
+    homes: list[Path] = []
+    for entry in search_index.load_known_armory_entries():
+        if not entry.valid or entry.path.parent.name != "Armories":
+            continue
+        home = entry.path.parent
+        if home not in homes:
+            homes.append(home)
+    return homes
+
+
+def _confirm_move_armory_home(current_home: Path, target_home: Path) -> bool:
+    print("Your armories are currently stored here:")
+    print(f"  {current_home}")
+    print("You asked to use this location instead:")
+    print(f"  {target_home}")
+    try:
+        answer = input("Move the entire Armories folder there? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer in ("y", "yes")
+
+
+def _move_armory_home(current_home: Path, target_home: Path) -> None:
+    if target_home.exists():
+        print(f"error: target Armories folder already exists: {target_home}", file=sys.stderr)
+        raise SystemExit(2)
+    target_home.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(current_home), str(target_home))
+    search_index = importlib.import_module("hephaistos.search_index")
+    moved_paths = [
+        target_home / path.relative_to(current_home) for path in search_index.load_known_armories()
+    ]
+    search_index.save_known_armories(moved_paths)
+    print(f"Moved Armories folder to {target_home}")
+
+
+def _validate_armory_home(target_home: Path) -> Path:
+    known_homes = _known_armory_homes()
+    if not known_homes or target_home in known_homes:
+        return target_home
+    current_home = known_homes[0]
+    if _confirm_move_armory_home(current_home, target_home):
+        _move_armory_home(current_home, target_home)
+        return target_home
+    print("Cancelled. To keep using your existing Armories folder, rerun without the path.")
+    raise SystemExit(2)
+
+
+def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
+    """Accept `heph armory <name> [parent]` as create-armory shorthand."""
+    if len(argv) < 2 or argv[0] != "armory":
+        return argv
+    subcommand = argv[1]
+    if subcommand in ("init", "open", "-h", "--help", "help"):
+        return argv
+    if subcommand.startswith("-"):
+        return argv
+    if len(argv) > 3:
+        return argv
+    armory_cli = importlib.import_module("hephaistos.armory.cli")
+    parent = argv[2] if len(argv) == 3 else None
+    target = armory_cli.armory_shortcut_path(subcommand, parent)
+    target_home = _validate_armory_home(target.parent)
+    return ["armory", "init", str(target_home / target.name)]
 
 
 def _normalise_tui_alias(argv: list[str]) -> list[str]:
@@ -179,12 +279,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--profile",
         action="store_true",
-        help="Enable CPU profiling (cProfile) for this session",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--profile-memory",
         action="store_true",
-        help="Enable memory profiling (tracemalloc) for this session",
+        help=argparse.SUPPRESS,
     )
     subparsers = parser.add_subparsers(
         dest="command",
@@ -202,13 +302,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     tui = subparsers.add_parser(
         "tui",
-        help="Launch the Textual shell",
+        help=argparse.SUPPRESS,
     )
-    tui.add_argument("path", nargs="?", help="Armory path to attach")
+    tui.add_argument("path", nargs="?", help="Armory path or known armory name to open")
     tui.set_defaults(handler=_cmd_tui)
 
     armory_cli = importlib.import_module("hephaistos.armory.cli")
-    armory_cli.register(subparsers)
+    armory_cli.register(subparsers, post_init=_remember_initialized_armory)
 
     materials_cli = importlib.import_module("hephaistos.materials.cli")
     materials_cli.register(subparsers, index_handler=_cmd_materials_index)
@@ -216,7 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Chat subcommands are hidden.  We register stub handlers here that
     # lazily import the real implementation (and the heavy openai /
-    # sentence_transformers chain) only when `heph chat …` is invoked.
+    # sentence_transformers chain) only when `heph chat ...` is invoked.
     chat = subparsers.add_parser(
         "chat",
         help=argparse.SUPPRESS,
@@ -271,8 +371,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _remember_initialized_armory(path: Path) -> None:
+    search_index = importlib.import_module("hephaistos.search_index")
+    search_index.add_known_armory(path)
+
+
+def _normalise_argv(argv: list[str]) -> list[str]:
+    return _normalise_armory_shortcut(_normalise_tui_alias(argv))
+
+
 def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
-    args = parser.parse_args(argv)
+    args = parser.parse_args(_normalise_argv(argv))
     handler = getattr(args, "handler", None)
     if handler is None:
         _cmd_tui(args)
@@ -315,8 +424,7 @@ def main() -> None:
 
     try:
         parser = build_parser()
-        argv = sys.argv[1:]
-        argv = _normalise_tui_alias(argv)
+        argv = _normalise_argv(sys.argv[1:])
 
         # If the first non-flag arg isn't a known subcommand (e.g. a path),
         # transparently inject the default interface subcommand so `heph /my/armory` just works.

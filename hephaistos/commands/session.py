@@ -2,36 +2,23 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
-
-from hephaistos.analytics import capture as capture_analytics
-from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.session import (
-    ChatSession,
-    SessionError,
-    create_plain_session,
-    create_session,
-    save_session,
-    session_has_messages,
+from hephaistos.armory_actions import (
+    create_armory as create_armory_command,
 )
-from hephaistos.commands._base import Command, CommandResult, ensure_session
-from hephaistos.providers.endpoints import is_keyless_endpoint
-from hephaistos.terminal import STYLE_PROMPT, confirm
-from hephaistos.terminal_display import (
-    STYLE_DIM,
-    direct_input,
-    print_error,
-    print_info,
-    print_success,
-    styled,
-)
-from hephaistos.workspace import (
-    create_armory_command,
+from hephaistos.armory_actions import (
     handle_armory_command,
-    list_saved_chats,
-    open_armory_command,
-    resume_saved_chat,
 )
+from hephaistos.armory_actions import (
+    open_armory as open_armory_command,
+)
+from hephaistos.chat import storage as chat_storage
+from hephaistos.chat.session import save_session, session_has_messages
+from hephaistos.commands._base import Command, CommandResult, ensure_session
+from hephaistos.saved_chats import list_saved_chats, resume_saved_chat
+from hephaistos.session_actions import start_replacement_session
+from hephaistos.session_status import render_session_status
+from hephaistos.terminal import STYLE_PROMPT, confirm
+from hephaistos.terminal_display import direct_input, print_error, print_info, styled
 
 
 class StatusCommand(Command):
@@ -40,44 +27,7 @@ class StatusCommand(Command):
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
-        armory = str(s.armory_path) if s.armory_path else styled("none", STYLE_DIM)
-        title = s.title or styled("(untitled)", STYLE_DIM)
-        msg_count = sum(1 for m in s.conversation.messages if m.role != "system")
-        tool_count = 7 if s.armory_path else 0
-        mode = "agent (tools)" if s.armory_path else "plain chat"
-        usage_summary = s.usage.summary()
-        mem_count = len(s.memory.entries) if s.memory else 0
-
-        lines = [
-            f"  Armory:    {armory}",
-            f"  Session:   {s.session_id}",
-            f"  Title:     {title}",
-            f"  Model:     {s.config.model}",
-            f"  Persona:   {s.persona.display_name}",
-            f"  API:       {s.config.base_url}",
-            (
-                "  Key:       not needed (free provider)"
-                if is_keyless_endpoint(s.config.base_url)
-                else (
-                    "  Key:       configured"
-                    if s.config.resolved_api_key
-                    else f"  Key:       {styled('not set', STYLE_DIM)}"
-                )
-            ),
-            f"  Mode:      {mode}",
-            f"  Tools:     {tool_count}",
-            f"  Messages:  {msg_count}",
-            f"  Memory:    {mem_count} concepts",
-            f"  API calls: {usage_summary['api_calls']}",
-            (
-                f"  Tokens:    {usage_summary['total_tokens']}"
-                f" (prompt: {usage_summary['prompt_tokens']},"
-                f" completion: {usage_summary['completion_tokens']})"
-            ),
-            f"  Cost:      ${usage_summary['cost_usd']:.4f}",
-            f"  Dirty:     {'yes' if s.dirty else 'no'}",
-        ]
-        return CommandResult(output="\n".join(lines))
+        return CommandResult(output=render_session_status(s))
 
 
 class SaveCommand(Command):
@@ -104,29 +54,11 @@ class ClearCommand(Command):
             print_info("Cancelled.")
             return CommandResult()
 
-        if s.armory_path and s.dirty and session_has_messages(s):
-            try:
-                save_session(s)
-                print_info("Previous session saved.")
-            except chat_storage.ChatStorageError:
-                pass
-        new: ChatSession
-        try:
-            new = (
-                create_plain_session(s.config)
-                if s.armory_path is None
-                else create_session(s.config, s.armory_path)
-            )
-        except SessionError as exc:
-            print_error(str(exc))
-            return CommandResult()
-        print_success("Started fresh session.")
-        capture_analytics(
-            "session_cleared",
-            {
-                "mode": "armory" if new.armory_path is not None else "plain",
-                "model": new.config.model,
-            },
+        new = start_replacement_session(
+            s,
+            analytics_event="session_cleared",
+            success_message="Started fresh session.",
+            announce_autosave=True,
         )
         return CommandResult(new_session=new)
 
@@ -137,26 +69,11 @@ class NewCommand(Command):
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
-        if s.armory_path and s.dirty and session_has_messages(s):
-            with suppress(chat_storage.ChatStorageError):
-                save_session(s)
-        new: ChatSession
-        try:
-            new = (
-                create_plain_session(s.config)
-                if s.armory_path is None
-                else create_session(s.config, s.armory_path)
-            )
-        except SessionError as exc:
-            print_error(str(exc))
-            return CommandResult()
-        print_success("New chat started.")
-        capture_analytics(
-            "session_new",
-            {
-                "mode": "armory" if new.armory_path is not None else "plain",
-                "model": new.config.model,
-            },
+        new = start_replacement_session(
+            s,
+            analytics_event="session_new",
+            success_message="New chat started.",
+            announce_autosave=False,
         )
         return CommandResult(new_session=new)
 

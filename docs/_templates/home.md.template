@@ -134,7 +134,7 @@ Credential flows live in `/login` and `/logout`; model selection lives in `/mode
 5. Useful concepts from the exchange are saved as armory memory for later
    sessions.
 
-If an armory has no study materials, `heph <path>` asks you to add material before
+If an armory has no study materials, `heph <name-or-path>` asks you to add material before
 starting a study session.
 
 ## Armory Layout

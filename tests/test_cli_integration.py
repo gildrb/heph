@@ -15,6 +15,7 @@ from hephaistos.cli.main import _inject_default_subcommand, build_parser, run_ar
 from hephaistos.cli.main import main as cli_main
 from hephaistos.cli.main import sys as cli_sys
 from hephaistos.rag.index import load_or_build
+from hephaistos.search_index import add_known_armory
 from hephaistos.tui import TuiDependencyError
 
 
@@ -34,9 +35,9 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "armory" in help_text
     assert "start           " not in help_text
     assert "shell           " not in help_text
-    assert "chat" not in help_text
+    assert "Chat with an LLM" not in help_text
     assert "source" in help_text
-    assert "tui" in help_text
+    assert "tui" not in help_text
     assert "parameters" not in help_text
 
 
@@ -49,6 +50,9 @@ def test_top_level_help_is_compact_and_points_to_interactive_help() -> None:
     assert "Examples:" in help_text
     assert "Essential commands:" in help_text
     assert "Options:" in help_text
+    assert "heph gdp" in help_text
+    assert "--profile" not in help_text
+    assert "tracemalloc" not in help_text
     assert "Inside Hephaistos, type /help" in help_text
     assert "positional arguments:" not in help_text
 
@@ -63,6 +67,7 @@ def test_run_argv_dispatches_armory_init(
 
     out = capsys.readouterr().out
     assert "Initialized armory at" in out
+    assert f"Open it later with: heph {armory_path.name}" in out
     assert armory_path.is_dir()
 
 
@@ -162,6 +167,27 @@ def test_tui_command_dispatches_with_path() -> None:
         run_argv(parser, ["tui", "notes"])
 
     assert captured_path == Path("notes")
+
+
+def test_bare_armory_name_dispatches_known_armory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory_path = tmp_path / "gdp"
+    initialize(armory_path)
+    add_known_armory(armory_path)
+    captured_path: Path | None = None
+
+    def fake_tui(path: Path | None) -> None:
+        nonlocal captured_path
+        captured_path = path
+
+    monkeypatch.setattr(cli_sys, "argv", ["heph", "gdp"])
+
+    with patch("hephaistos.tui.run_tui_for_path", fake_tui):
+        cli_main()
+
+    assert captured_path == armory_path.resolve()
 
 
 def test_tui_flag_alias_dispatches_tui(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,5 +1,4 @@
-"""Armory and session workspace actions shared by commands and TUI."""
-# pylint: disable=duplicate-code
+"""Interactive armory workspace actions."""
 
 from __future__ import annotations
 
@@ -19,9 +18,6 @@ from hephaistos.search_index import add_known_armory
 from hephaistos.terminal import MenuOption, browse_directory, select_option
 from hephaistos.terminal_display import print_error, print_info, print_success
 
-_HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
-
-
 ARMORY_MENU_OPTIONS = [
     MenuOption("Open existing armory", "Attach a workspace and load its study context."),
     MenuOption("Create new armory", "Initialize a new workspace and start chatting in it."),
@@ -32,7 +28,7 @@ ARMORY_MENU_OPTIONS = [
 ]
 
 
-def _start_fresh_session(
+def start_fresh_session(
     session: ChatSession,
     armory_path: Path | None,
 ) -> ChatSession:
@@ -66,11 +62,11 @@ def _start_fresh_session(
     return new_session
 
 
-def _detach_armory(session: ChatSession) -> ChatSession:
-    return _start_fresh_session(session, None)
+def detach_armory(session: ChatSession) -> ChatSession:
+    return start_fresh_session(session, None)
 
 
-def _open_armory(session: ChatSession) -> ChatSession:
+def open_armory(session: ChatSession) -> ChatSession:
     default_path = Path(session.armory_path or Path.cwd())
     chosen = browse_directory("Open Armory", start=default_path)
     if chosen is None:
@@ -81,10 +77,10 @@ def _open_armory(session: ChatSession) -> ChatSession:
     except ArmoryError as exc:
         print_error(str(exc))
         return session
-    return _start_fresh_session(session, armory_path)
+    return start_fresh_session(session, armory_path)
 
 
-def _create_armory(session: ChatSession) -> ChatSession:
+def create_armory(session: ChatSession) -> ChatSession:
     default_path = Path(session.armory_path or Path.cwd())
     chosen = browse_directory("Create Armory", start=default_path)
     if chosen is None:
@@ -99,19 +95,19 @@ def _create_armory(session: ChatSession) -> ChatSession:
     print_success(f"Initialized armory at {armory_path}")
     capture_analytics("armory_created", {"mode": "shell"})
     try:
-        return _start_fresh_session(session, armory_path)
+        return start_fresh_session(session, armory_path)
     except SessionError as exc:
         print_error(str(exc))
         print_info("Add files to materials/ and use /armory to attach it.")
         return session
 
 
-def _handle_armory_command(session: ChatSession) -> ChatSession:  # ty: ignore
+def handle_armory_command(session: ChatSession) -> ChatSession:
     selected = select_option("Armory", ARMORY_MENU_OPTIONS)
     handlers = [
-        _open_armory,
-        _create_armory,
-        _detach_armory,
+        open_armory,
+        create_armory,
+        detach_armory,
         resume_saved_chat,
         list_saved_chats,
     ]
@@ -121,9 +117,3 @@ def _handle_armory_command(session: ChatSession) -> ChatSession:  # ty: ignore
     if result is None:
         return session
     return result
-
-
-handle_armory_command = _handle_armory_command
-open_armory_command = _open_armory
-create_armory_command = _create_armory
-start_fresh_session = _start_fresh_session
