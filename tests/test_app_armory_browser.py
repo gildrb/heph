@@ -1,9 +1,5 @@
 """Tests for the inline Textual armory browser screen."""
 
-# pyright: reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false, reportOptionalSubscript=false
-# pyright: reportUntypedBaseClass=false, reportGeneralTypeIssues=false, reportInvalidTypeForm=false
-# pyright: reportOptionalCall=false, reportAssignmentType=false, reportUnusedImport=false
 from __future__ import annotations
 
 import asyncio
@@ -24,11 +20,11 @@ try:
     from textual.app import App, ComposeResult
     from textual.widgets import Input, OptionList, Static
 except ImportError:
-    App = None  # type: ignore[assignment,misc]
-    ComposeResult = None  # type: ignore[assignment,misc]
-    Input = None  # type: ignore[assignment,misc]
-    OptionList = None  # type: ignore[assignment,misc]
-    Static = None  # type: ignore[assignment,misc]
+    App = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    ComposeResult = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Input = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    OptionList = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Static = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
 
 
 class _ShellApp(App[None]):
@@ -262,7 +258,7 @@ def test_browser_choose_dismisses_with_path(tmp_path: Path) -> None:
 
 
 def test_browser_cancel_dismisses_with_none(tmp_path: Path) -> None:
-    result_path: Path | None = "NOT_NONE"  # sentinel
+    result_path: Path | None = "NOT_NONE"  # sentinel  # ty:ignore[invalid-assignment]
 
     def on_result(path: Path | None) -> None:
         nonlocal result_path
@@ -282,7 +278,7 @@ def test_browser_cancel_dismisses_with_none(tmp_path: Path) -> None:
 
 
 def test_browser_escape_key_dismisses_with_none(tmp_path: Path) -> None:
-    result_path: Path | None = "NOT_NONE"  # sentinel
+    result_path: Path | None = "NOT_NONE"  # sentinel  # ty:ignore[invalid-assignment]
 
     def on_result(path: Path | None) -> None:
         nonlocal result_path
@@ -319,7 +315,7 @@ def test_browser_new_armory_creates_and_dismisses(tmp_path: Path) -> None:
             inp = screen.query_one("#armory-new-input", armory_browser.Input)
             inp.value = "test-armory"
             screen.on_input_submitted(
-                armory_browser.Input.Submitted(inp, "test-armory", "test-armory")  # type: ignore[arg-type]
+                armory_browser.Input.Submitted(inp, "test-armory", "test-armory")  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
             )
             await pilot.pause()
 
@@ -414,7 +410,7 @@ def test_browser_new_armory_surfaces_creation_errors(
             await pilot.pause()
             inp = screen.query_one("#armory-new-input", armory_browser.Input)
             screen.on_input_submitted(
-                armory_browser.Input.Submitted(inp, "blocked", "blocked")  # type: ignore[arg-type]
+                armory_browser.Input.Submitted(inp, "blocked", "blocked")  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
             )
             await pilot.pause()
             error = screen.query_one("#armory-error", armory_browser.Static)
@@ -437,7 +433,7 @@ def test_browser_new_armory_empty_name_cancels_create(tmp_path: Path) -> None:
             inp = screen.query_one("#armory-new-input", armory_browser.Input)
             inp.value = "   "
             screen.on_input_submitted(
-                armory_browser.Input.Submitted(inp, "   ", "   ")  # type: ignore[arg-type]
+                armory_browser.Input.Submitted(inp, "   ", "   ")  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
             )
             await pilot.pause()
             assert screen._creating is False

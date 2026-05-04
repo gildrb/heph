@@ -170,7 +170,7 @@ def _build_plain_system_prompt(persona: Persona) -> str:
     return f"{persona.role_block}\n\n{_PLAIN_CHAT_CONTEXT}"
 
 
-def _replace_system_prompt(session: ChatSession) -> None:  # pyright: ignore[reportUnusedFunction]
+def _replace_system_prompt(session: ChatSession) -> None:  # ty: ignore
     """Replace the system prompt in the conversation with the current persona."""
     if session.armory_path is None:
         new_prompt = _build_plain_system_prompt(session.persona)
@@ -222,7 +222,7 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
 
 def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     """Create a fresh chat session scoped to an armory."""
-    if armory_path is None:  # pyright: ignore[reportUnnecessaryComparison] runtime guard for untyped callers
+    if armory_path is None:  # ty: ignore runtime guard for untyped callers
         raise SessionError("An armory is required. Create one with: hephaistos armory init <path>")
 
     source_file_count, source_files = _scan_source_files(armory_path)

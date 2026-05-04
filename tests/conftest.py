@@ -44,14 +44,14 @@ def _reset_diagnostics_module_objects() -> None:
     _noop_meter = _NOOP_METER
 
     # engine.py
-    _engine_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]
-    _engine_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
-    _engine_mod._llm_duration_hist = _NOOP_HISTOGRAM  # type: ignore[reportPrivateUsage]
-    _engine_mod._llm_token_counter = _NOOP_COUNTER  # type: ignore[reportPrivateUsage]
+    _engine_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
+    _engine_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
+    _engine_mod._llm_duration_hist = _NOOP_HISTOGRAM  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
+    _engine_mod._llm_token_counter = _NOOP_COUNTER  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
 
     # resilience.py
-    _res_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
-    _res_mod._state_gauge = _NOOP_GAUGE  # type: ignore[reportPrivateUsage]
+    _res_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
+    _res_mod._state_gauge = _NOOP_GAUGE  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
 
     # orchestrator.py
     _orch_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]
@@ -60,7 +60,7 @@ def _reset_diagnostics_module_objects() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_global_state(  # pyright: ignore[reportUnusedFunction]
+def _isolate_global_state(  # ty: ignore
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Generator[None]:
     """Reset mutable module-level globals between tests."""

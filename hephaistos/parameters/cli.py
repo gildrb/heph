@@ -38,7 +38,7 @@ def _load_user_overrides() -> dict[str, str]:
     return result
 
 
-def _save_user_override(  # pyright: ignore[reportUnusedFunction]
+def _save_user_override(  # ty: ignore
     key: str, value: str
 ) -> None:
     settings_store.save_setting(key, value)

@@ -17,7 +17,7 @@ class HephaistosArgumentParser(argparse.ArgumentParser):
     """Top-level help that stays compact while deriving commands from argparse."""
 
     def __init__(self, *args: object, compact_help: bool = False, **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)  # type: ignore[reportUnknownArgumentType]
+        super().__init__(*args, **kwargs)  # type: ignore[reportUnknownArgumentType]  # ty:ignore[invalid-argument-type]
         self._compact_help = compact_help
 
     def format_help(self) -> str:
@@ -284,7 +284,7 @@ def _increment_session_count() -> None:
     """Bump the persisted session count (used for progressive keybind hints)."""
     settings_mod = importlib.import_module("hephaistos.parameters.settings")
     settings = settings_mod.load_raw_settings()
-    count = int(settings.get("session_count", 0) or 0) + 1  # type: ignore[reportArgumentType]
+    count = int(settings.get("session_count", 0) or 0) + 1  # type: ignore[reportArgumentType]  # ty:ignore[invalid-argument-type]
     settings["session_count"] = count
     settings_mod.save_raw_settings(settings)
 
@@ -357,9 +357,9 @@ def _report_profile(prof: object) -> None:
     profile_dir = pathlib.Path.home() / ".cache" / "hephaistos" / "profiles"
     profile_dir.mkdir(parents=True, exist_ok=True)
     profile_path = profile_dir / f"{ts}.prof"
-    prof.dump_stats(str(profile_path))  # type: ignore[reportUnknownMemberType]
+    prof.dump_stats(str(profile_path))  # type: ignore[reportUnknownMemberType]  # ty:ignore[unresolved-attribute]
 
     sys.stderr.write(f"\n=== CPU Profile saved to {profile_path} ===\n")
-    stats = pstats.Stats(prof, stream=sys.stderr)  # type: ignore[reportUnknownArgumentType]
+    stats = pstats.Stats(prof, stream=sys.stderr)  # type: ignore[reportUnknownArgumentType]  # ty:ignore[invalid-argument-type]
     stats.strip_dirs().sort_stats("cumulative").print_stats(20)
     sys.stderr.write("\n")

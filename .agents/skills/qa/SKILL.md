@@ -9,7 +9,7 @@ description: >
 
 # QA Orchestrator
 
-**SCOPE: This skill performs manual/functional QA only -- verifying that the application actually works by interacting with it as a real user would (TUI interactions, keystrokes, output verification). Do NOT run or report on CI checks, linting, ruff, basedpyright, pytest, unit tests, or any static analysis. Those are handled by separate workflows.**
+**SCOPE: This skill performs manual/functional QA only -- verifying that the application actually works by interacting with it as a real user would (TUI interactions, keystrokes, output verification). Do NOT run or report on CI checks, linting, ruff, ty, pytest, unit tests, or any static analysis. Those are handled by separate workflows.**
 
 ## Step 1: Load Configuration
 
@@ -78,7 +78,7 @@ TEST QUALITY REQUIREMENTS:
 
 1. FULL REGRESSION. Run ALL 40 flows in the qa-cli sub-skill. Do not skip flows.
 2. DIFF-TARGETED EXTRA. After the regression suite, add ad-hoc tests for any new/changed features in the diff that aren't covered by existing flows.
-3. NO AUTOMATED TEST SUITES. Do NOT run pytest, ruff, basedpyright, or any CI-style checks. This is manual/functional QA only.
+3. NO AUTOMATED TEST SUITES. Do NOT run pytest, ruff, ty, or any CI-style checks. This is manual/functional QA only.
 4. NEGATIVE TESTS. Flow 39 covers error handling -- ensure it passes (invalid commands produce user-friendly errors, never crashes).
 5. INTERACTIVE TESTING. Test by actually interacting with the TUI as a real user would. Every slash command must be exercised.
 6. INCONCLUSIVE IF UNSURE. If you cannot articulate what the PR changes, still run the full regression but mark the diff analysis as INCONCLUSIVE.

@@ -17,7 +17,7 @@
 - [ ] Unit tests pass (`uv run pytest`)
 - [ ] Lint clean (`uv run ruff check .`)
 - [ ] Repo policy check clean (`uv run python -m scripts.check_repo_policies`)
-- [ ] Type check clean (`uv run basedpyright`)
+- [ ] Type check clean (`uv run ty check`)
 
 ## Context
 

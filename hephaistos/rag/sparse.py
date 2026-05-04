@@ -73,7 +73,9 @@ class TfidfRetriever:
         assert self._matrix is not None
         query_vec = self._vectorizer.transform([query])
         scores = sklearn_scores(query_vec, self._matrix)
-        top_indices = sorted(range(len(scores)), key=scores.__getitem__, reverse=True)[:top_k]
+        top_indices = sorted(range(len(scores)), key=scores.__getitem__, reverse=True)[
+            :top_k
+        ]  # ty:ignore[no-matching-overload]
         return [
             ScoredChunk(chunk=self._chunks[idx], score=float(scores[idx]))
             for idx in top_indices

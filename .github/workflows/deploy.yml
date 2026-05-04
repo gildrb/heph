@@ -49,8 +49,8 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
-      - name: Basedpyright
-        run: uv run basedpyright
+      - name: Ty
+        run: uv run ty check
 
       - name: Bandit
         run: uv run bandit -r hephaistos -c pyproject.toml

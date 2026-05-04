@@ -129,7 +129,7 @@ class TestResolvedTurnPlan:
     def test_frozen(self) -> None:
         plan = ResolvedTurnPlan()
         with pytest.raises(AttributeError):
-            plan.study_plan = _make_study_plan()  # type: ignore[misc]
+            plan.study_plan = _make_study_plan()  # type: ignore[misc]  # ty:ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------

@@ -31,7 +31,7 @@ SKIP_COMMANDS = {
 }
 
 # Tools that must be present on the system
-REQUIRED_TOOLS = ["uv", "ruff", "basedpyright", "vulture", "pylint", "pytest"]
+REQUIRED_TOOLS = ["uv", "ruff", "ty", "vulture", "pylint", "pytest"]
 
 
 def extract_commands(text: str) -> list[str]:

@@ -284,7 +284,7 @@ def _list_saved_chats(session: ChatSession) -> None:
         print(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
 
 
-def _handle_armory_command(session: ChatSession) -> ChatSession:  # pyright: ignore[reportUnusedFunction]
+def _handle_armory_command(session: ChatSession) -> ChatSession:  # ty: ignore
     selected = select_option("Armory", ARMORY_MENU_OPTIONS)
     handlers = [
         _open_armory,
@@ -391,7 +391,7 @@ def _report_engine_error(
         )
 
 
-def _handle_input(  # pyright: ignore[reportUnusedFunction]
+def _handle_input(  # ty: ignore
     session: ChatSession,
     user_input: str,
     history: InputHistory,
@@ -474,13 +474,13 @@ def _handle_input(  # pyright: ignore[reportUnusedFunction]
     return session, True
 
 
-def _get_history_path(session: ChatSession) -> Path:  # pyright: ignore[reportUnusedFunction]
+def _get_history_path(session: ChatSession) -> Path:  # ty: ignore
     if session.armory_path is None:
         return _HISTORY_DIR / "plain-history"
     return session.armory_path / ".hephaistos" / "history"
 
 
-def _save_on_exit(session: ChatSession) -> None:  # pyright: ignore[reportUnusedFunction]
+def _save_on_exit(session: ChatSession) -> None:  # ty: ignore
     if session.dirty and session_has_messages(session) and session.armory_path is not None:
         try:
             path = save_session(session)
@@ -490,7 +490,7 @@ def _save_on_exit(session: ChatSession) -> None:  # pyright: ignore[reportUnused
     session.trace.close()
 
 
-def _create_startup_session(config: ChatConfig) -> ChatSession:  # pyright: ignore[reportUnusedFunction]
+def _create_startup_session(config: ChatConfig) -> ChatSession:  # ty: ignore
     """Try to create a session with the auto-discovered armory, fall back to plain."""
     armory = _discover_startup_armory()
     if armory is None:

@@ -32,6 +32,12 @@ repos:
         entry: python -m scripts.check_repo_policies
         types: [python]
         pass_filenames: false
+      - id: ty
+        name: ty (type-check)
+        language: python
+        entry: uv run ty check
+        types: [python]
+        pass_filenames: false
       - id: vulture
         name: vulture (dead-code)
         language: python

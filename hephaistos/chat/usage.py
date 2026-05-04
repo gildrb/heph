@@ -162,8 +162,8 @@ def _get_pricing(model: str) -> tuple[float, float]:
     if model in _MODEL_PRICING:
         return _MODEL_PRICING[model]
     for key in sorted(_MODEL_PRICING, key=len, reverse=True):
-        if model.startswith(key):
-            return _MODEL_PRICING[key]
+        if model.startswith(key):  # ty:ignore[invalid-argument-type]
+            return _MODEL_PRICING[key]  # ty:ignore[invalid-argument-type]
     if "free" in model.lower():
         return (0.0, 0.0)
     return (0.002, 0.008)
@@ -178,8 +178,8 @@ def get_context_window(model: str) -> int:
         return _MODEL_CONTEXT_WINDOWS[model]
 
     for key in sorted(_MODEL_CONTEXT_WINDOWS, key=len, reverse=True):
-        if model.startswith(key):
-            return _MODEL_CONTEXT_WINDOWS[key]
+        if model.startswith(key):  # ty:ignore[invalid-argument-type]
+            return _MODEL_CONTEXT_WINDOWS[key]  # ty:ignore[invalid-argument-type]
 
     return _DEFAULT_CONTEXT_WINDOW
 
@@ -259,7 +259,7 @@ def save_usage(
     usage: SessionUsage,
 ) -> Path | None:
     """Persist session usage to the armory."""
-    if armory_path is None:  # pyright: ignore[reportUnnecessaryComparison]
+    if armory_path is None:  # ty: ignore
         return None
 
     # Defense-in-depth: validate session_id has no path traversal.

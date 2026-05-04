@@ -435,7 +435,7 @@ class TestCreateTransformer:
 
     def test_unknown_strategy_falls_back_to_identity(self) -> None:
         # This shouldn't happen in practice but the factory should be safe
-        t = create_transformer("not_a_real_strategy")  # type: ignore[arg-type]
+        t = create_transformer("not_a_real_strategy")  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
         assert isinstance(t, IdentityTransformer)
 
 

@@ -11,7 +11,7 @@ created or updated by the `ci-failure-issue.yml` workflow.
 2. **Identify the failing job** from the workflow run:
    - `lint` — ruff lint violations
    - `format` — ruff format differences
-   - `typecheck` — basedpyright type errors
+   - `typecheck` — ty type errors
    - `security` — Bandit or Gitleaks findings
    - `test` — pytest failures
    - `dead-code` — vulture findings
@@ -24,7 +24,7 @@ created or updated by the `ci-failure-issue.yml` workflow.
    ```bash
    uv run ruff check .          # lint
    uv run ruff format --check . # format
-   uv run basedpyright          # typecheck
+   uv run ty check    # typecheck
    uv run python -m scripts.sync_docs --check  # docs drift
    uv run python -m scripts.check_repo_policies  # repo policy drift
    uv run pytest                # tests
@@ -41,7 +41,7 @@ created or updated by the `ci-failure-issue.yml` workflow.
 |---------|-------------|-----|
 | `ruff check` fails | New lint rule violation | `uv run ruff check --fix .` |
 | `repo policy check` fails | New `Any`, local import, or forbidden dynamic import | Replace `Any` with concrete types and move imports to module scope |
-| `basedpyright` fails | Type incompatibility | Add type annotations or narrow types |
+| `ty` fails | Type incompatibility | Add type annotations or narrow types |
 | `vulture` fails | Unused code detected | Remove dead code or add to `vulture-whitelist.py` |
 | `lint-imports` fails | Import boundary violation | Move import to `app` package or refactor |
 | `pytest` fails | Test regression | Check if test is flaky (`@pytest.mark.flaky`) |

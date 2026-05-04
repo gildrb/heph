@@ -1,4 +1,3 @@
-# pyright: reportMissingImports=false
 """Optional Textual/Rich dependency helpers for the TUI adapter."""
 
 from __future__ import annotations

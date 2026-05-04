@@ -1,8 +1,4 @@
 # pylint: disable=duplicate-code
-# pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false
-# pyright: reportUntypedBaseClass=false, reportGeneralTypeIssues=false
-# pyright: reportUnknownVariableType=false, reportInvalidTypeArguments=false
-# pyright: reportOptionalCall=false, reportUnknownParameterType=false
 """Cross-armory search screen for the TUI."""
 
 from __future__ import annotations
@@ -23,14 +19,14 @@ try:
     from textual.screen import ModalScreen
     from textual.widgets import Input, OptionList, Static
 except ImportError:
-    events = None  # type: ignore[assignment]
-    ComposeResult = None  # type: ignore[assignment,misc]
-    Binding = None  # type: ignore[assignment,misc]
-    Vertical = None  # type: ignore[assignment,misc]
-    ModalScreen = object  # type: ignore[assignment, misc]
-    Input = None  # type: ignore[assignment]
-    OptionList = None  # type: ignore[assignment]
-    Static = None  # type: ignore[assignment]
+    events = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    ComposeResult = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Binding = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Vertical = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    ModalScreen = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
+    Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 
 def _open_file_at_system(path: Path) -> None:
@@ -108,7 +104,7 @@ class SearchScreen(ModalScreen[SearchResult | None]):  # type: ignore[misc]
         self._results: list[SearchResult] = []
         self._index = CrossArmoryIndex()
         self._built = False
-        self.CSS = _search_screen_css(current_palette())
+        self.CSS = _search_screen_css(current_palette())  # ty:ignore[invalid-attribute-access]
 
     def compose(self) -> ComposeResult:  # type: ignore[override,reportInvalidTypeForm]
         p = current_palette()

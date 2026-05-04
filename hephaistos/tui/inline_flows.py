@@ -1,6 +1,3 @@
-# pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportPrivateUsage=false
-# pyright: reportUnknownVariableType=false, reportUntypedBaseClass=false, reportGeneralTypeIssues=false
-# pyright: reportAttributeAccessIssue=false
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -20,8 +17,8 @@ from hephaistos.tui.flow_state import InlineFlow
 try:
     from textual.widgets import Input, OptionList
 except ImportError:
-    Input = None  # type: ignore[assignment]
-    OptionList = None  # type: ignore[assignment]
+    Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
     from textual import events
@@ -45,17 +42,17 @@ class TuiInlineFlowMixin:
         options: list[tuple[str, str]],
     ) -> None:
         self._inline_flow = InlineFlow(name=name, step=step, options=options)
-        self._append_notice(title)
-        suggestions = self.query_one("#suggestions", OptionList)
+        self._append_notice(title)  # ty:ignore[unresolved-attribute]
+        suggestions = self.query_one("#suggestions", OptionList)  # ty:ignore[unresolved-attribute]
         suggestions.set_options([f"{label:<22} {description}" for label, description in options])
         suggestions.add_class("visible")
         suggestions.remove_class("model-picker")
         suggestions.highlighted = 0
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         composer.value = ""
         composer.placeholder = "Use ↑/↓ and Enter, or Esc to cancel"
         composer.focus()
-        self.set_focus(composer)
+        self.set_focus(composer)  # ty:ignore[unresolved-attribute]
 
     def _open_login_flow(self) -> None:
         self._open_inline_menu(
@@ -87,23 +84,25 @@ class TuiInlineFlowMixin:
     def _open_logout_flow(self) -> None:
         targets = self._logout_targets()
         if not targets:
-            self._append_notice(
+            self._append_notice(  # ty:ignore[unresolved-attribute]
                 "No stored credentials found. Env keys must be unset outside Hephaistos."
             )
             return
         options = [(slug, description) for slug, _kind, description in targets]
         options.append(("All", "Clear every stored subscription and API key"))
         self._inline_flow = InlineFlow(name="logout", step="menu", options=options)
-        self._append_notice("Logout · choose credentials to clear")
-        suggestions = self.query_one("#suggestions", OptionList)
+        self._append_notice(
+            "Logout · choose credentials to clear"
+        )  # ty:ignore[unresolved-attribute]
+        suggestions = self.query_one("#suggestions", OptionList)  # ty:ignore[unresolved-attribute]
         suggestions.set_options([f"{label:<22} {description}" for label, description in options])
         suggestions.add_class("visible")
         suggestions.highlighted = 0
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         composer.value = ""
         composer.placeholder = "Use ↑/↓ and Enter, or Esc to cancel"
         composer.focus()
-        self.set_focus(composer)
+        self.set_focus(composer)  # ty:ignore[unresolved-attribute]
 
     def _logout_targets(self) -> list[tuple[str, str, str]]:
         pc = ProviderConfig.load()
@@ -123,12 +122,12 @@ class TuiInlineFlowMixin:
             event.stop()
             return True
         if event.key == "up" and self._inline_flow.step == "menu":
-            self._move_completion(-1)
+            self._move_completion(-1)  # ty:ignore[unresolved-attribute]
             event.prevent_default()
             event.stop()
             return True
         if event.key == "down" and self._inline_flow.step == "menu":
-            self._move_completion(1)
+            self._move_completion(1)  # ty:ignore[unresolved-attribute]
             event.prevent_default()
             event.stop()
             return True
@@ -140,9 +139,11 @@ class TuiInlineFlowMixin:
         self._submit_inline_flow(self._inline_flow.options[index][0])
 
     def _submit_inline_flow(self, value: str) -> None:
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         if self._inline_flow.step == "menu":
-            suggestions = self.query_one("#suggestions", OptionList)
+            suggestions = self.query_one(
+                "#suggestions", OptionList
+            )  # ty:ignore[unresolved-attribute]
             selected = suggestions.highlighted if suggestions.highlighted is not None else 0
             label = value or self._inline_flow.options[selected][0]
             self._handle_inline_menu_choice(label)
@@ -154,7 +155,7 @@ class TuiInlineFlowMixin:
         if self._inline_flow.name == "settings":
             self._close_inline_flow()
             if label == "Models":
-                self._handle_models("/models")
+                self._handle_models("/models")  # ty:ignore[unresolved-attribute]
             elif label == "Login":
                 self._open_login_flow()
             elif label == "Logout":
@@ -165,7 +166,9 @@ class TuiInlineFlowMixin:
             return
         if label == "OpenAI Codex":
             self._close_inline_flow("Opening browser login for OpenAI Codex...")
-            self.run_worker(self._login_openai_worker, thread=True)
+            self.run_worker(
+                self._login_openai_worker, thread=True
+            )  # ty:ignore[unresolved-attribute]
         elif label == "OpenRouter":
             self._prompt_inline_text("login", "openrouter_key", "OpenRouter API key")
         elif label == "Z.AI":
@@ -177,17 +180,17 @@ class TuiInlineFlowMixin:
         self._inline_flow.name = name
         self._inline_flow.step = step
         self._inline_flow.options = []
-        self._hide_completions()
-        composer = self.query_one("#composer", Input)
+        self._hide_completions()  # ty:ignore[unresolved-attribute]
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         composer.value = ""
         composer.placeholder = placeholder
-        self._append_notice(placeholder)
+        self._append_notice(placeholder)  # ty:ignore[unresolved-attribute]
         composer.focus()
-        self.set_focus(composer)
+        self.set_focus(composer)  # ty:ignore[unresolved-attribute]
 
     def _handle_inline_text(self, value: str) -> None:
         if not value:
-            self._append_error("Value is required.")
+            self._append_error("Value is required.")  # ty:ignore[unresolved-attribute]
             return
         step = self._inline_flow.step
         if step == "openrouter_key":
@@ -210,10 +213,12 @@ class TuiInlineFlowMixin:
                 store_key("custom", value)
             except Exception:
                 set_volatile("custom", value)
-            p = activate_provider_for_session(pc, self.session, "custom")
+            p = activate_provider_for_session(
+                pc, self.session, "custom"
+            )  # ty:ignore[unresolved-attribute]
             self._close_inline_flow(f"Switched to {p.display_name} / {p.resolved_model}")
-            self._refresh_status("ready")
-            self._update_info_panel()
+            self._refresh_status("ready")  # ty:ignore[unresolved-attribute]
+            self._update_info_panel()  # ty:ignore[unresolved-attribute]
 
     def _store_provider_key(self, slug: str, key: str) -> None:
         try:
@@ -221,26 +226,32 @@ class TuiInlineFlowMixin:
         except Exception:
             set_volatile(slug, key)
         pc = ProviderConfig.load()
-        p = activate_provider_for_session(pc, self.session, slug)
+        p = activate_provider_for_session(
+            pc, self.session, slug
+        )  # ty:ignore[unresolved-attribute]
         self._close_inline_flow(f"Switched to {p.display_name} / {p.resolved_model}")
-        self._refresh_status("ready")
-        self._update_info_panel()
+        self._refresh_status("ready")  # ty:ignore[unresolved-attribute]
+        self._update_info_panel()  # ty:ignore[unresolved-attribute]
 
     def _login_openai_worker(self) -> None:
         try:
             creds = oauth.login_openai_codex()
         except Exception as exc:
-            self.call_from_thread(self._append_error, f"Login failed: {exc}")
+            self.call_from_thread(
+                self._append_error, f"Login failed: {exc}"
+            )  # ty:ignore[unresolved-attribute]
             return
         set_volatile("openai-codex", creds.access_token)
         pc = ProviderConfig.load()
-        p = activate_provider_for_session(pc, self.session, "openai-codex")
-        self.call_from_thread(
-            self._append_notice,
+        p = activate_provider_for_session(
+            pc, self.session, "openai-codex"
+        )  # ty:ignore[unresolved-attribute]
+        self.call_from_thread(  # ty:ignore[unresolved-attribute]
+            self._append_notice,  # ty:ignore[unresolved-attribute]
             f"Logged in · {p.display_name} / {p.resolved_model}",
         )
-        self.call_from_thread(self._refresh_status, "ready")
-        self.call_from_thread(self._update_info_panel)
+        self.call_from_thread(self._refresh_status, "ready")  # ty:ignore[unresolved-attribute]
+        self.call_from_thread(self._update_info_panel)  # ty:ignore[unresolved-attribute]
 
     def _perform_logout(self, label: str) -> None:
         targets = self._logout_targets()
@@ -263,11 +274,11 @@ class TuiInlineFlowMixin:
 
     def _close_inline_flow(self, notice: str = "") -> None:
         self._inline_flow = InlineFlow()
-        self._hide_completions()
-        composer = self.query_one("#composer", Input)
+        self._hide_completions()  # ty:ignore[unresolved-attribute]
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         composer.value = ""
         composer.placeholder = 'Ask anything... "What do I need to study next?"'
         if notice:
-            self._append_notice(notice)
+            self._append_notice(notice)  # ty:ignore[unresolved-attribute]
         composer.focus()
-        self.set_focus(composer)
+        self.set_focus(composer)  # ty:ignore[unresolved-attribute]

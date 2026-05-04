@@ -39,7 +39,7 @@ uv run python -m scripts.check_repo_policies  # no Any / no deferred imports
 
 ## Type Check
 ```bash
-uv run basedpyright        # type-check the project
+uv run ty check  # type-check the project
 ```
 
 ## Dead Code / Architecture / Duplicates
@@ -84,10 +84,10 @@ Operational playbooks for incident response:
 - Python ≥3.13, `from __future__ import annotations` in every module
 - Line length: 99 chars, double quotes, LF line endings
 - Naming: PascalCase classes, snake_case functions/variables, UPPER_SNAKE_CASE constants (enforced by ruff N rules)
-- Type checking: basedpyright strict mode
+- Type checking: ty strict mode
 - Explicit `Any` is forbidden; use concrete SDK types, `TypedDict`, dataclasses, or protocols instead
 - Standard top-level imports only; deferred imports are reserved for module-scope optional extras and armory plugin loading
 - Import boundaries: only `app` may import other packages; all other packages are forbidden from importing `app` (enforced by import-linter)
 - Tests: pytest with `--cov-fail-under=75`, `@pytest.mark.flaky(reruns=2)` for flaky tests
-- Pre-commit: ruff, ruff-format, basedpyright, check-repo-policies, check-large-files, vulture, pylint, lint-imports
+- Pre-commit: ruff, ruff-format, ty, check-repo-policies, check-large-files, vulture, pylint, lint-imports
 </coding_guidelines>

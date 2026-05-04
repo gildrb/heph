@@ -1,4 +1,3 @@
-# pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false
 """Cross-armory search: index and search across multiple armories."""
 
 from __future__ import annotations

@@ -74,7 +74,7 @@ class _MeterProtocol(Protocol):
 
 _log = get_logger("runtime.engine")
 
-_tracer: _TracerProtocol = get_tracer("runtime.engine")  # type: ignore[reportAssignmentType]
+_tracer: _TracerProtocol = get_tracer("runtime.engine")  # type: ignore[reportAssignmentType]  # ty:ignore[invalid-assignment]
 _meter: _MeterProtocol = get_meter("runtime.engine")  # type: ignore[reportAssignmentType]
 
 _llm_duration_hist = _meter.create_histogram(
@@ -464,7 +464,7 @@ def stream_completion(
             with timer:
                 stream = cast(
                     "Stream[ChatCompletionChunk]",
-                    client.chat.completions.create(**request_kwargs),  # type: ignore[call-overload]
+                    client.chat.completions.create(**request_kwargs),  # type: ignore[call-overload]  # ty:ignore[no-matching-overload]
                 )
         except Exception as exc:
             last_error = exc

@@ -1,4 +1,3 @@
-# pyright: reportMissingImports=false
 """Rich text builders for the TUI package."""
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from hephaistos.tui.status import status_lines
 try:
     from rich.text import Text as _RichText
 except ImportError:
-    _RichText = None  # type: ignore[assignment]
+    _RichText = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
     from rich.text import Text

@@ -151,7 +151,7 @@ def _scrub_value(value: object) -> object:
     return value
 
 
-def _redact_event(  # pyright: ignore[reportUnusedFunction]
+def _redact_event(  # ty: ignore
     event: Mapping[str, object],
     _hint: Mapping[str, object],
 ) -> dict[str, object] | None:

@@ -1,7 +1,3 @@
-# pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false
-# pyright: reportUntypedBaseClass=false, reportGeneralTypeIssues=false
-# pyright: reportUnknownVariableType=false, reportInvalidTypeArguments=false, reportInvalidTypeForm=false
-# pyright: reportOptionalCall=false, reportUnknownParameterType=false
 """Shared transparent rendering helpers for Textual screens.
 
 Centralises the strip-manipulation logic needed by all modal screens
@@ -17,10 +13,10 @@ try:
     from textual.strip import Strip
     from textual.widgets import RichLog
 except ImportError:
-    Segment = None  # type: ignore[assignment]
-    _RichStyle = None  # type: ignore[assignment]
-    Strip = None  # type: ignore[assignment]
-    RichLog = None  # type: ignore[assignment]
+    Segment = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    _RichStyle = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Strip = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 
 def style_without_black_background(style: _RichStyle | None) -> _RichStyle:
@@ -75,7 +71,7 @@ def make_blank_background_cls(base_cls: type) -> type:
     strip_class = Strip
     transparent_style = _RichStyle()
 
-    class BlankBackgroundWidget(base_cls):  # type: ignore[misc]
+    class BlankBackgroundWidget(base_cls):  # type: ignore[misc]  # ty:ignore[unsupported-base]
         def render_line(self, _y: int) -> Strip:
             return strip_class.blank(self.size.width, transparent_style)
 
@@ -87,7 +83,7 @@ def make_transparent_cls(base_cls: type) -> type:
     if Strip is None or _RichStyle is None:
         raise RuntimeError("Rich / Textual is not available")
 
-    class TransparentWidget(base_cls):  # type: ignore[misc]
+    class TransparentWidget(base_cls):  # type: ignore[misc]  # ty:ignore[unsupported-base]
         def render_line(self, y: int) -> Strip:
             return transparent_strip(super().render_line(y), self.size.width)
 

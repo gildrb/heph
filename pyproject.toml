@@ -150,19 +150,18 @@ raises-require-match-for = ["Exception", "ValueError", "TypeError", "RuntimeErro
 [tool.uv.build-backend]
 module-root = ""
 
-[tool.basedpyright]
-pythonVersion = "3.13"
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.src]
 include = ["hephaistos", "tests"]
-typeCheckingMode = "strict"
-venvPath = "."
-venv = ".venv"
 exclude = ["vulture-whitelist.py", ".venv"]
-# Third-party libs that lack stubs
-reportMissingTypeStubs = "none"
-# Optional RAG dependencies (numpy, sklearn, sentence-transformers)
-reportMissingImports = "none"
-# We use `from __future__ import annotations` everywhere
-reportUnusedImport = "warning"
+
+[tool.ty.rules]
+all = "error"
+unresolved-import = "ignore"
+unused-ignore-comment = "ignore"
+unused-type-ignore-comment = "ignore"
 
 [tool.pylint.similarities]
 ignore-comments = true
@@ -359,7 +358,6 @@ fail_under = 75
 [dependency-groups]
 dev = [
     "bandit[toml]>=1.8",
-    "basedpyright>=1.39.0",
     "deptry>=0.22",
     "pytest>=9.0.2",
     "pytest-cov>=7.1.0",
@@ -373,6 +371,7 @@ dev = [
     "import-linter>=2.11",
     "py-spy>=0.4",
     "bandit>=1.9",
+    "ty>=0.0.34",
 ]
 rag = [
     "bm25s>=0.2.13",

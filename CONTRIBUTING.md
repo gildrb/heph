@@ -39,7 +39,7 @@ Run the full set before opening a larger PR:
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run basedpyright
+uv run ty check
 uv run pytest
 ```
 

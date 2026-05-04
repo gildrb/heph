@@ -248,7 +248,7 @@ def load_app_settings() -> AppSettings:
             raw.get("supermemory_onboarding_seen"), default=False
         ),
         telemetry_notice_seen=_coerce_bool(raw.get("telemetry_notice_seen"), default=False),
-        session_count=int(raw.get("session_count", 0) or 0),  # type: ignore[reportArgumentType]
+        session_count=int(raw.get("session_count", 0) or 0),  # type: ignore[reportArgumentType]  # ty:ignore[invalid-argument-type]
     )
 
 

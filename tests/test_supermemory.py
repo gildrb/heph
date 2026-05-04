@@ -92,9 +92,9 @@ def test_add_batch_to_profile_writes_global_profile(tmp_path: Path) -> None:
     assert call_kwargs["container_tag"] == store.profile_tag
     metadata = call_kwargs["metadata"]
     assert isinstance(metadata, dict)
-    assert metadata["topic"] == "DNS"
-    assert metadata["profile"] == "heph-study"
-    assert metadata["scope"] == "profile"
+    assert metadata["topic"] == "DNS"  # ty:ignore[invalid-argument-type]
+    assert metadata["profile"] == "heph-study"  # ty:ignore[invalid-argument-type]
+    assert metadata["scope"] == "profile"  # ty:ignore[invalid-argument-type]
 
 
 def test_build_system_context_queries_armory_and_profile(tmp_path: Path) -> None:

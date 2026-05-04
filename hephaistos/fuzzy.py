@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 try:
-    from rapidfuzz import fuzz  # pyright: ignore[reportUnknownVariableType]
+    from rapidfuzz import fuzz  # ty: ignore
 except ImportError:
     fuzz = None  # type: ignore[assignment]
 

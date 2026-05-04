@@ -1,6 +1,3 @@
-# pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportPrivateUsage=false
-# pyright: reportUnknownVariableType=false, reportUntypedBaseClass=false, reportGeneralTypeIssues=false
-# pyright: reportAttributeAccessIssue=false
 from __future__ import annotations
 
 import sys
@@ -23,10 +20,10 @@ from hephaistos.tui.armory_browser import (
 try:
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
-    Input = None  # type: ignore[assignment]
-    OptionList = None  # type: ignore[assignment]
-    RichLog = None  # type: ignore[assignment]
-    Static = None  # type: ignore[assignment]
+    Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
     from textual import events
@@ -52,9 +49,9 @@ def _armory_usage_message() -> str:
 class TuiArmoryMixin:
     def _handle_armory_browser(self, value: str) -> None:
         mode = _armory_command_mode(value)
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         if mode is None:
-            self._append_error(_armory_usage_message())
+            self._append_error(_armory_usage_message())  # ty:ignore[unresolved-attribute]
             composer.focus()
             return
         self._open_armory_inline(mode)
@@ -66,35 +63,41 @@ class TuiArmoryMixin:
         self._armory_filter = ""
         self._armory_mode = mode
         self._armory_creating = mode == "create"
-        self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
-        self.query_one("#armory-inline").add_class("active")
-        composer = self.query_one("#composer", Input)
+        self.query_one("#transcript", RichLog).add_class(
+            "hidden-for-armory"
+        )  # ty:ignore[unresolved-attribute]
+        self.query_one("#armory-inline").add_class("active")  # ty:ignore[unresolved-attribute]
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         composer.value = ""
         composer.placeholder = (
             "New armory name..." if self._armory_creating else "Filter armory paths..."
         )
-        self._hide_completions()
+        self._hide_completions()  # ty:ignore[unresolved-attribute]
         self._refresh_armory_inline(mode=mode)
-        self._refresh_footer_hints()
+        self._refresh_footer_hints()  # ty:ignore[unresolved-attribute]
         composer.focus()
-        self.set_focus(composer)
+        self.set_focus(composer)  # ty:ignore[unresolved-attribute]
 
     def _close_armory_inline(self) -> None:
         self._armory_inline_active = False
         self._armory_filter = ""
         self._armory_creating = False
         self._armory_mode = "manage"
-        self.query_one("#transcript", RichLog).remove_class("hidden-for-armory")
-        self.query_one("#armory-inline").remove_class("active")
-        composer = self.query_one("#composer", Input)
+        self.query_one("#transcript", RichLog).remove_class(
+            "hidden-for-armory"
+        )  # ty:ignore[unresolved-attribute]
+        self.query_one("#armory-inline").remove_class("active")  # ty:ignore[unresolved-attribute]
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         composer.value = ""
         composer.placeholder = 'Ask anything... "What do I need to study next?"'
-        self._refresh_footer_hints()
+        self._refresh_footer_hints()  # ty:ignore[unresolved-attribute]
         composer.focus()
-        self.set_focus(composer)
+        self.set_focus(composer)  # ty:ignore[unresolved-attribute]
 
     def _refresh_armory_inline(self, *, mode: str = "manage") -> None:
-        current = self.query_one("#armory-current-inline", OptionList)
+        current = self.query_one(
+            "#armory-current-inline", OptionList
+        )  # ty:ignore[unresolved-attribute]
         previous_key = self._armory_selection_key()
         self._armory_entries = build_entries(
             self._armory_current,
@@ -103,7 +106,7 @@ class TuiArmoryMixin:
             show_places=True,
         )
         self._armory_parent_entries = build_parent_entries(self._armory_current)
-        header = self.query_one("#armory-header", Static)
+        header = self.query_one("#armory-header", Static)  # ty:ignore[unresolved-attribute]
         mode_hint = (
             "new armory · enter create · esc cancel"
             if self._armory_creating
@@ -112,7 +115,9 @@ class TuiArmoryMixin:
         filter_hint = f" · filter: {self._armory_filter}" if self._armory_filter else ""
         count_hint = f" · {len(self._armory_entries)} item(s)"
         header.update(f"armory · {self._armory_current}{filter_hint}{count_hint}\n{mode_hint}")
-        parent = self.query_one("#armory-parent-inline", OptionList)
+        parent = self.query_one(
+            "#armory-parent-inline", OptionList
+        )  # ty:ignore[unresolved-attribute]
         parent.clear_options()
         for label, _path in self._armory_parent_entries:
             parent.add_option(label)
@@ -151,14 +156,18 @@ class TuiArmoryMixin:
         return None
 
     def _armory_highlighted_entry(self) -> _DirEntry | None:
-        current = self.query_one("#armory-current-inline", OptionList)
+        current = self.query_one(
+            "#armory-current-inline", OptionList
+        )  # ty:ignore[unresolved-attribute]
         idx = current.highlighted
         if idx is None or idx < 0 or idx >= len(self._armory_entries):
             return None
         return self._armory_entries[idx]
 
     def _update_armory_preview(self) -> None:
-        preview = self.query_one("#armory-preview-inline", Static)
+        preview = self.query_one(
+            "#armory-preview-inline", Static
+        )  # ty:ignore[unresolved-attribute]
         entry = self._armory_highlighted_entry()
         if entry is None:
             if self._armory_filter:
@@ -179,7 +188,9 @@ class TuiArmoryMixin:
     def _move_armory_highlight(self, offset: int) -> None:
         if not self._armory_entries:
             return
-        current = self.query_one("#armory-current-inline", OptionList)
+        current = self.query_one(
+            "#armory-current-inline", OptionList
+        )  # ty:ignore[unresolved-attribute]
         highlighted = current.highlighted or 0
         current.highlighted = (highlighted + offset) % len(self._armory_entries)
         self._update_armory_preview()
@@ -205,80 +216,96 @@ class TuiArmoryMixin:
     def _start_inline_create(self) -> None:
         self._armory_creating = True
         self._armory_mode = "create"
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         composer.value = ""
         composer.placeholder = "New armory name..."
         self._refresh_armory_inline()
-        self._refresh_footer_hints()
+        self._refresh_footer_hints()  # ty:ignore[unresolved-attribute]
         composer.focus()
 
     def _create_inline_armory(self, name: str) -> None:
         if not name:
             self._armory_creating = False
-            self.query_one("#composer", Input).placeholder = "Filter armory paths..."
+            self.query_one(
+                "#composer", Input
+            ).placeholder = "Filter armory paths..."  # ty:ignore[unresolved-attribute]
             self._refresh_armory_inline()
-            self._refresh_footer_hints()
+            self._refresh_footer_hints()  # ty:ignore[unresolved-attribute]
             return
         parent_error = _creation_parent_error(self._armory_current)
         if parent_error is not None:
-            self.query_one("#armory-error-inline", Static).update(parent_error)
+            self.query_one("#armory-error-inline", Static).update(
+                parent_error
+            )  # ty:ignore[unresolved-attribute]
             return
         armory_path, name_error = new_armory_path(self._armory_current, name)
         if name_error is not None or armory_path is None:
-            self.query_one("#armory-error-inline", Static).update(
+            self.query_one(
+                "#armory-error-inline", Static
+            ).update(  # ty:ignore[unresolved-attribute]
                 name_error or "Invalid armory name."
             )
             return
         try:
             initialize(armory_path)
         except (ArmoryError, OSError) as exc:
-            self.query_one("#armory-error-inline", Static).update(
+            self.query_one(
+                "#armory-error-inline", Static
+            ).update(  # ty:ignore[unresolved-attribute]
                 f"Could not create armory: {exc}"
             )
             return
         add_known_armory(armory_path)
         self._close_armory_inline()
-        self._append_notice(f"Created armory {armory_path}")
-        self._append_notice("Add study files to materials/, then open the armory.")
+        self._append_notice(f"Created armory {armory_path}")  # ty:ignore[unresolved-attribute]
+        self._append_notice(
+            "Add study files to materials/, then open the armory."
+        )  # ty:ignore[unresolved-attribute]
 
     def _open_selected_armory(self, path: Path) -> None:
         try:
             _validate_armory(path)
         except OSError as exc:
-            self.query_one("#armory-error-inline", Static).update(f"Could not read armory: {exc}")
+            self.query_one("#armory-error-inline", Static).update(
+                f"Could not read armory: {exc}"
+            )  # ty:ignore[unresolved-attribute]
             return
         except ArmoryError as exc:
-            self.query_one("#armory-error-inline", Static).update(f"Not a valid armory: {exc}")
+            self.query_one("#armory-error-inline", Static).update(
+                f"Not a valid armory: {exc}"
+            )  # ty:ignore[unresolved-attribute]
             return
         previous = self.session
         tui_module = sys.modules["hephaistos.tui"]
         self.session = tui_module.start_fresh_session(self.session, path)
         if self.session is previous:
-            self.query_one("#armory-error-inline", Static).update(f"Could not open armory: {path}")
+            self.query_one("#armory-error-inline", Static).update(
+                f"Could not open armory: {path}"
+            )  # ty:ignore[unresolved-attribute]
             return
         self._close_armory_inline()
-        self._refresh_status("ready")
+        self._refresh_status("ready")  # ty:ignore[unresolved-attribute]
         self._focused_msg_index = None
-        self._update_info_panel()
-        self._append_notice(f"Using armory {path}")
+        self._update_info_panel()  # ty:ignore[unresolved-attribute]
+        self._append_notice(f"Using armory {path}")  # ty:ignore[unresolved-attribute]
         src_count = self.session.source_file_count or 0
         if src_count:
-            self._append_notice(f"Loaded {src_count} file(s).")
+            self._append_notice(f"Loaded {src_count} file(s).")  # ty:ignore[unresolved-attribute]
 
     def _handle_armory_key(self, event: events.Key) -> bool:
-        composer = self.query_one("#composer", Input)
+        composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         if event.key == "escape":
             if self._armory_creating:
                 self._armory_creating = False
                 composer.value = ""
                 composer.placeholder = "Filter armory paths..."
                 self._refresh_armory_inline()
-                self._refresh_footer_hints()
+                self._refresh_footer_hints()  # ty:ignore[unresolved-attribute]
             elif composer.value:
                 composer.value = ""
                 self._armory_filter = ""
                 self._refresh_armory_inline()
-                self._refresh_footer_hints()
+                self._refresh_footer_hints()  # ty:ignore[unresolved-attribute]
             else:
                 self._close_armory_inline()
             event.prevent_default()

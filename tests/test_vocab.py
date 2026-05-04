@@ -188,7 +188,7 @@ class TestScheduler:
             "interval": 0,
         }
         defaults.update(overrides)
-        return VocabCardState(**defaults)  # type: ignore[arg-type]
+        return VocabCardState(**defaults)  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
 
     def test_new_card_good_first_review(self) -> None:
         card = self._make_card()

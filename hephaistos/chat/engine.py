@@ -45,9 +45,9 @@ def stream_completion(
         config,
         conversation,
         tools=tools,  # type: ignore[arg-type]
-        abort=abort,  # type: ignore[arg-type]
+        abort=abort,  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
         retry=retry,
-        client_factory=client_factory or _runtime_engine.build_client,  # type: ignore[arg-type]
+        client_factory=client_factory or _runtime_engine.build_client,  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
     )
 
 

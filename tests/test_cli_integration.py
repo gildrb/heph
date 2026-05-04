@@ -197,7 +197,7 @@ def test_chat_ask_dispatches_without_tui(monkeypatch: pytest.MonkeyPatch) -> Non
 
     def fake_ask(args: object) -> None:
         nonlocal captured
-        captured = (args.path, args.prompt)  # type: ignore[attr-defined]
+        captured = (args.path, args.prompt)  # type: ignore[attr-defined]  # ty:ignore[unresolved-attribute]
 
     monkeypatch.setattr("hephaistos.chat.cli._cmd_chat_ask", fake_ask)
 

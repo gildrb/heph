@@ -1,8 +1,4 @@
 # pylint: disable=duplicate-code
-# pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false
-# pyright: reportUntypedBaseClass=false, reportGeneralTypeIssues=false
-# pyright: reportUnknownVariableType=false, reportInvalidTypeArguments=false, reportInvalidTypeForm=false
-# pyright: reportOptionalCall=false, reportUnknownParameterType=false
 """Inline Textual armory browser screen with Miller-column layout.
 
 A ModalScreen that uses three columns — parent directory, current directory,
@@ -43,16 +39,16 @@ try:
     from textual.strip import Strip
     from textual.widgets import Input, OptionList, Static
 except ImportError:
-    events = None  # type: ignore[assignment]
-    ComposeResult = None  # type: ignore[assignment,misc]
-    Binding = None  # type: ignore[assignment,misc]
-    Horizontal = None  # type: ignore[assignment,misc]
-    Vertical = None  # type: ignore[assignment,misc]
-    ModalScreen = object  # type: ignore[assignment,misc]
-    Strip = None  # type: ignore[assignment,misc]
-    Input = None  # type: ignore[assignment,misc]
-    OptionList = None  # type: ignore[assignment,misc]
-    Static = None  # type: ignore[assignment,misc]
+    events = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    ComposeResult = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Binding = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Horizontal = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Vertical = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    ModalScreen = object  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Strip = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Input = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    OptionList = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    Static = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +133,7 @@ def _list_entries(path: Path, *, show_files: bool = False) -> list[Path]:
     return result
 
 
-def _list_child_dirs(path: Path) -> list[Path]:  # pyright: ignore[reportUnusedFunction]
+def _list_child_dirs(path: Path) -> list[Path]:  # ty: ignore
     """Return sorted child directories, skipping hidden ones.
 
     Backward-compatible wrapper kept for existing tests.
@@ -619,7 +615,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         self._filter_query = ""
         self._entries: list[_DirEntry] = []
         self._parent_entries: list[tuple[str, Path]] = []
-        self.CSS = _armory_browser_css(current_palette())
+        self.CSS = _armory_browser_css(current_palette())  # ty:ignore[invalid-attribute-access]
 
     # -----------------------------------------------------------------------
     # Compose

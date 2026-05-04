@@ -1,7 +1,3 @@
-# pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportPrivateUsage=false
-# pyright: reportUnknownVariableType=false, reportUntypedBaseClass=false, reportGeneralTypeIssues=false
-# pyright: reportInvalidTypeArguments=false, reportInvalidTypeForm=false, reportOptionalCall=false
-# pyright: reportUnknownParameterType=false, reportArgumentType=false, reportUnusedFunction=false
 """Command-first Textual shell for Hephaistos.
 
 Imports stay lazy so test suites can exercise dependency errors cleanly.
@@ -92,23 +88,23 @@ try:
     from textual.suggester import Suggester
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
-    Binding = None  # type: ignore[assignment]
-    _RichStyle = None  # type: ignore[assignment]
-    Markdown = None  # type: ignore[assignment]
-    Segment = None  # type: ignore[assignment]
-    _RichText = None  # type: ignore[assignment]
-    events = None  # type: ignore[assignment]
-    App = object  # type: ignore[assignment, misc]
-    ComposeResult = object  # type: ignore[assignment, misc]
-    Horizontal = object  # type: ignore[assignment, misc]
-    Vertical = object  # type: ignore[assignment, misc]
-    Screen = object  # type: ignore[assignment, misc]
-    Suggester = object  # type: ignore[assignment, misc]
-    Strip = None  # type: ignore[assignment]
-    Input = None  # type: ignore[assignment]
-    OptionList = None  # type: ignore[assignment]
-    RichLog = None  # type: ignore[assignment]
-    Static = None  # type: ignore[assignment]
+    Binding = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    _RichStyle = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Markdown = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Segment = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    _RichText = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    events = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    App = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
+    ComposeResult = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
+    Horizontal = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
+    Vertical = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
+    Screen = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
+    Suggester = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
+    Strip = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 start_fresh_session = _workspace.start_fresh_session
 get_registry = _get_registry
@@ -175,7 +171,7 @@ class _WidgetClasses:
         if palette.is_transparent:
             transparent_rich_log_base = make_transparent_cls(RichLog)
 
-            class TransparentNonFocusRichLog(transparent_rich_log_base):  # type: ignore[misc]
+            class TransparentNonFocusRichLog(transparent_rich_log_base):  # type: ignore[misc]  # ty:ignore[unsupported-base]
                 can_focus = False
 
             return cls(
@@ -221,7 +217,7 @@ def _transparent_static_class() -> type:
 def _transparent_rich_log_class() -> type:
     base = make_transparent_cls(RichLog)
 
-    class TransparentNonFocusRichLog(base):  # type: ignore[misc]
+    class TransparentNonFocusRichLog(base):  # type: ignore[misc]  # ty:ignore[unsupported-base]
         can_focus = False
 
     return TransparentNonFocusRichLog
@@ -304,7 +300,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         palette: ThemePalette,
     ) -> None:
         super().__init__()
-        self.CSS = _tui_css()
+        self.CSS = _tui_css()  # ty:ignore[invalid-attribute-access]
         self._widgets = _WidgetClasses.from_palette(palette)
         self.session = active_session
         self.state = runtime_state
@@ -466,9 +462,9 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if event.option_list.id != "suggestions":
             return
         if self._inline_flow.active:
-            self._select_inline_flow_option(event.index)
+            self._select_inline_flow_option(event.index)  # ty:ignore[unresolved-attribute]
         else:
-            self._apply_completion(event.index)
+            self._apply_completion(event.index)  # ty:ignore[unresolved-attribute]
         event.stop()
 
     def on_option_list_option_highlighted(
@@ -858,7 +854,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
 
     def _stop_thinking_animation(self) -> None:
         if self._thinking_timer is not None:
-            self._thinking_timer.stop()  # type: ignore[union-attr]
+            self._thinking_timer.stop()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
             self._thinking_timer = None
         indicator = self.query_one("#thinking-indicator", Static)
         indicator.update("")

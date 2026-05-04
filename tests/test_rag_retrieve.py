@@ -507,7 +507,7 @@ class _MockArray:
         return self._rows
 
     def __getitem__(self, idx: int) -> _MockArray:
-        return _MockArray(self._rows[idx])  # type: ignore[index]
+        return _MockArray(self._rows[idx])  # type: ignore[index]  # ty:ignore[invalid-argument-type]
 
 
 # ---------------------------------------------------------------------------
@@ -1072,7 +1072,7 @@ class TestRetrieveConvenience:
                     transformed_queries.append([query])
                 else:
                     transformer = self._transformer
-                    transformed_queries.append(transformer.transform(query))  # type: ignore[attr-defined]
+                    transformed_queries.append(transformer.transform(query))  # type: ignore[attr-defined]  # ty:ignore[unresolved-attribute]
                 return [ScoredChunk(chunk=index.all_chunks[0], score=1.0)]
 
         def prompt_fn(prompt: str) -> str:

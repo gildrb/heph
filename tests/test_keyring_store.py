@@ -26,7 +26,7 @@ _TEST_SLUG = "__test_hephaistos_unit__"
 
 
 @pytest.fixture(autouse=True)
-def _clean_test_key():  # pyright: ignore[reportUnusedFunction]
+def _clean_test_key():  # ty: ignore
     """Ensure no leftover test key in system keyring."""
     _keychain_cache.pop(_TEST_SLUG, None)
     with contextlib.suppress(Exception):

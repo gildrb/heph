@@ -1,6 +1,5 @@
 """Tests for the optional Textual shell wrapper."""
 
-# pyright: reportAttributeAccessIssue=false
 from __future__ import annotations
 
 import asyncio
@@ -106,7 +105,7 @@ def test_footer_hints_show_cancel_when_busy() -> None:
 
 def test_footer_hints_show_api_missing_when_unconfigured() -> None:
     session = _plain_session()
-    session.config.api_key = None
+    session.config.api_key = None  # ty:ignore[invalid-assignment]
     hints = tui._footer_hints_text(session)  # type: ignore[reportPrivateUsage]
     plain = hints.plain
 
@@ -597,7 +596,7 @@ def test_ctrl_p_opens_command_palette() -> None:
             suggestions = cast(
                 "TextualOptionList",
                 app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
-            )
+            )  # ty:ignore[redundant-cast]
 
             assert composer.value == "/"  # type: ignore[reportUnknownMemberType]
             assert composer.cursor_position == 1  # type: ignore[reportUnknownMemberType]
@@ -1037,10 +1036,10 @@ def test_armory_inline_transparent_surface_does_not_paint_black(tmp_path: Path) 
             app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
             await pilot.pause()
             widgets: tuple[Widget, ...] = (
-                cast("Widget", app.query_one("#armory-inline")),  # type: ignore[reportUnknownMemberType]
-                cast("Widget", app.query_one("#armory-header")),  # type: ignore[reportUnknownMemberType]
-                cast("Widget", app.query_one("#armory-current-inline")),  # type: ignore[reportUnknownMemberType]
-                cast("Widget", app.query_one("#armory-preview-inline")),  # type: ignore[reportUnknownMemberType]
+                cast("Widget", app.query_one("#armory-inline")),  # type: ignore[reportUnknownMemberType]  # ty:ignore[redundant-cast]
+                cast("Widget", app.query_one("#armory-header")),  # type: ignore[reportUnknownMemberType]  # ty:ignore[redundant-cast]
+                cast("Widget", app.query_one("#armory-current-inline")),  # type: ignore[reportUnknownMemberType]  # ty:ignore[redundant-cast]
+                cast("Widget", app.query_one("#armory-preview-inline")),  # type: ignore[reportUnknownMemberType]  # ty:ignore[redundant-cast]
             )
             for widget in widgets:
                 for line_number in range(widget.size.height):
@@ -1517,7 +1516,7 @@ def test_models_completion_menu_includes_live_openrouter_catalog(
             suggestions = cast(
                 "TextualOptionList",
                 app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
-            )
+            )  # ty:ignore[redundant-cast]
             visible_models = [candidate.text.strip() for candidate in app.completion_candidates]
 
             assert suggestions.option_count == len(app.completion_candidates)
@@ -1655,7 +1654,7 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
             suggestions = cast(
                 "TextualOptionList",
                 app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
-            )
+            )  # ty:ignore[redundant-cast]
 
             assert suggestions.highlighted == 0
             assert suggestions.scroll_y == 0
@@ -1704,7 +1703,7 @@ def test_completion_menu_highlight_moves_down_at_bottom() -> None:
             suggestions = cast(
                 "TextualOptionList",
                 app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
-            )
+            )  # ty:ignore[redundant-cast]
             visible_rows = min(
                 suggestions.option_count,
                 suggestions.size.height,

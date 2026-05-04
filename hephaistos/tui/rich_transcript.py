@@ -1,5 +1,3 @@
-# pyright: reportMissingImports=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportPrivateUsage=false
-# pyright: reportUnknownVariableType=false, reportUntypedBaseClass=false
 """Rich transcript rendering with inline evidence badges and source panels."""
 
 from __future__ import annotations

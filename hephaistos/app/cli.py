@@ -11,11 +11,11 @@ import sys
 
 from hephaistos.cli.main import (
     HephaistosArgumentParser,
-    _get_subcommand_names,  # pyright: ignore[reportPrivateUsage]
-    _inject_default_subcommand,  # pyright: ignore[reportPrivateUsage]
-    _normalise_tui_alias,  # pyright: ignore[reportPrivateUsage]
-    _report_memory,  # pyright: ignore[reportPrivateUsage]
-    _report_profile,  # pyright: ignore[reportPrivateUsage]
+    _get_subcommand_names,  # ty: ignore
+    _inject_default_subcommand,  # ty: ignore
+    _normalise_tui_alias,  # ty: ignore
+    _report_memory,  # ty: ignore
+    _report_profile,  # ty: ignore
     build_parser,
     main,
     run_argv,
