@@ -25,6 +25,8 @@ from hephaistos.input_history import InputHistory
 from hephaistos.parameters.cli import load_config
 from hephaistos.providers.model_choices import configured_model_choices
 from hephaistos.search_index import SearchResult, load_known_armories
+from hephaistos.session_lifecycle import create_startup_session, get_history_path, save_on_exit
+from hephaistos.shell_input import handle_input
 from hephaistos.terminal import ThemePalette, current_palette
 from hephaistos.tui import armory as _tui_armory
 from hephaistos.tui.armory import TuiArmoryMixin
@@ -66,12 +68,6 @@ from hephaistos.tui.transparent import (
     make_blank_background_cls,
     make_transparent_cls,
     nonfocus_rich_log_class,
-)
-from hephaistos.workspace import (
-    create_startup_session,
-    get_history_path,
-    handle_input,
-    save_on_exit,
 )
 
 try:
