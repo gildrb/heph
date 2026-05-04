@@ -231,7 +231,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "materials must not import app, chat, agent, or rag"
+name = "materials must not import adapters, chat, agent, or rag"
 type = "forbidden"
 source_modules = ["hephaistos.materials"]
 forbidden_modules = [
@@ -243,7 +243,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "rag must not import agent, chat, or app"
+name = "rag must not import agent, chat, or adapters"
 type = "forbidden"
 source_modules = ["hephaistos.rag"]
 forbidden_modules = [
@@ -283,7 +283,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "memory must not import app, chat, or agent"
+name = "memory must not import adapters, chat, or agent"
 type = "forbidden"
 source_modules = ["hephaistos.memory"]
 forbidden_modules = ["hephaistos.tui", "hephaistos.chat", "hephaistos.agent"]
@@ -328,7 +328,7 @@ source_modules = ["hephaistos.commands"]
 forbidden_modules = []
 
 [[tool.importlinter.contracts]]
-name = "commands must not import tui or app"
+name = "commands must not import tui"
 type = "forbidden"
 source_modules = ["hephaistos.commands"]
 forbidden_modules = ["hephaistos.tui"]

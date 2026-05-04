@@ -1,7 +1,7 @@
 """Import boundary enforcement tests for the new package structure.
 
 Validates VAL-STRUCT-013, VAL-STRUCT-014, VAL-STRUCT-015, VAL-STRUCT-016:
-- rag/ must not import agent/, chat/, or app/
+- rag/ must not import agent/, chat/, or adapters
 - agent/ must not import chat.session
 - chat/ must not import private (_-prefixed) symbols from agent/ or rag/
 - No private cross-package imports anywhere
@@ -77,7 +77,7 @@ def _is_agent_or_rag_import(module_name: str) -> bool:
     return module_name.startswith(("hephaistos.agent", "hephaistos.rag"))
 
 
-# --- VAL-STRUCT-013: rag must not import agent, chat, or app ---
+# --- VAL-STRUCT-013: rag must not import agent, chat, or adapters ---
 
 
 def _rag_modules() -> list[Path]:
@@ -88,19 +88,21 @@ def _rag_modules() -> list[Path]:
 
 
 @pytest.mark.parametrize("module_path", _rag_modules(), ids=lambda p: str(p.relative_to(ROOT)))
-def test_rag_does_not_import_agent_chat_app(
+def test_rag_does_not_import_agent_chat_adapters(
     module_path: Path,
 ) -> None:
-    """VAL-STRUCT-013: No module under rag/ may import from agent, chat, or app."""
+    """VAL-STRUCT-013: No module under rag/ may import from agent, chat, or adapters."""
     forbidden_prefixes = (
         "hephaistos.agent",
         "hephaistos.chat",
-        "hephaistos.app",
+        "hephaistos.cli",
+        "hephaistos.commands",
+        "hephaistos.tui",
     )
     for imp in _module_imports(module_path):
         assert not imp.startswith(forbidden_prefixes), (
             f"{module_path.relative_to(ROOT)} imports {imp}, "
-            f"which violates rag isolation from agent/chat/app"
+            f"which violates rag isolation from agent/chat/adapters"
         )
 
 

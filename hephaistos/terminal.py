@@ -1,8 +1,8 @@
 """Shared terminal utilities: styling, I/O primitives, and menu helpers.
 
 This module is the single source of truth for low-level terminal interaction
-used by both the ``app`` UI framework and leaf packages like ``vocab``.
-No code in this module may import from ``hephaistos.app``.
+used by adapter packages and leaf packages like ``vocab``. No code in this
+module may import from CLI, command, or TUI adapters.
 """
 
 from __future__ import annotations

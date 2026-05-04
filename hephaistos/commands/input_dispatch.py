@@ -7,10 +7,7 @@ from dataclasses import dataclass
 
 from hephaistos.chat.session import ChatSession
 from hephaistos.input_history import InputHistory
-from hephaistos.shell_input import (
-    _run_shell_command as run_shell_command,
-)
-from hephaistos.shell_input import handle_input
+from hephaistos.shell_input import handle_input, run_shell_command
 
 
 @dataclass(frozen=True, slots=True)

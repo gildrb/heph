@@ -66,9 +66,9 @@ def test_import_linter_contracts_cover_portability_tiers() -> None:
     expected_contracts = (
         "runtime must stay below product workflows",
         "providers must stay below product workflows",
-        "materials must not import app, chat, agent, or rag",
-        "rag must not import agent, chat, or app",
-        "memory must not import app, chat, or agent",
+        "materials must not import adapters, chat, agent, or rag",
+        "rag must not import agent, chat, or adapters",
+        "memory must not import adapters, chat, or agent",
         "study must remain a pure controller layer",
     )
     for contract in expected_contracts:

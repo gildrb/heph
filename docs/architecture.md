@@ -1,7 +1,7 @@
 # Architecture
 
 Hephaistos follows strict import boundaries enforced by `import-linter`. Only
-`app` may import from every package; lower tiers must stay copyable and must
+adapter packages may import broadly; lower tiers must stay copyable and must
 not depend on product workflows.
 
 ## Architecture tiers
@@ -10,8 +10,8 @@ not depend on product workflows.
   These are the most copyable packages and must not import product workflow
   packages.
 - **Domain reusable packages**: `materials`, `rag`, `memory`, `armory`, `vocab`,
-  `study`. These may model Hephaistos concepts, but must not depend on `app`,
-  TUI adapters, CLI command handlers, or chat session orchestration.
+  `study`. These may model Hephaistos concepts, but must not depend on
+  adapters, CLI command handlers, TUI modules, or chat session orchestration.
 - **Application services**: `chat` and focused workflow modules. These compose
   core/domain packages into session lifecycle, evidence, memory workflows, and
   turn orchestration.
@@ -97,18 +97,18 @@ hephaistos/
   tui/          Textual interactive adapter: widgets, key handling, rendering
   chat/         Session lifecycle, storage, turn orchestration — no adapter imports
   runtime/      Shared LLM messages, config, client streaming, retry helpers
-  agent/        Prompt building, persona, citation, tools — no app imports
-  providers/    LLM provider registry, config, auth — no app imports
-  rag/          RAG chunking, indexing, retrieval — no app imports
+  agent/        Prompt building, persona, citation, tools — no adapter imports
+  providers/    LLM provider registry, config, auth — no adapter imports
+  rag/          RAG chunking, indexing, retrieval — no adapter imports
   materials/    Study-file discovery, ignore rules, source/library classification
-  armory/       Armory data and commands — no app imports
-  study/        Study controller — no app imports
-  memory/       Memory extraction and storage — no app imports
-  parameters/   Parameter management CLI — no app imports
+  armory/       Armory data and commands — no adapter imports
+  study/        Study controller — no adapter imports
+  memory/       Memory extraction and storage — no adapter imports
+  parameters/   Parameter management CLI — no adapter imports
   source/       Deprecated CLI compatibility alias for materials
-  vocab/        Vocabulary drill, scheduler, state — no app imports
-  logging.py    Shared logging — must NOT import app
-  palette.py    ANSI color primitives — must NOT import app
+  vocab/        Vocabulary drill, scheduler, state — no adapter imports
+  logging.py    Shared logging — must NOT import adapters
+  palette.py    ANSI color primitives — must NOT import adapters
 ```
 
 ## Import rules
@@ -156,21 +156,21 @@ is one-way.
 
 `hephaistos.runtime` owns shared LLM primitives such as `ChatConfig`,
 `Conversation`, message conversion, client construction, streaming completion,
-and retry helpers. It must not import `app`, `chat`, `agent`, `rag`, `study`, or
+and retry helpers. It must not import adapters, `chat`, `agent`, `rag`, `study`,
 `materials`, `memory`, or `armory`. Providers may be used by runtime, but
 providers must not import product workflow packages.
 
 ### Core: providers
 
 `hephaistos.providers` owns provider configuration, model catalogs, registry
-metadata, and key resolution. It must not import `app`, `chat`, `agent`, `rag`,
-`study`, or `materials`.
+metadata, and key resolution. It must not import adapters, `chat`, `agent`,
+`rag`, `study`, or `materials`.
 
 ### Domain: memory and study
 
 `hephaistos.memory` may use `runtime` to extract concepts, but it must not
-import `app`, `chat`, or `agent`. `hephaistos.study` stays a pure
-controller/state layer and must not import `app`, `chat`, `agent`, or `rag`.
+import adapters, `chat`, or `agent`. `hephaistos.study` stays a pure
+controller/state layer and must not import adapters, `chat`, `agent`, or `rag`.
 
 ## Armory layout
 

@@ -59,7 +59,7 @@ def _get_command_registry() -> CommandRegistryProtocol:
     return _command_registry_fn()
 
 
-def _run_shell_command(cmd: str) -> None:
+def run_shell_command(cmd: str) -> None:
     """Execute a user-requested shell escape and display output."""
     print(styled(f"$ {cmd}", STYLE_DIM))
     try:
@@ -152,7 +152,7 @@ def handle_input(
         cmd = user_input[1:].strip()
         if cmd:
             history.add(user_input)
-            _run_shell_command(cmd)
+            run_shell_command(cmd)
         return session, True
     if user_input.startswith("/"):
         return _handle_slash_input(session, user_input, history)

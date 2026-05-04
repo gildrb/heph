@@ -167,7 +167,7 @@ class TestHandleInput:
     def test_shell_escape_adds_to_history(self) -> None:
         session = self._make_session()
         history = InputHistory()
-        with patch("hephaistos.shell_input._run_shell_command"):
+        with patch("hephaistos.shell_input.run_shell_command"):
             _new_session, should_continue = handle_input(session, "!echo hi", history)
         assert should_continue is True
         assert "echo hi" in str(
