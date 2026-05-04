@@ -141,6 +141,24 @@ def validate_armory_path(path_str: str) -> Path:
     return armory_path
 
 
+def empty_armory_guidance(armory_path: Path) -> str:
+    """Return actionable setup guidance for an armory with no visible materials."""
+    materials_path = armory_path / "materials"
+    return "\n".join(
+        (
+            "Armory has no study materials yet.",
+            f"Add files to: {materials_path}",
+            "",
+            "Next steps:",
+            f"  1. Copy PDFs, Markdown, notes, or text files into {materials_path}",
+            f"  2. Run: heph materials index {armory_path}",
+            f"  3. Start studying: heph {armory_path}",
+            "",
+            "Hidden files and paths matched by .hephaistosignore are skipped.",
+        )
+    )
+
+
 def _scan_source_files(armory_path: Path) -> tuple[int, list[str]]:
     """Count material files and collect relative paths in a single pass."""
     count = 0
@@ -227,9 +245,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
 
     source_file_count, source_files = _scan_source_files(armory_path)
     if source_file_count == 0:
-        raise SessionError(
-            f"Armory has no study materials. Add your files to {armory_path}/materials/."
-        )
+        raise SessionError(empty_armory_guidance(armory_path))
 
     conversation = Conversation()
     memory_ctx = ""

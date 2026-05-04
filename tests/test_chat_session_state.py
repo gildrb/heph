@@ -76,8 +76,15 @@ def test_ignored_sources_do_not_make_armory_startable(tmp_path: Path) -> None:
     (armory / ".hephaistosignore").write_text("materials/ignored.md\n", encoding="utf-8")
     (armory / "materials" / "ignored.md").write_text("# Ignored\n\nOnly ignored material.\n")
 
-    with pytest.raises(SessionError, match="no study materials"):
+    with pytest.raises(SessionError) as exc_info:
         create_session(
             ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
             armory,
         )
+
+    message = str(exc_info.value)
+    assert "Armory has no study materials yet." in message
+    assert f"Add files to: {armory / 'materials'}" in message
+    assert f"heph materials index {armory}" in message
+    assert f"heph {armory}" in message
+    assert ".hephaistosignore" in message

@@ -97,6 +97,52 @@ class TestCreateStartupSession:
         assert isinstance(session, ChatSession)
         assert session.armory_path is None
 
+    def test_onboarding_creates_armory_and_waits_for_materials(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory_path = tmp_path / "onboarded"
+        config = ChatConfig(base_url="https://api.example.com", model="test-model")
+        prompts: list[str] = []
+
+        def fake_input(prompt: str) -> str:
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                return str(armory_path)
+            (armory_path / "materials" / "notes.md").write_text("# Notes\nStudy content.\n")
+            return ""
+
+        monkeypatch.setattr("hephaistos.shell.lifecycle._stdio_is_interactive", lambda: True)
+        monkeypatch.setattr("builtins.input", fake_input)
+
+        session = create_startup_session(config)
+
+        assert session.armory_path == armory_path.resolve()
+        assert session.source_file_count == 1
+        assert len(prompts) == 2
+
+    def test_empty_auto_discovered_armory_falls_back_with_setup_steps(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        armory_path = tmp_path / "empty-armory"
+        initialize(armory_path)
+        monkeypatch.chdir(armory_path)
+        config = ChatConfig(base_url="https://api.example.com", model="test-model")
+
+        session = create_startup_session(config)
+
+        captured = capsys.readouterr()
+        assert session.armory_path is None
+        assert "Auto-discovered armory has no study materials" in captured.out
+        assert f"Add files to: {armory_path / 'materials'}" in captured.out
+        assert f"heph materials index {armory_path}" in captured.out
+        assert "No study session started because the armory still has no materials" in captured.out
+
     def test_creates_armory_session_when_armory_found(
         self, initialized_armory: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

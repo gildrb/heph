@@ -51,6 +51,8 @@ def test_top_level_help_is_compact_and_points_to_interactive_help() -> None:
     assert "Essential commands:" in help_text
     assert "Options:" in help_text
     assert "heph gdp" in help_text
+    assert "cp notes.pdf" in help_text
+    assert "materials index" in help_text
     assert "--profile" not in help_text
     assert "tracemalloc" not in help_text
     assert "Inside Hephaistos, type /help" in help_text
@@ -67,7 +69,9 @@ def test_run_argv_dispatches_armory_init(
 
     out = capsys.readouterr().out
     assert "Initialized armory at" in out
-    assert f"Open it later with: heph {armory_path.name}" in out
+    assert f"Add study files to: {armory_path / 'materials'}" in out
+    assert f"Then index them: heph materials index {armory_path}" in out
+    assert f"Start studying: heph {armory_path.name}" in out
     assert armory_path.is_dir()
 
 

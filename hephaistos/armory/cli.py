@@ -46,8 +46,11 @@ def _cmd_armory_init(args: argparse.Namespace) -> None:
     post_init = getattr(args, "post_init", None)
     if post_init is not None:
         post_init(armory_path)
+    materials_path = armory_path / "materials"
     print(f"Initialized armory at {armory_path}")
-    print(f"Open it later with: heph {armory_path.name}")
+    print(f"Add study files to: {materials_path}")
+    print(f"Then index them: heph materials index {armory_path}")
+    print(f"Start studying: heph {armory_path.name}")
     analytics = importlib.import_module("hephaistos.diagnostics.events")
     analytics.capture("armory_created", {"mode": "cli"})
 
