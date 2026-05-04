@@ -34,7 +34,7 @@ repos:
         pass_filenames: false
       - id: ty
         name: ty (type-check)
-        language: python
+        language: system
         entry: uv run ty check
         types: [python]
         pass_filenames: false
