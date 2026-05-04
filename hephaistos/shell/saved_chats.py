@@ -15,9 +15,9 @@ from hephaistos.chat.session import (
     validate_armory_path,
 )
 from hephaistos.diagnostics.events import capture as capture_analytics
-from hephaistos.fuzzy import ranked_matches
+from hephaistos.matching import ranked_matches
 from hephaistos.terminal import MenuOption, select_option
-from hephaistos.terminal_display import direct_input, print_error, print_info, print_success
+from hephaistos.terminal.display import direct_input, print_error, print_info, print_success
 
 
 def default_armory_input(session: ChatSession) -> str:

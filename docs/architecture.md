@@ -6,9 +6,9 @@ not depend on product workflows.
 
 ## Architecture tiers
 
-- **Core reusable packages**: `runtime`, `providers`, `logging`, `palette`, `_types`.
-  These are the most copyable packages and must not import product workflow
-  packages.
+- **Core reusable packages**: `runtime`, `providers`, `logging`, `matching`,
+  `terminal.palette`, `_types`. These are the most copyable packages and must
+  not import product workflow packages.
 - **Domain reusable packages**: `materials`, `rag`, `memory`, `armory`, `vocab`,
   `study`. These may model Hephaistos concepts, but must not depend on
   adapters, CLI command handlers, TUI modules, or chat session orchestration.
@@ -78,15 +78,15 @@ graph TD
     Chat -->|Session state| FileStore
 ```
 
-The top layer is the adapter surface: **cli**, **commands**, **tui**, and
-root-level shell compatibility modules such as `terminal`, `terminal_display`,
-`shell_input`, `session_lifecycle`, `armory_actions`, `saved_chats`,
-`search_index`, and `input_history`. `cli` is the public command
-dispatcher, `commands` contains slash-command handlers, and `tui` is the
-interactive Textual adapter. Reusable packages communicate through their public
-APIs and must not import adapter packages. Shared LLM request primitives live in
-**runtime** so chat, agent, memory, parameters, and providers do not import each
-other just to share message types or streaming helpers.
+The top layer is the adapter surface: **cli**, **commands**, **tui**, **shell**,
+and **terminal**. `cli` is the public command dispatcher, `commands` contains
+slash-command handlers, `tui` is the interactive Textual adapter, `shell` holds
+plain-terminal session actions, and `terminal` owns low-level terminal I/O,
+styling, history, and shell-input dispatch. Reusable packages communicate
+through their public APIs and must not import adapter packages. Shared LLM
+request primitives live in **runtime** so chat, agent, memory, parameters, and
+providers do not import each other just to share message types or streaming
+helpers.
 
 ## Package layout
 
@@ -95,6 +95,9 @@ hephaistos/
   cli/          Public command dispatcher and CLI argument parsing
   commands/     Slash-command handlers for shell/TUI adapters
   tui/          Textual interactive adapter: widgets, key handling, rendering
+  shell/        Plain-terminal session, armory, and saved-chat actions
+  terminal/     Terminal I/O, styling, prompts, history, shell-input dispatch
+  matching/     Fuzzy matching helpers for human-facing selectors
   chat/         Session lifecycle, storage, turn orchestration — no adapter imports
   runtime/      Shared LLM messages, config, client streaming, retry helpers
   agent/        Prompt building, persona, citation, tools — no adapter imports
@@ -105,10 +108,12 @@ hephaistos/
   study/        Study controller — no adapter imports
   memory/       Memory extraction and storage — no adapter imports
   parameters/   Parameter management CLI — no adapter imports
+  privacy/      Consent, anonymous install ID, release-time diagnostics config
+  diagnostics/  Anonymous events, local diagnostics, redacted crash reports
   source/       Deprecated CLI compatibility alias for materials
   vocab/        Vocabulary drill, scheduler, state — no adapter imports
   logging.py    Shared logging — must NOT import adapters
-  palette.py    ANSI color primitives — must NOT import adapters
+  terminal/palette.py  ANSI color primitives — must NOT import adapters
 ```
 
 ## Import rules
@@ -116,10 +121,9 @@ hephaistos/
 ### Forbidden: reusable packages must not import adapters
 
 The following packages cannot import anything from adapter packages:
-`hephaistos.cli`, `hephaistos.commands`, `hephaistos.tui`,
-`hephaistos.terminal`, `hephaistos.terminal_display`, `hephaistos.shell_input`,
-`hephaistos.session_lifecycle`, `hephaistos.armory_actions`,
-`hephaistos.saved_chats`, `hephaistos.search_index`, or `hephaistos.input_history`:
+`hephaistos.cli`, `hephaistos.commands`, `hephaistos.tui`, `hephaistos.shell`,
+`hephaistos.terminal.banner`, `hephaistos.terminal.display`,
+`hephaistos.terminal.history`, or `hephaistos.terminal.input`.
 
 - `hephaistos.chat`
 - `hephaistos.agent`
@@ -134,7 +138,8 @@ The following packages cannot import anything from adapter packages:
 - `hephaistos.runtime`
 - `hephaistos.vocab`
 - `hephaistos.logging`
-- `hephaistos.palette`
+- `hephaistos.terminal.palette`
+- `hephaistos.matching`
 
 ### Forbidden: logging and diagnostics must not import adapters
 

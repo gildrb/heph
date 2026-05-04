@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from hephaistos.chat.session import ChatSession
 from hephaistos.providers.endpoints import is_keyless_endpoint
-from hephaistos.terminal_display import STYLE_DIM, styled
+from hephaistos.terminal.display import STYLE_DIM, styled
 
 
 def session_status_lines(session: ChatSession) -> list[str]:

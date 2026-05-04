@@ -5,7 +5,7 @@ import pytest
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_plain_session
 from hephaistos.commands.input_dispatch import dispatch_input
-from hephaistos.input_history import InputHistory
+from hephaistos.terminal.history import InputHistory
 
 
 def test_dispatch_prints_command_result_output(capsys: pytest.CaptureFixture[str]) -> None:

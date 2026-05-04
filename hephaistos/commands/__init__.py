@@ -50,13 +50,13 @@ from hephaistos.commands.settings import SettingsCommand
 from hephaistos.commands.study import RemindCommand, VocabCommand
 from hephaistos.commands.suggestions import CommandSuggestion
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.shell_input import set_command_registry_fn
 from hephaistos.terminal import confirm
-from hephaistos.terminal_display import (
+from hephaistos.terminal.display import (
     print_error,
     print_info,
     print_success,
 )
+from hephaistos.terminal.input import set_command_registry_fn
 
 
 class CommandRegistry:

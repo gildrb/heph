@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from hephaistos.chat.session import ChatSession
-from hephaistos.fuzzy import ranked_matches
+from hephaistos.matching import ranked_matches
 
 
 def material_listing(session: ChatSession, query: str = "") -> str:

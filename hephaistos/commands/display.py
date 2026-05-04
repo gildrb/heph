@@ -15,9 +15,9 @@ from hephaistos.commands._base import (
     format_duration,
     pct,
 )
-from hephaistos.saved_chats import list_saved_chats, resume_saved_chat
+from hephaistos.shell.saved_chats import list_saved_chats, resume_saved_chat
 from hephaistos.study.state import StudyFeedbackType
-from hephaistos.terminal_display import print_error, print_info, print_success
+from hephaistos.terminal.display import print_error, print_info, print_success
 from hephaistos.vocab.parser import scan_armory
 from hephaistos.vocab.state import load_schedule, save_schedule
 

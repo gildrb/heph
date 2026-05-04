@@ -23,10 +23,10 @@ import time
 from pathlib import Path
 from typing import ClassVar
 
+from hephaistos.armory.search import load_known_armory_entries
 from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
-from hephaistos.fuzzy import ranked_matches
+from hephaistos.matching import ranked_matches
 from hephaistos.materials import count_material_files
-from hephaistos.search_index import load_known_armory_entries
 from hephaistos.terminal import ThemePalette, current_palette
 from hephaistos.tui.transparent import transparent_strip
 

@@ -11,7 +11,7 @@ import sys
 from dataclasses import dataclass, field
 from io import StringIO
 
-from hephaistos.input_history import InputHistory
+from hephaistos.terminal.history import InputHistory
 
 
 @dataclass

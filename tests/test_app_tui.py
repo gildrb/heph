@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from hephaistos import tui
+from hephaistos.armory.search import KnownArmory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
@@ -16,7 +17,6 @@ from hephaistos.providers import catalog
 from hephaistos.providers.catalog import LiveProviderCatalog
 from hephaistos.providers.config import default_config
 from hephaistos.providers.registry import ModelInfo
-from hephaistos.search_index import KnownArmory
 from hephaistos.tui.armory_browser import armory_detail, build_entries
 
 if TYPE_CHECKING:

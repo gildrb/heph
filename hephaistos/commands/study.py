@@ -15,7 +15,7 @@ from hephaistos.terminal import (
     direct_print,
     select_option,
 )
-from hephaistos.terminal_display import (
+from hephaistos.terminal.display import (
     STYLE_ACCENT,
     STYLE_DIM,
     STYLE_SUCCESS,

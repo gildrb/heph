@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import ClassVar
 
-from hephaistos.search_index import CrossArmoryIndex, SearchResult, load_known_armories
+from hephaistos.armory.search import CrossArmoryIndex, SearchResult, load_known_armories
 from hephaistos.terminal import ThemePalette, current_palette
 
 try:

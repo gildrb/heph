@@ -58,7 +58,7 @@ def _resolve_armory_argument(path: str | None) -> Path | None:
     if candidate.exists() or any(separator in path for separator in ("/", "\\")):
         return candidate
 
-    search_index = importlib.import_module("hephaistos.search_index")
+    search_index = importlib.import_module("hephaistos.armory.search")
     matches = [
         entry.path
         for entry in search_index.load_known_armory_entries()
@@ -183,7 +183,7 @@ def _inject_default_subcommand(argv: list[str], known_commands: set[str]) -> lis
 
 
 def _known_armory_homes() -> list[Path]:
-    search_index = importlib.import_module("hephaistos.search_index")
+    search_index = importlib.import_module("hephaistos.armory.search")
     homes: list[Path] = []
     for entry in search_index.load_known_armory_entries():
         if not entry.valid or entry.path.parent.name != "Armories":
@@ -213,7 +213,7 @@ def _move_armory_home(current_home: Path, target_home: Path) -> None:
         raise SystemExit(2)
     target_home.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(current_home), str(target_home))
-    search_index = importlib.import_module("hephaistos.search_index")
+    search_index = importlib.import_module("hephaistos.armory.search")
     moved_paths = [
         target_home / path.relative_to(current_home) for path in search_index.load_known_armories()
     ]
@@ -372,7 +372,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _remember_initialized_armory(path: Path) -> None:
-    search_index = importlib.import_module("hephaistos.search_index")
+    search_index = importlib.import_module("hephaistos.armory.search")
     search_index.add_known_armory(path)
 
 

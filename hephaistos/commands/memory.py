@@ -19,7 +19,7 @@ from hephaistos.parameters.settings import (
 )
 from hephaistos.providers import keyring_store
 from hephaistos.providers.keyring_store import mask_key, set_volatile, store_key
-from hephaistos.terminal_display import (
+from hephaistos.terminal.display import (
     STYLE_DIM,
     direct_input,
     print_error,

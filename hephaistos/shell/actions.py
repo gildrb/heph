@@ -14,7 +14,7 @@ from hephaistos.chat.session import (
     session_has_messages,
 )
 from hephaistos.diagnostics.events import capture as capture_analytics
-from hephaistos.terminal_display import print_error, print_info, print_success
+from hephaistos.terminal.display import print_error, print_info, print_success
 
 
 def autosave_before_replacement(session: ChatSession, *, announce: bool) -> None:

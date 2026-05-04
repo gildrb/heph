@@ -31,7 +31,7 @@ from hephaistos.terminal import (
     select_option,
     set_theme,
 )
-from hephaistos.terminal_display import STYLE_DIM, print_error, print_info, print_success, styled
+from hephaistos.terminal.display import STYLE_DIM, print_error, print_info, print_success, styled
 
 
 class SettingsCommand(Command):

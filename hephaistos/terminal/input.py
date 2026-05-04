@@ -10,7 +10,6 @@ from typing import Protocol
 from hephaistos.chat.session import ChatSession, send_user_message
 from hephaistos.diagnostics.crashes import capture_exception
 from hephaistos.diagnostics.events import capture as capture_analytics
-from hephaistos.input_history import InputHistory
 from hephaistos.runtime import (
     EngineError,
     StreamRecoveryError,
@@ -19,7 +18,7 @@ from hephaistos.runtime import (
     missing_api_key_message,
     offline_message,
 )
-from hephaistos.terminal_display import (
+from hephaistos.terminal.display import (
     STYLE_ASSISTANT,
     STYLE_DIM,
     STYLE_ERROR,
@@ -27,6 +26,7 @@ from hephaistos.terminal_display import (
     print_info,
     styled,
 )
+from hephaistos.terminal.history import InputHistory
 
 
 class CommandResultProtocol(Protocol):

@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-from hephaistos.armory_actions import (
-    create_armory as create_armory_command,
-)
-from hephaistos.armory_actions import (
-    handle_armory_command,
-)
-from hephaistos.armory_actions import (
-    open_armory as open_armory_command,
-)
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import save_session, session_has_messages
 from hephaistos.commands._base import Command, CommandResult, ensure_session
-from hephaistos.saved_chats import list_saved_chats, resume_saved_chat
-from hephaistos.session_actions import start_replacement_session
-from hephaistos.session_status import render_session_status
+from hephaistos.shell.actions import start_replacement_session
+from hephaistos.shell.armory_actions import (
+    create_armory as create_armory_command,
+)
+from hephaistos.shell.armory_actions import (
+    handle_armory_command,
+)
+from hephaistos.shell.armory_actions import (
+    open_armory as open_armory_command,
+)
+from hephaistos.shell.saved_chats import list_saved_chats, resume_saved_chat
+from hephaistos.shell.status import render_session_status
 from hephaistos.terminal import STYLE_PROMPT, confirm
-from hephaistos.terminal_display import direct_input, print_error, print_info, styled
+from hephaistos.terminal.display import direct_input, print_error, print_info, styled
 
 
 class StatusCommand(Command):

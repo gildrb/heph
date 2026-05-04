@@ -5,9 +5,9 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from hephaistos.armory.search import add_known_armory
 from hephaistos.armory.storage import ArmoryError, initialize
 from hephaistos.armory.storage import validate as _validate_armory
-from hephaistos.search_index import add_known_armory
 from hephaistos.tui.armory_browser import (
     _creation_parent_error,
     _DirEntry,

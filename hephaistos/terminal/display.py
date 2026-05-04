@@ -16,7 +16,7 @@ from hephaistos.terminal import (  # re-export shared terminal primitives
     styled,
     visible_len,
 )
-from hephaistos.terminal_banner import ascii_logo, separator_line, wordmark
+from hephaistos.terminal.banner import ascii_logo, separator_line, wordmark
 
 __all__ = [
     "STYLE_ASSISTANT",

@@ -6,7 +6,7 @@ from hephaistos.agent.persona import get_persona, list_personas
 from hephaistos.chat.session import replace_system_prompt
 from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.terminal import MenuOption, select_option
-from hephaistos.terminal_display import print_error, print_info, print_success
+from hephaistos.terminal.display import print_error, print_info, print_success
 
 
 class PersonaCommand(Command):

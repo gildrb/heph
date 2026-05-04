@@ -5,8 +5,10 @@ import sys
 
 import pytest
 
-import hephaistos.terminal_display as display
-from hephaistos.terminal import _real_stdout  # type: ignore[reportPrivateUsage]
+from hephaistos.terminal import (
+    _real_stdout,  # type: ignore[reportPrivateUsage]
+    display,
+)
 
 
 class _ProxyStdout:

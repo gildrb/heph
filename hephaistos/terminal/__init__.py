@@ -7,14 +7,15 @@ module may import from CLI, command, or TUI adapters.
 
 from __future__ import annotations
 
+import builtins
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol, runtime_checkable
 
-from hephaistos.palette import BOLD, DIM, RESET, ansi_fg
 from hephaistos.parameters.settings import DEFAULT_THEME
+from hephaistos.terminal.palette import BOLD, DIM, RESET, ansi_fg
 
 __all__ = [
     "BOLD",
@@ -229,7 +230,7 @@ def direct_input(prompt: str = "") -> str:
     original = sys.stdout
     sys.stdout = _real_stdout()
     try:
-        return input(prompt)
+        return builtins.input(prompt)
     finally:
         sys.stdout = original
 

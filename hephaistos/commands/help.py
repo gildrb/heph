@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from hephaistos.commands._base import Command, CommandResult, get_registry_lazy
 from hephaistos.terminal import STYLE_PROMPT
-from hephaistos.terminal_display import print_info, styled
+from hephaistos.terminal.display import print_info, styled
 
 
 class HelpCommand(Command):

@@ -10,7 +10,7 @@ from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.model_choices import configured_model_choices, model_free_description
 from hephaistos.providers.registry import get_registry as get_provider_registry
 from hephaistos.terminal import MenuOption, select_option
-from hephaistos.terminal_display import STYLE_DIM, print_error, print_info, print_success, styled
+from hephaistos.terminal.display import STYLE_DIM, print_error, print_info, print_success, styled
 
 
 class ModelsCommand(Command):

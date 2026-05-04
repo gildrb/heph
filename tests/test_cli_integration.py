@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from hephaistos.agent.dispatch import iter_agent_events
+from hephaistos.armory.search import add_known_armory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.events import TurnCompleteEvent
@@ -15,7 +16,6 @@ from hephaistos.cli.main import _inject_default_subcommand, build_parser, run_ar
 from hephaistos.cli.main import main as cli_main
 from hephaistos.cli.main import sys as cli_sys
 from hephaistos.rag.index import load_or_build
-from hephaistos.search_index import add_known_armory
 from hephaistos.tui import TuiDependencyError
 
 

@@ -6,8 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from hephaistos.chat.session import ChatSession
-from hephaistos.input_history import InputHistory
-from hephaistos.shell_input import handle_input, run_shell_command
+from hephaistos.terminal.history import InputHistory
+from hephaistos.terminal.input import handle_input, run_shell_command
 
 
 @dataclass(frozen=True, slots=True)

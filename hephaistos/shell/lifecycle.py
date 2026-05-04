@@ -16,7 +16,7 @@ from hephaistos.chat.session import (
     validate_armory_path,
 )
 from hephaistos.runtime import ChatConfig
-from hephaistos.terminal_display import print_error, print_info, print_success
+from hephaistos.terminal.display import print_error, print_info, print_success
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 

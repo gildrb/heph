@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import ClassVar, Self, TextIO
 
 from hephaistos._types import is_string_mapping
-from hephaistos.palette import (
+from hephaistos.terminal.palette import (
     FORGE_EMBER,
     FORGE_IRON,
     FORGE_SMOKE,

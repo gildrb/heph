@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from hephaistos.armory.search import add_known_armory
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat.session import (
     ChatSession,
@@ -13,10 +14,9 @@ from hephaistos.chat.session import (
     validate_armory_path,
 )
 from hephaistos.diagnostics.events import capture as capture_analytics
-from hephaistos.saved_chats import list_saved_chats, resume_saved_chat, save_before_switch
-from hephaistos.search_index import add_known_armory
+from hephaistos.shell.saved_chats import list_saved_chats, resume_saved_chat, save_before_switch
 from hephaistos.terminal import MenuOption, browse_directory, select_option
-from hephaistos.terminal_display import print_error, print_info, print_success
+from hephaistos.terminal.display import print_error, print_info, print_success
 
 ARMORY_MENU_OPTIONS = [
     MenuOption("Open existing armory", "Attach a workspace and load its study context."),

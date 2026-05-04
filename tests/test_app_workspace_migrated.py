@@ -16,14 +16,14 @@ from hephaistos.chat.session import (
     create_session,
 )
 from hephaistos.commands import CommandResult
-from hephaistos.input_history import InputHistory
-from hephaistos.session_lifecycle import (
+from hephaistos.shell.lifecycle import (
     create_startup_session,
     discover_startup_armory,
     get_history_path,
     save_on_exit,
 )
-from hephaistos.shell_input import handle_input
+from hephaistos.terminal.history import InputHistory
+from hephaistos.terminal.input import handle_input
 
 
 @pytest.fixture
@@ -167,7 +167,7 @@ class TestHandleInput:
     def test_shell_escape_adds_to_history(self) -> None:
         session = self._make_session()
         history = InputHistory()
-        with patch("hephaistos.shell_input.run_shell_command"):
+        with patch("hephaistos.terminal.input.run_shell_command"):
             _new_session, should_continue = handle_input(session, "!echo hi", history)
         assert should_continue is True
         assert "echo hi" in str(

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hephaistos.armory.search import load_known_armories
 from hephaistos.chat.session import ChatSession
 from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.providers.endpoints import is_keyless_endpoint
-from hephaistos.search_index import load_known_armories
 from hephaistos.terminal import current_palette
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
 from hephaistos.tui.rich_transcript import evidence_summary_text

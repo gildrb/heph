@@ -6,9 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from hephaistos.armory.storage import initialize
-from hephaistos.parameters.settings import invalidate_settings_cache
-from hephaistos.search_index import (
+from hephaistos.armory.search import (
     CrossArmoryIndex,
     SearchResult,
     _chunk_text,
@@ -17,6 +15,8 @@ from hephaistos.search_index import (
     load_known_armory_entries,
     remove_known_armory,
 )
+from hephaistos.armory.storage import initialize
+from hephaistos.parameters.settings import invalidate_settings_cache
 
 
 @pytest.fixture(autouse=True)
@@ -106,8 +106,8 @@ def test_known_armories_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     def fake_save(key: str, value: object) -> None:
         raw_settings[key] = value
 
-    monkeypatch.setattr("hephaistos.search_index.load_raw_settings", fake_load)
-    monkeypatch.setattr("hephaistos.search_index.save_setting", fake_save)
+    monkeypatch.setattr("hephaistos.armory.search.load_raw_settings", fake_load)
+    monkeypatch.setattr("hephaistos.armory.search.save_setting", fake_save)
 
     paths = add_known_armory(armory)
     assert len(paths) == 1
@@ -132,7 +132,7 @@ def test_known_armory_entries_include_missing_paths(
     def fake_load() -> dict[str, object]:
         return dict(raw_settings)
 
-    monkeypatch.setattr("hephaistos.search_index.load_raw_settings", fake_load)
+    monkeypatch.setattr("hephaistos.armory.search.load_raw_settings", fake_load)
 
     entries = load_known_armory_entries()
 
@@ -156,8 +156,8 @@ def test_add_known_armory_no_duplicates(tmp_path: Path, monkeypatch: pytest.Monk
     def fake_save(key: str, value: object) -> None:
         raw_settings[key] = value
 
-    monkeypatch.setattr("hephaistos.search_index.load_raw_settings", fake_load)
-    monkeypatch.setattr("hephaistos.search_index.save_setting", fake_save)
+    monkeypatch.setattr("hephaistos.armory.search.load_raw_settings", fake_load)
+    monkeypatch.setattr("hephaistos.armory.search.save_setting", fake_save)
 
     add_known_armory(armory)
     paths = add_known_armory(armory)
