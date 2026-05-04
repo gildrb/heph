@@ -9,7 +9,8 @@ from __future__ import annotations
 from hephaistos import __version__
 from hephaistos.chat.session import ChatSession
 from hephaistos.memory.supermemory import supermemory_configured
-from hephaistos.runtime import is_keyless_endpoint, missing_api_key_message
+from hephaistos.providers.endpoints import is_keyless_endpoint
+from hephaistos.runtime import missing_api_key_message
 
 
 def status_lines(session: ChatSession, state: str = "ready") -> str:

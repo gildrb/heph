@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from hephaistos.chat.session import ChatSession
 from hephaistos.memory.supermemory import supermemory_configured
-from hephaistos.runtime import is_keyless_endpoint
+from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.search_index import load_known_armories
 from hephaistos.terminal import current_palette
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message

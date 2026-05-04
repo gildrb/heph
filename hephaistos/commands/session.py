@@ -15,7 +15,7 @@ from hephaistos.chat.session import (
     session_has_messages,
 )
 from hephaistos.commands._base import Command, CommandResult, ensure_session
-from hephaistos.runtime import is_keyless_endpoint
+from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.terminal import STYLE_PROMPT, confirm
 from hephaistos.terminal_display import (
     STYLE_DIM,

@@ -21,13 +21,14 @@ from typing import ClassVar
 import hephaistos.workspace as _workspace
 from hephaistos.analytics import capture as capture_analytics
 from hephaistos.chat.cli import resolve_armory_session
+from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands import NewCommand
 from hephaistos.commands import get_registry as _get_registry
 from hephaistos.commands.autocomplete import CompletionCandidate, SlashCompletionEngine
-from hephaistos.commands.model_picker import configured_model_choices, switch_model
 from hephaistos.input_history import InputHistory
 from hephaistos.parameters.cli import load_config
+from hephaistos.providers.model_choices import configured_model_choices
 from hephaistos.search_index import SearchResult, load_known_armories
 from hephaistos.terminal import ThemePalette, current_palette
 from hephaistos.tui import armory as _tui_armory

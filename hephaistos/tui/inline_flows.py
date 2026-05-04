@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hephaistos.commands.provider_access import activate_provider
+from hephaistos.chat.provider_selection import activate_provider_for_session
 from hephaistos.providers import oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import (
@@ -210,7 +210,7 @@ class TuiInlineFlowMixin:
                 store_key("custom", value)
             except Exception:
                 set_volatile("custom", value)
-            p = activate_provider(pc, self.session, "custom")
+            p = activate_provider_for_session(pc, self.session, "custom")
             self._close_inline_flow(f"Switched to {p.display_name} / {p.resolved_model}")
             self._refresh_status("ready")
             self._update_info_panel()
@@ -221,7 +221,7 @@ class TuiInlineFlowMixin:
         except Exception:
             set_volatile(slug, key)
         pc = ProviderConfig.load()
-        p = activate_provider(pc, self.session, slug)
+        p = activate_provider_for_session(pc, self.session, slug)
         self._close_inline_flow(f"Switched to {p.display_name} / {p.resolved_model}")
         self._refresh_status("ready")
         self._update_info_panel()
@@ -234,7 +234,7 @@ class TuiInlineFlowMixin:
             return
         set_volatile("openai-codex", creds.access_token)
         pc = ProviderConfig.load()
-        p = activate_provider(pc, self.session, "openai-codex")
+        p = activate_provider_for_session(pc, self.session, "openai-codex")
         self.call_from_thread(
             self._append_notice,
             f"Logged in · {p.display_name} / {p.resolved_model}",

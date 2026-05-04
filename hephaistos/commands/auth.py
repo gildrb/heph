@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 
 from hephaistos.analytics import capture as capture_analytics
+from hephaistos.chat.provider_selection import activate_provider_for_session
 from hephaistos.commands._base import Command, CommandResult, ensure_session
-from hephaistos.commands.provider_access import activate_provider
 from hephaistos.providers import keyring_store, oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import clear_key, get_volatile, set_volatile, store_key
@@ -51,7 +51,7 @@ class LoginCommand(Command):
         set_volatile("openai-codex", creds.access_token)
         s = ensure_session(session)
         pc = ProviderConfig.load()
-        p = activate_provider(pc, s, "openai-codex")
+        p = activate_provider_for_session(pc, s, "openai-codex")
         print_success(
             f"Logged in to OpenAI Codex (account: {creds.account_id or 'unknown'}) "
             f"— switched to {p.resolved_model}"
@@ -91,7 +91,7 @@ class LoginCommand(Command):
             set_volatile("custom", raw_key)
             storage = "this session only (keychain unavailable)"
 
-        p = activate_provider(pc, s, "custom")
+        p = activate_provider_for_session(pc, s, "custom")
         print_success(
             f"Custom endpoint saved to {storage}; switched to {p.display_name} / {model}"
         )
@@ -119,7 +119,7 @@ class LoginCommand(Command):
             set_volatile(slug, raw_key)
             storage = "this session only (keychain unavailable)"
 
-        p = activate_provider(pc, s, slug)
+        p = activate_provider_for_session(pc, s, slug)
         print_success(
             f"API key saved to {storage}; switched to {p.display_name} / {p.resolved_model}"
         )

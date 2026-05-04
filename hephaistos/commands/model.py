@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from hephaistos.analytics import capture as capture_analytics
+from hephaistos.chat.model_selection import switch_model
 from hephaistos.commands._base import Command, CommandResult, ensure_session
-from hephaistos.commands.model_picker import (
-    configured_model_choices,
-    model_free_description,
-    switch_model,
-)
 from hephaistos.providers.config import ProviderConfig
+from hephaistos.providers.endpoints import is_keyless_endpoint
+from hephaistos.providers.model_choices import configured_model_choices, model_free_description
 from hephaistos.providers.registry import get_registry as get_provider_registry
-from hephaistos.runtime import is_keyless_endpoint
 from hephaistos.terminal import MenuOption, select_option
 from hephaistos.terminal_display import STYLE_DIM, print_error, print_info, print_success, styled
 
