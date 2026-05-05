@@ -92,23 +92,25 @@ def test_hydrate_provider_models_resets_invalid_current_model(
     monkeypatch.setattr(
         catalog,
         "_live_catalog_for_provider",
-        lambda slug, _endpoint: LiveProviderCatalog(
-            models=[model_name],
-            metadata=[
-                ModelInfo(
-                    model_name,
-                    slug,
-                    "Acme Test Model",
-                    256_000,
-                    16_384,
-                    0.001,
-                    0.002,
-                    tags=("reasoning",),
-                )
-            ],
-        )
-        if slug == "openrouter"
-        else None,
+        lambda slug, _endpoint: (
+            LiveProviderCatalog(
+                models=[model_name],
+                metadata=[
+                    ModelInfo(
+                        model_name,
+                        slug,
+                        "Acme Test Model",
+                        256_000,
+                        16_384,
+                        0.001,
+                        0.002,
+                        tags=("reasoning",),
+                    )
+                ],
+            )
+            if slug == "openrouter"
+            else None
+        ),
     )
 
     catalog.hydrate_provider_models(config)
