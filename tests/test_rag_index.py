@@ -164,6 +164,17 @@ class TestLoadOrBuild:
         index = load_or_build(armory)
         assert index.chunk_count > 0
 
+    def test_rebuilds_poisoned_cached_chunks(self, armory: Path) -> None:
+        build_index(armory)
+        index_path = armory / ".hephaistos" / "rag_index.json"
+        data = json.loads(index_path.read_text())
+        data["documents"][0]["chunks"][0]["text"] = "hidden poisoned evidence"
+        index_path.write_text(json.dumps(data), encoding="utf-8")
+
+        index = load_or_build(armory)
+
+        assert "hidden poisoned evidence" not in {chunk.text for chunk in index.all_chunks}
+
 
 class TestArmoryIndexSkips:
     def test_skips_dotfiles(self, armory: Path) -> None:
@@ -193,6 +204,40 @@ class TestArmoryIndexSkips:
         index.build()
         sources = {doc.source for doc in index.documents}
         assert "materials/data.bin" not in sources
+
+    def test_skips_symlinked_materials(self, armory: Path, tmp_path: Path) -> None:
+        outside = tmp_path / "outside-secret.md"
+        outside.write_text("# Secret\n\nDo not index me.\n", encoding="utf-8")
+        link = armory / "materials" / "linked.md"
+        try:
+            link.symlink_to(outside)
+        except OSError:
+            pytest.skip("symlinks are not supported on this filesystem")
+
+        index = ArmoryIndex(armory)
+        index.build()
+
+        sources = {doc.source for doc in index.documents}
+        assert "materials/linked.md" not in sources
+        assert all("Do not index me" not in chunk.text for chunk in index.all_chunks)
+
+    def test_skips_symlinked_material_directory(self, armory: Path, tmp_path: Path) -> None:
+        outside_materials = tmp_path / "outside-materials"
+        outside_materials.mkdir()
+        (outside_materials / "secret.md").write_text("# Secret\n\nDo not index me.\n")
+        materials = armory / "materials"
+        for child in materials.iterdir():
+            child.unlink()
+        materials.rmdir()
+        try:
+            materials.symlink_to(outside_materials, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks are not supported on this filesystem")
+
+        index = ArmoryIndex(armory)
+        index.build()
+
+        assert index.documents == []
 
     def test_handles_empty_dirs(self, tmp_path: Path) -> None:
         arm = tmp_path / "empty-armory"

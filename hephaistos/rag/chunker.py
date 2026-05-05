@@ -211,8 +211,17 @@ def _is_docling_available() -> bool:
 
 
 def _resolved_path_within_armory(path: Path, armory_root: Path) -> Path | None:
-    resolved_root = armory_root.resolve()
-    resolved_path = path.resolve()
+    if path.is_symlink():
+        _log.warning(
+            "skipping symlinked material",
+            extra={"fields": {"path": str(path), "armory": str(armory_root)}},
+        )
+        return None
+    try:
+        resolved_root = armory_root.resolve(strict=True)
+        resolved_path = path.resolve(strict=True)
+    except OSError:
+        return None
     if not resolved_path.is_relative_to(resolved_root):
         _log.warning(
             "skipping material outside armory",

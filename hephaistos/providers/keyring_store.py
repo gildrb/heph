@@ -25,17 +25,18 @@ from typing import Final
 import keyring
 from keyring.errors import KeyringError
 
+from hephaistos.providers import volatile_keys as _volatile_keys
 from hephaistos.providers.oauth import resolve_oauth_key
 
 _SERVICE_PREFIX = "hephaistos"
 _USERNAME = "api_key"
 GLOBAL_API_KEY_ENV: Final[str] = "HEPHAISTOS_API_KEY"
 
-# Module-level volatile override cache for keys that could not be persisted.
-_volatile: dict[str, str] = {}
-
 # In-process cache for keychain lookups (avoids OS keychain round-trip per API call).
 _keychain_cache: dict[str, str | None] = {}
+
+# Backwards-compatible test hook for clearing session-scoped keys.
+_volatile = _volatile_keys._volatile
 
 
 def _service_name(slug: str) -> str:
@@ -66,7 +67,7 @@ def retrieve_key(slug: str) -> str | None:
 
 def clear_key(slug: str) -> bool:
     """Remove a stored or volatile API key for the given provider slug."""
-    removed = _volatile.pop(slug, None) is not None
+    removed = _volatile_keys.clear_volatile_key(slug)
     cached = _keychain_cache.pop(slug, None)
     if cached is not None:
         removed = True
@@ -90,13 +91,13 @@ def set_volatile(slug: str, api_key: str) -> None:
     Used when keychain storage is unavailable or when the user explicitly
     wants a session-scoped key.
     """
-    _volatile[slug] = api_key
+    _volatile_keys.set_volatile_key(slug, api_key)
     _keychain_cache.pop(slug, None)
 
 
 def get_volatile(slug: str) -> str | None:
     """Return a volatile (in-memory) key, or ``None``."""
-    return _volatile.get(slug)
+    return _volatile_keys.get_volatile_key(slug)
 
 
 def resolve_key(slug: str, env_var: str = "") -> str:

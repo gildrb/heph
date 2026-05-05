@@ -30,6 +30,7 @@ import certifi
 
 from hephaistos._types import is_string_mapping
 from hephaistos.logging import get_logger
+from hephaistos.providers.volatile_keys import clear_volatile_key
 
 _log = get_logger("providers.oauth")
 
@@ -130,7 +131,7 @@ def _extract_account_id(access_token: str) -> str | None:
 class _CallbackHandler(BaseHTTPRequestHandler):
     """Receives the OAuth redirect on localhost."""
 
-    def do_GET(self) -> None:
+    def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
 
@@ -431,9 +432,10 @@ def load_credentials(provider: str) -> OAuthCredentials | None:
 
 def clear_credentials(provider: str) -> bool:
     """Remove stored credentials.  Returns ``True`` if anything was removed."""
+    removed_volatile = clear_volatile_key(provider)
     data = _load_all()
     if provider not in data:
-        return False
+        return removed_volatile
     del data[provider]
     _creds_cache.pop(provider, None)
     _AUTH_DIR.mkdir(parents=True, exist_ok=True)

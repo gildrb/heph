@@ -14,14 +14,18 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -31,6 +35,46 @@ jobs:
         run: uv run python -m scripts.sync_docs --check
       - name: Build docs
         run: uv run mkdocs build --strict
+      - name: Upload docs site
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: docs-site
+          path: site/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - name: Download docs site
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: docs-site
+          path: site
+
       - name: Deploy to GitHub Pages
-        if: github.event_name == 'push'
-        run: uv run mkdocs gh-deploy --force
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init pages
+          git -C pages remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git -C pages fetch --depth=1 origin gh-pages; then
+            git -C pages checkout gh-pages
+          else
+            git -C pages checkout --orphan gh-pages
+          fi
+
+          find pages -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R site/. pages/
+          touch pages/.nojekyll
+          git -C pages config user.name "github-actions[bot]"
+          git -C pages config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C pages add -A
+          if git -C pages diff --cached --quiet; then
+            echo "No docs changes to deploy"
+            exit 0
+          fi
+          git -C pages commit -m "Deploy docs"
+          git -C pages push origin HEAD:gh-pages --force

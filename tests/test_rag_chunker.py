@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from hephaistos.rag.chunker import (
     _DOCLING_EXTENSIONS,  # type: ignore[reportPrivateUsage]
     ChunkStrategy,
@@ -112,6 +114,20 @@ class TestChunkFile:
         assert doc1 is not None
         assert doc2 is not None
         assert doc1.content_hash != doc2.content_hash
+
+    def test_skips_symlinked_file(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        (armory / "materials").mkdir()
+        outside = tmp_path / "outside-secret.md"
+        outside.write_text("# Secret\n\nDo not index me.\n")
+        link = armory / "materials" / "linked.md"
+        try:
+            link.symlink_to(outside)
+        except OSError:
+            pytest.skip("symlinks are not supported on this filesystem")
+
+        assert chunk_file(link, armory) is None
 
 
 class TestChunkMarkdown:

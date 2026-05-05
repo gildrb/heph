@@ -48,7 +48,6 @@ class LoginCommand(Command):
             print_error(f"Login failed: {exc}")
             return CommandResult()
 
-        set_volatile("openai-codex", creds.access_token)
         s = ensure_session(session)
         pc = ProviderConfig.load()
         p = activate_provider_for_session(pc, s, "openai-codex")

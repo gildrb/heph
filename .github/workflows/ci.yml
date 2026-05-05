@@ -10,8 +10,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -47,8 +47,8 @@ jobs:
   docs-sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -73,19 +73,19 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -109,8 +109,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -132,8 +132,8 @@ jobs:
   dead-code:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -155,8 +155,8 @@ jobs:
   duplicate-code:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -178,8 +178,8 @@ jobs:
   architecture:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -201,8 +201,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -223,7 +223,7 @@ jobs:
           echo "| test pytest | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results
           path: .artifacts/pytest-junit.xml
@@ -231,8 +231,8 @@ jobs:
   unused-deps:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -254,8 +254,8 @@ jobs:
   complexity:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -277,8 +277,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -300,8 +300,8 @@ jobs:
   feature-flags:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -323,11 +323,12 @@ jobs:
   security-pr-report:
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -342,26 +343,41 @@ jobs:
         continue-on-error: true
         id: bandit
         run: |
+          mkdir -p .artifacts
           start=$(date +%s%N)
           FINDINGS=$(uv run bandit -r hephaistos -f txt -ll -ii -s B101,B602,B310 2>&1 || true)
-          echo "$FINDINGS"
+          echo "$FINDINGS" | tee .artifacts/security-findings.txt
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| security bandit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
-          {
-            echo "findings<<EOF"
-            echo "$FINDINGS"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload security findings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-pr-findings
+          path: .artifacts/security-findings.txt
+
+  security-pr-comment:
+    needs: security-pr-report
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Download security findings
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: security-pr-findings
+          path: .artifacts
 
       - name: Post security findings on PR
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          FINDINGS: ${{ steps.bandit.outputs.findings }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          FINDINGS=$(cat .artifacts/security-findings.txt 2>/dev/null || true)
           if [ -n "$FINDINGS" ]; then
             {
               echo "## Security Scan Findings"
@@ -378,8 +394,8 @@ jobs:
   tech-debt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -396,8 +412,8 @@ jobs:
   agents-md-validation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -415,37 +431,60 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     permissions:
-      pull-requests: write
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
         run: uv sync --group dev
+      - name: Fetch PR commits
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git -c http.extraheader="AUTHORIZATION: bearer ${GITHUB_TOKEN}" fetch origin "pull/${PR_NUMBER}/head:pr-head" main
       - name: Detect agent co-authorship
         id: detect
         continue-on-error: true
         run: |
-          OUTPUT=$(uv run python scripts/detect_co_author.py --pr 2>&1 || true)
-          echo "$OUTPUT"
-          {
-            echo "output<<EOF"
-            echo "$OUTPUT"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          mkdir -p .artifacts
+          OUTPUT=$(uv run python scripts/detect_co_author.py --pr --base origin/main --head pr-head 2>&1 || true)
+          echo "$OUTPUT" | tee .artifacts/agent-detection.txt
+
+      - name: Upload agent detection result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-detection
+          path: .artifacts/agent-detection.txt
+
+  agent-detection-comment:
+    needs: agent-detection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Download agent detection result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: agent-detection
+          path: .artifacts
 
       - name: Post agent attribution comment
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          OUTPUT: ${{ steps.detect.outputs.output }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          OUTPUT=$(cat .artifacts/agent-detection.txt 2>/dev/null || true)
           if echo "$OUTPUT" | grep -q "Agent-authored"; then
             gh pr comment "$PR_NUMBER" --body "## Agent Attribution
           $OUTPUT"
@@ -459,8 +498,8 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -478,15 +517,15 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Sync dependencies
         run: uv sync --group dev
       - name: Download test results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: test-results
           path: .artifacts

@@ -108,7 +108,12 @@ def iter_materials(armory_path: Path) -> Iterator[MaterialFile]:
         folder = armory_path / dirname
         if not folder.is_dir():
             continue
+        resolved_folder = _resolve_material_folder(folder)
+        if resolved_folder is None:
+            continue
         for file_path in sorted(folder.rglob("*")):
+            if _unsafe_material_path(file_path, resolved_folder):
+                continue
             if not file_path.is_file():
                 continue
             rel_to_material_dir = file_path.relative_to(folder)
@@ -158,6 +163,39 @@ def _load_ignore_spec(armory_path: Path) -> object:
             "gitignore", patterns
         )
     return tuple(pattern for pattern in patterns if pattern and not pattern.startswith("#"))
+
+
+def _resolve_material_folder(folder: Path) -> Path | None:
+    if folder.is_symlink():
+        _log.warning(
+            "skipping symlinked material directory",
+            extra={"fields": {"path": str(folder)}},
+        )
+        return None
+    try:
+        return folder.resolve(strict=True)
+    except OSError:
+        _log.warning(
+            "failed to resolve material directory", extra={"fields": {"path": str(folder)}}
+        )
+        return None
+
+
+def _unsafe_material_path(file_path: Path, resolved_folder: Path) -> bool:
+    if file_path.is_symlink():
+        _log.warning("skipping symlinked material", extra={"fields": {"path": str(file_path)}})
+        return True
+    try:
+        resolved_path = file_path.resolve(strict=True)
+    except OSError:
+        return True
+    if not resolved_path.is_relative_to(resolved_folder):
+        _log.warning(
+            "skipping material outside material directory",
+            extra={"fields": {"path": str(file_path)}},
+        )
+        return True
+    return False
 
 
 def _matches_ignore(ignore_spec: object, rel_path: str) -> bool:

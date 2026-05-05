@@ -5,15 +5,18 @@ on:
     branches: [main]
 
 permissions:
-  pull-requests: write
   contents: read
 
 jobs:
-  review:
+  lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -21,25 +24,48 @@ jobs:
         run: uv sync --group dev
 
       - name: Ruff lint check
-        run: uv run ruff check . 2>&1 | tee /tmp/ruff-output.txt
+        run: |
+          mkdir -p .artifacts
+          uv run ruff check . 2>&1 | tee .artifacts/ruff-output.txt
         continue-on-error: true
 
       - name: Ruff format check
-        run: uv run ruff format --check . 2>&1 | tee /tmp/format-output.txt
+        run: uv run ruff format --check . 2>&1 | tee .artifacts/format-output.txt
         continue-on-error: true
+
+      - name: Upload review outputs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr-review-output
+          path: .artifacts/
+
+  review:
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Download review outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pr-review-output
+          path: .artifacts
 
       - name: Build and post review comment
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           {
             echo "## Automated Review"
             echo ""
 
-            if [ -s /tmp/ruff-output.txt ]; then
+            if [ -s .artifacts/ruff-output.txt ]; then
               echo "### Ruff Lint Findings"
               echo '```'
-              cat /tmp/ruff-output.txt
+              cat .artifacts/ruff-output.txt
               echo '```'
               echo ""
             else
@@ -47,10 +73,10 @@ jobs:
               echo ""
             fi
 
-            if [ -s /tmp/format-output.txt ]; then
+            if [ -s .artifacts/format-output.txt ]; then
               echo "### Ruff Format Findings"
               echo '```'
-              cat /tmp/format-output.txt
+              cat .artifacts/format-output.txt
               echo '```'
               echo ""
             else
@@ -60,11 +86,11 @@ jobs:
 
             echo "---"
             echo ""
-            DIFF=$(gh pr diff "${{ github.event.pull_request.number }}" --stat 2>/dev/null || echo "unavailable")
+            DIFF=$(gh pr diff "$PR_NUMBER" --stat 2>/dev/null || echo "unavailable")
             echo "### Diff Stats"
             echo '```'
             echo "$DIFF"
             echo '```'
           } > /tmp/review-comment.md
 
-          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/review-comment.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/review-comment.md

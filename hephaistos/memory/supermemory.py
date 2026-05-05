@@ -1,9 +1,8 @@
-"""Supermemory-backed study memory using the official SDK.
+"""Opt-in Supermemory-backed study memory using the official SDK.
 
-Supermemory is the default memory backend.  When an API key is available
-(keychain, environment variable, or volatile store), ``SupermemoryStore``
-is used automatically.  The local JSON store serves as the offline fallback
-when no key is configured or the API is unreachable.
+Supermemory is a remote memory backend.  Hephaistos uses it only when the user
+has enabled Supermemory and configured a Supermemory-specific API key.  The
+local JSON store remains the default and offline fallback.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from supermemory.types.search_memories_response import (
 from hephaistos.logging import get_logger
 from hephaistos.memory import MemoryEntry, MemoryStore
 from hephaistos.parameters.settings import load_app_settings
-from hephaistos.providers.keyring_store import resolve_key
+from hephaistos.providers.keyring_store import get_volatile, retrieve_key
 
 _log = get_logger("memory.supermemory")
 
@@ -49,11 +48,14 @@ class SupermemoryConfig:
 
 
 def resolve_supermemory_key() -> str:
-    """Resolve the Supermemory API key from keychain or environment."""
-    key = resolve_key(SUPERMEMORY_PROVIDER_SLUG, SUPERMEMORY_API_KEY_ENV)
+    """Resolve only Supermemory-specific credentials."""
+    key = retrieve_key(SUPERMEMORY_PROVIDER_SLUG)
     if key:
         return key
-    return os.environ.get(SUPERMEMORY_API_KEY_ENV, "").strip()
+    env_key = os.environ.get(SUPERMEMORY_API_KEY_ENV, "").strip()
+    if env_key:
+        return env_key
+    return get_volatile(SUPERMEMORY_PROVIDER_SLUG) or ""
 
 
 def supermemory_configured() -> bool:

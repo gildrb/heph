@@ -15,7 +15,7 @@ from typing import cast
 
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import Timer, get_logger
-from hephaistos.materials import iter_material_files
+from hephaistos.materials import MATERIALS_DIR, iter_material_files
 from hephaistos.rag.chunker import (
     Chunk,
     ChunkedDocument,
@@ -31,7 +31,7 @@ _CHUNK_SIZE = 500
 _OVERLAP = 100
 
 # Persisted index format version — bump when layout changes.
-_INDEX_VERSION = 3
+_INDEX_VERSION = 4
 
 
 def _file_hash(path: Path) -> str | None:
@@ -46,16 +46,67 @@ def _file_hash(path: Path) -> str | None:
         return None
 
 
-def _resolved_path_within_armory(path: Path, armory_path: Path) -> Path | None:
-    resolved_armory = armory_path.resolve()
-    resolved_path = path.resolve()
-    if not resolved_path.is_relative_to(resolved_armory):
+def _resolved_path_within_materials(path: Path, armory_path: Path) -> Path | None:
+    if path.is_symlink():
         _log.warning(
-            "skipping material outside armory",
+            "skipping symlinked material",
+            extra={"fields": {"path": str(path), "armory": str(armory_path)}},
+        )
+        return None
+    materials_path = armory_path / MATERIALS_DIR
+    if materials_path.is_symlink():
+        _log.warning(
+            "skipping symlinked material directory",
+            extra={"fields": {"path": str(materials_path), "armory": str(armory_path)}},
+        )
+        return None
+    try:
+        resolved_materials = materials_path.resolve(strict=True)
+        resolved_path = path.resolve(strict=True)
+    except OSError:
+        return None
+    if not resolved_path.is_relative_to(resolved_materials):
+        _log.warning(
+            "skipping material outside material directory",
             extra={"fields": {"path": str(path), "armory": str(armory_path)}},
         )
         return None
     return resolved_path
+
+
+def _chunks_match(left: Chunk, right: Chunk, *, include_heading: bool) -> bool:
+    if left.text != right.text:
+        return False
+    if left.source != right.source:
+        return False
+    if left.index != right.index:
+        return False
+    if left.char_start != right.char_start or left.char_end != right.char_end:
+        return False
+    if not include_heading:
+        return True
+    return left.heading == right.heading and left.heading_level == right.heading_level
+
+
+def _documents_match(
+    loaded: list[ChunkedDocument],
+    expected: list[ChunkedDocument],
+    *,
+    include_heading: bool,
+) -> bool:
+    if len(loaded) != len(expected):
+        return False
+    for left_doc, right_doc in zip(loaded, expected, strict=True):
+        if left_doc.source != right_doc.source:
+            return False
+        if left_doc.content_hash != right_doc.content_hash:
+            return False
+        if len(left_doc.chunks) != len(right_doc.chunks):
+            return False
+        for left_chunk, right_chunk in zip(left_doc.chunks, right_doc.chunks, strict=True):
+            if not _chunks_match(left_chunk, right_chunk, include_heading=include_heading):
+                return False
+    return True
 
 
 class ArmoryIndex:
@@ -248,7 +299,7 @@ class ArmoryIndex:
 
         raw_version = data.get("version", 1)
         version = raw_version if isinstance(raw_version, int) else 1
-        if version not in (1, 2, 3):
+        if version not in (1, 2, 3, 4):
             return False
         if version >= 2 and "strategy" in data:
             raw_strategy = data["strategy"]
@@ -315,6 +366,15 @@ class ArmoryIndex:
             if doc.content_hash and doc.source not in self._file_hashes:
                 self._file_hashes[doc.source] = doc.content_hash
 
+        if not self._matches_material_files(include_heading=version >= 2):
+            _log.warning(
+                "rag index cache does not match material files",
+                extra={"fields": {"armory": str(self.armory_path)}},
+            )
+            self.documents = []
+            self._file_hashes = {}
+            return False
+
         return True
 
     def is_stale(self) -> bool:
@@ -337,9 +397,34 @@ class ArmoryIndex:
 
     def _iter_source_files(self) -> Iterator[Path]:
         for file_path in iter_source_files(self.armory_path):
-            if _resolved_path_within_armory(file_path, self.armory_path) is None:
+            if _resolved_path_within_materials(file_path, self.armory_path) is None:
                 continue
             yield file_path
+
+    def _fresh_documents_and_hashes(self) -> tuple[list[ChunkedDocument], dict[str, str]]:
+        documents: list[ChunkedDocument] = []
+        file_hashes: dict[str, str] = {}
+        for file_path in self._iter_source_files():
+            rel = str(file_path.relative_to(self.armory_path))
+            content_hash = _file_hash(file_path)
+            if content_hash is not None:
+                file_hashes[rel] = content_hash
+            doc = chunk_file(
+                file_path,
+                self.armory_path,
+                _CHUNK_SIZE,
+                _OVERLAP,
+                strategy=self.strategy,
+            )
+            if doc is not None and doc.chunks:
+                documents.append(doc)
+        return documents, file_hashes
+
+    def _matches_material_files(self, *, include_heading: bool) -> bool:
+        documents, file_hashes = self._fresh_documents_and_hashes()
+        if self._file_hashes != file_hashes:
+            return False
+        return _documents_match(self.documents, documents, include_heading=include_heading)
 
 
 def iter_source_files(armory_path: Path) -> Iterator[Path]:

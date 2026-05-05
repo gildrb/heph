@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from hephaistos.armory.storage import initialize
 from hephaistos.materials import (
     count_material_files,
@@ -67,6 +69,36 @@ def test_armory_ignore_is_respected(tmp_path: Path) -> None:
     rels = [str(path.relative_to(armory)) for path in iter_material_files(armory)]
 
     assert rels == ["materials/visible.md"]
+
+
+def test_symlinked_material_files_are_skipped(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    outside = tmp_path / "outside-secret.md"
+    outside.write_text("# Secret\n", encoding="utf-8")
+    link = armory / "materials" / "linked.md"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not supported on this filesystem")
+
+    rels = [str(path.relative_to(armory)) for path in iter_material_files(armory)]
+
+    assert rels == []
+
+
+def test_symlinked_material_directory_is_skipped(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    outside_materials = tmp_path / "outside-materials"
+    outside_materials.mkdir()
+    (outside_materials / "secret.md").write_text("# Secret\n", encoding="utf-8")
+    materials = armory / "materials"
+    materials.rmdir()
+    try:
+        materials.symlink_to(outside_materials, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not supported on this filesystem")
+
+    assert list(iter_material_files(armory)) == []
 
 
 def test_empty_armory_has_no_materials(tmp_path: Path) -> None:

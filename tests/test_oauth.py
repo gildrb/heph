@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from hephaistos.commands import LogoutCommand, get_registry
+from hephaistos.providers.keyring_store import get_volatile, resolve_key, set_volatile
 from hephaistos.providers.oauth import (
     OAuthCredentials,
     _ssl_context,  # type: ignore[reportPrivateUsage]
@@ -129,6 +130,20 @@ class TestCredentialPersistence:
         assert list_providers() == []
 
     @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_clear_credentials_removes_volatile_oauth_copy(self) -> None:
+        creds = self._make_creds()
+        save_credentials(creds)
+        set_volatile("openai-codex", creds.access_token)
+
+        assert resolve_key("openai-codex", "OPENAI_API_KEY") == "at_123"
+
+        removed = clear_credentials("openai-codex")
+
+        assert removed is True
+        assert get_volatile("openai-codex") is None
+        assert resolve_key("openai-codex", "OPENAI_API_KEY") == ""
+
+    @pytest.mark.usefixtures("isolated_auth_dir")
     def test_clear_nonexistent_returns_false(self) -> None:
         assert clear_credentials("nope") is False
 
@@ -228,6 +243,10 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
         "hephaistos.providers.oauth.list_providers",
         list,
     )
+    monkeypatch.setattr(
+        "hephaistos.commands.auth.keyring_store.retrieve_key",
+        lambda _slug: None,
+    )
     messages: list[tuple[str, str]] = []
 
     def _capture_info(msg: str) -> None:
@@ -240,13 +259,17 @@ def test_logout_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     cmd = LogoutCommand()
     result = cmd.handle(None, "")
     assert result.output is None
-    assert any("No OAuth sessions" in m for _, m in messages)
+    assert any("No stored credentials" in m for _, m in messages)
 
 
 def test_logout_single_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "hephaistos.providers.oauth.list_providers",
         lambda: ["openai-codex"],
+    )
+    monkeypatch.setattr(
+        "hephaistos.commands.auth.keyring_store.retrieve_key",
+        lambda _slug: None,
     )
 
     def _confirm(*_a: object, **_kw: object) -> bool:

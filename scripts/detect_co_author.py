@@ -76,11 +76,21 @@ def main() -> None:
         action="store_true",
         help="Check all commits in the PR (base..HEAD).",
     )
+    parser.add_argument(
+        "--base",
+        default="origin/main",
+        help="Base ref to compare for --pr (default: origin/main).",
+    )
+    parser.add_argument(
+        "--head",
+        default="HEAD",
+        help="Head ref to compare for --pr (default: HEAD).",
+    )
     args = parser.parse_args()
 
     if args.pr:
-        merge_base = git("merge-base", "origin/main", "HEAD")
-        commits = git("log", "--format=%H", f"{merge_base}..HEAD").splitlines()
+        merge_base = git("merge-base", args.base, args.head)
+        commits = git("log", "--format=%H", f"{merge_base}..{args.head}").splitlines()
         results = [detect_agent(c) for c in commits if c]
     else:
         results = [detect_agent(args.commit)]

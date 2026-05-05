@@ -9,12 +9,10 @@ on:
         default: main
 
 permissions:
-  contents: write
-  deployments: write
-  id-token: write
+  contents: read
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     environment: edge
     env:
@@ -22,24 +20,30 @@ jobs:
     steps:
       - name: Validate deploy ref
         run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Edge deploys must be dispatched from main"
+            exit 1
+          fi
+
           if [ "$DEPLOY_REF" != "main" ]; then
             echo "Ref must be main for edge deploys"
             exit 1
           fi
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ env.DEPLOY_REF }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Gitleaks secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -115,10 +119,26 @@ jobs:
         run: uv build
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dist
           path: dist/*
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: edge
+    permissions:
+      contents: write
+      deployments: write
+    env:
+      EDGE_REF: main
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
 
       - name: Create edge deployment
         env:
@@ -157,7 +177,6 @@ jobs:
       - name: Notify deploy
         env:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
-          EDGE_REF: ${{ env.DEPLOY_REF }}
         run: |
           if [ -z "${DEPLOY_WEBHOOK_URL}" ]; then
             echo "No webhook URL configured, skipping notification"

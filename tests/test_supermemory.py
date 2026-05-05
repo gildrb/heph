@@ -5,12 +5,21 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
+from hephaistos.memory import MemoryStore, load_memory
 from hephaistos.memory.supermemory import (
+    SUPERMEMORY_API_KEY_ENV,
+    SUPERMEMORY_PROVIDER_SLUG,
     SupermemoryConfig,
     SupermemoryStore,
     armory_container_tag,
     profile_container_tag,
+    resolve_supermemory_key,
+    supermemory_configured,
 )
+from hephaistos.parameters.settings import save_setting
+from hephaistos.providers.keyring_store import set_volatile
 
 
 def _fake_sdk_client() -> MagicMock:
@@ -126,3 +135,41 @@ def test_topics_covered_uses_search_when_no_entries(tmp_path: Path) -> None:
 
     assert topics == ["TCP handshake"]
     sdk_client.search.memories.assert_called_once()
+
+
+def test_resolve_supermemory_key_ignores_global_llm_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HEPHAISTOS_API_KEY", "llm-provider-key")
+    monkeypatch.delenv(SUPERMEMORY_API_KEY_ENV, raising=False)
+    monkeypatch.setattr("hephaistos.memory.supermemory.retrieve_key", lambda _slug: None)
+
+    assert resolve_supermemory_key() == ""
+
+
+def test_resolve_supermemory_key_uses_supermemory_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("hephaistos.memory.supermemory.retrieve_key", lambda _slug: None)
+    monkeypatch.setenv(SUPERMEMORY_API_KEY_ENV, "env-supermemory-key")
+
+    assert resolve_supermemory_key() == "env-supermemory-key"
+
+    monkeypatch.delenv(SUPERMEMORY_API_KEY_ENV)
+    set_volatile(SUPERMEMORY_PROVIDER_SLUG, "volatile-supermemory-key")
+
+    assert resolve_supermemory_key() == "volatile-supermemory-key"
+
+
+def test_supermemory_disabled_uses_local_memory_even_with_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(SUPERMEMORY_API_KEY_ENV, "env-supermemory-key")
+    save_setting("supermemory_enabled", False)
+
+    assert not supermemory_configured()
+
+    store = load_memory(tmp_path)
+
+    assert type(store) is MemoryStore

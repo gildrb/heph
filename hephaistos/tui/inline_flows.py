@@ -236,13 +236,12 @@ class TuiInlineFlowMixin:
 
     def _login_openai_worker(self) -> None:
         try:
-            creds = oauth.login_openai_codex()
+            oauth.login_openai_codex()
         except Exception as exc:
             self.call_from_thread(
                 self._append_error, f"Login failed: {exc}"
             )  # ty:ignore[unresolved-attribute]
             return
-        set_volatile("openai-codex", creds.access_token)
         pc = ProviderConfig.load()
         p = activate_provider_for_session(
             pc, self.session, "openai-codex"
