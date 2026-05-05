@@ -25,9 +25,10 @@ class TuiTranscriptMixin:
     def _write_transcript_entry(self, entry: object) -> None:
         log = self.query_one("#transcript", RichLog)
         if entry.kind == "markdown":
-            p = current_palette()
-            log.write(_RichText.styled("Hephaistos:", _RichStyle(color=p.configured, bold=True)))
             log.write(Markdown(entry.content))
+        elif entry.kind == "user":
+            p = current_palette()
+            log.write(_RichText.styled(entry.content, _RichStyle(color=p.ember, bold=True)))
         elif entry.kind == "ansi":
             if _RichText is None:
                 log.write(entry.content)
@@ -59,8 +60,7 @@ class TuiTranscriptMixin:
         self._append_entry(text)
 
     def _append_user(self, text: str, *, mark_working: bool = True) -> None:
-        p = current_palette()
-        self._append_entry(f"[bold {p.ember}]You:[/bold {p.ember}] {text}")
+        self._append_entry(text, kind="user")
         if mark_working:
             self._start_thinking_animation()
 
@@ -114,7 +114,7 @@ class TuiTranscriptMixin:
         entries = [
             e
             for e in self.state.transcript
-            if e.kind in ("markdown", "plain")
+            if e.kind in ("user", "markdown", "plain")
             and not e.content.startswith("[dim")
             and not e.content.startswith("[#808080]")
             and not e.content.startswith("[bold #CC3333]")
@@ -139,7 +139,7 @@ class TuiTranscriptMixin:
             entries = [
                 e
                 for e in self.state.transcript
-                if e.kind in ("markdown", "plain")
+                if e.kind in ("user", "markdown", "plain")
                 and not e.content.startswith("[dim")
                 and not e.content.startswith("[#808080]")
                 and not e.content.startswith("[bold #CC3333]")
