@@ -216,3 +216,141 @@ def test_login_cancel_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch) 
     commands.LoginCommand().handle(session, "")
 
     assert session.config._provider_slug == "zai"  # type: ignore[reportPrivateUsage]
+
+
+def test_login_openai_codex_generic_failure_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = ChatSession(
+        config=ChatConfig(api_key="", base_url="", model=""),
+        conversation=Conversation(),
+        session_id="generic-login-failure",
+    )
+    errors: list[str] = []
+
+    monkeypatch.setattr(
+        _commands_auth,
+        "select_option",
+        lambda _title, _options, **_kw: 0,  # type: ignore[reportUnknownLambdaType]
+    )
+    monkeypatch.setattr(
+        "hephaistos.providers.oauth.login_openai_codex",
+        lambda: (_ for _ in ()).throw(ValueError("boom")),
+    )
+    monkeypatch.setattr(_commands_auth, "print_error", errors.append)
+
+    commands.LoginCommand().handle(session, "")
+
+    assert errors == ["Login failed: boom"]
+
+
+def test_login_custom_endpoint_requires_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = ChatSession(
+        config=ChatConfig(api_key="", base_url="", model=""),
+        conversation=Conversation(),
+        session_id="custom-model-required",
+    )
+    values = iter(["https://example.test/v1/", "", "sk-custom"])
+    errors: list[str] = []
+
+    monkeypatch.setattr(
+        _commands_auth,
+        "select_option",
+        lambda _title, _options, **_kw: 3,  # type: ignore[reportUnknownLambdaType]
+    )
+    monkeypatch.setattr(_commands_auth, "direct_input", lambda _prompt: next(values))
+    monkeypatch.setattr(_commands_auth, "print_error", errors.append)
+
+    commands.LoginCommand().handle(session, "")
+
+    assert errors == ["Model name is required."]
+
+
+def test_login_api_key_falls_back_to_volatile_storage(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = ChatSession(
+        config=ChatConfig(api_key="", base_url="", model=""),
+        conversation=Conversation(),
+        session_id="volatile-openrouter",
+    )
+    volatile: list[tuple[str, str]] = []
+    success: list[str] = []
+
+    monkeypatch.setattr(
+        _commands_auth,
+        "select_option",
+        lambda _title, _options, **_kw: 1,  # type: ignore[reportUnknownLambdaType]
+    )
+    monkeypatch.setattr(_commands_auth, "direct_input", lambda _prompt: "sk-or-test")
+    monkeypatch.setattr(
+        _commands_auth,
+        "store_key",
+        lambda _slug, _key: (_ for _ in ()).throw(RuntimeError("keychain unavailable")),
+    )
+    monkeypatch.setattr(
+        _commands_auth,
+        "set_volatile",
+        lambda slug, key: volatile.append((slug, key)),
+    )
+    monkeypatch.setattr(ProviderConfig, "save", lambda _pc, _path=None: None)
+    monkeypatch.setattr(_commands_auth, "print_success", success.append)
+
+    commands.LoginCommand().handle(session, "")
+
+    assert volatile == [("openrouter", "sk-or-test")]
+    assert "this session only" in success[0]
+
+
+def test_logout_reports_environment_only_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    messages: list[str] = []
+
+    monkeypatch.setattr("hephaistos.providers.oauth.list_providers", list)
+    monkeypatch.setattr("hephaistos.commands.auth.keyring_store.retrieve_key", lambda _slug: None)
+    monkeypatch.setattr(_commands_auth, "get_volatile", lambda _slug: None)
+    monkeypatch.setattr(_commands_auth, "print_info", messages.append)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    commands.LogoutCommand().handle(None, "")
+
+    assert any("Environment-provided keys" in message for message in messages)
+
+
+def test_logout_single_provider_cancelled(monkeypatch: pytest.MonkeyPatch) -> None:
+    messages: list[str] = []
+
+    monkeypatch.setattr("hephaistos.providers.oauth.list_providers", lambda: ["openai-codex"])
+    monkeypatch.setattr("hephaistos.commands.auth.keyring_store.retrieve_key", lambda _slug: None)
+    monkeypatch.setattr(_commands_auth, "confirm", lambda *_a, **_kw: False)
+    monkeypatch.setattr(_commands_auth, "print_info", messages.append)
+
+    commands.LogoutCommand().handle(None, "")
+
+    assert messages == ["Cancelled."]
+
+
+def test_logout_all_providers_clears_everything(monkeypatch: pytest.MonkeyPatch) -> None:
+    cleared: list[tuple[str, str]] = []
+    success: list[str] = []
+
+    monkeypatch.setattr(
+        _commands_auth,
+        "_logout_targets",
+        lambda: [
+            ("openai-codex", "oauth", "OpenAI Codex subscription"),
+            ("openrouter", "api_key", "OpenRouter API key"),
+        ],
+    )
+    monkeypatch.setattr(_commands_auth, "_env_only_targets", list)
+    monkeypatch.setattr(
+        _commands_auth,
+        "select_option",
+        lambda _title, _options, **_kw: 2,  # type: ignore[reportUnknownLambdaType]
+    )
+    monkeypatch.setattr(
+        _commands_auth,
+        "_clear_logout_target",
+        lambda slug, kind: cleared.append((slug, kind)),
+    )
+    monkeypatch.setattr(_commands_auth, "print_success", success.append)
+
+    commands.LogoutCommand().handle(None, "")
+
+    assert cleared == [("openai-codex", "oauth"), ("openrouter", "api_key")]
+    assert success == ["Logged out of all stored providers."]

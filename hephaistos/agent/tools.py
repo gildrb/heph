@@ -9,7 +9,6 @@ Armories can contribute extra tools by dropping ``*.py`` files into
 ``.hephaistos/tools/``.  Each plugin module must expose a top-level
 ``register(registry: ToolRegistry) -> None`` function that calls
 ``registry.register(...)`` for every tool it wants to add.
-
 Tool philosophy for a study RAG agent:
 - Read/write tools are primary — the agent works with documents.
 - Bash is available but strictly limited (timeout, structured output).

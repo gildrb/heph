@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Callable
+from typing import cast
+
 from hephaistos.rag import optional_backends
 from hephaistos.rag.index import ArmoryIndex
 from hephaistos.rag.query_transform import QueryTransformerProtocol
@@ -9,6 +13,24 @@ from hephaistos.rag.retrieval_types import RerankerProtocol, RetrieverProtocol, 
 from hephaistos.rag.scoring import reciprocal_rank_fusion
 from hephaistos.rag.semantic import EmbeddingRetriever
 from hephaistos.rag.sparse import Bm25Retriever, TfidfRetriever
+
+_DEFAULT_EMBEDDING_RETRIEVER = EmbeddingRetriever
+
+
+def _sentence_transformers_available() -> bool:
+    retrieve_module = sys.modules.get("hephaistos.rag.retrieve")
+    helper = getattr(retrieve_module, "_is_sentence_transformers_available", None)
+    if callable(helper):
+        return bool(helper())
+    return optional_backends.sentence_transformers_available()
+
+
+def _embedding_retriever_factory() -> Callable[..., EmbeddingRetriever]:
+    retrieve_module = sys.modules.get("hephaistos.rag.retrieve")
+    factory = getattr(retrieve_module, "EmbeddingRetriever", None)
+    if callable(factory) and factory is not _DEFAULT_EMBEDDING_RETRIEVER:
+        return cast("Callable[..., EmbeddingRetriever]", factory)
+    return EmbeddingRetriever
 
 
 class HybridRetriever:
@@ -30,9 +52,10 @@ class HybridRetriever:
         self._candidate_multiplier = candidate_multiplier
         self._query_transformer = query_transformer
 
-        if optional_backends.sentence_transformers_available():
+        if _sentence_transformers_available():
             try:
-                self._embedding = EmbeddingRetriever(index, model_name=embed_model)
+                factory = _embedding_retriever_factory()
+                self._embedding = factory(index, model_name=embed_model)
             except Exception:
                 self._embedding = None
 

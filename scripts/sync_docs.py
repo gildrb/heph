@@ -148,7 +148,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     (
         re.compile(r"\bheph\s+start\b"),
-        "Use `heph` or `heph <name-or-path>` as the primary command. Reserve `start` for the "
+        "Use `heph` or `heph <path>` as the primary command. Reserve `start` for the "
         "generated compatibility note only.",
     ),
     (

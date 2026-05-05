@@ -142,7 +142,10 @@ def _list_child_dirs(path: Path) -> list[Path]:  # ty: ignore
 
 
 def _is_armory(path: Path) -> bool:
-    return (path / MARKER_FILE).exists()
+    try:
+        return (path / MARKER_FILE).is_file()
+    except OSError:
+        return False
 
 
 def _armory_root_from(path: Path) -> Path | None:

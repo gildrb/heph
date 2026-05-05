@@ -10,6 +10,7 @@ Validates VAL-STRUCT-013, VAL-STRUCT-014, VAL-STRUCT-015, VAL-STRUCT-016:
 from __future__ import annotations
 
 import ast
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -225,17 +226,29 @@ def test_import_linter_exits_clean() -> None:
 
 def test_no_harness_imports_remain() -> None:
     """No file should reference hephaistos.harness (deleted in Phase 3)."""
-    result = subprocess.run(
-        [
-            "rg",
-            "from hephaistos\\.harness",
-            "hephaistos/",
-            "tests/",
-            "scripts/",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=str(HERE.parent),
-        check=False,
-    )
-    assert result.returncode != 0, f"Stale harness imports found:\n{result.stdout}"
+    if shutil.which("rg") is not None:
+        result = subprocess.run(
+            [
+                "rg",
+                "^from hephaistos\\.harness",
+                "hephaistos/",
+                "tests/",
+                "scripts/",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(HERE.parent),
+            check=False,
+        )
+        assert result.returncode != 0, f"Stale harness imports found:\n{result.stdout}"
+        return
+
+    matches: list[str] = []
+    for relative in ("hephaistos", "tests", "scripts"):
+        base = HERE.parent / relative
+        for path in sorted(base.rglob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            for line_no, line in enumerate(text.splitlines(), start=1):
+                if line.startswith("from hephaistos.harness"):
+                    matches.append(f"{path.relative_to(HERE.parent)}:{line_no}:{line}")
+    assert not matches, "Stale harness imports found:\n" + "\n".join(matches)

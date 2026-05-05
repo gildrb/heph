@@ -44,6 +44,10 @@ _EMBED_MODEL_ENV = "HEPHAISTOS_EMBED_MODEL"
 _RERANK_MODEL_ENV = "HEPHAISTOS_RERANK_MODEL"
 
 
+def _is_sentence_transformers_available() -> bool:
+    return optional_backends.sentence_transformers_available()
+
+
 def _create_retriever(
     index: ArmoryIndex,
     embed_model: str | None = None,
@@ -59,7 +63,7 @@ def _create_retriever(
 
     A ``query_transformer`` can be attached to any retriever type.
     """
-    if optional_backends.sentence_transformers_available():
+    if _is_sentence_transformers_available():
         reranker: RerankerProtocol | None = None
         try:
             reranker = CrossEncoderReranker(model_name=rerank_model)

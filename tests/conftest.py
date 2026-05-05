@@ -66,6 +66,7 @@ def _isolate_global_state(  # ty: ignore
     """Reset mutable module-level globals between tests."""
     config_dir = tmp_path / "hephaistos_config"
     config_file = config_dir / "config.json"
+    providers_file = config_dir / "providers.toml"
     _ks._volatile.clear()  # type: ignore[reportPrivateUsage]
     _log_mod._root_initialised = False  # type: ignore[reportPrivateUsage]
     _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
@@ -78,6 +79,8 @@ def _isolate_global_state(  # ty: ignore
     monkeypatch.setattr(_settings_mod, "_USER_CONFIG_FILE", config_file)
     monkeypatch.setattr(_params_cli, "_USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr(_params_cli, "_USER_CONFIG_FILE", config_file)
+    monkeypatch.setattr(_provider_config_mod, "_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(_provider_config_mod, "_PROVIDERS_FILE", providers_file)
     monkeypatch.setattr(
         _privacy_mod,
         "_INSTALL_ID_PATH",
