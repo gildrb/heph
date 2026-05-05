@@ -33,6 +33,18 @@ def test_initial_greeting_starts_calibration() -> None:
     assert plan.retrieval_query is None
     assert plan.allow_tools is False
     assert "Execute CALIBRATE" in plan.prompt
+    # Calibration must explicitly forbid trivial metadata questions
+    assert "FORBIDDEN" in plan.prompt
+    assert "Titles of documents" in plan.prompt
+
+
+def test_calibration_prompt_forbids_metadata_questions() -> None:
+    """Calibration prompt must contain constraints against surface metadata."""
+    state = StudyState()
+    plan = plan_turn(state, "quiz me")
+
+    for forbidden in ("Titles of documents", "Author names", "File names"):
+        assert forbidden in plan.prompt, f"Calibration prompt missing constraint: {forbidden}"
 
 
 def test_calibration_result_starts_recall_from_model_question() -> None:
@@ -245,6 +257,21 @@ def test_recall_phase_can_request_easier_question_when_too_hard() -> None:
     assert next_state.current_item == "What is the first definition used in Q1?"
     assert next_state.attempt_count == 0
     assert next_state.last_feedback_type is StudyFeedbackType.EASIER
+
+
+def test_simplify_prompt_forbids_metadata_questions() -> None:
+    """Simplify prompt must contain constraints against surface metadata."""
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        expected_source_refs=["source/exam.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, "too hard")
+
+    assert "not document titles" in plan.prompt
+    assert "surface metadata" in plan.prompt
 
 
 def test_recall_phase_can_review_material_when_student_requests_it() -> None:
