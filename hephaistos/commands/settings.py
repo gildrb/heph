@@ -8,7 +8,6 @@ from hephaistos.chat.session import validate_armory_path
 from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.commands.auth import LoginCommand, LogoutCommand
 from hephaistos.commands.memory import MemoryCommand
-from hephaistos.commands.model import ModelsCommand
 from hephaistos.parameters.settings import (
     THEME_PRESETS,
     clear_setting,
@@ -62,10 +61,6 @@ class SettingsCommand(Command):
                     f"Default armory: {default_armory}",
                 ),
                 MenuOption(
-                    "Default model",
-                    f"Current: {s.config.model}",
-                ),
-                MenuOption(
                     "Study memory",
                     "Local memory and Supermemory setup",
                 ),
@@ -87,8 +82,6 @@ class SettingsCommand(Command):
             elif selected == 3:
                 self._startup_menu()
             elif selected == 4:
-                ModelsCommand().handle(s, "")
-            elif selected == 5:
                 MemoryCommand().handle(s, "status")
             else:
                 self._provider_credentials_menu(s)
@@ -229,7 +222,12 @@ class SettingsCommand(Command):
             if selected is None or selected == len(options) - 1:
                 return
             if selected == 0:
-                ModelsCommand().handle(session, "")
+                active = ProviderConfig.load().get_active()
+                if active:
+                    print_success(f"Current: {active.display_name} / {active.current_model}")
+                    print_info("Use /models to change the active model.")
+                else:
+                    print_info("No provider configured. Use /login to connect.")
             elif selected == 1:
                 LoginCommand().handle(session, "")
             elif selected == 2:

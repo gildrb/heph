@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.provider_selection import activate_provider_for_session
+from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.providers import oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import (
@@ -13,6 +15,7 @@ from hephaistos.providers.keyring_store import (
     set_volatile,
     store_key,
 )
+from hephaistos.providers.model_choices import configured_model_choices
 from hephaistos.tui.flow_state import InlineFlow
 
 try:
@@ -33,6 +36,8 @@ class TuiInlineFlowMixin:
             self._open_logout_flow()
         elif value == "/settings":
             self._open_settings_flow()
+        elif value == "/models":
+            self._open_models_flow()
 
     def _open_inline_menu(
         self,
@@ -47,7 +52,6 @@ class TuiInlineFlowMixin:
         suggestions = self.query_one("#suggestions", OptionList)
         suggestions.set_options([f"{label:<22} {description}" for label, description in options])
         suggestions.add_class("visible")
-        suggestions.remove_class("model-picker")
         suggestions.highlighted = 0
         composer = self.query_one("#composer", Input)
         composer.value = ""
@@ -76,10 +80,33 @@ class TuiInlineFlowMixin:
             step="menu",
             title=f"Settings · current model source: {current}",
             options=[
-                ("Models", "Pick the active model"),
                 ("Login", "Connect subscription/API/custom access"),
                 ("Logout", "Clear stored credentials"),
             ],
+        )
+
+    def _open_models_flow(self) -> None:
+        pc = ProviderConfig.load()
+        choices = configured_model_choices(pc)
+        if not choices:
+            self._append_notice("No models available. Use /login to connect a provider.")
+            return
+        active = pc.get_active()
+        current_model = self.session.config.model
+        options: list[tuple[str, str]] = []
+        for slug, model, display_name, is_free in choices:
+            is_current = active is not None and active.slug == slug and model == current_model
+            desc = f"via {display_name}"
+            if is_free:
+                desc += "  free"
+            if is_current:
+                desc += "  current"
+            options.append((model, desc))
+        self._open_inline_menu(
+            name="models",
+            step="menu",
+            title=f"Models · current: {current_model}",
+            options=options,
         )
 
     def _open_logout_flow(self) -> None:
@@ -151,12 +178,13 @@ class TuiInlineFlowMixin:
     def _handle_inline_menu_choice(self, label: str) -> None:
         if self._inline_flow.name == "settings":
             self._close_inline_flow()
-            if label == "Models":
-                self._handle_models("/models")
-            elif label == "Login":
+            if label == "Login":
                 self._open_login_flow()
             elif label == "Logout":
                 self._open_logout_flow()
+            return
+        if self._inline_flow.name == "models":
+            self._perform_model_switch(label)
             return
         if self._inline_flow.name == "logout":
             self._perform_logout(label)
@@ -257,6 +285,26 @@ class TuiInlineFlowMixin:
                     clear_key(slug)
                 self._close_inline_flow(f"Logged out of {slug}.")
                 return
+
+    def _perform_model_switch(self, model: str) -> None:
+        pc = ProviderConfig.load()
+        choices = configured_model_choices(pc)
+        matching = next((c for c in choices if c[1] == model), None)
+        if matching is None:
+            self._close_inline_flow("Model not found.")
+            return
+        slug, _model, display_name, _is_free = matching
+        old_model = self.session.config.model
+        if not switch_model(self.session, slug, model):
+            self._close_inline_flow("Model unavailable.")
+            return
+        capture_analytics(
+            "model_changed",
+            {"provider": slug, "from_model": old_model, "to_model": model},
+        )
+        self._close_inline_flow(f"Switched to {display_name} / {model}")
+        self._refresh_status("ready")
+        self._update_info_panel()
 
     def _close_inline_flow(self, notice: str = "") -> None:
         self._inline_flow = InlineFlow()

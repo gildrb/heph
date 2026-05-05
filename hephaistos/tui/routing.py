@@ -20,7 +20,6 @@ TERMINAL_INTERACTIVE_COMMANDS = {
 
 class TuiInputRoute(Enum):
     EMPTY = "empty"
-    MODELS = "models"
     SOURCES = "sources"
     NEW = "new"
     ARMORY = "armory"
@@ -52,11 +51,6 @@ def pending_input_requires_terminal(value: str) -> bool:
     return command_name in TERMINAL_INTERACTIVE_COMMANDS
 
 
-def is_models_input(value: str) -> bool:
-    stripped = value.lstrip().lower()
-    return stripped == "/models" or stripped.startswith("/models ")
-
-
 def is_armory_command(value: str) -> bool:
     """Return True when *value* is a /armory command handled inline by the TUI."""
     stripped = value.strip().lower()
@@ -68,8 +62,6 @@ def tui_input_route(value: str) -> TuiInputRoute:
     stripped = value.strip()
     if not stripped:
         return TuiInputRoute.EMPTY
-    if is_models_input(stripped):
-        return TuiInputRoute.MODELS
     if stripped == "/sources" or stripped.startswith("/sources "):
         return TuiInputRoute.SOURCES
     if stripped == "/new":

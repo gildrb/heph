@@ -8,10 +8,12 @@ from hephaistos.tui.rich_transcript import enrich_reply
 
 try:
     from rich.markdown import Markdown
+    from rich.style import Style as _RichStyle
     from rich.text import Text as _RichText
     from textual.widgets import RichLog, Static
 except ImportError:
     Markdown = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    _RichStyle = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     _RichText = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
@@ -29,6 +31,14 @@ class TuiTranscriptMixin:
                 log.write(entry.content)
                 return
             log.write(_RichText.from_ansi(entry.content))
+        elif entry.kind == "notice":
+            if _RichText is None:
+                log.write(entry.content)
+                return
+            p = current_palette()
+            rich_text = _RichText.from_ansi(entry.content)
+            rich_text.stylize(_RichStyle(color=p.dim))
+            log.write(rich_text)
         else:
             log.write(entry.content)
 

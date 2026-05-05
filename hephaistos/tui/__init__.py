@@ -16,13 +16,10 @@ from typing import ClassVar
 
 from hephaistos.armory.search import SearchResult, load_known_armories
 from hephaistos.chat.cli import resolve_armory_session
-from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands import NewCommand
 from hephaistos.commands import get_registry as _get_registry
-from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.parameters.cli import load_config
-from hephaistos.providers.model_choices import configured_model_choices
 from hephaistos.shell import armory_actions as _armory_actions
 from hephaistos.shell.lifecycle import create_startup_session, get_history_path, save_on_exit
 from hephaistos.terminal import ThemePalette, current_palette
@@ -47,7 +44,6 @@ from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
     TuiInputRoute,
     is_armory_command,
-    is_models_input,
     pending_input_requires_terminal,
     tui_input_route,
 )
@@ -233,7 +229,6 @@ _slash_suggestion = slash_suggestion
 
 
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
-_MODEL_MENU_MAX_VISIBLE_ROWS = 20
 
 
 def _completion_menu_scroll_y(
@@ -258,7 +253,6 @@ _TuiRuntimeState = TuiRuntimeState
 _TuiCaptureWriter = TuiCaptureWriter
 _TERMINAL_INTERACTIVE_COMMANDS = TERMINAL_INTERACTIVE_COMMANDS
 _pending_input_requires_terminal = pending_input_requires_terminal
-_is_models_input = is_models_input
 _is_armory_command = is_armory_command
 _tui_input_route = tui_input_route
 _TuiInputRoute = TuiInputRoute
@@ -491,12 +485,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                 self._refresh_armory_inline()
             return
         route = _tui_input_route(value)
-        if route is _TuiInputRoute.MODELS:
-            self._record_history(value)
-            self._handle_models(value)
-            composer.value = ""
-            self._hide_completions()
-            return
         composer.value = ""
         self._hide_completions()
         if route is _TuiInputRoute.EMPTY:
@@ -518,7 +506,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             self._record_history(value)
             self._handle_armory_browser(value)
             return
-        if value in {"/login", "/logout", "/settings"}:
+        if value in {"/login", "/logout", "/settings", "/models"}:
             self._record_history(value)
             self._handle_inline_command(value)
             return
@@ -579,48 +567,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         _, _, args = value.partition(" ")
         self._append_plain(material_listing(self.session, args))
 
-    def _handle_models(self, value: str) -> None:
-        _, _, args = value.partition(" ")
-        query = args.strip().lower()
-        choices = configured_model_choices()
-        if query:
-            choices = [
-                choice
-                for choice in choices
-                if query in f"{choice[0]} {choice[1]} {choice[2]}".lower()
-            ]
-        if not choices:
-            self._append_notice("No matching models.")
-            return
-
-        highlighted = self.query_one("#suggestions", OptionList).highlighted
-        selected = highlighted if highlighted is not None else 0
-        selected_model = ""
-        if 0 <= selected < len(self.completion_candidates):
-            selected_model = self.completion_candidates[selected].text.strip()
-        if selected_model:
-            matching_choice = next(
-                (choice for choice in choices if choice[1] == selected_model),
-                None,
-            )
-        else:
-            matching_choice = choices[0]
-        if matching_choice is None:
-            self._append_notice("No matching models.")
-            return
-        slug, model, display_name, _is_free = matching_choice
-        old_model = self.session.config.model
-        if not switch_model(self.session, slug, model):
-            self._append_error("Model unavailable.")
-            return
-        capture_analytics(
-            "model_changed",
-            {"provider": slug, "from_model": old_model, "to_model": model},
-        )
-        self._refresh_status("ready")
-        self._update_info_panel()
-        self._append_notice(f"Switched to {display_name} / {model}")
-
     def _handle_new(self) -> None:
         result = NewCommand().handle(self.session, "")
         if result.new_session is not None:
@@ -652,7 +598,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self.state.history = history.entries
         output = _command_output_text(stdout, stderr)
         if output:
-            self._append_entry(output, "ansi")
+            self._append_entry(output, "notice")
         self._refresh_status("ready")
         self._update_info_panel()
         if not should_continue:
@@ -713,7 +659,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
     def _refresh_completions(self) -> None:
         composer = self.query_one("#composer", Input)
         before_cursor = composer.value[: composer.cursor_position]
-        is_model_picker = _is_models_input(before_cursor)
         self.completion_candidates = self.completion_engine.candidates(
             before_cursor,
             _tui_command_suggestions(),
@@ -722,12 +667,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if not self.completion_candidates:
             suggestions.set_options([])
             suggestions.remove_class("visible")
-            suggestions.remove_class("model-picker")
             return
-        if is_model_picker:
-            suggestions.add_class("model-picker")
-        else:
-            suggestions.remove_class("model-picker")
         suggestions.set_options(
             [
                 self._format_completion_candidate(candidate)
@@ -743,7 +683,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         suggestions = self.query_one("#suggestions", OptionList)
         suggestions.set_options([])
         suggestions.remove_class("visible")
-        suggestions.remove_class("model-picker")
 
     def _move_completion(self, offset: int) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
@@ -759,7 +698,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             highlighted,
             option_count,
             suggestions.size.height,
-            _MODEL_MENU_MAX_VISIBLE_ROWS if suggestions.has_class("model-picker") else 7,
+            7,
         )
 
     def _apply_completion(self, index: int) -> None:
@@ -930,7 +869,7 @@ def run_tui(session: ChatSession | None = None) -> None:
 
             output = _command_output_text(stdout, stderr)
             if output:
-                state.transcript.append(_TuiTranscriptEntry(output, "ansi"))
+                state.transcript.append(_TuiTranscriptEntry(output, "notice"))
             if not should_continue:
                 break
     finally:

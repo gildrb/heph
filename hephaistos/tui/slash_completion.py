@@ -8,7 +8,6 @@ from typing import Protocol
 from hephaistos.agent.persona import list_personas
 from hephaistos.commands.suggestions import CommandSuggestion
 from hephaistos.providers.config import Provider, ProviderConfig
-from hephaistos.providers.model_choices import configured_model_choices, model_picker_columns
 
 
 @dataclass(frozen=True)
@@ -54,9 +53,6 @@ class SlashCompletionEngine:
 
         body = stripped[1:]
 
-        if body.lower() == "models":
-            return self._model_picker_candidates([], start_position=0, prefix_space=True)
-
         if not body or " " not in body:
             prefix = body.lower()
             seen: set[str] = set()
@@ -89,10 +85,6 @@ class SlashCompletionEngine:
         arg_parts = parts[1:]
         if ends_with_space:
             arg_parts.append("")
-
-        if cmd_name == "models":
-            current = arg_parts[-1] if arg_parts else ""
-            return self._model_picker_candidates(arg_parts, start_position=-len(current))
 
         candidates = []
         for suggestion, description in self._argument_suggestions(cmd_name, arg_parts):
@@ -142,45 +134,6 @@ class SlashCompletionEngine:
             return self._persona_suggestions(arg_parts)
 
         return []
-
-    def _model_picker_candidates(
-        self,
-        arg_parts: list[str],
-        *,
-        start_position: int,
-        prefix_space: bool = False,
-    ) -> list[CompletionCandidate]:
-        query = " ".join(arg_parts).strip().lower()
-        candidates: list[CompletionCandidate] = []
-        active = self._provider_config_loader().get_active()
-        current_model = active.current_model if active is not None else ""
-        choices = configured_model_choices(self._provider_config_loader())
-        for slug, model, display_name, is_free in choices:
-            is_current = active is not None and active.slug == slug and model == current_model
-            provider_config = self._provider_config_loader().providers[slug]
-            provider, model_label, source, tags = model_picker_columns(
-                slug=slug,
-                model=model,
-                display_name=display_name,
-                endpoint=provider_config.endpoint,
-                is_free=is_free,
-                is_current=is_current,
-            )
-            haystack = f"{provider} {model} {model_label} {source} {slug}".lower()
-            if query and query not in haystack:
-                continue
-            candidates.append(
-                CompletionCandidate(
-                    text=f"{' ' if prefix_space else ''}{model} ",
-                    description=source,
-                    start_position=start_position,
-                    display_provider=provider,
-                    display_model=model_label,
-                    display_source=source,
-                    display_tags=tags,
-                )
-            )
-        return candidates
 
     def _persona_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
         if len(arg_parts) > 1:

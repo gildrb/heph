@@ -13,10 +13,6 @@ from hephaistos.armory.search import KnownArmory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
-from hephaistos.providers import catalog
-from hephaistos.providers.catalog import LiveProviderCatalog
-from hephaistos.providers.config import default_config
-from hephaistos.providers.registry import ModelInfo
 from hephaistos.tui.armory_browser import armory_detail, build_entries
 
 if TYPE_CHECKING:
@@ -489,8 +485,8 @@ def test_is_armory_command_matches_inline_forms() -> None:
         ("", tui._TuiInputRoute.EMPTY),  # type: ignore[reportPrivateUsage]
         ("   ", tui._TuiInputRoute.EMPTY),  # type: ignore[reportPrivateUsage]
         ("hello", tui._TuiInputRoute.CHAT),  # type: ignore[reportPrivateUsage]
-        ("/models", tui._TuiInputRoute.MODELS),  # type: ignore[reportPrivateUsage]
-        ("/models openai", tui._TuiInputRoute.MODELS),  # type: ignore[reportPrivateUsage]
+        ("/models", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
+        ("/models openai", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
         ("/sources", tui._TuiInputRoute.SOURCES),  # type: ignore[reportPrivateUsage]
         ("/sources notes", tui._TuiInputRoute.SOURCES),  # type: ignore[reportPrivateUsage]
         ("/new", tui._TuiInputRoute.NEW),  # type: ignore[reportPrivateUsage]
@@ -519,14 +515,14 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
         for suggestion in tui._tui_command_suggestions()  # type: ignore[reportPrivateUsage]
     }
 
-    assert routes["/models"] is tui._TuiInputRoute.MODELS  # type: ignore[reportPrivateUsage]
+    assert routes["/models"] is tui._TuiInputRoute.EXTERNAL  # type: ignore[reportPrivateUsage]
     assert routes["/sources"] is tui._TuiInputRoute.SOURCES  # type: ignore[reportPrivateUsage]
     assert routes["/new"] is tui._TuiInputRoute.NEW  # type: ignore[reportPrivateUsage]
     assert routes["/armory"] is tui._TuiInputRoute.ARMORY  # type: ignore[reportPrivateUsage]
     assert all(
         route is tui._TuiInputRoute.EXTERNAL  # type: ignore[reportPrivateUsage]
         for command, route in routes.items()
-        if command not in {"/models", "/sources", "/new", "/armory"}
+        if command not in {"/sources", "/new", "/armory"}
     )
 
 
@@ -1456,78 +1452,34 @@ def test_models_completion_menu_uses_readable_columns() -> None:
     asyncio.run(check_model_columns())
 
 
-def test_models_completion_menu_includes_live_openrouter_catalog(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_models_command_shows_plain_suggestion() -> None:
+    """Typing /models shows a regular command suggestion, not inline model picks."""
     if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
 
-    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
-    catalog.invalidate_catalog_cache()
-    config = default_config()
-    config.set_active("openrouter")
-
-    def fake_fetch(_endpoint: str) -> LiveProviderCatalog:
-        return LiveProviderCatalog(
-            models=[
-                "anthropic/claude-sonnet-latest",
-                "poolside/laguna-m.1:free",
-            ],
-            metadata=[
-                ModelInfo(
-                    "anthropic/claude-sonnet-latest",
-                    "openrouter",
-                    "Anthropic Claude Sonnet Latest",
-                    1_000_000,
-                    128_000,
-                    0.003,
-                    0.015,
-                ),
-                ModelInfo(
-                    "poolside/laguna-m.1:free",
-                    "openrouter",
-                    "Poolside Laguna M.1 (free)",
-                    131_072,
-                    8_192,
-                    0.0,
-                    0.0,
-                    tags=("free",),
-                ),
-            ],
-        )
-
-    monkeypatch.setattr(catalog, "_fetch_openrouter_catalog", fake_fetch)
     app = tui.HephaistosTui(
-        _configured_status_session(),
+        _keyless_session(),
         tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
         tui.current_palette(),
     )
-    app.completion_engine = tui.SlashCompletionEngine(provider_config_loader=lambda: config)
     typed_app = cast("TextualApp[None]", app)
 
-    async def check_live_models_visible() -> None:
-        async with typed_app.run_test(size=(140, 28)) as pilot:
+    async def check_models_suggestion() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
             composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
             composer.value = "/models"
             composer.cursor_position = len("/models")  # type: ignore[reportUnknownMemberType]
             app._refresh_completions()  # type: ignore[reportPrivateUsage]
             await pilot.pause()
 
-            suggestions = cast(
-                "TextualOptionList",
-                app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
-            )  # ty:ignore[redundant-cast]
-            visible_models = [candidate.text.strip() for candidate in app.completion_candidates]
-
-            assert suggestions.option_count == len(app.completion_candidates)
-            assert visible_models[:2] == [
-                "poolside/laguna-m.1:free",
-                "anthropic/claude-sonnet-latest",
-            ]
+            assert len(app.completion_candidates) == 1
+            assert app.completion_candidates[0].text == "models "
+            assert app.completion_candidates[0].description == "Pick the active model"
+            suggestions = app.query_one("#suggestions", tui.OptionList)  # type: ignore[reportPrivateUsage]
             assert suggestions.has_class("visible")
-            assert suggestions.has_class("model-picker")
+            assert not suggestions.has_class("model-picker")
 
-    asyncio.run(check_live_models_visible())
+    asyncio.run(check_models_suggestion())
 
 
 def test_slash_on_empty_composer_preserves_cursor_after_focus_swap() -> None:
