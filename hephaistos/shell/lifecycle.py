@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from hephaistos.armory.search import add_known_armory
+from hephaistos.armory.search import add_known_armory, load_known_armory_entries
 from hephaistos.armory.storage import ArmoryError, initialize
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
@@ -88,6 +88,13 @@ def discover_startup_armory() -> Path | None:
         return validate_armory_path(str(Path.cwd()))
     except ArmoryError:
         pass
+
+    # Fall back to known armories. If there is exactly one valid entry,
+    # use it directly. Otherwise return None and let the caller decide
+    # (onboarding or plain chat).
+    valid = [entry.path for entry in load_known_armory_entries() if entry.valid]
+    if len(valid) == 1:
+        return valid[0]
     return None
 
 

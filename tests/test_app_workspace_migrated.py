@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hephaistos import commands
+from hephaistos.armory.search import add_known_armory, save_known_armories
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import (
@@ -57,6 +58,48 @@ class TestDiscoverStartupArmory:
         monkeypatch.chdir(initialized_armory)
         result = discover_startup_armory()
         assert result == initialized_armory
+
+    def test_falls_back_to_single_known_armory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory = tmp_path / "my-armory"
+        initialize(armory)
+
+        add_known_armory(armory)
+
+        result = discover_startup_armory()
+        assert result == armory
+
+    def test_returns_none_when_multiple_known_armories(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory_a = tmp_path / "armory-a"
+        armory_b = tmp_path / "armory-b"
+        initialize(armory_a)
+        initialize(armory_b)
+
+        add_known_armory(armory_a)
+        add_known_armory(armory_b)
+
+        result = discover_startup_armory()
+        assert result is None
+
+    def test_ignores_invalid_known_armories(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory = tmp_path / "valid-armory"
+        initialize(armory)
+        # Create a path that exists but isn't a valid armory
+        not_armory = tmp_path / "not-armory"
+        not_armory.mkdir()
+
+        save_known_armories([armory, not_armory])
+
+        result = discover_startup_armory()
+        assert result == armory
 
 
 # ---------------------------------------------------------------------------
