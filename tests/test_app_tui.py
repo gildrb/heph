@@ -1417,6 +1417,38 @@ def test_tab_applies_highlighted_completion_in_composer() -> None:
     asyncio.run(check_tab_completion())
 
 
+def test_enter_submits_highlighted_completion(monkeypatch: pytest.MonkeyPatch) -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    handled: list[str] = []
+
+    def fake_handle_inline_command(value: str) -> None:
+        handled.append(value)
+
+    async def check_enter_completion() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(app, "_handle_inline_command", fake_handle_inline_command)
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "/model"
+            composer.cursor_position = len("/model")  # type: ignore[reportUnknownMemberType]
+            app._refresh_completions()  # type: ignore[reportPrivateUsage]
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert handled == ["/models"]
+            assert composer.value == ""  # type: ignore[reportUnknownMemberType]
+
+    asyncio.run(check_enter_completion())
+
+
 def test_models_completion_menu_uses_readable_columns() -> None:
     if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")

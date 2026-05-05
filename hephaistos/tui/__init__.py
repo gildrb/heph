@@ -468,8 +468,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             self._update_armory_preview()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        value = event.value.strip()
         composer = self.query_one("#composer", Input)
+        if self._completion_menu_visible() and self.completion_candidates:
+            self._apply_highlighted_completion()
+        value = composer.value.strip()
         if self._inline_flow.active:
             event.stop()
             self._submit_inline_flow(value)
@@ -556,6 +558,9 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             self._refresh_completions()
         if not self.completion_candidates:
             return
+        self._apply_highlighted_completion()
+
+    def _apply_highlighted_completion(self) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
         highlighted = suggestions.highlighted
         self._apply_completion(highlighted if highlighted is not None else 0)
