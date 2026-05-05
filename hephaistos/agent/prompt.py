@@ -220,6 +220,7 @@ def build_system_prompt_sections(
     *,
     armory_path: Path | None = None,
     source_files: list[str] | None = None,
+    unindexable_files: dict[str, str] | None = None,
     memory_context: str = "",
     persona: Persona | None = None,
     registry: ToolRegistry | None = None,
@@ -275,6 +276,16 @@ def build_system_prompt_sections(
             role_summary = _material_role_summary(source_files)
             if role_summary:
                 context_parts.append(role_summary)
+        if unindexable_files:
+            lines = ["WARNING: The following files could not be indexed for retrieval:"]
+            for rel, reason in sorted(unindexable_files.items()):
+                lines.append(f"  - {rel}: {reason}")
+            lines.append(
+                "These files are visible but NOT searchable via read_file or search_files. "
+                "Do NOT attempt to read them. Answer from your own knowledge if confident, "
+                "and clearly state the answer is not grounded in armory evidence."
+            )
+            context_parts.append("\n".join(lines))
 
     return SystemPrompt(
         role=role,
@@ -293,6 +304,7 @@ def build_system_prompt(
     *,
     armory_path: Path | None = None,
     source_files: list[str] | None = None,
+    unindexable_files: dict[str, str] | None = None,
     memory_context: str = "",
     persona: Persona | None = None,
     registry: ToolRegistry | None = None,
@@ -302,6 +314,7 @@ def build_system_prompt(
     return build_system_prompt_sections(
         armory_path=armory_path,
         source_files=source_files,
+        unindexable_files=unindexable_files,
         memory_context=memory_context,
         persona=persona,
         registry=registry,

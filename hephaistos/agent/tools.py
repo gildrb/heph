@@ -549,6 +549,14 @@ def run_read_file(
     try:
         text = target.read_text(encoding="utf-8")
     except UnicodeDecodeError:
+        suffix = target.suffix.lower()
+        if suffix in (".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".odt"):
+            return (
+                f"Cannot read binary document: {path}. "
+                f"Install docling to enable PDF/document indexing: "
+                f"pip install hephaistos[docling]. "
+                f"Without docling, this file is not searchable."
+            )
         return f"Cannot read (binary file): {path}"
     except OSError as exc:
         return f"Error reading file: {exc}"

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from hephaistos.rag.chunker import ChunkStrategy
-from hephaistos.rag.index import ArmoryIndex, build_index, load_or_build
+from hephaistos.rag.index import ArmoryIndex, build_index, load_or_build, scan_unindexable_files
 
 
 @pytest.fixture
@@ -318,3 +318,58 @@ class TestArmoryIndexStrategy:
         for chunk in loaded.all_chunks:
             assert chunk.heading == ""
             assert chunk.heading_level == 0
+
+
+class TestArmoryIndexUnindexable:
+    """Verify that unindexable (binary) files are tracked."""
+
+    def test_pdf_without_docling_tracked_as_unindexable(self, armory: Path) -> None:
+        (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
+        index = ArmoryIndex(armory)
+        index.build()
+        assert "materials/doc.pdf" in index.unindexable_files
+        assert "docling" in index.unindexable_files["materials/doc.pdf"]
+
+    def test_text_files_not_in_unindexable(self, armory: Path) -> None:
+        index = ArmoryIndex(armory)
+        index.build()
+        assert index.unindexable_files == {}
+
+    def test_unindexable_repopulated_on_load(self, armory: Path) -> None:
+        (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
+        index = ArmoryIndex(armory)
+        index.build()
+        index.save()
+
+        loaded = ArmoryIndex(armory)
+        assert loaded.load()
+        assert "materials/doc.pdf" in loaded.unindexable_files
+
+
+class TestScanUnindexableFiles:
+    """Test the lightweight scan_unindexable_files helper."""
+
+    def test_detects_pdf_without_full_index(self, tmp_path: Path) -> None:
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / "materials" / "notes.md").write_text("# Notes")
+        (arm / "materials" / "slides.pdf").write_bytes(b"%PDF-1.4\x00fake")
+
+        result = scan_unindexable_files(arm)
+        assert "materials/slides.pdf" in result
+        assert "materials/notes.md" not in result
+
+    def test_returns_empty_when_all_text(self, tmp_path: Path) -> None:
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / "materials" / "notes.md").write_text("# Notes")
+
+        assert scan_unindexable_files(arm) == {}
+
+    def test_returns_empty_when_no_materials_dir(self, tmp_path: Path) -> None:
+        arm = tmp_path / "armory"
+        (arm / ".hephaistos").mkdir(parents=True)
+
+        assert scan_unindexable_files(arm) == {}

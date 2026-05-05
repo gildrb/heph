@@ -15,7 +15,13 @@ from hephaistos.rag.context import (
     build_turn_evidence,
     estimate_tokens,
 )
-from hephaistos.rag.index import ArmoryIndex, build_index, iter_source_files, load_or_build
+from hephaistos.rag.index import (
+    ArmoryIndex,
+    build_index,
+    iter_source_files,
+    load_or_build,
+    scan_unindexable_files,
+)
 from hephaistos.rag.query_transform import (
     CompositeTransformer,
     HyDETransformer,
@@ -76,5 +82,6 @@ __all__ = [
     "iter_source_files",
     "load_or_build",
     "retrieve",
+    "scan_unindexable_files",
     "transform_query",
 ]

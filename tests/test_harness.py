@@ -103,6 +103,19 @@ class TestReadFile:
         result = run_read_file("../../../etc/passwd", workspace=workspace)
         assert "escapes" in result.lower()
 
+    def test_read_binary_pdf_gives_helpful_error(self, workspace: Path) -> None:
+        pdf = workspace / "slides.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x80\x81\x82fake pdf")
+        result = run_read_file("slides.pdf", workspace=workspace)
+        assert "binary document" in result.lower()
+        assert "docling" in result.lower()
+
+    def test_read_binary_unknown_gives_generic_error(self, workspace: Path) -> None:
+        binary = workspace / "data.dat"
+        binary.write_bytes(b"\x80\x81\x82\x83")
+        result = run_read_file("data.dat", workspace=workspace)
+        assert "Cannot read (binary file)" in result
+
 
 class TestWriteFile:
     def test_write_new(self, workspace: Path) -> None:

@@ -26,7 +26,7 @@ from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.logging import TraceWriter, get_logger
 from hephaistos.materials import iter_material_files
 from hephaistos.memory import MemoryStore, load_memory
-from hephaistos.rag import ArmoryIndex, TurnEvidence
+from hephaistos.rag import ArmoryIndex, TurnEvidence, scan_unindexable_files
 from hephaistos.runtime import ChatConfig, Conversation, Message
 from hephaistos.study import StudyState
 
@@ -196,9 +196,11 @@ def _replace_system_prompt(session: ChatSession) -> None:  # ty: ignore
         memory_ctx = ""
         with contextlib.suppress(Exception):
             memory_ctx = load_memory(session.armory_path).build_system_context()
+        unindexable = scan_unindexable_files(session.armory_path)
         new_prompt = build_system_prompt(
             armory_path=session.armory_path,
             source_files=source_files or None,
+            unindexable_files=unindexable or None,
             memory_context=memory_ctx,
             persona=session.persona,
         )
@@ -255,6 +257,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
         build_system_prompt(
             armory_path=armory_path,
             source_files=source_files,
+            unindexable_files=scan_unindexable_files(armory_path),
             memory_context=memory_ctx,
             persona=None,
         ),

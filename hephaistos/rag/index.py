@@ -20,6 +20,9 @@ from hephaistos.rag.chunker import (
     Chunk,
     ChunkedDocument,
     ChunkStrategy,
+    _is_docling_available,
+    _is_docling_file,
+    _is_text_file,
     chunk_file,
 )
 
@@ -44,6 +47,18 @@ def _file_hash(path: Path) -> str | None:
         return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
     except OSError:
         return None
+
+
+def _unindexable_reason(path: Path) -> str:
+    """Return a human-readable reason why a file could not be indexed."""
+    if _is_docling_file(path):
+        if _is_docling_available():
+            return "docling conversion failed (empty or corrupt document)"
+        return (
+            "binary document; install docling extra to enable indexing "
+            "(pip install hephaistos[docling])"
+        )
+    return "binary file; unsupported format"
 
 
 def _resolved_path_within_materials(path: Path, armory_path: Path) -> Path | None:
@@ -124,6 +139,7 @@ class ArmoryIndex:
         self._file_hashes: dict[str, str] = {}  # rel_path -> hash
         self._retriever: object | None = None  # cached default retriever instance
         self._retriever_cache: dict[tuple[str, int | None], object] = {}
+        self.unindexable_files: dict[str, str] = {}  # rel_path -> reason
 
     @property
     def all_chunks(self) -> list[Chunk]:
@@ -219,6 +235,7 @@ class ArmoryIndex:
         self._file_hashes = {}
         self._retriever = None
         self._retriever_cache = {}
+        self.unindexable_files = {}
 
         with timer:
             for file_path in self._iter_source_files():
@@ -236,6 +253,9 @@ class ArmoryIndex:
                 )
                 if doc is not None and doc.chunks:
                     self.documents.append(doc)
+                elif not _is_text_file(file_path):
+                    reason = _unindexable_reason(file_path)
+                    self.unindexable_files[rel] = reason
 
         _log.info(
             "index built",
@@ -311,6 +331,7 @@ class ArmoryIndex:
         self._file_hashes = {}
         self._retriever = None
         self._retriever_cache = {}
+        self.unindexable_files = {}
         file_hashes_raw = data.get("file_hashes", {})
         if is_string_mapping(file_hashes_raw):
             self._file_hashes = {key: str(value) for key, value in file_hashes_raw.items()}
@@ -375,6 +396,7 @@ class ArmoryIndex:
             self._file_hashes = {}
             return False
 
+        self._rebuild_unindexable_files()
         return True
 
     def is_stale(self) -> bool:
@@ -426,10 +448,41 @@ class ArmoryIndex:
             return False
         return _documents_match(self.documents, documents, include_heading=include_heading)
 
+    def _rebuild_unindexable_files(self) -> None:
+        """Populate ``unindexable_files`` by comparing scanned files against indexed docs."""
+        indexed_sources = {doc.source for doc in self.documents}
+        self.unindexable_files = {}
+        for file_path in self._iter_source_files():
+            rel = str(file_path.relative_to(self.armory_path))
+            if rel not in indexed_sources and not _is_text_file(file_path):
+                self.unindexable_files[rel] = _unindexable_reason(file_path)
+
 
 def iter_source_files(armory_path: Path) -> Iterator[Path]:
     """Compatibility wrapper for visible study material files."""
     yield from iter_material_files(armory_path)
+
+
+def scan_unindexable_files(armory_path: Path) -> dict[str, str]:
+    """Return a mapping of material files that cannot be indexed to the reason.
+
+    This is a lightweight scan that does not require building the full RAG index.
+    Used to inform the system prompt about files the LLM cannot read or search.
+    """
+    result: dict[str, str] = {}
+    materials_dir = armory_path / MATERIALS_DIR
+    if not materials_dir.is_dir():
+        return result
+    for file_path in sorted(materials_dir.rglob("*")):
+        if not file_path.is_file():
+            continue
+        rel = str(file_path.relative_to(armory_path))
+        # Skip hidden files
+        if any(part.startswith(".") for part in Path(rel).parts):
+            continue
+        if not _is_text_file(file_path):
+            result[rel] = _unindexable_reason(file_path)
+    return result
 
 
 def build_index(

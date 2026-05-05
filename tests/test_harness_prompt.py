@@ -123,3 +123,27 @@ def test_hephaistos_operations_teaches_armory_contract() -> None:
     assert "materials/" in prompt
     assert "Do not create `source/`, `library/`, or `notes/` folders" in prompt
     assert "use `create_armory` or `validate_armory`" in prompt
+
+
+def test_unindexable_files_warning_in_prompt(armory: Path) -> None:
+    prompt = build_system_prompt(
+        armory_path=armory,
+        source_files=["materials/python.md", "materials/slides.pdf"],
+        unindexable_files={"materials/slides.pdf": "binary document; install docling"},
+    )
+
+    assert "WARNING: The following files could not be indexed" in prompt
+    assert "materials/slides.pdf" in prompt
+    assert "install docling" in prompt
+    assert "Do NOT attempt to read them" in prompt
+
+
+def test_no_unindexable_warning_when_empty(armory: Path) -> None:
+    prompt = build_system_prompt(
+        armory_path=armory,
+        source_files=["materials/python.md"],
+        unindexable_files={},
+    )
+
+    assert "WARNING" not in prompt
+    assert "could not be indexed" not in prompt
