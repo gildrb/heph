@@ -154,11 +154,10 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
         f"  {parser.prog}                         Open your current armory or plain chat",
         f"  {parser.prog} gdp                     Open the known armory named gdp",
         f"  {parser.prog} ./gdp                   Open an armory by path",
-        f"  {parser.prog} armory mfi-1           Create ~/Armories/mfi-1",
-        "  cp notes.pdf ~/Armories/mfi-1/materials/",
-        f"  {parser.prog} materials index ~/Armories/mfi-1",
+        f"  {parser.prog} armory mfi-1           Create ~/.armories/mfi-1",
+        "  cp notes.pdf ~/.armories/mfi-1/materials/",
         f"  {parser.prog} mfi-1                   Start studying",
-        f"  {parser.prog} armory mfi-1 ./Code    Create ./Code/Armories/mfi-1",
+        f"  {parser.prog} armory mfi-1 ./Code    Create ./Code/.armories/mfi-1",
         "",
         _HELP_COMMANDS_HEADER,
         *_format_rows(commands),
@@ -189,7 +188,7 @@ def _known_armory_homes() -> list[Path]:
     search_index = importlib.import_module("hephaistos.armory.search")
     homes: list[Path] = []
     for entry in search_index.load_known_armory_entries():
-        if not entry.valid or entry.path.parent.name != "Armories":
+        if not entry.valid or entry.path.parent.name != ".armories":
             continue
         home = entry.path.parent
         if home not in homes:
@@ -203,7 +202,7 @@ def _confirm_move_armory_home(current_home: Path, target_home: Path) -> bool:
     print("You asked to use this location instead:")
     print(f"  {target_home}")
     try:
-        answer = input("Move the entire Armories folder there? [y/N] ").strip().lower()
+        answer = input("Move the entire .armories folder there? [y/N] ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
@@ -212,7 +211,7 @@ def _confirm_move_armory_home(current_home: Path, target_home: Path) -> bool:
 
 def _move_armory_home(current_home: Path, target_home: Path) -> None:
     if target_home.exists():
-        print(f"error: target Armories folder already exists: {target_home}", file=sys.stderr)
+        print(f"error: target .armories folder already exists: {target_home}", file=sys.stderr)
         raise SystemExit(2)
     target_home.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(current_home), str(target_home))
@@ -221,7 +220,7 @@ def _move_armory_home(current_home: Path, target_home: Path) -> None:
         target_home / path.relative_to(current_home) for path in search_index.load_known_armories()
     ]
     search_index.save_known_armories(moved_paths)
-    print(f"Moved Armories folder to {target_home}")
+    print(f"Moved .armories folder to {target_home}")
 
 
 def _validate_armory_home(target_home: Path) -> Path:
@@ -232,7 +231,7 @@ def _validate_armory_home(target_home: Path) -> Path:
     if _confirm_move_armory_home(current_home, target_home):
         _move_armory_home(current_home, target_home)
         return target_home
-    print("Cancelled. To keep using your existing Armories folder, rerun without the path.")
+    print("Cancelled. To keep using your existing .armories folder, rerun without the path.")
     raise SystemExit(2)
 
 

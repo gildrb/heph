@@ -17,6 +17,7 @@ Streaming error recovery:
 from __future__ import annotations
 
 import random
+import re
 import sys
 import threading
 import time
@@ -198,6 +199,13 @@ _ACCOUNT_SETUP_ERROR_TERMS = (
     "quota exceeded",
 )
 _ACCOUNT_SETUP_HINT = "Use /login to connect a subscription or API key, then /models."
+_PROVIDER_CAPACITY_ERROR_TERMS = ("queue full",)
+_PROVIDER_CAPACITY_HINT = (
+    "The free model provider is busy or rate-limiting this connection. "
+    "Try again shortly, or use /login to connect your own provider and /models to switch."
+)
+_PROVIDER_IP_RE = re.compile(r"\bIP:\s*(?:\d{1,3}\.){3}\d{1,3}\b", re.IGNORECASE)
+_MAX_PROVIDER_DETAIL_CHARS = 260
 
 
 @dataclass
@@ -232,13 +240,30 @@ def to_chat_completion_messages(messages: list[ApiMessage]) -> list[ChatCompleti
     return cast("list[ChatCompletionMessageParam]", messages)
 
 
+def _provider_error_body(exc: Exception) -> dict[str, object] | None:
+    """Return a structured provider error body, when the SDK exposes one."""
+    body = getattr(exc, "body", None)
+    if is_string_mapping(body):
+        return body
+
+    response = getattr(exc, "response", None)
+    json_fn = getattr(response, "json", None)
+    if not callable(json_fn):
+        return None
+    try:
+        response_body = json_fn()
+    except Exception:
+        return None
+    return response_body if is_string_mapping(response_body) else None
+
+
 def _provider_error_fields(exc: Exception) -> tuple[str, str]:
     """Return a short provider error message and code without SDK noise."""
-    body = getattr(exc, "body", None)
+    body = _provider_error_body(exc)
     code = ""
     message = ""
 
-    if is_string_mapping(body):
+    if body is not None:
         data = body
         error_val = data.get("error", data)
         if is_string_mapping(error_val):
@@ -257,6 +282,14 @@ def _provider_error_fields(exc: Exception) -> tuple[str, str]:
     return message or exc.__class__.__name__, code
 
 
+def _clean_provider_detail(detail: str) -> str:
+    """Trim noisy provider detail before showing it to the user."""
+    cleaned = _PROVIDER_IP_RE.sub("this connection", detail)
+    if len(cleaned) <= _MAX_PROVIDER_DETAIL_CHARS:
+        return cleaned
+    return f"{cleaned[: _MAX_PROVIDER_DETAIL_CHARS - 3].rstrip()}..."
+
+
 def _is_account_setup_error(exc: Exception) -> bool:
     """Return True when retrying cannot fix the provider/account state."""
     if isinstance(exc, AuthenticationError | PermissionDeniedError):
@@ -272,6 +305,15 @@ def _is_account_setup_error(exc: Exception) -> bool:
     )
 
 
+def _is_provider_capacity_error(exc: Exception) -> bool:
+    """Return True when an upstream free/shared provider is temporarily saturated."""
+    if not isinstance(exc, RateLimitError):
+        return False
+    message, code = _provider_error_fields(exc)
+    haystack = f"{message} {code}".lower()
+    return any(term in haystack for term in _PROVIDER_CAPACITY_ERROR_TERMS)
+
+
 def _with_hint(message: str, hint: str) -> str:
     message = message.rstrip()
     if message and message[-1] not in ".!?":
@@ -282,18 +324,22 @@ def _with_hint(message: str, hint: str) -> str:
 def _request_failure_message(exc: Exception) -> str:
     """Build a user-facing request failure message."""
     detail, _code = _provider_error_fields(exc)
-    detail = redact_text(detail)
+    detail = _clean_provider_detail(redact_text(detail))
     if _is_account_setup_error(exc):
         return _with_hint(f"Provider rejected the request: {detail}", _ACCOUNT_SETUP_HINT)
+    if _is_provider_capacity_error(exc):
+        return _with_hint(f"Provider is busy: {detail}", _PROVIDER_CAPACITY_HINT)
     return f"LLM request failed: {detail}"
 
 
 def _stream_failure_message(exc: Exception) -> str:
     """Build a user-facing streaming failure message."""
     detail, _code = _provider_error_fields(exc)
-    detail = redact_text(detail)
+    detail = _clean_provider_detail(redact_text(detail))
     if _is_account_setup_error(exc):
         return _with_hint(f"Provider rejected the stream: {detail}", _ACCOUNT_SETUP_HINT)
+    if _is_provider_capacity_error(exc):
+        return _with_hint(f"Provider stream is busy: {detail}", _PROVIDER_CAPACITY_HINT)
     return f"LLM stream failed: {detail}"
 
 
@@ -336,7 +382,7 @@ def missing_api_key_message(config: ChatConfig) -> str:
 
 def is_retryable_error(exc: Exception) -> bool:
     """Return True if *exc* is a transient error worth retrying."""
-    if _is_account_setup_error(exc):
+    if _is_account_setup_error(exc) or _is_provider_capacity_error(exc):
         return False
     return isinstance(exc, _get_retryable_types())
 

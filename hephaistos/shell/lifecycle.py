@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from hephaistos.armory.search import add_known_armory
-from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
+from hephaistos.armory.storage import ArmoryError, initialize
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
     ChatSession,
@@ -23,7 +23,7 @@ from hephaistos.runtime import ChatConfig
 from hephaistos.terminal.display import print_error, print_info, print_success
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
-_DEFAULT_ARMORY_HOME = Path.home() / "Armories"
+_DEFAULT_ARMORY_HOME = Path.home() / ".armories"
 
 
 def _stdio_is_interactive() -> bool:
@@ -31,21 +31,27 @@ def _stdio_is_interactive() -> bool:
 
 
 def _default_onboarding_path() -> Path:
-    cwd_name = Path.cwd().name.strip() or "study"
-    return _DEFAULT_ARMORY_HOME / cwd_name
+    return _DEFAULT_ARMORY_HOME
 
 
-def _prompt_onboarding_path(default_path: Path) -> Path | None:
-    print_info("No study armory is attached. Hephaistos needs an armory to study.")
-    print_info("Create one now, then add your study files to its materials/ folder.")
+def _prompt_module_name() -> str | None:
+    print_info("What module or topic are you studying for? (e.g. 'gdp', 'algorithms', 'mfi-1')")
+    print_info("Armories are saved in ~/.armories/. You can create as many as you like.")
     try:
-        raw_path = input(f"Armory path [{default_path}] > ").strip()
+        name = input("Module name: ").strip()
     except (EOFError, KeyboardInterrupt):
         print()
         return None
-    if raw_path.lower() in {"q", "quit", "cancel"}:
+    if not name or name.lower() in {"q", "quit", "cancel"}:
         return None
-    return normalize_path(raw_path or default_path)
+    return name
+
+
+def _prompt_onboarding_path(default_path: Path) -> Path | None:
+    name = _prompt_module_name()
+    if name is None:
+        return None
+    return default_path / name
 
 
 def _onboard_new_armory(config: ChatConfig) -> ChatSession | None:
@@ -58,12 +64,16 @@ def _onboard_new_armory(config: ChatConfig) -> ChatSession | None:
         print_error(str(exc))
         return None
     add_known_armory(armory_path)
-    print_success(f"Initialized armory at {armory_path}")
-    print_info(empty_armory_guidance(armory_path))
+    module_name = armory_path.name
+    print_success(f"Created armory '{module_name}' at {armory_path}")
+    print_info(f"Add your study materials to ~/.armories/{module_name}/materials/")
+    print_info("You can create as many armories as you like for different modules.")
 
     while count_material_files(armory_path) == 0:
         try:
-            answer = input("Add files now, then press Enter to continue; type skip to cancel > ")
+            answer = input(
+                f"Add files to ~/.armories/{module_name}/materials/, then Enter (or skip): "
+            )
         except (EOFError, KeyboardInterrupt):
             print()
             return None
@@ -106,9 +116,7 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
             if onboarded is not None:
                 return onboarded
         print_error("No study armory attached; onboarding was not completed.")
-        print_info(
-            "Run `heph armory init <path>`, add files to materials/, then run `heph <path>`."
-        )
+        print_info("Run `heph armory init <name>`, add files to ~/.armories/<name>/materials/.")
         return create_plain_session(config)
     try:
         return create_session(config, armory)

@@ -92,13 +92,13 @@ def create_armory(session: ChatSession) -> ChatSession:
     except ArmoryError as exc:
         print_error(str(exc))
         return session
-    print_success(f"Initialized armory at {armory_path}")
+    print_success(f"Created armory '{armory_path.name}' at {armory_path}")
     capture_analytics("armory_created", {"mode": "shell"})
     try:
         return start_fresh_session(session, armory_path)
     except SessionError as exc:
         print_error(str(exc))
-        print_info("Add files to materials/ and use /armory to attach it.")
+        print_info(f"Add study files to ~/.armories/{armory_path.name}/materials/")
         return session
 
 

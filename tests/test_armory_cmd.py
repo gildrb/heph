@@ -16,7 +16,7 @@ def test_init_armory_returns_success_message(
     run_argv(parser, ["armory", "init", str(armory_path)])
 
     out = capsys.readouterr().out
-    assert "Initialized armory at" in out
+    assert "Created armory" in out
     assert str(armory_path.resolve()) in out
 
 
@@ -26,13 +26,13 @@ def test_armory_name_shortcut_creates_in_default_home(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     parser = build_parser()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path / "Armories"))
-    armory_path = tmp_path / "Armories" / "mfi-1"
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path / ".armories"))
+    armory_path = tmp_path / ".armories" / "mfi-1"
 
     run_argv(parser, ["armory", "mfi-1"])
 
     out = capsys.readouterr().out
-    assert "Initialized armory at" in out
+    assert "Created armory" in out
     assert armory_path.is_dir()
 
 
@@ -44,12 +44,12 @@ def test_armory_name_shortcut_creates_inside_explicit_parent(
     parser = build_parser()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path / "unused"))
     parent = tmp_path / "Code"
-    armory_path = parent / "Armories" / "mfi-1"
+    armory_path = parent / ".armories" / "mfi-1"
 
     run_argv(parser, ["armory", "mfi-1", str(parent)])
 
     out = capsys.readouterr().out
-    assert "Open it later with: heph mfi-1" in out
+    assert "Created armory" in out
     assert armory_path.is_dir()
 
 
@@ -61,7 +61,7 @@ def test_armory_name_shortcut_can_cancel_second_armory_home(
     parser = build_parser()
     code_parent = tmp_path / "Code"
     design_parent = tmp_path / "Design"
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(code_parent / "Armories"))
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(code_parent / ".armories"))
     run_argv(parser, ["armory", "gdp"])
     monkeypatch.setattr("builtins.input", lambda _prompt: "n")
 
@@ -71,9 +71,9 @@ def test_armory_name_shortcut_can_cancel_second_armory_home(
     assert exc.value.code == 2
     out = capsys.readouterr().out
     assert "Your armories are currently stored here" in out
-    assert str(code_parent / "Armories") in out
+    assert str(code_parent / ".armories") in out
     assert "rerun without the path" in out
-    assert not (design_parent / "Armories").exists()
+    assert not (design_parent / ".armories").exists()
 
 
 def test_armory_name_shortcut_can_move_existing_armory_home(
@@ -84,8 +84,8 @@ def test_armory_name_shortcut_can_move_existing_armory_home(
     parser = build_parser()
     code_parent = tmp_path / "Code"
     design_parent = tmp_path / "Design"
-    old_home = code_parent / "Armories"
-    new_home = design_parent / "Armories"
+    old_home = code_parent / ".armories"
+    new_home = design_parent / ".armories"
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(old_home))
     run_argv(parser, ["armory", "gdp"])
     monkeypatch.setattr("builtins.input", lambda _prompt: "y")
@@ -93,7 +93,7 @@ def test_armory_name_shortcut_can_move_existing_armory_home(
     run_argv(parser, ["armory", "mfi-1", str(design_parent)])
 
     out = capsys.readouterr().out
-    assert "Moved Armories folder" in out
+    assert "Moved .armories folder" in out
     assert not old_home.exists()
     assert (new_home / "gdp").is_dir()
     assert (new_home / "mfi-1").is_dir()

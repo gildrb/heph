@@ -67,6 +67,26 @@ def _insufficient_balance_error() -> RateLimitError:
     return RateLimitError("rate limited", response=resp, body=body)
 
 
+def _queue_full_error() -> RateLimitError:
+    body = {
+        "error": "Queue full for IP: 31.16.250.211: 1 requests already queued (max: 1).",
+        "status": 429,
+    }
+    req = _make_request()
+    resp = httpx.Response(429, request=req, json=body)
+    return RateLimitError("rate limited", response=resp, body=body)
+
+
+def _queue_full_response_error() -> RateLimitError:
+    body = {
+        "error": "Queue full for IP: 31.16.250.211: 1 requests already queued (max: 1).",
+        "status": 429,
+    }
+    req = _make_request()
+    resp = httpx.Response(429, request=req, json=body)
+    return RateLimitError("rate limited", response=resp, body=None)
+
+
 def _config() -> ChatConfig:
     return ChatConfig(api_key="test-key", base_url="http://localhost/v1", model="test")
 
@@ -145,6 +165,9 @@ class TestIsRetryableError:
 
     def test_account_setup_rate_limit_is_not_retryable(self) -> None:
         assert is_retryable_error(_insufficient_balance_error()) is False
+
+    def test_queue_full_rate_limit_is_not_retryable(self) -> None:
+        assert is_retryable_error(_queue_full_error()) is False
 
     def test_generic_exception_not_retryable(self) -> None:
         assert is_retryable_error(RuntimeError("boom")) is False
@@ -307,6 +330,24 @@ class TestStreamReplyRetry:
         assert "/login" in msg
         assert "/models" in msg
         assert "{'error'" not in msg
+
+    def test_queue_full_rate_limit_raises_immediately_with_provider_hint(self) -> None:
+        """Shared free-provider queue saturation needs a clear user action."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = _queue_full_response_error()
+
+        retry = RetryConfig(max_retries=3, base_delay=0.01)
+        with (
+            patch("hephaistos.runtime.engine.build_client", return_value=mock_client),
+            pytest.raises(EngineError) as exc_info,
+        ):
+            list(stream_reply(_config(), _conv(), retry=retry))
+
+        msg = str(exc_info.value)
+        assert mock_client.chat.completions.create.call_count == 1
+        assert "Provider is busy" in msg
+        assert "free model provider is busy" in msg
+        assert "31.16.250.211" not in msg
 
     def test_mid_stream_failure_with_partial_raises_recovery(self) -> None:
         """Stream drops AFTER content -> StreamRecoveryError with partial."""

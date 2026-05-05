@@ -23,6 +23,37 @@ def test_first_turn_plans_presentation() -> None:
     assert plan.allow_tools is True
 
 
+def test_initial_greeting_starts_calibration() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "hey")
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.phase is StudyPhase.RECALL
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is False
+    assert "Execute CALIBRATE" in plan.prompt
+
+
+def test_calibration_result_starts_recall_from_model_question() -> None:
+    state = StudyState()
+    plan = plan_turn(state, "quiz me")
+
+    next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        "What does the source say an index stores?",
+        ["materials/notes.md#chunk=0"],
+    )
+
+    assert cleaned == "What does the source say an index stores?"
+    assert next_state.phase is StudyPhase.RECALL
+    assert next_state.current_item == "What does the source say an index stores?"
+    assert next_state.expected_source_refs == ["materials/notes.md#chunk=0"]
+    assert next_state.attempt_count == 0
+    assert next_state.last_feedback_type is StudyFeedbackType.CALIBRATING
+
+
 def test_waiting_for_ready_refuses_more_reveal() -> None:
     state = StudyState(
         phase=StudyPhase.WAITING_FOR_READY,
@@ -175,6 +206,71 @@ def test_recall_phase_refuses_reveal_requests() -> None:
     assert cleaned == "No. Attempt recall first."
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.last_feedback_type is StudyFeedbackType.REFUSED
+
+
+def test_recall_attempt_that_mentions_answer_is_assessed() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, "the answer is 4 because I squared 2")
+
+    assert plan.action is StudyAction.ASSESS
+    assert plan.phase is StudyPhase.ASSESS
+
+
+def test_recall_phase_can_request_easier_question_when_too_hard() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        expected_source_refs=["source/exam.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, "too hard")
+    next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        "What is the first definition used in Q1?",
+        ["source/exam.md#chunk=0"],
+    )
+
+    assert plan.action is StudyAction.SIMPLIFY
+    assert plan.use_expected_source_refs is True
+    assert plan.allow_tools is False
+    assert cleaned == "What is the first definition used in Q1?"
+    assert next_state.phase is StudyPhase.RECALL
+    assert next_state.current_item == "What is the first definition used in Q1?"
+    assert next_state.attempt_count == 0
+    assert next_state.last_feedback_type is StudyFeedbackType.EASIER
+
+
+def test_recall_phase_can_review_material_when_student_requests_it() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        expected_source_refs=["source/exam.md#chunk=0"],
+        attempt_count=2,
+    )
+
+    plan = plan_turn(state, "review material")
+    next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        "Review the setup. Say ready when you want recall.",
+        ["source/exam.md#chunk=0"],
+    )
+
+    assert plan.action is StudyAction.REVIEW
+    assert plan.use_expected_source_refs is True
+    assert cleaned == "Review the setup. Say ready when you want recall."
+    assert next_state.phase is StudyPhase.WAITING_FOR_READY
+    assert next_state.current_item == "Q1"
+    assert next_state.attempt_count == 0
+    assert next_state.last_feedback_type is StudyFeedbackType.REVIEWING
 
 
 def test_hint_requests_require_a_prior_attempt() -> None:

@@ -127,9 +127,10 @@ def _armory_home_text() -> str:
     lines = [
         "No armory attached.",
         "",
-        "Press ctrl+a to open or create an armory.",
-        "Put study files in materials/.",
-        "Hephaistos handles indexing, retrieval, memory, chats, traces, and usage.",
+        "What module or topic are you studying for?",
+        "Press ctrl+a to create or open an armory.",
+        "Armories are saved locally in ~/.armories/",
+        "Add your study materials to ~/.armories/<module>/materials/",
         "",
         "Recent armories:",
     ]

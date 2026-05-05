@@ -20,24 +20,30 @@ class StudyPhase(StrEnum):
 class StudyAction(StrEnum):
     """Controller actions for a single user turn."""
 
+    CALIBRATE = "calibrate"
     PRESENT = "present"
     WAIT_READY_REMINDER = "wait_ready_reminder"
     PROMPT_RECALL = "prompt_recall"
     ASSESS = "assess"
     REFUSE_REVEAL = "refuse_reveal"
     HINT = "hint"
+    SIMPLIFY = "simplify"
+    REVIEW = "review"
 
 
 class StudyFeedbackType(StrEnum):
     """Coarse feedback emitted by the controller after a turn."""
 
     NONE = "none"
+    CALIBRATING = "calibrating"
     NO_SOURCE = "no_source"
     PRESENTED = "presented"
     WAITING = "waiting"
     READY = "ready"
     REFUSED = "refused"
     HINT = "hint"
+    EASIER = "easier"
+    REVIEWING = "reviewing"
     CORRECT = "correct"
     PARTIAL = "partial"
     WRONG = "wrong"

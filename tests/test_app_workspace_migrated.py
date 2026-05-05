@@ -138,9 +138,9 @@ class TestCreateStartupSession:
 
         captured = capsys.readouterr()
         assert session.armory_path is None
-        assert "Auto-discovered armory has no study materials" in captured.out
+        assert "no study materials" in captured.out.lower()
         assert f"Add files to: {armory_path / 'materials'}" in captured.out
-        assert f"heph materials index {armory_path}" in captured.out
+        assert "~/.armories/" in captured.out
         assert "No study session started because the armory still has no materials" in captured.out
 
     def test_creates_armory_session_when_armory_found(

@@ -18,6 +18,7 @@ from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent
 from hephaistos.chat.evidence import (
     ResolvedTurnPlan,
     adaptive_rag_budget,
+    build_turn_evidence_from_overview,
     build_turn_evidence_from_query,
     build_turn_evidence_from_refs,
     ensure_rag_index,
@@ -541,6 +542,26 @@ class TestHelperFunctions:
         result = build_turn_evidence_from_refs(session, ["source.py#chunk=0"])
         assert result is None
 
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def testbuild_turn_evidence_from_overview_uses_first_chunk_per_document(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        doc1 = MagicMock()
+        doc1.chunks = [_make_chunk("materials/a.md", 0)]
+        doc2 = MagicMock()
+        doc2.chunks = [_make_chunk("materials/b.md", 0)]
+        mock_index = MagicMock()
+        mock_index.documents = [doc1, doc2]
+        mock_index.all_chunks = doc1.chunks + doc2.chunks
+        mock_ensure.return_value = mock_index
+
+        session = _make_study_session()
+        result = build_turn_evidence_from_overview(session)
+
+        assert result is not None
+        assert evidence_refs(result) == ["materials/a.md#chunk=0", "materials/b.md#chunk=0"]
+
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
     def testresolve_turn_evidence_uses_refs(
@@ -558,6 +579,28 @@ class TestHelperFunctions:
 
         assert result is evidence
         mock_refs.assert_called_once()
+        mock_query.assert_not_called()
+
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_overview")
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
+    def testresolve_turn_evidence_uses_overview_for_calibration(
+        self,
+        mock_query: MagicMock,
+        mock_overview: MagicMock,
+    ) -> None:
+        evidence = _make_turn_evidence(_make_evidence_chunk())
+        mock_overview.return_value = evidence
+        plan = StudyTurnPlan(
+            action=StudyAction.CALIBRATE,
+            phase=StudyPhase.RECALL,
+            prompt="calibrate",
+        )
+
+        session = _make_study_session()
+        result = resolve_turn_evidence(session, plan)
+
+        assert result is evidence
+        mock_overview.assert_called_once_with(session)
         mock_query.assert_not_called()
 
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")

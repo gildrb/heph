@@ -83,8 +83,6 @@ def test_ignored_sources_do_not_make_armory_startable(tmp_path: Path) -> None:
         )
 
     message = str(exc_info.value)
-    assert "Armory has no study materials yet." in message
+    assert "has no study materials" in message
     assert f"Add files to: {armory / 'materials'}" in message
-    assert f"heph materials index {armory}" in message
-    assert f"heph {armory}" in message
-    assert ".hephaistosignore" in message
+    assert f"heph {armory.name}" in message

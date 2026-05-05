@@ -1153,7 +1153,7 @@ def test_armory_inline_create_entry_uses_composer(tmp_path: Path) -> None:
             app._armory_open_highlighted()  # type: ignore[reportPrivateUsage]
             composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
             assert app._armory_creating is True  # type: ignore[reportPrivateUsage]
-            assert composer.placeholder == "New armory name..."  # type: ignore[reportUnknownMemberType]
+            assert composer.placeholder == "Module or topic name..."  # type: ignore[reportUnknownMemberType]
 
     asyncio.run(check_create_entry())
 

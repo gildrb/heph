@@ -71,7 +71,7 @@ class TuiArmoryMixin:
         composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         composer.value = ""
         composer.placeholder = (
-            "New armory name..." if self._armory_creating else "Filter armory paths..."
+            "Module or topic name..." if self._armory_creating else "Filter armory paths..."
         )
         self._hide_completions()  # ty:ignore[unresolved-attribute]
         self._refresh_armory_inline(mode=mode)
@@ -219,7 +219,7 @@ class TuiArmoryMixin:
         self._armory_mode = "create"
         composer = self.query_one("#composer", Input)  # ty:ignore[unresolved-attribute]
         composer.value = ""
-        composer.placeholder = "New armory name..."
+        composer.placeholder = "Module or topic name..."
         self._refresh_armory_inline()
         self._refresh_footer_hints()  # ty:ignore[unresolved-attribute]
         composer.focus()
@@ -258,10 +258,12 @@ class TuiArmoryMixin:
             return
         add_known_armory(armory_path)
         self._close_armory_inline()
-        self._append_notice(f"Created armory {armory_path}")  # ty:ignore[unresolved-attribute]
         self._append_notice(
-            "Add study files to materials/, then open the armory."
+            f"Created armory '{armory_path.name}' at {armory_path}"
         )  # ty:ignore[unresolved-attribute]
+        self._append_notice(  # ty:ignore[unresolved-attribute]
+            f"Add study files to ~/.armories/{armory_path.name}/materials/"
+        )
 
     def _open_selected_armory(self, path: Path) -> None:
         try:

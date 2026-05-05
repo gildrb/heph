@@ -24,13 +24,14 @@ from hephaistos.runtime import (
     build_client,
     to_chat_completion_messages,
 )
-from hephaistos.study import StudyTurnPlan
+from hephaistos.study import StudyAction, StudyTurnPlan
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
 
 _log = get_logger("chat.evidence")
 _RAG_MIN_SCORE = 0.1
+_OVERVIEW_CHUNK_LIMIT = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +173,33 @@ def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvid
         return None
 
 
+def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | None:
+    """Build starter evidence from the beginning of available material files."""
+    try:
+        index = ensure_rag_index(session)
+        if index is None:
+            return None
+
+        scored: list[ScoredChunk] = []
+        for document in index.documents:
+            if document.chunks:
+                scored.append(ScoredChunk(chunk=document.chunks[0], score=1.0))
+            if len(scored) >= _OVERVIEW_CHUNK_LIMIT:
+                break
+
+        if not scored:
+            scored = [
+                ScoredChunk(chunk=chunk, score=1.0)
+                for chunk in index.all_chunks[:_OVERVIEW_CHUNK_LIMIT]
+            ]
+        if not scored:
+            return None
+        return build_turn_evidence(scored, max_tokens=adaptive_rag_budget(session))
+    except Exception:
+        _log.warning("turn overview evidence build failed", exc_info=True)
+        return None
+
+
 def build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> TurnEvidence | None:
     """Rebuild evidence from persisted source/chunk references."""
     try:
@@ -200,6 +228,8 @@ def build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> Turn
 
 def resolve_turn_evidence(session: ChatSession, plan: StudyTurnPlan) -> TurnEvidence | None:
     """Resolve the best evidence for a study turn plan."""
+    if plan.action is StudyAction.CALIBRATE:
+        return build_turn_evidence_from_overview(session)
     if plan.use_expected_source_refs and session.study_state.expected_source_refs:
         turn_evidence = build_turn_evidence_from_refs(
             session,
@@ -216,6 +246,7 @@ __all__ = [
     "ResolvedTurnPlan",
     "adaptive_rag_budget",
     "build_prompt_fn",
+    "build_turn_evidence_from_overview",
     "build_turn_evidence_from_query",
     "build_turn_evidence_from_refs",
     "ensure_rag_index",

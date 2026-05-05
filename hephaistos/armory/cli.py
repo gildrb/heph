@@ -27,12 +27,12 @@ def default_armory_home() -> Path:
     configured = os.environ.get(DEFAULT_ARMORY_HOME_ENV)
     if configured:
         return Path(configured).expanduser()
-    return Path.home() / "Armories"
+    return Path.home() / ".armories"
 
 
 def armory_shortcut_path(name: str, parent: str | None = None) -> Path:
     if parent:
-        return Path(parent).expanduser() / "Armories" / name
+        return Path(parent).expanduser() / ".armories" / name
     return default_armory_home() / name
 
 
@@ -46,11 +46,12 @@ def _cmd_armory_init(args: argparse.Namespace) -> None:
     post_init = getattr(args, "post_init", None)
     if post_init is not None:
         post_init(armory_path)
+    module_name = armory_path.name
     materials_path = armory_path / "materials"
-    print(f"Initialized armory at {armory_path}")
+    print(f"Created armory '{module_name}' at {armory_path}")
     print(f"Add study files to: {materials_path}")
-    print(f"Then index them: heph materials index {armory_path}")
-    print(f"Start studying: heph {armory_path.name}")
+    print(f"Then start studying: heph {module_name}")
+    print("Armories are stored locally in ~/.armories/")
     analytics = importlib.import_module("hephaistos.diagnostics.events")
     analytics.capture("armory_created", {"mode": "cli"})
 
@@ -77,8 +78,8 @@ def register(
         help="Create and inspect study armories.",
         description=(
             "Create armories named after modules. Shortcut: "
-            "`heph armory mfi-1` creates ~/Armories/mfi-1, while "
-            "`heph armory mfi-1 ./Code` creates ./Code/Armories/mfi-1."
+            "`heph armory mfi-1` creates ~/.armories/mfi-1, while "
+            "`heph armory mfi-1 ./Code` creates ./Code/.armories/mfi-1."
         ),
     )
     armory_sub = armory.add_subparsers(dest="armory_command", required=True)

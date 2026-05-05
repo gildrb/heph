@@ -143,18 +143,17 @@ def validate_armory_path(path_str: str) -> Path:
 
 def empty_armory_guidance(armory_path: Path) -> str:
     """Return actionable setup guidance for an armory with no visible materials."""
+    module_name = armory_path.name
     materials_path = armory_path / "materials"
     return "\n".join(
         (
-            "Armory has no study materials yet.",
+            f"Armory '{module_name}' has no study materials yet.",
             f"Add files to: {materials_path}",
             "",
-            "Next steps:",
-            f"  1. Copy PDFs, Markdown, notes, or text files into {materials_path}",
-            f"  2. Run: heph materials index {armory_path}",
-            f"  3. Start studying: heph {armory_path}",
-            "",
-            "Hidden files and paths matched by .hephaistosignore are skipped.",
+            "Armories are saved locally in ~/.armories/",
+            "Add PDFs, Markdown, notes, or text files to:",
+            f"  ~/.armories/{module_name}/materials/",
+            f"Then start studying: heph {module_name}",
         )
     )
 

@@ -14,16 +14,41 @@ _READY_RE = re.compile(
     r"^(?:ready|go|start|yes|y|ok|okay|i(?: am|'m)? ready|lets go|let's go)\b",
     re.IGNORECASE,
 )
+_INITIAL_CALIBRATION_RE = re.compile(
+    r"^(?:"
+    r"hi|hey|hello|yo|start|begin|"
+    r"study|study with me|let'?s study|"
+    r"quiz me|test me|ask me something|"
+    r"what should i study(?: next)?|what do i study(?: next)?"
+    r")\??$",
+    re.IGNORECASE,
+)
 _SKIP_RE = re.compile(
     r"\b(?:skip|pass|next|move on|different question|another question|new question)\b",
     re.IGNORECASE,
 )
 _REVEAL_RE = re.compile(
-    r"\b(?:answer|solution|show me|tell me|give me|reveal|"
-    r"explain again|full answer|full solution)\b",
+    r"\b(?:"
+    r"show (?:me )?(?:the )?(?:full )?(?:answer|solution)|"
+    r"tell me (?:the )?(?:full )?(?:answer|solution)|"
+    r"give me (?:the )?(?:full )?(?:answer|solution)|"
+    r"reveal(?: the)?(?: answer| solution)?|"
+    r"explain again|full answer|full solution"
+    r")\b",
     re.IGNORECASE,
 )
+_SHORT_REVEAL_RE = re.compile(r"^(?:answer|solution)\s*(?:please|\?)?$", re.IGNORECASE)
 _HINT_RE = re.compile(r"\b(?:hint|nudge|clue)\b", re.IGNORECASE)
+_TOO_HARD_RE = re.compile(
+    r"\b(?:too hard|too difficult|easier|simpler|i don'?t know|dunno|"
+    r"no idea|lost|stuck|can'?t answer|cannot answer)\b",
+    re.IGNORECASE,
+)
+_REVIEW_MATERIAL_RE = re.compile(
+    r"\b(?:review|look at (?:the )?material|study (?:the )?material|"
+    r"show (?:me )?(?:the )?material|teach me|walk me through)\b",
+    re.IGNORECASE,
+)
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
 
 
@@ -51,6 +76,29 @@ def _derive_presentation_query(user_input: str, state: StudyState) -> str:
     if state.current_item:
         return f"different material-backed item from {state.current_item}"
     return "next material-backed study item"
+
+
+def _needs_initial_calibration(user_input: str) -> bool:
+    text = _normalize(user_input)
+    return bool(_INITIAL_CALIBRATION_RE.fullmatch(text))
+
+
+def _is_reveal_request(text: str) -> bool:
+    return bool(_REVEAL_RE.search(text) or _SHORT_REVEAL_RE.fullmatch(text))
+
+
+def _calibration_prompt() -> str:
+    return (
+        "Controlled study state machine. Execute CALIBRATE.\n"
+        "Rules:\n"
+        "- Use the retrieved material to ask exactly one diagnostic recall question.\n"
+        "- Prefer an introductory, concrete item a new student can attempt.\n"
+        "- Do not present the solution or method.\n"
+        "- Cite evidence IDs only if you state a factual setup from the material.\n"
+        "- End with exactly: Answer from memory, or say easier or review material.\n"
+        "- If no retrieved source material is available, ask which material or topic "
+        "to start with."
+    )
 
 
 def _present_prompt(item: str) -> str:
@@ -113,6 +161,35 @@ def _hint_prompt(item: str) -> str:
     )
 
 
+def _simplify_prompt(item: str) -> str:
+    return (
+        "Controlled study state machine. Execute SIMPLIFY.\n"
+        f"Previous item: {item}\n"
+        "Rules:\n"
+        "- The previous recall item was too hard.\n"
+        "- Use only the stored material context for this item.\n"
+        "- Ask exactly one easier prerequisite recall question.\n"
+        "- Do not reveal the answer to either question.\n"
+        "- End with exactly: Answer from memory, or say review material.\n"
+        "- If no grounded material context is available, say no easier grounded question "
+        "is available."
+    )
+
+
+def _review_prompt(item: str) -> str:
+    return (
+        "Controlled study state machine. Execute REVIEW.\n"
+        f"Current item: {item}\n"
+        "Rules:\n"
+        "- The student needs to look at the material before attempting recall.\n"
+        "- Use only the stored material context for this item.\n"
+        "- Present the minimum source-backed explanation needed to restart.\n"
+        "- Cite evidence IDs whenever you state a factual step or value.\n"
+        "- End with exactly: Say ready when you want recall.\n"
+        "- If no grounded material context is available, say no grounded review is available."
+    )
+
+
 def _assess_prompt(item: str, attempt_count: int) -> str:
     return (
         "Controlled study state machine. Execute ASSESS.\n"
@@ -136,6 +213,13 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
     text = _normalize(user_input)
 
     if not state.current_item:
+        if _needs_initial_calibration(user_input):
+            return StudyTurnPlan(
+                action=StudyAction.CALIBRATE,
+                phase=StudyPhase.RECALL,
+                prompt=_calibration_prompt(),
+                allow_tools=False,
+            )
         query = _derive_presentation_query(user_input, state)
         return StudyTurnPlan(
             action=StudyAction.PRESENT,
@@ -163,7 +247,7 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
                 prompt=_recall_prompt(state.current_item),
                 allow_tools=False,
             )
-        if _REVEAL_RE.search(text):
+        if _is_reveal_request(text):
             return StudyTurnPlan(
                 action=StudyAction.REFUSE_REVEAL,
                 phase=StudyPhase.WAITING_FOR_READY,
@@ -178,11 +262,29 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
         )
 
     if state.phase == StudyPhase.RECALL:
-        if _REVEAL_RE.search(text):
+        if _is_reveal_request(text):
             return StudyTurnPlan(
                 action=StudyAction.REFUSE_REVEAL,
                 phase=StudyPhase.RECALL,
                 prompt=_refusal_prompt(state.current_item),
+                allow_tools=False,
+            )
+        if _REVIEW_MATERIAL_RE.search(text):
+            return StudyTurnPlan(
+                action=StudyAction.REVIEW,
+                phase=StudyPhase.PRESENTING,
+                prompt=_review_prompt(state.current_item),
+                retrieval_query=state.retrieval_query or state.current_item,
+                use_expected_source_refs=True,
+                allow_tools=False,
+            )
+        if _TOO_HARD_RE.search(text):
+            return StudyTurnPlan(
+                action=StudyAction.SIMPLIFY,
+                phase=StudyPhase.RECALL,
+                prompt=_simplify_prompt(state.current_item),
+                retrieval_query=state.retrieval_query or state.current_item,
+                use_expected_source_refs=True,
                 allow_tools=False,
             )
         if _HINT_RE.search(text) and state.attempt_count > 0:
@@ -248,6 +350,23 @@ def apply_turn_result(
     """Advance the state machine after a successful model reply."""
     next_state = state.clone()
 
+    if plan.action is StudyAction.CALIBRATE:
+        if source_refs:
+            next_state.phase = StudyPhase.RECALL
+            next_state.current_item = _normalize(reply)
+            next_state.retrieval_query = plan.retrieval_query or next_state.current_item
+            next_state.expected_source_refs = list(source_refs)
+            next_state.attempt_count = 0
+            next_state.last_feedback_type = StudyFeedbackType.CALIBRATING
+        else:
+            next_state.phase = StudyPhase.PRESENTING
+            next_state.current_item = ""
+            next_state.retrieval_query = ""
+            next_state.expected_source_refs = []
+            next_state.attempt_count = 0
+            next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
+        return next_state, reply
+
     if plan.action is StudyAction.PRESENT:
         if source_refs:
             next_state.phase = StudyPhase.WAITING_FOR_READY
@@ -285,6 +404,32 @@ def apply_turn_result(
         next_state.last_feedback_type = StudyFeedbackType.HINT
         if source_refs:
             next_state.expected_source_refs = list(source_refs)
+        return next_state, reply
+
+    if plan.action is StudyAction.SIMPLIFY:
+        if source_refs:
+            next_state.phase = StudyPhase.RECALL
+            next_state.current_item = _normalize(reply)
+            next_state.retrieval_query = plan.retrieval_query or state.retrieval_query
+            next_state.expected_source_refs = list(source_refs)
+            next_state.attempt_count = 0
+            next_state.last_feedback_type = StudyFeedbackType.EASIER
+        else:
+            next_state.phase = StudyPhase.RECALL
+            next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
+        return next_state, reply
+
+    if plan.action is StudyAction.REVIEW:
+        if source_refs:
+            next_state.phase = StudyPhase.WAITING_FOR_READY
+            next_state.current_item = state.current_item
+            next_state.retrieval_query = plan.retrieval_query or state.retrieval_query
+            next_state.expected_source_refs = list(source_refs)
+            next_state.attempt_count = 0
+            next_state.last_feedback_type = StudyFeedbackType.REVIEWING
+        else:
+            next_state.phase = StudyPhase.RECALL
+            next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
         return next_state, reply
 
     if plan.action is StudyAction.ASSESS:

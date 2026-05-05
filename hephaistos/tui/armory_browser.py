@@ -739,9 +739,10 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         if entry.is_create:
             preview.update(
                 "New armory\n\n"
-                "Create a local study workspace here.\n\n"
-                "Hephaistos will create materials/ for user files\n"
-                "and .hephaistos/ for internal state."
+                "What module or topic are you studying for?\n"
+                "Type the name to create an armory.\n\n"
+                "Armories are saved locally in ~/.armories/\n"
+                "Add study materials to ~/.armories/<name>/materials/"
             )
             return
         if entry.path is None:
