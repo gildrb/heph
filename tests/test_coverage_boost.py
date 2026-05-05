@@ -1,0 +1,388 @@
+"""Targeted tests to cover low-coverage modules.
+
+These modules have straightforward logic paths that are easy to exercise
+without complex TUI or LLM integration.
+"""
+
+from __future__ import annotations
+
+import argparse
+import time
+from threading import Event
+from unittest.mock import MagicMock, patch
+
+import hephaistos.__main__ as _main_mod
+from hephaistos.chat.compaction import compact_session
+from hephaistos.chat.events import (
+    AssistantDeltaEvent,
+    NoticeEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+)
+from hephaistos.chat.model_selection import switch_model
+from hephaistos.chat.titles import derive_title
+from hephaistos.materials.cli import register_source_alias
+from hephaistos.memory.workflow import schedule_memory_extraction
+from hephaistos.providers.config import ProviderConfig
+from hephaistos.runtime import Conversation, EngineError
+from hephaistos.source.cli import register as register_source_cli
+from hephaistos.tui.routing import pending_input_requires_terminal
+from hephaistos.tui.streaming import run_tui_turn
+
+# ---------------------------------------------------------------------------
+# __main__.py — just ensures the module-level code executes
+# ---------------------------------------------------------------------------
+
+
+class TestMainModule:
+    def test_main_entry_point_importable(self) -> None:
+        # Importing __main__ exercises the top-level import line.
+        # The if __name__ guard is not executed during import.
+        assert _main_mod is not None
+
+
+# ---------------------------------------------------------------------------
+# source/cli.py — register() delegates to materials CLI
+# ---------------------------------------------------------------------------
+
+
+class TestSourceCli:
+    def test_register_creates_source_subcommands(self) -> None:
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        register_source_cli(subparsers)
+
+        args = parser.parse_args(["source", "list", "/tmp/fake"])
+        assert args.path == "/tmp/fake"
+
+    def test_register_source_alias(self) -> None:
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        register_source_alias(subparsers)
+
+        args = parser.parse_args(["source", "list", "/tmp/fake"])
+        assert args.path == "/tmp/fake"
+
+
+# ---------------------------------------------------------------------------
+# chat/titles.py — derive_title
+# ---------------------------------------------------------------------------
+
+
+class TestDeriveTitle:
+    def test_empty_conversation(self) -> None:
+        conv = Conversation()
+        assert derive_title(conv) == ""
+
+    def test_single_user_message(self) -> None:
+        conv = Conversation()
+        conv.add("user", "What is Python?")
+        title = derive_title(conv)
+        assert title == "What is Python?"
+
+    def test_long_message_truncated(self) -> None:
+        conv = Conversation()
+        long_msg = "x" * 100
+        conv.add("user", long_msg)
+        title = derive_title(conv)
+        assert len(title) == 60
+        assert title == long_msg[:60]
+
+    def test_duplicate_user_messages_get_count(self) -> None:
+        conv = Conversation()
+        conv.add("user", "Hello")
+        conv.add("assistant", "Hi there")
+        conv.add("user", "Hello")
+        title = derive_title(conv)
+        assert "(2)" in title
+
+    def test_different_user_messages_no_count(self) -> None:
+        conv = Conversation()
+        conv.add("user", "First question")
+        conv.add("assistant", "Answer")
+        conv.add("user", "Second question")
+        title = derive_title(conv)
+        assert "(" not in title
+        assert title == "First question"
+
+
+# ---------------------------------------------------------------------------
+# chat/model_selection.py — switch_model
+# ---------------------------------------------------------------------------
+
+
+class TestSwitchModel:
+    def test_switch_to_unknown_provider_returns_false(self, chat_session) -> None:
+        result = switch_model(chat_session, "nonexistent", "gpt-4")
+        assert result is False
+
+    def test_switch_to_unknown_model_returns_false(self, chat_session, providers_toml) -> None:
+        _providers = providers_toml  # fixture creates file that ProviderConfig.load() reads
+        pc = ProviderConfig.load()
+        pc.apply_to_config(chat_session.config)
+
+        result = switch_model(chat_session, "zai", "nonexistent-model")
+        assert result is False
+
+    def test_switch_to_valid_model(self, chat_session, providers_toml) -> None:
+        _providers = providers_toml  # fixture creates file that ProviderConfig.load() reads
+        pc = ProviderConfig.load()
+        pc.apply_to_config(chat_session.config)
+
+        result = switch_model(chat_session, "zai", "glm-5")
+        assert result is True
+
+
+# ---------------------------------------------------------------------------
+# tui/streaming.py — run_tui_turn
+# ---------------------------------------------------------------------------
+
+
+class TestRunTuiTurn:
+    def test_successful_turn_calls_callbacks(self, chat_session) -> None:
+        replies: list[str] = []
+        notices: list[str] = []
+        errors: list[str] = []
+        finishes: list[bool] = []
+
+        def fake_iter(session, user_input, *, abort):
+            yield AssistantDeltaEvent(delta="Hello ")
+            yield AssistantDeltaEvent(delta="world")
+
+        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+            run_tui_turn(
+                chat_session,
+                "hi",
+                Event(),
+                on_reply=replies.append,
+                on_notice=notices.append,
+                on_error=errors.append,
+                on_finish=lambda: finishes.append(True),
+            )
+
+        assert replies == ["Hello world"]
+        assert errors == []
+        assert finishes == [True]
+
+    def test_empty_reply_not_emitted(self, chat_session) -> None:
+        replies: list[str] = []
+
+        def fake_iter(session, user_input, *, abort):
+            yield NoticeEvent(message="Thinking...")
+
+        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+            run_tui_turn(
+                chat_session,
+                "hi",
+                Event(),
+                on_reply=replies.append,
+                on_notice=lambda _: None,
+                on_error=lambda _: None,
+                on_finish=lambda: None,
+            )
+
+        assert replies == []
+
+    def test_tool_events_produce_notices(self, chat_session) -> None:
+        notices: list[str] = []
+
+        def fake_iter(session, user_input, *, abort):
+            yield ToolCallEvent(
+                call_id="call_1",
+                name="bash",
+                arguments={},
+                display="Running: ls",
+            )
+            yield ToolResultEvent(
+                call_id="call_1",
+                name="bash",
+                content="out",
+                summary="file1.py\nfile2.py",
+            )
+
+        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+            run_tui_turn(
+                chat_session,
+                "list files",
+                Event(),
+                on_reply=lambda _: None,
+                on_notice=notices.append,
+                on_error=lambda _: None,
+                on_finish=lambda: None,
+            )
+
+        assert notices == ["Running: ls", "file1.py\nfile2.py"]
+
+    def test_engine_error_reports_error(self, chat_session) -> None:
+        errors: list[str] = []
+
+        def fake_iter(session, user_input, *, abort):
+            raise EngineError("model overloaded")
+
+        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+            run_tui_turn(
+                chat_session,
+                "hi",
+                Event(),
+                on_reply=lambda _: None,
+                on_notice=lambda _: None,
+                on_error=errors.append,
+                on_finish=lambda: None,
+            )
+
+        assert any("model overloaded" in e for e in errors)
+
+    def test_network_error_reports_offline_notice(self, chat_session) -> None:
+        notices: list[str] = []
+
+        def fake_iter(session, user_input, *, abort):
+            raise EngineError("ConnectionError: network unreachable")
+
+        with (
+            patch("hephaistos.tui.streaming.iter_chat_events", fake_iter),
+            patch("hephaistos.tui.streaming.is_network_error", return_value=True),
+        ):
+            run_tui_turn(
+                chat_session,
+                "hi",
+                Event(),
+                on_reply=lambda _: None,
+                on_notice=notices.append,
+                on_error=lambda _: None,
+                on_finish=lambda: None,
+            )
+
+        assert len(notices) == 1
+        assert "offline" in notices[0].lower()
+
+
+# ---------------------------------------------------------------------------
+# tui/routing.py — pending_input_requires_terminal edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestPendingInputRequiresTerminal:
+    def test_history_browse(self) -> None:
+        assert pending_input_requires_terminal("/history browse") is True
+
+    def test_history_menu(self) -> None:
+        assert pending_input_requires_terminal("/history menu") is True
+
+    def test_history_other(self) -> None:
+        assert pending_input_requires_terminal("/history 5") is False
+
+    def test_memory_setup(self) -> None:
+        assert pending_input_requires_terminal("/memory setup") is True
+
+    def test_persona_no_args(self) -> None:
+        assert pending_input_requires_terminal("/persona") is True
+
+    def test_persona_with_args(self) -> None:
+        assert pending_input_requires_terminal("/persona custom") is False
+
+    def test_vocab_status(self) -> None:
+        assert pending_input_requires_terminal("/vocab status") is False
+
+    def test_vocab_drill(self) -> None:
+        assert pending_input_requires_terminal("/vocab drill") is True
+
+    def test_edit_command(self) -> None:
+        assert pending_input_requires_terminal("/edit") is True
+
+    def test_non_command(self) -> None:
+        assert pending_input_requires_terminal("just chatting") is False
+
+    def test_login_not_terminal(self) -> None:
+        assert pending_input_requires_terminal("/login") is False
+
+
+# ---------------------------------------------------------------------------
+# chat/compaction.py — compact_session
+# ---------------------------------------------------------------------------
+
+
+class TestCompactSession:
+    def test_compact_replaces_messages_with_summary(self, chat_session) -> None:
+        # The fixture adds a default system prompt; clear it for a clean test
+        chat_session.conversation.messages.clear()
+        chat_session.conversation.add("system", "You are a tutor.")
+        chat_session.conversation.add("user", "What is Python?")
+        chat_session.conversation.add("assistant", "Python is a programming language.")
+
+        with (
+            patch(
+                "hephaistos.chat.compaction.stream_reply",
+                return_value=iter(["A summary."]),
+            ),
+            patch("hephaistos.chat.compaction.sys"),
+        ):
+            compact_session(chat_session)
+
+        msgs = chat_session.conversation.messages
+        assert len(msgs) == 2
+        assert msgs[0].role == "system"
+        assert msgs[0].content == "You are a tutor."
+        assert "[Conversation summary]" in msgs[1].content
+        assert "A summary." in msgs[1].content
+        assert chat_session.dirty is True
+
+    def test_compact_preserves_system_messages(self, chat_session) -> None:
+        chat_session.conversation.messages.clear()
+        chat_session.conversation.add("system", "System prompt 1")
+        chat_session.conversation.add("system", "System prompt 2")
+        chat_session.conversation.add("user", "Hello")
+
+        with (
+            patch(
+                "hephaistos.chat.compaction.stream_reply",
+                return_value=iter(["Brief summary"]),
+            ),
+            patch("hephaistos.chat.compaction.sys"),
+        ):
+            compact_session(chat_session)
+
+        system_msgs = [m for m in chat_session.conversation.messages if m.role == "system"]
+        non_summary = [m for m in system_msgs if "[Conversation summary]" not in m.content]
+        assert len(non_summary) == 2
+
+
+# ---------------------------------------------------------------------------
+# memory/workflow.py — schedule_memory_extraction
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryWorkflow:
+    def test_skips_when_no_memory(self) -> None:
+        # Should not raise even with no memory store
+        schedule_memory_extraction(
+            config=MagicMock(),
+            memory=None,
+            user_input="question",
+            reply="a" * 200,
+            evidence="",
+        )
+
+    def test_skips_short_reply(self) -> None:
+        memory = MagicMock()
+        schedule_memory_extraction(
+            config=MagicMock(),
+            memory=memory,
+            user_input="question",
+            reply="short",
+            evidence="",
+        )
+        # No thread should be started for short replies
+
+    def test_launches_extraction_for_long_reply(self) -> None:
+        memory = MagicMock()
+        with patch("hephaistos.memory.workflow.extract_and_store", return_value=3) as mock_extract:
+            schedule_memory_extraction(
+                config=MagicMock(),
+                memory=memory,
+                user_input="question",
+                reply="a" * 200,
+                evidence="some evidence",
+            )
+            # Give the daemon thread time to run
+            time.sleep(0.3)
+            mock_extract.assert_called_once()

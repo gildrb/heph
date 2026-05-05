@@ -18,6 +18,11 @@ TextualOptionList  # unused import (tests/test_app_tui.py)
 # they define the shape of the external callables we pass these kwargs to.
 convert_to_numpy  # Protocol param (hephaistos/rag/chunker.py, retrieve.py)
 show_progress_bar  # Protocol param (hephaistos/rag/chunker.py, retrieve.py)
+
+# fake_iter callback params for iter_chat_events mock -- vulture sees them as unused
+session  # unused variable (tests/test_coverage_boost.py)
+user_input  # unused variable (tests/test_coverage_boost.py)
+abort  # unused variable (tests/test_coverage_boost.py)
 stop_words  # Protocol param (hephaistos/rag/retrieve.py)
 sublinear_tf  # Protocol param (hephaistos/rag/retrieve.py)
 max_features  # Protocol param (hephaistos/rag/retrieve.py)
