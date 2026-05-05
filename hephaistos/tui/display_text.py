@@ -178,11 +178,14 @@ def armory_home_text() -> str:
 
 def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> Text:
     """Build info panel content for a focused transcript message."""
-    is_user = entry.content.startswith("[bold #E0E0E0]You:")
-    is_assistant = entry.kind == "markdown" and "Hephaistos:" in entry.content
+    is_user = entry.content.startswith("[bold #E0E0E0]You:") or entry.content.startswith(
+        "[bold #9B4A2E]You:"
+    )
+    is_assistant = entry.kind == "markdown"
 
     if is_user:
-        content = entry.content.replace("[bold #E0E0E0]You:[/bold #E0E0E0] ", "")
+        content = entry.content.replace("[bold #9B4A2E]You:[/bold #9B4A2E] ", "")
+        content = content.replace("[bold #E0E0E0]You:[/bold #E0E0E0] ", "")
         preview = content[:120] + ("..." if len(content) > 120 else "")
         sep = "\u2500" * 26
         plain = f"You message\n{sep}\n{preview}"

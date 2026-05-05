@@ -48,7 +48,6 @@ class TuiInlineFlowMixin:
         options: list[tuple[str, str]],
     ) -> None:
         self._inline_flow = InlineFlow(name=name, step=step, options=options)
-        self._append_notice(title)
         suggestions = self.query_one("#suggestions", OptionList)
         suggestions.set_options([f"{label:<22} {description}" for label, description in options])
         suggestions.add_class("visible")
@@ -152,7 +151,6 @@ class TuiInlineFlowMixin:
         options = [(slug, description) for slug, _kind, description in targets]
         options.append(("All", "Clear every stored subscription and API key"))
         self._inline_flow = InlineFlow(name="logout", step="menu", options=options)
-        self._append_notice("Logout · choose credentials to clear")
         suggestions = self.query_one("#suggestions", OptionList)
         suggestions.set_options([f"{label:<22} {description}" for label, description in options])
         suggestions.add_class("visible")
@@ -176,7 +174,7 @@ class TuiInlineFlowMixin:
 
     def _handle_inline_flow_key(self, event: events.Key) -> bool:
         if event.key == "escape":
-            self._close_inline_flow("Cancelled.")
+            self._close_inline_flow()
             event.prevent_default()
             event.stop()
             return True
@@ -270,7 +268,7 @@ class TuiInlineFlowMixin:
             except Exception:
                 set_volatile("custom", value)
             p = activate_provider_for_session(pc, self.session, "custom")
-            self._close_inline_flow(f"Switched to {p.display_name} / {p.resolved_model}")
+            self._close_inline_flow(f"provider: {p.display_name}")
             self._refresh_status("ready")
             self._update_info_panel()
 
@@ -281,7 +279,7 @@ class TuiInlineFlowMixin:
             set_volatile(slug, key)
         pc = ProviderConfig.load()
         p = activate_provider_for_session(pc, self.session, slug)
-        self._close_inline_flow(f"Switched to {p.display_name} / {p.resolved_model}")
+        self._close_inline_flow(f"provider: {p.display_name}")
         self._refresh_status("ready")
         self._update_info_panel()
 
@@ -295,7 +293,7 @@ class TuiInlineFlowMixin:
         p = activate_provider_for_session(pc, self.session, "openai-codex")
         self.call_from_thread(
             self._append_notice,
-            f"Logged in · {p.display_name} / {p.resolved_model}",
+            f"provider: {p.display_name}",
         )
         self.call_from_thread(self._refresh_status, "ready")
         self.call_from_thread(self._update_info_panel)
@@ -308,7 +306,7 @@ class TuiInlineFlowMixin:
                     oauth.clear_credentials(slug)
                 else:
                     clear_key(slug)
-            self._close_inline_flow("Logged out of all stored providers.")
+            self._close_inline_flow("logged out: all providers")
             return
         for slug, kind, _description in targets:
             if slug == label:
@@ -316,7 +314,7 @@ class TuiInlineFlowMixin:
                     oauth.clear_credentials(slug)
                 else:
                     clear_key(slug)
-                self._close_inline_flow(f"Logged out of {slug}.")
+                self._close_inline_flow(f"logged out: {slug}")
                 return
 
     def _perform_model_switch(self, model: str) -> None:
@@ -326,7 +324,7 @@ class TuiInlineFlowMixin:
         if matching is None:
             self._close_inline_flow("Model not found.")
             return
-        slug, _model, display_name, _is_free = matching
+        slug, _model, _display_name, _is_free = matching
         old_model = self.session.config.model
         if not switch_model(self.session, slug, model):
             self._close_inline_flow("Model unavailable.")
@@ -335,7 +333,7 @@ class TuiInlineFlowMixin:
             "model_changed",
             {"provider": slug, "from_model": old_model, "to_model": model},
         )
-        self._close_inline_flow(f"Switched to {display_name} / {model}")
+        self._close_inline_flow(f"model: {model}")
         self._refresh_status("ready")
         self._update_info_panel()
 

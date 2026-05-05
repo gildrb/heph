@@ -25,6 +25,8 @@ class TuiTranscriptMixin:
     def _write_transcript_entry(self, entry: object) -> None:
         log = self.query_one("#transcript", RichLog)
         if entry.kind == "markdown":
+            p = current_palette()
+            log.write(_RichText.styled("Hephaistos:", _RichStyle(color=p.configured, bold=True)))
             log.write(Markdown(entry.content))
         elif entry.kind == "ansi":
             if _RichText is None:
@@ -58,7 +60,7 @@ class TuiTranscriptMixin:
 
     def _append_user(self, text: str, *, mark_working: bool = True) -> None:
         p = current_palette()
-        self._append_entry(f"[bold {p.text}]You:[/bold {p.text}] {text}")
+        self._append_entry(f"[bold {p.ember}]You:[/bold {p.ember}] {text}")
         if mark_working:
             self._start_thinking_animation()
 
@@ -70,8 +72,7 @@ class TuiTranscriptMixin:
         if self.state.transcript:
             self._write_transcript_gap()
         self.state.transcript.append(entry)
-        log = self.query_one("#transcript", RichLog)
-        log.write(Markdown(enriched.markdown_text))
+        self._write_transcript_entry(entry)
 
     def _append_notice(self, text: str) -> None:
         p = current_palette()
