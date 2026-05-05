@@ -210,6 +210,18 @@ def _is_docling_available() -> bool:
     return _DocumentConverter is not None
 
 
+def _resolved_path_within_armory(path: Path, armory_root: Path) -> Path | None:
+    resolved_root = armory_root.resolve()
+    resolved_path = path.resolve()
+    if not resolved_path.is_relative_to(resolved_root):
+        _log.warning(
+            "skipping material outside armory",
+            extra={"fields": {"path": str(path), "armory": str(armory_root)}},
+        )
+        return None
+    return resolved_path
+
+
 _docling_converter: list[_DoclingConverterProtocol] = []
 
 
@@ -614,6 +626,9 @@ def chunk_file(
     Markdown via *docling* when the optional ``docling`` extra is installed,
     then chunked with heading-aware chunking.
     """
+    if _resolved_path_within_armory(path, armory_root) is None:
+        return None
+
     if not _is_text_file(path):
         if _is_docling_file(path) and _is_docling_available():
             return _chunk_docling_file(path, armory_root, chunk_size, overlap)
@@ -647,6 +662,9 @@ def _chunk_docling_file(
     overlap: int = _DEFAULT_OVERLAP,
 ) -> ChunkedDocument | None:
     """Convert a binary document to Markdown via Docling, then chunk it."""
+    if _resolved_path_within_armory(path, armory_root) is None:
+        return None
+
     text = _convert_to_markdown(path)
     if not text or not text.strip():
         return None

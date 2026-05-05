@@ -15,7 +15,7 @@ from typing import cast
 
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import Timer, get_logger
-from hephaistos.materials import count_material_files, iter_material_files
+from hephaistos.materials import iter_material_files
 from hephaistos.rag.chunker import (
     Chunk,
     ChunkedDocument,
@@ -44,6 +44,18 @@ def _file_hash(path: Path) -> str | None:
         return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
     except OSError:
         return None
+
+
+def _resolved_path_within_armory(path: Path, armory_path: Path) -> Path | None:
+    resolved_armory = armory_path.resolve()
+    resolved_path = path.resolve()
+    if not resolved_path.is_relative_to(resolved_armory):
+        _log.warning(
+            "skipping material outside armory",
+            extra={"fields": {"path": str(path), "armory": str(armory_path)}},
+        )
+        return None
+    return resolved_path
 
 
 class ArmoryIndex:
@@ -321,10 +333,13 @@ class ArmoryIndex:
         return len(self._file_hashes) != self._count_source_files()
 
     def _count_source_files(self) -> int:
-        return count_material_files(self.armory_path)
+        return sum(1 for _ in self._iter_source_files())
 
     def _iter_source_files(self) -> Iterator[Path]:
-        yield from iter_source_files(self.armory_path)
+        for file_path in iter_source_files(self.armory_path):
+            if _resolved_path_within_armory(file_path, self.armory_path) is None:
+                continue
+            yield file_path
 
 
 def iter_source_files(armory_path: Path) -> Iterator[Path]:

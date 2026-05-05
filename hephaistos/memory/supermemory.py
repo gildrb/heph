@@ -57,8 +57,9 @@ def resolve_supermemory_key() -> str:
 
 
 def supermemory_configured() -> bool:
-    """Return whether Supermemory has credentials available."""
-    return bool(resolve_supermemory_key())
+    """Return whether Supermemory is enabled and has credentials available."""
+    settings = load_app_settings()
+    return settings.supermemory_enabled and bool(resolve_supermemory_key())
 
 
 def load_supermemory_config() -> SupermemoryConfig:

@@ -340,20 +340,28 @@ jobs:
           echo "| security-pr-report sync | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
       - name: Bandit security scan
         continue-on-error: true
+        id: bandit
         run: |
           start=$(date +%s%N)
-          uv run bandit -r hephaistos -f txt -ll -ii -s B101,B602,B310
+          FINDINGS=$(uv run bandit -r hephaistos -f txt -ll -ii -s B101,B602,B310 2>&1 || true)
+          echo "$FINDINGS"
           end=$(date +%s%N)
           ms=$(( (end - start) / 1000000 ))
           echo "| security bandit | ${ms}ms |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "findings<<EOF"
+            echo "$FINDINGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Post security findings on PR
         if: github.event_name == 'pull_request'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          FINDINGS: ${{ steps.bandit.outputs.findings }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          FINDINGS=$(uv run bandit -r hephaistos -f txt -ll -ii -s B101,B602,B310 2>&1 || true)
           if [ -n "$FINDINGS" ]; then
             {
               echo "## Security Scan Findings"
@@ -362,9 +370,9 @@ jobs:
               echo "$FINDINGS"
               echo '```'
             } > /tmp/security-comment.md
-            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/security-comment.md
+            gh pr comment "$PR_NUMBER" --body-file /tmp/security-comment.md
           else
-            gh pr comment "${{ github.event.pull_request.number }}" --body "## Security Scan: No findings"
+            gh pr comment "$PR_NUMBER" --body "## Security Scan: No findings"
           fi
 
   tech-debt:
@@ -420,14 +428,26 @@ jobs:
       - name: Sync dependencies
         run: uv sync --group dev
       - name: Detect agent co-authorship
+        id: detect
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           OUTPUT=$(uv run python scripts/detect_co_author.py --pr 2>&1 || true)
           echo "$OUTPUT"
+          {
+            echo "output<<EOF"
+            echo "$OUTPUT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post agent attribution comment
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTPUT: ${{ steps.detect.outputs.output }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
           if echo "$OUTPUT" | grep -q "Agent-authored"; then
-            gh pr comment "${{ github.event.pull_request.number }}" --body "## Agent Attribution
+            gh pr comment "$PR_NUMBER" --body "## Agent Attribution
           $OUTPUT"
           fi
 

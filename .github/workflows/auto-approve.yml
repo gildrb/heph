@@ -17,10 +17,9 @@ jobs:
       - name: Check update type and approve
         env:
           GH_TOKEN: ${{ secrets.RENOVATE_APPROVE_TOKEN || github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          PR_TITLE="${{ github.event.pull_request.title }}"
-
           # Skip major updates -- these require manual review
           if echo "$PR_TITLE" | grep -qiE "(major|breaking)"; then
             echo "Major/breaking update detected -- skipping auto-approve"

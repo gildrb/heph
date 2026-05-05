@@ -22,12 +22,12 @@ jobs:
       CI: "true"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -36,17 +36,19 @@ jobs:
         run: uv sync --frozen
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
 
       - name: Install tuistory
-        run: npm install -g tuistory
+        # Supply chain note: tuistory@latest is intentionally unpinned for now and should be pinned.
+        run: npm install -g tuistory@latest
 
       - name: Install ImageMagick
         run: sudo apt-get install -y -qq imagemagick
 
       - name: Install Droid CLI
+        # Supply chain note: piping a remote installer to sh is risky and should be replaced.
         run: curl -fsSL https://app.factory.ai/cli | sh
 
       - name: Create results directory
@@ -66,7 +68,7 @@ jobs:
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: qa-results
           path: qa-results/
