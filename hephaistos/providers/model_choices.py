@@ -49,16 +49,32 @@ _SOURCE_LABELS = {
 
 def configured_model_choices(
     pc: ProviderConfig | None = None,
+    *,
+    refresh_live: bool = False,
 ) -> list[tuple[str, str, str, bool]]:
     """Return configured models as (provider slug, model, display label, free)."""
     pc = pc or ProviderConfig.load()
-    hydrate_provider_models(pc)
-    registry = get_provider_registry()
-    choices: list[tuple[str, str, str, bool]] = []
+    eligible_slugs: set[str] = set()
     for slug, provider in pc.providers.items():
         if slug == "custom" and not provider.models:
             continue
-        if not provider_is_accessible(provider) and not provider.active:
+        if not provider.active and not provider_is_accessible(
+            provider,
+            refresh_oauth=refresh_live,
+        ):
+            continue
+        eligible_slugs.add(slug)
+
+    hydrate_provider_models(
+        pc,
+        allow_network=refresh_live,
+        provider_slugs=eligible_slugs,
+    )
+
+    registry = get_provider_registry()
+    choices: list[tuple[str, str, str, bool]] = []
+    for slug, provider in pc.providers.items():
+        if slug not in eligible_slugs:
             continue
         for model in provider.models:
             info = registry.get(model)

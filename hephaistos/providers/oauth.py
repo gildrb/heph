@@ -385,14 +385,21 @@ def save_credentials(creds: OAuthCredentials) -> None:
 _creds_cache: dict[str, OAuthCredentials] = {}
 
 
-def load_credentials(provider: str) -> OAuthCredentials | None:
-    """Load credentials, auto-refreshing if expired.
+def load_credentials(
+    provider: str,
+    *,
+    refresh_expired: bool = True,
+) -> OAuthCredentials | None:
+    """Load credentials, auto-refreshing if expired unless disabled.
 
     Results are cached in-process to avoid repeated disk reads.
     """
     cached = _creds_cache.get(provider)
-    if cached is not None and not cached.is_expired:
-        return cached
+    if cached is not None:
+        if not cached.is_expired:
+            return cached
+        if not refresh_expired:
+            return None
 
     data = _load_all()
     entry = data.get(provider)
@@ -417,6 +424,8 @@ def load_credentials(provider: str) -> OAuthCredentials | None:
     )
 
     if creds.is_expired:
+        if not refresh_expired:
+            return None
         try:
             creds = refresh_credentials(creds)
         except Exception as exc:
@@ -455,9 +464,9 @@ def list_providers() -> list[str]:
     return [provider for provider, entry in data.items() if entry.get("type") == "oauth"]
 
 
-def resolve_oauth_key(slug: str) -> str:
+def resolve_oauth_key(slug: str, *, refresh_expired: bool = True) -> str:
     """Resolve a fresh access token for *slug*, or ``""`` if unavailable."""
-    creds = load_credentials(slug)
+    creds = load_credentials(slug, refresh_expired=refresh_expired)
     if creds is None:
         return ""
     return creds.access_token

@@ -278,6 +278,11 @@ def test_models_command_shows_live_openrouter_models(
         visible_options.extend(options)
 
     monkeypatch.setattr(catalog, "_fetch_openrouter_catalog", fake_fetch)
+    catalog.hydrate_provider_models(
+        pc,
+        allow_network=True,
+        provider_slugs={"openrouter"},
+    )
     monkeypatch.setattr(
         _commands_model.ProviderConfig,
         "load",

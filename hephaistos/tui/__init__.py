@@ -20,6 +20,8 @@ from hephaistos.chat.session import ChatSession
 from hephaistos.commands import NewCommand
 from hephaistos.commands import get_registry as _get_registry
 from hephaistos.parameters.cli import load_config
+from hephaistos.providers.catalog import prefetch_provider_model_catalogs
+from hephaistos.providers.config import ProviderConfig
 from hephaistos.shell import armory_actions as _armory_actions
 from hephaistos.shell.lifecycle import create_startup_session, get_history_path, save_on_exit
 from hephaistos.terminal import ThemePalette, current_palette
@@ -353,6 +355,16 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if self.session.armory_path is None and not self.state.armory_home_shown:
             self.state.armory_home_shown = True
             self._append_armory_home()
+        self._prefetch_model_catalogs()
+
+    def _prefetch_model_catalogs(self) -> None:
+        try:
+            pc = ProviderConfig.load()
+        except Exception:
+            return
+        active = pc.get_active()
+        if active is not None:
+            prefetch_provider_model_catalogs(pc, provider_slugs={active.slug})
 
     def on_app_focus(self, event: events.AppFocus) -> None:
         if self._armory_inline_active:

@@ -8,17 +8,23 @@ from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.keyring_store import resolve_key
 
 
-def provider_is_accessible(provider: Provider) -> bool:
+def provider_is_accessible(provider: Provider, *, refresh_oauth: bool = True) -> bool:
     """Return whether the user can call models from this provider now."""
     if is_keyless_endpoint(provider.endpoint):
         return True
-    return bool(resolve_key(provider.slug, provider.api_key_env))
+    return bool(
+        resolve_key(
+            provider.slug,
+            provider.api_key_env,
+            refresh_oauth=refresh_oauth,
+        )
+    )
 
 
 def activate_provider_config(pc: ProviderConfig, slug: str) -> Provider:
     """Activate a provider and refresh its model catalog."""
     pc.set_active(slug)
-    hydrate_provider_models(pc)
+    hydrate_provider_models(pc, provider_slugs={slug})
     provider = pc.providers[slug]
     if not provider.current_model and provider.models:
         provider.current_model = provider.models[0]

@@ -220,6 +220,23 @@ class TestCredentialPersistence:
         assert loaded is not None
         assert loaded.access_token == "new_at"
 
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_load_can_skip_expired_token_refresh(self) -> None:
+        expired = OAuthCredentials(
+            provider="openai-codex",
+            access_token="old_at",
+            refresh_token="old_rt",
+            expires_at=time.time() * 1000 - 10000,
+            account_id="acct_abc",
+        )
+
+        save_credentials(expired)
+        with patch("hephaistos.providers.oauth.refresh_credentials") as mock_refresh:
+            loaded = load_credentials("openai-codex", refresh_expired=False)
+
+        mock_refresh.assert_not_called()
+        assert loaded is None
+
 
 # --- LoginCommand / LogoutCommand -------------------------------------------
 

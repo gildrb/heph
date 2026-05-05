@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -44,15 +45,33 @@ class _CatalogCacheEntry:
 
 
 _catalog_cache: dict[str, _CatalogCacheEntry] = {}
+_catalog_refreshing: set[str] = set()
+_catalog_lock = threading.Lock()
 
 
-def hydrate_provider_models(config: ProviderConfig) -> None:
-    """Update provider model lists from live catalogs when available."""
+def hydrate_provider_models(
+    config: ProviderConfig,
+    *,
+    allow_network: bool = False,
+    provider_slugs: set[str] | None = None,
+) -> None:
+    """Update provider model lists from cached live catalogs when available.
+
+    The default path never waits on the network. If a live catalog is stale or missing,
+    a daemon refresh is scheduled and the caller keeps the static/stale model list.
+    Pass ``allow_network=True`` only from a worker or an explicitly blocking command.
+    """
     if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
         return
 
     for slug, provider in config.providers.items():
-        catalog = _live_catalog_for_provider(slug, provider.endpoint)
+        if provider_slugs is not None and slug not in provider_slugs:
+            continue
+        catalog = _live_catalog_for_provider(
+            slug,
+            provider.endpoint,
+            allow_network=allow_network,
+        )
         if catalog is None or not catalog.models:
             continue
         provider.models = catalog.models
@@ -63,20 +82,82 @@ def hydrate_provider_models(config: ProviderConfig) -> None:
             registry.register(info)
 
 
+def prefetch_provider_model_catalogs(
+    config: ProviderConfig,
+    *,
+    provider_slugs: set[str] | None = None,
+) -> None:
+    """Start live model catalog refreshes without blocking the caller."""
+    if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
+        return
+
+    for slug, provider in config.providers.items():
+        if provider_slugs is not None and slug not in provider_slugs:
+            continue
+        _schedule_live_catalog_refresh(slug, provider.endpoint)
+
+
 def invalidate_catalog_cache() -> None:
     """Clear live catalog cache, mostly for tests."""
-    _catalog_cache.clear()
+    with _catalog_lock:
+        _catalog_cache.clear()
+        _catalog_refreshing.clear()
 
 
-def _live_catalog_for_provider(slug: str, endpoint: str) -> LiveProviderCatalog | None:
+def _live_catalog_for_provider(
+    slug: str,
+    endpoint: str,
+    *,
+    allow_network: bool = False,
+) -> LiveProviderCatalog | None:
     if slug != "openrouter":
         return None
 
-    cached = _catalog_cache.get(slug)
+    cached = _cached_live_catalog(slug)
+    if cached is not None:
+        return cached
+
+    if not allow_network:
+        _schedule_live_catalog_refresh(slug, endpoint)
+        return None
+
+    return _fetch_and_cache_live_catalog(slug, endpoint)
+
+
+def _cached_live_catalog(slug: str) -> LiveProviderCatalog | None:
     now = time.time()
-    if cached is not None and now - cached.fetched_at < _CATALOG_CACHE_SECONDS:
+    with _catalog_lock:
+        cached = _catalog_cache.get(slug)
+        if cached is None or now - cached.fetched_at >= _CATALOG_CACHE_SECONDS:
+            return None
         return cached.catalog
 
+
+def _schedule_live_catalog_refresh(slug: str, endpoint: str) -> None:
+    if slug != "openrouter" or _cached_live_catalog(slug) is not None:
+        return
+    with _catalog_lock:
+        if slug in _catalog_refreshing:
+            return
+        _catalog_refreshing.add(slug)
+    thread = threading.Thread(
+        target=_refresh_live_catalog,
+        args=(slug, endpoint),
+        name=f"hephaistos-{slug}-catalog",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _refresh_live_catalog(slug: str, endpoint: str) -> None:
+    try:
+        _fetch_and_cache_live_catalog(slug, endpoint)
+    finally:
+        with _catalog_lock:
+            _catalog_refreshing.discard(slug)
+
+
+def _fetch_and_cache_live_catalog(slug: str, endpoint: str) -> LiveProviderCatalog | None:
     try:
         catalog = _fetch_openrouter_catalog(endpoint)
     except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError) as exc:
@@ -86,7 +167,8 @@ def _live_catalog_for_provider(slug: str, endpoint: str) -> LiveProviderCatalog 
         )
         return None
 
-    _catalog_cache[slug] = _CatalogCacheEntry(fetched_at=now, catalog=catalog)
+    with _catalog_lock:
+        _catalog_cache[slug] = _CatalogCacheEntry(fetched_at=time.time(), catalog=catalog)
     return catalog
 
 

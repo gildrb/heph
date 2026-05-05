@@ -85,12 +85,11 @@ class TuiInlineFlowMixin:
             ],
         )
 
-    def _open_models_flow(self) -> None:
-        pc = ProviderConfig.load()
-        choices = configured_model_choices(pc)
-        if not choices:
-            self._append_notice("No models available. Use /login to connect a provider.")
-            return
+    def _model_flow_options(
+        self,
+        pc: ProviderConfig,
+        choices: list[tuple[str, str, str, bool]],
+    ) -> list[tuple[str, str]]:
         active = pc.get_active()
         current_model = self.session.config.model
         options: list[tuple[str, str]] = []
@@ -102,12 +101,46 @@ class TuiInlineFlowMixin:
             if is_current:
                 desc += "  current"
             options.append((model, desc))
+        return options
+
+    def _open_models_flow(self) -> None:
+        pc = ProviderConfig.load()
+        choices = configured_model_choices(pc)
+        if not choices:
+            self._append_notice("No models available. Use /login to connect a provider.")
+            return
         self._open_inline_menu(
             name="models",
             step="menu",
-            title=f"Models · current: {current_model}",
-            options=options,
+            title=f"Models · current: {self.session.config.model}",
+            options=self._model_flow_options(pc, choices),
         )
+        self.run_worker(self._refresh_models_flow_worker, thread=True)
+
+    def _refresh_models_flow_worker(self) -> None:
+        try:
+            pc = ProviderConfig.load()
+            choices = configured_model_choices(pc, refresh_live=True)
+        except Exception:
+            return
+        self.call_from_thread(self._refresh_models_flow_options, choices)
+
+    def _refresh_models_flow_options(
+        self,
+        choices: list[tuple[str, str, str, bool]],
+    ) -> None:
+        if not self._inline_flow.active or self._inline_flow.name != "models":
+            return
+        pc = ProviderConfig.load()
+        options = self._model_flow_options(pc, choices)
+        if not options or options == self._inline_flow.options:
+            return
+        self._inline_flow.options = options
+        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions.set_options([f"{label:<22} {description}" for label, description in options])
+        suggestions.add_class("visible")
+        highlighted = suggestions.highlighted if suggestions.highlighted is not None else 0
+        suggestions.highlighted = min(highlighted, len(options) - 1)
 
     def _open_logout_flow(self) -> None:
         targets = self._logout_targets()

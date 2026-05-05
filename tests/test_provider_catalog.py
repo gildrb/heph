@@ -12,42 +12,46 @@ from hephaistos.providers.model_choices import configured_model_choices
 from hephaistos.providers.registry import ModelInfo, get_registry
 
 
-def test_configured_choices_hydrates_openrouter_live_catalog(
+def _openrouter_live_catalog() -> LiveProviderCatalog:
+    return LiveProviderCatalog(
+        models=[
+            "anthropic/claude-sonnet-latest",
+            "poolside/laguna-m.1:free",
+        ],
+        metadata=[
+            ModelInfo(
+                "anthropic/claude-sonnet-latest",
+                "openrouter",
+                "Anthropic Claude Sonnet Latest",
+                1_000_000,
+                128_000,
+                0.003,
+                0.015,
+            ),
+            ModelInfo(
+                "poolside/laguna-m.1:free",
+                "openrouter",
+                "Poolside Laguna M.1 (free)",
+                131_072,
+                8_192,
+                0.0,
+                0.0,
+                tags=("free",),
+            ),
+        ],
+    )
+
+
+def test_configured_choices_uses_cached_openrouter_live_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
     catalog.invalidate_catalog_cache()
-
-    def fake_fetch(_endpoint: str) -> LiveProviderCatalog:
-        return LiveProviderCatalog(
-            models=[
-                "anthropic/claude-sonnet-latest",
-                "poolside/laguna-m.1:free",
-            ],
-            metadata=[
-                ModelInfo(
-                    "anthropic/claude-sonnet-latest",
-                    "openrouter",
-                    "Anthropic Claude Sonnet Latest",
-                    1_000_000,
-                    128_000,
-                    0.003,
-                    0.015,
-                ),
-                ModelInfo(
-                    "poolside/laguna-m.1:free",
-                    "openrouter",
-                    "Poolside Laguna M.1 (free)",
-                    131_072,
-                    8_192,
-                    0.0,
-                    0.0,
-                    tags=("free",),
-                ),
-            ],
-        )
-
-    monkeypatch.setattr(catalog, "_fetch_openrouter_catalog", fake_fetch)
+    catalog._catalog_cache["openrouter"] = catalog._CatalogCacheEntry(  # type: ignore[reportPrivateUsage]
+        fetched_at=100.0,
+        catalog=_openrouter_live_catalog(),
+    )
+    monkeypatch.setattr(catalog.time, "time", lambda: 101.0)
     config = default_config()
     config.set_active("openrouter")
 
@@ -59,6 +63,57 @@ def test_configured_choices_hydrates_openrouter_live_catalog(
     ]
     assert choices[0][0] == "openrouter"
     assert choices[0][1] == "poolside/laguna-m.1:free"
+    assert get_registry().get("anthropic/claude-sonnet-latest") is not None
+
+
+def test_configured_choices_schedules_refresh_without_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    catalog.invalidate_catalog_cache()
+    scheduled: list[str] = []
+
+    def fail_fetch(_endpoint: str) -> LiveProviderCatalog:
+        raise AssertionError("configured_model_choices must not fetch synchronously")
+
+    monkeypatch.setattr(catalog, "_fetch_openrouter_catalog", fail_fetch)
+    monkeypatch.setattr(
+        catalog,
+        "_schedule_live_catalog_refresh",
+        lambda slug, _endpoint: scheduled.append(slug),
+    )
+    config = default_config()
+    config.set_active("openrouter")
+
+    choices = configured_model_choices(config)
+
+    assert any(choice[0] == "openrouter" for choice in choices)
+    assert scheduled == ["openrouter"]
+
+
+def test_hydrate_provider_models_can_refresh_openrouter_live_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    catalog.invalidate_catalog_cache()
+    monkeypatch.setattr(
+        catalog,
+        "_fetch_openrouter_catalog",
+        lambda _endpoint: _openrouter_live_catalog(),
+    )
+    config = default_config()
+    config.set_active("openrouter")
+
+    catalog.hydrate_provider_models(
+        config,
+        allow_network=True,
+        provider_slugs={"openrouter"},
+    )
+
+    assert config.providers["openrouter"].models == [
+        "anthropic/claude-sonnet-latest",
+        "poolside/laguna-m.1:free",
+    ]
     assert get_registry().get("anthropic/claude-sonnet-latest") is not None
 
 
@@ -75,7 +130,11 @@ def test_live_catalog_failure_keeps_static_models(
     config = default_config()
     static_models = list(config.providers["openrouter"].models)
 
-    configured_model_choices(config)
+    catalog.hydrate_provider_models(
+        config,
+        allow_network=True,
+        provider_slugs={"openrouter"},
+    )
 
     assert config.providers["openrouter"].models == static_models
 
@@ -89,29 +148,32 @@ def test_hydrate_provider_models_resets_invalid_current_model(
     provider.current_model = "stale-model"
     model_name = "acme/test-reasoning-model"
 
-    monkeypatch.setattr(
-        catalog,
-        "_live_catalog_for_provider",
-        lambda slug, _endpoint: (
-            LiveProviderCatalog(
-                models=[model_name],
-                metadata=[
-                    ModelInfo(
-                        model_name,
-                        slug,
-                        "Acme Test Model",
-                        256_000,
-                        16_384,
-                        0.001,
-                        0.002,
-                        tags=("reasoning",),
-                    )
-                ],
-            )
-            if slug == "openrouter"
-            else None
-        ),
-    )
+    def fake_live_catalog(
+        slug: str,
+        _endpoint: str,
+        *,
+        allow_network: bool = False,
+    ) -> LiveProviderCatalog | None:
+        _ = allow_network
+        if slug != "openrouter":
+            return None
+        return LiveProviderCatalog(
+            models=[model_name],
+            metadata=[
+                ModelInfo(
+                    model_name,
+                    slug,
+                    "Acme Test Model",
+                    256_000,
+                    16_384,
+                    0.001,
+                    0.002,
+                    tags=("reasoning",),
+                )
+            ],
+        )
+
+    monkeypatch.setattr(catalog, "_live_catalog_for_provider", fake_live_catalog)
 
     catalog.hydrate_provider_models(config)
 

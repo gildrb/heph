@@ -21,6 +21,7 @@ import hephaistos.logging as _log_mod
 import hephaistos.parameters.cli as _params_cli
 import hephaistos.parameters.settings as _settings_mod
 import hephaistos.privacy.consent as _privacy_mod
+import hephaistos.providers.catalog as _provider_catalog_mod
 import hephaistos.providers.config as _provider_config_mod
 import hephaistos.providers.keyring_store as _ks
 from hephaistos.agent.tools import ToolHandlerResult, ToolSpec
@@ -72,6 +73,7 @@ def _isolate_global_state(  # ty: ignore
     _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
     _settings_mod.invalidate_settings_cache()
     _provider_config_mod.invalidate_provider_cache()
+    _provider_catalog_mod.invalidate_catalog_cache()
     _reset_diagnostics_module_objects()
     _obs_mod.reset_state()
     set_theme("forge")
@@ -98,6 +100,7 @@ def _isolate_global_state(  # ty: ignore
     _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
     _settings_mod.invalidate_settings_cache()
     _provider_config_mod.invalidate_provider_cache()
+    _provider_catalog_mod.invalidate_catalog_cache()
     _reset_diagnostics_module_objects()
     _obs_mod.reset_state()
     set_theme("forge")

@@ -100,13 +100,13 @@ def get_volatile(slug: str) -> str | None:
     return _volatile_keys.get_volatile_key(slug)
 
 
-def resolve_key(slug: str, env_var: str = "") -> str:
+def resolve_key(slug: str, env_var: str = "", *, refresh_oauth: bool = True) -> str:
     """Resolve an API key using the full fallback chain.
 
     Priority:
     0. HEPHAISTOS_API_KEY environment variable (global override)
     1. OS keychain
-    2. OAuth credentials (auto-refreshed access token)
+    2. OAuth credentials (auto-refreshed access token unless disabled)
     3. Provider-specific environment variable (if ``env_var`` is provided)
     4. Volatile in-memory store
 
@@ -123,7 +123,7 @@ def resolve_key(slug: str, env_var: str = "") -> str:
         return key
 
     # 2. OAuth
-    oauth_key = resolve_oauth_key(slug)
+    oauth_key = resolve_oauth_key(slug, refresh_expired=refresh_oauth)
     if oauth_key:
         return oauth_key
 
