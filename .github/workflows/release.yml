@@ -16,11 +16,20 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Gitleaks secret scan
@@ -67,7 +76,7 @@ jobs:
           HEPHAISTOS_POSTHOG_PROJECT_TOKEN: ${{ secrets.HEPHAISTOS_POSTHOG_PROJECT_TOKEN }}
           HEPHAISTOS_SENTRY_DSN: ${{ secrets.HEPHAISTOS_SENTRY_DSN }}
           HEPHAISTOS_RELEASE_CHANNEL: pypi
-          HEPHAISTOS_RELEASE_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+          HEPHAISTOS_RELEASE_VERSION: ${{ env.RELEASE_TAG }}
         run: |
           uv run python - <<'PY'
           import json
@@ -131,11 +140,19 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -145,8 +162,11 @@ jobs:
 
       - name: Generate release notes
         id: notes
+        env:
+          NOTES_PATH: /tmp/release-notes.md
+          REPO: ${{ github.repository }}
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG="$RELEASE_TAG"
           PREV_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
           if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$TAG" ]; then
             RANGE="${PREV_TAG}..HEAD"
@@ -161,17 +181,19 @@ jobs:
             echo ""
             echo "## Full diff"
             echo ""
-            echo "https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
-          } > /tmp/release-notes.md
-          echo "path=/tmp/release-notes.md" >> "$GITHUB_OUTPUT"
+            echo "https://github.com/${REPO}/compare/${PREV_TAG}...${TAG}"
+          } > "$NOTES_PATH"
+          echo "path=$NOTES_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
+        env:
+          RELEASE_NOTES_PATH: ${{ steps.notes.outputs.path }}
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG="$RELEASE_TAG"
           gh release create "${TAG}" \
             dist/* \
             --title "${TAG}" \
-            --notes-file "${{ steps.notes.outputs.path }}"
+            --notes-file "${RELEASE_NOTES_PATH}"
 
       - name: Notify release
         env:
@@ -181,7 +203,7 @@ jobs:
             echo "No webhook URL configured, skipping notification"
             exit 0
           fi
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG="$RELEASE_TAG"
           curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "{\"version\":\"${TAG}\",\"commit\":\"${GITHUB_SHA}\",\"environment\":\"pypi\",\"repository\":\"${GITHUB_REPOSITORY}\",\"ref\":\"${TAG}\",\"trigger\":\"release\"}" \

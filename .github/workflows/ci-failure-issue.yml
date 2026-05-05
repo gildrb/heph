@@ -15,19 +15,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Manage failure issue
+        if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
         env:
+          ACTOR: ${{ github.event.workflow_run.actor.login }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_EVENT: ${{ github.event.workflow_run.event }}
         run: |
-          CONCLUSION="${{ github.event.workflow_run.conclusion }}"
-          BRANCH="${{ github.event.workflow_run.head_branch }}"
-          SHA="${{ github.event.workflow_run.head_sha }}"
-          RUN_URL="${{ github.event.workflow_run.html_url }}"
-          RUN_ID="${{ github.event.workflow_run.id }}"
-          ACTOR="${{ github.event.workflow_run.actor.login }}"
+          if [ "$WORKFLOW_EVENT" != "push" ] || [ "$BRANCH" != "main" ]; then
+            echo "CI $CONCLUSION for $WORKFLOW_EVENT on $BRANCH -- no action needed"
+            exit 0
+          fi
+
           SEARCH_TERM="CI failure on main"
 
-          if [ "$CONCLUSION" = "failure" ] && [ "$BRANCH" = "main" ]; then
+          if [ "$CONCLUSION" = "failure" ]; then
             echo "CI failed on main -- creating/updating issue"
             TITLE="CI failure on main (${SHA:0:7})"
 
@@ -61,7 +68,7 @@ jobs:
                 --label "bug"
             fi
 
-          elif [ "$CONCLUSION" = "success" ] && [ "$BRANCH" = "main" ]; then
+          elif [ "$CONCLUSION" = "success" ]; then
             echo "CI passed on main -- closing any open failure issues"
             EXISTING=$(gh issue list --repo "$REPO" --state open --search "$SEARCH_TERM" --json number --jq '.[0].number' 2>/dev/null || echo "")
 

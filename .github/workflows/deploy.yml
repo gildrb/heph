@@ -18,12 +18,19 @@ jobs:
     runs-on: ubuntu-latest
     environment: edge
     env:
-      GH_TOKEN: ${{ github.token }}
+      DEPLOY_REF: ${{ github.event.inputs.ref || github.ref_name }}
     steps:
+      - name: Validate deploy ref
+        run: |
+          if [ "$DEPLOY_REF" != "main" ]; then
+            echo "Ref must be main for edge deploys"
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.ref || github.ref_name }}
+          ref: ${{ env.DEPLOY_REF }}
           fetch-depth: 0
 
       - name: Gitleaks secret scan
@@ -114,6 +121,8 @@ jobs:
           path: dist/*
 
       - name: Create edge deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh api \
             --method POST \
@@ -130,6 +139,8 @@ jobs:
           EOF
 
       - name: Recreate edge prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view edge >/dev/null 2>&1; then
             gh release delete edge --cleanup-tag --yes
@@ -146,12 +157,12 @@ jobs:
       - name: Notify deploy
         env:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          EDGE_REF: ${{ env.DEPLOY_REF }}
         run: |
           if [ -z "${DEPLOY_WEBHOOK_URL}" ]; then
             echo "No webhook URL configured, skipping notification"
             exit 0
           fi
-          EDGE_REF="${{ github.event.inputs.ref || github.ref_name }}"
           curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "{\"version\":\"edge\",\"commit\":\"${GITHUB_SHA}\",\"environment\":\"edge\",\"repository\":\"${GITHUB_REPOSITORY}\",\"ref\":\"${EDGE_REF}\",\"trigger\":\"workflow_dispatch\"}" \

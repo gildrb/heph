@@ -18,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
       FACTORY_DISABLE_KEYRING: "true"
       CI: "true"
     steps:
