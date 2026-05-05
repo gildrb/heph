@@ -131,7 +131,7 @@ def _extract_account_id(access_token: str) -> str | None:
 class _CallbackHandler(BaseHTTPRequestHandler):
     """Receives the OAuth redirect on localhost."""
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
 

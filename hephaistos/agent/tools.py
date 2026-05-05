@@ -484,7 +484,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
             )  # nosec B602
         else:
             try:
-                result = subprocess.run(
+                result = subprocess.run(  # nosec B603
                     rtk_argv,
                     shell=False,
                     capture_output=True,

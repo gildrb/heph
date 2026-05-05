@@ -15,6 +15,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import certifi
 
@@ -91,6 +92,9 @@ def _live_catalog_for_provider(slug: str, endpoint: str) -> LiveProviderCatalog 
 
 def _fetch_openrouter_catalog(endpoint: str) -> LiveProviderCatalog:
     url = f"{endpoint.strip().rstrip('/')}/models"
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError("OpenRouter catalog URL must use https")
     request = urllib.request.Request(
         url,
         headers={
@@ -99,7 +103,7 @@ def _fetch_openrouter_catalog(endpoint: str) -> LiveProviderCatalog:
         },
     )
     context = ssl.create_default_context(cafile=certifi.where())
-    with urllib.request.urlopen(
+    with urllib.request.urlopen(  # nosec B310
         request,
         timeout=_CATALOG_TIMEOUT_SECONDS,
         context=context,

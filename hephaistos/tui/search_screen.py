@@ -32,11 +32,11 @@ except ImportError:
 def _open_file_at_system(path: Path) -> None:
     """Open a file with the system default application."""
     if sys.platform == "darwin":
-        subprocess.Popen(["open", str(path)])  # nosec B603
+        subprocess.Popen(["open", str(path)])  # nosec B603 B607
     elif sys.platform == "linux":
-        subprocess.Popen(["xdg-open", str(path)])  # nosec B603
+        subprocess.Popen(["xdg-open", str(path)])  # nosec B603 B607
     else:
-        subprocess.Popen(["start", str(path)])  # nosec B603
+        subprocess.Popen(["start", str(path)])  # nosec B603 B607
 
 
 def _search_screen_css(p: ThemePalette) -> str:

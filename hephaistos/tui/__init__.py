@@ -669,9 +669,9 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             src_path = result.source_path
             if src_path.suffix.lower() == ".pdf" and src_path.exists():
                 if sys.platform == "darwin":
-                    subprocess.Popen(["open", str(src_path)])  # nosec B603
+                    subprocess.Popen(["open", str(src_path)])  # nosec B603 B607
                 elif sys.platform == "linux":
-                    subprocess.Popen(["xdg-open", str(src_path)])  # nosec B603
+                    subprocess.Popen(["xdg-open", str(src_path)])  # nosec B603 B607
                 self._append_notice(f"Opened {src_path}")
             else:
                 preview = result.chunk_text[:200]

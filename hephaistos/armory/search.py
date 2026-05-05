@@ -110,7 +110,7 @@ class CrossArmoryIndex:
         for armory_path in armories:
             try:
                 self._index_armory(armory_path)
-            except Exception:
+            except Exception:  # nosec B112
                 continue
 
     def _index_armory(self, armory_path: Path) -> None:
