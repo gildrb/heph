@@ -34,6 +34,32 @@ def test_slash_completion_returns_textual_full_value() -> None:
     assert suggestion == "/status "
 
 
+def test_slash_completion_picks_closest_command_match() -> None:
+    engine = SlashCompletionEngine(provider_config_loader=default_config)
+    commands = [
+        CommandSuggestion(name="help", description="Show help"),
+        CommandSuggestion(name="index", description="Build the search index"),
+        CommandSuggestion(name="models", description="Pick the active model"),
+        CommandSuggestion(name="memory", description="Manage study memory"),
+    ]
+
+    for query in ("/del", "/odel", "/mdel"):
+        candidates = engine.candidates(query, commands)
+
+        assert len(candidates) == 1
+        assert candidates[0].text == "models "
+        assert candidates[0].start_position == 1 - len(query)
+        assert engine.suggestion(query, commands) == "/models "
+
+
+def test_slash_completion_skips_distant_command_matches() -> None:
+    engine = SlashCompletionEngine(provider_config_loader=default_config)
+    commands = [CommandSuggestion(name="models", description="Pick the active model")]
+
+    assert engine.candidates("/zzz", commands) == []
+    assert engine.suggestion("/zzz", commands) is None
+
+
 def test_models_completion_shows_command_suggestion() -> None:
     engine = SlashCompletionEngine(provider_config_loader=default_config)
     commands = [CommandSuggestion(name="models", description="Pick the active model")]

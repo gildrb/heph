@@ -55,26 +55,7 @@ class SlashCompletionEngine:
 
         if not body or " " not in body:
             prefix = body.lower()
-            seen: set[str] = set()
-            candidates: list[CompletionCandidate] = []
-            for command in commands:
-                matches_name = command.name.lower().startswith(prefix)
-                alias_match = next(
-                    (alias for alias in command.aliases if alias.lower().startswith(prefix)),
-                    "",
-                )
-                if not (matches_name or alias_match) or command.name in seen:
-                    continue
-                seen.add(command.name)
-                replacement = command.name if matches_name else alias_match
-                candidates.append(
-                    CompletionCandidate(
-                        text=replacement + " ",
-                        description=command.description,
-                        start_position=-len(body),
-                    )
-                )
-            return candidates
+            return self._command_candidates(prefix, body, commands)
 
         parts = body.split()
         if not parts:
@@ -116,6 +97,106 @@ class SlashCompletionEngine:
         if suggestion == value:
             return None
         return suggestion
+
+    def _command_candidates(
+        self,
+        prefix: str,
+        body: str,
+        commands: list[CommandSuggestion],
+    ) -> list[CompletionCandidate]:
+        candidates: list[CompletionCandidate] = []
+        for command in commands:
+            replacement = self._matching_command_token(command, prefix)
+            if replacement is None:
+                continue
+            candidates.append(
+                CompletionCandidate(
+                    text=replacement + " ",
+                    description=command.description,
+                    start_position=-len(body),
+                )
+            )
+        if candidates or not prefix:
+            return candidates
+        return self._closest_command_candidates(prefix, body, commands)
+
+    def _closest_command_candidates(
+        self,
+        prefix: str,
+        body: str,
+        commands: list[CommandSuggestion],
+    ) -> list[CompletionCandidate]:
+        ranked: list[tuple[float, int, CompletionCandidate]] = []
+        for index, command in enumerate(commands):
+            replacement, score = self._closest_command_token(command, prefix)
+            if score == 0.0:
+                continue
+            ranked.append(
+                (
+                    score,
+                    -index,
+                    CompletionCandidate(
+                        text=replacement + " ",
+                        description=command.description,
+                        start_position=-len(body),
+                    ),
+                )
+            )
+        ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return [candidate for _score, _index, candidate in ranked]
+
+    def _closest_command_token(
+        self,
+        command: CommandSuggestion,
+        prefix: str,
+    ) -> tuple[str, float]:
+        best_token = command.name
+        best_score = self._token_similarity(command.name, prefix)
+        for alias in command.aliases:
+            score = self._token_similarity(alias, prefix)
+            if score > best_score:
+                best_token = alias
+                best_score = score
+        return best_token, best_score
+
+    def _matching_command_token(
+        self,
+        command: CommandSuggestion,
+        prefix: str,
+    ) -> str | None:
+        if self._token_matches(command.name, prefix):
+            return command.name
+        for alias in command.aliases:
+            if self._token_matches(alias, prefix):
+                return alias
+        return None
+
+    def _token_matches(self, token: str, prefix: str) -> bool:
+        normalized = token.lower()
+        return not prefix or normalized.startswith(prefix)
+
+    def _token_similarity(self, token: str, prefix: str) -> float:
+        normalized = token.lower()
+        if not prefix or normalized.startswith(prefix):
+            return 1.0
+
+        positions: list[int] = []
+        search_start = 0
+        for char in prefix:
+            index = normalized.find(char, search_start)
+            if index == -1:
+                return 0.0
+            positions.append(index)
+            search_start = index + 1
+
+        if not positions:
+            return 0.0
+        span = positions[-1] - positions[0] + 1
+        gaps = span - len(prefix)
+        coverage = len(prefix) / len(normalized)
+        start_penalty = positions[0] / len(normalized)
+        gap_penalty = gaps / len(normalized)
+        return coverage - start_penalty - gap_penalty
 
     def _argument_suggestions(
         self,
