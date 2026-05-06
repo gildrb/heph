@@ -42,6 +42,7 @@ class ChatSession:
     armory_path: Path | None = None
     source_file_count: int = 0
     source_files: tuple[str, ...] = ()
+    disabled_source_files: set[str] = field(default_factory=set)
     dirty: bool = False
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     resumed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -131,6 +132,13 @@ def _metadata_datetime(metadata: dict[str, object], key: str) -> datetime | None
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _metadata_string_set(metadata: dict[str, object], key: str) -> set[str]:
+    value = metadata.get(key)
+    if not isinstance(value, list):
+        return set()
+    return {item for item in value if isinstance(item, str)}
 
 
 def validate_armory_path(path_str: str) -> Path:
@@ -321,6 +329,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         source_file_count=source_file_count,
         source_files=tuple(source_files),
         study_state=StudyState.from_dict(metadata.get("study_state")),
+        disabled_source_files=_metadata_string_set(metadata, "disabled_source_files"),
         started_at=_metadata_datetime(metadata, "started_at") or now,
         resumed_at=now,
         last_activity_at=now,
@@ -420,6 +429,7 @@ def save_session(session: ChatSession) -> Path:
         title=title,
         metadata={
             "study_state": session.study_state.to_dict(),
+            "disabled_source_files": sorted(session.disabled_source_files),
             "started_at": session.started_at.isoformat(),
             "last_activity_at": session.last_activity_at.isoformat(),
         },

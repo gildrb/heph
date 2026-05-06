@@ -109,6 +109,24 @@ def _make_study_plan(
     )
 
 
+def test_build_turn_evidence_from_query_excludes_disabled_materials() -> None:
+    enabled = ScoredChunk(chunk=_make_chunk("materials/enabled.md"), score=0.9)
+    disabled = ScoredChunk(chunk=_make_chunk("materials/disabled.md"), score=0.8)
+    expected = _make_turn_evidence(_make_evidence_chunk("materials/enabled.md"))
+    session = _make_study_session()
+    session.disabled_source_files.add("materials/disabled.md")
+
+    with (
+        patch("hephaistos.chat.evidence.ensure_rag_index", return_value=MagicMock()),
+        patch("hephaistos.chat.evidence.retrieve", return_value=[enabled, disabled]),
+        patch("hephaistos.chat.evidence.build_turn_evidence", return_value=expected) as mock_build,
+    ):
+        result = build_turn_evidence_from_query(session, "test query")
+
+    assert result is expected
+    assert mock_build.call_args.args[0] == [enabled]
+
+
 # ---------------------------------------------------------------------------
 # TestResolvedTurnPlan
 # ---------------------------------------------------------------------------

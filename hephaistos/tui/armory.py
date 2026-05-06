@@ -66,6 +66,7 @@ class TuiArmoryMixin:
         self._armory_creating = mode == "create"
         self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
         self.query_one("#armory-inline").add_class("active")
+        self._set_sidebar_visible(False)
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = (
@@ -84,6 +85,7 @@ class TuiArmoryMixin:
         self._armory_mode = "manage"
         self.query_one("#transcript", RichLog).remove_class("hidden-for-armory")
         self.query_one("#armory-inline").remove_class("active")
+        self._set_sidebar_visible(self._sidebar_width_visible)
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = 'Ask anything... "What do I need to study next?"'

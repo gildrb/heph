@@ -10,6 +10,8 @@ from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.terminal import current_palette
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
+from hephaistos.tui.keymap import armory_shortcut_key
+from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENABLED_COLOR
 from hephaistos.tui.rich_transcript import evidence_summary_text
 from hephaistos.tui.session_state import TuiTranscriptEntry
 from hephaistos.tui.status import status_lines
@@ -101,18 +103,19 @@ def footer_hints_text(session: ChatSession, *, busy: bool = False) -> Text:
         return text
 
     key_ok = is_keyless_endpoint(session.config.base_url) or bool(session.config.resolved_api_key)
+    shortcut = armory_shortcut_key()
     parts = [
         "enter send",
         "tab complete",
         "ctrl+p commands",
-        "ctrl+a armory",
+        f"{shortcut} armory",
         "ctrl+d exit",
     ]
     if not key_ok:
         parts.append("api missing")
     plain = "  ".join(parts)
     text = require_rich_text()(plain, style=palette.dim)
-    for label in ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+c", "ctrl+d"):
+    for label in ("enter", "tab", "ctrl+p", shortcut, "ctrl+c", "ctrl+d"):
         try:
             start = plain.index(label)
         except ValueError:
@@ -129,33 +132,66 @@ def footer_hints_text(session: ChatSession, *, busy: bool = False) -> Text:
     return text
 
 
-def info_panel_default_text(session: ChatSession) -> Text:
-    """Build the default info panel content showing armory, model, materials."""
-    title = session.title or "New conversation"
-    armory_name = session.armory_path.name if session.armory_path is not None else "none"
-    model = session.config.model or "none"
-    sources = session.source_file_count or 0
-    source_str = str(sources) if sources else "none"
-    evidence_str = evidence_summary_text(session.last_turn_evidence)
+def _session_duration(seconds: int) -> str:
+    hours, remainder = divmod(max(0, seconds), 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
+
+
+def _material_panel_lines(session: ChatSession) -> list[str]:
+    files = list(session.source_files)
+    if not files:
+        return ["materials", "  none"]
+
+    lines = ["materials"]
+    visible = files[:8]
+    for name in visible:
+        display_name = name.removeprefix("materials/")
+        lines.append(f"  @{display_name}")
+    if len(files) > len(visible):
+        lines.append(f"  +{len(files) - len(visible)} more")
+    return lines
+
+
+def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
+    """Build the default info panel content showing session length and material names."""
+    title = session.title or "Study session"
 
     lines: list[str] = [
         title,
-        "\u2500" * 26,
-        f"armory  {armory_name}",
-        f"model   {model}",
-        f"materials {source_str}",
-        f"evidence {evidence_str}",
+        "\u2500" * 40,
+        f"time {_session_duration(session_seconds)}",
+        "",
+        *_material_panel_lines(session),
     ]
     plain = "\n".join(lines)
     text = require_rich_text()(plain, style="#808080")
     title_end = len(lines[0])
     text.stylize("bold #9B4A2E", 0, title_end)
-    for label in ("armory", "model", "materials", "evidence"):
-        try:
-            start = plain.index(label)
-            text.stylize("dim #808080", start, start + len(label))
-        except ValueError:
-            pass
+    for label in ("time", "materials"):
+        start = 0
+        while True:
+            idx = plain.find(label, start)
+            if idx == -1:
+                break
+            text.stylize("dim #808080", idx, idx + len(label))
+            start = idx + len(label)
+    for name in session.source_files:
+        display_name = name.removeprefix("materials/")
+        token = f"@{display_name}"
+        idx = plain.find(token)
+        if idx == -1:
+            continue
+        style = (
+            MATERIAL_DISABLED_COLOR
+            if name in session.disabled_source_files
+            else MATERIAL_ENABLED_COLOR
+        )
+        text.stylize(style, idx, idx + len(token))
     return text
 
 
@@ -166,7 +202,7 @@ def armory_home_text() -> str:
         "No armory attached.",
         "",
         "What module or topic are you studying for?",
-        "Press ctrl+a to create or open an armory.",
+        f"Press {armory_shortcut_key()} to create or open an armory.",
         "Armories are saved locally in ~/.armories/",
         "Add your study materials (PDFs, notes, textbooks) to ~/.armories/<module>/materials/",
     ]

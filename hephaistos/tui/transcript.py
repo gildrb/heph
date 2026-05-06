@@ -153,4 +153,9 @@ class TuiTranscriptMixin:
                 )
                 return
         tui_module = sys.modules["hephaistos.tui"]
-        panel.update(tui_module._info_panel_default_text(self.session))
+        panel.update(
+            tui_module._info_panel_default_text(
+                self.session,
+                session_seconds=self._tui_session_seconds(),
+            )
+        )

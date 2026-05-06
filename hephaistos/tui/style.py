@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hephaistos.terminal import current_palette
+from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENABLED_COLOR
 
 
 def _tui_css() -> str:
@@ -118,6 +119,46 @@ Screen {{
     color: {p.error};
     background: {bg};
 }}
+#materials-inline {{
+    height: 1fr;
+    width: 100%;
+    background: {bg};
+    background-tint: {bt};
+    color: {p.text};
+    display: none;
+}}
+#materials-inline.active {{
+    display: block;
+}}
+#materials-header {{
+    height: 1;
+    color: {p.dim};
+    background: {bg};
+    text-style: bold;
+}}
+#materials-list {{
+    height: 1fr;
+    width: 100%;
+    padding: 0 1;
+    background: {bg};
+    color: {p.text};
+    scrollbar-size: 0 0;
+}}
+#materials-list.material-enabled > .option-list--option-highlighted,
+#materials-list.material-enabled:focus > .option-list--option-highlighted {{
+    background: {MATERIAL_ENABLED_COLOR};
+    color: #000000;
+}}
+#materials-list.material-disabled > .option-list--option-highlighted,
+#materials-list.material-disabled:focus > .option-list--option-highlighted {{
+    background: {MATERIAL_DISABLED_COLOR};
+    color: #000000;
+}}
+#materials-footer {{
+    height: 1;
+    color: {p.dim};
+    background: {bg};
+}}
 #transcript RichLog {{
     color: {p.text};
 }}
@@ -174,6 +215,11 @@ Screen {{
 #suggestions.model-picker {{
     max-height: 20;
 }}
+#suggestions > .option-list--option-highlighted,
+#suggestions:focus > .option-list--option-highlighted {{
+    background: #FFFFFF;
+    color: #000000;
+}}
 .hidden {{
     visibility: hidden;
 }}
@@ -220,13 +266,13 @@ OptionList:focus > .option-list--option-highlighted {{
 #info-separator {{
     width: 1;
     height: 100%;
-    background: {bg};
-    color: {p.stone};
+    background: transparent;
+    color: transparent;
 }}
 #info-panel {{
-    width: 30;
-    min-width: 30;
-    max-width: 30;
+    width: 46;
+    min-width: 46;
+    max-width: 46;
     height: 100%;
     padding: 0 1;
     background: {bg};

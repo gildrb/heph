@@ -8,6 +8,7 @@ workspace services.
 from __future__ import annotations
 
 import sys
+import time
 from dataclasses import dataclass, field
 from io import StringIO
 
@@ -29,6 +30,7 @@ class TuiRuntimeState:
     history_draft: str = ""
     pending_input: str | None = None
     armory_home_shown: bool = False
+    tui_started_at: float = field(default_factory=time.monotonic)
 
 
 class TuiCaptureWriter(StringIO):

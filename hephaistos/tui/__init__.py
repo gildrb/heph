@@ -9,10 +9,11 @@ import subprocess  # nosec B404
 import sys
 import threading
 import time
+from collections.abc import Iterable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from hephaistos.armory.search import SearchResult, load_known_armories
 from hephaistos.chat.cli import resolve_armory_session
@@ -41,7 +42,12 @@ from hephaistos.tui.display_text import (
 )
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.inline_flows import TuiInlineFlowMixin
-from hephaistos.tui.materials_view import material_listing
+from hephaistos.tui.keymap import armory_binding_keys, armory_shortcut_key
+from hephaistos.tui.materials_view import (
+    MATERIAL_DISABLED_COLOR,
+    MATERIAL_ENABLED_COLOR,
+    material_listing,
+)
 from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
     TuiInputRoute,
@@ -69,6 +75,9 @@ from hephaistos.tui.transparent import (
 )
 
 start_fresh_session = _armory_actions.start_fresh_session
+
+if TYPE_CHECKING:
+    from rich.text import Text
 
 try:
     from rich.markdown import Markdown
@@ -126,7 +135,7 @@ def _armory_home_text() -> str:
         "No armory attached.",
         "",
         "What module or topic are you studying for?",
-        "Press ctrl+a to create or open an armory.",
+        f"Press {armory_shortcut_key()} to create or open an armory.",
         "Armories are saved locally in ~/.armories/",
         "Add your study materials to ~/.armories/<module>/materials/",
         "",
@@ -164,6 +173,7 @@ class _WidgetClasses:
 
     @classmethod
     def from_palette(cls, palette: ThemePalette) -> _WidgetClasses:
+        input_class = _input_without_ctrl_a_class(Input)
         if palette.is_transparent:
             transparent_rich_log_base = make_transparent_cls(RichLog)
 
@@ -176,7 +186,7 @@ class _WidgetClasses:
                 horizontal=make_blank_background_cls(Horizontal),
                 static=make_transparent_cls(Static),
                 rich_log=TransparentNonFocusRichLog,
-                input=make_transparent_cls(Input),
+                input=make_transparent_cls(input_class),
                 option_list=make_transparent_cls(OptionList),
             )
         return cls(
@@ -185,9 +195,33 @@ class _WidgetClasses:
             horizontal=Horizontal,
             static=Static,
             rich_log=nonfocus_rich_log_class(),
-            input=Input,
+            input=input_class,
             option_list=OptionList,
         )
+
+
+def _input_without_ctrl_a_class(base: type) -> type:
+    """Return an Input class that leaves ctrl+a for the app-level armory binding."""
+    input_bindings = cast(
+        "Iterable[tuple[str, Binding]]",
+        base._merged_bindings,  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    )
+    bindings = [binding for key, binding in input_bindings if key != "ctrl+a"]
+
+    class HephaistosInput(
+        base,  # type: ignore[misc]  # ty: ignore[unsupported-base]
+        inherit_bindings=False,
+    ):
+        BINDINGS = bindings
+
+        def on_key(self, event: events.Key) -> None:
+            if event.key != "ctrl+a":
+                return
+            cast("HephaistosTui", self.app).action_open_armory_home()
+            event.prevent_default()
+            event.stop()
+
+    return HephaistosInput
 
 
 # Backward-compatible per-type factory wrappers for tests.
@@ -220,7 +254,7 @@ def _transparent_rich_log_class() -> type:
 
 
 def _transparent_input_class() -> type:
-    return make_transparent_cls(Input)
+    return make_transparent_cls(_input_without_ctrl_a_class(Input))
 
 
 def _transparent_option_list_class() -> type:
@@ -280,7 +314,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
     BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
         Binding("tab", "complete", "Complete"),
         Binding("ctrl+p", "command_palette", "Commands", show=False, priority=True),
-        Binding("ctrl+a", "open_armory_home", "Armory", show=False, priority=True),
+        Binding(armory_binding_keys(), "open_armory_home", "Armory", show=False, priority=True),
         Binding("ctrl+s", "open_search", "Search", show=False, priority=True),
         Binding("ctrl+c", "cancel_turn", "Cancel", show=False, priority=True),
         Binding("ctrl+l", "clear_transcript", "Screen", priority=True),
@@ -312,6 +346,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self._armory_mode = "manage"
         self._armory_entries: list[_DirEntry] = []
         self._armory_parent_entries: list[tuple[str, Path]] = []
+        self._materials_inline_active = False
+        self._materials_filter = ""
+        self._materials_entries: list[str] = []
+        self._sidebar_width_visible = True
         self._inline_flow = _InlineFlow()
 
     def get_default_screen(self) -> Screen:
@@ -330,6 +368,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                         yield w.option_list(id="armory-current-inline")
                         yield w.static("", id="armory-preview-inline")
                     yield w.static("", id="armory-error-inline")
+                with w.vertical(id="materials-inline"):  # type: ignore[reportCallIssue]
+                    yield w.static("", id="materials-header")
+                    yield w.option_list(id="materials-list")
+                    yield w.static("", id="materials-footer")
                 yield w.static("", id="thinking-indicator")
                 yield w.option_list(id="suggestions", markup=False)
                 with w.vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
@@ -339,7 +381,13 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                     )
                     yield w.static(_footer_hints_text(self.session), id="footer-hints")
             yield w.static("", id="info-separator")
-            yield w.static(_info_panel_default_text(self.session), id="info-panel")
+            yield w.static(
+                _info_panel_default_text(
+                    self.session,
+                    session_seconds=self._tui_session_seconds(),
+                ),
+                id="info-panel",
+            )
 
     def on_mount(self) -> None:
         self.title = "Hephaistos"
@@ -356,6 +404,14 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             self.state.armory_home_shown = True
             self._append_armory_home()
         self._prefetch_model_catalogs()
+        self.set_interval(1.0, self._tick_session_duration)
+
+    def _tui_session_seconds(self) -> int:
+        return max(0, int(time.monotonic() - self.state.tui_started_at))
+
+    def _tick_session_duration(self) -> None:
+        if self._focused_msg_index is None:
+            self._update_info_panel()
 
     def _prefetch_model_catalogs(self) -> None:
         try:
@@ -367,7 +423,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             prefetch_provider_model_catalogs(pc, provider_slugs={active.slug})
 
     def on_app_focus(self, event: events.AppFocus) -> None:
-        if self._armory_inline_active:
+        if self._armory_inline_active or self._materials_inline_active:
             composer = self.query_one("#composer", Input)
             composer.focus()
             self.set_focus(composer)
@@ -381,16 +437,23 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
 
     def on_resize(self, event: events.Resize) -> None:
         visible = event.size.width >= 100
-        panel = self.query_one("#info-panel", Static)
-        separator = self.query_one("#info-separator", Static)
-        panel.styles.display = "block" if visible else "none"
-        separator.styles.display = "block" if visible else "none"
+        self._sidebar_width_visible = visible
+        self._set_sidebar_visible(
+            visible and not self._armory_inline_active and not self._materials_inline_active
+        )
+
+    def _set_sidebar_visible(self, visible: bool) -> None:
+        display = "block" if visible else "none"
+        self.query_one("#info-panel", Static).styles.display = display
+        self.query_one("#info-separator", Static).styles.display = display
 
     def on_key(self, event: events.Key) -> None:
         composer = self.query_one("#composer", Input)
         if self._inline_flow.active and self._handle_inline_flow_key(event):
             return
         if self._armory_inline_active and self._handle_armory_key(event):
+            return
+        if self._materials_inline_active and self._handle_materials_key(event):
             return
         if event.key == "ctrl+up":
             self._focus_message(-1)
@@ -445,6 +508,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                     self._refresh_armory_inline()
                 self._refresh_footer_hints()
                 return
+            if self._materials_inline_active:
+                self._materials_filter = event.value
+                self._refresh_materials_inline()
+                return
             self._refresh_completions()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
@@ -462,6 +529,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                 self._armory_filter = ""
                 self.query_one("#composer", Input).value = ""
                 self._refresh_armory_inline()
+            return
+        if event.option_list.id == "materials-list":
+            event.stop()
+            self._toggle_highlighted_material()
             return
         if event.option_list.id != "suggestions":
             return
@@ -498,6 +569,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                 self._armory_open_highlighted()
                 self._refresh_armory_inline()
             return
+        if self._materials_inline_active:
+            event.stop()
+            self._close_materials_inline()
+            return
         route = _tui_input_route(value)
         composer.value = ""
         self._hide_completions()
@@ -511,6 +586,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if route is _TuiInputRoute.SOURCES:
             self._record_history(value)
             self._handle_sources(value)
+            return
+        if route is _TuiInputRoute.MATERIALS:
+            self._record_history(value)
+            self._open_materials_inline(value)
             return
         if route is _TuiInputRoute.NEW:
             self._record_history(value)
@@ -583,6 +662,135 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
     def _handle_sources(self, value: str) -> None:
         _, _, args = value.partition(" ")
         self._append_plain(material_listing(self.session, args))
+
+    def _open_materials_inline(self, value: str = "") -> None:
+        _, _, args = value.partition(" ")
+        self._materials_filter = args.strip()
+        self._materials_inline_active = True
+        self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
+        self.query_one("#materials-inline").add_class("active")
+        self._set_sidebar_visible(False)
+        composer = self.query_one("#composer", Input)
+        composer.value = self._materials_filter
+        composer.placeholder = "Filter materials..."
+        self._hide_completions()
+        self._refresh_materials_inline()
+        material_list = self.query_one("#materials-list", OptionList)
+        material_list.focus()
+        self.set_focus(material_list)
+
+    def _close_materials_inline(self) -> None:
+        self._materials_inline_active = False
+        self._materials_filter = ""
+        self.query_one("#transcript", RichLog).remove_class("hidden-for-armory")
+        self.query_one("#materials-inline").remove_class("active")
+        self._set_sidebar_visible(self._sidebar_width_visible)
+        composer = self.query_one("#composer", Input)
+        composer.value = ""
+        composer.placeholder = 'Ask anything... "What do I need to study next?"'
+        self._refresh_status("ready")
+        self._update_info_panel()
+        composer.focus()
+        self.set_focus(composer)
+
+    def _refresh_materials_inline(self) -> None:
+        query = self._materials_filter.strip().lower()
+        files = list(self.session.source_files)
+        if query:
+            files = [file for file in files if query in file.lower()]
+        self._materials_entries = files
+        enabled = len(self.session.source_files) - len(self.session.disabled_source_files)
+        self.query_one("#materials-header", Static).update(
+            f"materials · space toggle · enter done · esc close · {enabled} active"
+        )
+        material_list = self.query_one("#materials-list", OptionList)
+        previous = material_list.highlighted
+        material_list.clear_options()
+        highlighted = min(previous or 0, len(self._materials_entries) - 1)
+        for index, file in enumerate(self._materials_entries):
+            material_list.add_option(
+                self._format_material_option(file, selected=index == highlighted)
+            )
+        if self._materials_entries:
+            material_list.highlighted = highlighted
+        self._refresh_materials_highlight_class()
+        footer = self.query_one("#materials-footer", Static)
+        if not self.session.source_files:
+            footer.update("No materials attached.")
+        elif query and not self._materials_entries:
+            footer.update(f"No materials match: {self._materials_filter}")
+        else:
+            footer.update("Unchecked materials will not be used for retrieval.")
+
+    def _format_material_option(self, file: str, *, selected: bool) -> str | Text:
+        enabled_file = file not in self.session.disabled_source_files
+        label = f"@{file.removeprefix('materials/')}"
+        state_color = MATERIAL_ENABLED_COLOR if enabled_file else MATERIAL_DISABLED_COLOR
+        style = f"black on {state_color}" if selected else state_color
+        return _RichText.styled(label, style) if _RichText is not None else label
+
+    def _refresh_materials_highlight_class(self) -> None:
+        material_list = self.query_one("#materials-list", OptionList)
+        material_list.remove_class("material-enabled", "material-disabled")
+        idx = material_list.highlighted
+        if idx is None or idx < 0 or idx >= len(self._materials_entries):
+            return
+        file = self._materials_entries[idx]
+        class_name = (
+            "material-disabled"
+            if file in self.session.disabled_source_files
+            else "material-enabled"
+        )
+        material_list.add_class(class_name)
+
+    def _toggle_highlighted_material(self) -> None:
+        material_list = self.query_one("#materials-list", OptionList)
+        idx = material_list.highlighted
+        if idx is None or idx < 0 or idx >= len(self._materials_entries):
+            return
+        file = self._materials_entries[idx]
+        if file in self.session.disabled_source_files:
+            self.session.disabled_source_files.remove(file)
+        else:
+            self.session.disabled_source_files.add(file)
+        self.session.dirty = True
+        self._refresh_materials_inline()
+
+    def _move_material_highlight(self, offset: int) -> None:
+        if not self._materials_entries:
+            return
+        material_list = self.query_one("#materials-list", OptionList)
+        highlighted = material_list.highlighted or 0
+        material_list.highlighted = (highlighted + offset) % len(self._materials_entries)
+        self._refresh_materials_inline()
+
+    def _handle_materials_key(self, event: events.Key) -> bool:
+        if event.key == "escape":
+            self._close_materials_inline()
+            event.prevent_default()
+            event.stop()
+            return True
+        if event.key == "enter":
+            self._toggle_highlighted_material()
+            event.prevent_default()
+            event.stop()
+            return True
+        if event.key in ("up", "k"):
+            self._move_material_highlight(-1)
+            event.prevent_default()
+            event.stop()
+            return True
+        if event.key in ("down", "j"):
+            self._move_material_highlight(1)
+            event.prevent_default()
+            event.stop()
+            return True
+        if event.key == "space" or event.character == " ":
+            self._toggle_highlighted_material()
+            event.prevent_default()
+            event.stop()
+            return True
+        return False
 
     def _handle_new(self) -> None:
         result = NewCommand().handle(self.session, "")

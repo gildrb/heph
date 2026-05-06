@@ -5,6 +5,9 @@ from __future__ import annotations
 from hephaistos.chat.session import ChatSession
 from hephaistos.matching import ranked_matches
 
+MATERIAL_ENABLED_COLOR = "#7F9A6A"
+MATERIAL_DISABLED_COLOR = "#9B4A2E"
+
 
 def material_listing(session: ChatSession, query: str = "") -> str:
     """Return a compact material listing for the active chat session."""

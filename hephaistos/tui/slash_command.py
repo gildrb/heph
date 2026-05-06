@@ -19,6 +19,12 @@ def tui_command_suggestions() -> list[CommandSuggestion]:
             description="List or fuzzy-filter material files",
         )
     )
+    suggestions.append(
+        CommandSuggestion(
+            name="materials",
+            description="Choose which materials are used for retrieval",
+        )
+    )
     return suggestions
 
 

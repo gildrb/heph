@@ -21,6 +21,7 @@ TERMINAL_INTERACTIVE_COMMANDS = {
 class TuiInputRoute(Enum):
     EMPTY = "empty"
     SOURCES = "sources"
+    MATERIALS = "materials"
     NEW = "new"
     ARMORY = "armory"
     EXTERNAL = "external"
@@ -64,6 +65,8 @@ def tui_input_route(value: str) -> TuiInputRoute:
         return TuiInputRoute.EMPTY
     if stripped == "/sources" or stripped.startswith("/sources "):
         return TuiInputRoute.SOURCES
+    if stripped == "/materials" or stripped.startswith("/materials "):
+        return TuiInputRoute.MATERIALS
     if stripped == "/new":
         return TuiInputRoute.NEW
     if is_armory_command(stripped):

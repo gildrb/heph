@@ -103,6 +103,19 @@ def ensure_rag_index(session: ChatSession) -> ArmoryIndex | None:
     return session.rag_index
 
 
+def _enabled_scored_chunks(
+    scored: list[ScoredChunk],
+    disabled_sources: set[str],
+) -> list[ScoredChunk]:
+    if not disabled_sources:
+        return scored
+    return [
+        scored_chunk
+        for scored_chunk in scored
+        if scored_chunk.chunk.source not in disabled_sources
+    ]
+
+
 def adaptive_rag_budget(session: ChatSession) -> int:
     """Allocate a bounded retrieval context budget for the current session."""
     budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
@@ -135,6 +148,7 @@ def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvid
                 transform_strategy=strategy,
                 prompt_fn=prompt_fn,
             )
+        scored = _enabled_scored_chunks(scored, session.disabled_source_files)
         if not scored:
             _log.info(
                 "rag retrieve: no relevant results",
@@ -182,6 +196,8 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
 
         scored: list[ScoredChunk] = []
         for document in index.documents:
+            if document.source in session.disabled_source_files:
+                continue
             if document.chunks:
                 scored.append(ScoredChunk(chunk=document.chunks[0], score=1.0))
             if len(scored) >= _OVERVIEW_CHUNK_LIMIT:
@@ -190,8 +206,9 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
         if not scored:
             scored = [
                 ScoredChunk(chunk=chunk, score=1.0)
-                for chunk in index.all_chunks[:_OVERVIEW_CHUNK_LIMIT]
-            ]
+                for chunk in index.all_chunks
+                if chunk.source not in session.disabled_source_files
+            ][:_OVERVIEW_CHUNK_LIMIT]
         if not scored:
             return None
         return build_turn_evidence(scored, max_tokens=adaptive_rag_budget(session))
@@ -215,7 +232,7 @@ def build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> Turn
             if parsed is None:
                 continue
             chunk = by_key.get(parsed)
-            if chunk is None:
+            if chunk is None or chunk.source in session.disabled_source_files:
                 continue
             scored.append(ScoredChunk(chunk=chunk, score=float(total - pos)))
         if not scored:

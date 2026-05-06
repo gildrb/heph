@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -13,6 +14,7 @@ from hephaistos.armory.search import KnownArmory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
+from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries
 
 if TYPE_CHECKING:
@@ -76,7 +78,9 @@ def test_session_status_shows_free_for_keyless_provider() -> None:
     assert "missing" not in status
 
 
-def test_footer_hints_show_idle_shortcuts() -> None:
+def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+
     hints = tui._footer_hints_text(_plain_session())  # type: ignore[reportPrivateUsage]
     plain = hints.plain
 
@@ -97,6 +101,33 @@ def test_footer_hints_show_cancel_when_busy() -> None:
     assert "cancel" in plain
     assert "enter" not in plain
     assert "/help" not in plain
+
+
+def test_armory_shortcut_uses_tmux_fallback_for_ctrl_a_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(
+        args: tuple[str, ...],
+        *,
+        capture_output: bool,
+        check: bool,
+        text: bool,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        assert args == ("tmux", "show-options", "-gqv", "prefix")
+        assert capture_output is True
+        assert check is False
+        assert text is True
+        assert timeout > 0
+        return subprocess.CompletedProcess(args, 0, stdout="C-a\n", stderr="")
+
+    monkeypatch.setenv("TMUX", "/tmp/tmux-session")
+    monkeypatch.setattr(keymap.subprocess, "run", fake_run)
+    keymap.tmux_uses_ctrl_a_prefix.cache_clear()
+    try:
+        assert keymap.armory_shortcut_key() == "ctrl+o"
+    finally:
+        keymap.tmux_uses_ctrl_a_prefix.cache_clear()
 
 
 def test_footer_hints_show_api_missing_when_unconfigured() -> None:
@@ -131,6 +162,40 @@ def test_tui_css_has_info_panel_layout() -> None:
     assert "#info-panel" in css
     assert "#info-separator" in css
     assert "#shell" in css
+
+
+def test_tui_css_makes_info_separator_transparent() -> None:
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
+    separator_start = css.index("#info-separator {")
+    separator_end = css.index("}", separator_start)
+    separator_block = css[separator_start:separator_end]
+
+    assert "background: transparent;" in separator_block
+    assert "color: transparent;" in separator_block
+
+
+def test_tui_css_materials_highlight_uses_state_colours() -> None:
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
+
+    assert "#materials-list > .option-list--option-highlighted" not in css
+    assert "#materials-list.material-enabled > .option-list--option-highlighted" in css
+    assert "background: #7F9A6A;" in css
+    assert "#materials-list.material-disabled > .option-list--option-highlighted" in css
+    assert "background: #9B4A2E;" in css
+
+
+def test_info_panel_material_colours_match_materials_picker() -> None:
+    session = _plain_session()
+    session.source_files = ("materials/enabled.pdf", "materials/disabled.pdf")
+    session.disabled_source_files.add("materials/disabled.pdf")
+
+    panel = tui._info_panel_default_text(session)  # type: ignore[reportPrivateUsage]
+    spans = {(span.start, span.end, str(span.style)) for span in panel.spans}
+
+    enabled_start = panel.plain.index("@enabled.pdf")
+    disabled_start = panel.plain.index("@disabled.pdf")
+    assert (enabled_start, enabled_start + len("@enabled.pdf"), "#7F9A6A") in spans
+    assert (disabled_start, disabled_start + len("@disabled.pdf"), "#9B4A2E") in spans
 
 
 def test_tui_css_prevents_full_width_status_and_composer_bars() -> None:
@@ -321,6 +386,29 @@ def test_source_listing_filters_with_fuzzy_match() -> None:
     assert listing.splitlines()[0] == "@materials/binary-search.md"
 
 
+def test_info_panel_shows_session_duration_and_material_names() -> None:
+    session = _plain_session()
+    long_pdf = "materials/very-important-full-pdf-name-for-exam-review.pdf"
+    session.source_files = (long_pdf, "materials/calculus.md")
+    session.source_file_count = 2
+
+    panel = tui._info_panel_default_text(  # type: ignore[reportPrivateUsage]
+        session,
+        session_seconds=125,
+    )
+
+    assert "time 2m 05s" in panel.plain
+    assert "materials" in panel.plain
+    assert "@very-important-full-pdf-name-for-exam-review.pdf" in panel.plain
+    assert "@calculus.md" in panel.plain
+    assert "☑" not in panel.plain
+    assert "☐" not in panel.plain
+    assert "..." not in panel.plain
+    assert "model" not in panel.plain
+    assert "armory" not in panel.plain
+    assert "evidence" not in panel.plain
+
+
 def test_run_tui_reports_missing_textual(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tui, "Markdown", None)
 
@@ -489,6 +577,8 @@ def test_is_armory_command_matches_inline_forms() -> None:
         ("/models openai", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
         ("/sources", tui._TuiInputRoute.SOURCES),  # type: ignore[reportPrivateUsage]
         ("/sources notes", tui._TuiInputRoute.SOURCES),  # type: ignore[reportPrivateUsage]
+        ("/materials", tui._TuiInputRoute.MATERIALS),  # type: ignore[reportPrivateUsage]
+        ("/materials notes", tui._TuiInputRoute.MATERIALS),  # type: ignore[reportPrivateUsage]
         ("/new", tui._TuiInputRoute.NEW),  # type: ignore[reportPrivateUsage]
         ("/armory", tui._TuiInputRoute.ARMORY),  # type: ignore[reportPrivateUsage]
         ("/armory open", tui._TuiInputRoute.ARMORY),  # type: ignore[reportPrivateUsage]
@@ -517,12 +607,13 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
 
     assert routes["/models"] is tui._TuiInputRoute.EXTERNAL  # type: ignore[reportPrivateUsage]
     assert routes["/sources"] is tui._TuiInputRoute.SOURCES  # type: ignore[reportPrivateUsage]
+    assert routes["/materials"] is tui._TuiInputRoute.MATERIALS  # type: ignore[reportPrivateUsage]
     assert routes["/new"] is tui._TuiInputRoute.NEW  # type: ignore[reportPrivateUsage]
     assert routes["/armory"] is tui._TuiInputRoute.ARMORY  # type: ignore[reportPrivateUsage]
     assert all(
         route is tui._TuiInputRoute.EXTERNAL  # type: ignore[reportPrivateUsage]
         for command, route in routes.items()
-        if command not in {"/sources", "/new", "/armory"}
+        if command not in {"/sources", "/materials", "/new", "/armory"}
     )
 
 
@@ -608,6 +699,7 @@ def test_armory_home_text_includes_recent_armories(
 ) -> None:
     known = [tmp_path / "linear-algebra", tmp_path / "algorithms"]
     monkeypatch.setattr(tui, "load_known_armories", lambda: known)
+    monkeypatch.setattr(tui, "armory_shortcut_key", lambda: "ctrl+a")
 
     text = tui._armory_home_text()  # type: ignore[reportPrivateUsage]
 
@@ -619,9 +711,11 @@ def test_armory_home_text_includes_recent_armories(
     assert "algorithms" in text
 
 
-def test_plain_tui_shows_armory_home_notice() -> None:
+def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
+    monkeypatch.setattr(tui, "armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     app = tui.HephaistosTui(
         _plain_session(),
@@ -691,6 +785,74 @@ def test_armory_input_executes_without_user_transcript(
     asyncio.run(check_inline_command())
 
 
+def test_ctrl_a_opens_armory_without_input_home_conflict() -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_ctrl_a() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "draft"
+            composer.cursor_position = len(composer.value)
+            await pilot.press("ctrl+a")
+            await pilot.pause()
+
+            assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+            assert composer.cursor_position == len(composer.value)
+
+    asyncio.run(check_ctrl_a())
+
+
+def test_ctrl_o_opens_armory_as_tmux_safe_fallback() -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_ctrl_o() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.press("ctrl+o")
+            await pilot.pause()
+
+            assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+
+    asyncio.run(check_ctrl_o())
+
+
+def test_composer_input_does_not_retain_ctrl_a_home_binding() -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_composer_bindings() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            key_to_bindings = composer._bindings.key_to_bindings  # type: ignore[reportPrivateUsage]
+
+            assert "ctrl+a" not in key_to_bindings
+            assert "home" in key_to_bindings
+
+    asyncio.run(check_composer_bindings())
+
+
 @pytest.mark.parametrize(
     "command_input",
     [
@@ -722,6 +884,8 @@ def test_command_input_executes_without_user_transcript(
             assert not any("You:" in entry.content for entry in app.state.transcript)
             if command_input == "/armory":
                 assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+            elif command_input == "/materials":
+                assert app._materials_inline_active is True  # type: ignore[reportPrivateUsage]
             elif command_input == "/new":
                 assert any("New chat started" in entry.content for entry in app.state.transcript)
             elif command_input.startswith(("/models", "/sources", "/help", "/status", "!")):
@@ -733,6 +897,45 @@ def test_command_input_executes_without_user_transcript(
                 assert app.state.pending_input is None
 
     asyncio.run(check_command_input())
+
+
+def test_materials_inline_toggles_rag_sources() -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/biology.pdf", "materials/calculus.md")
+    session.source_file_count = 2
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_materials_toggle() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "/materials"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._materials_inline_active is True  # type: ignore[reportPrivateUsage]
+            assert app.query_one("#info-panel").styles.display == "none"
+            assert "materials/biology.pdf" not in session.disabled_source_files
+
+            await pilot.press("enter")
+            await pilot.pause()
+            assert "materials/biology.pdf" in session.disabled_source_files
+
+            await pilot.press("enter")
+            await pilot.pause()
+            assert "materials/biology.pdf" not in session.disabled_source_files
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.query_one("#info-panel").styles.display == "block"
+
+    asyncio.run(check_materials_toggle())
 
 
 def test_help_executes_inline_without_restarting_tui(
