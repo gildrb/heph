@@ -50,6 +50,7 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
         command.command == "heph materials index <path>"
         for command in model.cli_reference_commands
     )
+    assert any(command.command == "heph index [path]" for command in model.cli_reference_commands)
     assert any(
         command.command == "heph source index <path>" for command in model.cli_reference_commands
     )

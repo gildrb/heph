@@ -774,6 +774,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },
+    { name = "docling" },
     { name = "keyring" },
     { name = "openai" },
     { name = "rich" },
@@ -782,9 +783,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-docling = [
-    { name = "docling" },
-]
 embeddings = [
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
@@ -813,9 +811,6 @@ dev = [
     { name = "ty" },
     { name = "vulture" },
 ]
-docling = [
-    { name = "docling" },
-]
 docs = [
     { name = "mkdocs" },
     { name = "mkdocs-autorefs" },
@@ -831,7 +826,7 @@ rag = [
 [package.metadata]
 requires-dist = [
     { name = "certifi", specifier = ">=2024.0.0" },
-    { name = "docling", marker = "extra == 'docling'", specifier = ">=2.0.0" },
+    { name = "docling", specifier = ">=2.0.0" },
     { name = "keyring", specifier = ">=25.7.0" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "pathspec", marker = "extra == 'rag'", specifier = ">=0.12.0" },
@@ -862,7 +857,7 @@ dev = [
     { name = "ty", specifier = ">=0.0.34" },
     { name = "vulture", specifier = ">=2.0" },
 ]
-docling = [{ name = "docling", specifier = ">=2.0.0" }]
+docling = []
 docs = [
     { name = "mkdocs", specifier = ">=1.6.0" },
     { name = "mkdocs-autorefs", specifier = ">=1.2.0" },

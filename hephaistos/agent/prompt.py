@@ -42,9 +42,10 @@ _ANTI_HALLUCINATION = """\
 7. **When describing diagrams/figures, be precise.** Every label, axis, unit, and value must
    come from the actual image — never approximate or invent details.
 8. **No retrieved evidence for a question.** If no "Retrieved evidence for this question"
-   section appears before a question, the armory had no relevant documents. Answer from your
-   own knowledge only if you are confident, and explicitly say the answer is not grounded in
-   armory evidence. Do NOT fabricate evidence citations.
+   section appears before a study-material question, do not answer from outside knowledge.
+   Say no searchable armory evidence was retrieved, and ask for a more specific
+   material-backed question or for the material to be indexed. Do NOT fabricate evidence
+   citations.
 """
 
 _VERIFICATION_FIRST = """\
@@ -282,8 +283,9 @@ def build_system_prompt_sections(
                 lines.append(f"  - {rel}: {reason}")
             lines.append(
                 "These files are visible but NOT searchable via read_file or search_files. "
-                "Do NOT attempt to read them. Answer from your own knowledge if confident, "
-                "and clearly state the answer is not grounded in armory evidence."
+                "Do NOT attempt to read them. Do NOT answer questions about their contents "
+                "from outside knowledge. Say the material is visible but unavailable as "
+                "armory evidence until document conversion or indexing succeeds."
             )
             context_parts.append("\n".join(lines))
 

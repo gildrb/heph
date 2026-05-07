@@ -28,7 +28,7 @@ from hephaistos.chat.evidence import (
 )
 from hephaistos.chat.orchestrator import TurnOrchestrator
 from hephaistos.chat.session import ChatSession
-from hephaistos.rag import ScoredChunk, TurnEvidence
+from hephaistos.rag import ArmoryIndex, ScoredChunk, TurnEvidence
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import EvidenceChunk
 from hephaistos.study import StudyAction, StudyPhase, StudyTurnPlan
@@ -369,6 +369,41 @@ class TestTurnOrchestratorStudy:
         notices = [e for e in events if isinstance(e, NoticeEvent)]
         assert len(notices) == 1
         assert "No evidence citations" in notices[0].message
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_study_refuses_outside_knowledge_when_materials_are_unindexed(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(action=StudyAction.PRESENT, retrieval_query="fundamentalsatz")
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = None
+
+        session = _make_study_session()
+        session.source_file_count = 1
+        session.source_files = ("materials/L7_MfI-1_Fundamentalsatz.pdf",)
+        index = ArmoryIndex(Path("/tmp/fake-armory"))
+        index.unindexable_files = {
+            "materials/L7_MfI-1_Fundamentalsatz.pdf": (
+                "binary document; document conversion backend unavailable"
+            )
+        }
+        session.rag_index = index
+
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("how does the fundamentalsatz work"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert "@L7_MfI-1_Fundamentalsatz.pdf" in deltas[0]
+        assert "PDF/document conversion is unavailable" in deltas[0]
+        assert "cannot answer from outside knowledge" in deltas[0]
+        assert "heph index <armory>" in deltas[0]
+        mock_iter_agent.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

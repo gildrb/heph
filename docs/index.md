@@ -68,18 +68,14 @@ checkout.
 uv sync --group rag
 ```
 
-Optional: enable document conversion for files such as PDF, DOCX, PPTX, and
-XLSX.
-
-```bash
-uv sync --group docling
-```
+Document conversion for files such as PDF, DOCX, PPTX, and XLSX is included in
+the default install.
 
 ### Create An Armory
 
 ```bash
 heph armory init ~/armories/exams
-# Add study files to ~/armories/exams/source or ~/armories/exams/library
+# Add study files to ~/armories/exams/materials
 heph ~/armories/exams
 ```
 
@@ -122,10 +118,10 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 ## Why Hephaistos
 
 - **Armories are portable study workspaces.** An armory is a normal directory
-  with primary materials, reference material, notes, saved chats, retrieval state,
-  and memory for that subject.
-- **Answers are grounded in your files.** Hephaistos indexes `source/` and
-  `library/`, retrieves relevant chunks for each question, and gives the model
+  with study materials, saved chats, retrieval state, and memory for that
+  subject.
+- **Answers are grounded in your files.** Hephaistos indexes `materials/`,
+  retrieves relevant chunks for each question, and gives the model
   evidence IDs to cite.
 - **Citations are checked after every answer.** The model must cite retrieved
   evidence like `[E1]`. Hephaistos verifies those IDs against the evidence from
@@ -142,7 +138,7 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 
 ## How It Works
 
-1. Put primary material in `source/` and reference material in `library/`.
+1. Put study files in `materials/`.
 2. Start a chat in the armory.
 3. For each material-backed question, Hephaistos builds or loads the local RAG
    index, retrieves relevant chunks, and passes them to the model as citable
@@ -158,22 +154,17 @@ starting a study session.
 
 ```text
 my-armory/
-  source/               # primary study material, indexed for retrieval
-  library/              # extra reference material, indexed for retrieval
-  notes/                # notes and summaries the agent can write
-  chats/                # saved chat sessions
-  parameters/           # armory-specific parameter files
+  materials/            # user study files, indexed for retrieval
   .hephaistos/
     armory.toml         # armory marker
     system_prompt.md    # optional custom study prompt
+    chats/              # saved chat sessions
     memory.json         # remembered concepts for this armory
     rag_index.json      # local retrieval index
 ```
 
-Only `source/` and `library/` are retrieved for answers. Hidden files inside
-those folders are skipped. In docs and code, **materials** means this study-file
-domain. `source/` remains the on-disk folder for primary materials, and
-`source` in citations still means the provenance path for a retrieved chunk.
+Only `materials/` is retrieved for answers. Hidden files inside that folder are
+skipped.
 
 ## Retrieval
 
@@ -185,13 +176,13 @@ dependencies are installed.
 With `uv sync --group rag`, retrieval can use BM25, hybrid sparse plus
 embedding retrieval, cross-encoder re-ranking, and query transformation.
 
-With `uv sync --group docling`, document files such as PDF, DOCX, PPTX, XLSX,
-ODT, ODS, ODP, and RTF can be converted into Markdown before indexing.
+Document files such as PDF, DOCX, PPTX, XLSX, ODT, ODS, ODP, and RTF are
+converted into Markdown before indexing.
 
 You can prebuild or refresh the index:
 
 ```bash
-heph materials index ~/armories/exams
+heph index ~/armories/exams
 ```
 
 ## Bring Your Own Model
@@ -220,6 +211,7 @@ heph armory open <path>          Open and validate an armory.
 heph materials list <path>       List study material files.
 heph materials count <path>      Count study material files.
 heph materials index <path>      Build or refresh the RAG index.
+heph index [path]                Build or refresh the materials index; defaults to the current armory.
 heph chat resume <path> <id>     Resume an existing chat session.
 heph chat ask <path> [prompt]    Ask one question without opening the TUI.
 heph chat list <path>            List chat sessions in an armory.

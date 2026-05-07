@@ -108,7 +108,7 @@ class TestReadFile:
         pdf.write_bytes(b"%PDF-1.4\x80\x81\x82fake pdf")
         result = run_read_file("slides.pdf", workspace=workspace)
         assert "binary document" in result.lower()
-        assert "docling" in result.lower()
+        assert "heph index" in result.lower()
 
     def test_read_binary_unknown_gives_generic_error(self, workspace: Path) -> None:
         binary = workspace / "data.dat"

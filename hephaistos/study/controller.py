@@ -121,8 +121,9 @@ def _present_prompt(item: str) -> str:
         "- Present the complete solution or method once, concisely.\n"
         "- Cite evidence IDs whenever you state a factual step or value.\n"
         "- End with exactly: Say ready when you want recall.\n"
-        "- If no retrieved source material is available, say the armory does not "
-        "cover this item and ask for a more specific material-backed prompt.\n"
+        "- If no retrieved source material is available, say no searchable armory "
+        "evidence was found for this item. Do not answer from outside knowledge. "
+        "Ask for a more specific material-backed prompt or for the material to be indexed.\n"
         "- Do not switch into assessment or extra tutoring."
     )
 

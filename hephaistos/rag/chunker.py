@@ -30,23 +30,29 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
 
-try:
-    from docling.document_converter import (
-        DocumentConverter as _ImportedDocumentConverter,  # type: ignore[import-untyped]
-    )
-except ImportError:
-    _ImportedDocumentConverter = None
-
-try:
-    from sentence_transformers import (
-        SentenceTransformer as _ImportedSentenceTransformer,  # type: ignore[import-untyped]
-    )
-except ImportError:
-    _ImportedSentenceTransformer = None
-
 from hephaistos.logging import get_logger
 
 _log = get_logger("rag.chunker")
+
+_ImportedDocumentConverter: object | None
+try:
+    from docling.document_converter import (
+        DocumentConverter as _RawDocumentConverter,  # type: ignore[import-untyped]
+    )
+except ImportError:
+    _ImportedDocumentConverter = None
+else:
+    _ImportedDocumentConverter = _RawDocumentConverter
+
+_ImportedSentenceTransformer: object | None
+try:
+    from sentence_transformers import (
+        SentenceTransformer as _RawSentenceTransformer,  # type: ignore[import-untyped]
+    )
+except ImportError:
+    _ImportedSentenceTransformer = None
+else:
+    _ImportedSentenceTransformer = _RawSentenceTransformer
 
 _TEXT_EXTENSIONS = frozenset(
     {

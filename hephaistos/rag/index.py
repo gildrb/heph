@@ -55,8 +55,8 @@ def _unindexable_reason(path: Path) -> str:
         if _is_docling_available():
             return "docling conversion failed (empty or corrupt document)"
         return (
-            "binary document; install docling extra to enable indexing "
-            "(pip install hephaistos[docling])"
+            "binary document; document conversion backend unavailable "
+            "(update or reinstall Hephaistos, then rebuild the index)"
         )
     return "binary file; unsupported format"
 
@@ -480,7 +480,9 @@ def scan_unindexable_files(armory_path: Path) -> dict[str, str]:
         # Skip hidden files
         if any(part.startswith(".") for part in Path(rel).parts):
             continue
-        if not _is_text_file(file_path):
+        if not _is_text_file(file_path) and not (
+            _is_docling_file(file_path) and _is_docling_available()
+        ):
             result[rel] = _unindexable_reason(file_path)
     return result
 

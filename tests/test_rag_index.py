@@ -323,19 +323,29 @@ class TestArmoryIndexStrategy:
 class TestArmoryIndexUnindexable:
     """Verify that unindexable (binary) files are tracked."""
 
-    def test_pdf_without_docling_tracked_as_unindexable(self, armory: Path) -> None:
+    def test_pdf_without_conversion_backend_tracked_as_unindexable(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
         index = ArmoryIndex(armory)
         index.build()
         assert "materials/doc.pdf" in index.unindexable_files
-        assert "docling" in index.unindexable_files["materials/doc.pdf"]
+        assert "conversion backend unavailable" in index.unindexable_files["materials/doc.pdf"]
 
     def test_text_files_not_in_unindexable(self, armory: Path) -> None:
         index = ArmoryIndex(armory)
         index.build()
         assert index.unindexable_files == {}
 
-    def test_unindexable_repopulated_on_load(self, armory: Path) -> None:
+    def test_unindexable_repopulated_on_load(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
         index = ArmoryIndex(armory)
         index.build()
@@ -349,7 +359,12 @@ class TestArmoryIndexUnindexable:
 class TestScanUnindexableFiles:
     """Test the lightweight scan_unindexable_files helper."""
 
-    def test_detects_pdf_without_full_index(self, tmp_path: Path) -> None:
+    def test_detects_pdf_without_full_index(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir(parents=True)
@@ -359,6 +374,19 @@ class TestScanUnindexableFiles:
         result = scan_unindexable_files(arm)
         assert "materials/slides.pdf" in result
         assert "materials/notes.md" not in result
+
+    def test_skips_docling_documents_when_conversion_backend_available(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / "materials" / "slides.pdf").write_bytes(b"%PDF-1.4\x00fake")
+
+        assert scan_unindexable_files(arm) == {}
 
     def test_returns_empty_when_all_text(self, tmp_path: Path) -> None:
         arm = tmp_path / "armory"

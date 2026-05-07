@@ -16,6 +16,14 @@ from hephaistos.rag.scoring import object_rows, sklearn_scores, tokenize
 _log = get_logger("rag.sparse")
 
 
+def _chunk_search_text(chunk_text: str, source: str, heading: str) -> str:
+    """Return the text used for sparse retrieval scoring."""
+    if len(tokenize(chunk_text)) < 3:
+        return chunk_text
+    content = "\n".join(part for part in (heading, chunk_text) if part)
+    return f"{content}\n{source}"
+
+
 class TfidfRetriever:
     """TF-IDF cosine-similarity retriever over an ``ArmoryIndex``."""
 
@@ -39,7 +47,7 @@ class TfidfRetriever:
         df: dict[str, int] = {}
 
         for chunk in self._chunks:
-            freq = Counter(tokenize(chunk.text))
+            freq = Counter(tokenize(_chunk_search_text(chunk.text, chunk.source, chunk.heading)))
             self._chunk_freqs.append(freq)
             for term in freq:
                 df[term] = df.get(term, 0) + 1
@@ -51,7 +59,9 @@ class TfidfRetriever:
     def _build_sklearn(self) -> None:
         """Build TF-IDF matrix using scikit-learn when available."""
         assert optional_backends.SKLEARN_TFIDF_VECTORIZER is not None
-        texts = [chunk.text for chunk in self._chunks]
+        texts = [
+            _chunk_search_text(chunk.text, chunk.source, chunk.heading) for chunk in self._chunks
+        ]
         self._vectorizer = optional_backends.SKLEARN_TFIDF_VECTORIZER(
             stop_words="english",
             sublinear_tf=True,
@@ -142,7 +152,10 @@ class Bm25Retriever:
 
     def _build(self) -> None:
         assert optional_backends.BM25_CLASS is not None
-        self._corpus_tokens = [tokenize(chunk.text) for chunk in self._chunks]
+        self._corpus_tokens = [
+            tokenize(_chunk_search_text(chunk.text, chunk.source, chunk.heading))
+            for chunk in self._chunks
+        ]
         if not any(self._corpus_tokens):
             return
         try:

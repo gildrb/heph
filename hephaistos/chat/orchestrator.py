@@ -33,7 +33,7 @@ from hephaistos.runtime import (
     build_client,
     stream_completion,
 )
-from hephaistos.study import StudyState, apply_turn_result, plan_turn
+from hephaistos.study import StudyAction, StudyState, apply_turn_result, plan_turn
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -46,6 +46,77 @@ _rag_duration_hist = _meter.create_histogram(
     unit="ms",
     description="Duration of RAG retrieval queries",
 )
+
+_EVIDENCE_REQUIRED_ACTIONS = frozenset(
+    {
+        StudyAction.CALIBRATE,
+        StudyAction.PRESENT,
+        StudyAction.HINT,
+        StudyAction.SIMPLIFY,
+        StudyAction.REVIEW,
+        StudyAction.ASSESS,
+    }
+)
+
+
+def _material_label(source: str) -> str:
+    name = source.rsplit("/", maxsplit=1)[-1]
+    return f"@{name or source}"
+
+
+def _format_material_labels(sources: list[str]) -> str:
+    labels = [_material_label(source) for source in sources[:3]]
+    rendered = ", ".join(labels)
+    remaining = len(sources) - len(labels)
+    if remaining > 0:
+        rendered = f"{rendered}, and {remaining} more"
+    return rendered
+
+
+def _missing_indexed_material_reply(session: ChatSession, action: StudyAction) -> str:
+    if action not in _EVIDENCE_REQUIRED_ACTIONS:
+        return ""
+    index = session.rag_index
+    if index is None or index.chunk_count > 0 or session.source_file_count <= 0:
+        return ""
+
+    unindexable_sources = [
+        source
+        for source in sorted(index.unindexable_files)
+        if source not in session.disabled_source_files
+    ]
+    if unindexable_sources:
+        materials = _format_material_labels(unindexable_sources)
+        reasons = {index.unindexable_files[source] for source in unindexable_sources}
+        if all("conversion backend unavailable" in reason.lower() for reason in reasons):
+            return (
+                f"I can see {materials}, but PDF/document conversion is unavailable in this "
+                "installation. I cannot answer from outside knowledge. Update or reinstall "
+                "Hephaistos, then rebuild the materials index with `heph index <armory>`."
+            )
+        if all("docling conversion failed" in reason.lower() for reason in reasons):
+            return (
+                f"I can see {materials}, but document conversion did not extract searchable "
+                "text from it. I cannot answer from outside knowledge. Re-export or replace "
+                "the document, then rebuild the materials index with `heph index <armory>`."
+            )
+        if all("docling" in reason.lower() for reason in reasons):
+            return (
+                f"I can see {materials}, but it is not searchable armory evidence yet. "
+                "I cannot answer from outside knowledge. Update Hephaistos and rebuild the "
+                "materials index with `heph index <armory>`."
+            )
+        return (
+            f"I can see {materials}, but no searchable text was indexed from it. "
+            "I cannot answer from outside knowledge. Convert the material to text or "
+            "Markdown and rebuild the materials index with `heph index <armory>`."
+        )
+
+    return (
+        "The armory has visible materials, but no searchable evidence is indexed yet. "
+        "I cannot answer from outside knowledge. Rebuild the materials index with "
+        "`heph index <armory>`."
+    )
 
 
 @dataclass(slots=True)
@@ -177,6 +248,23 @@ class TurnOrchestrator:
         assert session.armory_path is not None
         plan = resolved.study_plan
         assert plan is not None
+
+        if missing_reply := _missing_indexed_material_reply(session, plan.action):
+            session.study_state, final_reply = apply_turn_result(
+                original_study_state,
+                plan,
+                missing_reply,
+                [],
+            )
+            self.last_reply = final_reply
+            if final_reply and (
+                not session.conversation.messages
+                or session.conversation.messages[-1].role != "assistant"
+            ):
+                session.conversation.add("assistant", final_reply)
+            if final_reply:
+                yield AssistantDeltaEvent(final_reply)
+            return
 
         raw_parts: list[str] = []
         last_reply_parts: list[str] = []

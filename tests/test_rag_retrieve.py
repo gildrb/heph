@@ -162,6 +162,27 @@ class TestTfidfRetriever:
         results = retriever.retrieve("quantum physics astronomy")
         assert results == []
 
+    def test_query_can_match_source_filename(self) -> None:
+        chunks = [
+            _make_chunk(
+                "The main theorem connects differentiation with integration.",
+                "materials/L7_MfI-1_Fundamentalsatz.pdf",
+                0,
+            ),
+            _make_chunk("<!-- image -->", "materials/L7_MfI-1_Fundamentalsatz.pdf", 1),
+            _make_chunk(
+                "Linear algebra introduces vector spaces and matrices.",
+                "materials/linear-algebra.md",
+                0,
+            ),
+        ]
+        index = _make_index_with_chunks(chunks)
+        retriever = TfidfRetriever(index)
+        results = retriever.retrieve("how does the fundamentalsatz work")
+
+        assert len(results) > 0
+        assert results[0].chunk.source == "materials/L7_MfI-1_Fundamentalsatz.pdf"
+
     def test_sklearn_token_pattern_matches_words(self) -> None:
         captured: dict[str, str] = {}
 

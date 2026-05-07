@@ -92,6 +92,13 @@ def test_build_system_prompt_instructs_citation_inspection(armory: Path) -> None
     assert "quote the matching evidence text" in prompt
 
 
+def test_build_system_prompt_forbids_outside_knowledge_without_evidence(armory: Path) -> None:
+    prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
+
+    assert "do not answer from outside knowledge" in prompt
+    assert "Answer from your own knowledge" not in prompt
+
+
 def test_build_system_prompt_sections_render_matches_string_builder(armory: Path) -> None:
     sections = build_system_prompt_sections(
         armory_path=armory,
@@ -129,13 +136,16 @@ def test_unindexable_files_warning_in_prompt(armory: Path) -> None:
     prompt = build_system_prompt(
         armory_path=armory,
         source_files=["materials/python.md", "materials/slides.pdf"],
-        unindexable_files={"materials/slides.pdf": "binary document; install docling"},
+        unindexable_files={
+            "materials/slides.pdf": "binary document; document conversion backend unavailable"
+        },
     )
 
     assert "WARNING: The following files could not be indexed" in prompt
     assert "materials/slides.pdf" in prompt
-    assert "install docling" in prompt
+    assert "document conversion backend unavailable" in prompt
     assert "Do NOT attempt to read them" in prompt
+    assert "Do NOT answer questions about their contents" in prompt
 
 
 def test_no_unindexable_warning_when_empty(armory: Path) -> None:

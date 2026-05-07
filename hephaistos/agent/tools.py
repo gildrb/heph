@@ -552,9 +552,8 @@ def run_read_file(
         if suffix in (".pdf", ".docx", ".pptx", ".xlsx", ".doc", ".odt"):
             return (
                 f"Cannot read binary document: {path}. "
-                f"Install docling to enable PDF/document indexing: "
-                f"pip install hephaistos[docling]. "
-                f"Without docling, this file is not searchable."
+                "Binary documents must be converted through the materials index before "
+                "they are searchable. Rebuild the index with `heph index <armory>`."
             )
         return f"Cannot read (binary file): {path}"
     except OSError as exc:

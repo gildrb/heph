@@ -143,6 +143,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph source list <path>": "Deprecated alias for `heph materials list <path>`.",
     "heph source count <path>": "Deprecated alias for `heph materials count <path>`.",
     "heph source index <path>": "Deprecated alias for `heph materials index <path>`.",
+    "heph index [path]": "Build or refresh the materials index; defaults to the current armory.",
 }
 
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
@@ -217,7 +218,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     subparsers = get_subparsers_action(parser)
     top_level = list(subparsers.choices.keys())
 
-    required_visible = {"armory", "materials", "source", "config"}
+    required_visible = {"armory", "materials", "source", "index", "config"}
     if not required_visible.issubset(top_level):
         raise RuntimeError("The top-level CLI surface changed; update sync_docs.py.")
     if "chat" not in top_level or "start" not in top_level:
@@ -257,6 +258,9 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(f"{short_command} materials list <path>", materials_help["list"]),
         CommandLine(f"{short_command} materials count <path>", materials_help["count"]),
         CommandLine(f"{short_command} materials index <path>", materials_help["index"]),
+        CommandLine(
+            f"{short_command} index [path]", CLI_COMMAND_DESCRIPTIONS["heph index [path]"]
+        ),
         CommandLine(f"{short_command} config show", config_help["show"]),
         CommandLine(f"{short_command} config set <key> <value>", config_help["set"]),
         CommandLine(f"{short_command} chat start <path>", chat_help["start"]),
@@ -300,6 +304,7 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
         f"{short_command} materials list <path>",
         f"{short_command} materials count <path>",
         f"{short_command} materials index <path>",
+        f"{short_command} index [path]",
         f"{short_command} chat resume <path> <id>",
         f"{short_command} chat ask <path> [prompt]",
         f"{short_command} chat list <path>",
@@ -433,7 +438,7 @@ def render_create_armory_block(model: DocsModel) -> str:
     return (
         "```bash\n"
         f"{model.short_command} armory init ~/armories/exams\n"
-        "# Add study files to ~/armories/exams/source or ~/armories/exams/library\n"
+        "# Add study files to ~/armories/exams/materials\n"
         f"{model.short_command} ~/armories/exams\n"
         "```"
     )

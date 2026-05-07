@@ -33,6 +33,7 @@ def test_parser_includes_expected_top_level_commands() -> None:
     help_text = parser.format_help()
 
     assert "armory" in help_text
+    assert "index" in help_text
     assert "start           " not in help_text
     assert "shell           " not in help_text
     assert "Chat with an LLM" not in help_text
@@ -73,6 +74,23 @@ def test_run_argv_dispatches_armory_init(
     assert f"Then start studying: heph {armory_path.name}" in out
     assert "~/.armories/" in out
     assert armory_path.is_dir()
+
+
+def test_top_level_index_defaults_to_current_armory(
+    armory: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parser = build_parser()
+    initialize(armory)
+    (armory / "materials" / "notes.md").write_text("Hello from the material.", encoding="utf-8")
+    monkeypatch.chdir(armory)
+
+    run_argv(parser, ["index"])
+
+    out = capsys.readouterr().out
+    assert "Indexed 4 documents" in out
+    assert (armory / ".hephaistos" / "rag_index.json").is_file()
 
 
 def test_main_without_args_uses_tui(monkeypatch: pytest.MonkeyPatch) -> None:

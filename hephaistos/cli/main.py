@@ -316,6 +316,18 @@ def build_parser() -> argparse.ArgumentParser:
     materials_cli.register(subparsers, index_handler=_cmd_materials_index)
     materials_cli.register_source_alias(subparsers, index_handler=_cmd_materials_index)
 
+    index = subparsers.add_parser(
+        "index",
+        help="Build or refresh the materials index.",
+    )
+    index.add_argument(
+        "path",
+        nargs="?",
+        default=".",
+        help="Path to the armory folder. Defaults to the current directory.",
+    )
+    index.set_defaults(handler=_cmd_materials_index)
+
     # Chat subcommands are hidden.  We register stub handlers here that
     # lazily import the real implementation (and the heavy openai /
     # sentence_transformers chain) only when `heph chat ...` is invoked.

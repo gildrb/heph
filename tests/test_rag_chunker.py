@@ -272,10 +272,7 @@ class TestDoclingIntegration:
         assert ".odt" in _DOCLING_EXTENSIONS
 
     def test_is_docling_available_without_package(self) -> None:
-        with (
-            patch.dict("sys.modules", {"docling": None}),
-            patch("builtins.__import__", side_effect=ImportError("no docling")),
-        ):
+        with patch("hephaistos.rag.chunker._DocumentConverter", None):
             assert not _is_docling_available()
 
     def test_convert_to_markdown_success(self, tmp_path: Path) -> None:

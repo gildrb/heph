@@ -15,10 +15,9 @@ When RAG search returns poor or missing results, follow this runbook.
    cat my-armory/.hephaistos/armory.toml
    ```
 
-2. **Check material files exist** — only `source/` and `library/` are indexed:
+2. **Check material files exist** — only `materials/` is indexed:
    ```bash
-   ls my-armory/source/
-   ls my-armory/library/
+   ls my-armory/materials/
    ```
    Hidden files are skipped by the indexer.
 
@@ -41,24 +40,24 @@ When RAG search returns poor or missing results, follow this runbook.
 
 | Problem | Fix |
 |---------|-----|
-| Missing index | Run `heph materials index <path>` to rebuild |
+| Missing index | Run `heph index <path>` to rebuild |
 | Stale index | Re-index after adding/modifying material files |
 | Low scores | Improve source document quality; split large files into focused sections |
-| No source files | Add documents to `source/` or `library/` directories |
-| Hidden files indexed | Move them out of `source/` or rename without leading dot |
+| No material files | Add documents to `materials/` |
+| Hidden files indexed | Move them out of `materials/` or rename without leading dot |
 | Memory not loaded | Check `my-armory/.hephaistos/memory.json` exists and is valid |
 
 ## Rebuilding the Index
 
 ```bash
 # From the armory directory
-uv run heph materials index .
+uv run heph index .
 
 # Or from any directory
-uv run heph materials index /path/to/armory
+uv run heph index /path/to/armory
 ```
 
-This rebuilds the RAG index from all files in `source/` and `library/`.
+This rebuilds the RAG index from all files in `materials/`.
 Large armories may take a few minutes.
 
 ## Embedding Model

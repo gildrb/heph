@@ -103,7 +103,7 @@ hephaistos/
   agent/        Prompt building, persona, citation, tools — no adapter imports
   providers/    LLM provider registry, config, auth — no adapter imports
   rag/          RAG chunking, indexing, retrieval — no adapter imports
-  materials/    Study-file discovery, ignore rules, source/library classification
+  materials/    Study-file discovery, ignore rules, and material role classification
   armory/       Armory data and commands — no adapter imports
   study/        Study controller — no adapter imports
   memory/       Memory extraction and storage — no adapter imports
@@ -191,17 +191,13 @@ my-armory/
     rag_index.json      # persisted retrieval index
     traces/             # per-session JSONL traces
     usage/              # per-session usage/cost snapshots
-  source/               # primary study material, indexed for RAG
-  library/              # additional reference material, indexed for RAG
-  notes/                # workspace notes the agent can edit
-  chats/                # saved chat sessions
+  materials/            # user study files, indexed for RAG
   parameters/           # reserved workspace parameters directory
 ```
 
-Only `source/` and `library/` are used for retrieval. Hidden files inside those
-directories are skipped by the materials scanner. `source/` is the folder for
-primary study materials, `library/` is the folder for reference materials, and
-`source` in citations or chunk metadata remains the provenance path.
+Only `materials/` is used for retrieval. Hidden files inside that directory are
+skipped by the materials scanner. `source` in citations or chunk metadata means
+the provenance path for a retrieved chunk.
 
 ## Study memory
 
