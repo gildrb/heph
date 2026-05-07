@@ -338,6 +338,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         memory=load_memory(armory_path),
         tool_registry=_load_armory_tools(armory_path),
     )
+    replace_system_prompt(session)
     _log.info(
         "session resumed",
         extra={

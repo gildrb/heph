@@ -7,14 +7,13 @@ from dataclasses import dataclass
 
 from hephaistos.rag.context import TurnEvidence
 
-_CITATION_RE = re.compile(r"\[([Ee]\d+(?:\s*[,;]\s*[Ee]\d+)*)\]")
+_CITATION_RE = re.compile(r"(?:\[|【)([Ee]\d+(?:\s*[,;]\s*[Ee]\d+)*)(?:\]|】)")
 _SINGLE_ID_RE = re.compile(r"[Ee](\d+)")
-_EVIDENCE_BADGE_COLOR = "#9B4A2E"
-_EVIDENCE_DIM_COLOR = "#555555"
-_SOURCE_BADGE_COLOR = "#7F9A6A"
 _SCORE_BAR_FULL = "\u2588"
 _SCORE_BAR_EMPTY = "\u2591"
 _SCORE_BAR_WIDTH = 5
+_LATEX_INLINE_RE = re.compile(r"\\\((.*?)\\\)", re.DOTALL)
+_LATEX_BLOCK_RE = re.compile(r"\\\[(.*?)\\\]", re.DOTALL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,47 +24,35 @@ class EnrichedReply:
     evidence: TurnEvidence | None
 
 
-def _render_evidence_badge(evidence_id: str) -> str:
-    return f"[bold {_EVIDENCE_BADGE_COLOR}]\u25b6[/bold {_EVIDENCE_BADGE_COLOR}] [{evidence_id}]"
-
-
-def _render_source_badge(source: str) -> str:
-    parts = source.rsplit("/", 1)
-    name = parts[-1] if len(parts) > 1 else source
-    prefix = parts[0] + "/" if len(parts) > 1 else ""
-    dim_close = f"[/dim {_EVIDENCE_DIM_COLOR}]"
-    dim_open = f"[dim {_EVIDENCE_DIM_COLOR}]"
-    src_open = f"[{_SOURCE_BADGE_COLOR}]"
-    src_close = f"[/{_SOURCE_BADGE_COLOR}]"
-    if prefix:
-        return f"{dim_open}{prefix}{dim_close}{src_open}{name}{src_close}"
-    return f"{src_open}{name}{src_close}"
+def _normalize_latex_delimiters(text: str) -> str:
+    """Use Markdown-friendly math delimiters for model output."""
+    text = _LATEX_BLOCK_RE.sub(lambda match: f"$$\n{match.group(1).strip()}\n$$", text)
+    return _LATEX_INLINE_RE.sub(lambda match: f"${match.group(1).strip()}$", text)
 
 
 def _render_score_bar(score: float) -> str:
     filled = max(0, min(_SCORE_BAR_WIDTH, round(score * _SCORE_BAR_WIDTH)))
-    bar = _SCORE_BAR_FULL * filled + _SCORE_BAR_EMPTY * (_SCORE_BAR_WIDTH - filled)
-    return f"[dim {_EVIDENCE_DIM_COLOR}]{bar}[/dim {_EVIDENCE_DIM_COLOR}]"
+    return _SCORE_BAR_FULL * filled + _SCORE_BAR_EMPTY * (_SCORE_BAR_WIDTH - filled)
 
 
 def _render_evidence_panel(evidence: TurnEvidence) -> str:
     if not evidence.items:
         return ""
-    lines: list[str] = []
-    header_line = "\u2500" * 3 + " evidence " + "\u2500" * 27
-    lines.append(f"[dim {_EVIDENCE_DIM_COLOR}]{header_line}[/dim {_EVIDENCE_DIM_COLOR}]")
+    lines: list[str] = ["---", "", "**evidence**"]
     for chunk in evidence.items:
-        badge = _render_evidence_badge(chunk.evidence_id)
-        source = _render_source_badge(chunk.source)
+        source_name = chunk.source.rsplit("/", 1)[-1]
         bar = _render_score_bar(min(1.0, chunk.score))
-        lines.append(f"  {badge}  {source}  {bar}  score={chunk.score:.2f}")
-        preview = chunk.content.strip()
+        lines.extend(
+            [
+                "",
+                f"- **{chunk.evidence_id}** `{source_name}` "
+                f"chunk {chunk.chunk_index}, score {chunk.score:.2f} {bar}",
+            ]
+        )
+        preview = _normalize_latex_delimiters(chunk.content.strip())
         if len(preview) > 200:
             preview = preview[:197] + "..."
-        lines.extend(
-            f"  [dim {_EVIDENCE_DIM_COLOR}]    {line}[/dim {_EVIDENCE_DIM_COLOR}]"
-            for line in preview.split("\n")
-        )
+        lines.extend(f"  > {line}" for line in preview.split("\n") if line.strip())
     return "\n".join(lines)
 
 
@@ -78,7 +65,7 @@ def enrich_reply(text: str, evidence: TurnEvidence | None) -> EnrichedReply:
     if not evidence or not evidence.items:
         return EnrichedReply(markdown_text=text, evidence=evidence)
 
-    enriched = text
+    enriched = _normalize_latex_delimiters(text)
     enriched_panel = _render_evidence_panel(evidence)
 
     result = f"{enriched}\n\n{enriched_panel}"

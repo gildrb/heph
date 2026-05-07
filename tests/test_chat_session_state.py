@@ -44,6 +44,28 @@ def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     assert resumed.study_state.last_feedback_type is StudyFeedbackType.PARTIAL
 
 
+def test_resume_refreshes_stale_system_prompt(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+    save_session(session)
+
+    session_file = armory / ".hephaistos" / "chats" / f"{session.session_id}.json"
+    saved = session_file.read_text(encoding="utf-8")
+    session_file.write_text(
+        saved.replace(session.conversation.messages[0].content, "stale system prompt"),
+        encoding="utf-8",
+    )
+
+    resumed = resume_session(session.config, armory, session.session_id)
+
+    assert resumed.conversation.messages[0].role == "system"
+    assert resumed.conversation.messages[0].content != "stale system prompt"
+    assert "materials/exam.md" in resumed.conversation.messages[0].content
+
+
 def test_session_source_scan_respects_armory_ignore(tmp_path: Path) -> None:
     armory = tmp_path / "armory"
     initialize(armory)

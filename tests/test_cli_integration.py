@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +19,8 @@ from hephaistos.cli.main import sys as cli_sys
 from hephaistos.rag.index import load_or_build
 from hephaistos.tui import TuiDependencyError
 
+cli_main_module = sys.modules[cli_main.__module__]
+
 
 class _FakeTTY(io.StringIO):
     def __init__(self, tty: bool) -> None:
@@ -34,12 +37,108 @@ def test_parser_includes_expected_top_level_commands() -> None:
 
     assert "armory" in help_text
     assert "index" in help_text
+    assert "update" in help_text
     assert "start           " not in help_text
     assert "shell           " not in help_text
     assert "Chat with an LLM" not in help_text
     assert "source" in help_text
     assert "tui" not in help_text
     assert "parameters" not in help_text
+
+
+def test_update_command_is_not_treated_as_armory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+
+    run_argv(parser, ["update"])
+
+    out = capsys.readouterr().out
+    assert "Hephaistos update" in out
+    assert "uv tool upgrade hephaistos" in out
+
+
+def test_source_runtime_reexecs_repo_venv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "Hephaistos"
+    venv_bin = root / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    venv_heph = venv_bin / "heph"
+    venv_heph.write_text("#!/bin/sh\n", encoding="utf-8")
+    captured: tuple[str, list[str], dict[str, str]] | None = None
+
+    def fake_execve(path: str, argv: list[str], env: dict[str, str]) -> None:
+        nonlocal captured
+        captured = (path, argv, env)
+        raise SystemExit(42)
+
+    monkeypatch.setattr(cli_main_module, "_project_root", lambda: root)
+    monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: True)
+    monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
+    monkeypatch.setattr(cli_main_module.sys, "executable", "/Library/Python/bin/python3")
+    monkeypatch.setattr(cli_main_module.sys, "argv", ["heph", "update"])
+    monkeypatch.setattr(cli_main_module.os, "execve", fake_execve)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main_module._maybe_reexec_source_venv()
+
+    assert exc_info.value.code == 42
+    assert captured is not None
+    assert captured[0] == str(venv_heph)
+    assert captured[1] == [str(venv_heph), "update"]
+    assert captured[2]["HEPHAISTOS_NO_VENV_REEXEC"] == "1"
+
+
+def test_source_runtime_warning_when_repo_venv_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "Hephaistos"
+    monkeypatch.setattr(cli_main_module, "_project_root", lambda: root)
+    monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: True)
+    monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
+    monkeypatch.setattr(cli_main_module.sys, "executable", "/Library/Python/bin/python3")
+
+    messages = cli_main_module._runtime_diagnostic_messages()
+
+    assert "missing document conversion support" in messages[0]
+    assert any("/Library/Python/bin/python3" in message for message in messages)
+
+
+def test_runtime_warning_when_installed_docling_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(cli_main_module, "_project_root", lambda: tmp_path)
+    monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: False)
+    monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
+    monkeypatch.setattr(cli_main_module.sys, "executable", "/opt/heph/bin/python")
+
+    messages = cli_main_module._runtime_diagnostic_messages()
+
+    assert "missing document conversion support" in messages[0]
+    assert any("PDF, DOCX, PPTX, and XLSX" in message for message in messages)
+
+
+def test_source_runtime_reexec_can_be_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def fake_execve(_path: str, _argv: list[str], _env: dict[str, str]) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setenv("HEPHAISTOS_NO_VENV_REEXEC", "1")
+    monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: True)
+    monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
+    monkeypatch.setattr(cli_main_module.os, "execve", fake_execve)
+
+    cli_main_module._maybe_reexec_source_venv()
+
+    assert not called
 
 
 def test_top_level_help_is_compact_and_points_to_interactive_help() -> None:

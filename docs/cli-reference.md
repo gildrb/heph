@@ -16,6 +16,7 @@
 | `heph materials count <path>` | Count study material files. |
 | `heph materials index <path>` | Build or refresh the RAG index. |
 | `heph index [path]` | Build or refresh the materials index; defaults to the current armory. |
+| `heph update` | Show how to update the active Hephaistos install. |
 | `heph config show` | Display current configuration. |
 | `heph config set <key> <value>` | Set a configuration parameter. |
 | `heph chat start <path>` | Start a new chat session in an armory. |

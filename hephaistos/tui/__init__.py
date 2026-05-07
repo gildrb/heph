@@ -113,13 +113,7 @@ except ImportError:
 
 get_registry = _get_registry
 
-
-_TRANSCRIPT_ENTRY_GAP = ""
-
-
 _tui_dependency_message = tui_dependency_message
-
-
 _status_lines = status_lines
 _status_text = status_text
 _armory_footer_hints_text = armory_footer_hints_text
@@ -147,14 +141,11 @@ def _armory_home_text() -> str:
 
 _info_panel_message_text = info_panel_message_text
 
-
 _config_error = config_error
-
 
 _source_listing = material_listing
 _armory_command_mode = _tui_armory._armory_command_mode
 _armory_usage_message = _tui_armory._armory_usage_message
-
 
 _THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
@@ -263,7 +254,6 @@ def _transparent_option_list_class() -> type:
 
 _slash_suggestion = slash_suggestion
 
-
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
 
 
@@ -283,7 +273,6 @@ def _completion_menu_scroll_y(
 _tui_command_suggestions = tui_command_suggestions
 _command_help = command_help
 
-
 _TuiTranscriptEntry = TuiTranscriptEntry
 _TuiRuntimeState = TuiRuntimeState
 _TuiCaptureWriter = TuiCaptureWriter
@@ -292,7 +281,6 @@ _pending_input_requires_terminal = pending_input_requires_terminal
 _is_armory_command = is_armory_command
 _tui_input_route = tui_input_route
 _TuiInputRoute = TuiInputRoute
-
 
 _command_output_text = command_output_text
 _run_shell_escape_captured = run_shell_escape_captured

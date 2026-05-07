@@ -140,6 +140,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     ),
     "heph start [path]": "Hidden backwards-compatible alias for `heph [path]`.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
+    "heph update": "Show how to update the active Hephaistos install.",
     "heph source list <path>": "Deprecated alias for `heph materials list <path>`.",
     "heph source count <path>": "Deprecated alias for `heph materials count <path>`.",
     "heph source index <path>": "Deprecated alias for `heph materials index <path>`.",
@@ -218,7 +219,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     subparsers = get_subparsers_action(parser)
     top_level = list(subparsers.choices.keys())
 
-    required_visible = {"armory", "materials", "source", "index", "config"}
+    required_visible = {"armory", "materials", "source", "index", "update", "config"}
     if not required_visible.issubset(top_level):
         raise RuntimeError("The top-level CLI surface changed; update sync_docs.py.")
     if "chat" not in top_level or "start" not in top_level:
@@ -261,6 +262,7 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(
             f"{short_command} index [path]", CLI_COMMAND_DESCRIPTIONS["heph index [path]"]
         ),
+        CommandLine(f"{short_command} update", CLI_COMMAND_DESCRIPTIONS["heph update"]),
         CommandLine(f"{short_command} config show", config_help["show"]),
         CommandLine(f"{short_command} config set <key> <value>", config_help["set"]),
         CommandLine(f"{short_command} chat start <path>", chat_help["start"]),
@@ -305,6 +307,7 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
         f"{short_command} materials count <path>",
         f"{short_command} materials index <path>",
         f"{short_command} index [path]",
+        f"{short_command} update",
         f"{short_command} chat resume <path> <id>",
         f"{short_command} chat ask <path> [prompt]",
         f"{short_command} chat list <path>",

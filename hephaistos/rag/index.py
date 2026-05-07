@@ -404,12 +404,19 @@ class ArmoryIndex:
         if not self._file_hashes:
             return True
 
+        indexed_sources = {doc.source for doc in self.documents}
         for file_path in self._iter_source_files():
             rel = str(file_path.relative_to(self.armory_path))
             if rel not in self._file_hashes:
                 return True
             h = _file_hash(file_path)
             if h is None or h != self._file_hashes.get(rel):
+                return True
+            if (
+                _is_docling_available()
+                and _is_docling_file(file_path)
+                and rel not in indexed_sources
+            ):
                 return True
 
         return len(self._file_hashes) != self._count_source_files()
@@ -426,11 +433,18 @@ class ArmoryIndex:
     def _fresh_documents_and_hashes(self) -> tuple[list[ChunkedDocument], dict[str, str]]:
         documents: list[ChunkedDocument] = []
         file_hashes: dict[str, str] = {}
+        loaded_by_source = {doc.source: doc for doc in self.documents}
+        docling_available = _is_docling_available()
         for file_path in self._iter_source_files():
             rel = str(file_path.relative_to(self.armory_path))
             content_hash = _file_hash(file_path)
             if content_hash is not None:
                 file_hashes[rel] = content_hash
+            loaded_doc = loaded_by_source.get(rel)
+            if not docling_available and _is_docling_file(file_path):
+                if loaded_doc is not None and loaded_doc.content_hash == content_hash:
+                    documents.append(loaded_doc)
+                continue
             doc = chunk_file(
                 file_path,
                 self.armory_path,
@@ -440,7 +454,26 @@ class ArmoryIndex:
             )
             if doc is not None and doc.chunks:
                 documents.append(doc)
+            elif (
+                _is_docling_file(file_path)
+                and loaded_doc is not None
+                and loaded_doc.content_hash == content_hash
+            ):
+                documents.append(loaded_doc)
         return documents, file_hashes
+
+    def _preserve_unavailable_docling_documents_from(self, previous: ArmoryIndex) -> None:
+        """Keep converted Docling chunks when this runtime cannot recreate them."""
+        if _is_docling_available():
+            return
+        indexed_sources = {doc.source for doc in self.documents}
+        for document in previous.documents:
+            if document.source in indexed_sources or not _is_docling_file(Path(document.source)):
+                continue
+            if self._file_hashes.get(document.source) != document.content_hash:
+                continue
+            self.documents.append(document)
+            self.unindexable_files.pop(document.source, None)
 
     def _matches_material_files(self, *, include_heading: bool) -> bool:
         documents, file_hashes = self._fresh_documents_and_hashes()
@@ -493,8 +526,12 @@ def build_index(
     strategy: ChunkStrategy = ChunkStrategy.AUTO,
 ) -> ArmoryIndex:
     """Build a fresh index for the armory and persist it."""
+    previous = ArmoryIndex(armory_path, strategy=strategy)
+    previous_loaded = previous.load()
     index = ArmoryIndex(armory_path, strategy=strategy)
     index.build()
+    if previous_loaded:
+        index._preserve_unavailable_docling_documents_from(previous)
     index.save()
     _log.info(
         "index built and saved",

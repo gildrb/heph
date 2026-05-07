@@ -35,6 +35,9 @@ Upgrade later with:
 
 [[UPGRADE_BLOCK]]
 
+You can also run `heph update` to see the correct update command for the
+active executable.
+
 Or install the latest main branch directly from GitHub:
 
 [[GIT_INSTALL_BLOCK]]

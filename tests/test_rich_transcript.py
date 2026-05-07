@@ -92,6 +92,11 @@ def test_extract_cited_ids_handles_lowercase() -> None:
     assert ids == ["E3"]
 
 
+def test_extract_cited_ids_handles_fullwidth_brackets() -> None:
+    ids = extract_cited_ids("See 【E1, E2】.")
+    assert ids == ["E1", "E2"]
+
+
 def test_extract_cited_ids_returns_empty_for_no_citations() -> None:
     ids = extract_cited_ids("No citations here.")
     assert ids == []

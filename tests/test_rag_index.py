@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from hephaistos.rag.chunker import ChunkStrategy
+from hephaistos.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
 from hephaistos.rag.index import ArmoryIndex, build_index, load_or_build, scan_unindexable_files
 
 
@@ -135,6 +136,24 @@ class TestArmoryIndexStaleness:
         assert loaded.load()
         assert not loaded.is_stale()
 
+    def test_docling_file_without_backend_does_not_make_fresh_index_stale(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
+
+        index = ArmoryIndex(armory)
+        index.build()
+
+        assert not index.is_stale()
+
+        index.save()
+        loaded = ArmoryIndex(armory)
+        assert loaded.load()
+        assert not loaded.is_stale()
+
 
 class TestBuildIndex:
     def test_build_index_returns_index(self, armory: Path) -> None:
@@ -174,6 +193,293 @@ class TestLoadOrBuild:
         index = load_or_build(armory)
 
         assert "hidden poisoned evidence" not in {chunk.text for chunk in index.all_chunks}
+
+    def test_rebuilds_failed_pdf_index_when_conversion_unavailable(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        pdf = arm / "materials" / "theorem.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
+        content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
+        (arm / ".hephaistos" / "rag_index.json").write_text(
+            json.dumps(
+                {
+                    "version": 4,
+                    "chunk_size": 500,
+                    "overlap": 100,
+                    "strategy": "auto",
+                    "file_hashes": {"materials/theorem.pdf": content_hash},
+                    "documents": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        index = load_or_build(arm)
+
+        assert index.chunk_count == 0
+        assert "materials/theorem.pdf" in index.unindexable_files
+        assert "conversion backend unavailable" in index.unindexable_files["materials/theorem.pdf"]
+
+    def test_loads_converted_pdf_index_when_conversion_becomes_unavailable(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        pdf = arm / "materials" / "theorem.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
+        content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
+        (arm / ".hephaistos" / "rag_index.json").write_text(
+            json.dumps(
+                {
+                    "version": 4,
+                    "chunk_size": 500,
+                    "overlap": 100,
+                    "strategy": "auto",
+                    "file_hashes": {"materials/theorem.pdf": content_hash},
+                    "documents": [
+                        {
+                            "source": "materials/theorem.pdf",
+                            "content_hash": content_hash,
+                            "chunks": [
+                                {
+                                    "text": "Already converted theorem text.",
+                                    "source": "materials/theorem.pdf",
+                                    "index": 0,
+                                    "char_start": 0,
+                                    "char_end": 31,
+                                    "heading": "Theorem",
+                                    "heading_level": 1,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        index = load_or_build(arm)
+
+        assert index.chunk_count == 1
+        assert index.unindexable_files == {}
+        assert index.all_chunks[0].text == "Already converted theorem text."
+
+    def test_loads_converted_pdf_index_when_conversion_temporarily_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        pdf = arm / "materials" / "theorem.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
+        content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
+        (arm / ".hephaistos" / "rag_index.json").write_text(
+            json.dumps(
+                {
+                    "version": 4,
+                    "chunk_size": 500,
+                    "overlap": 100,
+                    "strategy": "auto",
+                    "file_hashes": {"materials/theorem.pdf": content_hash},
+                    "documents": [
+                        {
+                            "source": "materials/theorem.pdf",
+                            "content_hash": content_hash,
+                            "chunks": [
+                                {
+                                    "text": "Previously converted theorem text.",
+                                    "source": "materials/theorem.pdf",
+                                    "index": 0,
+                                    "char_start": 0,
+                                    "char_end": 34,
+                                    "heading": "Theorem",
+                                    "heading_level": 1,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        index = load_or_build(arm)
+
+        assert index.chunk_count == 1
+        assert index.unindexable_files == {}
+        assert index.all_chunks[0].text == "Previously converted theorem text."
+
+    def test_build_index_preserves_converted_pdf_when_conversion_unavailable(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        pdf = arm / "materials" / "theorem.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
+        content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
+        (arm / ".hephaistos" / "rag_index.json").write_text(
+            json.dumps(
+                {
+                    "version": 4,
+                    "chunk_size": 500,
+                    "overlap": 100,
+                    "strategy": "auto",
+                    "file_hashes": {"materials/theorem.pdf": content_hash},
+                    "documents": [
+                        {
+                            "source": "materials/theorem.pdf",
+                            "content_hash": content_hash,
+                            "chunks": [
+                                {
+                                    "text": "Persisted converted content.",
+                                    "source": "materials/theorem.pdf",
+                                    "index": 0,
+                                    "char_start": 0,
+                                    "char_end": 28,
+                                    "heading": "Theorem",
+                                    "heading_level": 1,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        index = build_index(arm)
+
+        assert index.chunk_count == 1
+        assert index.unindexable_files == {}
+        assert index.all_chunks[0].text == "Persisted converted content."
+
+    def test_changed_pdf_is_stale_even_when_conversion_unavailable(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        pdf = arm / "materials" / "theorem.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00old theorem")
+        content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
+        (arm / ".hephaistos" / "rag_index.json").write_text(
+            json.dumps(
+                {
+                    "version": 4,
+                    "chunk_size": 500,
+                    "overlap": 100,
+                    "strategy": "auto",
+                    "file_hashes": {"materials/theorem.pdf": content_hash},
+                    "documents": [
+                        {
+                            "source": "materials/theorem.pdf",
+                            "content_hash": content_hash,
+                            "chunks": [
+                                {
+                                    "text": "Old converted content.",
+                                    "source": "materials/theorem.pdf",
+                                    "index": 0,
+                                    "char_start": 0,
+                                    "char_end": 22,
+                                    "heading": "Theorem",
+                                    "heading_level": 1,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        index = ArmoryIndex(arm)
+        assert index.load()
+
+        pdf.write_bytes(b"%PDF-1.4\x00new theorem")
+
+        assert index.is_stale()
+
+    def test_rebuilds_failed_pdf_index_when_conversion_becomes_available(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        pdf = arm / "materials" / "theorem.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
+        content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
+        (arm / ".hephaistos" / "rag_index.json").write_text(
+            json.dumps(
+                {
+                    "version": 4,
+                    "chunk_size": 500,
+                    "overlap": 100,
+                    "strategy": "auto",
+                    "file_hashes": {"materials/theorem.pdf": content_hash},
+                    "documents": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        def fake_chunk_file(
+            file_path: Path,
+            armory_path: Path,
+            _chunk_size: int,
+            _overlap: int,
+            *,
+            strategy: ChunkStrategy,
+        ) -> ChunkedDocument | None:
+            rel = str(file_path.relative_to(armory_path))
+            return ChunkedDocument(
+                source=rel,
+                content_hash=content_hash,
+                chunks=[
+                    Chunk(
+                        text="The fundamentalsatz says prime factorization is unique.",
+                        source=rel,
+                        index=0,
+                        char_start=0,
+                        char_end=58,
+                        heading="Fundamentalsatz",
+                        heading_level=1,
+                    )
+                ],
+            )
+
+        monkeypatch.setattr("hephaistos.rag.index.chunk_file", fake_chunk_file)
+
+        index = load_or_build(arm)
+
+        assert index.chunk_count == 1
+        assert index.unindexable_files == {}
+        assert "prime factorization is unique" in index.all_chunks[0].text
 
 
 class TestArmoryIndexSkips:

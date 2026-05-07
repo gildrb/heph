@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -104,6 +105,126 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
 
     index = rag_index.build_index(armory_path)
     print(f"Indexed {len(index.documents)} documents ({index.chunk_count} chunks)")
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _is_source_checkout(root: Path) -> bool:
+    return (root / "pyproject.toml").is_file() and (root / "hephaistos").is_dir()
+
+
+def _path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _docling_available() -> bool:
+    importlib_util = importlib.import_module("importlib.util")
+    return importlib_util.find_spec("docling") is not None
+
+
+def _runtime_diagnostic_messages() -> list[str]:
+    """Return startup warnings for split source/runtime installs."""
+    root = _project_root()
+    if _docling_available():
+        return []
+
+    executable = Path(sys.executable).resolve()
+    if not _is_source_checkout(root):
+        return [
+            "warning: this `heph` executable is missing document conversion support.",
+            f"  active Python: {executable}",
+            "  update or reinstall Hephaistos so PDF, DOCX, PPTX, and XLSX materials can be "
+            "indexed.",
+        ]
+
+    expected_venv = root / ".venv"
+    if _path_is_relative_to(executable, expected_venv):
+        return []
+
+    return [
+        "warning: this `heph` executable is importing the source checkout but is missing "
+        "document conversion support.",
+        f"  active Python: {executable}",
+        f"  source checkout: {root}",
+        "  run from the checkout with `uv run heph`, or update this executable with "
+        "`uv tool upgrade hephaistos`.",
+    ]
+
+
+def _source_venv_heph(root: Path) -> Path | None:
+    if sys.platform == "win32":
+        candidate = root / ".venv" / "Scripts" / "heph.exe"
+    else:
+        candidate = root / ".venv" / "bin" / "heph"
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _maybe_reexec_source_venv() -> None:
+    """Avoid mixing a source checkout with a different Python environment."""
+    if os.environ.get("HEPHAISTOS_NO_VENV_REEXEC") == "1":
+        return
+    root = _project_root()
+    if not _is_source_checkout(root) or _docling_available():
+        return
+    executable = Path(sys.executable).resolve()
+    expected_venv = root / ".venv"
+    if _path_is_relative_to(executable, expected_venv):
+        return
+    venv_heph = _source_venv_heph(root)
+    if venv_heph is None:
+        return
+    env = os.environ.copy()
+    env["HEPHAISTOS_NO_VENV_REEXEC"] = "1"
+    os.execve(str(venv_heph), [str(venv_heph), *sys.argv[1:]], env)
+
+
+def _emit_runtime_diagnostics() -> None:
+    for message in _runtime_diagnostic_messages():
+        print(message, file=sys.stderr)
+
+
+def _cmd_update(_args: argparse.Namespace) -> None:
+    """Explain how to update the active Hephaistos installation."""
+    root = _project_root()
+    executable = Path(sys.executable).resolve()
+    print("Hephaistos update")
+    print(f"  executable: {executable}")
+    print(f"  package: {Path(__file__).resolve()}")
+    if _is_source_checkout(root):
+        print()
+        print("This executable is importing a source checkout:")
+        print(f"  {root}")
+        print()
+        print("For this checkout, run:")
+        print(f"  cd {root}")
+        print("  uv sync")
+        print("  uv run heph")
+        print()
+        print("For a global uv tool install, run:")
+        print("  uv tool upgrade hephaistos")
+        return
+
+    executable_text = str(executable)
+    if ".local/share/uv/tools/hephaistos" in executable_text or "/uv/tools/hephaistos/" in (
+        executable_text
+    ):
+        print()
+        print("Upgrade this uv tool install with:")
+        print("  uv tool upgrade hephaistos")
+        return
+
+    print()
+    print("Could not detect the installer for this executable.")
+    print("If you installed with uv, run:")
+    print("  uv tool upgrade hephaistos")
 
 
 def _get_subcommand_names(parser: argparse.ArgumentParser) -> set[str]:
@@ -328,6 +449,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     index.set_defaults(handler=_cmd_materials_index)
 
+    update = subparsers.add_parser(
+        "update",
+        help="Show how to update the active Hephaistos install.",
+    )
+    update.set_defaults(handler=_cmd_update)
+
     # Chat subcommands are hidden.  We register stub handlers here that
     # lazily import the real implementation (and the heavy openai /
     # sentence_transformers chain) only when `heph chat ...` is invoked.
@@ -413,11 +540,14 @@ def _increment_session_count() -> None:
 
 
 def main() -> None:
+    _maybe_reexec_source_venv()
+
     analytics = importlib.import_module("hephaistos.diagnostics.events")
     diagnostics = importlib.import_module("hephaistos.diagnostics.crashes")
 
     analytics.init_analytics()
     diagnostics.init_diagnostics()
+    _emit_runtime_diagnostics()
 
     # Track session count for progressive keybind hints.
     _increment_session_count()

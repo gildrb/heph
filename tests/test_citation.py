@@ -58,6 +58,10 @@ class TestExtractCitations:
         cits = extract_citations("Claim [e1, e2].")
         assert [c.evidence_id for c in cits] == ["E1", "E2"]
 
+    def test_fullwidth_brackets(self) -> None:
+        cits = extract_citations("Claim 【E1, E2】.")
+        assert [c.evidence_id for c in cits] == ["E1", "E2"]
+
     def test_deduplicates_ids(self) -> None:
         cits = extract_citations("Claim [E1]. Another claim [E1].")
         assert [c.evidence_id for c in cits] == ["E1"]

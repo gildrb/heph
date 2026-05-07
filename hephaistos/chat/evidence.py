@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -31,7 +32,18 @@ if TYPE_CHECKING:
 
 _log = get_logger("chat.evidence")
 _RAG_MIN_SCORE = 0.1
-_OVERVIEW_CHUNK_LIMIT = 5
+_OVERVIEW_CHUNK_LIMIT = 6
+_OVERVIEW_CHUNKS_PER_DOCUMENT = 3
+_OVERVIEW_QUERY_RE = re.compile(
+    r"\b(?:"
+    r"what is (?:the |this )?(?:material|document|pdf|file)(?: about)?|"
+    r"what does (?:the |this )?(?:material|document|pdf|file) cover|"
+    r"summari[sz]e (?:the |this )?(?:material|document|pdf|file)|"
+    r"overview of (?:the |this )?(?:material|document|pdf|file)|"
+    r"what is this about"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +110,7 @@ def ensure_rag_index(session: ChatSession) -> ArmoryIndex | None:
     """Load and cache the armory RAG index on the session."""
     if session.armory_path is None:
         return None
-    if session.rag_index is None:
+    if session.rag_index is None or session.rag_index.is_stale():
         session.rag_index = load_or_build(session.armory_path)
     return session.rag_index
 
@@ -122,6 +134,10 @@ def adaptive_rag_budget(session: ChatSession) -> int:
     api_msgs = session.conversation.to_api_messages()
     remaining = budget.tokens_remaining(api_msgs)  # type: ignore[arg-type]
     return min(session.config.rag_context_budget, max(200, int(remaining * 0.3)))
+
+
+def _is_overview_query(query: str) -> bool:
+    return bool(_OVERVIEW_QUERY_RE.search(query.strip()))
 
 
 def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvidence | None:
@@ -198,8 +214,10 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
         for document in index.documents:
             if document.source in session.disabled_source_files:
                 continue
-            if document.chunks:
-                scored.append(ScoredChunk(chunk=document.chunks[0], score=1.0))
+            for added, chunk in enumerate(document.chunks, start=1):
+                scored.append(ScoredChunk(chunk=chunk, score=1.0))
+                if added >= _OVERVIEW_CHUNKS_PER_DOCUMENT or len(scored) >= _OVERVIEW_CHUNK_LIMIT:
+                    break
             if len(scored) >= _OVERVIEW_CHUNK_LIMIT:
                 break
 
@@ -255,6 +273,8 @@ def resolve_turn_evidence(session: ChatSession, plan: StudyTurnPlan) -> TurnEvid
         if turn_evidence:
             return turn_evidence
     if plan.retrieval_query:
+        if plan.action is StudyAction.PRESENT and _is_overview_query(plan.retrieval_query):
+            return build_turn_evidence_from_overview(session)
         return build_turn_evidence_from_query(session, plan.retrieval_query)
     return None
 

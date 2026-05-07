@@ -492,6 +492,7 @@ class TestHelperFunctions:
     @patch("hephaistos.chat.evidence.load_or_build")
     def testensure_rag_index_cached(self, mock_load: MagicMock) -> None:
         mock_index = MagicMock()
+        mock_index.is_stale.return_value = False
         mock_load.return_value = mock_index
         session = _make_study_session()
         # First call loads
@@ -499,6 +500,21 @@ class TestHelperFunctions:
         # Second call should use cache
         ensure_rag_index(session)
         mock_load.assert_called_once()
+
+    @patch("hephaistos.chat.evidence.load_or_build")
+    def testensure_rag_index_reloads_stale_cached_index(self, mock_load: MagicMock) -> None:
+        stale_index = MagicMock()
+        stale_index.is_stale.return_value = True
+        fresh_index = MagicMock()
+        fresh_index.is_stale.return_value = False
+        mock_load.return_value = fresh_index
+        session = _make_study_session()
+        session.rag_index = stale_index
+
+        result = ensure_rag_index(session)
+
+        assert result is fresh_index
+        mock_load.assert_called_once_with(session.armory_path)
 
     @patch("hephaistos.chat.evidence.ContextBudget")
     def testadaptive_rag_budget_minimum(self, mock_budget_cls: MagicMock) -> None:
@@ -596,14 +612,23 @@ class TestHelperFunctions:
         assert result is None
 
     @patch("hephaistos.chat.evidence.ensure_rag_index")
-    def testbuild_turn_evidence_from_overview_uses_first_chunk_per_document(
+    def testbuild_turn_evidence_from_overview_uses_first_chunks_per_document(
         self,
         mock_ensure: MagicMock,
     ) -> None:
         doc1 = MagicMock()
-        doc1.chunks = [_make_chunk("materials/a.md", 0)]
+        doc1.chunks = [
+            _make_chunk("materials/a.md", 0),
+            _make_chunk("materials/a.md", 1),
+            _make_chunk("materials/a.md", 2),
+            _make_chunk("materials/a.md", 3),
+        ]
         doc2 = MagicMock()
-        doc2.chunks = [_make_chunk("materials/b.md", 0)]
+        doc2.chunks = [
+            _make_chunk("materials/b.md", 0),
+            _make_chunk("materials/b.md", 1),
+            _make_chunk("materials/b.md", 2),
+        ]
         mock_index = MagicMock()
         mock_index.documents = [doc1, doc2]
         mock_index.all_chunks = doc1.chunks + doc2.chunks
@@ -613,7 +638,14 @@ class TestHelperFunctions:
         result = build_turn_evidence_from_overview(session)
 
         assert result is not None
-        assert evidence_refs(result) == ["materials/a.md#chunk=0", "materials/b.md#chunk=0"]
+        assert evidence_refs(result) == [
+            "materials/a.md#chunk=0",
+            "materials/a.md#chunk=1",
+            "materials/a.md#chunk=2",
+            "materials/b.md#chunk=0",
+            "materials/b.md#chunk=1",
+            "materials/b.md#chunk=2",
+        ]
 
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
@@ -647,6 +679,27 @@ class TestHelperFunctions:
             action=StudyAction.CALIBRATE,
             phase=StudyPhase.RECALL,
             prompt="calibrate",
+        )
+
+        session = _make_study_session()
+        result = resolve_turn_evidence(session, plan)
+
+        assert result is evidence
+        mock_overview.assert_called_once_with(session)
+        mock_query.assert_not_called()
+
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_overview")
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
+    def testresolve_turn_evidence_uses_overview_for_generic_material_summary(
+        self,
+        mock_query: MagicMock,
+        mock_overview: MagicMock,
+    ) -> None:
+        evidence = _make_turn_evidence(_make_evidence_chunk())
+        mock_overview.return_value = evidence
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
         )
 
         session = _make_study_session()

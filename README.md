@@ -41,6 +41,9 @@ Upgrade later with:
 uv tool upgrade hephaistos
 ```
 
+You can also run `heph update` to see the correct update command for the
+active executable.
+
 Or install the latest main branch directly from GitHub:
 
 ```bash
@@ -212,6 +215,7 @@ heph materials list <path>       List study material files.
 heph materials count <path>      Count study material files.
 heph materials index <path>      Build or refresh the RAG index.
 heph index [path]                Build or refresh the materials index; defaults to the current armory.
+heph update                      Show how to update the active Hephaistos install.
 heph chat resume <path> <id>     Resume an existing chat session.
 heph chat ask <path> [prompt]    Ask one question without opening the TUI.
 heph chat list <path>            List chat sessions in an armory.
