@@ -373,6 +373,28 @@ class TestTurnOrchestratorStudy:
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_buffered_study_turn_yields_fallback_when_model_is_empty(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(action=StudyAction.ASSESS, buffer_response=True)
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(_make_evidence_chunk())
+        mock_iter_agent.return_value = iter([])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("test input"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == ["I could not generate a grounded assessment. Please try again."]
+        assert orch.last_reply == "I could not generate a grounded assessment. Please try again."
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
     def test_study_refuses_outside_knowledge_when_materials_are_unindexed(
         self,
         mock_plan_turn: MagicMock,

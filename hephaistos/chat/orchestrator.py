@@ -291,6 +291,24 @@ class TurnOrchestrator:
         if last_reply_parts:
             self.last_reply = "".join(last_reply_parts)
 
+        if plan.buffer_response and not raw_reply:
+            fallback_reply = "I could not generate a grounded assessment. Please try again."
+            session.study_state, final_reply = apply_turn_result(
+                original_study_state,
+                plan,
+                fallback_reply,
+                _evidence_refs(resolved.turn_evidence),
+            )
+            self.last_reply = final_reply
+            if final_reply and (
+                not session.conversation.messages
+                or session.conversation.messages[-1].role != "assistant"
+            ):
+                session.conversation.add("assistant", final_reply)
+            if final_reply:
+                yield AssistantDeltaEvent(final_reply)
+            return
+
         if raw_reply:
             session.study_state, final_reply = apply_turn_result(
                 original_study_state,

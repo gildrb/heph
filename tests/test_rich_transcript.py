@@ -55,8 +55,8 @@ def test_enrich_reply_appends_evidence_panel() -> None:
     assert "[E1]" in result.markdown_text
     assert "evidence" in result.markdown_text
     assert "algorithms.md" in result.markdown_text
-    assert "0.85" in result.markdown_text
-    assert "Binary search is O(log n)" in result.markdown_text
+    assert "chunk 0" in result.markdown_text
+    assert "Binary search is O(log n)" not in result.markdown_text
 
 
 def test_enrich_reply_with_multiple_evidence_chunks() -> None:
@@ -127,10 +127,33 @@ def test_evidence_summary_text_with_multiple_sources() -> None:
     assert "2 source(s)" in summary
 
 
-def test_evidence_panel_truncates_long_content() -> None:
+def test_evidence_panel_omits_chunk_preview_content() -> None:
     long_text = "A" * 500
     evidence = _make_evidence(("E1", "source/long.md", 0, 0.5, long_text))
     result = enrich_reply("See [E1].", evidence)
 
-    assert "..." in result.markdown_text
-    assert len(result.markdown_text) < len(long_text) + 500
+    assert "long.md chunk 0" in result.markdown_text
+    assert long_text not in result.markdown_text
+
+
+def test_enrich_reply_formats_common_latex_inline_math() -> None:
+    evidence = _make_evidence(("E1", "source/math.md", 0, 0.5, "math"))
+    result = enrich_reply(
+        r"Every $N\ge 2$ has examples $24 = 2^3\cdot3$ [E1].",
+        evidence,
+    )
+
+    assert r"$N\ge 2$" not in result.markdown_text
+    assert "N≥ 2" in result.markdown_text
+    assert "2³·3" in result.markdown_text
+
+
+def test_evidence_footer_shows_only_cited_evidence_when_available() -> None:
+    evidence = _make_evidence(
+        ("E1", "source/a.md", 0, 0.5, "a"),
+        ("E2", "source/b.md", 1, 0.5, "b"),
+    )
+    result = enrich_reply("See [E2].", evidence)
+
+    assert "E2: b.md chunk 1" in result.markdown_text
+    assert "E1: a.md chunk 0" not in result.markdown_text
