@@ -23,20 +23,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, cast
-
-from openai import (
-    APIConnectionError,
-    APITimeoutError,
-    AuthenticationError,
-    InternalServerError,
-    OpenAI,
-    PermissionDeniedError,
-    RateLimitError,
-    Stream,
-)
-from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
-from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
+from typing import TYPE_CHECKING, Protocol, cast
 
 from hephaistos._types import is_string_mapping
 from hephaistos.diagnostics.crashes import get_meter, get_tracer
@@ -47,6 +34,11 @@ from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.registry import get_registry as get_provider_registry
 from hephaistos.runtime._api_types import ApiMessage, ToolCallDelta, UsagePayload
 from hephaistos.runtime.resilience import CircuitBreaker
+
+if TYPE_CHECKING:
+    from openai import OpenAI, Stream
+    from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
+    from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 
 
 class _SpanProtocol(Protocol):
@@ -172,6 +164,13 @@ _retryable_types_cache = _RetryableTypesCache()
 def _get_retryable_types() -> tuple[type[Exception], ...]:
     retryable_types = _retryable_types_cache.value
     if retryable_types is None:
+        from openai import (
+            APIConnectionError,
+            APITimeoutError,
+            InternalServerError,
+            RateLimitError,
+        )
+
         retryable_types = (
             APIConnectionError,
             APITimeoutError,
@@ -292,6 +291,8 @@ def _clean_provider_detail(detail: str) -> str:
 
 def _is_account_setup_error(exc: Exception) -> bool:
     """Return True when retrying cannot fix the provider/account state."""
+    from openai import AuthenticationError, PermissionDeniedError, RateLimitError
+
     if isinstance(exc, AuthenticationError | PermissionDeniedError):
         return True
     if not isinstance(exc, RateLimitError):
@@ -307,6 +308,8 @@ def _is_account_setup_error(exc: Exception) -> bool:
 
 def _is_provider_capacity_error(exc: Exception) -> bool:
     """Return True when an upstream free/shared provider is temporarily saturated."""
+    from openai import RateLimitError
+
     if not isinstance(exc, RateLimitError):
         return False
     message, code = _provider_error_fields(exc)
@@ -353,6 +356,8 @@ def _log_error_summary(exc: Exception) -> str:
 
 def build_client(config: ChatConfig) -> OpenAI:
     """Create an OpenAI client from the given config."""
+    from openai import OpenAI
+
     if not config.base_url:
         raise EngineError("No model source configured. Use /login, then /models.")
     if not config.model:

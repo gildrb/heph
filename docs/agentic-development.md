@@ -21,7 +21,7 @@ Hephaistos keeps shared, repo-level agent context in a single vendor-neutral dir
 - `AGENTS.md` and `docs/architecture.md` are the authoritative agent-facing surfaces.
 - Repo-local skill files should stay thin and point back to those repo-native docs.
 - When CLI or privacy/diagnostics docs change, run `uv run python -m scripts.sync_docs`.
-- Before opening a PR, run `uv run python -m scripts.check_repo_policies` to catch explicit `Any` usage and deferred imports.
+- Before opening a PR, run `uv run python -m scripts.check_repo_policies` to catch explicit `Any` usage and unapproved deferred imports.
 
 ## Agent Co-Authorship
 

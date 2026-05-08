@@ -15,9 +15,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import replace
-from typing import TypedDict
-
-from openai.types.chat import ChatCompletion
+from typing import TYPE_CHECKING, TypedDict
 
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import Timer, get_logger
@@ -29,6 +27,9 @@ from hephaistos.runtime import (
     build_client,
     to_chat_completion_messages,
 )
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletion
 
 _log = get_logger("memory.extract")
 _EXTRACTION_MODEL_ENV = "HEPHAISTOS_EXTRACTION_MODEL"

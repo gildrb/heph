@@ -18,8 +18,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-
-from openai.types.chat import ChatCompletion
+from typing import TYPE_CHECKING
 
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import get_logger
@@ -31,6 +30,9 @@ from hephaistos.runtime import (
     build_client,
     to_chat_completion_messages,
 )
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletion
 
 _log = get_logger("agent.compact")
 

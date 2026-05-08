@@ -70,6 +70,78 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
             "importlib.import_module",
         }
     ),
+    "hephaistos/rag/chunker.py": frozenset(
+        {
+            "importlib.import_module",
+        }
+    ),
+    "hephaistos/rag/optional_backends.py": frozenset(
+        {
+            "importlib.import_module",
+        }
+    ),
+}
+ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
+    "hephaistos/agent/__init__.py": frozenset(
+        {
+            "hephaistos.agent.dispatch",
+            "hephaistos.agent.prompt",
+            "hephaistos.agent.tool_execution",
+            "hephaistos.agent.tools",
+        }
+    ),
+    "hephaistos/chat/session.py": frozenset(
+        {
+            "hephaistos.chat.events",
+            "hephaistos.chat.orchestrator",
+        }
+    ),
+    "hephaistos/memory/supermemory.py": frozenset(
+        {
+            "supermemory",
+        }
+    ),
+    "hephaistos/runtime/engine.py": frozenset(
+        {
+            "openai",
+        }
+    ),
+    "hephaistos/terminal/input.py": frozenset(
+        {
+            "hephaistos.chat.session",
+            "hephaistos.runtime",
+        }
+    ),
+    "hephaistos/tui/__init__.py": frozenset(
+        {
+            "hephaistos.chat.cli",
+            "hephaistos.commands",
+            "hephaistos.shell.armory_actions",
+            "hephaistos.shell.lifecycle",
+            "hephaistos.terminal.input",
+        }
+    ),
+    "hephaistos/tui/slash_command.py": frozenset(
+        {
+            "hephaistos.commands",
+        }
+    ),
+    "hephaistos/tui/slash_completion.py": frozenset(
+        {
+            "hephaistos.agent.persona",
+        }
+    ),
+    "hephaistos/tui/status.py": frozenset(
+        {
+            "hephaistos.runtime",
+        }
+    ),
+    "hephaistos/tui/streaming.py": frozenset(
+        {
+            "hephaistos.chat.automation",
+            "hephaistos.runtime",
+        }
+    ),
 }
 
 
@@ -115,6 +187,12 @@ def _is_type_checking_guard(test: ast.expr) -> bool:
     return dotted in {"TYPE_CHECKING", "typing.TYPE_CHECKING"}
 
 
+def _module_is_allowed(module: str | None, allowed: frozenset[str]) -> bool:
+    if module is None:
+        return False
+    return any(module == item or module.startswith(f"{item}.") for item in allowed)
+
+
 class PolicyVisitor(ast.NodeVisitor):
     def __init__(self, rel_path: str) -> None:
         self.rel_path = rel_path
@@ -147,13 +225,21 @@ class PolicyVisitor(ast.NodeVisitor):
             return False
         return True
 
+    def _deferred_import_is_allowed(self, modules: list[str | None]) -> bool:
+        allowed = ALLOWED_DEFERRED_IMPORT_MODULES.get(self.rel_path, frozenset())
+        return bool(allowed) and all(_module_is_allowed(module, allowed) for module in modules)
+
     def visit_Import(self, node: ast.Import) -> None:
-        if not self._import_context_is_allowed():
+        modules = [alias.name for alias in node.names]
+        if not self._import_context_is_allowed() and not self._deferred_import_is_allowed(modules):
             self._add(node, "deferred imports are forbidden outside module scope")
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        if not self._import_context_is_allowed():
+        module = "." * node.level + (node.module or "")
+        if not self._import_context_is_allowed() and not self._deferred_import_is_allowed(
+            [module]
+        ):
             self._add(node, "deferred imports are forbidden outside module scope")
         if node.module in {"typing", "typing_extensions"}:
             for alias in node.names:

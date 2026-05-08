@@ -12,6 +12,7 @@ from hephaistos.agent.compact import (
     estimate_messages_tokens,
     micro_compact,
 )
+from hephaistos.agent.steering import Steering
 from hephaistos.agent.tool_execution import (
     ToolCall,
     ToolCallFunction,
@@ -51,6 +52,7 @@ _log = get_logger("agent.dispatch")
 
 _MAX_TURNS = 20
 _ToolCallFunction = ToolCallFunction
+SteeringQueue = Steering
 
 
 def _content_to_text(content: str | None | list[ContentPart]) -> str:
@@ -59,35 +61,6 @@ def _content_to_text(content: str | None | list[ContentPart]) -> str:
     if content is None:
         return ""
     return "".join(part.get("text", "") or part.get("content", "") for part in content)
-
-
-class SteeringQueue:
-    """Thread-safe queue for steering messages typed while the agent works."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._messages: list[str] = []
-
-    def enqueue(self, message: str) -> None:
-        if not message.strip():
-            return
-        with self._lock:
-            self._messages.append(message)
-        _log.info(
-            "steering message queued",
-            extra={
-                "fields": {
-                    "queue_len": len(self._messages),
-                    "message_len": len(message),
-                }
-            },
-        )
-
-    def drain(self) -> list[str]:
-        with self._lock:
-            msgs = self._messages[:]
-            self._messages.clear()
-        return msgs
 
 
 _merge_tool_call_deltas = merge_tool_call_deltas
@@ -159,7 +132,7 @@ def _record_usage(
 
 
 def _drain_steering_events(
-    steering: SteeringQueue | None,
+    steering: Steering | None,
     api_messages: list[ApiMessage],
     conversation: Conversation,
     *,
@@ -187,7 +160,7 @@ def iter_agent_events(
     max_turns: int = _MAX_TURNS,
     retry: RetryConfig | None = None,
     usage: SessionUsage | None = None,
-    steering: SteeringQueue | None = None,
+    steering: Steering | None = None,
     turn_evidence: TurnEvidence | None = None,
     extra_system_prompt: str | None = None,
     tool_schemas: list[dict[str, object]] | None = None,
@@ -462,7 +435,7 @@ def agent_loop(
     max_turns: int = _MAX_TURNS,
     retry: RetryConfig | None = None,
     usage: SessionUsage | None = None,
-    steering: SteeringQueue | None = None,
+    steering: Steering | None = None,
     turn_evidence: TurnEvidence | None = None,
     extra_system_prompt: str | None = None,
     tool_schemas: list[dict[str, object]] | None = None,

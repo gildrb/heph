@@ -71,6 +71,8 @@ if TYPE_CHECKING:
     from rich.text import Text
 
     from hephaistos.chat.session import ChatSession
+    from hephaistos.commands import CommandRegistry
+    from hephaistos.runtime import ChatConfig
 
 try:
     from rich.markdown import Markdown
@@ -105,16 +107,48 @@ except ImportError:
     Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 
-def get_registry() -> object:
+def get_registry() -> CommandRegistry:
     from hephaistos.commands import get_registry as commands_get_registry
 
     return commands_get_registry()
 
 
 def start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatSession:
-    from hephaistos.shell.armory_actions import start_fresh_session as shell_start_fresh_session
+    from hephaistos.shell.armory_actions import (
+        start_fresh_session as shell_start_fresh_session,
+    )
 
     return shell_start_fresh_session(session, armory_path)
+
+
+def create_startup_session(config: ChatConfig) -> ChatSession:
+    from hephaistos.shell.lifecycle import (
+        create_startup_session as shell_create_startup_session,
+    )
+
+    return shell_create_startup_session(config)
+
+
+def get_history_path(session: ChatSession) -> Path:
+    from hephaistos.shell.lifecycle import (
+        get_history_path as shell_get_history_path,
+    )
+
+    return shell_get_history_path(session)
+
+
+def save_on_exit(session: ChatSession) -> None:
+    from hephaistos.shell.lifecycle import save_on_exit as shell_save_on_exit
+
+    shell_save_on_exit(session)
+
+
+def resolve_armory_session(path: str) -> ChatSession:
+    from hephaistos.chat.cli import (
+        resolve_armory_session as chat_resolve_armory_session,
+    )
+
+    return chat_resolve_armory_session(path)
 
 
 _tui_dependency_message = tui_dependency_message
@@ -359,6 +393,14 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                 yield w.rich_log(id="transcript", markup=True, wrap=True, highlight=True)
                 with w.vertical(id="armory-inline"):  # type: ignore[reportCallIssue]
                     yield w.static("", id="armory-header")
+                    yield w.static("", id="armory-breadcrumbs")
+                    yield w.static("", id="armory-mode-hint")
+                    yield w.static("", id="armory-pane-hint")
+                    yield w.static("", id="armory-count-hint")
+                    with w.horizontal(id="armory-columns-inline-labels"):  # type: ignore[reportCallIssue]
+                        yield w.static("parents", id="armory-parent-label")
+                        yield w.static("entries", id="armory-current-label")
+                        yield w.static("preview", id="armory-preview-label")
                     with w.horizontal(id="armory-columns-inline"):  # type: ignore[reportCallIssue]
                         yield w.option_list(id="armory-parent-inline")
                         yield w.option_list(id="armory-current-inline")
@@ -1040,7 +1082,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
 
 def run_tui(session: ChatSession | None = None) -> None:
     """Run the command-first Textual shell."""
-    from hephaistos.shell.lifecycle import create_startup_session, get_history_path, save_on_exit
     from hephaistos.terminal.input import handle_input
 
     if (
@@ -1124,7 +1165,6 @@ def run_tui_for_path(path: Path | None) -> None:
     if path is None:
         run_tui()
         return
-    from hephaistos.chat.cli import resolve_armory_session
 
     session = resolve_armory_session(str(path))
     run_tui(session)

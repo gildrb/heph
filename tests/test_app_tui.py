@@ -15,7 +15,7 @@ from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
 from hephaistos.tui import keymap
-from hephaistos.tui.armory_browser import armory_detail, build_entries
+from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
 
 if TYPE_CHECKING:
     from textual.app import App as TextualApp
@@ -1078,9 +1078,13 @@ def test_armory_inline_composer_filters_without_chat_transcript(tmp_path: Path) 
     asyncio.run(check_filter())
 
 
-def test_armory_inline_new_armory_uses_composer_without_chat_transcript(tmp_path: Path) -> None:
+def test_armory_inline_new_armory_uses_composer_without_chat_transcript(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephaistosTui(
         _plain_session(),
@@ -1103,9 +1107,46 @@ def test_armory_inline_new_armory_uses_composer_without_chat_transcript(tmp_path
     asyncio.run(check_create())
 
 
-def test_armory_inline_create_rejects_existing_folder(tmp_path: Path) -> None:
+def test_armory_inline_create_starts_in_default_armory_home(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
+
+    default_home = Path.home() / ".armory"
+    monkeypatch.delenv("HEPHAISTOS_ARMORY_HOME", raising=False)
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_default_home() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_armory_inline("create")  # type: ignore[reportPrivateUsage]
+            assert app._armory_current == default_home.resolve()  # type: ignore[reportPrivateUsage]
+
+    asyncio.run(check_default_home())
+
+
+def test_default_armory_home_honors_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path / ".armory-home"))
+    assert default_armory_home() == (tmp_path / ".armory-home").resolve()
+
+
+def test_default_armory_home_falls_back_to_dot_armory(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HEPHAISTOS_ARMORY_HOME", raising=False)
+    assert default_armory_home() == (Path.home() / ".armory").resolve()
+
+
+def test_armory_inline_create_rejects_existing_folder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
 
     (tmp_path / "existing").mkdir()
     app = tui.HephaistosTui(
@@ -1131,9 +1172,13 @@ def test_armory_inline_create_rejects_existing_folder(tmp_path: Path) -> None:
     asyncio.run(check_reject_existing())
 
 
-def test_armory_inline_create_rejects_path_escape(tmp_path: Path) -> None:
+def test_armory_inline_create_rejects_path_escape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephaistosTui(
         _plain_session(),
@@ -1187,9 +1232,13 @@ def test_armory_inline_escape_clears_filter_then_exits(tmp_path: Path) -> None:
     asyncio.run(check_escape_flow())
 
 
-def test_armory_inline_escape_cancels_create_then_exits(tmp_path: Path) -> None:
+def test_armory_inline_escape_cancels_create_then_exits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
 
     app = tui.HephaistosTui(
         _plain_session(),
@@ -1348,8 +1397,12 @@ def test_armory_inline_header_shows_filter_and_no_matches(tmp_path: Path) -> Non
             composer.value = "no-such-folder"
             await pilot.pause()
             header = app.query_one("#armory-header", tui.Static)  # type: ignore[reportPrivateUsage]
+            focus_hint = app.query_one("#armory-pane-hint", tui.Static)  # type: ignore[reportPrivateUsage]
+            mode_hint = app.query_one("#armory-mode-hint", tui.Static)  # type: ignore[reportPrivateUsage]
             preview = app.query_one("#armory-preview-inline", tui.Static)  # type: ignore[reportPrivateUsage]
             assert "filter: no-such-folder" in str(header.render())  # type: ignore[reportUnknownMemberType]
+            assert "mode: browse" in str(mode_hint.render())  # type: ignore[reportUnknownMemberType]
+            assert "focus: input" in str(focus_hint.render())  # type: ignore[reportUnknownMemberType]
             assert "No matches" in str(preview.render())  # type: ignore[reportUnknownMemberType]
 
     asyncio.run(check_empty_filter())

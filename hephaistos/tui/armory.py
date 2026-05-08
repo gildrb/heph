@@ -14,6 +14,7 @@ from hephaistos.tui.armory_browser import (
     armory_detail,
     build_entries,
     build_parent_entries,
+    default_armory_home,
     file_detail,
     new_armory_path,
 )
@@ -47,6 +48,14 @@ def _armory_usage_message() -> str:
     return "Usage: /armory [open|create]\nBrowse, open, or create a local study armory."
 
 
+def _display_path(path: Path) -> str:
+    """Return a compact path label that keeps home-relative paths readable."""
+    try:
+        return f"~/{path.relative_to(Path.home())}"
+    except ValueError:
+        return str(path)
+
+
 class TuiArmoryMixin:
     def _handle_armory_browser(self, value: str) -> None:
         mode = _armory_command_mode(value)
@@ -59,7 +68,9 @@ class TuiArmoryMixin:
 
     def _open_armory_inline(self, mode: str) -> None:
         self._armory_inline_active = True
-        if self.session.armory_path is not None:
+        if mode == "create":
+            self._armory_current = default_armory_home()
+        elif self.session.armory_path is not None:
             self._armory_current = self.session.armory_path
         self._armory_filter = ""
         self._armory_mode = mode
@@ -107,14 +118,25 @@ class TuiArmoryMixin:
         )
         self._armory_parent_entries = build_parent_entries(self._armory_current)
         header = self.query_one("#armory-header", Static)
-        mode_hint = (
-            "new armory · enter create · esc cancel"
-            if self._armory_creating
-            else "arrows navigate · enter/right open · c choose · n new · esc close"
-        )
+        breadcrumbs = self.query_one("#armory-breadcrumbs", Static)
+        mode_hint = self.query_one("#armory-mode-hint", Static)
+        pane_hint = self.query_one("#armory-pane-hint", Static)
+
+        location = _display_path(self._armory_current)
         filter_hint = f" · filter: {self._armory_filter}" if self._armory_filter else ""
         count_hint = f" · {len(self._armory_entries)} item(s)"
-        header.update(f"armory · {self._armory_current}{filter_hint}{count_hint}\n{mode_hint}")
+        header.update(f"armory · {location}{filter_hint}{count_hint}")
+        breadcrumbs.update(f"where: {location}")
+
+        if self._armory_creating:
+            mode_hint.update("mode: create · enter create · esc cancel")
+        else:
+            mode_hint.update("mode: browse · enter/right open · c choose · n new · esc close")
+
+        focused = self._armory_focus_name()
+        pane_hint.update(f"focus: {focused}")
+        self.query_one("#armory-count-hint", Static).update(f"items{count_hint}{filter_hint}")
+
         parent = self.query_one("#armory-parent-inline", OptionList)
         parent.clear_options()
         for label, _path in self._armory_parent_entries:
@@ -126,6 +148,20 @@ class TuiArmoryMixin:
         if current.highlighted is None and self._armory_entries:
             current.highlighted = 0
         self._update_armory_preview()
+
+    def _armory_focus_name(self) -> str:
+        """Return which pane is focused for explicit navigation feedback."""
+        focused = self.focused
+        if focused is None:
+            return "none"
+        widget_id = getattr(focused, "id", None)
+        if widget_id == "armory-parent-inline":
+            return "parents"
+        if widget_id == "armory-current-inline":
+            return "entries"
+        if widget_id == "composer":
+            return "input"
+        return "preview"
 
     def _armory_selection_key(self) -> tuple[str, str] | None:
         entry = self._armory_highlighted_entry()
@@ -242,7 +278,8 @@ class TuiArmoryMixin:
         add_known_armory(armory_path)
         self._close_armory_inline()
         self._append_notice(f"Created armory '{armory_path.name}' at {armory_path}")
-        self._append_notice(f"Add study files to ~/.armories/{armory_path.name}/materials/")
+        display_root = _display_path(armory_path.parent)
+        self._append_notice(f"Add study files to {display_root}/{armory_path.name}/materials/")
 
     def _open_selected_armory(self, path: Path) -> None:
         try:
@@ -304,6 +341,7 @@ class TuiArmoryMixin:
                 self._armory_filter = ""
                 composer.value = ""
                 self._refresh_armory_inline()
+            self.query_one("#armory-parent-inline", OptionList).focus()
             event.prevent_default()
             event.stop()
             return True
@@ -314,6 +352,7 @@ class TuiArmoryMixin:
             self._armory_filter = ""
             self._armory_open_highlighted()
             self._refresh_armory_inline()
+            self.query_one("#armory-current-inline", OptionList).focus()
             event.prevent_default()
             event.stop()
             return True

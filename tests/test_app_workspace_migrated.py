@@ -244,14 +244,24 @@ class TestHandleInput:
         _new_session, should_continue = handle_input(session, "   ", history)
         assert should_continue is True
 
-    def test_streaming_enqueues_steering(self) -> None:
+    def test_streaming_sets_steering(self) -> None:
         session = self._make_session()
         history = InputHistory()
         _new_session, should_continue = handle_input(
             session, "steer this", history, streaming=True
         )
         assert should_continue is True
-        assert "steer this" in session.steering._messages  # type: ignore[reportPrivateUsage]
+        assert session.steering.drain() == ["steer this"]
+
+    def test_streaming_steering_keeps_latest_message(self) -> None:
+        session = self._make_session()
+        history = InputHistory()
+        handle_input(session, "older steering", history, streaming=True)
+        _new_session, should_continue = handle_input(
+            session, "latest steering", history, streaming=True
+        )
+        assert should_continue is True
+        assert session.steering.drain() == ["latest steering"]
 
     def test_shell_escape_adds_to_history(self) -> None:
         session = self._make_session()

@@ -64,6 +64,7 @@ _RECENT_PREFIX = "recent  "
 _MISSING_BADGE = "  missing"
 _PARENT_COLUMN_WIDTH = 24
 _PREVIEW_COLUMN_WIDTH = 38
+_DEFAULT_ARMORY_HOME_ENV = "HEPHAISTOS_ARMORY_HOME"
 
 _TEXT_PREVIEW_EXTENSIONS: frozenset[str] = frozenset(
     {
@@ -122,7 +123,7 @@ def _list_entries(path: Path, *, show_files: bool = False) -> list[Path]:
     """Return sorted child entries (dirs, and optionally files), skipping hidden."""
     try:
         entries = sorted(path.iterdir())
-    except PermissionError:
+    except OSError:
         return []
     result: list[Path] = []
     for e in entries:
@@ -175,14 +176,25 @@ def _is_writable_directory(path: Path) -> bool:
     return path.exists() and path.is_dir() and os.access(path, os.W_OK | os.X_OK)
 
 
+def default_armory_home() -> Path:
+    """Return the default parent directory used when creating new armories."""
+    configured = os.environ.get(_DEFAULT_ARMORY_HOME_ENV, "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path.home() / ".armory").resolve()
+
+
 def _creation_parent_error(path: Path) -> str | None:
     """Return a user-facing create error for *path*, or None when writable."""
-    if not path.exists():
-        return f"Cannot create an armory here because the folder no longer exists: {path}"
-    if not path.is_dir():
-        return f"Cannot create an armory here because this is not a folder: {path}"
-    if not _is_writable_directory(path):
-        return f"Cannot create an armory in a read-only folder: {path}"
+    if path.exists():
+        if not path.is_dir():
+            return f"Cannot create an armory here because this is not a folder: {path}"
+        if not _is_writable_directory(path):
+            return f"Cannot create an armory in a read-only folder: {path}"
+        return None
+    parent = path.parent
+    if parent == path or not _is_writable_directory(parent):
+        return f"Cannot create an armory here because this folder is not writable: {path}"
     return None
 
 
@@ -744,8 +756,8 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
                 "New armory\n\n"
                 "What module or topic are you studying for?\n"
                 "Type the name to create an armory.\n\n"
-                "Armories are saved locally in ~/.armories/\n"
-                "Add study materials to ~/.armories/<name>/materials/"
+                "Armories are saved locally in ~/.armory/\n"
+                "Add study materials to ~/.armory/<name>/materials/"
             )
             return
         if entry.path is None:

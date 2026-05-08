@@ -11,14 +11,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hephaistos.agent.dispatch import SteeringQueue
 from hephaistos.agent.persona import Persona, resolve_persona
 from hephaistos.agent.prompt import build_system_prompt
+from hephaistos.agent.steering import Steering
 from hephaistos.agent.tools import ToolRegistry, default_registry
 from hephaistos.armory.storage import normalize_path, read_marker, validate
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.events import render_turn_event
-from hephaistos.chat.orchestrator import TurnOrchestrator
 from hephaistos.chat.titles import derive_title as _derive_title
 from hephaistos.chat.usage import SessionUsage
 from hephaistos.diagnostics.crashes import set_session_context
@@ -59,7 +57,7 @@ class ChatSession:
     )
     usage: SessionUsage = field(default_factory=SessionUsage)
     trace: TraceWriter = field(init=False, repr=False)
-    steering: SteeringQueue = field(default_factory=SteeringQueue, init=False, repr=False)
+    steering: Steering = field(default_factory=Steering, init=False, repr=False)
     study_state: StudyState = field(default_factory=StudyState)
     persona: Persona = field(default_factory=lambda: resolve_persona(None))
 
@@ -387,6 +385,9 @@ def send_user_message(
     being written to ``sys.stdout``. This keeps backward compatibility with
     callers that still rely on stdout behaviour.
     """
+    from hephaistos.chat.events import render_turn_event
+    from hephaistos.chat.orchestrator import TurnOrchestrator
+
     session.mark_activity()
     orchestrator = TurnOrchestrator(session)
     printed_prefix = False

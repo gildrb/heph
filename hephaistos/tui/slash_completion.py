@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -48,7 +49,7 @@ class SlashCompletionEngine:
     def candidates(
         self,
         text_before_cursor: str,
-        commands: list[CommandSuggestion],
+        commands: Sequence[CommandSuggestion],
     ) -> list[CompletionCandidate]:
         stripped = text_before_cursor.lstrip()
 
@@ -89,7 +90,7 @@ class SlashCompletionEngine:
     def suggestion(
         self,
         value: str,
-        commands: list[CommandSuggestion],
+        commands: Sequence[CommandSuggestion],
     ) -> str | None:
         """Return the full suggested input value for Textual's ghost completion."""
         candidates = self.candidates(value, commands)
@@ -106,7 +107,7 @@ class SlashCompletionEngine:
         self,
         prefix: str,
         body: str,
-        commands: list[CommandSuggestion],
+        commands: Sequence[CommandSuggestion],
     ) -> list[CompletionCandidate]:
         candidates: list[CompletionCandidate] = []
         for command in commands:
@@ -128,7 +129,7 @@ class SlashCompletionEngine:
         self,
         prefix: str,
         body: str,
-        commands: list[CommandSuggestion],
+        commands: Sequence[CommandSuggestion],
     ) -> list[CompletionCandidate]:
         ranked: list[tuple[float, int, CompletionCandidate]] = []
         for index, command in enumerate(commands):

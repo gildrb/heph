@@ -88,10 +88,55 @@ Screen {{
     display: block;
 }}
 #armory-header {{
-    height: 2;
-    color: {p.dim};
+    height: 1;
+    color: {p.ember};
     background: {bg};
     text-style: bold;
+}}
+#armory-breadcrumbs {{
+    height: 1;
+    color: {p.dim};
+    background: {bg};
+}}
+#armory-mode-hint {{
+    height: 1;
+    color: {p.dim};
+    background: {bg};
+}}
+#armory-pane-hint {{
+    height: 1;
+    color: {p.dim};
+    background: {bg};
+}}
+#armory-count-hint {{
+    height: 1;
+    color: {p.dim};
+    background: {bg};
+}}
+#armory-columns-inline-labels {{
+    layout: horizontal;
+    height: 1;
+    width: 100%;
+}}
+#armory-parent-label {{
+    width: 26;
+    padding: 0 1 0 0;
+    border-right: solid {p.stone};
+    color: {p.dim};
+    background: {bg};
+}}
+#armory-current-label {{
+    width: 1fr;
+    padding: 0 1;
+    color: {p.dim};
+    background: {bg};
+}}
+#armory-preview-label {{
+    width: 40;
+    padding: 0 1;
+    border-left: solid {p.stone};
+    color: {p.dim};
+    background: {bg};
 }}
 #armory-columns-inline {{
     layout: horizontal;
