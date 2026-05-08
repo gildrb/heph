@@ -259,6 +259,7 @@ def _transparent_option_list_class() -> type:
 _slash_suggestion = slash_suggestion
 
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
+_SIDEBAR_MIN_WINDOW_WIDTH = 120
 
 
 def _completion_menu_scroll_y(
@@ -343,6 +344,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self._materials_entries: list[str] = []
         self._sidebar_width_visible = True
         self._sidebar_actual_visible: bool | None = None
+        self._transcript_reflow_pending = False
         self._inline_flow = _InlineFlow()
 
     def get_default_screen(self) -> Screen:
@@ -353,6 +355,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         with w.horizontal(id="main-layout"):  # type: ignore[reportCallIssue]
             with w.vertical(id="shell"):  # type: ignore[reportCallIssue]
                 yield w.static(_status_text(self.session), id="status")
+                yield w.static("", id="transcript-spacer")
                 yield w.rich_log(id="transcript", markup=True, wrap=True, highlight=True)
                 with w.vertical(id="armory-inline"):  # type: ignore[reportCallIssue]
                     yield w.static("", id="armory-header")
@@ -385,6 +388,11 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
     def on_mount(self) -> None:
         self.title = "Hephaistos"
         self.sub_title = "command-first study shell"
+        visible = self.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
+        self._sidebar_width_visible = visible
+        self._set_sidebar_visible(
+            visible and not self._armory_inline_active and not self._materials_inline_active
+        )
         for index, entry in enumerate(self.state.transcript):
             if index > 0:
                 self._write_transcript_gap()
@@ -396,6 +404,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if self.session.armory_path is None and not self.state.armory_home_shown:
             self.state.armory_home_shown = True
             self._append_armory_home()
+        self._schedule_transcript_reflow()
         self._prefetch_model_catalogs()
         self.set_interval(1.0, self._tick_session_duration)
 
@@ -429,10 +438,11 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             self.set_focus(composer)
 
     def on_resize(self, event: events.Resize) -> None:
-        visible = event.size.width >= 100
+        visible = event.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
         self._sidebar_width_visible = visible
         target = visible and not self._armory_inline_active and not self._materials_inline_active
         self._set_sidebar_visible(target)
+        self._schedule_transcript_reflow()
 
     def _set_sidebar_visible(self, visible: bool) -> None:
         if self._sidebar_actual_visible is visible:
@@ -441,6 +451,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         display = "block" if visible else "none"
         self.query_one("#info-panel", Static).styles.display = display
         self.query_one("#info-separator", Static).styles.display = display
+        self._schedule_transcript_reflow()
 
     def on_key(self, event: events.Key) -> None:
         composer = self.query_one("#composer", Input)
@@ -663,6 +674,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self._materials_filter = args.strip()
         self._materials_inline_active = True
         self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
+        self.query_one("#transcript-spacer", Static).add_class("hidden-for-armory")
         self.query_one("#materials-inline").add_class("active")
         self._set_sidebar_visible(False)
         composer = self.query_one("#composer", Input)
@@ -678,8 +690,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self._materials_inline_active = False
         self._materials_filter = ""
         self.query_one("#transcript", RichLog).remove_class("hidden-for-armory")
+        self.query_one("#transcript-spacer", Static).remove_class("hidden-for-armory")
         self.query_one("#materials-inline").remove_class("active")
         self._set_sidebar_visible(self._sidebar_width_visible)
+        self._schedule_transcript_reflow()
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = 'Ask anything... "What do I need to study next?"'

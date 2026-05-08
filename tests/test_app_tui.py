@@ -162,6 +162,10 @@ def test_tui_css_has_info_panel_layout() -> None:
     assert "#info-panel" in css
     assert "#info-separator" in css
     assert "#shell" in css
+    shell_start = css.index("#shell {")
+    shell_end = css.index("}", shell_start)
+    shell_block = css[shell_start:shell_end]
+    assert "min-width: 0;" in shell_block
 
 
 def test_tui_css_makes_info_separator_transparent() -> None:
@@ -172,6 +176,15 @@ def test_tui_css_makes_info_separator_transparent() -> None:
 
     assert "background: transparent;" in separator_block
     assert "color: transparent;" in separator_block
+
+
+def test_tui_css_collapses_info_separator_gap() -> None:
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
+    separator_start = css.index("#info-separator {")
+    separator_end = css.index("}", separator_start)
+    separator_block = css[separator_start:separator_end]
+
+    assert "width: 0;" in separator_block
 
 
 def test_tui_css_materials_highlight_uses_state_colours() -> None:
@@ -309,6 +322,30 @@ def test_tui_layout_blanks_do_not_paint_black_background() -> None:
                     assert all("on #000000" not in str(segment.style) for segment in segments)
 
     asyncio.run(check_layout_blanks())
+
+
+def test_info_separator_segments_do_not_paint_black_background() -> None:
+    if tui.Input is None or tui.Static is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_separator_segments() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.pause()
+            separator = app.query_one("#info-separator", tui.Static)  # type: ignore[reportPrivateUsage]
+            for line_number in range(separator.size.height):  # type: ignore[reportUnknownMemberType]
+                strip = separator.render_line(line_number)
+                assert all(
+                    segment.style is None or segment.style.bgcolor is None for segment in strip
+                )
+
+    asyncio.run(check_separator_segments())
 
 
 def test_tui_status_short_rows_are_padded_transparently() -> None:
@@ -936,6 +973,50 @@ def test_materials_inline_toggles_rag_sources() -> None:
             assert app.query_one("#info-panel").styles.display == "block"
 
     asyncio.run(check_materials_toggle())
+
+
+def test_transcript_reflows_when_resize_crosses_sidebar_threshold() -> None:
+    if tui.Input is None or tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.armory_path = Path.home()
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    long_line = (
+        "The PDF covers the fundamentals of number theory, explaining residue classes modulo n "
+        "and the ring structure of Z/nZ, criteria for multiplicative inverses via coprimality. "
+    ) * 3
+
+    async def check_reflow() -> None:
+        async with typed_app.run_test(size=(119, 24)) as pilot:
+            await pilot.pause()
+            assert app.query_one("#info-panel").styles.display == "none"
+
+            app._append_plain(long_line)  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+            log = app.query_one("#transcript", tui.RichLog)  # type: ignore[reportPrivateUsage]
+            width_before = log.size.width
+            widest_before = max((line.cell_length for line in log.lines), default=0)
+            assert widest_before <= width_before
+
+            await pilot.resize_terminal(120, 24)
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert app.query_one("#info-panel").styles.display == "block"
+            width_after = log.size.width
+            widest_after = max((line.cell_length for line in log.lines), default=0)
+            assert width_after < width_before
+            assert widest_after <= width_after
+            assert widest_after < widest_before
+
+    asyncio.run(check_reflow())
 
 
 def test_help_executes_inline_without_restarting_tui(

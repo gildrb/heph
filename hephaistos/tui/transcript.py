@@ -10,15 +10,18 @@ try:
     from rich.markdown import Markdown
     from rich.style import Style as _RichStyle
     from rich.text import Text as _RichText
+    from textual.css.query import NoMatches
     from textual.widgets import RichLog, Static
 except ImportError:
     Markdown = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     _RichStyle = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     _RichText = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    NoMatches = Exception  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 _TRANSCRIPT_ENTRY_GAP = ""
+_TRANSCRIPT_HORIZONTAL_PADDING = 4
 
 
 class TuiTranscriptMixin:
@@ -26,7 +29,7 @@ class TuiTranscriptMixin:
         if self._transcript_reflow_pending:
             return
         self._transcript_reflow_pending = True
-        self.call_after_refresh(self._run_scheduled_transcript_reflow)
+        self.set_timer(0.01, self._run_scheduled_transcript_reflow)
 
     def _run_scheduled_transcript_reflow(self) -> None:
         self._transcript_reflow_pending = False
@@ -47,31 +50,42 @@ class TuiTranscriptMixin:
                 self._write_transcript_gap()
             self._write_transcript_entry(entry)
 
+    def _write_transcript_renderable(self, log: RichLog, renderable: object) -> None:
+        if log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
+            log.write(renderable)
+            return
+        width = max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING)
+        log.write(renderable, width=width)
+
     def _write_transcript_entry(self, entry: object) -> None:
         log = self.query_one("#transcript", RichLog)
         if entry.kind == "markdown":
-            log.write(Markdown(entry.content))
+            self._write_transcript_renderable(log, Markdown(entry.content))
         elif entry.kind == "user":
             p = current_palette()
-            log.write(_RichText.styled(entry.content, _RichStyle(color=p.ember, bold=True)))
+            self._write_transcript_renderable(
+                log,
+                _RichText.styled(entry.content, _RichStyle(color=p.ember, bold=True)),
+            )
         elif entry.kind == "ansi":
             if _RichText is None:
-                log.write(entry.content)
+                self._write_transcript_renderable(log, entry.content)
                 return
-            log.write(_RichText.from_ansi(entry.content))
+            self._write_transcript_renderable(log, _RichText.from_ansi(entry.content))
         elif entry.kind == "notice":
             if _RichText is None:
-                log.write(entry.content)
+                self._write_transcript_renderable(log, entry.content)
                 return
             p = current_palette()
             rich_text = _RichText.from_ansi(entry.content)
             rich_text.stylize(_RichStyle(color=p.dim))
-            log.write(rich_text)
+            self._write_transcript_renderable(log, rich_text)
         else:
-            log.write(entry.content)
+            self._write_transcript_renderable(log, entry.content)
 
     def _write_transcript_gap(self) -> None:
-        self.query_one("#transcript", RichLog).write(_TRANSCRIPT_ENTRY_GAP)
+        log = self.query_one("#transcript", RichLog)
+        self._write_transcript_renderable(log, _TRANSCRIPT_ENTRY_GAP)
 
     def _append_entry(self, content: str, kind: str = "plain") -> None:
         if self.state.transcript:
@@ -159,7 +173,10 @@ class TuiTranscriptMixin:
 
     def _update_info_panel(self) -> None:
         """Refresh the info panel to reflect current state."""
-        panel = self.query_one("#info-panel", Static)
+        try:
+            panel = self.query_one("#info-panel", Static)
+        except NoMatches:
+            return
         if self._focused_msg_index is not None:
             entries = [
                 e

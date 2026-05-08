@@ -37,8 +37,17 @@ Screen {{
     layout: vertical;
     height: 100%;
     width: 1fr;
+    min-width: 0;
     background: {bg};
     color: {p.text};
+}}
+#transcript-spacer {{
+    height: 1fr;
+    background: {bg};
+    color: transparent;
+}}
+#transcript-spacer.hidden-for-armory {{
+    display: none;
 }}
 #status {{
     height: 1;
@@ -49,8 +58,12 @@ Screen {{
     color: {p.dim};
 }}
 #transcript {{
-    height: 1fr;
-    padding: 0 0;
+    height: auto;
+    max-height: 1fr;
+    width: 100%;
+    max-width: 100%;
+    padding: 0 2;
+    content-align: left bottom;
     background: {bg};
     color: {p.text};
     scrollbar-size: 0 0;
@@ -264,7 +277,7 @@ OptionList:focus > .option-list--option-highlighted {{
     color: {p.dim};
 }}
 #info-separator {{
-    width: 1;
+    width: 0;
     height: 100%;
     background: transparent;
     color: transparent;
