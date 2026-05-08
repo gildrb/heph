@@ -68,10 +68,9 @@ class SettingsCommand(Command):
                     "Accounts & credentials",
                     "Connect or clear subscription/API-key access",
                 ),
-                MenuOption("Back", "Return to the chat prompt."),
             ]
             selected = select_option("Settings", options)
-            if selected is None or selected == len(options) - 1:
+            if selected is None:
                 return CommandResult()
             if selected == 0:
                 self._interface_menu()
@@ -94,10 +93,9 @@ class SettingsCommand(Command):
                     "The only interface mode (Textual TUI)",
                     is_current=True,
                 ),
-                MenuOption("Back", "Return to settings."),
             ]
             selected = select_option("Interface", options)
-            if selected is None or selected == len(options) - 1:
+            if selected is None:
                 return
 
     @staticmethod
@@ -132,10 +130,9 @@ class SettingsCommand(Command):
                         overridden=crash_reports_env_override(),
                     ),
                 ),
-                MenuOption("Back", "Return to settings."),
             ]
             selected = select_option("Privacy & Diagnostics", options)
-            if selected is None or selected == len(options) - 1:
+            if selected is None:
                 return
             if selected == 0:
                 save_setting("analytics_enabled", str(not settings.analytics_enabled).lower())
@@ -166,9 +163,8 @@ class SettingsCommand(Command):
                 )
                 for theme in THEME_PRESETS
             ]
-            options.append(MenuOption("Back", "Return to settings."))
             selected = select_option("Appearance", options)
-            if selected is None or selected == len(options) - 1:
+            if selected is None:
                 return
             theme = THEME_PRESETS[selected]
             if theme == current:
@@ -183,10 +179,9 @@ class SettingsCommand(Command):
             options = [
                 MenuOption("Set default armory", str(default_armory)),
                 MenuOption("Clear default armory", "Disable startup fallback armory"),
-                MenuOption("Back", "Return to settings."),
             ]
             selected = select_option("Startup", options)
-            if selected is None or selected == len(options) - 1:
+            if selected is None:
                 return
             if selected == 1:
                 clear_setting("default_armory_path")
@@ -216,10 +211,9 @@ class SettingsCommand(Command):
                 MenuOption("Current access", f"Model source: {provider_label}"),
                 MenuOption("Login", "Connect a subscription or API key"),
                 MenuOption("Logout", "Clear stored subscription or API-key access"),
-                MenuOption("Back", "Return to settings."),
             ]
             selected = select_option("Accounts & Credentials", options)
-            if selected is None or selected == len(options) - 1:
+            if selected is None:
                 return
             if selected == 0:
                 active = ProviderConfig.load().get_active()

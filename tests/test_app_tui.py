@@ -16,7 +16,7 @@ from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
 from hephaistos.parameters import settings as settings_store
-from hephaistos.terminal import set_theme
+from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
 
@@ -159,6 +159,70 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "border-bottom: tall" not in css
 
 
+def test_non_default_themes_do_not_paint_terminal_background() -> None:
+    try:
+        for theme in ("light", "high_contrast"):
+            set_theme(theme)
+            palette = tui.current_palette()
+            css = tui._tui_css()  # type: ignore[reportPrivateUsage]
+
+            assert palette.is_transparent is True
+            assert palette.background == "transparent"
+            assert "background: transparent;" in css
+            assert palette.background in css
+    finally:
+        set_theme("forge")
+
+
+def test_runtime_theme_switch_keeps_core_tui_backgrounds_transparent() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_runtime_switch() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_settings_flow()  # type: ignore[reportPrivateUsage]
+            app._handle_inline_menu_choice("Appearance")  # type: ignore[reportPrivateUsage]
+            app._handle_appearance_choice("light")  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+
+            assert app.styles.background is not None
+            assert app.styles.background.a == 0.0
+            assert app.screen.styles.background is not None
+            assert app.screen.styles.background.a == 0.0
+
+            for selector in (
+                "#main-layout",
+                "#shell",
+                "#status",
+                "#footer-hints",
+                "#transcript",
+                "#info-panel",
+            ):
+                widget = app.query_one(selector)
+                for line_number in range(widget.size.height):
+                    strip = widget.render_line(line_number)
+                    assert all(
+                        segment.style is None or segment.style.bgcolor is None for segment in strip
+                    )
+
+            app._handle_appearance_choice("high_contrast")  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+
+            assert app.styles.background is not None
+            assert app.styles.background.a == 0.0
+            assert app.screen.styles.background is not None
+            assert app.screen.styles.background.a == 0.0
+
+    asyncio.run(check_runtime_switch())
+
+
 def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
     if tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
@@ -182,8 +246,8 @@ def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
     widgets = tui._WidgetClasses.from_palette(palette)  # type: ignore[reportPrivateUsage]
 
     assert widgets.screen.__name__ == "BlankBackgroundWidget"
-    assert widgets.vertical.__name__ == "BlankBackgroundWidget"
-    assert widgets.horizontal.__name__ == "BlankBackgroundWidget"
+    assert widgets.vertical.__name__ == "TransparentWidget"
+    assert widgets.horizontal.__name__ == "TransparentWidget"
     assert issubclass(widgets.rich_log, tui.RichLog)
     assert widgets.rich_log.can_focus is False
 
@@ -401,8 +465,11 @@ def test_command_help_is_command_first() -> None:
 
     assert "/help" in help_text
     assert "/models" in help_text
-    assert "/sources" in help_text
+    assert "/materials" in help_text
+    assert "/sessions" in help_text
     assert "/status" in help_text
+    assert "/sources" not in help_text
+    assert "/history" not in help_text
 
 
 def test_tui_slash_suggestion_uses_shared_registry() -> None:
@@ -413,12 +480,12 @@ def test_tui_slash_suggestion_uses_shared_registry() -> None:
     assert suggestion == "/status "
 
 
-def test_tui_slash_suggestion_includes_tui_source_command() -> None:
+def test_tui_slash_suggestion_uses_canonical_materials_command() -> None:
     engine = tui.SlashCompletionEngine()
 
-    suggestion = tui._slash_suggestion(engine, "/sou")  # type: ignore[reportPrivateUsage]
+    suggestion = tui._slash_suggestion(engine, "/mat")  # type: ignore[reportPrivateUsage]
 
-    assert suggestion == "/sources "
+    assert suggestion == "/materials "
 
 
 def test_source_listing_filters_with_fuzzy_match() -> None:
@@ -515,6 +582,47 @@ def test_run_tui_appends_pending_command_output_to_transcript(
     assert captured_state is not None
     assert run_count == 2
     assert any(expected_output in entry.content for entry in captured_state.transcript)
+
+
+def test_run_tui_applies_saved_theme_on_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_palette: tui.ThemePalette | None = None
+
+    class FakeTui:
+        def __init__(
+            self,
+            _session: ChatSession,
+            _state: tui._TuiRuntimeState,  # type: ignore[reportPrivateUsage]
+            palette: tui.ThemePalette,
+        ) -> None:
+            nonlocal captured_palette
+            captured_palette = palette
+
+        def run(self) -> None:
+            return
+
+    def fake_save_on_exit(_session: ChatSession) -> None:
+        return
+
+    def fake_load_history(_cls: type[tui.InputHistory], _path: Path) -> tui.InputHistory:
+        return tui.InputHistory()
+
+    monkeypatch.setattr(tui, "HephaistosTui", FakeTui)
+    monkeypatch.setattr(tui, "save_on_exit", fake_save_on_exit)
+    monkeypatch.setattr(tui.InputHistory, "load", classmethod(fake_load_history))
+    monkeypatch.setattr(
+        tui,
+        "load_app_settings",
+        lambda: settings_store.AppSettings(theme="high_contrast"),
+    )
+
+    try:
+        set_theme("forge")
+        tui.run_tui(_plain_session())
+        assert captured_palette is not None
+        assert captured_palette.name == "high_contrast"
+        assert current_theme_name() == "high_contrast"
+    finally:
+        set_theme("forge")
 
 
 def test_run_tui_for_path_resolves_armory(
@@ -620,10 +728,14 @@ def test_is_armory_command_matches_inline_forms() -> None:
         ("hello", tui._TuiInputRoute.CHAT),  # type: ignore[reportPrivateUsage]
         ("/models", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
         ("/models openai", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
-        ("/sources", tui._TuiInputRoute.SOURCES),  # type: ignore[reportPrivateUsage]
-        ("/sources notes", tui._TuiInputRoute.SOURCES),  # type: ignore[reportPrivateUsage]
+        ("/sources", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
+        ("/sources notes", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
         ("/materials", tui._TuiInputRoute.MATERIALS),  # type: ignore[reportPrivateUsage]
         ("/materials notes", tui._TuiInputRoute.MATERIALS),  # type: ignore[reportPrivateUsage]
+        ("/sessions", tui._TuiInputRoute.SESSIONS),  # type: ignore[reportPrivateUsage]
+        ("/sessions list", tui._TuiInputRoute.SESSIONS),  # type: ignore[reportPrivateUsage]
+        ("/history browse", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
+        ("/history stats", tui._TuiInputRoute.EXTERNAL),  # type: ignore[reportPrivateUsage]
         ("/new", tui._TuiInputRoute.NEW),  # type: ignore[reportPrivateUsage]
         ("/armory", tui._TuiInputRoute.ARMORY),  # type: ignore[reportPrivateUsage]
         ("/armory open", tui._TuiInputRoute.ARMORY),  # type: ignore[reportPrivateUsage]
@@ -651,14 +763,16 @@ def test_tui_input_route_covers_visible_command_suggestions() -> None:
     }
 
     assert routes["/models"] is tui._TuiInputRoute.EXTERNAL  # type: ignore[reportPrivateUsage]
-    assert routes["/sources"] is tui._TuiInputRoute.SOURCES  # type: ignore[reportPrivateUsage]
+    assert "/sources" not in routes
+    assert "/history" not in routes
     assert routes["/materials"] is tui._TuiInputRoute.MATERIALS  # type: ignore[reportPrivateUsage]
+    assert routes["/sessions"] is tui._TuiInputRoute.SESSIONS  # type: ignore[reportPrivateUsage]
     assert routes["/new"] is tui._TuiInputRoute.NEW  # type: ignore[reportPrivateUsage]
     assert routes["/armory"] is tui._TuiInputRoute.ARMORY  # type: ignore[reportPrivateUsage]
     assert all(
         route is tui._TuiInputRoute.EXTERNAL  # type: ignore[reportPrivateUsage]
         for command, route in routes.items()
-        if command not in {"/sources", "/materials", "/new", "/armory"}
+        if command not in {"/materials", "/sessions", "/new", "/armory"}
     )
 
 
@@ -787,6 +901,7 @@ def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
             assert app._inline_flow.step == "privacy"
             assert "Usage analytics" in privacy_labels
             assert "Crash reports" in privacy_labels
+            assert "Back" not in privacy_labels
 
             app._open_settings_flow()  # type: ignore[reportPrivateUsage]
             app._handle_inline_menu_choice("Appearance")  # type: ignore[reportPrivateUsage]
@@ -796,8 +911,38 @@ def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
             assert "forge" in appearance_labels
             assert "light" in appearance_labels
             assert "high_contrast" in appearance_labels
+            assert "Back" not in appearance_labels
 
     asyncio.run(check_settings_submenus())
+
+
+def test_settings_inline_escape_returns_from_submenu() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_escape_back_navigation() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_settings_flow()  # type: ignore[reportPrivateUsage]
+            app._handle_inline_menu_choice("Appearance")  # type: ignore[reportPrivateUsage]
+
+            await pilot.press("escape")
+
+            assert app._inline_flow.active is True
+            assert app._inline_flow.name == "settings"
+            assert app._inline_flow.step == "menu"
+
+            await pilot.press("escape")
+
+            assert app._inline_flow.active is False
+
+    asyncio.run(check_escape_back_navigation())
 
 
 def test_settings_inline_toggles_privacy_and_theme(
@@ -968,6 +1113,59 @@ def test_sessions_command_lists_saved_sessions_inline(tmp_path: Path) -> None:
     asyncio.run(check_sessions_listing())
 
 
+def test_sessions_command_defaults_to_filtered_resume_menu(tmp_path: Path) -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    armory = tmp_path / "module"
+    initialize(armory)
+    first_conversation = Conversation()
+    first_conversation.add("user", "What did I study?")
+    first_conversation.add("assistant", "You reviewed modal logic.")
+    chat_storage.save(armory, "logic123", first_conversation, title="Modal logic recap")
+    second_conversation = Conversation()
+    second_conversation.add("user", "What about calculus?")
+    chat_storage.save(armory, "calc456", second_conversation, title="Calculus notes")
+
+    session = _plain_session()
+    session.armory_path = armory
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_sessions_menu() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "/sessions"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app._inline_flow.name == "sessions"  # type: ignore[reportPrivateUsage]
+            assert app._inline_flow.all_options  # type: ignore[reportPrivateUsage]
+            composer.value = "logic"
+            await pilot.pause()
+
+            session_labels = [
+                label
+                for label, _description in app._inline_flow.options  # type: ignore[reportPrivateUsage]
+            ]
+            assert session_labels == ["logic123"]
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.session.session_id == "logic123"
+            assert any("modal logic" in entry.content for entry in app.state.transcript)
+            assert any(
+                "resumed session logic123" in entry.content for entry in app.state.transcript
+            )
+
+    asyncio.run(check_sessions_menu())
+
+
 def test_sessions_command_browses_and_resumes_saved_session_inline(tmp_path: Path) -> None:
     if tui.Input is None or tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
@@ -1111,7 +1309,7 @@ def test_command_input_executes_without_user_transcript(
                 assert app._materials_inline_active is True  # type: ignore[reportPrivateUsage]
             elif command_input == "/new":
                 assert any("New chat started" in entry.content for entry in app.state.transcript)
-            elif command_input.startswith(("/models", "/sources", "/help", "/status", "!")):
+            elif command_input.startswith(("/models", "/help", "/status", "!")):
                 assert app.state.pending_input is None
                 assert app.state.transcript
             elif tui._pending_input_requires_terminal(command_input):  # type: ignore[reportPrivateUsage]

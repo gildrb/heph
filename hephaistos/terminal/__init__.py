@@ -95,8 +95,8 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         error="#B03A2E",
         success="#2E8B57",
         highlight="#D4C9B8",
-        is_transparent=False,
-        background="#F6F2EA",
+        is_transparent=True,
+        background="transparent",
     ),
     "high_contrast": ThemePalette(
         name="high_contrast",
@@ -110,8 +110,8 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         error="#FF4D4D",
         success="#00FF88",
         highlight="#404040",
-        is_transparent=False,
-        background="#000000",
+        is_transparent=True,
+        background="transparent",
     ),
 }
 

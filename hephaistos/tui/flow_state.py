@@ -11,6 +11,7 @@ class InlineFlow:
     endpoint: str = ""
     model: str = ""
     options: list[tuple[str, str]] = field(default_factory=list)
+    all_options: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def active(self) -> bool:

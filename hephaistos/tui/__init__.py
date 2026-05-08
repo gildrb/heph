@@ -15,9 +15,10 @@ from typing import TYPE_CHECKING, ClassVar
 
 from hephaistos.armory.search import SearchResult, load_known_armories
 from hephaistos.parameters.cli import load_config
+from hephaistos.parameters.settings import load_app_settings
 from hephaistos.providers.catalog import prefetch_provider_model_catalogs
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.terminal import ThemePalette, current_palette
+from hephaistos.terminal import ThemePalette, current_palette, set_theme
 from hephaistos.terminal.history import InputHistory
 from hephaistos.tui import armory as _tui_armory
 from hephaistos.tui import widgets as _tui_widgets
@@ -276,6 +277,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self._materials_inline_active = False
         self._materials_filter = ""
         self._materials_entries: list[str] = []
+        self._materials_mode = "toggle"
         self._sidebar_width_visible = True
         self._sidebar_actual_visible: bool | None = None
         self._transcript_reflow_pending = False
@@ -447,6 +449,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "composer":
             if self._inline_flow.active:
+                self._filter_inline_menu_options(event.value)
                 return
             if self._armory_inline_active:
                 if not self._armory_creating:
@@ -478,7 +481,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             return
         if event.option_list.id == "materials-list":
             event.stop()
-            self._toggle_highlighted_material()
+            if self._materials_mode == "toggle":
+                self._toggle_highlighted_material()
+            else:
+                self._close_materials_inline()
             return
         if event.option_list.id != "suggestions":
             return
@@ -529,13 +535,13 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             self._record_history(value)
             self._append_notice(f"Steering queued: {value}")
             return
-        if route is _TuiInputRoute.SOURCES:
-            self._record_history(value)
-            self._handle_sources(value)
-            return
         if route is _TuiInputRoute.MATERIALS:
             self._record_history(value)
             self._open_materials_inline(value)
+            return
+        if route is _TuiInputRoute.SESSIONS:
+            self._record_history(value)
+            self._handle_sessions_command(value)
             return
         if route is _TuiInputRoute.NEW:
             self._record_history(value)
@@ -544,10 +550,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if route is _TuiInputRoute.ARMORY:
             self._record_history(value)
             self._handle_armory_browser(value)
-            return
-        if value == "/sessions" or value.startswith("/sessions "):
-            self._record_history(value)
-            self._handle_sessions_command(value)
             return
         if value in {"/login", "/logout", "/settings", "/models"}:
             self._record_history(value)
@@ -613,9 +615,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         _, _, args = value.partition(" ")
         self._append_plain(material_listing(self.session, args))
 
-    def _open_materials_inline(self, value: str = "") -> None:
+    def _open_materials_inline(self, value: str = "", *, mode: str = "toggle") -> None:
         _, _, args = value.partition(" ")
         self._materials_filter = args.strip()
+        self._materials_mode = mode
         self._materials_inline_active = True
         self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
         self.query_one("#transcript-spacer", Static).add_class("hidden-for-armory")
@@ -633,6 +636,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
     def _close_materials_inline(self) -> None:
         self._materials_inline_active = False
         self._materials_filter = ""
+        self._materials_mode = "toggle"
         self.query_one("#transcript", RichLog).remove_class("hidden-for-armory")
         self.query_one("#transcript-spacer", Static).remove_class("hidden-for-armory")
         self.query_one("#materials-inline").remove_class("active")
@@ -653,9 +657,16 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             files = [file for file in files if query in file.lower()]
         self._materials_entries = files
         enabled = len(self.session.source_files) - len(self.session.disabled_source_files)
-        self.query_one("#materials-header", Static).update(
-            f"materials · space toggle · enter done · esc close · {enabled} active"
-        )
+        if self._materials_mode == "toggle":
+            header = (
+                "materials · type filter · space toggle · enter toggle · "
+                f"esc close · {enabled} active"
+            )
+        else:
+            header = (
+                f"sources · type filter · ↑/↓ browse · enter close · esc close · {enabled} active"
+            )
+        self.query_one("#materials-header", Static).update(header)
         material_list = self.query_one("#materials-list", OptionList)
         previous = material_list.highlighted
         material_list.clear_options()
@@ -673,7 +684,12 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         elif query and not self._materials_entries:
             footer.update(f"No materials match: {self._materials_filter}")
         else:
-            footer.update("Unchecked materials will not be used for retrieval.")
+            footer.update(self._materials_footer_text())
+
+    def _materials_footer_text(self) -> str:
+        if self._materials_mode == "toggle":
+            return "Unchecked materials will not be used for retrieval."
+        return "Use /materials to include or exclude retrieval sources."
 
     def _format_material_option(self, file: str, *, selected: bool) -> str | Text:
         enabled_file = file not in self.session.disabled_source_files
@@ -724,7 +740,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             event.stop()
             return True
         if event.key == "enter":
-            self._toggle_highlighted_material()
+            if self._materials_mode == "toggle":
+                self._toggle_highlighted_material()
+            else:
+                self._close_materials_inline()
             event.prevent_default()
             event.stop()
             return True
@@ -739,7 +758,8 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             event.stop()
             return True
         if event.key == "space" or event.character == " ":
-            self._toggle_highlighted_material()
+            if self._materials_mode == "toggle":
+                self._toggle_highlighted_material()
             event.prevent_default()
             event.stop()
             return True
@@ -1002,7 +1022,7 @@ def run_tui(session: ChatSession | None = None) -> None:
     if session is None:
         session = create_startup_session(load_config())
 
-    palette = current_palette()
+    set_theme(load_app_settings().theme)
     session_ref: list[ChatSession] = [session]
     history_path = get_history_path(session)
     history_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1014,6 +1034,7 @@ def run_tui(session: ChatSession | None = None) -> None:
 
     try:
         while True:
+            palette = current_palette()
             HephaistosTui(session_ref[0], state, palette).run()
 
             pending_input = state.pending_input

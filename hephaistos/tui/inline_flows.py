@@ -10,6 +10,7 @@ from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.provider_selection import activate_provider_for_session
 from hephaistos.chat.session import list_armory_sessions, resume_session, save_session
 from hephaistos.diagnostics.events import capture as capture_analytics
+from hephaistos.matching import ranked_matches
 from hephaistos.parameters.settings import THEME_PRESETS, load_app_settings, save_setting
 from hephaistos.privacy.consent import (
     analytics_backend_available,
@@ -65,16 +66,42 @@ class TuiInlineFlowMixin:
         title: str,
         options: list[tuple[str, str]],
     ) -> None:
-        self._inline_flow = InlineFlow(name=name, step=step, options=options)
-        suggestions = self.query_one("#suggestions", OptionList)
-        suggestions.set_options([f"{label:<22} {description}" for label, description in options])
-        suggestions.add_class("visible")
-        suggestions.highlighted = 0
+        self._inline_flow = InlineFlow(
+            name=name,
+            step=step,
+            options=list(options),
+            all_options=list(options),
+        )
+        self._render_inline_menu_options(options)
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = "Use ↑/↓ and Enter, or Esc to cancel"
+        composer.placeholder = f"{title} · type to filter · ↑/↓ enter · esc"
         composer.focus()
         self.set_focus(composer)
+
+    def _render_inline_menu_options(self, options: list[tuple[str, str]]) -> None:
+        suggestions = self.query_one("#suggestions", OptionList)
+        composer = self.query_one("#composer", Input)
+        if options:
+            suggestions.set_options(
+                [f"{label:<22} {description}" for label, description in options]
+            )
+            suggestions.highlighted = 0
+        else:
+            query = composer.value.strip()
+            suffix = f" for {query}" if query else ""
+            suggestions.set_options([f"No matches{suffix}"])
+            suggestions.highlighted = None
+        suggestions.add_class("visible")
+
+    def _filter_inline_menu_options(self, query: str) -> None:
+        if not self._inline_flow.all_options:
+            return
+        self._inline_flow.options = _filtered_inline_options(
+            self._inline_flow.all_options,
+            query,
+        )
+        self._render_inline_menu_options(self._inline_flow.options)
 
     def _open_login_flow(self) -> None:
         self._open_inline_menu(
@@ -144,7 +171,6 @@ class TuiInlineFlowMixin:
                         overridden=crash_reports_env_override(),
                     ),
                 ),
-                ("Back", "return to settings"),
             ],
         )
 
@@ -160,8 +186,7 @@ class TuiInlineFlowMixin:
                     "current theme" if theme == current else "theme preset",
                 )
                 for theme in THEME_PRESETS
-            ]
-            + [("Back", "return to settings")],
+            ],
         )
 
     def _model_flow_options(
@@ -212,14 +237,11 @@ class TuiInlineFlowMixin:
             return
         pc = ProviderConfig.load()
         options = self._model_flow_options(pc, choices)
-        if not options or options == self._inline_flow.options:
+        if not options or options == self._inline_flow.all_options:
             return
-        self._inline_flow.options = options
-        suggestions = self.query_one("#suggestions", OptionList)
-        suggestions.set_options([f"{label:<22} {description}" for label, description in options])
-        suggestions.add_class("visible")
-        highlighted = suggestions.highlighted if suggestions.highlighted is not None else 0
-        suggestions.highlighted = min(highlighted, len(options) - 1)
+        self._inline_flow.all_options = options
+        composer = self.query_one("#composer", Input)
+        self._filter_inline_menu_options(composer.value)
 
     def _open_logout_flow(self) -> None:
         targets = self._logout_targets()
@@ -230,20 +252,16 @@ class TuiInlineFlowMixin:
             return
         options = [(slug, description) for slug, _kind, description in targets]
         options.append(("All", "Clear every stored subscription and API key"))
-        self._inline_flow = InlineFlow(name="logout", step="menu", options=options)
-        suggestions = self.query_one("#suggestions", OptionList)
-        suggestions.set_options([f"{label:<22} {description}" for label, description in options])
-        suggestions.add_class("visible")
-        suggestions.highlighted = 0
-        composer = self.query_one("#composer", Input)
-        composer.value = ""
-        composer.placeholder = "Use ↑/↓ and Enter, or Esc to cancel"
-        composer.focus()
-        self.set_focus(composer)
+        self._open_inline_menu(
+            name="logout",
+            step="menu",
+            title="Logout · choose credentials to clear",
+            options=options,
+        )
 
     def _handle_sessions_command(self, value: str) -> None:
         _, _, args = value.partition(" ")
-        subcmd = args.strip().lower() or "list"
+        subcmd = args.strip().lower()
         if self.session.armory_path is None:
             self._append_notice("No armory attached. Use /armory to open one.")
             return
@@ -258,7 +276,7 @@ class TuiInlineFlowMixin:
         if subcmd in {"list", "recent"}:
             self._append_plain(self._format_sessions_listing(sessions))
             return
-        if subcmd in {"browse", "menu"}:
+        if subcmd in {"", "browse", "menu"}:
             self._open_sessions_flow(sessions)
             return
         if subcmd in {"resume", "last", "latest"}:
@@ -306,8 +324,15 @@ class TuiInlineFlowMixin:
         return targets
 
     def _handle_inline_flow_key(self, event: events.Key) -> bool:
+        composer = self.query_one("#composer", Input)
         if event.key == "escape":
-            self._close_inline_flow()
+            if self._inline_flow.all_options and composer.value:
+                composer.value = ""
+                self._filter_inline_menu_options("")
+            elif self._inline_flow.name == "settings" and self._inline_flow.step != "menu":
+                self._open_settings_flow()
+            else:
+                self._close_inline_flow()
             event.prevent_default()
             event.stop()
             return True
@@ -330,10 +355,26 @@ class TuiInlineFlowMixin:
 
     def _submit_inline_flow(self, value: str) -> None:
         composer = self.query_one("#composer", Input)
+        if self._inline_flow.all_options:
+            if not self._inline_flow.options:
+                self._append_error(f"No {self._inline_flow.name} matches: {value}")
+                return
+            suggestions = self.query_one("#suggestions", OptionList)
+            selected = suggestions.highlighted if suggestions.highlighted is not None else 0
+            selected = min(selected, len(self._inline_flow.options) - 1)
+            label = _inline_option_label(
+                value,
+                self._inline_flow.options,
+                self._inline_flow.all_options,
+            )
+            if not label:
+                label = self._inline_flow.options[selected][0]
+            self._handle_inline_menu_choice(label)
+            return
         if self._inline_flow.options:
             suggestions = self.query_one("#suggestions", OptionList)
             selected = suggestions.highlighted if suggestions.highlighted is not None else 0
-            label = value or self._inline_flow.options[selected][0]
+            label = self._inline_flow.options[selected][0]
             self._handle_inline_menu_choice(label)
             return
         self._handle_inline_text(value)
@@ -378,9 +419,6 @@ class TuiInlineFlowMixin:
             self._prompt_inline_text("login", "custom_endpoint", "OpenAI-compatible base URL")
 
     def _handle_privacy_choice(self, label: str) -> None:
-        if label == "Back":
-            self._open_settings_flow()
-            return
         settings = load_app_settings()
         if label == "Usage analytics":
             save_setting("analytics_enabled", str(not settings.analytics_enabled).lower())
@@ -393,9 +431,6 @@ class TuiInlineFlowMixin:
         self._open_privacy_flow()
 
     def _handle_appearance_choice(self, label: str) -> None:
-        if label == "Back":
-            self._open_settings_flow()
-            return
         if label not in THEME_PRESETS:
             return
         save_setting("theme", label)
@@ -408,9 +443,16 @@ class TuiInlineFlowMixin:
         self.CSS = _tui_css()
         screen_path = inspect.getfile(self.__class__)
         read_from = (screen_path, f"{self.__class__.__name__}.CSS")
-        scope = self._css_type_name if self.SCOPED_CSS else ""
-        self.stylesheet.add_source(self.CSS, read_from=read_from, scope=scope)
+        self.stylesheet.add_source(self.CSS, read_from=read_from, is_default_css=False)
         self.refresh_css(animate=False)
+        self.styles.background = "transparent"
+        self.styles.background_tint = "transparent"
+        self.screen.styles.background = "transparent"
+        self.screen.styles.background_tint = "transparent"
+        self._refresh_status("ready")
+        self._refresh_footer_hints()
+        self._update_info_panel()
+        self._schedule_transcript_reflow()
 
     def _perform_session_resume(self, session_id: str) -> None:
         if self.session.armory_path is None:
@@ -440,6 +482,7 @@ class TuiInlineFlowMixin:
         self._inline_flow.name = name
         self._inline_flow.step = step
         self._inline_flow.options = []
+        self._inline_flow.all_options = []
         self._hide_completions()
         composer = self.query_one("#composer", Input)
         composer.value = ""
@@ -553,3 +596,41 @@ class TuiInlineFlowMixin:
             self._append_notice(notice)
         composer.focus()
         self.set_focus(composer)
+
+
+def _filtered_inline_options(
+    options: list[tuple[str, str]],
+    query: str,
+) -> list[tuple[str, str]]:
+    cleaned = query.strip()
+    if not cleaned:
+        return list(options)
+
+    normalized = cleaned.casefold()
+    direct = [option for option in options if normalized in f"{option[0]} {option[1]}".casefold()]
+    fuzzy = ranked_matches(
+        cleaned,
+        options,
+        key=lambda option: f"{option[0]} {option[1]}",
+        limit=len(options),
+        min_score=45.0,
+    )
+    result: list[tuple[str, str]] = []
+    for option in [*direct, *(match.value for match in fuzzy)]:
+        if option not in result:
+            result.append(option)
+    return result
+
+
+def _inline_option_label(
+    value: str,
+    options: list[tuple[str, str]],
+    all_options: list[tuple[str, str]],
+) -> str:
+    cleaned = value.strip().casefold()
+    if not cleaned:
+        return ""
+    for label, _description in [*options, *all_options]:
+        if label.casefold() == cleaned:
+            return label
+    return ""
