@@ -249,6 +249,7 @@ Useful shell commands:
 | /memory | Manage study memory and Supermemory setup |
 | /persona | Show or switch the agent persona |
 | /settings | Manage cross-session preferences |
+| /sessions | Switch between saved sessions |
 | /index | Manage cross-armory search index |
 | /usage | Show token usage and cost for this session |
 | /vocab | Vocabulary drill with spaced repetition |

@@ -7,12 +7,11 @@ from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENAB
 def _tui_css() -> str:
     """Generate TUI CSS from the current theme palette.
 
-    Transparent themes (forge) use ``background: transparent`` so the
-    terminal shows through.  Opaque themes set an explicit background
-    colour on every surface so no transparency leaks.
+    All backgrounds are transparent to support terminal emulator transparency.
+    Text colors remain theme-specific for readability.
     """
     p = current_palette()
-    bg = "transparent" if p.is_transparent else p.background
+    bg = "transparent"
     bt = "transparent"
     return f"""
 App {{
@@ -121,7 +120,7 @@ Screen {{
 #armory-parent-label {{
     width: 26;
     padding: 0 1 0 0;
-    border-right: solid {p.stone};
+    border-right: solid transparent;
     color: {p.dim};
     background: {bg};
 }}
@@ -134,7 +133,7 @@ Screen {{
 #armory-preview-label {{
     width: 40;
     padding: 0 1;
-    border-left: solid {p.stone};
+    border-left: solid transparent;
     color: {p.dim};
     background: {bg};
 }}
@@ -146,7 +145,7 @@ Screen {{
 #armory-parent-inline {{
     width: 26;
     height: 100%;
-    border-right: solid {p.stone};
+    border-right: solid transparent;
     padding: 0 1 0 0;
     background: {bg};
     color: {p.dim};
@@ -168,7 +167,7 @@ Screen {{
     width: 40;
     height: 100%;
     padding: 0 1;
-    border-left: solid {p.stone};
+    border-left: solid transparent;
     background: {bg};
     color: {p.dim};
 }}
@@ -320,12 +319,6 @@ OptionList:focus > .option-list--option-highlighted {{
     margin-top: 1;
     background: {bg};
     color: {p.dim};
-}}
-#info-separator {{
-    width: 0;
-    height: 100%;
-    background: transparent;
-    color: transparent;
 }}
 #info-panel {{
     width: 46;

@@ -278,7 +278,6 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
         f"  {parser.prog} armory mfi-1           Create ~/.armories/mfi-1",
         "  cp notes.pdf ~/.armories/mfi-1/materials/",
         f"  {parser.prog} mfi-1                   Start studying",
-        f"  {parser.prog} armory mfi-1 ./Code    Create ./Code/.armories/mfi-1",
         "",
         _HELP_COMMANDS_HEADER,
         *_format_rows(commands),
@@ -357,7 +356,7 @@ def _validate_armory_home(target_home: Path) -> Path:
 
 
 def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
-    """Accept `heph armory <name> [parent]` as create-armory shorthand."""
+    """Accept `heph armory <name>` as create-armory shorthand."""
     if len(argv) < 2 or argv[0] != "armory":
         return argv
     subcommand = argv[1]
@@ -367,9 +366,15 @@ def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
         return argv
     if len(argv) > 3:
         return argv
+    if len(argv) == 3:
+        print(
+            "error: armory parent paths are no longer supported; "
+            "set HEPHAISTOS_ARMORY_HOME or use `heph armory init <name>`.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     armory_cli = importlib.import_module("hephaistos.armory.cli")
-    parent = argv[2] if len(argv) == 3 else None
-    target = armory_cli.armory_shortcut_path(subcommand, parent)
+    target = armory_cli.armory_shortcut_path(subcommand)
     target_home = _validate_armory_home(target.parent)
     return ["armory", "init", str(target_home / target.name)]
 

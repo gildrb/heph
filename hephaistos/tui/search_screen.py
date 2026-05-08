@@ -41,8 +41,8 @@ def _open_file_at_system(path: Path) -> None:
 
 def _search_screen_css(p: ThemePalette) -> str:
     """Generate CSS from the active theme palette."""
-    bg = "transparent" if p.is_transparent else p.background
-    border_color = p.stone
+    bg = "transparent"
+    border_color = "transparent"
     text_color = p.text
     dim_color = p.dim
 

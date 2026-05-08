@@ -111,6 +111,7 @@ def get_registry() -> CommandRegistry:
             MemoryCommand,
             PersonaCommand,
             SettingsCommand,
+            SessionsCommand,
             IndexCommand,
             UsageCommand,
             VocabCommand,

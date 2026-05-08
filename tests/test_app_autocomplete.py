@@ -77,3 +77,12 @@ def test_models_with_args_shows_no_candidates() -> None:
     candidates = engine.candidates("/models gl", [])
 
     assert candidates == []
+
+
+def test_sessions_completion_shows_subcommands() -> None:
+    engine = SlashCompletionEngine(provider_config_loader=default_config)
+
+    candidates = engine.candidates("/sessions ", [])
+    texts = {candidate.text for candidate in candidates}
+
+    assert {"list ", "browse ", "resume "} <= texts

@@ -37,8 +37,28 @@ def armory_shortcut_path(name: str, parent: str | None = None) -> Path:
 
 
 def _cmd_armory_init(args: argparse.Namespace) -> None:
-    try:
+    armory_home = default_armory_home()
+    candidate = Path(args.path).expanduser()
+    if (
+        not candidate.is_absolute()
+        and len(candidate.parts) == 1
+        and candidate.name not in {"", "."}
+    ):
+        armory_path = (armory_home / candidate.name).resolve()
+    else:
         armory_path = normalize_path(args.path)
+
+    try:
+        armory_path.resolve().relative_to(armory_home.resolve())
+    except ValueError:
+        print(
+            f"error: Armories can only be created in the armories directory ({armory_home}).",
+            file=sys.stderr,
+        )
+        print(f"error: Attempted to create at: {armory_path}", file=sys.stderr)
+        raise SystemExit(2) from None
+
+    try:
         initialize(armory_path)
     except (ArmoryError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -77,15 +97,18 @@ def register(
         "armory",
         help="Create and inspect study armories.",
         description=(
-            "Create armories named after modules. Shortcut: "
-            "`heph armory mfi-1` creates ~/.armories/mfi-1, while "
-            "`heph armory mfi-1 ./Code` creates ./Code/.armories/mfi-1."
+            "Create armories named after modules. "
+            "Armories can only be created in the armories directory (~/.armories). "
+            "Shortcut: `heph armory mfi-1` creates ~/.armories/mfi-1."
         ),
     )
     armory_sub = armory.add_subparsers(dest="armory_command", required=True)
 
     init = armory_sub.add_parser("init", help="Create a new named armory folder.")
-    init.add_argument("path", help="Folder name or path, e.g. gdp or swt.")
+    init.add_argument(
+        "path",
+        help="Folder name (armory will be created in ~/.armories/), e.g. gdp or swt.",
+    )
     init.set_defaults(handler=_cmd_armory_init, post_init=post_init)
 
     open_cmd = armory_sub.add_parser("open", help="Open and validate an armory.")

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from hephaistos.armory.search import KnownArmory
 from hephaistos.armory.storage import MARKER_FILE, initialize
 from hephaistos.tui import armory_browser
 
@@ -83,8 +84,14 @@ def test_is_armory_detects_marker(tmp_path: Path) -> None:
     assert not armory_browser._is_armory(plain)
 
 
-def test_build_entries_include_parent_and_create(tmp_path: Path) -> None:
-    entries = armory_browser.build_entries(tmp_path, allow_create=True)
+def test_build_entries_include_parent_and_create(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
+    entries = armory_browser.build_entries(armory_home, allow_create=True)
 
     assert entries[0].is_parent
     assert entries[0].label == armory_browser._PARENT_LABEL
@@ -93,9 +100,14 @@ def test_build_entries_include_parent_and_create(tmp_path: Path) -> None:
     assert len(entries) >= 2
 
 
-def test_build_entries_without_create_flag(tmp_path: Path) -> None:
-    _make_dirs(tmp_path, "alpha", "beta")
-    entries = armory_browser.build_entries(tmp_path, allow_create=False)
+def test_build_entries_without_create_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    _make_dirs(armory_home, "alpha", "beta")
+    entries = armory_browser.build_entries(armory_home, allow_create=False)
 
     labels = [e.label for e in entries]
     assert not any(e.is_create for e in entries)
@@ -103,17 +115,100 @@ def test_build_entries_without_create_flag(tmp_path: Path) -> None:
     assert any("beta" in label for label in labels)
 
 
-def test_build_entries_can_include_common_places(tmp_path: Path) -> None:
-    entries = armory_browser.build_entries(tmp_path, allow_create=True, show_places=True)
+def test_build_entries_can_include_common_places(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    entries = armory_browser.build_entries(armory_home, allow_create=True, show_places=True)
 
-    labels = [entry.label for entry in entries]
-    assert any(label.startswith("place   home") for label in labels)
-    assert any(entry.path == Path("/") for entry in entries)
+    place_entries = [entry for entry in entries if entry.is_place]
+    assert any(entry.path == armory_home for entry in place_entries)
+    assert all(
+        entry.path is not None and armory_browser._is_within_armory_home(entry.path)
+        for entry in place_entries
+    )
+    assert not any(entry.path == Path("/") for entry in place_entries)
 
 
-def test_build_entries_returns_correct_paths(tmp_path: Path) -> None:
-    alpha, beta = _make_dirs(tmp_path, "alpha", "beta")
-    entries = armory_browser.build_entries(tmp_path, allow_create=True)
+def test_build_entries_filters_outside_recent_armories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    inside = _make_armory(armory_home, "inside")
+    outside = _make_armory(tmp_path / "outside", "external")
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
+    monkeypatch.setattr(
+        armory_browser,
+        "load_known_armory_entries",
+        lambda: [
+            KnownArmory(outside, exists=True, valid=True),
+            KnownArmory(inside, exists=True, valid=True),
+        ],
+    )
+
+    entries = armory_browser.build_entries(armory_home, allow_create=True)
+
+    recent_paths = [entry.path for entry in entries if entry.is_recent]
+    assert recent_paths == [inside]
+
+
+def test_build_entries_filters_symlink_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    outside = tmp_path / "outside"
+    armory_home.mkdir()
+    outside.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    (armory_home / "outside-link").symlink_to(outside, target_is_directory=True)
+
+    entries = armory_browser.build_entries(armory_home, allow_create=True)
+
+    assert not any(entry.path == armory_home / "outside-link" for entry in entries)
+
+
+def test_build_parent_entries_filters_symlink_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    current = _make_dirs(armory_home, "current")[0]
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (armory_home / "outside-link").symlink_to(outside, target_is_directory=True)
+
+    entries = armory_browser.build_parent_entries(current)
+
+    assert not any(path == armory_home / "outside-link" for _label, path in entries)
+
+
+def test_default_start_path_rejects_outside_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
+    screen = armory_browser.ArmoryBrowserScreen(start=outside)
+
+    assert screen._current == armory_home
+
+
+def test_build_entries_returns_correct_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    alpha, beta = _make_dirs(armory_home, "alpha", "beta")
+    entries = armory_browser.build_entries(armory_home, allow_create=True)
 
     # entries: 0=parent, 1=create, 2=alpha, 3=beta
     assert entries[0].path is None
@@ -124,11 +219,14 @@ def test_build_entries_returns_correct_paths(tmp_path: Path) -> None:
     assert entries[3].path == beta
 
 
-def test_browser_screen_compose_and_mount(tmp_path: Path) -> None:
-    _make_dirs(tmp_path, "docs")
+def test_browser_screen_compose_and_mount(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    _make_dirs(armory_home, "docs")
 
     async def run_screen() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
@@ -151,11 +249,16 @@ def test_browser_css_uses_borderless_transparent_surface() -> None:
     assert "border: round" not in css
 
 
-def test_browser_arrow_keys_move_highlight(tmp_path: Path) -> None:
-    _make_dirs(tmp_path, "alpha", "beta")
+def test_browser_arrow_keys_move_highlight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    _make_dirs(armory_home, "alpha", "beta")
 
     async def run_keys() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(100, 28)) as pilot:
             await app.push_screen(screen)
@@ -174,11 +277,16 @@ def test_browser_arrow_keys_move_highlight(tmp_path: Path) -> None:
     asyncio.run(run_keys())
 
 
-def test_browser_navigates_into_child_via_action(tmp_path: Path) -> None:
-    child = _make_dirs(tmp_path, "child")[0]
+def test_browser_navigates_into_child_via_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    child = _make_dirs(armory_home, "child")[0]
 
     async def run_nav() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
@@ -195,11 +303,16 @@ def test_browser_navigates_into_child_via_action(tmp_path: Path) -> None:
     asyncio.run(run_nav())
 
 
-def test_browser_right_arrow_navigates_into_child(tmp_path: Path) -> None:
-    child = _make_dirs(tmp_path, "child")[0]
+def test_browser_right_arrow_navigates_into_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    child = _make_dirs(armory_home, "child")[0]
 
     async def run_nav() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(100, 28)) as pilot:
             await app.push_screen(screen)
@@ -215,8 +328,13 @@ def test_browser_right_arrow_navigates_into_child(tmp_path: Path) -> None:
     asyncio.run(run_nav())
 
 
-def test_browser_navigates_to_parent_via_action(tmp_path: Path) -> None:
-    child_dir = tmp_path / "child"
+def test_browser_navigates_to_parent_via_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    child_dir = armory_home / "child"
     child_dir.mkdir()
 
     async def run_nav() -> None:
@@ -232,12 +350,37 @@ def test_browser_navigates_to_parent_via_action(tmp_path: Path) -> None:
             await pilot.pause()
             screen.action_activate()
             await pilot.pause()
-            assert screen._current == tmp_path
+            assert screen._current == armory_home
 
     asyncio.run(run_nav())
 
 
-def test_browser_choose_dismisses_with_path(tmp_path: Path) -> None:
+def test_browser_cannot_navigate_above_armory_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
+    async def run_nav() -> None:
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
+        app = _ShellApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await app.push_screen(screen)
+            await pilot.pause()
+            screen.action_navigate_parent()
+            await pilot.pause()
+            assert screen._current == armory_home
+
+    asyncio.run(run_nav())
+
+
+def test_browser_choose_dismisses_with_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     result_path: Path | None = None
 
     def on_result(path: Path | None) -> None:
@@ -245,7 +388,7 @@ def test_browser_choose_dismisses_with_path(tmp_path: Path) -> None:
         result_path = path
 
     async def run_choose() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen, on_result)
@@ -254,10 +397,15 @@ def test_browser_choose_dismisses_with_path(tmp_path: Path) -> None:
             await pilot.pause()
 
     asyncio.run(run_choose())
-    assert result_path == tmp_path
+    assert result_path == armory_home
 
 
-def test_browser_cancel_dismisses_with_none(tmp_path: Path) -> None:
+def test_browser_cancel_dismisses_with_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     result_path: Path | None = "NOT_NONE"  # sentinel  # ty:ignore[invalid-assignment]
 
     def on_result(path: Path | None) -> None:
@@ -265,7 +413,7 @@ def test_browser_cancel_dismisses_with_none(tmp_path: Path) -> None:
         result_path = path
 
     async def run_cancel() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen, on_result)
@@ -277,7 +425,12 @@ def test_browser_cancel_dismisses_with_none(tmp_path: Path) -> None:
     assert result_path is None
 
 
-def test_browser_escape_key_dismisses_with_none(tmp_path: Path) -> None:
+def test_browser_escape_key_dismisses_with_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     result_path: Path | None = "NOT_NONE"  # sentinel  # ty:ignore[invalid-assignment]
 
     def on_result(path: Path | None) -> None:
@@ -285,7 +438,7 @@ def test_browser_escape_key_dismisses_with_none(tmp_path: Path) -> None:
         result_path = path
 
     async def run_cancel() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen, on_result)
@@ -297,7 +450,12 @@ def test_browser_escape_key_dismisses_with_none(tmp_path: Path) -> None:
     assert result_path is None
 
 
-def test_browser_new_armory_creates_and_dismisses(tmp_path: Path) -> None:
+def test_browser_new_armory_creates_and_dismisses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     result_path: Path | None = None
 
     def on_result(path: Path | None) -> None:
@@ -305,7 +463,7 @@ def test_browser_new_armory_creates_and_dismisses(tmp_path: Path) -> None:
         result_path = path
 
     async def run_new() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen, on_result)
@@ -325,9 +483,15 @@ def test_browser_new_armory_creates_and_dismisses(tmp_path: Path) -> None:
     assert (result_path / MARKER_FILE).exists()
 
 
-def test_browser_new_armory_submission_does_not_bubble_to_chat(tmp_path: Path) -> None:
+def test_browser_new_armory_submission_does_not_bubble_to_chat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
     async def run_new() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _SubmissionCountingApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
@@ -367,13 +531,17 @@ def test_browser_new_armory_refuses_unwritable_parent(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
     def not_writable(_path: Path) -> bool:
         return False
 
     monkeypatch.setattr(armory_browser, "_is_writable_directory", not_writable)
 
     async def run_error() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
@@ -386,7 +554,7 @@ def test_browser_new_armory_refuses_unwritable_parent(
             await pilot.pause()
             error = screen.query_one("#armory-error", armory_browser.Static)
             assert "read-only folder" in str(error.render())
-            assert not (tmp_path / "blocked").exists()
+            assert not (armory_home / "blocked").exists()
 
     asyncio.run(run_error())
 
@@ -395,13 +563,17 @@ def test_browser_new_armory_surfaces_creation_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
     def fail_initialize(_path: Path) -> None:
         raise OSError("permission denied")
 
     monkeypatch.setattr(armory_browser, "initialize", fail_initialize)
 
     async def run_error() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
@@ -416,13 +588,20 @@ def test_browser_new_armory_surfaces_creation_errors(
             error = screen.query_one("#armory-error", armory_browser.Static)
             assert "Could not create armory" in str(error.render())
             assert screen._creating is True
+            assert not (armory_home / "blocked").exists()
 
     asyncio.run(run_error())
 
 
-def test_browser_new_armory_empty_name_cancels_create(tmp_path: Path) -> None:
+def test_browser_new_armory_empty_name_cancels_create(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
     async def run_empty() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=tmp_path)
+        screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
@@ -439,3 +618,32 @@ def test_browser_new_armory_empty_name_cancels_create(tmp_path: Path) -> None:
             assert screen._creating is False
 
     asyncio.run(run_empty())
+
+
+def test_creation_parent_error_rejects_outside_armories_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
+    outside = tmp_path / "outside" / "armory"
+    outside.mkdir(parents=True)
+
+    error = armory_browser._creation_parent_error(outside)
+    assert error is not None
+    assert "Armories can only be created in the armories directory" in error
+    assert str(armory_home) in error
+
+
+def test_creation_parent_error_allows_inside_armories_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
+    inside = armory_home / "new-armory"
+
+    error = armory_browser._creation_parent_error(inside)
+    assert error is None

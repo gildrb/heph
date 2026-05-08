@@ -11,6 +11,7 @@ from hephaistos.armory.storage import validate as _validate_armory
 from hephaistos.tui.armory_browser import (
     _creation_parent_error,
     _DirEntry,
+    _is_within_armory_home,
     armory_detail,
     build_entries,
     build_parent_entries,
@@ -68,10 +69,7 @@ class TuiArmoryMixin:
 
     def _open_armory_inline(self, mode: str) -> None:
         self._armory_inline_active = True
-        if mode == "create":
-            self._armory_current = default_armory_home()
-        elif self.session.armory_path is not None:
-            self._armory_current = self.session.armory_path
+        self._armory_current = default_armory_home()
         self._armory_filter = ""
         self._armory_mode = mode
         self._armory_creating = mode == "create"
@@ -108,6 +106,8 @@ class TuiArmoryMixin:
         self.set_focus(composer)
 
     def _refresh_armory_inline(self, *, mode: str = "manage") -> None:
+        if not _is_within_armory_home(self._armory_current):
+            self._armory_current = default_armory_home()
         current = self.query_one("#armory-current-inline", OptionList)
         previous_key = self._armory_selection_key()
         self._armory_entries = build_entries(
@@ -232,13 +232,18 @@ class TuiArmoryMixin:
             return
         if entry.is_parent:
             parent = self._armory_current.parent
-            if parent != self._armory_current:
+            if parent != self._armory_current and _is_within_armory_home(parent):
                 self._armory_current = parent
             return
-        if entry.path is not None and entry.path.is_dir() and not entry.is_recent:
-            self._armory_current = entry.path
-            return
         if entry.path is not None:
+            if not _is_within_armory_home(entry.path):
+                self.query_one("#armory-error-inline", Static).update(
+                    f"Cannot navigate outside armory home: {entry.path}"
+                )
+                return
+            if entry.path.is_dir() and not entry.is_recent:
+                self._armory_current = entry.path
+                return
             self._open_selected_armory(entry.path)
 
     def _start_inline_create(self) -> None:
@@ -282,6 +287,11 @@ class TuiArmoryMixin:
         self._append_notice(f"Add study files to {display_root}/{armory_path.name}/materials/")
 
     def _open_selected_armory(self, path: Path) -> None:
+        if not _is_within_armory_home(path):
+            self.query_one("#armory-error-inline", Static).update(
+                f"Cannot open an armory outside armory home: {path}"
+            )
+            return
         try:
             _validate_armory(path)
         except OSError as exc:
@@ -336,7 +346,7 @@ class TuiArmoryMixin:
             return True
         if event.key in ("left", "h"):
             parent = self._armory_current.parent
-            if parent != self._armory_current:
+            if parent != self._armory_current and _is_within_armory_home(parent):
                 self._armory_current = parent
                 self._armory_filter = ""
                 composer.value = ""

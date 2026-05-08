@@ -181,11 +181,28 @@ def default_armory_home() -> Path:
     configured = os.environ.get(_DEFAULT_ARMORY_HOME_ENV, "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    return (Path.home() / ".armory").resolve()
+    return (Path.home() / ".armories").resolve()
+
+
+def _is_within_armory_home(path: Path) -> bool:
+    """Return True when *path* resolves to the armory home or one of its descendants."""
+    try:
+        path.expanduser().resolve(strict=False).relative_to(default_armory_home())
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return True
 
 
 def _creation_parent_error(path: Path) -> str | None:
     """Return a user-facing create error for *path*, or None when writable."""
+    armory_home = default_armory_home()
+
+    if not _is_within_armory_home(path):
+        return (
+            f"Armories can only be created in the armories directory ({armory_home}). "
+            f"Current location: {path}"
+        )
+
     if path.exists():
         if not path.is_dir():
             return f"Cannot create an armory here because this is not a folder: {path}"
@@ -215,12 +232,9 @@ def new_armory_path(parent: Path, name: str) -> tuple[Path | None, str | None]:
 
 def _default_start_path(start: Path | None) -> Path:
     """Return a safe initial browser location."""
-    if start is not None:
-        return start.resolve()
-    cwd = Path.cwd().resolve()
-    if _is_writable_directory(cwd):
-        return cwd
-    return Path.home().resolve()
+    if start is not None and _is_within_armory_home(start):
+        return start.expanduser().resolve(strict=False)
+    return default_armory_home()
 
 
 def _file_preview_text(path: Path) -> str:
@@ -285,18 +299,20 @@ class _DirEntry:
 
 def _place_entries() -> list[_DirEntry]:
     """Return quick navigation entries for common user locations."""
+    armory_home = default_armory_home()
     candidates = (
-        ("home", Path.home()),
+        ("armories", armory_home),
         ("cwd", Path.cwd()),
         ("desktop", Path.home() / "Desktop"),
         ("documents", Path.home() / "Documents"),
         ("downloads", Path.home() / "Downloads"),
-        ("root", Path("/")),
     )
     entries: list[_DirEntry] = []
     seen: set[Path] = set()
     for label, path in candidates:
-        resolved = path.resolve()
+        resolved = path.expanduser().resolve(strict=False)
+        if not _is_within_armory_home(resolved):
+            continue
         if resolved in seen or not resolved.exists() or not resolved.is_dir():
             continue
         seen.add(resolved)
@@ -307,7 +323,11 @@ def _place_entries() -> list[_DirEntry]:
 def _recent_entries() -> list[_DirEntry]:
     """Return recent armories as quick-open entries."""
     entries: list[_DirEntry] = []
-    for known in load_known_armory_entries()[:5]:
+    for known in load_known_armory_entries():
+        if len(entries) >= 5:
+            break
+        if not _is_within_armory_home(known.path):
+            continue
         badge = _MISSING_BADGE if known.missing else _ARMORY_BADGE
         entries.append(
             _DirEntry(
@@ -334,8 +354,13 @@ def build_entries(
     entries: list[_DirEntry] = []
 
     child_entries: list[_DirEntry] = []
-    children = _list_entries(current, show_files=show_files)
+    children = (
+        _list_entries(current, show_files=show_files) if _is_within_armory_home(current) else []
+    )
     for child in children:
+        if not _is_within_armory_home(child):
+            continue
+
         is_file = child.is_file()
         if is_file:
             prefix = _FILE_PREFIX
@@ -379,8 +404,12 @@ def _format_entry(entry: _DirEntry) -> str:
 def build_parent_entries(current: Path) -> list[tuple[str, Path]]:
     """Build entries for the parent (left) column: siblings of *current*."""
     parent = current.parent
+
     if parent == current or not parent.exists():
         return []
+    if not _is_within_armory_home(parent):
+        return []
+
     try:
         siblings = sorted(parent.iterdir())
     except PermissionError:
@@ -388,6 +417,8 @@ def build_parent_entries(current: Path) -> list[tuple[str, Path]]:
     result: list[tuple[str, Path]] = []
     for s in siblings:
         if s.name.startswith(".") or not s.is_dir():
+            continue
+        if not _is_within_armory_home(s):
             continue
         badge = _ARMORY_BADGE if _is_armory(s) else ""
         marker = " > " if s == current else "   "
@@ -461,8 +492,8 @@ def file_detail(path: Path) -> str:
 
 def _armory_browser_css(p: ThemePalette) -> str:
     """Generate CSS from the active theme palette."""
-    bg = "transparent" if p.is_transparent else p.background
-    border_color = p.stone
+    bg = "transparent"
+    border_color = "transparent"
     text_color = p.text
     dim_color = p.dim
     ember_color = p.ember
@@ -692,6 +723,8 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def _refresh(self) -> None:
         self._set_error("")
+        if not _is_within_armory_home(self._current):
+            self._current = default_armory_home()
         show_files = self._should_show_files()
         self._entries = build_entries(
             self._current,
@@ -756,8 +789,8 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
                 "New armory\n\n"
                 "What module or topic are you studying for?\n"
                 "Type the name to create an armory.\n\n"
-                "Armories are saved locally in ~/.armory/\n"
-                "Add study materials to ~/.armory/<name>/materials/"
+                "Armories are saved locally in ~/.armories/\n"
+                "Add study materials to ~/.armories/<name>/materials/"
             )
             return
         if entry.path is None:
@@ -785,7 +818,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def _navigate_parent(self) -> None:
         parent = self._current.parent
-        if parent != self._current and parent.exists():
+        if parent != self._current and parent.exists() and _is_within_armory_home(parent):
             self._current = parent
             self._filter_query = ""
             self._refresh()
@@ -798,11 +831,17 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         elif entry.is_create:
             self._start_new_armory()
         elif entry.is_recent and entry.path is not None:
+            if not _is_within_armory_home(entry.path):
+                self._set_error(f"Cannot navigate outside armory home: {entry.path}")
+                return
             if entry.is_missing or not entry.path.exists():
                 self._set_error(f"Missing armory: {entry.path}")
                 return
             self.dismiss(entry.path)
         elif entry.path is not None and entry.path.is_dir():
+            if not _is_within_armory_home(entry.path):
+                self._set_error(f"Cannot navigate outside armory home: {entry.path}")
+                return
             self._current = entry.path
             self._filter_query = ""
             self._refresh()
@@ -835,6 +874,9 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     def action_choose(self) -> None:
         """c key: choose the current directory as the armory."""
         if self._creating or self._filtering:
+            return
+        if not _is_within_armory_home(self._current):
+            self._set_error(f"Cannot choose a folder outside armory home: {self._current}")
             return
         self.dismiss(self._current)
 
@@ -996,7 +1038,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             idx = event.option_list.highlighted
             if idx is not None and 0 <= idx < len(self._parent_entries):
                 _label, path = self._parent_entries[idx]
-                if path.is_dir():
+                if path.is_dir() and _is_within_armory_home(path):
                     self._current = path
                     self._filter_query = ""
                     self._refresh()

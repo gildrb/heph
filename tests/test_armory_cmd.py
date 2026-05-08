@@ -8,16 +8,40 @@ from hephaistos.cli.main import build_parser, run_argv
 
 
 def test_init_armory_returns_success_message(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     parser = build_parser()
-    armory_path = tmp_path / "study-armory"
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    armory_path = armory_home / "study-armory"
 
-    run_argv(parser, ["armory", "init", str(armory_path)])
+    run_argv(parser, ["armory", "init", "study-armory"])
 
     out = capsys.readouterr().out
     assert "Created armory" in out
     assert str(armory_path.resolve()) in out
+
+
+def test_init_armory_fails_outside_armories_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    armory_path = tmp_path / "outside-armories" / "study-armory"
+
+    with pytest.raises(SystemExit) as exc:
+        run_argv(parser, ["armory", "init", str(armory_path)])
+
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "Armories can only be created in the armories directory" in err
 
 
 def test_armory_name_shortcut_creates_in_default_home(
@@ -36,74 +60,32 @@ def test_armory_name_shortcut_creates_in_default_home(
     assert armory_path.is_dir()
 
 
-def test_armory_name_shortcut_creates_inside_explicit_parent(
+def test_armory_name_shortcut_rejects_explicit_parent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     parser = build_parser()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path / "unused"))
-    parent = tmp_path / "Code"
-    armory_path = parent / ".armories" / "mfi-1"
-
-    run_argv(parser, ["armory", "mfi-1", str(parent)])
-
-    out = capsys.readouterr().out
-    assert "Created armory" in out
-    assert armory_path.is_dir()
-
-
-def test_armory_name_shortcut_can_cancel_second_armory_home(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    parser = build_parser()
-    code_parent = tmp_path / "Code"
-    design_parent = tmp_path / "Design"
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(code_parent / ".armories"))
-    run_argv(parser, ["armory", "gdp"])
-    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path / ".armories"))
 
     with pytest.raises(SystemExit) as exc:
-        run_argv(parser, ["armory", "mfi-1", str(design_parent)])
+        run_argv(parser, ["armory", "mfi-1", str(tmp_path / "Code")])
 
     assert exc.value.code == 2
-    out = capsys.readouterr().out
-    assert "Your armories are currently stored here" in out
-    assert str(code_parent / ".armories") in out
-    assert "rerun without the path" in out
-    assert not (design_parent / ".armories").exists()
-
-
-def test_armory_name_shortcut_can_move_existing_armory_home(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    parser = build_parser()
-    code_parent = tmp_path / "Code"
-    design_parent = tmp_path / "Design"
-    old_home = code_parent / ".armories"
-    new_home = design_parent / ".armories"
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(old_home))
-    run_argv(parser, ["armory", "gdp"])
-    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
-
-    run_argv(parser, ["armory", "mfi-1", str(design_parent)])
-
-    out = capsys.readouterr().out
-    assert "Moved .armories folder" in out
-    assert not old_home.exists()
-    assert (new_home / "gdp").is_dir()
-    assert (new_home / "mfi-1").is_dir()
+    err = capsys.readouterr().err
+    assert "armory parent paths are no longer supported" in err
 
 
 def test_open_armory_returns_success_message(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     parser = build_parser()
-    armory_path = tmp_path / "study-armory"
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    armory_path = armory_home / "study-armory"
     run_argv(parser, ["armory", "init", str(armory_path)])
 
     run_argv(parser, ["armory", "open", str(armory_path)])

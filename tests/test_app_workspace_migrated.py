@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hephaistos import commands
-from hephaistos.armory.search import add_known_armory, save_known_armories
+from hephaistos.armory.search import add_known_armory, load_known_armories, save_known_armories
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import (
@@ -17,6 +17,7 @@ from hephaistos.chat.session import (
     create_session,
 )
 from hephaistos.commands import CommandResult
+from hephaistos.parameters.settings import invalidate_settings_cache
 from hephaistos.shell.lifecycle import (
     create_startup_session,
     discover_startup_armory,
@@ -37,6 +38,16 @@ def initialized_armory(tmp_path: Path) -> Path:
     return armory_path
 
 
+@pytest.fixture
+def clean_armory_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    invalidate_settings_cache()
+    save_known_armories([])
+    return armory_home
+
+
 # ---------------------------------------------------------------------------
 # discover_startup_armory
 # ---------------------------------------------------------------------------
@@ -46,7 +57,7 @@ class TestDiscoverStartupArmory:
     """Tests for discover_startup_armory()."""
 
     def test_returns_none_when_cwd_not_armory(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
         result = discover_startup_armory()
@@ -60,7 +71,7 @@ class TestDiscoverStartupArmory:
         assert result == initialized_armory
 
     def test_falls_back_to_single_known_armory(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
         armory = tmp_path / "my-armory"
@@ -72,7 +83,7 @@ class TestDiscoverStartupArmory:
         assert result == armory
 
     def test_returns_none_when_multiple_known_armories(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
         armory_a = tmp_path / "armory-a"
@@ -87,7 +98,7 @@ class TestDiscoverStartupArmory:
         assert result is None
 
     def test_ignores_invalid_known_armories(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
         armory = tmp_path / "valid-armory"
@@ -100,6 +111,41 @@ class TestDiscoverStartupArmory:
 
         result = discover_startup_armory()
         assert result == armory
+
+    def test_auto_discovers_single_armory_in_armories_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory = clean_armory_env / "mfi-1"
+        initialize(armory)
+
+        result = discover_startup_armory()
+        assert result == armory
+
+    def test_auto_discovers_and_registers_armory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory = clean_armory_env / "test-armory"
+        initialize(armory)
+
+        result = discover_startup_armory()
+        assert result == armory
+
+        known = load_known_armories()
+        assert armory in known
+
+    def test_returns_none_when_multiple_armories_in_armories_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory_a = clean_armory_env / "armory-a"
+        armory_b = clean_armory_env / "armory-b"
+        initialize(armory_a)
+        initialize(armory_b)
+
+        result = discover_startup_armory()
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +178,7 @@ class TestCreateStartupSession:
     """Tests for create_startup_session()."""
 
     def test_creates_plain_session_when_no_armory(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: None
     ) -> None:
         monkeypatch.chdir(tmp_path)
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
@@ -144,6 +190,7 @@ class TestCreateStartupSession:
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
+        clean_armory_env: None,
     ) -> None:
         monkeypatch.chdir(tmp_path)
         armory_path = tmp_path / "onboarded"

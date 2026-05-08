@@ -1,11 +1,24 @@
 # ty: ignore
 from __future__ import annotations
 
+import contextlib
+import inspect
 from typing import TYPE_CHECKING
 
+from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.provider_selection import activate_provider_for_session
+from hephaistos.chat.session import list_armory_sessions, resume_session, save_session
 from hephaistos.diagnostics.events import capture as capture_analytics
+from hephaistos.parameters.settings import THEME_PRESETS, load_app_settings, save_setting
+from hephaistos.privacy.consent import (
+    analytics_backend_available,
+    analytics_enabled,
+    analytics_env_override,
+    crash_reports_backend_available,
+    crash_reports_enabled,
+    crash_reports_env_override,
+)
 from hephaistos.providers import oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import (
@@ -16,13 +29,16 @@ from hephaistos.providers.keyring_store import (
     store_key,
 )
 from hephaistos.providers.model_choices import configured_model_choices
+from hephaistos.terminal import set_theme
 from hephaistos.tui.flow_state import InlineFlow
+from hephaistos.tui.style import _tui_css
 
 try:
-    from textual.widgets import Input, OptionList
+    from textual.widgets import Input, OptionList, RichLog
 except ImportError:
     Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
     from textual import events
@@ -38,6 +54,8 @@ class TuiInlineFlowMixin:
             self._open_settings_flow()
         elif value == "/models":
             self._open_models_flow()
+        elif value == "/sessions" or value.startswith("/sessions "):
+            self._handle_sessions_command(value)
 
     def _open_inline_menu(
         self,
@@ -74,14 +92,76 @@ class TuiInlineFlowMixin:
     def _open_settings_flow(self) -> None:
         active = ProviderConfig.load().get_active()
         current = active.display_name if active is not None else "none"
+        settings = load_app_settings()
         self._open_inline_menu(
             name="settings",
             step="menu",
             title=f"Settings · current model source: {current}",
             options=[
-                ("Login", "Connect subscription/API/custom access"),
-                ("Logout", "Clear stored credentials"),
+                ("Privacy & Diagnostics", self._privacy_settings_summary()),
+                ("Appearance", f"theme: {settings.theme}"),
+                ("Login", f"model source: {current}"),
+                ("Logout", "clear stored credentials"),
             ],
+        )
+
+    def _privacy_settings_summary(self) -> str:
+        analytics = "analytics on" if analytics_enabled() else "analytics off"
+        crashes = "crash reports on" if crash_reports_enabled() else "crash reports off"
+        return f"{analytics}, {crashes}"
+
+    def _privacy_option_description(
+        self,
+        *,
+        enabled: bool,
+        available: bool,
+        overridden: bool,
+    ) -> str:
+        status = "enabled" if enabled else "disabled"
+        availability = "available" if available else "inactive until configured"
+        suffix = " · env override" if overridden else ""
+        return f"{status} · {availability}{suffix}"
+
+    def _open_privacy_flow(self) -> None:
+        self._open_inline_menu(
+            name="settings",
+            step="privacy",
+            title="Settings · Privacy & Diagnostics",
+            options=[
+                (
+                    "Usage analytics",
+                    self._privacy_option_description(
+                        enabled=analytics_enabled(),
+                        available=analytics_backend_available(),
+                        overridden=analytics_env_override(),
+                    ),
+                ),
+                (
+                    "Crash reports",
+                    self._privacy_option_description(
+                        enabled=crash_reports_enabled(),
+                        available=crash_reports_backend_available(),
+                        overridden=crash_reports_env_override(),
+                    ),
+                ),
+                ("Back", "return to settings"),
+            ],
+        )
+
+    def _open_appearance_flow(self) -> None:
+        current = load_app_settings().theme
+        self._open_inline_menu(
+            name="settings",
+            step="appearance",
+            title="Settings · Appearance",
+            options=[
+                (
+                    theme,
+                    "current theme" if theme == current else "theme preset",
+                )
+                for theme in THEME_PRESETS
+            ]
+            + [("Back", "return to settings")],
         )
 
     def _model_flow_options(
@@ -161,6 +241,59 @@ class TuiInlineFlowMixin:
         composer.focus()
         self.set_focus(composer)
 
+    def _handle_sessions_command(self, value: str) -> None:
+        _, _, args = value.partition(" ")
+        subcmd = args.strip().lower() or "list"
+        if self.session.armory_path is None:
+            self._append_notice("No armory attached. Use /armory to open one.")
+            return
+        sessions = sorted(
+            list_armory_sessions(self.session.armory_path),
+            key=lambda entry: entry.get("updated_at", ""),
+            reverse=True,
+        )
+        if not sessions:
+            self._append_notice("No saved chats found.")
+            return
+        if subcmd in {"list", "recent"}:
+            self._append_plain(self._format_sessions_listing(sessions))
+            return
+        if subcmd in {"browse", "menu"}:
+            self._open_sessions_flow(sessions)
+            return
+        if subcmd in {"resume", "last", "latest"}:
+            self._perform_session_resume(sessions[0]["session_id"])
+            return
+        matches = [entry for entry in sessions if entry["session_id"].startswith(subcmd)]
+        if len(matches) == 1:
+            self._perform_session_resume(matches[0]["session_id"])
+            return
+        self._append_error("Usage: /sessions [list|recent|browse|resume]")
+
+    def _format_sessions_listing(
+        self,
+        sessions: list[chat_storage.SessionRecord],
+    ) -> str:
+        lines = [f"Saved sessions for {self.session.armory_path}:"]
+        for entry in sessions:
+            title = entry["title"] or "(untitled)"
+            lines.append(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
+        return "\n".join(lines)
+
+    def _open_sessions_flow(self, sessions: list[chat_storage.SessionRecord]) -> None:
+        self._open_inline_menu(
+            name="sessions",
+            step="menu",
+            title="Sessions · choose a chat to resume",
+            options=[
+                (
+                    entry["session_id"],
+                    f"{entry['title'] or '(untitled)'}  {entry['updated_at']}",
+                )
+                for entry in sessions
+            ],
+        )
+
     def _logout_targets(self) -> list[tuple[str, str, str]]:
         pc = ProviderConfig.load()
         targets: list[tuple[str, str, str]] = []
@@ -178,12 +311,12 @@ class TuiInlineFlowMixin:
             event.prevent_default()
             event.stop()
             return True
-        if event.key == "up" and self._inline_flow.step == "menu":
+        if event.key == "up" and self._inline_flow.options:
             self._move_completion(-1)
             event.prevent_default()
             event.stop()
             return True
-        if event.key == "down" and self._inline_flow.step == "menu":
+        if event.key == "down" and self._inline_flow.options:
             self._move_completion(1)
             event.prevent_default()
             event.stop()
@@ -197,7 +330,7 @@ class TuiInlineFlowMixin:
 
     def _submit_inline_flow(self, value: str) -> None:
         composer = self.query_one("#composer", Input)
-        if self._inline_flow.step == "menu":
+        if self._inline_flow.options:
             suggestions = self.query_one("#suggestions", OptionList)
             selected = suggestions.highlighted if suggestions.highlighted is not None else 0
             label = value or self._inline_flow.options[selected][0]
@@ -208,17 +341,31 @@ class TuiInlineFlowMixin:
 
     def _handle_inline_menu_choice(self, label: str) -> None:
         if self._inline_flow.name == "settings":
-            self._close_inline_flow()
-            if label == "Login":
-                self._open_login_flow()
-            elif label == "Logout":
-                self._open_logout_flow()
+            if self._inline_flow.step == "menu":
+                if label == "Privacy & Diagnostics":
+                    self._open_privacy_flow()
+                elif label == "Appearance":
+                    self._open_appearance_flow()
+                elif label == "Login":
+                    self._open_login_flow()
+                elif label == "Logout":
+                    self._open_logout_flow()
+                return
+            if self._inline_flow.step == "privacy":
+                self._handle_privacy_choice(label)
+                return
+            if self._inline_flow.step == "appearance":
+                self._handle_appearance_choice(label)
+                return
             return
         if self._inline_flow.name == "models":
             self._perform_model_switch(label)
             return
         if self._inline_flow.name == "logout":
             self._perform_logout(label)
+            return
+        if self._inline_flow.name == "sessions":
+            self._perform_session_resume(label)
             return
         if label == "OpenAI Codex":
             self._close_inline_flow("Opening browser login for OpenAI Codex...")
@@ -229,6 +376,65 @@ class TuiInlineFlowMixin:
             self._prompt_inline_text("login", "zai_key", "Z.AI API key")
         elif label == "Custom endpoint":
             self._prompt_inline_text("login", "custom_endpoint", "OpenAI-compatible base URL")
+
+    def _handle_privacy_choice(self, label: str) -> None:
+        if label == "Back":
+            self._open_settings_flow()
+            return
+        settings = load_app_settings()
+        if label == "Usage analytics":
+            save_setting("analytics_enabled", str(not settings.analytics_enabled).lower())
+            if analytics_env_override():
+                self._append_notice("Analytics preference saved; env override is active.")
+        elif label == "Crash reports":
+            save_setting("crash_reports_enabled", str(not settings.crash_reports_enabled).lower())
+            if crash_reports_env_override():
+                self._append_notice("Crash-report preference saved; env override is active.")
+        self._open_privacy_flow()
+
+    def _handle_appearance_choice(self, label: str) -> None:
+        if label == "Back":
+            self._open_settings_flow()
+            return
+        if label not in THEME_PRESETS:
+            return
+        save_setting("theme", label)
+        set_theme(label)
+        self._refresh_tui_css()
+        self._append_notice(f"theme: {label}")
+        self._open_appearance_flow()
+
+    def _refresh_tui_css(self) -> None:
+        self.CSS = _tui_css()
+        screen_path = inspect.getfile(self.__class__)
+        read_from = (screen_path, f"{self.__class__.__name__}.CSS")
+        scope = self._css_type_name if self.SCOPED_CSS else ""
+        self.stylesheet.add_source(self.CSS, read_from=read_from, scope=scope)
+        self.refresh_css(animate=False)
+
+    def _perform_session_resume(self, session_id: str) -> None:
+        if self.session.armory_path is None:
+            self._close_inline_flow("No armory attached. Use /armory to open one.")
+            return
+        if self.session.dirty:
+            with contextlib.suppress(chat_storage.ChatStorageError):
+                save_session(self.session)
+        try:
+            resumed = resume_session(self.session.config, self.session.armory_path, session_id)
+        except chat_storage.ChatStorageError as exc:
+            self._close_inline_flow(f"error: {exc}")
+            return
+        self.session = resumed
+        self.state.transcript.clear()
+        self.query_one("#transcript", RichLog).clear()
+        for message in resumed.conversation.messages:
+            if message.role == "user":
+                self._append_entry(message.content, "user")
+            elif message.role == "assistant":
+                self._append_entry(message.content, "markdown")
+        self._close_inline_flow(f"resumed session {resumed.session_id}")
+        self._refresh_status("ready")
+        self._update_info_panel()
 
     def _prompt_inline_text(self, name: str, step: str, placeholder: str) -> None:
         self._inline_flow.name = name

@@ -9,11 +9,9 @@ import subprocess  # nosec B404
 import sys
 import threading
 import time
-from collections.abc import Iterable
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar
 
 from hephaistos.armory.search import SearchResult, load_known_armories
 from hephaistos.parameters.cli import load_config
@@ -22,6 +20,7 @@ from hephaistos.providers.config import ProviderConfig
 from hephaistos.terminal import ThemePalette, current_palette
 from hephaistos.terminal.history import InputHistory
 from hephaistos.tui import armory as _tui_armory
+from hephaistos.tui import widgets as _tui_widgets
 from hephaistos.tui.armory import TuiArmoryMixin
 from hephaistos.tui.armory_browser import _DirEntry
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
@@ -61,11 +60,6 @@ from hephaistos.tui.status import config_error, status_lines
 from hephaistos.tui.streaming import run_tui_turn
 from hephaistos.tui.style import _tui_css
 from hephaistos.tui.transcript import TuiTranscriptMixin
-from hephaistos.tui.transparent import (
-    make_blank_background_cls,
-    make_transparent_cls,
-    nonfocus_rich_log_class,
-)
 
 if TYPE_CHECKING:
     from rich.text import Text
@@ -186,108 +180,14 @@ _armory_command_mode = _tui_armory._armory_command_mode
 _armory_usage_message = _tui_armory._armory_usage_message
 
 _THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
-
-@dataclass
-class _WidgetClasses:
-    """Palette-dependent widget classes for compose()."""
-
-    screen: type
-    vertical: type
-    horizontal: type
-    static: type
-    rich_log: type
-    input: type
-    option_list: type
-
-    @classmethod
-    def from_palette(cls, palette: ThemePalette) -> _WidgetClasses:
-        input_class = _input_without_ctrl_a_class(Input)
-        if palette.is_transparent:
-            transparent_rich_log_base = make_transparent_cls(RichLog)
-
-            class TransparentNonFocusRichLog(transparent_rich_log_base):  # type: ignore[misc]  # ty:ignore[unsupported-base]
-                can_focus = False
-
-            return cls(
-                screen=make_blank_background_cls(Screen),
-                vertical=make_blank_background_cls(Vertical),
-                horizontal=make_blank_background_cls(Horizontal),
-                static=make_transparent_cls(Static),
-                rich_log=TransparentNonFocusRichLog,
-                input=make_transparent_cls(input_class),
-                option_list=make_transparent_cls(OptionList),
-            )
-        return cls(
-            screen=Screen,
-            vertical=Vertical,
-            horizontal=Horizontal,
-            static=Static,
-            rich_log=nonfocus_rich_log_class(),
-            input=input_class,
-            option_list=OptionList,
-        )
-
-
-def _input_without_ctrl_a_class(base: type) -> type:
-    """Return an Input class that leaves ctrl+a for the app-level armory binding."""
-    input_bindings = cast(
-        "Iterable[tuple[str, Binding]]",
-        base._merged_bindings,  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
-    )
-    bindings = [binding for key, binding in input_bindings if key != "ctrl+a"]
-
-    class HephaistosInput(
-        base,  # type: ignore[misc]  # ty: ignore[unsupported-base]
-        inherit_bindings=False,
-    ):
-        BINDINGS = bindings
-
-        def on_key(self, event: events.Key) -> None:
-            if event.key != "ctrl+a":
-                return
-            cast("HephaistosTui", self.app).action_open_armory_home()
-            event.prevent_default()
-            event.stop()
-
-    return HephaistosInput
-
-
-# Backward-compatible per-type factory wrappers for tests.
-# Prefer _WidgetClasses.from_palette() for production use.
-
-
-def _transparent_screen_class() -> type:
-    return make_blank_background_cls(Screen)
-
-
-def _transparent_vertical_class() -> type:
-    return make_blank_background_cls(Vertical)
-
-
-def _transparent_horizontal_class() -> type:
-    return make_blank_background_cls(Horizontal)
-
-
-def _transparent_static_class() -> type:
-    return make_transparent_cls(Static)
-
-
-def _transparent_rich_log_class() -> type:
-    base = make_transparent_cls(RichLog)
-
-    class TransparentNonFocusRichLog(base):  # type: ignore[misc]  # ty:ignore[unsupported-base]
-        can_focus = False
-
-    return TransparentNonFocusRichLog
-
-
-def _transparent_input_class() -> type:
-    return make_transparent_cls(_input_without_ctrl_a_class(Input))
-
-
-def _transparent_option_list_class() -> type:
-    return make_transparent_cls(OptionList)
+_WidgetClasses = _tui_widgets._WidgetClasses
+_transparent_screen_class = _tui_widgets._transparent_screen_class
+_transparent_vertical_class = _tui_widgets._transparent_vertical_class
+_transparent_horizontal_class = _tui_widgets._transparent_horizontal_class
+_transparent_static_class = _tui_widgets._transparent_static_class
+_transparent_rich_log_class = _tui_widgets._transparent_rich_log_class
+_transparent_input_class = _tui_widgets._transparent_input_class
+_transparent_option_list_class = _tui_widgets._transparent_option_list_class
 
 
 _slash_suggestion = slash_suggestion
@@ -418,7 +318,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                         id="composer",
                     )
                     yield w.static(_footer_hints_text(self.session), id="footer-hints")
-            yield w.static("", id="info-separator")
             yield w.static(
                 _info_panel_default_text(
                     self.session,
@@ -492,7 +391,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self._sidebar_actual_visible = visible
         display = "block" if visible else "none"
         self.query_one("#info-panel", Static).styles.display = display
-        self.query_one("#info-separator", Static).styles.display = display
         self._schedule_transcript_reflow()
 
     def on_key(self, event: events.Key) -> None:
@@ -646,6 +544,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if route is _TuiInputRoute.ARMORY:
             self._record_history(value)
             self._handle_armory_browser(value)
+            return
+        if value == "/sessions" or value.startswith("/sessions "):
+            self._record_history(value)
+            self._handle_sessions_command(value)
             return
         if value in {"/login", "/logout", "/settings", "/models"}:
             self._record_history(value)

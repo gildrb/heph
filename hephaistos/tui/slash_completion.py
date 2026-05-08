@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from hephaistos.agent.persona import list_personas
 from hephaistos.providers.config import Provider, ProviderConfig
 
 
@@ -216,6 +217,13 @@ class SlashCompletionEngine:
                 ("disable", "Use local memory only"),
             ]
 
+        if cmd_name == "sessions":
+            return [
+                ("list", "List saved study sessions in this armory"),
+                ("browse", "Choose a saved session to resume"),
+                ("resume", "Resume the latest saved session"),
+            ]
+
         if cmd_name == "persona":
             return self._persona_suggestions(arg_parts)
 
@@ -224,6 +232,4 @@ class SlashCompletionEngine:
     def _persona_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
         if len(arg_parts) > 1:
             return []
-        from hephaistos.agent.persona import list_personas
-
         return [(persona.slug, persona.description) for persona in list_personas()]

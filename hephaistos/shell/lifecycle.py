@@ -5,18 +5,16 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from hephaistos.armory.search import load_known_armory_entries
-from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat.session import (
     ChatSession,
     SessionError,
     create_plain_session,
     create_session,
     empty_armory_guidance,
-    validate_armory_path,
 )
 from hephaistos.runtime import ChatConfig
-from hephaistos.shell import session_support as _session_support
+from hephaistos.shell import session_support as _support
+from hephaistos.shell.startup_discovery import discover_startup_armory
 from hephaistos.terminal.display import print_error, print_info
 
 
@@ -24,23 +22,12 @@ def _stdio_is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def discover_startup_armory() -> Path | None:
-    try:
-        return validate_armory_path(str(Path.cwd()))
-    except ArmoryError:
-        pass
-    valid = [entry.path for entry in load_known_armory_entries() if entry.valid]
-    if len(valid) == 1:
-        return valid[0]
-    return None
-
-
 def get_history_path(session: ChatSession) -> Path:
-    return _session_support.get_history_path(session)
+    return _support.get_history_path(session)
 
 
 def save_on_exit(session: ChatSession) -> None:
-    _session_support.save_on_exit(session)
+    _support.save_on_exit(session)
 
 
 def create_startup_session(config: ChatConfig) -> ChatSession:
@@ -49,7 +36,7 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
     if armory is None:
         if (
             _stdio_is_interactive()
-            and (onboarded := _session_support.onboard_new_armory(config)) is not None
+            and (onboarded := _support.onboard_new_armory(config)) is not None
         ):
             return onboarded
         print_error("No study armory attached; onboarding was not completed.")
@@ -62,8 +49,7 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
         print_info(empty_armory_guidance(armory))
         if (
             _stdio_is_interactive()
-            and (resumed := _session_support.recover_empty_armory_session(config, armory))
-            is not None
+            and (resumed := _support.recover_empty_armory_session(config, armory)) is not None
         ):
             return resumed
         print_error("No study session started because the armory still has no materials.")

@@ -12,8 +12,11 @@ import pytest
 from hephaistos import tui
 from hephaistos.armory.search import KnownArmory
 from hephaistos.armory.storage import initialize
+from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
+from hephaistos.parameters import settings as settings_store
+from hephaistos.terminal import set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
 
@@ -156,35 +159,45 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "border-bottom: tall" not in css
 
 
+def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
+    if tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    palette = tui.ThemePalette(
+        name="opaque-test",
+        panel="#000000",
+        stone="#111111",
+        text="#ffffff",
+        dim="#999999",
+        accent="#ffffff",
+        ember="#ff6600",
+        configured="#00ff00",
+        error="#ff0000",
+        success="#00ff00",
+        highlight="#222222",
+        is_transparent=False,
+        background="#000000",
+    )
+
+    widgets = tui._WidgetClasses.from_palette(palette)  # type: ignore[reportPrivateUsage]
+
+    assert widgets.screen.__name__ == "BlankBackgroundWidget"
+    assert widgets.vertical.__name__ == "BlankBackgroundWidget"
+    assert widgets.horizontal.__name__ == "BlankBackgroundWidget"
+    assert issubclass(widgets.rich_log, tui.RichLog)
+    assert widgets.rich_log.can_focus is False
+
+
 def test_tui_css_has_info_panel_layout() -> None:
     css = tui._tui_css()  # type: ignore[reportPrivateUsage]
 
     assert "#info-panel" in css
-    assert "#info-separator" in css
+    assert "#info-separator" not in css
     assert "#shell" in css
     shell_start = css.index("#shell {")
     shell_end = css.index("}", shell_start)
     shell_block = css[shell_start:shell_end]
     assert "min-width: 0;" in shell_block
-
-
-def test_tui_css_makes_info_separator_transparent() -> None:
-    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
-    separator_start = css.index("#info-separator {")
-    separator_end = css.index("}", separator_start)
-    separator_block = css[separator_start:separator_end]
-
-    assert "background: transparent;" in separator_block
-    assert "color: transparent;" in separator_block
-
-
-def test_tui_css_collapses_info_separator_gap() -> None:
-    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
-    separator_start = css.index("#info-separator {")
-    separator_end = css.index("}", separator_start)
-    separator_block = css[separator_start:separator_end]
-
-    assert "width: 0;" in separator_block
 
 
 def test_tui_css_materials_highlight_uses_state_colours() -> None:
@@ -324,7 +337,7 @@ def test_tui_layout_blanks_do_not_paint_black_background() -> None:
     asyncio.run(check_layout_blanks())
 
 
-def test_info_separator_segments_do_not_paint_black_background() -> None:
+def test_info_separator_is_not_rendered() -> None:
     if tui.Input is None or tui.Static is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
 
@@ -335,17 +348,12 @@ def test_info_separator_segments_do_not_paint_black_background() -> None:
     )
     typed_app = cast("TextualApp[None]", app)
 
-    async def check_separator_segments() -> None:
+    async def check_separator_absent() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             await pilot.pause()
-            separator = app.query_one("#info-separator", tui.Static)  # type: ignore[reportPrivateUsage]
-            for line_number in range(separator.size.height):  # type: ignore[reportUnknownMemberType]
-                strip = separator.render_line(line_number)
-                assert all(
-                    segment.style is None or segment.style.bgcolor is None for segment in strip
-                )
+            assert list(app.query("#info-separator")) == []
 
-    asyncio.run(check_separator_segments())
+    asyncio.run(check_separator_absent())
 
 
 def test_tui_status_short_rows_are_padded_transparently() -> None:
@@ -669,9 +677,12 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    existing = tmp_path / "exam-prep"
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    existing = armory_home / "exam-prep"
     initialize(existing)
-    missing = tmp_path / "missing"
+    missing = armory_home / "missing"
     monkeypatch.setattr(
         "hephaistos.tui.armory_browser.load_known_armory_entries",
         lambda: [
@@ -680,7 +691,7 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
         ],
     )
 
-    entries = build_entries(tmp_path, allow_create=True)
+    entries = build_entries(armory_home, allow_create=True)
     labels = [entry.label for entry in entries]
 
     assert labels[0].startswith("recent  exam-prep")
@@ -728,6 +739,107 @@ def test_ctrl_p_opens_command_palette() -> None:
             assert app.completion_candidates
 
     asyncio.run(check_command_palette())
+
+
+def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_settings_menu() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_settings_flow()  # type: ignore[reportPrivateUsage]
+            labels = [label for label, _description in app._inline_flow.options]
+
+            assert app._inline_flow.name == "settings"
+            assert app._inline_flow.step == "menu"
+            assert "Privacy & Diagnostics" in labels
+            assert "Appearance" in labels
+            assert "Login" in labels
+            assert "Logout" in labels
+
+    asyncio.run(check_settings_menu())
+
+
+def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_settings_submenus() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_settings_flow()  # type: ignore[reportPrivateUsage]
+            app._handle_inline_menu_choice("Privacy & Diagnostics")  # type: ignore[reportPrivateUsage]
+            privacy_labels = [label for label, _description in app._inline_flow.options]
+
+            assert app._inline_flow.step == "privacy"
+            assert "Usage analytics" in privacy_labels
+            assert "Crash reports" in privacy_labels
+
+            app._open_settings_flow()  # type: ignore[reportPrivateUsage]
+            app._handle_inline_menu_choice("Appearance")  # type: ignore[reportPrivateUsage]
+            appearance_labels = [label for label, _description in app._inline_flow.options]
+
+            assert app._inline_flow.step == "appearance"
+            assert "forge" in appearance_labels
+            assert "light" in appearance_labels
+            assert "high_contrast" in appearance_labels
+
+    asyncio.run(check_settings_submenus())
+
+
+def test_settings_inline_toggles_privacy_and_theme(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
+    settings_store.invalidate_settings_cache()
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_settings_changes() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_settings_flow()  # type: ignore[reportPrivateUsage]
+            app._submit_inline_flow("Privacy & Diagnostics")  # type: ignore[reportPrivateUsage]
+            app._submit_inline_flow("Usage analytics")  # type: ignore[reportPrivateUsage]
+
+            assert settings_store.load_app_settings().analytics_enabled is True
+
+            app._open_settings_flow()  # type: ignore[reportPrivateUsage]
+            app._submit_inline_flow("Appearance")  # type: ignore[reportPrivateUsage]
+            app._submit_inline_flow("light")  # type: ignore[reportPrivateUsage]
+
+            assert settings_store.load_app_settings().theme == "light"
+            assert "#2C241B" in app.CSS
+
+    try:
+        asyncio.run(check_settings_changes())
+    finally:
+        set_theme("forge")
+        settings_store.invalidate_settings_cache()
 
 
 def test_armory_home_text_includes_recent_armories(
@@ -820,6 +932,80 @@ def test_armory_input_executes_without_user_transcript(
             assert any("opened armory browser" in entry.content for entry in app.state.transcript)
 
     asyncio.run(check_inline_command())
+
+
+def test_sessions_command_lists_saved_sessions_inline(tmp_path: Path) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    armory = tmp_path / "module"
+    initialize(armory)
+    saved_conversation = Conversation()
+    saved_conversation.add("user", "What did I study?")
+    chat_storage.save(armory, "abc123", saved_conversation, title="Study recap")
+
+    session = _plain_session()
+    session.armory_path = armory
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_sessions_listing() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "/sessions list"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert any("Saved sessions for" in entry.content for entry in app.state.transcript)
+            assert any("abc123" in entry.content for entry in app.state.transcript)
+            assert any("Study recap" in entry.content for entry in app.state.transcript)
+            assert app.state.pending_input is None
+
+    asyncio.run(check_sessions_listing())
+
+
+def test_sessions_command_browses_and_resumes_saved_session_inline(tmp_path: Path) -> None:
+    if tui.Input is None or tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    armory = tmp_path / "module"
+    initialize(armory)
+    saved_conversation = Conversation()
+    saved_conversation.add("user", "What did I study?")
+    saved_conversation.add("assistant", "You reviewed modal logic.")
+    chat_storage.save(armory, "abc123", saved_conversation, title="Study recap")
+
+    session = _plain_session()
+    session.armory_path = armory
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_sessions_resume() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "/sessions browse"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app._inline_flow.name == "sessions"  # type: ignore[reportPrivateUsage]
+            app._submit_inline_flow("abc123")  # type: ignore[reportPrivateUsage]
+
+            assert app.session.session_id == "abc123"
+            assert any("What did I study?" in entry.content for entry in app.state.transcript)
+            assert any(
+                "You reviewed modal logic." in entry.content for entry in app.state.transcript
+            )
+            assert any("resumed session abc123" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_sessions_resume())
 
 
 def test_ctrl_a_opens_armory_without_input_home_conflict() -> None:
@@ -1051,10 +1237,13 @@ def test_help_executes_inline_without_restarting_tui(
     asyncio.run(check_inline_help())
 
 
-def test_armory_inline_composer_filters_without_chat_transcript(tmp_path: Path) -> None:
+def test_armory_inline_composer_filters_without_chat_transcript(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
 
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
     _make_child = tmp_path / "biology"
     _make_child.mkdir()
     app = tui.HephaistosTui(
@@ -1113,7 +1302,7 @@ def test_armory_inline_create_starts_in_default_armory_home(
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
 
-    default_home = Path.home() / ".armory"
+    default_home = Path.home() / ".armories"
     monkeypatch.delenv("HEPHAISTOS_ARMORY_HOME", raising=False)
     app = tui.HephaistosTui(
         _plain_session(),
@@ -1137,7 +1326,101 @@ def test_default_armory_home_honors_env(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
 def test_default_armory_home_falls_back_to_dot_armory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HEPHAISTOS_ARMORY_HOME", raising=False)
-    assert default_armory_home() == (Path.home() / ".armory").resolve()
+    assert default_armory_home() == (Path.home() / ".armories").resolve()
+
+
+def test_armory_inline_place_entries_stay_inside_armory_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_places() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            place_entries = [
+                entry
+                for entry in app._armory_entries
+                if entry.is_place  # type: ignore[reportPrivateUsage]
+            ]
+            assert not any(entry.path == Path("/") for entry in place_entries)
+            assert all(
+                entry.path is not None
+                and entry.path.resolve(strict=False).is_relative_to(armory_home)
+                for entry in place_entries
+            )
+
+    asyncio.run(check_places())
+
+
+def test_armory_inline_left_stops_at_armory_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    armory_home = tmp_path / ".armories"
+    child = armory_home / "child"
+    child.mkdir(parents=True)
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_left_navigation() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            app._armory_current = child  # type: ignore[reportPrivateUsage]
+            app._refresh_armory_inline()  # type: ignore[reportPrivateUsage]
+            await pilot.press("left")
+            await pilot.pause()
+            assert app._armory_current == armory_home  # type: ignore[reportPrivateUsage]
+            await pilot.press("left")
+            await pilot.pause()
+            assert app._armory_current == armory_home  # type: ignore[reportPrivateUsage]
+
+    asyncio.run(check_left_navigation())
+
+
+def test_armory_inline_rejects_open_outside_armory_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    armory_home = tmp_path / ".armories"
+    outside = tmp_path / "outside"
+    armory_home.mkdir()
+    initialize(outside)
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_rejected_open() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_armory_inline("manage")  # type: ignore[reportPrivateUsage]
+            app._open_selected_armory(outside)  # type: ignore[reportPrivateUsage]
+            error = app.query_one("#armory-error-inline", tui.Static)  # type: ignore[reportPrivateUsage]
+            assert "outside armory home" in str(error.render())  # type: ignore[reportUnknownMemberType]
+
+    asyncio.run(check_rejected_open())
 
 
 def test_armory_inline_create_rejects_existing_folder(
@@ -1408,10 +1691,13 @@ def test_armory_inline_header_shows_filter_and_no_matches(tmp_path: Path) -> Non
     asyncio.run(check_empty_filter())
 
 
-def test_armory_inline_preserves_selection_across_refresh(tmp_path: Path) -> None:
+def test_armory_inline_preserves_selection_across_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
 
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
     alpha = tmp_path / "alpha"
     beta = tmp_path / "beta"
     alpha.mkdir()
@@ -1515,10 +1801,13 @@ def test_handle_armory_browser_cancel_keeps_current_session() -> None:
     asyncio.run(check_cancel())
 
 
-def test_handle_armory_browser_rejects_invalid_directory(tmp_path: Path) -> None:
+def test_handle_armory_browser_rejects_invalid_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
 
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
     app = tui.HephaistosTui(
         _plain_session(),
         tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
@@ -1543,6 +1832,7 @@ def test_handle_armory_browser_switches_to_selected_armory(
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
 
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
     armory_path = tmp_path / "study"
     initialize(armory_path)
     session = _plain_session()

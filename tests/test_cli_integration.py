@@ -160,10 +160,13 @@ def test_top_level_help_is_compact_and_points_to_interactive_help() -> None:
 
 
 def test_run_argv_dispatches_armory_init(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     parser = build_parser()
-    armory_path = tmp_path / "integration-armory"
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    armory_path = armory_home / "integration-armory"
 
     run_argv(parser, ["armory", "init", str(armory_path)])
 
@@ -245,9 +248,13 @@ def test_start_command_launches_tui_without_path() -> None:
 
 def test_start_command_with_path_launches_tui_with_path(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     parser = build_parser()
-    armory_path = tmp_path / "integration-armory"
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    armory_path = armory_home / "integration-armory"
     run_argv(parser, ["armory", "init", str(armory_path)])
     captured_path: Path | None = None
 

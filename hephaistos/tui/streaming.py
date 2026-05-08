@@ -10,7 +10,14 @@ from collections.abc import Callable
 from threading import Event
 from typing import TYPE_CHECKING
 
+from hephaistos.chat.automation import iter_chat_events
 from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, ToolCallEvent, ToolResultEvent
+from hephaistos.runtime import (
+    EngineError,
+    StreamRecoveryError,
+    is_network_error,
+    offline_message,
+)
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -27,14 +34,6 @@ def run_tui_turn(
     on_finish: Callable[[], None],
 ) -> None:
     """Run one chat turn and report UI-ready events through callbacks."""
-    from hephaistos.chat.automation import iter_chat_events
-    from hephaistos.runtime import (
-        EngineError,
-        StreamRecoveryError,
-        is_network_error,
-        offline_message,
-    )
-
     parts: list[str] = []
     try:
         for event in iter_chat_events(session, user_input, abort=abort_event):

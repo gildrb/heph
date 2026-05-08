@@ -112,11 +112,11 @@ def test_command_registry_uses_history_for_saved_chat_switching() -> None:
     names = {suggestion.name for suggestion in suggestions}
 
     assert registry.find("chats") is None
-    assert registry.find("sessions") is None
+    assert registry.find("sessions") is not None
     assert registry.find("resume") is None
     assert registry.find("history") is not None
     assert "chats" not in names
-    assert "sessions" not in names
+    assert "sessions" in names
     assert "resume" not in names
     assert "history" in names
 
