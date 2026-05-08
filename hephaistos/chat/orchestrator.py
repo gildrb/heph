@@ -77,8 +77,25 @@ def _missing_indexed_material_reply(session: ChatSession, action: StudyAction) -
     if action not in _EVIDENCE_REQUIRED_ACTIONS:
         return ""
     index = session.rag_index
-    if index is None or index.chunk_count > 0 or session.source_file_count <= 0:
+    if session.source_file_count <= 0:
         return ""
+    if index is None:
+        return (
+            "The armory has visible materials, but the materials index could not be "
+            "loaded for this turn. I cannot answer from outside knowledge. Rebuild the "
+            "materials index with `heph index <armory>`."
+        )
+    if index.chunk_count > 0:
+        indexed_enabled = any(
+            document.source not in session.disabled_source_files and document.chunks
+            for document in index.documents
+        )
+        if indexed_enabled:
+            return ""
+        return (
+            "The armory has searchable materials, but all indexed material is currently "
+            "disabled. Enable at least one material with /materials before asking."
+        )
 
     unindexable_sources = [
         source

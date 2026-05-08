@@ -263,13 +263,13 @@ class TestRunTuiTurn:
 
 class TestPendingInputRequiresTerminal:
     def test_history_browse(self) -> None:
-        assert pending_input_requires_terminal("/history browse") is True
+        assert pending_input_requires_terminal("/sessions browse") is False
 
     def test_history_menu(self) -> None:
-        assert pending_input_requires_terminal("/history menu") is True
+        assert pending_input_requires_terminal("/sessions menu") is False
 
     def test_history_other(self) -> None:
-        assert pending_input_requires_terminal("/history 5") is False
+        assert pending_input_requires_terminal("/sessions 5") is False
 
     def test_memory_setup(self) -> None:
         assert pending_input_requires_terminal("/memory setup") is True

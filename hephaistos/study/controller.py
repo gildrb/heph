@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from hephaistos.logging import get_logger
+from hephaistos.study.overview import OVERVIEW_REQUEST_RE
 from hephaistos.study.state import StudyAction, StudyFeedbackType, StudyPhase, StudyState
 
 _log = get_logger("study.controller")
@@ -49,16 +50,6 @@ _REVIEW_MATERIAL_RE = re.compile(
     r"show (?:me )?(?:the )?material|teach me|walk me through)\b",
     re.IGNORECASE,
 )
-_OVERVIEW_REQUEST_RE = re.compile(
-    r"\b(?:"
-    r"what is (?:the |this )?(?:material|document|pdf|file)(?: about)?|"
-    r"what does (?:the |this )?(?:material|document|pdf|file) cover|"
-    r"summari[sz]e (?:the |this )?(?:material|document|pdf|file)|"
-    r"overview of (?:the |this )?(?:material|document|pdf|file)|"
-    r"what is this about"
-    r")\b",
-    re.IGNORECASE,
-)
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
 
 
@@ -94,7 +85,7 @@ def _needs_initial_calibration(user_input: str) -> bool:
 
 
 def _is_overview_request(text: str) -> bool:
-    return bool(_OVERVIEW_REQUEST_RE.search(_normalize(text)))
+    return bool(OVERVIEW_REQUEST_RE.search(_normalize(text)))
 
 
 def _is_reveal_request(text: str) -> bool:

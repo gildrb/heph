@@ -114,10 +114,10 @@ class SessionsCommand(Command):
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
         subcmd = args.strip().lower()
-        if subcmd in ("", "list", "recent"):
+        if subcmd in ("list", "recent"):
             list_saved_chats(s)
             return CommandResult()
-        if subcmd in ("browse", "menu"):
+        if subcmd in ("", "browse", "menu"):
             return CommandResult(new_session=resume_saved_chat(s, "browse"))
         if subcmd in ("resume", "last", "latest"):
             return CommandResult(new_session=resume_saved_chat(s, "latest"))

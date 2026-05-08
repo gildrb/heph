@@ -29,8 +29,11 @@ def test_config_show_uses_registered_handler(
         lambda key: {  # type: ignore[reportUnknownLambdaType]
             "theme": "forge",
             "default_armory_path": "(not set)",
+            "interface_mode": "tui",
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
+            "supermemory_enabled": "false",
+            "supermemory_profile": "heph-study",
         }[key],
     )
 
@@ -43,6 +46,7 @@ def test_config_show_uses_registered_handler(
     assert "max_tokens: 1234" in out
     assert "rag_context_budget: 4321" in out
     assert "theme: forge" in out
+    assert "interface_mode: tui" in out
     assert "analytics_enabled: false [unavailable]" in out
 
 
@@ -282,8 +286,11 @@ def test_config_show_displays_feature_flags(
         lambda key: {  # type: ignore[reportUnknownLambdaType]
             "theme": "forge",
             "default_armory_path": "(not set)",
+            "interface_mode": "tui",
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
+            "supermemory_enabled": "false",
+            "supermemory_profile": "heph-study",
         }[key],
     )
 
@@ -312,8 +319,11 @@ def test_config_show_displays_no_feature_flags(
         lambda key: {  # type: ignore[reportUnknownLambdaType]
             "theme": "forge",
             "default_armory_path": "(not set)",
+            "interface_mode": "tui",
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
+            "supermemory_enabled": "false",
+            "supermemory_profile": "heph-study",
         }[key],
     )
 
@@ -332,6 +342,49 @@ def test_config_set_bool_setting_persists_boolean(
     assert "Set analytics_enabled = true" in out
     saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
     assert saved["analytics_enabled"] is True
+
+
+def test_config_path_prints_persistent_config_file(
+    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_argv(build_parser(), ["config", "path"])
+
+    out = capsys.readouterr().out.strip()
+    assert out == str(isolated_config_dir.config_file)
+
+
+def test_config_list_includes_persistent_preferences(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_argv(build_parser(), ["config", "list"])
+
+    out = capsys.readouterr().out
+    assert "theme: TUI theme preset" in out
+    assert "analytics_enabled: Anonymous usage analytics opt-in" in out
+    assert "interface_mode: Interface mode" in out
+
+
+def test_config_unset_removes_persisted_setting(
+    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_argv(build_parser(), ["config", "set", "theme", "light"])
+    run_argv(build_parser(), ["config", "unset", "theme"])
+
+    out = capsys.readouterr().out
+    assert "Unset theme" in out
+    saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
+    assert "theme" not in saved
+
+
+def test_config_set_interface_mode_persists(
+    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_argv(build_parser(), ["config", "set", "interface_mode", "tui"])
+
+    out = capsys.readouterr().out
+    assert "Set interface_mode = tui" in out
+    saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
+    assert saved["interface_mode"] == "tui"
 
 
 def test_load_config_feature_flags_env_overrides_user(

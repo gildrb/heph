@@ -66,6 +66,7 @@ class TuiInlineFlowMixin:
         title: str,
         options: list[tuple[str, str]],
     ) -> None:
+        options = _dedupe_inline_options(options)
         self._inline_flow = InlineFlow(
             name=name,
             step=step,
@@ -620,6 +621,19 @@ def _filtered_inline_options(
         if option not in result:
             result.append(option)
     return result
+
+
+def _dedupe_inline_options(options: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Keep inline menus compact when provider/model sources return duplicate rows."""
+    seen: set[tuple[str, str]] = set()
+    deduped: list[tuple[str, str]] = []
+    for label, description in options:
+        key = (label.strip().casefold(), description.strip().casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((label, description))
+    return deduped
 
 
 def _inline_option_label(

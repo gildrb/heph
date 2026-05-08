@@ -19,6 +19,7 @@ from hephaistos.parameters import settings as settings_store
 from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
+from hephaistos.tui.inline_flows import _dedupe_inline_options
 
 if TYPE_CHECKING:
     from textual.app import App as TextualApp
@@ -151,12 +152,27 @@ def test_tui_css_keeps_surface_transparent() -> None:
 
     assert "App {\n    background: transparent;" in css
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
-    assert "#status {\n    height: 1;\n    width: auto;" in css
+    assert "#status {\n    height: auto;\n    max-height: 2;\n    width: auto;" in css
     assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
     assert "background: ansi_default;" not in css
     assert "border-bottom: tall" not in css
+    assert "background: #FFFFFF;" not in css
+    assert "#suggestions:focus > .option-list--option-highlighted" in css
+
+
+def test_inline_options_remove_exact_repetitions() -> None:
+    assert _dedupe_inline_options(
+        [
+            ("model-a", "via OpenRouter"),
+            ("model-a", "via OpenRouter"),
+            ("model-a", "via Z.AI"),
+        ]
+    ) == [
+        ("model-a", "via OpenRouter"),
+        ("model-a", "via Z.AI"),
+    ]
 
 
 def test_non_default_themes_do_not_paint_terminal_background() -> None:
@@ -486,16 +502,6 @@ def test_tui_slash_suggestion_uses_canonical_materials_command() -> None:
     suggestion = tui._slash_suggestion(engine, "/mat")  # type: ignore[reportPrivateUsage]
 
     assert suggestion == "/materials "
-
-
-def test_source_listing_filters_with_fuzzy_match() -> None:
-    session = _plain_session()
-    session.source_files = ("materials/binary-search.md", "materials/calculus.md")
-    session.source_file_count = 2
-
-    listing = tui._source_listing(session, "binary")  # type: ignore[reportPrivateUsage]
-
-    assert listing.splitlines()[0] == "@materials/binary-search.md"
 
 
 def test_info_panel_shows_session_duration_and_material_names() -> None:

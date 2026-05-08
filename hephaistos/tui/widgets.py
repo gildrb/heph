@@ -39,8 +39,8 @@ class WidgetClasses:
         input_class = input_without_ctrl_a_class(Input)
         return cls(
             screen=make_blank_background_cls(Screen),
-            vertical=make_blank_background_cls(Vertical),
-            horizontal=make_blank_background_cls(Horizontal),
+            vertical=make_transparent_cls(Vertical),
+            horizontal=make_transparent_cls(Horizontal),
             static=make_transparent_cls(Static),
             rich_log=transparent_rich_log_class(),
             input=make_transparent_cls(input_class),
@@ -76,11 +76,11 @@ def transparent_screen_class() -> type:
 
 
 def transparent_vertical_class() -> type:
-    return make_blank_background_cls(Vertical)
+    return make_transparent_cls(Vertical)
 
 
 def transparent_horizontal_class() -> type:
-    return make_blank_background_cls(Horizontal)
+    return make_transparent_cls(Horizontal)
 
 
 def transparent_static_class() -> type:

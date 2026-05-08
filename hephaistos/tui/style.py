@@ -49,7 +49,8 @@ Screen {{
     display: none;
 }}
 #status {{
-    height: 1;
+    height: auto;
+    max-height: 2;
     width: auto;
     max-width: 100%;
     padding: 0 0;
@@ -160,8 +161,8 @@ Screen {{
     scrollbar-size: 0 0;
 }}
 #armory-current-inline > .option-list--option-highlighted {{
-    background: {p.highlight};
-    color: {p.text};
+    background: {p.ember};
+    color: {p.panel};
 }}
 #armory-preview-inline {{
     width: 40;
@@ -274,7 +275,7 @@ Screen {{
 }}
 #suggestions > .option-list--option-highlighted,
 #suggestions:focus > .option-list--option-highlighted {{
-    background: #FFFFFF;
+    background: {p.ember};
     color: #000000;
 }}
 .hidden {{
@@ -293,13 +294,13 @@ OptionList > .option-list--option {{
     padding: 0 0;
 }}
 OptionList > .option-list--option-highlighted {{
-    background: {p.highlight};
-    color: {p.text};
+    background: {p.ember};
+    color: {p.panel};
     padding: 0 0;
 }}
 OptionList:focus > .option-list--option-highlighted {{
-    background: {p.highlight};
-    color: {p.text};
+    background: {p.ember};
+    color: {p.panel};
     padding: 0 0;
 }}
 #composer {{

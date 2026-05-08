@@ -33,6 +33,16 @@ def test_first_turn_material_overview_disables_tools() -> None:
     assert plan.allow_tools is False
 
 
+def test_first_turn_explain_material_simply_uses_overview() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "explain the material simply")
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.retrieval_query == "explain the material simply"
+    assert plan.allow_tools is False
+
+
 def test_initial_greeting_starts_calibration() -> None:
     state = StudyState()
 

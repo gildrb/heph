@@ -235,7 +235,6 @@ Useful shell commands:
 | /new | Start a new chat |
 | /armory | Browse, open, or create armories |
 | /compact | Summarize conversation to reduce context size |
-| /history | List or resume saved study chats |
 | /evidence | Show retrieved evidence for the last turn |
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |

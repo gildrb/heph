@@ -162,7 +162,7 @@ def offline_message(provider_name: str) -> str:
         f"Can't reach {provider_name}. "
         "You're offline — but you can still:\n"
         "  · Review vocabulary with /vocab drill\n"
-        "  · Browse materials with /sources\n"
+        "  · Browse materials with /materials\n"
         "  · Export the chat with /export\n"
         "  · Check /stats for session progress\n"
         "\n"

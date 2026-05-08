@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -26,6 +25,7 @@ from hephaistos.runtime import (
     to_chat_completion_messages,
 )
 from hephaistos.study import StudyAction, StudyTurnPlan
+from hephaistos.study.overview import OVERVIEW_REQUEST_RE
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -34,16 +34,6 @@ _log = get_logger("chat.evidence")
 _RAG_MIN_SCORE = 0.1
 _OVERVIEW_CHUNK_LIMIT = 6
 _OVERVIEW_CHUNKS_PER_DOCUMENT = 3
-_OVERVIEW_QUERY_RE = re.compile(
-    r"\b(?:"
-    r"what is (?:the |this )?(?:material|document|pdf|file)(?: about)?|"
-    r"what does (?:the |this )?(?:material|document|pdf|file) cover|"
-    r"summari[sz]e (?:the |this )?(?:material|document|pdf|file)|"
-    r"overview of (?:the |this )?(?:material|document|pdf|file)|"
-    r"what is this about"
-    r")\b",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +127,7 @@ def adaptive_rag_budget(session: ChatSession) -> int:
 
 
 def _is_overview_query(query: str) -> bool:
-    return bool(_OVERVIEW_QUERY_RE.search(query.strip()))
+    return bool(OVERVIEW_REQUEST_RE.search(query.strip()))
 
 
 def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvidence | None:

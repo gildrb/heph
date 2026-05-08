@@ -39,7 +39,6 @@ from hephaistos.tui.keymap import armory_binding_keys, armory_shortcut_key
 from hephaistos.tui.materials_view import (
     MATERIAL_DISABLED_COLOR,
     MATERIAL_ENABLED_COLOR,
-    material_listing,
 )
 from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
@@ -176,7 +175,6 @@ _info_panel_message_text = info_panel_message_text
 
 _config_error = config_error
 
-_source_listing = material_listing
 _armory_command_mode = _tui_armory._armory_command_mode
 _armory_usage_message = _tui_armory._armory_usage_message
 
@@ -610,10 +608,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
 
     def _append_armory_home(self) -> None:
         self._append_plain(_armory_home_text())
-
-    def _handle_sources(self, value: str) -> None:
-        _, _, args = value.partition(" ")
-        self._append_plain(material_listing(self.session, args))
 
     def _open_materials_inline(self, value: str = "", *, mode: str = "toggle") -> None:
         _, _, args = value.partition(" ")

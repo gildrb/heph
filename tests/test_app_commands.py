@@ -106,7 +106,7 @@ def test_recommend_command_lists_study_models(capsys: pytest.CaptureFixture[str]
     assert "study" in out
 
 
-def test_command_registry_uses_history_for_saved_chat_switching() -> None:
+def test_command_registry_uses_sessions_for_saved_chat_switching() -> None:
     registry = commands.get_registry()
     suggestions = registry.suggestions()
     names = {suggestion.name for suggestion in suggestions}
@@ -114,11 +114,11 @@ def test_command_registry_uses_history_for_saved_chat_switching() -> None:
     assert registry.find("chats") is None
     assert registry.find("sessions") is not None
     assert registry.find("resume") is None
-    assert registry.find("history") is not None
+    assert registry.find("history") is None
     assert "chats" not in names
     assert "sessions" in names
     assert "resume" not in names
-    assert "history" in names
+    assert "history" not in names
 
 
 def test_command_registry_includes_session_utility_commands() -> None:
@@ -412,17 +412,6 @@ def test_status_command_reports_model(
 
     assert result.output is not None
     assert "Model:" in result.output
-
-
-def test_history_command_no_armory(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.HistoryCommand().handle(session, "")
-
-    out = capsys.readouterr().out
-    assert "Attach an armory" in out
 
 
 def test_evidence_command_no_armory(

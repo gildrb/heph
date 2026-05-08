@@ -731,6 +731,27 @@ class TestHelperFunctions:
         mock_overview.assert_called_once_with(session)
         mock_query.assert_not_called()
 
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_overview")
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
+    def test_resolve_turn_evidence_uses_overview_for_simple_material_explanation(
+        self,
+        mock_query: MagicMock,
+        mock_overview: MagicMock,
+    ) -> None:
+        evidence = _make_turn_evidence(_make_evidence_chunk())
+        mock_overview.return_value = evidence
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="explain the material simply",
+        )
+
+        session = _make_study_session()
+        result = resolve_turn_evidence(session, plan)
+
+        assert result is evidence
+        mock_overview.assert_called_once_with(session)
+        mock_query.assert_not_called()
+
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
     def testresolve_turn_evidence_falls_back_to_query(

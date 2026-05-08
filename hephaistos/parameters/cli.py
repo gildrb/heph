@@ -126,6 +126,7 @@ _CONFIG_KEY_TO_ENV = {
     "feature_flags": "HEPHAISTOS_FEATURE_FLAGS",
     "theme": "",
     "default_armory_path": "",
+    "interface_mode": "",
     "analytics_enabled": "HEPHAISTOS_ANALYTICS_ENABLED",
     "crash_reports_enabled": "HEPHAISTOS_CRASH_REPORTS_ENABLED",
     "supermemory_enabled": "",
@@ -133,6 +134,20 @@ _CONFIG_KEY_TO_ENV = {
 }
 
 _BOOL_KEYS = {"analytics_enabled", "crash_reports_enabled", "supermemory_enabled"}
+_SETTING_DESCRIPTIONS = {
+    "base_url": "OpenAI-compatible API base URL",
+    "model": "Model identifier",
+    "max_tokens": "Maximum response tokens",
+    "rag_context_budget": "Retrieval context token budget",
+    "feature_flags": "Comma-separated feature flags",
+    "theme": "TUI theme preset",
+    "default_armory_path": "Startup armory fallback path",
+    "interface_mode": "Interface mode",
+    "analytics_enabled": "Anonymous usage analytics opt-in",
+    "crash_reports_enabled": "Redacted crash reporting opt-in",
+    "supermemory_enabled": "Supermemory sync opt-in",
+    "supermemory_profile": "Supermemory profile name",
+}
 
 
 def _effective_setting_value(key: str) -> str:
@@ -143,6 +158,8 @@ def _effective_setting_value(key: str) -> str:
         return app_settings.theme
     if key == "default_armory_path":
         return app_settings.default_armory_path or "(not set)"
+    if key == "interface_mode":
+        return app_settings.interface_mode
     if key == "analytics_enabled":
         suffix = " (env override)" if privacy.analytics_env_override() else ""
         availability = "available" if privacy.analytics_backend_available() else "unavailable"
@@ -176,10 +193,22 @@ def _cmd_config_show(_args: argparse.Namespace) -> None:
     print(f"  feature_flags: {flags}")
     print(f"  theme: {_display_setting_value('theme')}")
     print(f"  default_armory_path: {_display_setting_value('default_armory_path')}")
+    print(f"  interface_mode: {_display_setting_value('interface_mode')}")
     print(f"  analytics_enabled: {_display_setting_value('analytics_enabled')}")
     print(f"  crash_reports_enabled: {_display_setting_value('crash_reports_enabled')}")
     print(f"  supermemory_enabled: {_display_setting_value('supermemory_enabled')}")
     print(f"  supermemory_profile: {_display_setting_value('supermemory_profile')}")
+
+
+def _cmd_config_list(_args: argparse.Namespace) -> None:
+    print("Configurable settings:")
+    for key, env in _CONFIG_KEY_TO_ENV.items():
+        env_text = f" env: {env}" if env else ""
+        print(f"  {key}: {_SETTING_DESCRIPTIONS[key]}{env_text}")
+
+
+def _cmd_config_path(_args: argparse.Namespace) -> None:
+    print(settings_store._USER_CONFIG_FILE)  # type: ignore[reportPrivateUsage]
 
 
 def _cmd_config_set(args: argparse.Namespace) -> None:
@@ -204,6 +233,16 @@ def _cmd_config_set(args: argparse.Namespace) -> None:
     print(f"Set {key} = {value} (persisted to {settings_store._USER_CONFIG_FILE})")  # type: ignore[reportPrivateUsage]
 
 
+def _cmd_config_unset(args: argparse.Namespace) -> None:
+    key = args.key
+    if key not in _CONFIG_KEY_TO_ENV:
+        print(f"error: unknown config key '{key}'.", file=sys.stderr)
+        print(f"  valid keys: {', '.join(_CONFIG_KEY_TO_ENV)}", file=sys.stderr)
+        sys.exit(1)
+    settings_store.clear_setting(key)
+    print(f"Unset {key} (persisted to {settings_store._USER_CONFIG_FILE})")  # type: ignore[reportPrivateUsage]
+
+
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:  # type: ignore[reportPrivateUsage]
     """Register config subcommands."""
     config = subparsers.add_parser("config", help="View and set configuration values.")
@@ -212,15 +251,25 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     show = config_sub.add_parser("show", help="Display current configuration.")
     show.set_defaults(handler=_cmd_config_show)
 
+    list_cmd = config_sub.add_parser("list", help="List configurable settings.")
+    list_cmd.set_defaults(handler=_cmd_config_list)
+
+    path_cmd = config_sub.add_parser("path", help="Print the persistent config file path.")
+    path_cmd.set_defaults(handler=_cmd_config_path)
+
     set_cmd = config_sub.add_parser("set", help="Set a configuration parameter.")
     set_cmd.add_argument(
         "key",
         help=(
             "Config key "
             "(base_url, model, max_tokens, rag_context_budget, feature_flags, theme, "
-            "default_armory_path, analytics_enabled, crash_reports_enabled, "
-            "supermemory_enabled, supermemory_profile)."
+            "default_armory_path, interface_mode, analytics_enabled, "
+            "crash_reports_enabled, supermemory_enabled, supermemory_profile)."
         ),
     )
     set_cmd.add_argument("value", help="Value to set.")
     set_cmd.set_defaults(handler=_cmd_config_set)
+
+    unset_cmd = config_sub.add_parser("unset", help="Remove a persisted configuration value.")
+    unset_cmd.add_argument("key", help="Config key to remove.")
+    unset_cmd.set_defaults(handler=_cmd_config_unset)

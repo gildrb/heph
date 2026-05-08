@@ -57,7 +57,7 @@ class ImportCommand(Command):
         print_success(f"Imported {len(imported)} file{'s' if len(imported) != 1 else ''}:")
         for name in imported:
             print(f"  {name}")
-        print_info("Use /sources to browse or /vocab drill to review extracted cards.")
+        print_info("Use /materials to browse or /vocab drill to review extracted cards.")
         return CommandResult()
 
 

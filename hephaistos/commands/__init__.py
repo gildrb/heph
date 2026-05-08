@@ -17,7 +17,6 @@ from hephaistos.commands.compact import CompactCommand
 from hephaistos.commands.display import (
     CostCommand,
     EvidenceCommand,
-    HistoryCommand,
     StatsCommand,
     TokensCommand,
     UsageCommand,
@@ -97,7 +96,6 @@ def get_registry() -> CommandRegistry:
             NewCommand,
             ArmoryCommand,
             CompactCommand,
-            HistoryCommand,
             EvidenceCommand,
             TokensCommand,
             CostCommand,
@@ -140,7 +138,6 @@ __all__ = [
     "ExitCommand",
     "ExportCommand",
     "HelpCommand",
-    "HistoryCommand",
     "ImportCommand",
     "IndexCommand",
     "LoginCommand",
