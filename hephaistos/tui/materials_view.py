@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from hephaistos.chat.session import ChatSession
+from typing import TYPE_CHECKING
+
 from hephaistos.matching import ranked_matches
+
+if TYPE_CHECKING:
+    from hephaistos.chat.session import ChatSession
 
 MATERIAL_ENABLED_COLOR = "#7F9A6A"
 MATERIAL_DISABLED_COLOR = "#9B4A2E"

@@ -6,13 +6,33 @@ names/help text, while TUI and shell adapters decide how to render or apply them
 
 from __future__ import annotations
 
-from hephaistos.commands import get_registry
-from hephaistos.commands.suggestions import CommandSuggestion
+from dataclasses import dataclass
+
 from hephaistos.tui.slash_completion import SlashCompletionEngine
 
 
+@dataclass(frozen=True)
+class CommandSuggestion:
+    name: str
+    description: str
+    aliases: tuple[str, ...] = ()
+
+
+def _command_registry_suggestions() -> list[CommandSuggestion]:
+    from hephaistos.commands import get_registry
+
+    return [
+        CommandSuggestion(
+            name=suggestion.name,
+            description=suggestion.description,
+            aliases=suggestion.aliases,
+        )
+        for suggestion in get_registry().suggestions()
+    ]
+
+
 def tui_command_suggestions() -> list[CommandSuggestion]:
-    suggestions = get_registry().suggestions()
+    suggestions = _command_registry_suggestions()
     suggestions.append(
         CommandSuggestion(
             name="sources",

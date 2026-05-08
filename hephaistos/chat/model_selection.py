@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from hephaistos.chat.session import ChatSession
+from typing import TYPE_CHECKING
+
 from hephaistos.providers.config import ProviderConfig
+
+if TYPE_CHECKING:
+    from hephaistos.chat.session import ChatSession
 
 
 def switch_model(session: ChatSession, slug: str, model: str) -> bool:

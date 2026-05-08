@@ -5,10 +5,9 @@ from __future__ import annotations
 import contextlib
 import os
 
+from hephaistos.rag import optional_backends
 from hephaistos.rag.index import ArmoryIndex
 from hephaistos.rag.optional_backends import (
-    CROSS_ENCODER,
-    SENTENCE_TRANSFORMER,
     CrossEncoderProtocol,
     SentenceTransformerProtocol,
 )
@@ -36,9 +35,10 @@ class EmbeddingRetriever:
         """Lazy-load the sentence-transformers model."""
         if self._model is not None:
             return self._model
-        if SENTENCE_TRANSFORMER is None:
+        factory = optional_backends.sentence_transformer()
+        if factory is None:
             raise RuntimeError("sentence-transformers is not installed")
-        self._model = SENTENCE_TRANSFORMER(self._model_name)
+        self._model = factory(self._model_name)
         return self._model
 
     def _ensure_embeddings(self) -> list[list[float]]:
@@ -106,9 +106,10 @@ class CrossEncoderReranker:
         """Lazy-load the CrossEncoder model."""
         if self._model is not None:
             return self._model
-        if CROSS_ENCODER is None:
+        factory = optional_backends.cross_encoder()
+        if factory is None:
             raise RuntimeError("sentence-transformers is not installed")
-        self._model = CROSS_ENCODER(self._model_name)
+        self._model = factory(self._model_name)
         return self._model
 
     def rerank(

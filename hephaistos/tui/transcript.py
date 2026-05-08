@@ -22,6 +22,31 @@ _TRANSCRIPT_ENTRY_GAP = ""
 
 
 class TuiTranscriptMixin:
+    def _schedule_transcript_reflow(self) -> None:
+        if self._transcript_reflow_pending:
+            return
+        self._transcript_reflow_pending = True
+        self.call_after_refresh(self._run_scheduled_transcript_reflow)
+
+    def _run_scheduled_transcript_reflow(self) -> None:
+        self._transcript_reflow_pending = False
+        self._reflow_transcript_entries()
+
+    def _reflow_transcript_entries(self) -> None:
+        try:
+            log = self.query_one("#transcript", RichLog)
+        except NoMatches:
+            return
+        if log.has_class("hidden-for-armory"):
+            return
+        if log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
+            return
+        log.clear()
+        for index, entry in enumerate(self.state.transcript):
+            if index > 0:
+                self._write_transcript_gap()
+            self._write_transcript_entry(entry)
+
     def _write_transcript_entry(self, entry: object) -> None:
         log = self.query_one("#transcript", RichLog)
         if entry.kind == "markdown":

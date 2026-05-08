@@ -5,9 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from hephaistos.agent.persona import list_personas
-from hephaistos.commands.suggestions import CommandSuggestion
 from hephaistos.providers.config import Provider, ProviderConfig
+
+
+class CommandSuggestion(Protocol):
+    name: str
+    description: str
+    aliases: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -219,4 +223,6 @@ class SlashCompletionEngine:
     def _persona_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
         if len(arg_parts) > 1:
             return []
+        from hephaistos.agent.persona import list_personas
+
         return [(persona.slug, persona.description) for persona in list_personas()]

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from hephaistos.chat.session import ChatSession
+from typing import TYPE_CHECKING
+
 from hephaistos.providers.access import activate_provider_config
 from hephaistos.providers.config import Provider, ProviderConfig
+
+if TYPE_CHECKING:
+    from hephaistos.chat.session import ChatSession
 
 
 def activate_provider_for_session(

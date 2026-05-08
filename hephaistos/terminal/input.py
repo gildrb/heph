@@ -5,19 +5,11 @@ from __future__ import annotations
 import subprocess  # nosec B404
 import threading
 from collections.abc import Callable
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from hephaistos.chat.session import ChatSession, send_user_message
 from hephaistos.diagnostics.crashes import capture_exception
 from hephaistos.diagnostics.events import capture as capture_analytics
-from hephaistos.runtime import (
-    EngineError,
-    StreamRecoveryError,
-    is_keyless_endpoint,
-    is_network_error,
-    missing_api_key_message,
-    offline_message,
-)
+from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.terminal.display import (
     STYLE_ASSISTANT,
     STYLE_DIM,
@@ -27,6 +19,9 @@ from hephaistos.terminal.display import (
     styled,
 )
 from hephaistos.terminal.history import InputHistory
+
+if TYPE_CHECKING:
+    from hephaistos.chat.session import ChatSession
 
 
 class CommandResultProtocol(Protocol):
@@ -75,15 +70,19 @@ def _preflight_config_check(session: ChatSession) -> str | None:
     if not session.config.model:
         return "No model configured. Use /models to select one."
     if not is_keyless_endpoint(session.config.base_url) and not session.config.resolved_api_key:
+        from hephaistos.runtime import missing_api_key_message
+
         return missing_api_key_message(session.config)
     return None
 
 
 def _report_engine_error(
-    exc: EngineError | StreamRecoveryError,
+    exc: BaseException,
     session: ChatSession,
 ) -> None:
     """Display an engine error and capture local diagnostic context."""
+    from hephaistos.runtime import StreamRecoveryError, is_network_error, offline_message
+
     provider = session.config.provider_slug or "the provider"
 
     if isinstance(exc, StreamRecoveryError):
@@ -211,6 +210,9 @@ def _send_chat_input(
 
 
 def _send_message(session: ChatSession, user_input: str) -> ChatSession:
+    from hephaistos.chat.session import send_user_message
+    from hephaistos.runtime import EngineError, StreamRecoveryError
+
     config_error = _preflight_config_check(session)
     if config_error:
         print_error(config_error)

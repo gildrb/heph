@@ -6,11 +6,14 @@ TUI renderer so adapters only format it for their surface.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from hephaistos import __version__
-from hephaistos.chat.session import ChatSession
 from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.providers.endpoints import is_keyless_endpoint
-from hephaistos.runtime import missing_api_key_message
+
+if TYPE_CHECKING:
+    from hephaistos.chat.session import ChatSession
 
 
 def status_lines(session: ChatSession, state: str = "ready") -> str:
@@ -44,5 +47,7 @@ def config_error(session: ChatSession) -> str | None:
     if not session.config.model:
         return "No model configured. Use /models to select one."
     if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
+        from hephaistos.runtime import missing_api_key_message
+
         return missing_api_key_message(session.config)
     return None

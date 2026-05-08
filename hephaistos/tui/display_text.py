@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hephaistos.armory.search import load_known_armories
-from hephaistos.chat.session import ChatSession
 from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.terminal import current_palette
@@ -23,6 +22,8 @@ except ImportError:
 
 if TYPE_CHECKING:
     from rich.text import Text
+
+    from hephaistos.chat.session import ChatSession
 
 
 def require_rich_text() -> type[Text]:

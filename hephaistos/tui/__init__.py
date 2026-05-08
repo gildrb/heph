@@ -16,18 +16,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
 
 from hephaistos.armory.search import SearchResult, load_known_armories
-from hephaistos.chat.cli import resolve_armory_session
-from hephaistos.chat.session import ChatSession
-from hephaistos.commands import NewCommand
-from hephaistos.commands import get_registry as _get_registry
 from hephaistos.parameters.cli import load_config
 from hephaistos.providers.catalog import prefetch_provider_model_catalogs
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.shell import armory_actions as _armory_actions
-from hephaistos.shell.lifecycle import create_startup_session, get_history_path, save_on_exit
 from hephaistos.terminal import ThemePalette, current_palette
 from hephaistos.terminal.history import InputHistory
-from hephaistos.terminal.input import handle_input
 from hephaistos.tui import armory as _tui_armory
 from hephaistos.tui.armory import TuiArmoryMixin
 from hephaistos.tui.armory_browser import _DirEntry
@@ -74,10 +67,10 @@ from hephaistos.tui.transparent import (
     nonfocus_rich_log_class,
 )
 
-start_fresh_session = _armory_actions.start_fresh_session
-
 if TYPE_CHECKING:
     from rich.text import Text
+
+    from hephaistos.chat.session import ChatSession
 
 try:
     from rich.markdown import Markdown
@@ -111,7 +104,18 @@ except ImportError:
     RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
-get_registry = _get_registry
+
+def get_registry() -> object:
+    from hephaistos.commands import get_registry as commands_get_registry
+
+    return commands_get_registry()
+
+
+def start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatSession:
+    from hephaistos.shell.armory_actions import start_fresh_session as shell_start_fresh_session
+
+    return shell_start_fresh_session(session, armory_path)
+
 
 _tui_dependency_message = tui_dependency_message
 _status_lines = status_lines
@@ -338,6 +342,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self._materials_filter = ""
         self._materials_entries: list[str] = []
         self._sidebar_width_visible = True
+        self._sidebar_actual_visible: bool | None = None
         self._inline_flow = _InlineFlow()
 
     def get_default_screen(self) -> Screen:
@@ -426,11 +431,13 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
     def on_resize(self, event: events.Resize) -> None:
         visible = event.size.width >= 100
         self._sidebar_width_visible = visible
-        self._set_sidebar_visible(
-            visible and not self._armory_inline_active and not self._materials_inline_active
-        )
+        target = visible and not self._armory_inline_active and not self._materials_inline_active
+        self._set_sidebar_visible(target)
 
     def _set_sidebar_visible(self, visible: bool) -> None:
+        if self._sidebar_actual_visible is visible:
+            return
+        self._sidebar_actual_visible = visible
         display = "block" if visible else "none"
         self.query_one("#info-panel", Static).styles.display = display
         self.query_one("#info-separator", Static).styles.display = display
@@ -781,6 +788,8 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         return False
 
     def _handle_new(self) -> None:
+        from hephaistos.commands import NewCommand
+
         result = NewCommand().handle(self.session, "")
         if result.new_session is not None:
             self.session = result.new_session
@@ -801,6 +810,8 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             self.state.pending_input = value
             self.exit()
             return
+
+        from hephaistos.terminal.input import handle_input
 
         history = InputHistory(self.state.history)
         stdout = _TuiCaptureWriter()
@@ -1015,6 +1026,9 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
 
 def run_tui(session: ChatSession | None = None) -> None:
     """Run the command-first Textual shell."""
+    from hephaistos.shell.lifecycle import create_startup_session, get_history_path, save_on_exit
+    from hephaistos.terminal.input import handle_input
+
     if (
         Markdown is None
         or Segment is None
@@ -1096,5 +1110,7 @@ def run_tui_for_path(path: Path | None) -> None:
     if path is None:
         run_tui()
         return
+    from hephaistos.chat.cli import resolve_armory_session
+
     session = resolve_armory_session(str(path))
     run_tui(session)

@@ -95,7 +95,11 @@ class HybridRetriever:
             return self._sparse.retrieve(query, top_k=pool)
 
         sparse_results = self._sparse.retrieve(query, top_k=pool)
-        embed_results = self._embedding.retrieve(query, top_k=pool)
+        try:
+            embed_results = self._embedding.retrieve(query, top_k=pool)
+        except Exception:
+            self._embedding = None
+            return sparse_results
 
         if not sparse_results and not embed_results:
             return []

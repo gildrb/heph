@@ -34,7 +34,7 @@ class TfidfRetriever:
         self._idf: dict[str, float] = {}
         self._chunk_freqs: list[Counter[str]] = []
         if self._chunks:
-            if optional_backends.HAS_SKLEARN:
+            if optional_backends.has_sklearn():
                 try:
                     self._build_sklearn()
                 except Exception:
@@ -58,11 +58,12 @@ class TfidfRetriever:
 
     def _build_sklearn(self) -> None:
         """Build TF-IDF matrix using scikit-learn when available."""
-        assert optional_backends.SKLEARN_TFIDF_VECTORIZER is not None
+        vectorizer_factory = optional_backends.sklearn_tfidf_vectorizer()
+        assert vectorizer_factory is not None
         texts = [
             _chunk_search_text(chunk.text, chunk.source, chunk.heading) for chunk in self._chunks
         ]
-        self._vectorizer = optional_backends.SKLEARN_TFIDF_VECTORIZER(
+        self._vectorizer = vectorizer_factory(
             stop_words="english",
             sublinear_tf=True,
             max_features=10000,
@@ -142,7 +143,7 @@ class Bm25Retriever:
         self._chunks = index.all_chunks
         self._retriever: object | None = None
         self._corpus_tokens: list[list[str]] = []
-        if self._chunks and optional_backends.BM25_CLASS is not None:
+        if self._chunks and optional_backends.bm25_class() is not None:
             self._build()
 
     @property
@@ -151,7 +152,8 @@ class Bm25Retriever:
         return self._retriever is not None
 
     def _build(self) -> None:
-        assert optional_backends.BM25_CLASS is not None
+        bm25_factory = optional_backends.bm25_class()
+        assert bm25_factory is not None
         self._corpus_tokens = [
             tokenize(_chunk_search_text(chunk.text, chunk.source, chunk.heading))
             for chunk in self._chunks
@@ -159,7 +161,7 @@ class Bm25Retriever:
         if not any(self._corpus_tokens):
             return
         try:
-            retriever = optional_backends.BM25_CLASS()
+            retriever = bm25_factory()
             retriever.index(self._corpus_tokens, show_progress=False)
         except Exception:
             _log.warning("bm25 build failed; falling back to tf-idf", exc_info=True)

@@ -23,6 +23,8 @@ retrieval can return heading context alongside matched subsections.
 from __future__ import annotations
 
 import hashlib
+import importlib
+import importlib.util
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -33,26 +35,6 @@ from typing import Protocol, cast, runtime_checkable
 from hephaistos.logging import get_logger
 
 _log = get_logger("rag.chunker")
-
-_ImportedDocumentConverter: object | None
-try:
-    from docling.document_converter import (
-        DocumentConverter as _RawDocumentConverter,  # type: ignore[import-untyped]
-    )
-except ImportError:
-    _ImportedDocumentConverter = None
-else:
-    _ImportedDocumentConverter = _RawDocumentConverter
-
-_ImportedSentenceTransformer: object | None
-try:
-    from sentence_transformers import (
-        SentenceTransformer as _RawSentenceTransformer,  # type: ignore[import-untyped]
-    )
-except ImportError:
-    _ImportedSentenceTransformer = None
-else:
-    _ImportedSentenceTransformer = _RawSentenceTransformer
 
 _TEXT_EXTENSIONS = frozenset(
     {
@@ -156,15 +138,9 @@ class _SentenceTransformerFactory(Protocol):
     def __call__(self, model_name: str) -> _SentenceEncoderProtocol: ...
 
 
-if _ImportedDocumentConverter is None:
-    _DocumentConverter: type[_DoclingConverterProtocol] | None = None
-else:
-    _DocumentConverter = cast("type[_DoclingConverterProtocol]", _ImportedDocumentConverter)
-
-if _ImportedSentenceTransformer is None:
-    _SentenceTransformer: _SentenceTransformerFactory | None = None
-else:
-    _SentenceTransformer = cast("_SentenceTransformerFactory", _ImportedSentenceTransformer)
+_OPTIONAL_BACKEND_UNSET = object()
+_DocumentConverter: type[_DoclingConverterProtocol] | None | object = _OPTIONAL_BACKEND_UNSET
+_SentenceTransformer: _SentenceTransformerFactory | None | object = _OPTIONAL_BACKEND_UNSET
 
 
 class ChunkStrategy(Enum):
@@ -213,7 +189,14 @@ def _is_docling_file(path: Path) -> bool:
 
 
 def _is_docling_available() -> bool:
-    return _DocumentConverter is not None
+    if _DocumentConverter is None:
+        return False
+    if _DocumentConverter is not _OPTIONAL_BACKEND_UNSET:
+        return True
+    try:
+        return importlib.util.find_spec("docling") is not None
+    except (ImportError, AttributeError, ValueError):
+        return False
 
 
 def _resolved_path_within_armory(path: Path, armory_root: Path) -> Path | None:
@@ -240,12 +223,31 @@ def _resolved_path_within_armory(path: Path, armory_root: Path) -> Path | None:
 _docling_converter: list[_DoclingConverterProtocol] = []
 
 
-def _get_docling_converter() -> _DoclingConverterProtocol | None:
-    """Return a lazily-initialised, cached ``DocumentConverter``."""
+def _docling_converter_class() -> type[_DoclingConverterProtocol] | None:
+    global _DocumentConverter  # noqa: PLW0603
+    if _DocumentConverter is _OPTIONAL_BACKEND_UNSET:
+        try:
+            module = importlib.import_module("docling.document_converter")
+            raw_converter = getattr(module, "DocumentConverter", None)
+        except ImportError:
+            raw_converter = None
+        _DocumentConverter = (
+            None
+            if raw_converter is None
+            else cast("type[_DoclingConverterProtocol]", raw_converter)
+        )
     if _DocumentConverter is None:
         return None
+    return cast("type[_DoclingConverterProtocol]", _DocumentConverter)
+
+
+def _get_docling_converter() -> _DoclingConverterProtocol | None:
+    """Return a lazily-initialised, cached ``DocumentConverter``."""
+    converter_class = _docling_converter_class()
+    if converter_class is None:
+        return None
     if not _docling_converter:
-        _docling_converter.append(_DocumentConverter())
+        _docling_converter.append(converter_class())
     return _docling_converter[0]
 
 
@@ -463,7 +465,25 @@ def chunk_text(
 
 
 def _is_st_available() -> bool:
-    return _SentenceTransformer is not None
+    return _sentence_transformer_factory() is not None
+
+
+def _sentence_transformer_factory() -> _SentenceTransformerFactory | None:
+    global _SentenceTransformer  # noqa: PLW0603
+    if _SentenceTransformer is _OPTIONAL_BACKEND_UNSET:
+        try:
+            module = importlib.import_module("sentence_transformers")
+            raw_transformer = getattr(module, "SentenceTransformer", None)
+        except ImportError:
+            raw_transformer = None
+        _SentenceTransformer = (
+            None
+            if raw_transformer is None
+            else cast("_SentenceTransformerFactory", raw_transformer)
+        )
+    if _SentenceTransformer is None:
+        return None
+    return cast("_SentenceTransformerFactory", _SentenceTransformer)
 
 
 def _embedding_row(row: object) -> list[float] | None:
@@ -524,15 +544,14 @@ def chunk_semantic(
     if not text or not text.strip():
         return []
 
-    if not _is_st_available():
+    transformer_factory = _sentence_transformer_factory()
+    if transformer_factory is None:
         return chunk_text(text, source, chunk_size, overlap)
 
     sentences = _split_sentences(text)
     if len(sentences) <= 1:
         return [Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))]
-    if _SentenceTransformer is None:
-        return chunk_text(text, source, chunk_size, overlap)
-    model = _SentenceTransformer("all-MiniLM-L6-v2")
+    model = transformer_factory("all-MiniLM-L6-v2")
     emb_lists = _embedding_rows(
         model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
     )

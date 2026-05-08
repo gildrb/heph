@@ -13,19 +13,21 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-
-from supermemory import APIConnectionError, APIStatusError, Supermemory
-from supermemory.types.search_memories_response import (
-    Result as SearchResult,
-)
-from supermemory.types.search_memories_response import (
-    SearchMemoriesResponse,
-)
+from typing import TYPE_CHECKING
 
 from hephaistos.logging import get_logger
 from hephaistos.memory import MemoryEntry, MemoryStore
 from hephaistos.parameters.settings import load_app_settings
 from hephaistos.providers.keyring_store import get_volatile, retrieve_key
+
+if TYPE_CHECKING:
+    from supermemory import Supermemory
+    from supermemory.types.search_memories_response import (
+        Result as SearchResult,
+    )
+    from supermemory.types.search_memories_response import (
+        SearchMemoriesResponse,
+    )
 
 _log = get_logger("memory.supermemory")
 
@@ -79,6 +81,8 @@ def load_supermemory_config() -> SupermemoryConfig:
 
 def _build_sdk_client(config: SupermemoryConfig) -> Supermemory:
     """Create an SDK client from config."""
+    from supermemory import Supermemory
+
     return Supermemory(
         api_key=config.api_key,
         base_url=config.base_url,
@@ -110,6 +114,8 @@ def _sdk_add_document(
     metadata: dict[str, object],
 ) -> str:
     """Add a document via the SDK, wrapping errors."""
+    from supermemory import APIConnectionError, APIStatusError
+
     flat: dict[str, str | float | bool] = {
         k: v for k, v in metadata.items() if isinstance(v, str | int | float | bool)
     }
@@ -137,6 +143,8 @@ def _sdk_search_memories(
     limit: int,
 ) -> SearchMemoriesResponse:
     """Search memories via the SDK, wrapping errors."""
+    from supermemory import APIConnectionError, APIStatusError
+
     try:
         return client.search.memories(
             q=query,
