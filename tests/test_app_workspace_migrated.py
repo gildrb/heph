@@ -13,6 +13,7 @@ from hephaistos.armory.search import (
     add_known_armory,
     get_last_armory,
     load_known_armories,
+    load_recent_armory_entries,
     save_known_armories,
     set_last_armory,
 )
@@ -201,6 +202,19 @@ class TestLastArmoryHelpers:
     ) -> None:
         set_last_armory(tmp_path / "nonexistent")
         assert get_last_armory() is None
+
+    def test_recent_armories_are_capped_to_last_three(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        armories = [clean_armory_env / f"armory-{index}" for index in range(4)]
+        for armory in armories:
+            initialize(armory)
+
+        for armory in armories:
+            set_last_armory(armory)
+
+        recent = [entry.path for entry in load_recent_armory_entries()]
+        assert recent == [armories[3].resolve(), armories[2].resolve(), armories[1].resolve()]
 
 
 # ---------------------------------------------------------------------------

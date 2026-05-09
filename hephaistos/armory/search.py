@@ -11,6 +11,7 @@ from hephaistos.parameters.settings import load_raw_settings, save_setting
 
 _SETTINGS_KEY = "known_armories"
 _RECENT_SETTINGS_KEY = "recent_armories"
+MAX_RECENT_ARMORIES = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +124,10 @@ def set_last_armory(path: Path) -> None:
     recent_paths = [entry.path for entry in _load_armory_entries(_RECENT_SETTINGS_KEY)]
     save_setting(
         _RECENT_SETTINGS_KEY,
-        [str(p) for p in [resolved, *[p for p in recent_paths if p != resolved]]],
+        [
+            str(p)
+            for p in [resolved, *[p for p in recent_paths if p != resolved]][:MAX_RECENT_ARMORIES]
+        ],
     )
 
 

@@ -21,7 +21,11 @@ import time
 from pathlib import Path
 from typing import ClassVar
 
-from hephaistos.armory.search import load_known_armory_entries, load_recent_armory_entries
+from hephaistos.armory.search import (
+    MAX_RECENT_ARMORIES,
+    load_known_armory_entries,
+    load_recent_armory_entries,
+)
 from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
 from hephaistos.matching import ranked_matches
 from hephaistos.materials import count_material_files
@@ -65,7 +69,6 @@ _RECENT_HEADING = "recent armories"
 _ALL_HEADING = "all armories"
 _EMPTY_RECENT_LABEL = "  no recent armories"
 _EMPTY_ALL_LABEL = "  no armories found"
-_MAX_RECENT_ARMORIES = 3
 _PARENT_COLUMN_WIDTH = 0
 _PREVIEW_COLUMN_WIDTH = 38
 _DEFAULT_ARMORY_HOME_ENV = "HEPHAISTOS_ARMORY_HOME"
@@ -335,7 +338,7 @@ def _recent_entries() -> list[_DirEntry]:
     if not recent:
         recent = load_known_armory_entries()
     for known in recent:
-        if len(entries) >= _MAX_RECENT_ARMORIES:
+        if len(entries) >= MAX_RECENT_ARMORIES:
             break
         if not known.valid:
             continue
