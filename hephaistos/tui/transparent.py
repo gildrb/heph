@@ -119,11 +119,19 @@ def make_transparent_cls(base_cls: type) -> type:
 
     class TransparentWidget(base_cls):  # type: ignore[misc]  # ty:ignore[unsupported-base]
         def render_line(self, y: int) -> Strip:
-            return transparent_strip(super().render_line(y), self.size.width)
+            if y < 0 or y >= self.size.height:
+                return Strip.blank(self.size.width, self.rich_style)
+            strip = super().render_line(y).extend_cell_length(self.size.width, self.rich_style)
+            return transparent_strip(strip, self.size.width)
 
         def render_lines(self, crop: Region) -> list[Strip]:  # type: ignore[name-defined]
-            strips = super().render_lines(crop)
-            return [transparent_strip(strip, crop.width) for strip in strips]
+            strips: list[Strip] = []
+            for y in range(crop.y, crop.y + crop.height):
+                strip = self.render_line(y).crop_extend(
+                    crop.x, crop.x + crop.width, self.rich_style
+                )
+                strips.append(transparent_strip(strip, crop.width))
+            return strips
 
     return TransparentWidget
 
