@@ -25,18 +25,27 @@ jobs:
 
       - name: Ruff lint check
         run: |
-          mkdir -p .artifacts
-          uv run ruff check . > .artifacts/ruff-output.txt 2>&1 || true
+          mkdir -p review-artifacts
+          if uv run ruff check . > /tmp/ruff-output.txt 2>&1; then
+            : > review-artifacts/ruff-output.txt
+          else
+            cat /tmp/ruff-output.txt > review-artifacts/ruff-output.txt
+          fi
 
       - name: Ruff format check
-        run: uv run ruff format --check . > .artifacts/format-output.txt 2>&1 || true
+        run: |
+          if uv run ruff format --check . > /tmp/format-output.txt 2>&1; then
+            : > review-artifacts/format-output.txt
+          else
+            cat /tmp/format-output.txt > review-artifacts/format-output.txt
+          fi
 
       - name: Upload review outputs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pr-review-output
-          path: .artifacts/
+          path: review-artifacts/
 
   review:
     needs: lint
@@ -52,7 +61,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: pr-review-output
-          path: .artifacts
+          path: review-artifacts
 
       - name: Build and post review comment
         env:
@@ -63,10 +72,10 @@ jobs:
             echo "## Automated Review"
             echo ""
 
-            if [ -s .artifacts/ruff-output.txt ]; then
+            if [ -s review-artifacts/ruff-output.txt ]; then
               echo "### Ruff Lint Findings"
               echo '```'
-              cat .artifacts/ruff-output.txt
+              cat review-artifacts/ruff-output.txt
               echo '```'
               echo ""
             else
@@ -74,10 +83,10 @@ jobs:
               echo ""
             fi
 
-            if [ -s .artifacts/format-output.txt ]; then
+            if [ -s review-artifacts/format-output.txt ]; then
               echo "### Ruff Format Findings"
               echo '```'
-              cat .artifacts/format-output.txt
+              cat review-artifacts/format-output.txt
               echo '```'
               echo ""
             else
