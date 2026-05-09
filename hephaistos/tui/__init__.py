@@ -319,7 +319,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                         placeholder='Ask anything... "What do I need to study next?"',
                         id="composer",
                     )
-                    yield w.static(_footer_hints_text(self.session), id="footer-hints")
+                yield w.static(_footer_hints_text(self.session), id="footer-hints")
             yield w.static(
                 _info_panel_default_text(
                     self.session,

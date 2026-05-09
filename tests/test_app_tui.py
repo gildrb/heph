@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from rich.segment import Segment
+from textual.strip import Strip
 
 from hephaistos import tui
 from hephaistos.armory.search import KnownArmory, add_known_armory
@@ -164,7 +166,11 @@ def test_tui_css_keeps_surface_transparent() -> None:
     composer_start = css.index("#composer {")
     composer_end = css.index("}", composer_start)
     composer_block = css[composer_start:composer_end]
+    composer_frame_start = css.index("#composer-frame {")
+    composer_frame_end = css.index("}", composer_frame_start)
+    composer_frame_block = css[composer_frame_start:composer_frame_end]
     assert "background: transparent;" in transcript_block
+    assert f"background: {tui.current_palette().panel};" in composer_frame_block
     assert f"background: {tui.current_palette().panel};" in composer_block
     assert "border-bottom: tall" not in css
     assert "background: #FFFFFF;" not in css
@@ -335,8 +341,13 @@ def test_transcript_panel_background_only_paints_user_entries() -> None:
             panel = tui.current_palette().panel.lower()
             user_segments: list[str] = []
             assistant_segments: list[str] = []
+            user_line_index = -1
             for line_number in range(transcript.size.height):
-                for segment in transcript.render_line(line_number):
+                strip = transcript.render_line(line_number)
+                line_text = "".join(segment.text for segment in strip)
+                if "User prompt" in line_text:
+                    user_line_index = line_number
+                for segment in strip:
                     style = str(segment.style)
                     if "User prompt" in segment.text:
                         user_segments.append(style)
@@ -347,8 +358,19 @@ def test_transcript_panel_background_only_paints_user_entries() -> None:
             assert assistant_segments
             assert all(f"on {panel}" in style.lower() for style in user_segments)
             assert all(f"on {panel}" not in style.lower() for style in assistant_segments)
+            assert user_line_index >= 1
+            assert _strip_is_panel_filled(transcript.render_line(user_line_index - 1), panel)
+            assert _strip_is_panel_filled(transcript.render_line(user_line_index), panel)
+            assert _strip_is_panel_filled(transcript.render_line(user_line_index + 1), panel)
 
     asyncio.run(check_transcript_backgrounds())
+
+
+def _strip_is_panel_filled(strip: Strip, panel: str) -> bool:
+    segments: list[Segment] = list(strip)
+    return all(
+        segment.text == "" or f"on {panel}" in str(segment.style).lower() for segment in segments
+    )
 
 
 def test_transparent_style_strips_standard_and_truecolor_black_backgrounds() -> None:
@@ -400,16 +422,39 @@ def test_info_panel_material_colours_match_materials_picker() -> None:
     assert (disabled_start, disabled_start + len("@disabled.pdf"), "#9B4A2E") in spans
 
 
-def test_tui_css_prevents_full_width_status_and_composer_bars() -> None:
+def test_tui_css_prevents_full_width_status_and_footer_bars() -> None:
     css = tui._tui_css()  # type: ignore[reportPrivateUsage]
 
-    for selector in ("#status", "#composer-frame", "#composer", "#footer-hints"):
+    for selector in ("#status", "#footer-hints"):
         block_start = css.index(f"{selector} {{")
         block_end = css.index("}", block_start)
         block = css[block_start:block_end]
 
         assert "width: auto;" in block
         assert "max-width: 100%;" in block
+
+
+def test_tui_css_pads_composer_as_full_width_user_block() -> None:
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
+    panel = tui.current_palette().panel
+
+    frame_start = css.index("#composer-frame {")
+    frame_end = css.index("}", frame_start)
+    frame_block = css[frame_start:frame_end]
+    composer_start = css.index("#composer {")
+    composer_end = css.index("}", composer_start)
+    composer_block = css[composer_start:composer_end]
+    input_start = css.index("Input {")
+    input_end = css.index("}", input_start)
+    input_block = css[input_start:input_end]
+
+    assert "height: 3;" in frame_block
+    assert "width: 100%;" in frame_block
+    assert "padding: 1 0;" in frame_block
+    assert f"background: {panel};" in frame_block
+    assert "width: 100%;" in composer_block
+    assert "padding: 0 1;" in composer_block
+    assert "padding: 0 1;" in input_block
 
 
 def test_tui_css_positions_suggestions_above_composer_spacer() -> None:
