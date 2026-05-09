@@ -190,6 +190,13 @@ class TestParseSourceRef:
     def test_empty_string(self) -> None:
         assert parse_source_ref("") is None
 
+    @pytest.mark.parametrize(
+        "ref",
+        ["#chunk=0", "source.py#chunk=", "source.py#chunk=abc", "source.py#chunk=-1"],
+    )
+    def test_malformed_refs(self, ref: str) -> None:
+        assert parse_source_ref(ref) is None
+
 
 # ---------------------------------------------------------------------------
 # TestTurnOrchestratorPlain
@@ -623,6 +630,31 @@ class TestHelperFunctions:
         result = build_turn_evidence_from_refs(session, ["source.py#chunk=3"])
         assert result is expected
 
+    @patch("hephaistos.chat.evidence.build_turn_evidence")
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_turn_evidence_from_refs_filters_disabled_sources(
+        self,
+        mock_ensure: MagicMock,
+        mock_build: MagicMock,
+    ) -> None:
+        enabled = _make_chunk("materials/enabled.md", 0)
+        disabled = _make_chunk("materials/disabled.md", 0)
+        mock_index = MagicMock()
+        type(mock_index).all_chunks = PropertyMock(return_value=[enabled, disabled])
+        mock_ensure.return_value = mock_index
+        expected = _make_turn_evidence(_make_evidence_chunk("materials/enabled.md", 0))
+        mock_build.return_value = expected
+        session = _make_study_session()
+        session.disabled_source_files.add("materials/disabled.md")
+
+        result = build_turn_evidence_from_refs(
+            session,
+            ["materials/enabled.md#chunk=0", "materials/disabled.md#chunk=0"],
+        )
+
+        assert result is expected
+        assert [sc.chunk for sc in mock_build.call_args.args[0]] == [enabled]
+
     @patch("hephaistos.chat.evidence.ensure_rag_index")
     def testbuild_turn_evidence_from_refs_error(
         self,
@@ -668,6 +700,29 @@ class TestHelperFunctions:
             "materials/b.md#chunk=1",
             "materials/b.md#chunk=2",
         ]
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_turn_evidence_from_overview_filters_disabled_sources(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        doc1 = MagicMock()
+        doc1.source = "materials/enabled.md"
+        doc1.chunks = [_make_chunk("materials/enabled.md", 0)]
+        doc2 = MagicMock()
+        doc2.source = "materials/disabled.md"
+        doc2.chunks = [_make_chunk("materials/disabled.md", 0)]
+        mock_index = MagicMock()
+        mock_index.documents = [doc1, doc2]
+        mock_index.all_chunks = doc1.chunks + doc2.chunks
+        mock_ensure.return_value = mock_index
+        session = _make_study_session()
+        session.disabled_source_files.add("materials/disabled.md")
+
+        result = build_turn_evidence_from_overview(session)
+
+        assert result is not None
+        assert evidence_refs(result) == ["materials/enabled.md#chunk=0"]
 
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")

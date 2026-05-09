@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from hephaistos import tui
-from hephaistos.armory.search import KnownArmory
+from hephaistos.armory.search import KnownArmory, add_known_armory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation
@@ -1004,6 +1004,8 @@ def test_armory_home_text_includes_recent_armories(
     text = tui._armory_home_text()  # type: ignore[reportPrivateUsage]
 
     assert "No armory attached." in text
+    assert "Existing armories found." in text
+    assert "What module or topic" not in text
     assert "ctrl+a" in text
     assert "materials/" in text
     assert "Recent armories:" in text
@@ -1032,6 +1034,36 @@ def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> 
             assert any("ctrl+a" in entry.content for entry in app.state.transcript)
 
     asyncio.run(check_home_notice())
+
+
+def test_plain_tui_auto_opens_armory_menu_when_armories_are_known(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    armory = armory_home / "known"
+    initialize(armory)
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    add_known_armory(armory)
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_armory_menu() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            assert app.state.armory_home_shown is True
+            assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+            assert any("No armory attached" in entry.content for entry in app.state.transcript)
+            assert any(entry.path == armory.resolve() for entry in app._armory_entries)  # type: ignore[reportPrivateUsage]
+
+    asyncio.run(check_armory_menu())
 
 
 def test_handle_armory_browser_invalid_subcommand_shows_usage() -> None:

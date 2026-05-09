@@ -22,9 +22,11 @@ retrieval can return heading context alongside matched subsections.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib
 import importlib.util
+import io
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -257,13 +259,18 @@ def _convert_to_markdown(path: Path) -> str | None:
     Returns the markdown text, or ``None`` on failure.
     """
     try:
-        converter = _get_docling_converter()
-        if converter is None:
-            return None
-        result = converter.convert(str(path))
-        return result.document.export_to_markdown()
-    except Exception:
-        _log.warning("docling conversion failed", exc_info=True)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            converter = _get_docling_converter()
+            if converter is None:
+                return None
+            result = converter.convert(str(path))
+            return result.document.export_to_markdown()
+    except Exception as exc:
+        detail = str(exc).strip() or type(exc).__name__
+        _log.warning(
+            "docling conversion failed",
+            extra={"fields": {"path": str(path), "error": detail}},
+        )
         return None
 
 

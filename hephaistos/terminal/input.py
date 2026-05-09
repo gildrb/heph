@@ -81,7 +81,11 @@ def _report_engine_error(
     session: ChatSession,
 ) -> None:
     """Display an engine error and capture local diagnostic context."""
-    from hephaistos.runtime import StreamRecoveryError, is_network_error, offline_message
+    from hephaistos.runtime import (
+        StreamRecoveryError,
+        is_network_error,
+        offline_message,
+    )
 
     provider = session.config.provider_slug or "the provider"
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from hephaistos.armory.cli import default_armory_home
 from hephaistos.armory.search import add_known_armory
 from hephaistos.armory.storage import ArmoryError, initialize
 from hephaistos.chat import storage as chat_storage
@@ -18,27 +19,49 @@ from hephaistos.runtime import ChatConfig
 from hephaistos.terminal.display import print_error, print_info, print_success
 
 _HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
-_DEFAULT_ARMORY_HOME = Path.home() / ".armories"
+_DEFAULT_ARMORY_HOME: Path | None = None
+
+
+def _onboarding_armory_home() -> Path:
+    return _DEFAULT_ARMORY_HOME or default_armory_home()
+
+
+def _module_name_error(name: str) -> str | None:
+    if len(name.encode("utf-8")) > 120:
+        return "Module name is too long; use a shorter armory name."
+    if name in {".", ".."} or Path(name).is_absolute():
+        return "Module name must be a simple folder name, not a path."
+    if any(part in {"", ".", ".."} for part in Path(name).parts) or len(Path(name).parts) != 1:
+        return "Module name must be a simple folder name, not a path."
+    if "/" in name or "\\" in name:
+        return "Module name must not contain path separators."
+    return None
 
 
 def _prompt_module_name() -> str | None:
     print_info("What module or topic are you studying for? (e.g. 'gdp', 'algorithms', 'mfi-1')")
-    print_info("Armories are saved in ~/.armories/. You can create as many as you like.")
-    try:
-        name = input("Module name: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return None
-    if not name or name.lower() in {"q", "quit", "cancel"}:
-        return None
-    return name
+    armory_home = _onboarding_armory_home()
+    print_info(f"Armories are saved in {armory_home}. You can create as many as you like.")
+    while True:
+        try:
+            name = input("Module name: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if not name or name.lower() in {"q", "quit", "cancel"}:
+            return None
+        if error := _module_name_error(name):
+            print_error(error)
+            continue
+        return name
 
 
 def onboard_new_armory(config: ChatConfig) -> ChatSession | None:
     name = _prompt_module_name()
     if name is None:
         return None
-    armory_path = _DEFAULT_ARMORY_HOME / name
+    armory_home = _onboarding_armory_home()
+    armory_path = armory_home / name
     try:
         initialize(armory_path)
     except (ArmoryError, OSError) as exc:
@@ -46,14 +69,13 @@ def onboard_new_armory(config: ChatConfig) -> ChatSession | None:
         return None
     _ = add_known_armory(armory_path)
     module_name = armory_path.name
+    materials_path = armory_path / "materials"
     print_success(f"Created armory '{module_name}' at {armory_path}")
-    print_info(f"Add your study materials to ~/.armories/{module_name}/materials/")
+    print_info(f"Add your study materials to {materials_path}")
     print_info("You can create as many armories as you like for different modules.")
     while count_material_files(armory_path) == 0:
         try:
-            answer = input(
-                f"Add files to ~/.armories/{module_name}/materials/, then Enter (or skip): "
-            )
+            answer = input(f"Add files to {materials_path}, then Enter (or skip): ")
         except (EOFError, KeyboardInterrupt):
             print()
             return None

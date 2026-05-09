@@ -107,7 +107,11 @@ class TuiTranscriptMixin:
         evidence = self.session.last_turn_evidence
         enriched = enrich_reply(text, evidence)
         tui_module = sys.modules["hephaistos.tui"]
-        entry = tui_module._TuiTranscriptEntry(enriched.markdown_text, "markdown")
+        entry = tui_module._TuiTranscriptEntry(
+            enriched.markdown_text,
+            "markdown",
+            enriched.evidence,
+        )
         if self.state.transcript:
             self._write_transcript_gap()
         self.state.transcript.append(entry)

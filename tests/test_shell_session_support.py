@@ -62,6 +62,39 @@ def test_onboard_new_armory_returns_none_when_user_skips_materials(
     assert (tmp_path / "demo" / "materials").is_dir()
 
 
+def test_onboard_new_armory_rejects_path_like_module_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", tmp_path)  # type: ignore[reportPrivateUsage]
+    monkeypatch.setattr(session_support, "add_known_armory", lambda _path: [])
+    answers = iter(["../evil", "nested/demo", "demo", "skip"])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    errors: list[str] = []
+    monkeypatch.setattr(session_support, "print_error", errors.append)
+
+    assert session_support.onboard_new_armory(_config()) is None
+    assert len(errors) == 2
+    assert not (tmp_path.parent / "evil").exists()
+    assert not (tmp_path / "nested").exists()
+    assert (tmp_path / "demo" / "materials").is_dir()
+
+
+def test_onboard_new_armory_uses_configured_armory_home(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory_home = tmp_path / "custom-armories"
+    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", None)  # type: ignore[reportPrivateUsage]
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+    monkeypatch.setattr(session_support, "add_known_armory", lambda _path: [])
+    answers = iter(["demo", "skip"])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+
+    assert session_support.onboard_new_armory(_config()) is None
+    assert (armory_home / "demo" / "materials").is_dir()
+
+
 def test_onboard_new_armory_returns_none_when_material_prompt_is_interrupted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

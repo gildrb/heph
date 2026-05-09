@@ -27,6 +27,7 @@ from hephaistos.armory.search import load_known_armory_entries
 from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
 from hephaistos.matching import ranked_matches
 from hephaistos.materials import count_material_files
+from hephaistos.shell.startup_discovery import discover_available_armories
 from hephaistos.terminal import ThemePalette, current_palette
 from hephaistos.tui.transparent import transparent_strip
 
@@ -322,6 +323,7 @@ def _place_entries() -> list[_DirEntry]:
 
 def _recent_entries() -> list[_DirEntry]:
     """Return recent armories as quick-open entries."""
+    discover_available_armories()
     entries: list[_DirEntry] = []
     for known in load_known_armory_entries():
         if len(entries) >= 5:

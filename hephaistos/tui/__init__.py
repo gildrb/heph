@@ -160,8 +160,8 @@ def _armory_home_text() -> str:
     lines = [
         "No armory attached.",
         "",
-        "What module or topic are you studying for?",
-        f"Press {armory_shortcut_key()} to create or open an armory.",
+        "Existing armories found.",
+        f"Press {armory_shortcut_key()} to choose an armory or create a new one.",
         "Armories are saved locally in ~/.armories/",
         "Add your study materials to ~/.armories/<module>/materials/",
         "",
@@ -242,6 +242,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         Binding("ctrl+p", "command_palette", "Commands", show=False, priority=True),
         Binding(armory_binding_keys(), "open_armory_home", "Armory", show=False, priority=True),
         Binding("ctrl+s", "open_search", "Search", show=False, priority=True),
+        Binding("f8", "evidence", "Evidence", show=False, priority=True),
         Binding("ctrl+c", "cancel_turn", "Cancel", show=False, priority=True),
         Binding("ctrl+l", "clear_transcript", "Screen", priority=True),
         Binding("ctrl+d", "quit", "Quit", priority=True),
@@ -345,6 +346,8 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if self.session.armory_path is None and not self.state.armory_home_shown:
             self.state.armory_home_shown = True
             self._append_armory_home()
+            if load_known_armories():
+                self._open_armory_inline("manage")
         self._schedule_transcript_reflow()
         self._prefetch_model_catalogs()
         self.set_interval(1.0, self._tick_session_duration)
@@ -822,6 +825,9 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                 )
 
         self.push_screen(SearchScreen(), on_search_result)
+
+    def action_evidence(self) -> None:
+        self._handle_external_input("/evidence")
 
     def _run_turn(self, user_input: str) -> None:
         def on_reply(reply: str) -> None:

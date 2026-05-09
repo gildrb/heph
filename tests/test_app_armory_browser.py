@@ -156,6 +156,22 @@ def test_build_entries_filters_outside_recent_armories(
     assert recent_paths == [inside]
 
 
+def test_build_entries_discovers_armories_in_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    armory_home = tmp_path / ".armories"
+    armory_home.mkdir()
+    first = _make_armory(armory_home, "alpha")
+    second = _make_armory(armory_home, "beta")
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
+
+    entries = armory_browser.build_entries(armory_home, allow_create=True)
+
+    recent_paths = {entry.path for entry in entries if entry.is_recent}
+    assert first.resolve() in recent_paths
+    assert second.resolve() in recent_paths
+
+
 def test_build_entries_filters_symlink_escape(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

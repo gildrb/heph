@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -309,6 +310,40 @@ class TestDoclingIntegration:
             md = _convert_to_markdown(pdf)
 
         assert md is None
+
+    def test_convert_to_markdown_failure_suppresses_converter_output(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf = tmp_path / "bad.pdf"
+        pdf.write_bytes(b"%PDF\x00corrupt")
+
+        def _convert(_path: str) -> object:
+            print("third-party stdout noise")
+            print("third-party stderr traceback", file=sys.stderr)
+            raise RuntimeError("conversion failed")
+
+        mock_converter = MagicMock()
+        mock_converter.convert.side_effect = _convert
+        warnings: list[tuple[str, object]] = []
+        monkeypatch.setattr(
+            "hephaistos.rag.chunker._log.warning",
+            lambda message, **kwargs: warnings.append((message, kwargs)),
+        )
+
+        with patch(
+            "hephaistos.rag.chunker._get_docling_converter",
+            return_value=mock_converter,
+        ):
+            md = _convert_to_markdown(pdf)
+
+        captured = capsys.readouterr()
+        assert md is None
+        assert captured.out == ""
+        assert captured.err == ""
+        assert warnings
 
     def test_chunk_docling_file_via_chunk_file(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"

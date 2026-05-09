@@ -4,18 +4,23 @@ from pathlib import Path
 
 import pytest
 
+import hephaistos.commands.display as _commands_display
 import hephaistos.commands.memory as _commands_memory
 import hephaistos.commands.model as _commands_model
 import hephaistos.commands.persona as _commands_persona
 import hephaistos.commands.session as _commands_session
 from hephaistos import commands
+from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession, create_plain_session
 from hephaistos.providers import catalog
 from hephaistos.providers.catalog import LiveProviderCatalog
 from hephaistos.providers.config import default_config
 from hephaistos.providers.registry import ModelInfo
+from hephaistos.rag.chunker import Chunk
+from hephaistos.rag.context import EvidenceChunk, TurnEvidence
 from hephaistos.terminal import MenuOption
+from hephaistos.terminal.source_open import SourceOpenResult
 
 
 def test_command_registry_has_unique_names_and_aliases() -> None:
@@ -423,6 +428,108 @@ def test_evidence_command_no_armory(
 
     out = capsys.readouterr().out
     assert "evidence" in out.lower()
+
+
+def _session_with_line_mapped_evidence(tmp_path: Path) -> ChatSession:
+    armory = tmp_path / "evidence-armory"
+    initialize(armory)
+    source = armory / "materials" / "notes.md"
+    text = "Intro\n\n## Target\nExact sentinel phrase amber forge.\nMore context.\n"
+    source.write_text(text, encoding="utf-8")
+    start = text.index("Exact sentinel")
+    content = "Exact sentinel phrase amber forge."
+    chunk = Chunk(
+        text=content,
+        source="materials/notes.md",
+        index=0,
+        char_start=start,
+        char_end=start + len(content),
+        heading="Target",
+        heading_level=2,
+    )
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="evidence-session",
+        armory_path=armory,
+    )
+    session.last_turn_evidence = TurnEvidence(
+        (EvidenceChunk(evidence_id="E1", chunk=chunk, score=0.91, content=content),)
+    )
+    return session
+
+
+def test_evidence_command_lists_exact_source_location(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = _session_with_line_mapped_evidence(tmp_path)
+
+    commands.EvidenceCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "E1" in out
+    assert "materials/notes.md#chunk=0" in out
+    assert "line 4" in out
+    assert "heading: Target" in out
+    assert "Show context: /evidence E1" in out
+    assert "Open source:  /evidence E1 open" in out
+
+
+def test_evidence_command_shows_numbered_excerpt(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = _session_with_line_mapped_evidence(tmp_path)
+
+    commands.EvidenceCommand().handle(session, "E1")
+
+    out = capsys.readouterr().out
+    assert "heading: Target" in out
+    assert "> 4 │ Exact sentinel phrase amber forge." in out
+    assert "Open source: /evidence E1 open" in out
+
+
+def test_evidence_command_opens_source_at_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = _session_with_line_mapped_evidence(tmp_path)
+    opened: list[tuple[Path, int | None]] = []
+
+    def fake_open(path: Path, line: int | None = None) -> SourceOpenResult:
+        opened.append((path, line))
+        return SourceOpenResult(path=path, line=line, used_line=True)
+
+    monkeypatch.setattr(_commands_display, "open_source_file", fake_open)
+
+    commands.EvidenceCommand().handle(session, "E1 open")
+
+    out = capsys.readouterr().out
+    assert session.armory_path is not None
+    assert "Opened" in out
+    assert opened == [((session.armory_path / "materials" / "notes.md").resolve(), 4)]
+
+
+def test_evidence_command_handles_deleted_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = _session_with_line_mapped_evidence(tmp_path)
+    assert session.armory_path is not None
+    (session.armory_path / "materials" / "notes.md").unlink()
+    monkeypatch.setattr(
+        _commands_display,
+        "open_source_file",
+        lambda _path, _line=None: pytest.fail("deleted source should not be opened"),
+    )
+
+    commands.EvidenceCommand().handle(session, "E1 open")
+
+    out = capsys.readouterr().out
+    assert "Evidence source not found" in out
 
 
 def test_save_command_plain_session(

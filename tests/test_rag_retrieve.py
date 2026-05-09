@@ -23,6 +23,7 @@ from hephaistos.rag.retrieve import (
     TfidfRetriever,
     _cosine_similarity,  # type: ignore[reportPrivateUsage]
     _create_retriever,  # type: ignore[reportPrivateUsage]
+    _normalize_query_for_retrieval,  # type: ignore[reportPrivateUsage]
     _reciprocal_rank_fusion,  # type: ignore[reportPrivateUsage]
     _tokenize,  # type: ignore[reportPrivateUsage]
     retrieve,
@@ -53,6 +54,31 @@ def _make_index_with_chunks(chunks: list[Chunk]) -> ArmoryIndex:
             )
         )
     return index
+
+
+def test_normalize_query_for_retrieval_preserves_long_prompt_tail_signal() -> None:
+    query = "intro " + "filler " * 400 + "final question exact sentinel phrase amber forge"
+
+    normalized = _normalize_query_for_retrieval(query)
+
+    assert len(_tokenize(normalized)) <= 180
+    assert "exact sentinel phrase amber forge" in normalized
+    assert normalized.count("filler") <= 2
+
+
+def test_retrieve_long_noisy_query_still_finds_tail_match() -> None:
+    index = _make_index_with_chunks(
+        [
+            _make_chunk("Only this file contains the exact phrase amber forge.", "target.md"),
+            _make_chunk("Binary search trees allow logarithmic lookup.", "other.md"),
+        ]
+    )
+    query = "Please ignore filler. " + "filler " * 500 + "What exact phrase is amber forge?"
+
+    results = retrieve(query, index, top_k=2, min_score=0.1)
+
+    assert results
+    assert results[0].chunk.source == "target.md"
 
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,23 @@ def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     assert resumed.study_state.last_feedback_type is StudyFeedbackType.PARTIAL
 
 
+def test_resume_preserves_only_existing_disabled_sources(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    stale_source = armory / "materials" / "stale.md"
+    stale_source.write_text("# Stale\n\nDeleted later.\n")
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+    session.disabled_source_files.update({"materials/exam.md", "materials/stale.md"})
+    save_session(session)
+    stale_source.unlink()
+
+    resumed = resume_session(session.config, armory, session.session_id)
+
+    assert resumed.disabled_source_files == {"materials/exam.md"}
+
+
 def test_resume_refreshes_stale_system_prompt(tmp_path: Path) -> None:
     armory = _make_armory(tmp_path)
     session = create_session(

@@ -14,7 +14,7 @@ from hephaistos.chat.session import (
 )
 from hephaistos.runtime import ChatConfig
 from hephaistos.shell import session_support as _support
-from hephaistos.shell.startup_discovery import discover_startup_armory
+from hephaistos.shell.startup_discovery import discover_available_armories, discover_startup_armory
 from hephaistos.terminal.display import print_error, print_info
 
 
@@ -34,6 +34,9 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
     """Create a startup study session, running onboarding when no armory is usable."""
     armory = discover_startup_armory()
     if armory is None:
+        if discover_available_armories():
+            print_info("Multiple armories found. Use /armory to choose one.")
+            return create_plain_session(config)
         if (
             _stdio_is_interactive()
             and (onboarded := _support.onboard_new_armory(config)) is not None

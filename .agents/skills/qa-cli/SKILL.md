@@ -1,10 +1,10 @@
 ---
 name: qa-cli
 description: >
-  QA tests for the Hephaistos CLI/TUI app. Tests interactive Textual TUI flows
-  covering every slash command, armory management, chat, provider switching,
-  study features, and error handling. Uses tuistory for all TUI interactions.
-  Run as a full regression suite -- the orchestrator executes ALL flows in sequence.
+  Manual/functional QA for the Hephaistos CLI/TUI app. Uses tuistory to test
+  the current slash-command surface, onboarding, model/auth flows, chat,
+  source-grounded RAG, materials controls, armory management, sessions,
+  vocabulary/study features, settings, and error handling.
 ---
 
 # QA Tests: Hephaistos CLI/TUI
@@ -13,50 +13,69 @@ description: >
 
 This is a local CLI tool. There is no remote deployment. The QA agent must:
 
-1. **Build**: Run `uv sync --frozen` from the project root to ensure dependencies are installed
-2. **Launch**: Use tuistory to launch the TUI binary: `env -u CI FACTORY_DISABLE_KEYRING=true ZAI_API_KEY=$ZAI_API_KEY tuistory launch "uv run heph" -s qa-test --cols 110 --rows 36`
-3. **Test**: Interact with the running TUI by sending keystrokes and capturing snapshots
-4. **Cleanup**: Exit the TUI cleanly, then delete any test armories
+1. **Build**: Run `uv sync --frozen` from the project root to ensure dependencies are installed.
+2. **Prepare**: Create a named QA armory under `~/.armories/<qa-run-id>` with study materials in `materials/`.
+3. **Authenticate**: Prefer existing Hephaistos OpenAI Codex/ChatGPT auth, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`. Use `/login` -> `OpenAI Codex` if subscription auth is missing and the user can complete browser auth.
+4. **Launch**: Use tuistory to launch the TUI with a stable terminal size.
+5. **Test**: Interact with the running TUI by sending keystrokes and capturing text snapshots.
+6. **Cleanup**: Exit TUI sessions cleanly, remove only the named QA armory created by this run, and preserve all pre-existing user config/credentials.
 
-In CI, prefix launch with `env -u CI FACTORY_DISABLE_KEYRING=true` to avoid Ink CI detection issues.
-
-Use session name `-s qa-test` with `--cols 110 --rows 36` for consistent output.
+Use session names such as `qa-plain`, `qa-armory`, and `qa-interactive` with `--cols 110 --rows 36` for consistent output.
 
 ## Authentication
 
-Hephaistos uses LLM provider API keys, not traditional auth. The primary test provider is Z.AI/GLM:
+Hephaistos uses LLM provider access, not traditional app auth. Full chat/RAG QA should use subscription-backed or API-key-backed auth whenever available.
 
-- **Env var**: `ZAI_API_KEY` -- provided by the CI workflow via GitHub secrets
-- **How consumed**: The app reads it from the environment variable automatically, or via the OS keyring
-- **Keyring**: Disable keyring in CI with `FACTORY_DISABLE_KEYRING=true` to avoid interactive prompts
+Preferred order:
 
-For the `first_time_user` persona, NO API key is needed (tests read-only flows only).
+1. **Hephaistos OpenAI Codex OAuth**: `/login` -> `OpenAI Codex` (ChatGPT Plus/Pro subscription). Credentials are stored in `~/.config/hephaistos/auth.json`; never print token values.
+2. **OpenAI API key**: `OPENAI_API_KEY` or `HEPHAISTOS_API_KEY`, if already present.
+3. **OpenRouter API key**: `OPENROUTER_API_KEY`, if already present.
+4. **Custom OpenAI-compatible endpoint**: only when the user provides endpoint/model/key for the run.
+5. **Pollinations keyless**: acceptable only for lightweight smoke chat; do not treat it as sufficient for full chat/RAG if unstable or rate-limited.
+
+Z.AI is no longer the default QA provider. Do not require `ZAI_API_KEY` for QA, and do not fail QA solely because Z.AI has no balance.
+
+## Current Slash Command Surface
+
+The current TUI command surface is:
+
+`/help`, `/exit`, `/login`, `/logout`, `/status`, `/new`, `/armory`, `/compact`, `/evidence`, `/tokens`, `/cost`, `/stats`, `/export`, `/import`, `/remind`, `/edit`, `/models`, `/recommend`, `/memory`, `/persona`, `/settings`, `/sessions`, `/index`, `/usage`, `/vocab`.
+
+The TUI also exposes `/materials` as an inline materials/retrieval-source browser even though it is not part of the shared terminal command registry.
+
+Aliases:
+
+- `/help`: `/h`, `/?`
+- `/exit`: `/quit`, `/q`
+- `/vocab`: `/v`
+
+Do not test removed/stale commands (`/provider`, `/model`, `/history`, `/clear`, `/resume`, `/chats`) unless the application reintroduces them.
 
 ## TUI Interaction Notes
 
-- The TUI is a Textual app with a command input at the bottom and a chat log area above
-- Slash commands are typed into the input field and submitted with Enter
-- Autocomplete suggestions appear in a dropdown below the input
-- The armory browser is a modal screen that overlays the main TUI
-- Status information is shown in a status bar / info panel
-- The banner/logo displays on startup
-- Streaming responses appear incrementally in the chat area
-- Some commands trigger interactive menus (select_option) -- these use arrow keys + Enter in the TUI
-- Use the `tuistory` skill for all TUI interactions (snapshot, send_keys, wait_for_text, etc.)
+- The TUI is a Textual app with a command composer at the bottom and transcript/log area above.
+- Slash commands are typed into the composer and submitted with Enter.
+- Autocomplete suggestions appear when typing `/` or partial slash commands.
+- Inline menus are used for `/login`, `/logout`, `/settings`, `/models`, `/sessions`, `/materials`, and the armory browser.
+- Terminal-interactive flows such as `/edit`, `/persona` without args, and `/vocab` must be completed or cancelled before the next slash command.
+- After autocomplete or any inline menu, press Escape until the normal composer returns before continuing.
+- Avoid command batching. Type one command, wait for visible state/output, snapshot, and only then continue.
 
 ## Pre-test Setup
 
-Before launching the TUI, create the test armory with proper source files:
+Before launching the TUI, create the test armory with material files under `~/.armories`:
 
 ```bash
-RUN_ID="qa-$(date +%s)"
-TEST_ARMORY="/tmp/$RUN_ID/armory"
+RUN_ID="heph-qa-$(date +%s)"
+TEST_ARMORY="$HOME/.armories/$RUN_ID"
 uv run heph armory init "$TEST_ARMORY"
-mkdir -p "$TEST_ARMORY/source"
-cat > "$TEST_ARMORY/source/test-notes.md" << 'EOF'
+mkdir -p "$TEST_ARMORY/materials"
+cat > "$TEST_ARMORY/materials/test-notes.md" << 'EOF'
 # Computer Science Basics
 
 Machine learning is a subset of artificial intelligence that enables systems to learn from data.
+A neural network is a computing system inspired by biological neural networks.
 
 | Term | Definition |
 |------|------------|
@@ -67,10 +86,11 @@ Machine learning is a subset of artificial intelligence that enables systems to 
 | Algorithm | Step-by-step procedure for calculations |
 EOF
 
-cat > "$TEST_ARMORY/source/second-notes.md" << 'EOF'
+cat > "$TEST_ARMORY/materials/second-notes.md" << 'EOF'
 # Data Structures
 
 Binary search trees allow O(log n) lookup when balanced.
+Hash tables provide O(1) average lookup for key-value data.
 
 | Term | Definition |
 |------|------------|
@@ -78,701 +98,629 @@ Binary search trees allow O(log n) lookup when balanced.
 | Hash Table | Key-value store with O(1) average lookup |
 | Linked List | Linear data structure with sequential access |
 EOF
+
+cat > "$TEST_ARMORY/materials/rag-target.md" << 'EOF'
+# Retrieval QA Target
+
+The QA sentinel fact is: Hephaistos retrieval should mention the phrase amber forge when asked about the sentinel.
+Only this file contains the exact phrase amber forge.
+EOF
 ```
 
-This ensures vocab and study tests have proper data.
+This setup supports RAG, materials filtering, vocab, reminders, import, index, and session persistence tests.
 
-## Full Regression Test Sequence
+## Launch Commands
 
-Execute ALL flows below in order as a single regression suite. Each flow tests one or more slash commands. Report each flow as a separate test case in the results table.
+Plain/no-armory session:
 
----
+```bash
+env -u CI tuistory launch "uv run heph" -s qa-plain --cols 110 --rows 36 --cwd "$PWD"
+```
 
-### Flow 1: TUI Launch and Banner
+Armory session:
 
-**Covers**: `tui.py`, `cli.py`, `banner.py`
-**Tests**: TUI startup
+```bash
+env -u CI tuistory launch "uv run heph $TEST_ARMORY" -s qa-armory --cols 110 --rows 36 --cwd "$PWD"
+```
 
-**Steps**:
-1. Launch TUI: `env -u CI FACTORY_DISABLE_KEYRING=true ZAI_API_KEY=$ZAI_API_KEY tuistory launch "uv run heph" -s qa-test --cols 110 --rows 36`
-2. Wait for the banner/logo to appear (look for "Hephaistos" or ASCII art)
-3. Take snapshot: `### Snapshot 1: TUI initial screen`
-4. **VERIFY**: Banner text is visible, input prompt is present, no Python tracebacks or import errors
+If the first-time launch prompts for a module name, type `q` and press Enter to reach plain chat without creating an armory. Do not type `skip` at the module-name prompt; `skip` is treated as an armory name there.
 
-**Success**: TUI launches cleanly with banner visible.
+## Full Current Regression Matrix
 
----
-
-### Flow 2: `/status` -- Session Status
-
-**Covers**: `commands.py` (StatusCommand), `tui.py` (status display)
-**Tests**: `/status`
-
-**Steps**:
-1. Type `/status` and press Enter
-2. Wait for status output
-3. Take snapshot: `### Snapshot 2: /status output`
-4. **VERIFY**: Shows Model, API, Key status, Session ID. For default config: shows Pollinations or Z.AI provider info. "Messages: 0" (fresh session)
-
-**Success**: Status displays all fields without errors.
+Execute ALL flows below in order. Report each flow as a separate test case in the results table.
 
 ---
 
-### Flow 3: `/help` -- Command Reference
+### Flow 1: First-time TUI launch / onboarding skip
 
-**Covers**: `commands.py` (HelpCommand), `autocomplete.py`
-**Tests**: `/help`, `/h`, `/?`
+**Tests**: startup, onboarding, no-armory home
 
-**Steps**:
-1. Type `/help` and press Enter
-2. Wait for help text
-3. Take snapshot: `### Snapshot 3: /help output`
-4. **VERIFY**: Shows "Commands" section with at least: help, exit, status, clear, model, provider, settings, export, vocab, usage, sessions, new, save, history, evidence, tokens, cost, stats, persona, memory, api, login, logout, index, recommend, remind, compact, edit, import, armory, chats, resume
-5. Type `/h` and press Enter (alias test)
-6. **VERIFY**: Same help text appears
-7. Type `/?` and press Enter (alias test)
-8. **VERIFY**: Same help text appears
-
-**Success**: All three invocations show the full command list.
+1. Launch `qa-plain` with `uv run heph`.
+2. If prompted for module name, type `q` and press Enter.
+3. Snapshot initial TUI.
+4. VERIFY: Hephaistos status/header or no-armory home appears; composer is visible; no Python traceback.
 
 ---
 
-### Flow 4: Autocomplete Dropdown
+### Flow 2: `/help`, `/h`, and `/?`
 
-**Covers**: `autocomplete.py`, `tui.py` (suggester)
-**Tests**: Slash command autocomplete
+**Tests**: command reference and aliases
 
-**Steps**:
-1. Clear input, type just `/`
-2. Wait for autocomplete dropdown
-3. Take snapshot: `### Snapshot 4: Autocomplete dropdown`
-4. **VERIFY**: Dropdown shows multiple slash command suggestions
-5. Type `/st` to filter
-6. Take snapshot: `### Snapshot 5: Filtered autocomplete /st`
-7. **VERIFY**: Suggestions narrow to commands containing "st" (status, stats, study)
-8. Press Escape to dismiss dropdown
-
-**Success**: Autocomplete appears and filters correctly.
+1. Type `/help` and press Enter.
+2. Snapshot help output.
+3. VERIFY: Help lists the current command surface above and does NOT list stale commands (`/provider`, `/model`, `/history`, `/clear`, `/resume`, `/chats`).
+4. Type `/h`, press Enter, verify help appears.
+5. Type `/?`, press Enter, verify help appears.
 
 ---
 
-### Flow 5: `/provider` -- Provider Listing
+### Flow 3: Slash autocomplete and filtering
 
-**Covers**: `commands.py` (ProviderCommand), `providers/`
-**Tests**: `/provider`
+**Tests**: autocomplete dropdown
 
-**Steps**:
-1. Type `/provider` and press Enter
-2. Wait for provider list
-3. Take snapshot: `### Snapshot 6: /provider output`
-4. **VERIFY**: Shows configured providers (pollinations, openrouter, openai-codex, zai, custom). Shows which is active with "active" marker. Shows model lists per provider.
-
-**Success**: Provider list renders with all expected providers.
-
----
-
-### Flow 6: `/provider use` -- Switch Provider
-
-**Covers**: `commands.py` (ProviderCommand._use), `providers/config.py`
-**Tests**: `/provider use <slug>`
-
-**Steps**:
-1. Type `/provider use zai glm-5` and press Enter
-2. Wait for confirmation
-3. Take snapshot: `### Snapshot 7: Provider switch`
-4. **VERIFY**: Shows "Switched to Z.AI / GLM / glm-5" or similar
-5. Type `/status` and press Enter
-6. Take snapshot: `### Snapshot 8: Status after provider switch`
-7. **VERIFY**: Status shows z.ai endpoint URL and glm-5 model
-
-**Success**: Provider switches, status reflects the change.
+1. Type `/` and wait for suggestions.
+2. Snapshot dropdown.
+3. VERIFY: suggestions include multiple current commands.
+4. Press Escape to close.
+5. Type `/st` and wait for filtered suggestions.
+6. Snapshot filtered dropdown.
+7. VERIFY: suggestions include `/status` and `/stats`.
+8. Press Escape until normal composer returns.
 
 ---
 
-### Flow 7: `/models` -- Model Catalog
+### Flow 4: `/status` in plain chat
 
-**Covers**: `commands.py` (ModelsCommand), `providers/registry.py`
-**Tests**: `/models`
+**Tests**: session status
 
-**Steps**:
-1. Type `/models` and press Enter
-2. Wait for model list
-3. Take snapshot: `### Snapshot 9: /models output`
-4. **VERIFY**: Shows models grouped by provider with context window size, pricing, and tags. Shows at least Z.AI models (glm-5, glm-5-turbo, etc.)
-
-**Success**: Model catalog renders with pricing and context info.
+1. Type `/status`, press Enter.
+2. Snapshot status output.
+3. VERIFY: shows Session, Model, API, Key, Mode, Tools, Messages, Tokens, Cost, Dirty.
 
 ---
 
-### Flow 8: `/recommend` -- Study Model Recommendations
+### Flow 5: Command palette (`ctrl+p`)
 
-**Covers**: `commands.py` (RecommendCommand)
-**Tests**: `/recommend`
+**Tests**: keyboard command palette
 
-**Steps**:
-1. Type `/recommend` and press Enter
-2. Wait for recommendation output
-3. Take snapshot: `### Snapshot 10: /recommend output`
-4. **VERIFY**: Shows models filtered for study use. Shows info text about study model selection criteria.
-
-**Success**: Study recommendations display with rationale.
+1. Press `ctrl+p`.
+2. Snapshot command palette/suggestions.
+3. VERIFY: current slash commands are offered.
+4. Press Escape to close.
 
 ---
 
-### Flow 9: `/model` -- Model Switch
+### Flow 6: Armory browser from plain chat
 
-**Covers**: `commands.py` (ModelCommand)
-**Tests**: `/model <name>`
+**Tests**: `ctrl+a`, `/armory` browser entry/cancel
 
-**Steps**:
-1. Type `/model glm-5-turbo` and press Enter
-2. Wait for confirmation
-3. Take snapshot: `### Snapshot 11: Model switch`
-4. **VERIFY**: Shows "Model: glm-5 -> glm-5-turbo" or similar
-5. Type `/status` and press Enter
-6. **VERIFY**: Status shows glm-5-turbo as current model
-
-**Success**: Model switches and status confirms it.
+1. Press `ctrl+a`.
+2. Snapshot armory browser.
+3. VERIFY: armory browser/home opens and lists known armories or creation/open options.
+4. Press Escape to return.
+5. Type `/armory`, press Enter.
+6. Snapshot browser again, then Escape.
 
 ---
 
-### Flow 10: `/api` -- API Key Status
+### Flow 7: `/login` and `/logout` menus with safe cancel
 
-**Covers**: `commands.py` (ApiCommand), `providers/keyring_store.py`
-**Tests**: `/api`
+**Tests**: provider auth menu
 
-**Steps**:
-1. Type `/api` and press Enter
-2. Wait for API info
-3. Take snapshot: `### Snapshot 12: /api output`
-4. **VERIFY**: Shows Base URL, API Key status (masked or "configured"), Source (env or keychain)
-
-**Success**: API status displays key resolution info.
-
----
-
-### Flow 11: `/memory status` -- Memory Backend Status
-
-**Covers**: `commands.py` (MemoryCommand), `memory/`
-**Tests**: `/memory status`
-
-**Steps**:
-1. Type `/memory status` and press Enter
-2. Wait for memory info
-3. Take snapshot: `### Snapshot 13: /memory status`
-4. **VERIFY**: Shows Backend type, Supermemory enabled/disabled, Profile, Key status, Entries count
-
-**Success**: Memory status displays backend info.
+1. Type `/login`, press Enter.
+2. Snapshot login menu.
+3. VERIFY: options include OpenAI Codex, OpenRouter, Z.AI, Custom endpoint.
+4. Press Escape to cancel; do not enter or print secrets.
+5. Type `/logout`, press Enter.
+6. Snapshot logout menu or empty-state notice.
+7. VERIFY: stored credentials are listed or a friendly no-credentials message appears.
+8. Press Escape to cancel if a logout menu is open. Do not confirm logout or clear user credentials.
 
 ---
 
-### Flow 12: `/persona` -- Persona Display
+### Flow 8: OpenAI Codex availability / login if needed
 
-**Covers**: `commands.py` (PersonaCommand), `harness/persona.py`
-**Tests**: `/persona`
+**Tests**: ChatGPT/OpenAI Codex auth readiness
 
-**Steps**:
-1. Type `/persona` and press Enter
-2. Wait for persona menu/selection
-3. Take snapshot: `### Snapshot 14: /persona output`
-4. **VERIFY**: Shows available personas with descriptions, current one marked. Cancel/escape without selecting.
-
-**Success**: Persona list renders with current marked.
+1. If Hephaistos OpenAI Codex auth or `OPENAI_API_KEY`/`HEPHAISTOS_API_KEY` is already available, continue.
+2. Otherwise open `/login`, choose `OpenAI Codex`, and ask the user to complete browser auth.
+3. Snapshot resulting notice/status.
+4. VERIFY: status or notice indicates OpenAI Codex/provider configured. If user/browser auth cannot complete, mark chat/RAG dependent flows BLOCKED.
 
 ---
 
-### Flow 13: Chat -- Send Message and Receive Streaming Response
+### Flow 9: `/models` menu and selection
 
-**Covers**: `chat/`, `tui.py` (chat display), `shell.py`
-**Tests**: Core chat functionality
+**Tests**: model picker
 
-**Steps**:
-1. Type "What is 2+2? Answer with just the number." and press Enter
-2. Wait for streaming response to begin (watch for characters appearing)
-3. Take snapshot: `### Snapshot 15: Streaming response in progress`
-4. Wait for streaming to complete (at least 15 seconds, or until no new text for 5s)
-5. Take snapshot: `### Snapshot 16: Completed response`
-6. **VERIFY**: Response contains "4" or a reasonable answer. No error messages.
-
-**Success**: Message sent, streaming works, response is sensible.
+1. Type `/models`, press Enter.
+2. Snapshot model picker.
+3. VERIFY: models are listed with current/source/free markers as applicable.
+4. Filter for `gpt` if OpenAI Codex is available; otherwise choose an accessible non-Z.AI model.
+5. Select a model and snapshot confirmation.
+6. Type `/status`; VERIFY model/provider reflect the selected model.
 
 ---
 
-### Flow 14: `/tokens` -- Toggle Token Display
+### Flow 10: `/recommend`
 
-**Covers**: `commands.py` (TokensCommand)
-**Tests**: `/tokens`
+**Tests**: study model recommendations
 
-**Steps**:
-1. Type `/tokens show` and press Enter
-2. Wait for confirmation
-3. Take snapshot: `### Snapshot 17: /tokens show`
-4. **VERIFY**: Shows "Live tokens shown."
-5. Type `/tokens hide` and press Enter
-6. **VERIFY**: Shows "Live tokens hidden."
-7. Type `/tokens` (toggle) and press Enter
-8. **VERIFY**: Shows toggled state
-
-**Success**: Token visibility toggles correctly.
+1. Type `/recommend`, press Enter.
+2. Snapshot output.
+3. VERIFY: study recommendations render with context/pricing/tags and no traceback.
 
 ---
 
-### Flow 15: `/cost` -- Toggle Cost Display
+### Flow 11: `/settings` root menu
 
-**Covers**: `commands.py` (CostCommand)
-**Tests**: `/cost`
+**Tests**: settings menu
 
-**Steps**:
-1. Type `/cost show` and press Enter
-2. Wait for confirmation
-3. Take snapshot: `### Snapshot 18: /cost show`
-4. **VERIFY**: Shows "Live cost shown."
-5. Type `/cost hide` and press Enter
-6. **VERIFY**: Shows "Live cost hidden."
-
-**Success**: Cost visibility toggles correctly.
+1. Type `/settings`, press Enter.
+2. Snapshot root menu.
+3. VERIFY: shows Privacy & Diagnostics, Appearance, Login, Logout.
+4. Press Escape to close.
 
 ---
 
-### Flow 16: `/history` -- Conversation History
+### Flow 12: Settings -> Privacy & Diagnostics
 
-**Covers**: `commands.py` (HistoryCommand)
-**Tests**: `/history`
+**Tests**: privacy settings submenu
 
-**Steps**:
-1. Type `/history` and press Enter
-2. Wait for history output
-3. Take snapshot: `### Snapshot 19: /history output`
-4. **VERIFY**: Shows "Turns: 1" (from the chat in Flow 13), User/Assistant message counts, ~Tokens estimate, API calls >= 1
-
-**Success**: History shows accurate turn and token counts.
+1. Open `/settings`.
+2. Select Privacy & Diagnostics.
+3. Snapshot submenu.
+4. VERIFY: Usage analytics and Crash reports options show enabled/disabled and availability.
+5. Press Escape back to root, then Escape to close.
 
 ---
 
-### Flow 17: `/evidence` -- Source Evidence
+### Flow 13: Settings -> Appearance
 
-**Covers**: `commands.py` (EvidenceCommand)
-**Tests**: `/evidence`
+**Tests**: theme selector
 
-**Steps**:
-1. Type `/evidence` and press Enter
-2. Wait for output
-3. Take snapshot: `### Snapshot 20: /evidence output`
-4. **VERIFY**: Either shows evidence items (if RAG was active) or shows "No evidence was retrieved" message. Either is acceptable.
-
-**Success**: Command runs without error (evidence may or may not be present).
+1. Open `/settings`.
+2. Select Appearance.
+3. Snapshot theme list.
+4. VERIFY: available theme presets are listed and current theme is marked.
+5. Press Escape back to root, then Escape to close.
 
 ---
 
-### Flow 18: `/usage` -- Token Usage
+### Flow 14: `/memory status`
 
-**Covers**: `commands.py` (UsageCommand), `chat/usage.py`
-**Tests**: `/usage`
+**Tests**: memory status
 
-**Steps**:
-1. Type `/usage` and press Enter
-2. Wait for usage output
-3. Take snapshot: `### Snapshot 21: /usage output`
-4. **VERIFY**: Shows API calls >= 1, prompt tokens > 0, completion tokens > 0, total tokens > 0, estimated cost > $0
-
-**Success**: Usage shows non-zero values after chat activity.
+1. Type `/memory status`, press Enter.
+2. Snapshot output.
+3. VERIFY: Backend, Supermemory status, Profile, Key, Key source, URL env, Entries render.
 
 ---
 
-### Flow 19: `/save` -- Save Session
+### Flow 15: `/memory profile`
 
-**Covers**: `commands.py` (SaveCommand), `chat/storage.py`
-**Tests**: `/save`
+**Tests**: memory profile display
 
-**Steps**:
-1. Type `/save` and press Enter
-2. Wait for save confirmation
-3. Take snapshot: `### Snapshot 22: /save output`
-4. **VERIFY**: Shows "Saved to <path>" message
-
-**Success**: Session saves successfully.
+1. Type `/memory profile`, press Enter.
+2. Snapshot output.
+3. VERIFY: current memory profile is displayed.
 
 ---
 
-### Flow 20: `/export` -- Export Session to Markdown
+### Flow 16: `/tokens` controls
 
-**Covers**: `commands.py` (ExportCommand)
-**Tests**: `/export <path>`
+**Tests**: token display toggles
 
-**Steps**:
-1. Type `/export /tmp/qa-export-test.md` and press Enter
-2. Wait for export confirmation
-3. Take snapshot: `### Snapshot 23: /export output`
-4. **VERIFY**: Shows "Session exported to /tmp/qa-export-test.md"
-5. (Outside TUI) Verify file exists and contains user/assistant messages: `cat /tmp/qa-export-test.md`
-
-**Success**: Export file created with conversation content.
+1. Type `/tokens show`; VERIFY "Live tokens shown."
+2. Type `/tokens hide`; VERIFY "Live tokens hidden."
+3. Type `/tokens`; VERIFY state toggles without error.
+4. Snapshot one toggle result.
 
 ---
 
-### Flow 21: `/compact` -- Conversation Compaction
+### Flow 17: `/cost` controls
 
-**Covers**: `commands.py` (CompactCommand), `harness/compact.py`
-**Tests**: `/compact`
+**Tests**: cost display toggles
 
-**Steps**:
-1. Type `/compact` and press Enter
-2. Wait for compaction to complete (may take 10-20 seconds as it calls the LLM)
-3. Take snapshot: `### Snapshot 24: /compact output`
-4. **VERIFY**: Shows "Compacting..." then a summary, then "Compacted." message
-
-**Success**: Conversation is summarized and compacted without error.
+1. Type `/cost show`; VERIFY "Live cost shown."
+2. Type `/cost hide`; VERIFY "Live cost hidden."
+3. Type `/cost`; VERIFY state toggles without error.
+4. Snapshot one toggle result.
 
 ---
 
-### Flow 22: `/edit` -- Edit Last Message
+### Flow 18: No-armory chat guidance
 
-**Covers**: `commands.py` (EditCommand)
-**Tests**: `/edit`
+**Tests**: plain/no-armory chat guardrail
 
-**Steps**:
-1. Type `/edit` and press Enter
-2. Wait for "Last message:" prompt
-3. Take snapshot: `### Snapshot 25: /edit prompt`
-4. **VERIFY**: Shows the last user message content
-5. Press Enter with empty input to cancel (do not resend)
-6. **VERIFY**: Shows "Cancelled." message
-
-**Success**: Edit shows last message and cancels cleanly on empty input.
+1. Type `What is 2+2? Answer with just the number.` and press Enter.
+2. Wait for response completion.
+3. Snapshot response.
+4. VERIFY: with no armory attached, the assistant tells the user to create/open an armory instead of answering from outside study materials; no provider balance/rate-limit error.
 
 ---
 
-### Flow 23: `/new` -- New Chat Session
+### Flow 19: `/usage` after no-armory chat
 
-**Covers**: `commands.py` (NewCommand)
-**Tests**: `/new`
+**Tests**: usage accounting
 
-**Steps**:
-1. Type `/new` and press Enter
-2. Wait for confirmation
-3. Take snapshot: `### Snapshot 26: /new output`
-4. **VERIFY**: Shows "New chat started." or similar. Chat log should be cleared.
-
-**Success**: New session created, previous session auto-saved.
+1. Type `/usage`, press Enter.
+2. Snapshot output.
+3. VERIFY: usage fields render. A guarded no-armory reply may be local and therefore may legitimately show zero API calls/tokens.
 
 ---
 
-### Flow 24: Chat in New Session
+### Flow 20: `/stats` after no-armory chat
 
-**Covers**: `chat/`, `tui.py`
-**Tests**: Chat after session reset
+**Tests**: plain session stats
 
-**Steps**:
-1. Type "Hello, what model are you?" and press Enter
-2. Wait for response (15+ seconds)
-3. Take snapshot: `### Snapshot 27: Chat in new session`
-4. **VERIFY**: Response mentions a model name or LLM identity
-
-**Success**: Chat works in new session.
+1. Type `/stats`, press Enter.
+2. Snapshot output.
+3. VERIFY: Turns >= 1, Assistant messages >= 1, and tokens/cost fields render.
 
 ---
 
-### Flow 25: `/sessions` -- List Saved Sessions
+### Flow 21: `/export` after chat
 
-**Covers**: `commands.py` (SessionsCommand), `chat/storage.py`
-**Tests**: `/sessions`
+**Tests**: session export
 
-**Steps**:
-1. Type `/sessions` and press Enter
-2. Wait for session list
-3. Take snapshot: `### Snapshot 28: /sessions output`
-4. **VERIFY**: Shows at least one saved session (from Flow 19 save). Shows session ID, title, date.
-
-**Success**: Session list shows previously saved session.
+1. Type `/export /tmp/heph-qa-export.md`, press Enter.
+2. Snapshot confirmation.
+3. Outside TUI, verify the file exists and contains the user prompt and assistant response.
 
 ---
 
-### Flow 26: `/chats` -- List Saved Chats
+### Flow 22: `/compact` with history
 
-**Covers**: `commands.py` (ChatsCommand)
-**Tests**: `/chats`
+**Tests**: conversation compaction
 
-**Steps**:
-1. Type `/chats` and press Enter
-2. Wait for output
-3. Take snapshot: `### Snapshot 29: /chats output`
-4. **VERIFY**: Shows saved chats list or appropriate message. No error.
-
-**Success**: Command executes without error.
+1. Type `/compact`, press Enter.
+2. Wait for summary/compaction to complete.
+3. Snapshot output.
+4. VERIFY: compaction completes without error. If LLM auth is unavailable, mark BLOCKED.
 
 ---
 
-### Flow 27: Armory-Attached Session
+### Flow 23: `/edit` cancel path
 
-**Covers**: `armory_browser.py`, `armory/`, `tui.py` (browser screen)
-**Tests**: Armory attachment, `/armory`
+**Tests**: terminal-interactive edit prompt
 
-**Steps**:
-1. Exit current TUI: type `/exit` and press Enter
-2. Relaunch TUI with test armory: `env -u CI FACTORY_DISABLE_KEYRING=true ZAI_API_KEY=$ZAI_API_KEY tuistory launch "uv run heph $TEST_ARMORY" -s qa-test --cols 110 --rows 36`
-3. Wait for TUI to load
-4. Take snapshot: `### Snapshot 30: TUI with armory attached`
-5. Type `/status` and press Enter
-6. Take snapshot: `### Snapshot 31: Status with armory`
-7. **VERIFY**: Shows armory path, "Mode: agent (tools)", source file count = 2, Tools: 7
-
-**Success**: TUI launches with armory, status shows armory details.
+1. Use a separate `qa-interactive` session with at least one user message, or continue if safe.
+2. Type `/edit`, press Enter.
+3. Snapshot prompt showing last user message.
+4. Press Enter with empty input.
+5. VERIFY: "Cancelled." appears and no resend occurs.
 
 ---
 
-### Flow 28: Chat with Armory (RAG-Enhanced)
+### Flow 24: `/new` starts a fresh chat
 
-**Covers**: `chat/`, `harness/rag/`
-**Tests**: Source-informed chat
+**Tests**: session replacement/autosave
 
-**Steps**:
-1. Type "What is machine learning? Use the source files." and press Enter
-2. Wait for response (15+ seconds)
-3. Take snapshot: `### Snapshot 32: RAG-enhanced response`
-4. **VERIFY**: Response references concepts from the source files (ML, AI, etc.)
-
-**Success**: Response includes source-informed content.
+1. Type `/new`, press Enter.
+2. Snapshot result.
+3. VERIFY: "New chat started." and visible transcript is cleared/reset.
 
 ---
 
-### Flow 29: `/evidence` -- Evidence After RAG Query
+### Flow 25: CLI armory commands
 
-**Covers**: `commands.py` (EvidenceCommand)
-**Tests**: `/evidence` after RAG retrieval
+**Tests**: `heph armory init/open`
 
-**Steps**:
-1. Type `/evidence` and press Enter
-2. Wait for output
-3. Take snapshot: `### Snapshot 33: Evidence after RAG`
-4. **VERIFY**: Shows retrieved evidence items with source, chunk index, score. Items reference source files.
-
-**Success**: Evidence shows retrieved chunks from source files.
+1. Outside TUI, run `uv run heph armory init "$TEST_ARMORY"` during setup if not already done.
+2. Run `uv run heph armory open "$TEST_ARMORY"`.
+3. VERIFY: command validates/opens the armory without error.
 
 ---
 
-### Flow 30: `/vocab status` -- Vocabulary Status
+### Flow 26: CLI materials commands
 
-**Covers**: `commands.py` (VocabCommand), `vocab/`
-**Tests**: `/vocab status`
+**Tests**: `heph materials list/count/index`
 
-**Steps**:
-1. Type `/vocab status` and press Enter
-2. Wait for output
-3. Take snapshot: `### Snapshot 34: /vocab status`
-4. **VERIFY**: Shows Total cards > 0 (should find cards from markdown tables), New count, Due now, Source files listed
-
-**Success**: Vocab cards detected from source file tables.
+1. Outside TUI, run `uv run heph materials list "$TEST_ARMORY"`.
+2. Run `uv run heph materials count "$TEST_ARMORY"`.
+3. Run `uv run heph materials index "$TEST_ARMORY"`.
+4. VERIFY: materials are listed/counted and index build completes.
 
 ---
 
-### Flow 31: `/vocab` -- Vocabulary Drill
+### Flow 27: CLI source alias commands
 
-**Covers**: `commands.py` (VocabCommand), `vocab/drill.py`, `vocab/scheduler.py`
-**Tests**: `/vocab` (interactive drill)
+**Tests**: `heph source list/count/index`
 
-**Steps**:
-1. Type `/vocab` and press Enter
-2. Wait for drill prompt (first card)
-3. Take snapshot: `### Snapshot 35: Vocab drill prompt`
-4. **VERIFY**: Shows a vocabulary question/prompt from the source material
-5. Type a brief answer and press Enter
-6. Wait for feedback
-7. Take snapshot: `### Snapshot 36: Vocab drill feedback`
-8. **VERIFY**: Shows feedback on the answer (quality rating or next card)
-
-**Success**: Vocab drill starts, accepts answers, provides feedback.
+1. Outside TUI, run `uv run heph source list "$TEST_ARMORY"`.
+2. Run `uv run heph source count "$TEST_ARMORY"`.
+3. Run `uv run heph source index "$TEST_ARMORY"`.
+4. VERIFY: source alias behaves like materials commands.
 
 ---
 
-### Flow 32: `/remind` -- Study Reminders
+### Flow 28: Armory-attached TUI launch
 
-**Covers**: `commands.py` (RemindCommand)
-**Tests**: `/remind`
+**Tests**: armory mode startup
 
-**Steps**:
-1. Type `/remind` and press Enter
-2. Wait for output
-3. Take snapshot: `### Snapshot 37: /remind output`
-4. **VERIFY**: Shows due cards count, next review timing, or "All caught up!" message
-
-**Success**: Reminder information displays without error.
+1. Launch `qa-armory` with `uv run heph "$TEST_ARMORY"`.
+2. Snapshot initial screen.
+3. VERIFY: status/header shows armory path/name and materials count.
 
 ---
 
-### Flow 33: `/stats` -- Full Statistics
+### Flow 29: `/status` with armory
 
-**Covers**: `commands.py` (StatsCommand)
-**Tests**: `/stats`
+**Tests**: armory status details
 
-**Steps**:
-1. Type `/stats` and press Enter
-2. Wait for stats output
-3. Take snapshot: `### Snapshot 38: /stats output`
-4. **VERIFY**: Shows session stats (Session ID, Runtime, Turns, API calls, Tokens, Cost). Shows armory stats (Path, Saved sessions, totals). Shows vocabulary stats (Total cards, New, Due now, Mastered).
-
-**Success**: Full stats display with session, armory, and vocab sections.
+1. Type `/status`, press Enter.
+2. Snapshot output.
+3. VERIFY: armory path, Mode `agent (tools)`, Tools count, Messages, and materials/source count render.
 
 ---
 
-### Flow 34: `/import` -- Import Files
+### Flow 30: `/materials` inline browser
 
-**Covers**: `commands.py` (ImportCommand)
-**Tests**: `/import <path>`
+**Tests**: materials selector
 
-**Steps**:
-1. Create a temp file outside TUI: `echo "# Imported Notes\n\nSome content here." > /tmp/qa-import-test.md`
-2. Type `/import /tmp/qa-import-test.md` and press Enter
-3. Wait for output
-4. Take snapshot: `### Snapshot 39: /import output`
-5. **VERIFY**: Shows "Imported 1 file: qa-import-test.md" or similar
-
-**Success**: File imported into armory source directory.
+1. Type `/materials`, press Enter.
+2. Snapshot materials list.
+3. VERIFY: `test-notes.md`, `second-notes.md`, and `rag-target.md` appear.
+4. Press Escape to close.
 
 ---
 
-### Flow 35: `/index` -- Cross-Armory Index
+### Flow 31: `/materials` filter
 
-**Covers**: `commands.py` (IndexCommand)
-**Tests**: `/index list`, `/index add`, `/index remove`
+**Tests**: materials filtering
 
-**Steps**:
-1. Type `/index list` and press Enter
-2. Take snapshot: `### Snapshot 40: /index list`
-3. **VERIFY**: Shows indexed armories list (may be empty or show current armory)
-4. Type `/index add $TEST_ARMORY` and press Enter
-5. Take snapshot: `### Snapshot 41: /index add`
-6. **VERIFY**: Shows "Added <path>. N armory/armories indexed."
-7. Type `/index list` and press Enter
-8. **VERIFY**: Now shows the added armory
-9. Type `/index remove $TEST_ARMORY` and press Enter
-10. **VERIFY**: Shows "Removed <path>."
-
-**Success**: Index add/list/remove cycle works correctly.
+1. Type `/materials rag`, press Enter.
+2. Snapshot filtered materials list.
+3. VERIFY: `rag-target.md` is shown and unrelated files are filtered out.
+4. Press Escape to close.
 
 ---
 
-### Flow 36: `/settings` -- Settings Menu
+### Flow 32: Material enable/disable toggle
 
-**Covers**: `commands.py` (SettingsCommand), `parameters/`
-**Tests**: `/settings`
+**Tests**: retrieval source selection
 
-**Steps**:
-1. Type `/settings` and press Enter
-2. Wait for settings menu to appear
-3. Take snapshot: `### Snapshot 42: /settings menu`
-4. **VERIFY**: Shows menu options: Interface, Telemetry, Appearance, Startup, Default model, Study memory, Provider & credentials, Back
-5. Cancel/escape back to chat
-
-**Success**: Settings menu renders with all expected options.
+1. Open `/materials`.
+2. Toggle one highlighted material with Space or Enter.
+3. Snapshot active count/changed styling.
+4. Toggle it back on.
+5. Snapshot restored active count.
+6. Press Escape to close.
 
 ---
 
-### Flow 37: `/clear` -- Clear Conversation
+### Flow 33: RAG chat with source-grounded answer
 
-**Covers**: `commands.py` (ClearCommand)
-**Tests**: `/clear`
+**Tests**: retrieval-augmented chat
 
-**Steps**:
-1. Type `/clear` and press Enter
-2. If prompted to confirm, press Enter for "No" (cancel) to test the confirmation dialog
-3. Take snapshot: `### Snapshot 43: /clear cancelled`
-4. **VERIFY**: Shows "Cancelled." or chat is preserved
-5. Type `/clear` and press Enter again
-6. If prompted, confirm (press Enter for "Yes")
-7. Take snapshot: `### Snapshot 44: /clear confirmed`
-8. **VERIFY**: Shows "Started fresh session." Chat log is cleared
-
-**Success**: Clear with cancel preserves chat, clear with confirm resets.
+1. Type `Using the source files, what is the QA sentinel phrase? Answer with the exact phrase.` and press Enter.
+2. Wait for response completion.
+3. Snapshot response.
+4. VERIFY: response includes `amber forge`. If subscription auth is unavailable, mark BLOCKED.
 
 ---
 
-### Flow 38: `/resume` -- Resume Session
+### Flow 34: `/evidence` after RAG
 
-**Covers**: `commands.py` (ResumeCommand)
-**Tests**: `/resume`
+**Tests**: retrieved evidence display
 
-**Steps**:
-1. Type `/resume` and press Enter
-2. Wait for output (may show session list or resume latest)
-3. Take snapshot: `### Snapshot 45: /resume output`
-4. **VERIFY**: Either resumes the latest session or shows available sessions. No crash.
-
-**Success**: Resume command executes without error.
+1. Type `/evidence`, press Enter.
+2. Snapshot output.
+3. VERIFY: evidence items include source/chunk/score and reference `rag-target.md` or relevant materials.
 
 ---
 
-### Flow 39: Error Handling -- Invalid Commands
+### Flow 35: RAG with material selection
 
-**Covers**: `commands.py`, `tui.py`, `chat/resilience.py`
-**Tests**: Error boundaries
+**Tests**: disabled material exclusion
 
-**Steps**:
-1. Type `/nonexistent_command` and press Enter
-2. Take snapshot: `### Snapshot 46: Unknown command error`
-3. **VERIFY**: Shows "Unknown command" or similar error, NOT a Python traceback
-4. Type `/model totally_invalid_model_xyz123` and press Enter
-5. Take snapshot: `### Snapshot 47: Invalid model error`
-6. **VERIFY**: Shows "Model unavailable" or error, NOT a crash
-7. Type `/api key` and press Enter (missing key value)
-8. Take snapshot: `### Snapshot 48: Missing argument error`
-9. **VERIFY**: Shows usage hint, NOT a crash
-10. Type `/vocab reset` and press Enter (if armory attached, may prompt -- cancel)
-11. **VERIFY**: Prompts for confirmation or shows usage, NOT a crash
-
-**Success**: All invalid inputs produce user-friendly errors, never crashes.
+1. Disable `rag-target.md` from `/materials`.
+2. Ask the sentinel phrase question again.
+3. Snapshot response/evidence.
+4. VERIFY: answer should not rely on disabled `rag-target.md`, or evidence excludes disabled source.
+5. Re-enable `rag-target.md` before continuing.
 
 ---
 
-### Flow 40: `/exit` -- Clean Exit
+### Flow 36: `/vocab status`
 
-**Covers**: `commands.py` (ExitCommand, QuitCommand)
-**Tests**: `/exit`, `/quit`
+**Tests**: vocabulary card extraction
 
-**Steps**:
-1. Type `/quit` and press Enter
-2. Take snapshot: `### Snapshot 49: /quit output`
-3. **VERIFY**: Shows "Exiting... (/quit -> /exit)" then exits
-4. If TUI doesn't exit, type `/exit` and press Enter
-5. **VERIFY**: TUI terminates cleanly
-
-**Success**: TUI exits cleanly via slash command.
+1. Type `/vocab status`, press Enter.
+2. Snapshot output.
+3. VERIFY: total cards > 0; source material files listed.
 
 ---
+
+### Flow 37: `/vocab` drill
+
+**Tests**: interactive vocabulary drill
+
+1. Type `/vocab`, press Enter.
+2. Snapshot first card.
+3. Type a short answer, press Enter.
+4. Snapshot feedback/correct answer/rating prompt.
+5. Select or type `q` to stop cleanly.
+6. VERIFY: no stuck prompt remains.
+
+---
+
+### Flow 38: `/vocab reset` cancel path
+
+**Tests**: destructive confirmation cancel
+
+1. Type `/vocab reset`, press Enter.
+2. Snapshot confirmation prompt.
+3. Choose No or type `q`.
+4. VERIFY: "Cancelled." and schedule is not reset.
+
+---
+
+### Flow 39: `/remind`
+
+**Tests**: study reminders
+
+1. Type `/remind`, press Enter.
+2. Snapshot output.
+3. VERIFY: due cards count or "All caught up!" renders without error.
+
+---
+
+### Flow 40: `/stats` with armory/vocab
+
+**Tests**: full stats
+
+1. Type `/stats`, press Enter.
+2. Snapshot output.
+3. VERIFY: Current session, Armory, Vocabulary sections render.
+
+---
+
+### Flow 41: `/import`
+
+**Tests**: material import
+
+1. Outside TUI, create `/tmp/heph-qa-import.md` with markdown content.
+2. Type `/import /tmp/heph-qa-import.md`, press Enter.
+3. Snapshot output.
+4. VERIFY: import reports 1 file and file appears under `$TEST_ARMORY/materials/`.
+
+---
+
+### Flow 42: `/index` list/add/remove
+
+**Tests**: cross-armory index command
+
+1. Type `/index list`, press Enter; snapshot list/empty state.
+2. Type `/index add $TEST_ARMORY`, press Enter; verify added message.
+3. Type `/index list`, press Enter; verify armory appears.
+4. Type `/index remove $TEST_ARMORY`, press Enter; verify removed message.
+
+---
+
+### Flow 43: `/sessions list`
+
+**Tests**: saved sessions listing
+
+1. Ensure there has been at least one successful chat in the armory session, then type `/new` to trigger autosave.
+2. Type `/sessions list`, press Enter.
+3. Snapshot output.
+4. VERIFY: saved session list appears, or a clear "No saved chats found" if no successful chat was possible.
+
+---
+
+### Flow 44: `/sessions browse`
+
+**Tests**: sessions inline browse
+
+1. Type `/sessions browse`, press Enter.
+2. Snapshot sessions menu or empty-state notice.
+3. VERIFY: no crash; if sessions exist, menu can be cancelled with Escape.
+
+---
+
+### Flow 45: `/sessions resume`
+
+**Tests**: resume latest saved chat through current sessions command
+
+1. Type `/sessions resume`, press Enter.
+2. Snapshot result.
+3. VERIFY: latest session resumes or a friendly empty-state message appears; no traceback.
+
+---
+
+### Flow 46: `/persona tutor`
+
+**Tests**: direct persona switch
+
+1. Type `/persona tutor`, press Enter.
+2. Snapshot confirmation.
+3. VERIFY: persona switches from current persona to Tutor or reports already/current state without error.
+4. Type `/status` and verify Persona reflects the selected persona.
+
+---
+
+### Flow 47: `/persona` invalid slug
+
+**Tests**: persona error handling
+
+1. Type `/persona definitely-not-a-persona`, press Enter.
+2. Snapshot output.
+3. VERIFY: friendly unknown persona error and available persona list; no traceback.
+
+---
+
+### Flow 48: Shell escape
+
+**Tests**: `!command` input
+
+1. Type `!echo heph-qa-shell-ok`, press Enter.
+2. Snapshot output.
+3. VERIFY: output includes `heph-qa-shell-ok`.
+
+---
+
+### Flow 49: Negative command/subcommand handling
+
+**Tests**: error boundaries
+
+1. Type `/nonexistent_command`, press Enter; verify unknown command error.
+2. Type `/memory nonsense`, press Enter; verify usage hint.
+3. Type `/import /path/that/does/not/exist`, press Enter; verify path-not-found error.
+4. Type `/index nonsense`, press Enter; verify usage hint.
+5. Snapshot errors.
+6. VERIFY: no Python traceback or crash.
+
+---
+
+### Flow 50: Clean exit
+
+**Tests**: `/quit`, `/exit`
+
+1. Type `/quit`, press Enter.
+2. Snapshot final output if visible.
+3. VERIFY: TUI terminates cleanly.
+4. If still running, type `/exit`, press Enter, and verify termination.
+
+## Diff-Targeted Extra Tests
+
+After the matrix, inspect `git diff` and add focused manual flows for changed behavior not covered above. Current examples:
+
+- If `hephaistos/parameters/cli.py` changed: exercise `uv run heph config list` manually and verify configurable settings render.
+- If TUI styling/widgets/materials changed: capture an additional `/materials` and resize/reflow snapshot.
+- If chat evidence/orchestrator changed: add one extra RAG prompt that requires citing a specific material and verify `/evidence`.
+- If study controller changed: ask a study-style question and verify the response follows the current tutor/persona behavior.
 
 ## Post-test Verification
 
-After all flows, run these checks outside the TUI:
+Outside the TUI, verify artifacts created by manual flows:
 
-1. Verify export file exists: `test -f /tmp/qa-export-test.md && echo "Export OK"`
-2. Verify imported file is in armory: `ls $TEST_ARMORY/source/`
-3. Verify saved sessions: `ls $TEST_ARMORY/.hephaistos/sessions/`
+```bash
+test -f /tmp/heph-qa-export.md && echo "Export OK"
+test -f "$TEST_ARMORY/materials/heph-qa-import.md" && echo "Import OK"
+ls "$TEST_ARMORY/.hephaistos" >/dev/null && echo "Armory metadata OK"
+```
 
 ## Cleanup
 
 After all tests complete:
 
-1. TUI should already be exited from Flow 40
-2. Remove test armories: `rm -rf /tmp/qa-*/tmp/qa-export-test.md /tmp/qa-import-test.md`
-3. Remove any test config: `rm -f ~/.config/hephaistos/providers.toml` (only if created during test)
+1. Ensure all tuistory sessions have exited.
+2. Delete only the QA armory created for this run, after confirming it is under `~/.armories/` and its basename starts with `heph-qa-`.
+3. Delete only temporary files created by this run (`/tmp/heph-qa-export.md`, `/tmp/heph-qa-import.md`).
+4. Preserve all pre-existing `~/.config/hephaistos/` files and provider credentials. Do not run `/logout all` as part of QA.
 
 ## Known Failure Modes
 
-1. **TUI fails to launch without terminal.** Textual requires a real or emulated terminal. In CI, tuistory provides a virtual terminal. If Textual fails to start, ensure `env -u CI` is set to suppress CI detection.
-
-2. **Keyring prompts block the TUI.** Always use `FACTORY_DISABLE_KEYRING=true` in CI and testing environments to prevent interactive keyring prompts.
-
-3. **Z.AI API rate limits or errors.** The Z.AI API may return 429 errors under heavy use. If chat flows fail with rate-limit errors, report as BLOCKED and retry after 30 seconds. The free Pollinations provider is even more rate-limited.
-
-4. **Streaming response timing.** Streaming responses may take 5-30 seconds depending on model load. Wait at least 15 seconds for a response before timing out. Use tuistory's `wait_for_text` with a 30-second timeout.
-
-5. **Interactive menus (select_option).** Commands like `/model`, `/provider`, `/persona`, `/settings` launch interactive menus with arrow-key navigation. In tuistory, use arrow keys to navigate and Enter to select. If the menu doesn't render, the command may still work with direct arguments (e.g., `/model glm-5`).
-
-6. **/vocab requires markdown tables.** The vocab parser looks for markdown tables with specific column headers (Term | Definition). Pre-test setup creates these files. If /vocab reports 0 cards, check that the source files were created correctly.
-
-7. **/compact requires LLM call.** The compact command calls the LLM to summarize, so it needs a working API key and may take 15-30 seconds. Report as BLOCKED if the API key is missing.
-
-8. **/edit waits for input.** The /edit command prompts for a new message. Always send empty input (just Enter) to cancel, otherwise it will resend a message and change the conversation state.
-
-9. **/clear confirmation dialog.** The /clear command asks "Clear conversation?" when there are messages. In tuistory, handle this with Enter for default (No) or type "y" and Enter for Yes.
-
-10. **/vocab drill is interactive.** The vocab drill shows cards one at a time and waits for answers. Each card requires typing an answer and pressing Enter. The drill ends when all due cards are reviewed or the user cancels.
+1. **TUI fails to launch without terminal.** Textual requires a real or emulated terminal. Use tuistory with `env -u CI`.
+2. **First-time launch prompts for module name.** Type `q` and press Enter to reach plain chat. Typing `skip` at the module-name prompt creates an armory named `skip`.
+3. **Armory creation under `/tmp` fails.** Armories must be created under `~/.armories/<name>`; materials belong in `materials/`.
+4. **OpenAI Codex OAuth not yet configured.** Use `/login` -> `OpenAI Codex` and ask the user to complete the browser flow. Do not inspect or print token values.
+5. **Keyring prompts or hangs.** Avoid direct keychain probes in shell scripts. Prefer environment checks, Hephaistos OAuth provider presence, or the in-app `/login` flow.
+6. **Streaming response timing.** Wait 5-30 seconds depending on model load. Use snapshots and visible text changes rather than fixed sleeps alone.
+7. **Interactive menus.** Use arrow keys + Enter or type-to-filter + Enter. Always press Escape to close before the next command.
+8. **/vocab drill is interactive.** Answer, then rate or type `q` to stop. Do not send slash commands while the rating prompt is active.
+9. **/edit waits for input.** Send empty input to cancel unless specifically testing resend.
+10. **/compact requires LLM auth.** Mark BLOCKED if subscription/API auth is unavailable.
+11. **Pollinations is keyless but unreliable.** It can be used for smoke tests only; full chat/RAG should use OpenAI Codex/OpenAI/OpenRouter/custom auth.

@@ -199,6 +199,18 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
 def armory_home_text() -> str:
     """Return the no-armory home card shown on first TUI launch."""
     recent = load_known_armories()[:5]
+    if recent:
+        lines = [
+            "No armory attached.",
+            "",
+            "Existing armories found.",
+            f"Press {armory_shortcut_key()} to choose an armory or create a new one.",
+            "Armories are saved locally in ~/.armories/",
+            "Add your study materials (PDFs, notes, textbooks) to ~/.armories/<module>/materials/",
+        ]
+        lines.extend(["", "Recent armories:"])
+        lines.extend(f"  {path.name}  {path}" for path in recent)
+        return "\n".join(lines)
     lines = [
         "No armory attached.",
         "",
@@ -207,9 +219,6 @@ def armory_home_text() -> str:
         "Armories are saved locally in ~/.armories/",
         "Add your study materials (PDFs, notes, textbooks) to ~/.armories/<module>/materials/",
     ]
-    if recent:
-        lines.extend(["", "Recent armories:"])
-        lines.extend(f"  {path.name}  {path}" for path in recent)
     return "\n".join(lines)
 
 
@@ -225,7 +234,7 @@ def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> 
         plain = f"You message\n{sep}\n{preview}"
     elif is_assistant:
         model = session.config.model or "unknown"
-        evidence_str = evidence_summary_text(session.last_turn_evidence)
+        evidence_str = evidence_summary_text(entry.evidence or session.last_turn_evidence)
         usage = session.usage.summary()
         sep = "\u2500" * 26
         plain = (

@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import io
+import json
+import urllib.error
+from email.message import Message as HttpHeaders
+from typing import Self
+
 import pytest
 
 from hephaistos.chat.engine import (
@@ -12,6 +18,36 @@ from hephaistos.chat.engine import (
     build_client,
     missing_api_key_message,
 )
+from hephaistos.runtime import engine as runtime_engine
+
+
+class _Span:
+    def __init__(self) -> None:
+        self.attributes: dict[str, object] = {}
+
+    def set_attribute(self, key: str, value: object) -> object:
+        self.attributes[key] = value
+        return value
+
+    def end(self, _end_time: float | None = None) -> None:
+        return None
+
+
+class _StreamingResponse:
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = lines
+        self.closed = False
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.closed = True
+
+    def __iter__(self) -> object:
+        for line in self.lines:
+            yield line.encode()
+        raise AssertionError("stream was not stopped after completion")
 
 
 def test_build_client_allows_pollinations_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,3 +144,91 @@ def test_is_feature_enabled() -> None:
 def test_is_feature_enabled_default_empty() -> None:
     config = ChatConfig()
     assert not config.is_feature_enabled("anything")
+
+
+def test_codex_http_error_detail_redacts_sensitive_text() -> None:
+    token = "Bearer " + ("a" * 32)
+    body = json.dumps({"detail": f"upstream echoed {token}"})
+    exc = urllib.error.HTTPError(
+        "https://chatgpt.com/backend-api/codex/responses",
+        401,
+        "Unauthorized",
+        HttpHeaders(),
+        io.BytesIO(body.encode()),
+    )
+
+    detail = runtime_engine._codex_http_error_detail(exc)  # type: ignore[reportPrivateUsage]
+
+    assert token not in detail
+    assert "***REDACTED***" in detail
+
+
+def test_codex_backend_stream_redacts_http_error_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "sk-" + ("a" * 24)
+    body = json.dumps({"response": {"error": {"message": f"bad credential {secret}"}}})
+    error = urllib.error.HTTPError(
+        "https://chatgpt.com/backend-api/codex/responses",
+        401,
+        "Unauthorized",
+        HttpHeaders(),
+        io.BytesIO(body.encode()),
+    )
+
+    def raise_error(*_args: object, **_kwargs: object) -> object:
+        raise error
+
+    monkeypatch.setattr(runtime_engine.urllib.request, "urlopen", raise_error)
+    config = ChatConfig(base_url="https://api.openai.com/v1", model="gpt-5.4-mini")
+
+    with pytest.raises(EngineError) as exc_info:
+        list(
+            runtime_engine._stream_codex_backend_completion(  # type: ignore[reportPrivateUsage]
+                config,
+                [{"role": "user", "content": "hello"}],
+                ("access-token", "account-id"),
+                abort=None,
+                span=_Span(),
+            )
+        )
+
+    message = str(exc_info.value)
+    assert secret not in message
+    assert "***REDACTED***" in message
+
+
+def test_codex_backend_stream_stops_after_response_completed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completed = {
+        "type": "response.completed",
+        "response": {"usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}},
+    }
+    response = _StreamingResponse(
+        [
+            'data: {"type": "response.output_text.delta", "delta": "done"}\n',
+            f"data: {json.dumps(completed)}\n",
+        ]
+    )
+    monkeypatch.setattr(
+        runtime_engine.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: response,
+    )
+    config = ChatConfig(base_url="https://api.openai.com/v1", model="gpt-5.4-mini")
+
+    deltas = list(
+        runtime_engine._stream_codex_backend_completion(  # type: ignore[reportPrivateUsage]
+            config,
+            [{"role": "user", "content": "hello"}],
+            ("access-token", "account-id"),
+            abort=None,
+            span=_Span(),
+        )
+    )
+
+    assert [delta.content for delta in deltas] == ["done", None]
+    assert deltas[-1].finish_reason == "stop"
+    assert deltas[-1].usage == {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
+    assert response.closed is True

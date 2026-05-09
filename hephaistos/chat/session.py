@@ -139,6 +139,14 @@ def _metadata_string_set(metadata: dict[str, object], key: str) -> set[str]:
     return {item for item in value if isinstance(item, str)}
 
 
+def _restore_disabled_source_files(
+    metadata: dict[str, object],
+    source_files: list[str],
+) -> set[str]:
+    active_sources = set(source_files)
+    return _metadata_string_set(metadata, "disabled_source_files") & active_sources
+
+
 def validate_armory_path(path_str: str) -> Path:
     """Validate and return the resolved armory path."""
     armory_path = normalize_path(path_str)
@@ -327,7 +335,7 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         source_file_count=source_file_count,
         source_files=tuple(source_files),
         study_state=StudyState.from_dict(metadata.get("study_state")),
-        disabled_source_files=_metadata_string_set(metadata, "disabled_source_files"),
+        disabled_source_files=_restore_disabled_source_files(metadata, source_files),
         started_at=_metadata_datetime(metadata, "started_at") or now,
         resumed_at=now,
         last_activity_at=now,

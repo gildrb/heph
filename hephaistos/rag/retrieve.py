@@ -42,6 +42,10 @@ _cosine_similarity = cosine_similarity
 _reciprocal_rank_fusion = reciprocal_rank_fusion
 _EMBED_MODEL_ENV = "HEPHAISTOS_EMBED_MODEL"
 _RERANK_MODEL_ENV = "HEPHAISTOS_RERANK_MODEL"
+_MAX_QUERY_TOKENS = 160
+_QUERY_PREFIX_TOKENS = 40
+_QUERY_SUFFIX_TOKENS = 140
+_MAX_QUERY_TOKEN_REPEATS = 2
 
 
 def _is_sentence_transformers_available() -> bool:
@@ -95,6 +99,23 @@ def _retriever_cache_key(
     return (transform_strategy.value, prompt_key)
 
 
+def _normalize_query_for_retrieval(query: str) -> str:
+    tokens = tokenize(query)
+    if len(tokens) <= _MAX_QUERY_TOKENS:
+        return query
+
+    focused_tokens = [*tokens[:_QUERY_PREFIX_TOKENS], *tokens[-_QUERY_SUFFIX_TOKENS:]]
+    counts: dict[str, int] = {}
+    deduped: list[str] = []
+    for token in focused_tokens:
+        count = counts.get(token, 0)
+        if count >= _MAX_QUERY_TOKEN_REPEATS:
+            continue
+        counts[token] = count + 1
+        deduped.append(token)
+    return " ".join(deduped) if deduped else query
+
+
 def retrieve(
     query: str,
     index: ArmoryIndex,
@@ -142,7 +163,8 @@ def retrieve(
             if cache_key == _IDENTITY_CACHE_KEY:
                 index._retriever = retriever  # type: ignore[reportPrivateUsage]
         index._retriever_cache[cache_key] = retriever  # type: ignore[reportPrivateUsage]
-    results = retriever.retrieve(query, top_k)
+    search_query = _normalize_query_for_retrieval(query)
+    results = retriever.retrieve(search_query, top_k)
 
     # Filter by minimum relevance score
     if min_score > 0.0 and results:
@@ -166,6 +188,7 @@ def retrieve(
         extra={
             "fields": {
                 "query_len": len(query),
+                "search_query_len": len(search_query),
                 "top_k": top_k,
                 "returned": len(results),
                 "retriever": type(retriever).__name__,

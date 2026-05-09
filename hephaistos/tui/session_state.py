@@ -11,14 +11,19 @@ import sys
 import time
 from dataclasses import dataclass, field
 from io import StringIO
+from typing import TYPE_CHECKING
 
 from hephaistos.terminal.history import InputHistory
+
+if TYPE_CHECKING:
+    from hephaistos.rag.context import TurnEvidence
 
 
 @dataclass
 class TuiTranscriptEntry:
     content: str
     kind: str = "plain"
+    evidence: TurnEvidence | None = None
 
 
 @dataclass

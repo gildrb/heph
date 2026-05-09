@@ -29,12 +29,15 @@ class EvidenceReference:
     def parse(cls, value: str) -> EvidenceReference | None:
         """Parse the persisted ``path#chunk=N`` form."""
         source, sep, suffix = value.partition("#chunk=")
-        if not sep:
+        if not sep or not source:
             return None
         try:
-            return cls(source=source, chunk_index=int(suffix))
+            chunk_index = int(suffix)
         except ValueError:
             return None
+        if chunk_index < 0:
+            return None
+        return cls(source=source, chunk_index=chunk_index)
 
 
 @runtime_checkable

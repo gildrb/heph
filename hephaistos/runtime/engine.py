@@ -16,11 +16,15 @@ Streaming error recovery:
 
 from __future__ import annotations
 
+import contextlib
+import json
 import random
 import re
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, cast
@@ -31,6 +35,7 @@ from hephaistos.logging import Timer, get_logger, redact_text
 from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
+from hephaistos.providers.oauth import load_credentials
 from hephaistos.providers.registry import get_registry as get_provider_registry
 from hephaistos.runtime._api_types import ApiMessage, ToolCallDelta, UsagePayload
 from hephaistos.runtime.resilience import CircuitBreaker
@@ -203,6 +208,7 @@ _PROVIDER_CAPACITY_HINT = (
     "The free model provider is busy or rate-limiting this connection. "
     "Try again shortly, or use /login to connect your own provider and /models to switch."
 )
+_CODEX_BACKEND_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 _PROVIDER_IP_RE = re.compile(r"\bIP:\s*(?:\d{1,3}\.){3}\d{1,3}\b", re.IGNORECASE)
 _MAX_PROVIDER_DETAIL_CHARS = 260
 
@@ -456,6 +462,181 @@ def _record_usage(usage: UsagePayload, model: str, span: _SpanProtocol) -> None:
     _llm_token_counter.add(completion, {"model": model, "type": "completion"})
 
 
+def _codex_backend_auth(config: ChatConfig) -> tuple[str, str] | None:
+    if config.provider_slug != "openai-codex":
+        return None
+    creds = load_credentials("openai-codex")
+    if creds is None:
+        return None
+    return creds.access_token, creds.account_id or ""
+
+
+def _content_part_text(part: object) -> str:
+    if not is_string_mapping(part):
+        return ""
+    text = part.get("text", part.get("content", ""))
+    return text if isinstance(text, str) else ""
+
+
+def _api_message_text(message: ApiMessage) -> str:
+    content = message.get("content")
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(part for item in content if (part := _content_part_text(item)))
+    return str(content)
+
+
+def _codex_input_item(role: str, text: str) -> dict[str, object]:
+    item_type = "output_text" if role == "assistant" else "input_text"
+    item_role = "assistant" if role == "assistant" else "user"
+    return {
+        "role": item_role,
+        "content": [{"type": item_type, "text": text}],
+    }
+
+
+def _codex_payload(
+    config: ChatConfig,
+    api_messages: list[ApiMessage],
+) -> dict[str, object]:
+    instructions: list[str] = []
+    inputs: list[dict[str, object]] = []
+    for message in api_messages:
+        role = message["role"]
+        text = _api_message_text(message)
+        if not text:
+            continue
+        if role == "system":
+            instructions.append(text)
+        elif role in {"user", "assistant"}:
+            inputs.append(_codex_input_item(role, text))
+        else:
+            inputs.append(_codex_input_item("user", f"{role} result:\n{text}"))
+    return {
+        "model": config.model,
+        "instructions": "\n\n".join(instructions) or "You are a concise study assistant.",
+        "input": inputs,
+        "store": False,
+        "stream": True,
+    }
+
+
+def _codex_headers(access_token: str, account_id: str) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "User-Agent": "hephaistos-cli",
+    }
+    if account_id:
+        headers["ChatGPT-Account-ID"] = account_id
+    return headers
+
+
+def _int_value(value: object) -> int:
+    return value if isinstance(value, int) else 0
+
+
+def _codex_usage(payload: dict[str, object]) -> UsagePayload | None:
+    response = payload.get("response")
+    if not is_string_mapping(response):
+        return None
+    usage = response.get("usage")
+    if not is_string_mapping(usage):
+        return None
+    prompt_tokens = _int_value(usage.get("input_tokens"))
+    completion_tokens = _int_value(usage.get("output_tokens"))
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": _int_value(usage.get("total_tokens")) or prompt_tokens + completion_tokens,
+    }
+
+
+def _codex_failure_detail(payload: dict[str, object]) -> str:
+    response = payload.get("response")
+    if is_string_mapping(response):
+        error = response.get("error")
+        if is_string_mapping(error):
+            message = error.get("message")
+            if isinstance(message, str) and message:
+                return redact_text(message)
+        if error:
+            return redact_text(str(error))
+    detail = payload.get("detail")
+    if isinstance(detail, str) and detail:
+        return redact_text(detail)
+    return "ChatGPT Codex backend request failed"
+
+
+def _codex_http_error_detail(exc: urllib.error.HTTPError) -> str:
+    body = exc.read(1000).decode("utf-8", "replace")
+    with contextlib.suppress(json.JSONDecodeError):
+        payload = json.loads(body)
+        if is_string_mapping(payload):
+            return _codex_failure_detail(payload)
+    return redact_text(body.strip() or str(exc))
+
+
+def _stream_codex_backend_completion(
+    config: ChatConfig,
+    api_messages: list[ApiMessage],
+    auth: tuple[str, str],
+    *,
+    abort: threading.Event | None,
+    span: _SpanProtocol,
+) -> Iterator[CompletionDelta]:
+    access_token, account_id = auth
+    request = urllib.request.Request(
+        _CODEX_BACKEND_RESPONSES_URL,
+        data=json.dumps(_codex_payload(config, api_messages)).encode("utf-8"),
+        headers=_codex_headers(access_token, account_id),
+        method="POST",
+    )
+    try:
+        response = urllib.request.urlopen(request, timeout=120)  # nosec B310
+    except urllib.error.HTTPError as exc:
+        detail = _codex_http_error_detail(exc)
+        raise EngineError(f"ChatGPT Codex request failed: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise EngineError(f"ChatGPT Codex request failed: {redact_text(str(exc.reason))}") from exc
+
+    with response:
+        for raw_line in response:
+            if abort is not None and abort.is_set():
+                return
+            line = raw_line.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line.removeprefix("data:").strip()
+            if not data:
+                continue
+            if data == "[DONE]":
+                return
+            try:
+                parsed = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if not is_string_mapping(parsed):
+                continue
+            event_type = parsed.get("type")
+            if event_type == "response.output_text.delta":
+                delta = parsed.get("delta")
+                if isinstance(delta, str) and delta:
+                    yield CompletionDelta(content=delta)
+            elif event_type == "response.completed":
+                usage = _codex_usage(parsed)
+                if usage is not None:
+                    _record_usage(usage, config.model, span)
+                    yield CompletionDelta(finish_reason="stop", usage=usage)
+                return
+            elif event_type == "response.failed":
+                raise EngineError(f"ChatGPT Codex request failed: {_codex_failure_detail(parsed)}")
+
+
 def stream_completion(
     config: ChatConfig,
     messages: Conversation | list[ApiMessage],
@@ -487,6 +668,52 @@ def stream_completion(
             }
         },
     )
+
+    codex_auth = _codex_backend_auth(config)
+    if codex_auth is not None:
+        if not _circuit_breaker.allow_request():
+            span.end()
+            raise EngineError("LLM provider circuit breaker is open — too many recent failures")
+        timer = Timer()
+        try:
+            with timer:
+                for delta in _stream_codex_backend_completion(
+                    config,
+                    api_messages,
+                    codex_auth,
+                    abort=abort,
+                    span=span,
+                ):
+                    yield delta
+        except EngineError as exc:
+            _circuit_breaker.record_failure()
+            span.set_attribute("error", True)
+            span.set_attribute("error.type", type(exc).__name__)
+            span.end()
+            raise
+        except Exception as exc:
+            _circuit_breaker.record_failure()
+            span.set_attribute("error", True)
+            span.set_attribute("error.type", type(exc).__name__)
+            span.end()
+            raise EngineError(f"ChatGPT Codex request failed: {redact_text(str(exc))}") from exc
+        _log.info(
+            "stream_completion complete",
+            extra={
+                "fields": {
+                    "model": config.model,
+                    "latency_ms": timer.ms,
+                    "message_count": msg_count,
+                    "tool_count": len(tools or []),
+                    "transport": "chatgpt-codex",
+                }
+            },
+        )
+        _circuit_breaker.record_success()
+        span.set_attribute("gen_ai.response.latency_ms", timer.ms)
+        _llm_duration_hist.record(timer.ms, {"model": config.model})
+        span.end()
+        return
 
     client = client_factory(config)
     last_error: Exception | None = None

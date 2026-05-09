@@ -15,15 +15,123 @@ from hephaistos.commands._base import (
     format_duration,
     pct,
 )
+from hephaistos.rag.context import EvidenceChunk
+from hephaistos.rag.source_mapping import (
+    SourceLineSpan,
+    SourceMappingError,
+    chunk_line_span,
+    line_label,
+    resolve_source_path,
+    source_excerpt,
+)
 from hephaistos.study.state import StudyFeedbackType
 from hephaistos.terminal.display import print_error, print_info, print_success
+from hephaistos.terminal.source_open import open_source_file
 from hephaistos.vocab.parser import scan_armory
 from hephaistos.vocab.state import load_schedule, save_schedule
+
+
+def _parse_evidence_args(args: str) -> tuple[str | None, bool]:
+    tokens = args.strip().split()
+    if not tokens:
+        return None, False
+    open_requested = any(token.lower() in {"open", "source"} for token in tokens)
+    for token in tokens:
+        cleaned = token.strip("[](),;:").upper()
+        if cleaned.startswith("E") and cleaned[1:].isdigit():
+            return cleaned, open_requested
+        if cleaned.isdigit():
+            return f"E{cleaned}", open_requested
+    return None, open_requested
+
+
+def _item_path_and_span(
+    session: ChatSession,
+    item: EvidenceChunk,
+) -> tuple[Path | None, SourceLineSpan | None]:
+    if session.armory_path is None:
+        return None, None
+    try:
+        path = resolve_source_path(session.armory_path, item.source)
+    except SourceMappingError:
+        return None, None
+    return path, chunk_line_span(path, item.chunk)
+
+
+def _preview(content: str, max_chars: int = 160) -> str:
+    preview = " ".join(content.split())
+    if len(preview) <= max_chars:
+        return preview
+    return f"{preview[: max_chars - 3]}..."
+
+
+def _format_evidence_summary(session: ChatSession, item: EvidenceChunk) -> list[str]:
+    path, span = _item_path_and_span(session, item)
+    location = line_label(span)
+    source = item.source if path is None else str(path)
+    details = [
+        f"  {item.evidence_id}  {source}#chunk={item.chunk_index}",
+        f"      {location}; chars {item.chunk.char_start}-{item.chunk.char_end}; "
+        f"score={item.score:.3f}",
+    ]
+    if item.chunk.heading:
+        details.append(f"      heading: {item.chunk.heading}")
+    preview = _preview(item.content)
+    if preview:
+        details.append(f"      {preview}")
+    return details
+
+
+def _format_evidence_detail(session: ChatSession, item: EvidenceChunk) -> str:
+    path, span = _item_path_and_span(session, item)
+    source = item.source if path is None else str(path)
+    lines = [
+        f"{item.evidence_id}  {source}#chunk={item.chunk_index}",
+        f"{line_label(span)}; chars {item.chunk.char_start}-{item.chunk.char_end}; "
+        f"score={item.score:.3f}",
+    ]
+    if item.chunk.heading:
+        lines.append(f"heading: {item.chunk.heading}")
+    lines.append("")
+    if path is not None:
+        excerpt = source_excerpt(path, item.chunk)
+        if excerpt:
+            lines.append(excerpt)
+        else:
+            lines.append(item.content)
+    else:
+        lines.append(item.content)
+    lines.append("")
+    lines.append(f"Open source: /evidence {item.evidence_id} open")
+    return "\n".join(lines)
+
+
+def _open_evidence_item(session: ChatSession, item: EvidenceChunk) -> None:
+    if session.armory_path is None:
+        print_error("No armory attached; cannot open evidence source.")
+        return
+    try:
+        path = resolve_source_path(session.armory_path, item.source)
+    except SourceMappingError as exc:
+        print_error(str(exc))
+        return
+    if not path.exists():
+        print_error(f"Evidence source not found: {path}")
+        return
+    span = chunk_line_span(path, item.chunk)
+    line = span.start_line if span is not None else None
+    try:
+        result = open_source_file(path, line)
+    except OSError as exc:
+        print_error(str(exc))
+        return
+    print_success(result.message)
 
 
 class EvidenceCommand(Command):
     name = "evidence"
     description = "Show retrieved evidence for the last turn"
+    aliases = ("sources",)
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -31,17 +139,29 @@ class EvidenceCommand(Command):
         if evidence is None or not evidence.items:
             print_info("No evidence was retrieved for the last turn.")
             return CommandResult()
+
+        evidence_id, open_requested = _parse_evidence_args(args)
+        if evidence_id is not None:
+            item = evidence.get(evidence_id)
+            if item is None:
+                print_error(f"Unknown evidence ID: {evidence_id}")
+                return CommandResult()
+            if open_requested:
+                _open_evidence_item(s, item)
+            else:
+                print(_format_evidence_detail(s, item))
+            return CommandResult()
+
+        if open_requested:
+            print_error("Usage: /evidence <EID> open")
+            return CommandResult()
+
         lines = ["Last turn evidence:"]
         for item in evidence.items:
-            preview = " ".join(item.content.split())
-            if len(preview) > 120:
-                preview = f"{preview[:117]}..."
-            lines.append(
-                f"  {item.evidence_id}  {item.source}#chunk={item.chunk_index}"
-                f"  score={item.score:.3f}"
-            )
-            if preview:
-                lines.append(f"      {preview}")
+            lines.extend(_format_evidence_summary(s, item))
+        lines.append("")
+        lines.append("Show context: /evidence E1")
+        lines.append("Open source:  /evidence E1 open")
         print("\n".join(lines))
         return CommandResult()
 

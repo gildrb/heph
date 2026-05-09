@@ -79,9 +79,21 @@ def _render_evidence_panel(evidence: TurnEvidence, cited_ids: list[str]) -> str:
     cited = set(cited_ids)
     items = [item for item in evidence.items if not cited or item.evidence_id in cited]
     parts: list[str] = []
-    for chunk in items:
-        source_name = chunk.source.rsplit("/", 1)[-1]
-        parts.append(f"{chunk.evidence_id}: {source_name} chunk {chunk.chunk_index}")
+    for item in items:
+        source_name = item.source.rsplit("/", 1)[-1]
+        location_parts = [
+            item.source,
+            f"chars {item.chunk.char_start}-{item.chunk.char_end}",
+            f"score {item.score:.2f}",
+            f"show /evidence {item.evidence_id}",
+            f"open /evidence {item.evidence_id} open",
+        ]
+        if item.chunk.heading:
+            location_parts.insert(1, f"under {item.chunk.heading}")
+        parts.append(
+            f"{item.evidence_id}: {source_name} chunk {item.chunk_index} "
+            f"({'; '.join(location_parts)})"
+        )
     return f"_evidence: {'; '.join(parts)}_"
 
 

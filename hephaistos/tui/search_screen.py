@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 from typing import ClassVar
 
-from hephaistos.armory.search import CrossArmoryIndex, SearchResult, load_known_armories
+from hephaistos.armory.search import CrossArmoryIndex, SearchResult
+from hephaistos.shell.startup_discovery import discover_available_armories
 from hephaistos.terminal import ThemePalette, current_palette
 
 try:
@@ -118,7 +119,7 @@ class SearchScreen(ModalScreen[SearchResult | None]):  # type: ignore[misc]
     def on_mount(self) -> None:
         search_input = self.query_one("#search-input", Input)
         search_input.focus()
-        armories = load_known_armories()
+        armories = discover_available_armories()
         if armories:
             self._index.build(armories)
             self._built = True

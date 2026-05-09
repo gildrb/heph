@@ -248,10 +248,13 @@ def iter_agent_events(
         collected_tool_calls: list[ToolCall] = []
         finish_reason = ""
         stream_usage: UsagePayload | None = None
+        tool_stream_disabled = config.provider_slug == "openai-codex"
         turn_timer = Timer()
 
         with turn_timer:
             schemas = registry.schemas if tool_schemas is None else tool_schemas
+            if tool_stream_disabled:
+                schemas = []
             require_verification_tool = turn_idx == 0 and bool(schemas) and not bool(turn_evidence)
             for delta in stream_completion(
                 config,

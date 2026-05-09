@@ -190,17 +190,17 @@ class TestCreateStartupSession:
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
-        clean_armory_env: None,
+        clean_armory_env: Path,
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        armory_path = tmp_path / "onboarded"
+        armory_path = clean_armory_env / "onboarded"
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
         prompts: list[str] = []
 
         def fake_input(prompt: str) -> str:
             prompts.append(prompt)
             if len(prompts) == 1:
-                return str(armory_path)
+                return "onboarded"
             (armory_path / "materials" / "notes.md").write_text("# Notes\nStudy content.\n")
             return ""
 
@@ -212,6 +212,60 @@ class TestCreateStartupSession:
         assert session.armory_path == armory_path.resolve()
         assert session.source_file_count == 1
         assert len(prompts) == 2
+
+    def test_multiple_known_armories_skip_onboarding(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        clean_armory_env: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory_a = clean_armory_env / "armory-a"
+        armory_b = clean_armory_env / "armory-b"
+        initialize(armory_a)
+        initialize(armory_b)
+        add_known_armory(armory_a)
+        add_known_armory(armory_b)
+        config = ChatConfig(base_url="https://api.example.com", model="test-model")
+
+        monkeypatch.setattr("hephaistos.shell.lifecycle._stdio_is_interactive", lambda: True)
+        monkeypatch.setattr(
+            "builtins.input",
+            lambda _prompt: pytest.fail("startup should not run onboarding"),
+        )
+
+        session = create_startup_session(config)
+
+        captured = capsys.readouterr()
+        assert session.armory_path is None
+        assert "Multiple armories found" in captured.out
+
+    def test_multiple_armories_in_home_are_registered_and_skip_onboarding(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        clean_armory_env: Path,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory_a = clean_armory_env / "armory-a"
+        armory_b = clean_armory_env / "armory-b"
+        initialize(armory_a)
+        initialize(armory_b)
+        config = ChatConfig(base_url="https://api.example.com", model="test-model")
+
+        monkeypatch.setattr("hephaistos.shell.lifecycle._stdio_is_interactive", lambda: True)
+        monkeypatch.setattr(
+            "builtins.input",
+            lambda _prompt: pytest.fail("startup should not run onboarding"),
+        )
+
+        session = create_startup_session(config)
+
+        known = load_known_armories()
+        assert session.armory_path is None
+        assert armory_a.resolve() in known
+        assert armory_b.resolve() in known
 
     def test_empty_auto_discovered_armory_falls_back_with_setup_steps(
         self,

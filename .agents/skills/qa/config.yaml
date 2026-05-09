@@ -8,8 +8,12 @@ environments:
 default_target: local
 
 auth:
-  method: api-key
-  provider: zai
+  method: oauth-or-api-key
+  provider: openai-codex
+  fallback_providers:
+    - openrouter
+    - custom
+    - pollinations
 
 personas:
   - name: first_time_user
@@ -26,24 +30,24 @@ personas:
       - run /vocab or /study (no armory)
 
   - name: configured_user
-    description: "Has Z.AI API key configured, no armory attached"
+    description: "Has ChatGPT/OpenAI Codex subscription or compatible provider configured, no armory attached"
     email: null
-    credentials_source: env-var
-    secret_name: ZAI_API_KEY
+    credentials_source: oauth-or-env-var
+    secret_name: OPENAI_API_KEY
     test_focus:
-      - send chat messages
-      - /model and /provider switching
-      - /clear and /export
-      - streaming response display
+      - no-armory chat guidance
+      - /login and /models provider/model selection
+      - /new and /export
+      - settings and command surface
     cannot_do:
       - run /vocab or /study (no armory)
       - use source-retrieval features
 
   - name: armory_user
-    description: "Has Z.AI API key + armory with source files attached"
+    description: "Has ChatGPT/OpenAI Codex subscription or compatible provider + armory with materials attached"
     email: null
-    credentials_source: env-var
-    secret_name: ZAI_API_KEY
+    credentials_source: oauth-or-env-var
+    secret_name: OPENAI_API_KEY
     test_focus:
       - armory-attached status display
       - source-informed chat responses
@@ -69,10 +73,16 @@ feature_flags:
 
 integrations:
   llm:
-    provider: zai
-    endpoint: "https://api.z.ai/api/paas/v4/"
-    api_key_env: ZAI_API_KEY
-    default_model: glm-5
+    provider: openai-codex
+    endpoint: "https://api.openai.com/v1"
+    api_key_env: OPENAI_API_KEY
+    default_model: gpt-5.4-mini
+    auth_priority:
+      - hephaistos_openai_codex_oauth
+      - OPENAI_API_KEY
+      - OPENROUTER_API_KEY
+      - custom_openai_compatible
+      - pollinations_keyless_smoke_only
   memory:
     provider: supermemory
     api_key_env: SUPERMEMORY_API_KEY
@@ -86,10 +96,11 @@ cleanup:
   auto_cleanup: true
   strategy: delete-test-armories
   instructions: >
-    Remove any armory directories created during QA testing (under /tmp or
-    the project directory). Delete any config files written to
-    ~/.config/hephaistos/ during the test run (providers.toml, config.json,
-    auth.json) that were not present before. Preserve any pre-existing
-    user config.
+    Remove only the named QA armory directory created during testing under
+    ~/.armories/. Preserve all pre-existing user armories. Preserve
+    ~/.config/hephaistos/providers.toml, ~/.config/hephaistos/config.json, and
+    ~/.config/hephaistos/auth.json unless the test created a temporary file and
+    recorded that it did not exist before. Never run /logout all or clear the
+    user's pre-existing provider credentials during QA.
 
 failure_learning: suggest_in_report
