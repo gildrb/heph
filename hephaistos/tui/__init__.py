@@ -273,7 +273,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         self._armory_creating = False
         self._armory_mode = "manage"
         self._armory_entries: list[_DirEntry] = []
-        self._armory_parent_entries: list[tuple[str, Path]] = []
         self._materials_inline_active = False
         self._materials_filter = ""
         self._materials_entries: list[str] = []
@@ -300,11 +299,9 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                     yield w.static("", id="armory-pane-hint")
                     yield w.static("", id="armory-count-hint")
                     with w.horizontal(id="armory-columns-inline-labels"):  # type: ignore[reportCallIssue]
-                        yield w.static("parents", id="armory-parent-label")
-                        yield w.static("entries", id="armory-current-label")
+                        yield w.static("armories", id="armory-current-label")
                         yield w.static("preview", id="armory-preview-label")
                     with w.horizontal(id="armory-columns-inline"):  # type: ignore[reportCallIssue]
-                        yield w.option_list(id="armory-parent-inline")
                         yield w.option_list(id="armory-current-inline")
                         yield w.static("", id="armory-preview-inline")
                     yield w.static("", id="armory-error-inline")
@@ -468,16 +465,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             event.stop()
             self._armory_open_highlighted()
             self._refresh_armory_inline()
-            return
-        if event.option_list.id == "armory-parent-inline":
-            event.stop()
-            idx = event.option_list.highlighted
-            if idx is not None and 0 <= idx < len(self._armory_parent_entries):
-                _label, path = self._armory_parent_entries[idx]
-                self._armory_current = path
-                self._armory_filter = ""
-                self.query_one("#composer", Input).value = ""
-                self._refresh_armory_inline()
             return
         if event.option_list.id == "materials-list":
             event.stop()
@@ -663,13 +650,10 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         enabled = len(self.session.source_files) - len(self.session.disabled_source_files)
         if self._materials_mode == "toggle":
             header = (
-                "materials · type filter · space toggle · enter toggle · "
-                f"esc close · {enabled} active"
+                f"materials  type filter  space toggle  enter toggle  esc close  {enabled} active"
             )
         else:
-            header = (
-                f"sources · type filter · ↑/↓ browse · enter close · esc close · {enabled} active"
-            )
+            header = f"sources  type filter  ↑/↓ browse  enter close  esc close  {enabled} active"
         self.query_one("#materials-header", Static).update(header)
         material_list = self.query_one("#materials-list", OptionList)
         previous = material_list.highlighted

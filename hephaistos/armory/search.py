@@ -10,6 +10,7 @@ from hephaistos.materials import MATERIALS_DIR, iter_material_files
 from hephaistos.parameters.settings import load_raw_settings, save_setting
 
 _SETTINGS_KEY = "known_armories"
+_RECENT_SETTINGS_KEY = "recent_armories"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,10 +47,10 @@ class SearchResult:
         return self.armory_path.name
 
 
-def load_known_armory_entries() -> list[KnownArmory]:
-    """Load persisted armory paths with current filesystem status."""
+def _load_armory_entries(key: str) -> list[KnownArmory]:
+    """Load persisted armory paths for *key* with current filesystem status."""
     raw = load_raw_settings()
-    entries = raw.get(_SETTINGS_KEY)
+    entries = raw.get(key)
     if not isinstance(entries, list):
         return []
     armories: list[KnownArmory] = []
@@ -63,6 +64,16 @@ def load_known_armory_entries() -> list[KnownArmory]:
         valid = exists and (path / MARKER_FILE).is_file()
         armories.append(KnownArmory(path=path, exists=exists, valid=valid))
     return armories
+
+
+def load_known_armory_entries() -> list[KnownArmory]:
+    """Load persisted armory paths with current filesystem status."""
+    return _load_armory_entries(_SETTINGS_KEY)
+
+
+def load_recent_armory_entries() -> list[KnownArmory]:
+    """Load recently opened armory paths with current filesystem status."""
+    return _load_armory_entries(_RECENT_SETTINGS_KEY)
 
 
 def load_known_armories() -> list[Path]:
@@ -107,7 +118,13 @@ def get_last_armory() -> Path | None:
 
 def set_last_armory(path: Path) -> None:
     """Persist *path* as the most-recently-opened armory."""
-    save_setting("last_armory_path", str(path.expanduser().resolve()))
+    resolved = path.expanduser().resolve()
+    save_setting("last_armory_path", str(resolved))
+    recent_paths = [entry.path for entry in _load_armory_entries(_RECENT_SETTINGS_KEY)]
+    save_setting(
+        _RECENT_SETTINGS_KEY,
+        [str(p) for p in [resolved, *[p for p in recent_paths if p != resolved]]],
+    )
 
 
 @dataclass

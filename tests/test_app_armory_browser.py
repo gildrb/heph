@@ -84,7 +84,7 @@ def test_is_armory_detects_marker(tmp_path: Path) -> None:
     assert not armory_browser._is_armory(plain)
 
 
-def test_build_entries_include_parent_and_create(
+def test_build_entries_include_recent_all_and_create(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     armory_home = tmp_path / ".armories"
@@ -93,11 +93,15 @@ def test_build_entries_include_parent_and_create(
 
     entries = armory_browser.build_entries(armory_home, allow_create=True)
 
-    assert entries[0].is_parent
-    assert entries[0].label == armory_browser._PARENT_LABEL
-    assert entries[1].is_create
-    assert entries[1].label == armory_browser._NEW_ARMORY_LABEL
-    assert len(entries) >= 2
+    assert entries[0].is_section
+    assert entries[0].label == armory_browser._RECENT_HEADING
+    assert any(
+        entry.is_create and entry.label == armory_browser._NEW_ARMORY_LABEL for entry in entries
+    )
+    assert any(
+        entry.is_section and entry.label == armory_browser._ALL_HEADING for entry in entries
+    )
+    assert not any(entry.is_parent for entry in entries)
 
 
 def test_build_entries_without_create_flag(
@@ -167,9 +171,9 @@ def test_build_entries_discovers_armories_in_home(
 
     entries = armory_browser.build_entries(armory_home, allow_create=True)
 
-    recent_paths = {entry.path for entry in entries if entry.is_recent}
-    assert first.resolve() in recent_paths
-    assert second.resolve() in recent_paths
+    all_paths = {entry.path for entry in entries if entry.path is not None}
+    assert first.resolve() in all_paths
+    assert second.resolve() in all_paths
 
 
 def test_build_entries_filters_symlink_escape(
@@ -217,7 +221,7 @@ def test_default_start_path_rejects_outside_start(
     assert screen._current == armory_home
 
 
-def test_build_entries_returns_correct_paths(
+def test_build_entries_returns_sectioned_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     armory_home = tmp_path / ".armories"
@@ -226,13 +230,16 @@ def test_build_entries_returns_correct_paths(
     alpha, beta = _make_dirs(armory_home, "alpha", "beta")
     entries = armory_browser.build_entries(armory_home, allow_create=True)
 
-    # entries: 0=parent, 1=create, 2=alpha, 3=beta
-    assert entries[0].path is None
-    assert entries[0].is_parent
-    assert entries[1].path is None
-    assert entries[1].is_create
-    assert entries[2].path == alpha
-    assert entries[3].path == beta
+    assert not any(entry.is_parent for entry in entries)
+    assert any(
+        entry.is_section and entry.label == armory_browser._RECENT_HEADING for entry in entries
+    )
+    assert any(entry.is_create for entry in entries)
+    assert any(
+        entry.is_section and entry.label == armory_browser._ALL_HEADING for entry in entries
+    )
+    assert alpha in {entry.path for entry in entries}
+    assert beta in {entry.path for entry in entries}
 
 
 def test_browser_screen_compose_and_mount(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -280,32 +287,39 @@ def test_browser_arrow_keys_move_highlight(
             await app.push_screen(screen)
             await pilot.pause()
             ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
-            assert ol.highlighted == 0
+            assert ol.highlighted is not None
+            first_highlight = ol.highlighted
 
             await pilot.press("down")
             await pilot.pause()
-            assert ol.highlighted == 1
+            assert ol.highlighted is not None
+            assert ol.highlighted != first_highlight
 
             await pilot.press("up")
             await pilot.pause()
-            assert ol.highlighted == 0
+            assert ol.highlighted == first_highlight
 
     asyncio.run(run_keys())
 
 
-def test_browser_navigates_into_child_via_action(
+def test_browser_enter_dismisses_with_selected_armory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     child = _make_dirs(armory_home, "child")[0]
+    result_path: Path | None = None
+
+    def on_result(path: Path | None) -> None:
+        nonlocal result_path
+        result_path = path
 
     async def run_nav() -> None:
         screen = armory_browser.ArmoryBrowserScreen(start=armory_home)
         app = _ShellApp()
         async with app.run_test(size=(80, 24)) as pilot:
-            await app.push_screen(screen)
+            await app.push_screen(screen, on_result)
             await pilot.pause()
             ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
             ol.highlighted = next(
@@ -314,12 +328,12 @@ def test_browser_navigates_into_child_via_action(
             await pilot.pause()
             screen.action_activate()
             await pilot.pause()
-            assert screen._current == child
+            assert result_path == child
 
     asyncio.run(run_nav())
 
 
-def test_browser_right_arrow_navigates_into_child(
+def test_browser_right_arrow_does_not_navigate_into_child(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     armory_home = tmp_path / ".armories"
@@ -339,39 +353,25 @@ def test_browser_right_arrow_navigates_into_child(
             )
             await pilot.press("right")
             await pilot.pause()
-            assert screen._current == child
+            assert screen._current == armory_home
 
     asyncio.run(run_nav())
 
 
-def test_browser_navigates_to_parent_via_action(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_browser_has_no_parent_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     child_dir = armory_home / "child"
     child_dir.mkdir()
 
-    async def run_nav() -> None:
-        screen = armory_browser.ArmoryBrowserScreen(start=child_dir)
-        app = _ShellApp()
-        async with app.run_test(size=(80, 24)) as pilot:
-            await app.push_screen(screen)
-            await pilot.pause()
-            ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
-            ol.highlighted = next(
-                index for index, entry in enumerate(screen._entries) if entry.is_parent
-            )
-            await pilot.pause()
-            screen.action_activate()
-            await pilot.pause()
-            assert screen._current == armory_home
+    screen = armory_browser.ArmoryBrowserScreen(start=child_dir)
 
-    asyncio.run(run_nav())
+    assert screen._current == child_dir
+    assert not any(entry.is_parent for entry in armory_browser.build_entries(child_dir, True))
 
 
-def test_browser_cannot_navigate_above_armory_home(
+def test_browser_left_does_not_navigate_above_armory_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     armory_home = tmp_path / ".armories"
@@ -384,18 +384,19 @@ def test_browser_cannot_navigate_above_armory_home(
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
-            screen.action_navigate_parent()
+            await pilot.press("left")
             await pilot.pause()
             assert screen._current == armory_home
 
     asyncio.run(run_nav())
 
 
-def test_browser_choose_dismisses_with_path(
+def test_browser_enter_dismisses_with_current_armory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
+    armory = _make_armory(armory_home, "selected")
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     result_path: Path | None = None
 
@@ -409,11 +410,15 @@ def test_browser_choose_dismisses_with_path(
         async with app.run_test(size=(80, 24)) as pilot:
             await app.push_screen(screen, on_result)
             await pilot.pause()
-            screen.action_choose()
+            ol = screen.query_one("#armory-current-col", armory_browser.OptionList)
+            ol.highlighted = next(
+                index for index, entry in enumerate(screen._entries) if entry.path == armory
+            )
+            screen.action_activate()
             await pilot.pause()
 
     asyncio.run(run_choose())
-    assert result_path == armory_home
+    assert result_path == armory
 
 
 def test_browser_cancel_dismisses_with_none(

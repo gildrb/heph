@@ -129,13 +129,6 @@ RichLog {{
     height: 1;
     width: 100%;
 }}
-#armory-parent-label {{
-    width: 26;
-    padding: 0 1 0 0;
-    border-right: solid transparent;
-    color: {p.dim};
-    background: {bg};
-}}
 #armory-current-label {{
     width: 1fr;
     padding: 0 1;
@@ -153,15 +146,6 @@ RichLog {{
     layout: horizontal;
     height: 1fr;
     width: 100%;
-}}
-#armory-parent-inline {{
-    width: 26;
-    height: 100%;
-    border-right: solid transparent;
-    padding: 0 1 0 0;
-    background: {bg};
-    color: {p.dim};
-    scrollbar-size: 0 0;
 }}
 #armory-current-inline {{
     width: 1fr;
