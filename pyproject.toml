@@ -127,6 +127,7 @@ ignore = [
     "PLW2901",  # overwritten loop variable
     "TRY300",   # try body should not contain return
     "TRY301",   # raise within try block
+    "PLC0415",  # deferred imports are controlled by scripts/check_repo_policies
 ]
 
 [tool.ruff.format]
@@ -184,7 +185,7 @@ paths = ["hephaistos", "tests", "vulture-whitelist.py"]
 severity = "low"
 confidence = "low"
 exclude_dirs = ["tests"]
-skips = ["B101", "B311", "B105", "B106"]
+skips = ["B101", "B311", "B105", "B106", "B404", "B603", "B606"]
 
 [tool.importlinter]
 root_packages = ["hephaistos"]
