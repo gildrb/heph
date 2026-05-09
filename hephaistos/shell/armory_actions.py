@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.armory.search import add_known_armory
+from hephaistos.armory.search import add_known_armory, set_last_armory
 from hephaistos.armory.storage import ArmoryError, initialize, normalize_path
 from hephaistos.chat.session import (
     ChatSession,
@@ -49,6 +49,7 @@ def start_fresh_session(
         capture_analytics("armory_detached", {"model": new_session.config.model})
         return new_session
     add_known_armory(armory_path)
+    set_last_armory(armory_path)
     print_success(f"Using armory {armory_path}")
     if new_session.source_file_count:
         print_info(f"Loaded {new_session.source_file_count} file(s).")

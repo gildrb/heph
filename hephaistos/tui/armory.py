@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hephaistos.armory.search import add_known_armory
+from hephaistos.armory.search import add_known_armory, set_last_armory
 from hephaistos.armory.storage import ArmoryError, initialize
 from hephaistos.armory.storage import validate as _validate_armory
 from hephaistos.tui.armory_browser import (
@@ -123,19 +123,18 @@ class TuiArmoryMixin:
         pane_hint = self.query_one("#armory-pane-hint", Static)
 
         location = _display_path(self._armory_current)
-        filter_hint = f" · filter: {self._armory_filter}" if self._armory_filter else ""
+        filter_hint = f" · {self._armory_filter}" if self._armory_filter else ""
         count_hint = f" · {len(self._armory_entries)} item(s)"
         header.update(f"armory · {location}{filter_hint}{count_hint}")
-        breadcrumbs.update(f"where: {location}")
+        breadcrumbs.update("")
 
         if self._armory_creating:
-            mode_hint.update("mode: create · enter create · esc cancel")
+            mode_hint.update("enter create · esc cancel")
         else:
-            mode_hint.update("mode: browse · enter/right open · c choose · n new · esc close")
+            mode_hint.update("enter open · c choose · n new · esc close")
 
-        focused = self._armory_focus_name()
-        pane_hint.update(f"focus: {focused}")
-        self.query_one("#armory-count-hint", Static).update(f"items{count_hint}{filter_hint}")
+        pane_hint.update("")
+        self.query_one("#armory-count-hint", Static).update("")
 
         parent = self.query_one("#armory-parent-inline", OptionList)
         parent.clear_options()
@@ -306,6 +305,7 @@ class TuiArmoryMixin:
         if self.session is previous:
             self.query_one("#armory-error-inline", Static).update(f"Could not open armory: {path}")
             return
+        set_last_armory(path)
         self._close_armory_inline()
         self._refresh_status("ready")
         self._focused_msg_index = None

@@ -102,7 +102,8 @@ RichLog {{
     text-style: bold;
 }}
 #armory-breadcrumbs {{
-    height: 1;
+    height: auto;
+    max-height: 0;
     color: {p.dim};
     background: {bg};
 }}
@@ -112,12 +113,14 @@ RichLog {{
     background: {bg};
 }}
 #armory-pane-hint {{
-    height: 1;
+    height: auto;
+    max-height: 0;
     color: {p.dim};
     background: {bg};
 }}
 #armory-count-hint {{
-    height: 1;
+    height: auto;
+    max-height: 0;
     color: {p.dim};
     background: {bg};
 }}

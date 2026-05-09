@@ -328,15 +328,15 @@ def _recent_entries() -> list[_DirEntry]:
     for known in load_known_armory_entries():
         if len(entries) >= 5:
             break
+        if not known.valid:
+            continue
         if not _is_within_armory_home(known.path):
             continue
-        badge = _MISSING_BADGE if known.missing else _ARMORY_BADGE
         entries.append(
             _DirEntry(
-                f"{_RECENT_PREFIX}{known.path.name}{badge}",
+                f"{_RECENT_PREFIX}{known.path.name}{_ARMORY_BADGE}",
                 path=known.path,
                 is_recent=True,
-                is_missing=known.missing,
             )
         )
     return entries
