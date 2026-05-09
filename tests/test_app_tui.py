@@ -20,6 +20,7 @@ from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
 from hephaistos.tui.inline_flows import _dedupe_inline_options
+from hephaistos.tui.transparent import Region as _Region
 from hephaistos.tui.transparent import style_without_black_background
 
 if TYPE_CHECKING:
@@ -483,11 +484,93 @@ def test_info_separator_is_not_rendered() -> None:
     typed_app = cast("TextualApp[None]", app)
 
     async def check_separator_absent() -> None:
-        async with typed_app.run_test(size=(120, 24)) as pilot:
+        async with typed_app.run_test(size=(160, 24)) as pilot:
             await pilot.pause()
             assert list(app.query("#info-separator")) == []
 
+            # The seam between #shell and #info-panel must also be free of any
+            # synthetic ``rgb(0,0,0)`` cells. Textual's styles cache pads
+            # widget content with the resolved background style, which
+            # collapses the ``Color(0,0,0,a=0)`` produced by
+            # ``background: transparent`` into opaque black -- exactly the
+            # stripe the user sees at the shell/info-panel boundary.
+            shell = app.query_one("#shell")
+            info_panel = app.query_one("#info-panel")
+            for sibling in (shell, info_panel):
+                crop = _Region(0, 0, sibling.size.width, sibling.size.height)
+                strips = sibling.render_lines(crop)
+                for strip in strips:
+                    for segment in strip:
+                        assert "on #000000" not in str(segment.style)
+
     asyncio.run(check_separator_absent())
+
+
+def test_shell_info_panel_seam_has_no_black_background() -> None:
+    if tui.Input is None or tui.Static is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_seam_transparent() -> None:
+        # 160 cols is comfortably above the sidebar visibility threshold
+        # (currently 120), so #info-panel is composed alongside #shell.
+        async with typed_app.run_test(size=(160, 24)) as pilot:
+            await pilot.pause()
+
+            shell = app.query_one("#shell")
+            info_panel = app.query_one("#info-panel")
+            # Sanity: the sidebar must actually be visible for this test to
+            # exercise the seam between two siblings.
+            assert info_panel.styles.display != "none"
+            assert shell.size.width > 0
+            assert info_panel.size.width > 0
+
+            # Inspect the actual composited frame via the screen's
+            # compositor: the boundary column is at shell.size.width, and the
+            # chop covering the info-panel starts there. Any segment in that
+            # chop with an ``rgb(0,0,0)`` background reproduces the visible
+            # stripe.
+            screen = app.screen
+            compositor = screen._compositor  # type: ignore[reportPrivateUsage]
+            chops = compositor._render_chops(  # type: ignore[reportPrivateUsage]
+                compositor.size.region, lambda y: True
+            )
+            boundary_col = shell.size.width
+            for y, chops_line in enumerate(chops):
+                for cut, strip in chops_line.items():
+                    if strip is None:
+                        continue
+                    if cut < boundary_col - 1 or cut > boundary_col + 1:
+                        continue
+                    for segment in strip:
+                        bgcolor = segment.style.bgcolor if segment.style is not None else None
+                        triplet = bgcolor.triplet if bgcolor is not None else None
+                        if triplet is None:
+                            continue
+                        assert (triplet.red, triplet.green, triplet.blue) != (
+                            0,
+                            0,
+                            0,
+                        ), f"Black seam segment at y={y} cut={cut}: {segment.text!r}"
+
+            # Also assert the per-widget rendered strips that the compositor
+            # consumes are clean -- this is the layer where the bug
+            # originates (StylesCache padding cells with ``inner.rich_style``
+            # for a transparent background resolved to ``#000000``).
+            for sibling in (shell, info_panel):
+                crop = _Region(0, 0, sibling.size.width, sibling.size.height)
+                strips = sibling.render_lines(crop)
+                for strip in strips:
+                    for segment in strip:
+                        assert "on #000000" not in str(segment.style)
+
+    asyncio.run(check_seam_transparent())
 
 
 def test_tui_status_short_rows_are_padded_transparently() -> None:
