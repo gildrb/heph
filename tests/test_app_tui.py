@@ -20,6 +20,7 @@ from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
 from hephaistos.tui.inline_flows import _dedupe_inline_options
+from hephaistos.tui.transparent import style_without_black_background
 
 if TYPE_CHECKING:
     from textual.app import App as TextualApp
@@ -156,7 +157,10 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
-    assert "background: ansi_default;" not in css
+    transcript_start = css.index("#transcript {")
+    transcript_end = css.index("}", transcript_start)
+    transcript_block = css[transcript_start:transcript_end]
+    assert f"background: {tui.current_palette().panel};" in transcript_block
     assert "border-bottom: tall" not in css
     assert "background: #FFFFFF;" not in css
     assert "#suggestions:focus > .option-list--option-highlighted" in css
@@ -201,6 +205,31 @@ def test_runtime_theme_switch_keeps_core_tui_backgrounds_transparent() -> None:
     )
     typed_app = cast("TextualApp[None]", app)
 
+    def assert_core_widgets_are_transparent() -> None:
+        for selector in (
+            "#main-layout",
+            "#shell",
+            "#status",
+            "#footer-hints",
+            "#info-panel",
+        ):
+            widget = app.query_one(selector)
+            for line_number in range(widget.size.height):
+                strip = widget.render_line(line_number)
+                assert all(
+                    segment.style is None or segment.style.bgcolor is None for segment in strip
+                )
+        transcript = app.query_one("#transcript")
+        palette = tui.current_palette()
+        for line_number in range(transcript.size.height):
+            strip = transcript.render_line(line_number)
+            assert all(
+                segment.style is None
+                or segment.style.bgcolor is None
+                or segment.style.bgcolor.name == palette.panel.lower()
+                for segment in strip
+            )
+
     async def check_runtime_switch() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             app._open_settings_flow()  # type: ignore[reportPrivateUsage]
@@ -213,20 +242,7 @@ def test_runtime_theme_switch_keeps_core_tui_backgrounds_transparent() -> None:
             assert app.screen.styles.background is not None
             assert app.screen.styles.background.a == 0.0
 
-            for selector in (
-                "#main-layout",
-                "#shell",
-                "#status",
-                "#footer-hints",
-                "#transcript",
-                "#info-panel",
-            ):
-                widget = app.query_one(selector)
-                for line_number in range(widget.size.height):
-                    strip = widget.render_line(line_number)
-                    assert all(
-                        segment.style is None or segment.style.bgcolor is None for segment in strip
-                    )
+            assert_core_widgets_are_transparent()
 
             app._handle_appearance_choice("high_contrast")  # type: ignore[reportPrivateUsage]
             await pilot.pause()
@@ -235,6 +251,7 @@ def test_runtime_theme_switch_keeps_core_tui_backgrounds_transparent() -> None:
             assert app.styles.background.a == 0.0
             assert app.screen.styles.background is not None
             assert app.screen.styles.background.a == 0.0
+            assert_core_widgets_are_transparent()
 
     asyncio.run(check_runtime_switch())
 
@@ -278,6 +295,43 @@ def test_tui_css_has_info_panel_layout() -> None:
     shell_end = css.index("}", shell_start)
     shell_block = css[shell_start:shell_end]
     assert "min-width: 0;" in shell_block
+
+
+def test_tui_css_transparent_container_defaults_prevent_panel_stripes() -> None:
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
+
+    assert "Horizontal,\nVertical,\nStatic,\nRichLog {" in css
+    container_start = css.index("Horizontal,\nVertical,\nStatic,\nRichLog {")
+    container_end = css.index("}", container_start)
+    container_block = css[container_start:container_end]
+
+    assert "background: transparent;" in container_block
+    assert "background-tint: transparent;" in container_block
+
+
+def test_transparent_style_strips_standard_and_truecolor_black_backgrounds() -> None:
+    if tui._RichStyle is None:  # type: ignore[attr-defined, reportPrivateUsage]
+        pytest.skip("Rich is not installed")
+
+    standard = style_without_black_background(tui._RichStyle.parse("red on black"))  # type: ignore[attr-defined, reportPrivateUsage]
+    truecolor = style_without_black_background(tui._RichStyle.parse("red on #000000"))  # type: ignore[attr-defined, reportPrivateUsage]
+    nonblack = style_without_black_background(tui._RichStyle.parse("red on #111111"))  # type: ignore[attr-defined, reportPrivateUsage]
+
+    assert standard.bgcolor is None
+    assert truecolor.bgcolor is None
+    assert nonblack.bgcolor is not None
+
+
+def test_tui_css_suggestion_scrollbar_tracks_are_transparent() -> None:
+    css = tui._tui_css()  # type: ignore[reportPrivateUsage]
+    suggestions_start = css.index("#suggestions {")
+    suggestions_end = css.index("}", suggestions_start)
+    suggestions_block = css[suggestions_start:suggestions_end]
+
+    assert "scrollbar-background: transparent;" in suggestions_block
+    assert "scrollbar-background-hover: transparent;" in suggestions_block
+    assert "scrollbar-background-active: transparent;" in suggestions_block
+    assert "scrollbar-background: #1C1C1C;" not in suggestions_block
 
 
 def test_tui_css_materials_highlight_uses_state_colours() -> None:
@@ -517,6 +571,9 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
 
     assert "time 2m 05s" in panel.plain
     assert "materials" in panel.plain
+    assert "/exam active recall" in panel.plain
+    assert "/priority plan focus" in panel.plain
+    assert "/remind due review" in panel.plain
     assert "@very-important-full-pdf-name-for-exam-review.pdf" in panel.plain
     assert "@calculus.md" in panel.plain
     assert "☑" not in panel.plain
@@ -1036,7 +1093,7 @@ def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> 
     asyncio.run(check_home_notice())
 
 
-def test_plain_tui_auto_opens_armory_menu_when_armories_are_known(
+def test_plain_tui_shows_start_home_without_auto_opening_armory_menu(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1059,11 +1116,38 @@ def test_plain_tui_auto_opens_armory_menu_when_armories_are_known(
     async def check_armory_menu() -> None:
         async with typed_app.run_test(size=(120, 24)):
             assert app.state.armory_home_shown is True
-            assert app._armory_inline_active is True  # type: ignore[reportPrivateUsage]
+            assert app._armory_inline_active is False  # type: ignore[reportPrivateUsage]
             assert any("No armory attached" in entry.content for entry in app.state.transcript)
-            assert any(entry.path == armory.resolve() for entry in app._armory_entries)  # type: ignore[reportPrivateUsage]
+            assert any(
+                "Existing armories found" in entry.content for entry in app.state.transcript
+            )
+            assert any(str(armory.resolve()) in entry.content for entry in app.state.transcript)
 
     asyncio.run(check_armory_menu())
+
+
+def test_plain_tui_no_armory_question_uses_local_guardrail() -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_guardrail() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "What is 2+2?"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.busy is False
+            assert any("No armory is attached" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_guardrail())
 
 
 def test_handle_armory_browser_invalid_subcommand_shows_usage() -> None:
@@ -1439,6 +1523,101 @@ def test_transcript_reflows_when_resize_crosses_sidebar_threshold() -> None:
             assert widest_after < widest_before
 
     asyncio.run(check_reflow())
+
+
+def test_transcript_scrolls_to_latest_entry_after_long_output() -> None:
+    if tui.Input is None or tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_scroll() -> None:
+        async with typed_app.run_test(size=(80, 16)) as pilot:
+            await pilot.pause()
+            app._append_plain("\n".join(f"old line {i}" for i in range(60)))  # type: ignore[reportPrivateUsage]
+            app._append_plain("latest exam question line")  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+
+            log = app.query_one("#transcript", tui.RichLog)
+            assert log.scroll_y > 0
+            assert "latest exam question line" in str(log.lines[-1])
+
+    asyncio.run(check_scroll())
+
+
+def test_transcript_scrolls_to_final_line_of_multiline_command_output() -> None:
+    if tui.Input is None or tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_scroll() -> None:
+        async with typed_app.run_test(size=(80, 16)) as pilot:
+            await pilot.pause()
+            app._append_plain("\n".join(f"old line {i}" for i in range(60)))  # type: ignore[reportPrivateUsage]
+            app._append_entry(  # type: ignore[reportPrivateUsage]
+                "\n".join(
+                    [
+                        "Exam question",
+                        "Time limit: 8 minutes",
+                        (
+                            "Explain what a neural network is and why hidden layers matter. "
+                            "[10 marks]"
+                        ),
+                        "Answer from memory. Do not open the material unless your exam allows it.",
+                    ]
+                ),
+                "notice",
+            )
+            await pilot.pause()
+
+            log = app.query_one("#transcript", tui.RichLog)
+            visible = "\n".join(str(line) for line in log.lines[-6:])
+            assert "Explain what a neural network is" in visible
+            assert "Answer from memory" in visible
+
+    asyncio.run(check_scroll())
+
+
+def test_multiline_notice_does_not_emit_broken_markup() -> None:
+    if tui.Input is None or tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_notice() -> None:
+        async with typed_app.run_test(size=(80, 16)) as pilot:
+            await pilot.pause()
+            app._append_notice(  # type: ignore[reportPrivateUsage]
+                "Can't reach openai-codex. You're offline.\n"
+                "Hephaistos will reconnect automatically when connectivity returns."
+            )
+            await pilot.pause()
+
+            log = app.query_one("#transcript", tui.RichLog)
+            rendered = "\n".join(str(line) for line in log.lines)
+            assert "Can't reach openai-codex" in rendered
+            assert "reconnect automatically" in rendered
+
+    asyncio.run(check_notice())
 
 
 def test_help_executes_inline_without_restarting_tui(

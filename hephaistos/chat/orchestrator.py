@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ from hephaistos.chat.usage import save_usage
 from hephaistos.diagnostics.crashes import get_meter, get_tracer
 from hephaistos.logging import Timer, get_logger
 from hephaistos.memory.workflow import schedule_memory_extraction
+from hephaistos.rag import TurnEvidence
 from hephaistos.runtime import (
     EngineError,
     Message,
@@ -33,7 +35,8 @@ from hephaistos.runtime import (
     build_client,
     stream_completion,
 )
-from hephaistos.study import StudyAction, StudyState, apply_turn_result, plan_turn
+from hephaistos.study import StudyAction, StudyState, StudyTurnPlan, apply_turn_result, plan_turn
+from hephaistos.study.schedule import load_study_schedule, save_study_schedule
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -49,7 +52,8 @@ _rag_duration_hist = _meter.create_histogram(
 
 _EVIDENCE_REQUIRED_ACTIONS = frozenset(
     {
-        StudyAction.CALIBRATE,
+        StudyAction.PRIORITY,
+        StudyAction.SOURCE_QA,
         StudyAction.PRESENT,
         StudyAction.HINT,
         StudyAction.SIMPLIFY,
@@ -57,6 +61,14 @@ _EVIDENCE_REQUIRED_ACTIONS = frozenset(
         StudyAction.ASSESS,
     }
 )
+_EVIDENCE_CITATION_TEXT_RE = re.compile(
+    r"\s*(?:\[|【)(?:e|E)\d+(?:\s*[,;]\s*(?:e|E)\d+)*(?:\]|】)"
+)
+_EXACT_PHRASE_AFTER_LABEL_RE = re.compile(
+    r"\b(?:exact\s+)?phrase\s+(?:is\s*:?\s*)?(?P<phrase>[^\n.;:]+?)(?:\s+when\b|[.]\s*|$)",
+    re.IGNORECASE,
+)
+_QUOTED_PHRASE_RE = re.compile(r"[\"“”'](?P<phrase>[^\"“”']{2,80})[\"“”']")
 
 
 def _material_label(source: str) -> str:
@@ -136,6 +148,49 @@ def _missing_indexed_material_reply(session: ChatSession, action: StudyAction) -
     )
 
 
+def _visible_turn_evidence(resolved: ResolvedTurnPlan) -> TurnEvidence | None:
+    plan = resolved.study_plan
+    if plan is not None and plan.action is StudyAction.CALIBRATE:
+        return None
+    return resolved.turn_evidence
+
+
+def _student_visible_reply(plan: StudyTurnPlan, reply: str) -> str:
+    if plan.action is StudyAction.CALIBRATE:
+        return _EVIDENCE_CITATION_TEXT_RE.sub("", reply).strip()
+    return reply
+
+
+def _source_qa_fallback_reply(plan: StudyTurnPlan, evidence: TurnEvidence | None) -> str:
+    """Return a local source-grounded fallback when source QA streaming is empty."""
+    if plan.action is not StudyAction.SOURCE_QA:
+        return ""
+    if evidence is None or not evidence.items:
+        return (
+            "The enabled armory sources do not contain an answer to that question. "
+            "Enable the relevant material with /materials or add a more specific source."
+        )
+
+    query = plan.retrieval_query or ""
+    wants_exact_phrase = bool(
+        re.search(r"\bexact phrase\b|\bexact wording\b", query, re.IGNORECASE)
+    )
+    if wants_exact_phrase:
+        for item in evidence.items:
+            for pattern in (_QUOTED_PHRASE_RE, _EXACT_PHRASE_AFTER_LABEL_RE):
+                match = pattern.search(item.content)
+                if match is not None:
+                    phrase = " ".join(match.group("phrase").strip().split())
+                    if phrase:
+                        return f'"{phrase}" [{item.evidence_id}]'
+
+    first = evidence.items[0]
+    return (
+        "I found relevant source text, but could not generate a direct answer. "
+        f"Expand /evidence {first.evidence_id} to read it."
+    )
+
+
 @dataclass(slots=True)
 class TurnOrchestrator:
     """Own one user turn end-to-end."""
@@ -183,6 +238,23 @@ class TurnOrchestrator:
                         yield event
                 else:
                     session.last_turn_evidence = None
+                    plain_plan = plan_turn(original_study_state, user_input)
+                    if plain_plan.direct_reply is not None:
+                        session.study_state, final_reply = apply_turn_result(
+                            original_study_state,
+                            plain_plan,
+                            plain_plan.direct_reply,
+                            [],
+                        )
+                        self.last_reply = final_reply
+                        if final_reply and (
+                            not session.conversation.messages
+                            or session.conversation.messages[-1].role != "assistant"
+                        ):
+                            session.conversation.add("assistant", final_reply)
+                        if final_reply:
+                            yield AssistantDeltaEvent(final_reply)
+                        return
                     for event in self._iter_plain_events(abort=abort):
                         yield event
 
@@ -283,6 +355,23 @@ class TurnOrchestrator:
                 yield AssistantDeltaEvent(final_reply)
             return
 
+        if plan.direct_reply is not None:
+            session.study_state, final_reply = apply_turn_result(
+                original_study_state,
+                plan,
+                plan.direct_reply,
+                [],
+            )
+            self.last_reply = final_reply
+            if final_reply and (
+                not session.conversation.messages
+                or session.conversation.messages[-1].role != "assistant"
+            ):
+                session.conversation.add("assistant", final_reply)
+            if final_reply:
+                yield AssistantDeltaEvent(final_reply)
+            return
+
         raw_parts: list[str] = []
         last_reply_parts: list[str] = []
         for event in iter_agent_events(
@@ -302,14 +391,23 @@ class TurnOrchestrator:
                 raw_parts.append(event.delta)
                 if not plan.buffer_response:
                     last_reply_parts.append(event.delta)
-            yield event
+                    yield event
+            else:
+                yield event
 
         raw_reply = "".join(raw_parts)
+        visible_reply = _student_visible_reply(plan, raw_reply)
         if last_reply_parts:
             self.last_reply = "".join(last_reply_parts)
 
-        if plan.buffer_response and not raw_reply:
-            fallback_reply = "I could not generate a grounded assessment. Please try again."
+        if not raw_reply:
+            fallback_reply = _source_qa_fallback_reply(plan, resolved.turn_evidence)
+            if not fallback_reply:
+                fallback_reply = (
+                    "I could not generate a grounded assessment. Please try again."
+                    if plan.buffer_response
+                    else "I could not generate a study prompt. Please try again."
+                )
             session.study_state, final_reply = apply_turn_result(
                 original_study_state,
                 plan,
@@ -330,7 +428,12 @@ class TurnOrchestrator:
             session.study_state, final_reply = apply_turn_result(
                 original_study_state,
                 plan,
-                raw_reply,
+                visible_reply,
+                _evidence_refs(resolved.turn_evidence),
+            )
+            self._record_study_review_if_needed(
+                original_study_state,
+                plan,
                 _evidence_refs(resolved.turn_evidence),
             )
         else:
@@ -349,13 +452,35 @@ class TurnOrchestrator:
         if plan.buffer_response and final_reply:
             yield AssistantDeltaEvent(final_reply)
 
+    def _record_study_review_if_needed(
+        self,
+        original_study_state: StudyState,
+        plan: StudyTurnPlan,
+        source_refs: list[str],
+    ) -> None:
+        session = self.session
+        if session.armory_path is None or plan.action is not StudyAction.ASSESS:
+            return
+        if session.study_state.last_recall_rating.value == "none":
+            return
+        store = load_study_schedule(session.armory_path)
+        store.record_review(
+            original_study_state.current_item,
+            retrieval_query=original_study_state.retrieval_query,
+            source_refs=source_refs or original_study_state.expected_source_refs,
+            rating=session.study_state.last_recall_rating,
+            elapsed_seconds=session.study_state.last_recall_seconds,
+        )
+        save_study_schedule(store)
+
     def _resolve_timed_turn_plan(self, user_input: str) -> ResolvedTurnPlan:
         session = self.session
         rag_span = _tracer.start_span("rag.retrieval")
         rag_timer = Timer()
         with rag_timer:
             resolved = self._resolve_turn_plan(user_input)
-        session.last_turn_evidence = resolved.turn_evidence
+        visible_evidence = _visible_turn_evidence(resolved)
+        session.last_turn_evidence = visible_evidence
         if resolved.turn_evidence is not None:
             rag_span.set_attribute("rag.retrieved", len(resolved.turn_evidence.items))
         rag_span.end()
@@ -385,7 +510,11 @@ class TurnOrchestrator:
         latency_ms: float,
     ) -> str:
         session = self.session
-        notice = verify_response(self.last_reply, resolved.turn_evidence)
+        visible_evidence = _visible_turn_evidence(resolved)
+        if resolved.study_plan is not None and resolved.study_plan.action is StudyAction.CALIBRATE:
+            notice = ""
+        else:
+            notice = verify_response(self.last_reply, visible_evidence)
 
         if not session.title:
             session.title = derive_title(session.conversation)
@@ -400,9 +529,7 @@ class TurnOrchestrator:
                     "latency_ms": latency_ms,
                     "study_phase": session.study_state.phase.value,
                     "study_feedback": session.study_state.last_feedback_type.value,
-                    "evidence_blocks": (
-                        len(resolved.turn_evidence.items) if resolved.turn_evidence else 0
-                    ),
+                    "evidence_blocks": len(visible_evidence.items) if visible_evidence else 0,
                 }
             },
         )
@@ -412,8 +539,8 @@ class TurnOrchestrator:
             reply_len=len(self.last_reply),
             study_phase=session.study_state.phase.value,
             study_feedback=session.study_state.last_feedback_type.value,
-            evidence_blocks=len(resolved.turn_evidence.items) if resolved.turn_evidence else 0,
-            evidence_refs=_evidence_refs(resolved.turn_evidence),
+            evidence_blocks=len(visible_evidence.items) if visible_evidence else 0,
+            evidence_refs=_evidence_refs(visible_evidence),
         )
 
         schedule_memory_extraction(
@@ -421,7 +548,7 @@ class TurnOrchestrator:
             memory=session.memory,
             user_input=user_input,
             reply=self.last_reply,
-            evidence=", ".join(_evidence_refs(resolved.turn_evidence)),
+            evidence=", ".join(_evidence_refs(visible_evidence)),
         )
 
         if session.armory_path is not None:

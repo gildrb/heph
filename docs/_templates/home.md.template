@@ -117,7 +117,9 @@ Credential flows live in `/login` and `/logout`; model selection lives in `/mode
   that memory in future sessions for the same armory.
 - **The study loop is recall-first.** Hephaistos can present a material-backed
   solution, ask you to recall it, assess your attempt against the retrieved
-  material, and give small hints instead of dumping the answer again.
+  material, and give small hints instead of dumping the answer again. Material-
+  backed reviews are scheduled with an FSRS-style stability/difficulty model
+  that adjusts from your recall timing and effort.
 - **The model is swappable.** Your armory is not tied to one LLM. Switch
   providers or models while keeping the same materials, chats, notes, and
   memory.

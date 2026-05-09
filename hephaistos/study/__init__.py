@@ -9,6 +9,7 @@ from hephaistos.study.state import (
     StudyAction,
     StudyFeedbackType,
     StudyPhase,
+    StudyRecallRating,
     StudyState,
 )
 
@@ -16,6 +17,7 @@ __all__ = [
     "StudyAction",
     "StudyFeedbackType",
     "StudyPhase",
+    "StudyRecallRating",
     "StudyState",
     "StudyTurnPlan",
     "apply_turn_result",

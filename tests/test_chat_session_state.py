@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ import pytest
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import SessionError, create_session, resume_session, save_session
-from hephaistos.study import StudyFeedbackType, StudyPhase
+from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
 
 
 def _make_armory(tmp_path: Path) -> Path:
@@ -32,6 +33,9 @@ def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     session.study_state.expected_source_refs = ["materials/exam.md#chunk=0"]
     session.study_state.attempt_count = 3
     session.study_state.last_feedback_type = StudyFeedbackType.PARTIAL
+    session.study_state.recall_started_at = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    session.study_state.last_recall_seconds = 75
+    session.study_state.last_recall_rating = StudyRecallRating.HARD
 
     save_session(session)
 
@@ -42,6 +46,9 @@ def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     assert resumed.study_state.expected_source_refs == ["materials/exam.md#chunk=0"]
     assert resumed.study_state.attempt_count == 3
     assert resumed.study_state.last_feedback_type is StudyFeedbackType.PARTIAL
+    assert resumed.study_state.recall_started_at == datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    assert resumed.study_state.last_recall_seconds == 75
+    assert resumed.study_state.last_recall_rating is StudyRecallRating.HARD
 
 
 def test_resume_preserves_only_existing_disabled_sources(tmp_path: Path) -> None:

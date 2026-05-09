@@ -168,12 +168,17 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
         f"time {_session_duration(session_seconds)}",
         "",
         *_material_panel_lines(session),
+        "",
+        "next",
+        "  /exam active recall",
+        "  /priority plan focus",
+        "  /remind due review",
     ]
     plain = "\n".join(lines)
     text = require_rich_text()(plain, style="#808080")
     title_end = len(lines[0])
     text.stylize("bold #9B4A2E", 0, title_end)
-    for label in ("time", "materials"):
+    for label in ("time", "materials", "next"):
         start = 0
         while True:
             idx = plain.find(label, start)

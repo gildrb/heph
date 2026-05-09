@@ -32,6 +32,7 @@ from hephaistos.rag import ArmoryIndex, ScoredChunk, TurnEvidence
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import EvidenceChunk
 from hephaistos.study import StudyAction, StudyPhase, StudyTurnPlan
+from hephaistos.study.schedule import load_study_schedule
 from hephaistos.study.state import StudyState
 
 # ---------------------------------------------------------------------------
@@ -205,6 +206,18 @@ class TestParseSourceRef:
 
 class TestTurnOrchestratorPlain:
     @patch("hephaistos.chat.orchestrator.stream_completion")
+    def test_plain_greeting_is_direct_without_model(self, mock_stream: MagicMock) -> None:
+        session = _make_plain_session()
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("hey"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == ["Hey."]
+        assert session.last_turn_evidence is None
+        mock_stream.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
     def test_plain_yields_deltas(self, mock_stream: MagicMock) -> None:
         mock_stream.return_value = iter(
             [
@@ -214,7 +227,7 @@ class TestTurnOrchestratorPlain:
         )
         session = _make_plain_session()
         orch = TurnOrchestrator(session)
-        events = list(orch.iter_events("hi"))
+        events = list(orch.iter_events("tell me what to do next"))
         deltas = [event for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 2
         assert deltas[0].delta == "Hello"
@@ -230,7 +243,7 @@ class TestTurnOrchestratorPlain:
         )
         session = _make_plain_session()
         orch = TurnOrchestrator(session)
-        list(orch.iter_events("hi"))
+        list(orch.iter_events("tell me what to do next"))
         assert orch.last_reply == "Hello world"
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
@@ -255,7 +268,7 @@ class TestTurnOrchestratorPlain:
         )
         session = _make_plain_session()
         orch = TurnOrchestrator(session)
-        events = list(orch.iter_events("hi"))
+        events = list(orch.iter_events("tell me what to do next"))
         # Only "real" should produce an event; empty string and None are skipped
         deltas = [event for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
@@ -398,6 +411,191 @@ class TestTurnOrchestratorStudy:
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert deltas == ["I could not generate a grounded assessment. Please try again."]
         assert orch.last_reply == "I could not generate a grounded assessment. Please try again."
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_study_prompt_yields_fallback_when_model_is_empty(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(action=StudyAction.CALIBRATE, buffer_response=False)
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("Can you ask me a really easy question"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == ["I could not generate a study prompt. Please try again."]
+        assert orch.last_reply == "I could not generate a study prompt. Please try again."
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_source_qa_uses_evidence_fallback_when_model_is_empty(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.SOURCE_QA,
+            retrieval_query=(
+                "Using the source files, what is the QA sentinel phrase? "
+                "Answer with the exact phrase."
+            ),
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            EvidenceChunk(
+                evidence_id="E1",
+                chunk=_make_chunk("materials/rag-target.md", 0),
+                score=0.9,
+                content=(
+                    "The QA sentinel fact is: Hephaistos retrieval should mention "
+                    "the phrase amber forge when asked about the sentinel."
+                ),
+            )
+        )
+        mock_iter_agent.return_value = iter([])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("Using the source files, what is the QA sentinel phrase?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == ['"amber forge" [E1]']
+        assert orch.last_reply == '"amber forge" [E1]'
+        assert session.study_state.current_item == ""
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_source_qa_without_evidence_uses_source_specific_fallback(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.SOURCE_QA,
+            retrieval_query="Using the source files, what is the sentinel phrase?",
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("Using the source files, what is the sentinel phrase?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert "enabled armory sources do not contain an answer" in deltas[0]
+        assert "/materials" in deltas[0]
+        assert "study prompt" not in deltas[0]
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    def test_simple_greeting_is_direct_and_ungrounded(self, mock_iter_agent: MagicMock) -> None:
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("hey"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == ["Hey."]
+        assert session.last_turn_evidence is None
+        assert session.study_state.current_item == ""
+        mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.verify_response")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_easy_question_does_not_attach_visible_evidence(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_verify: MagicMock,
+    ) -> None:
+        hidden_evidence = _make_turn_evidence(_make_evidence_chunk())
+        mock_resolve_evidence.return_value = hidden_evidence
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("What is 2 + 2? [E1]")])
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("Can you ask me a really easy question"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == ["What is 2 + 2?"]
+        notices = [event for event in events if isinstance(event, NoticeEvent)]
+        assert notices == []
+        assert session.last_turn_evidence is None
+        mock_resolve_evidence.assert_called_once()
+        assert mock_iter_agent.call_args.kwargs["turn_evidence"] is hidden_evidence
+        extra_prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        assert "genuinely easy" in extra_prompt
+        mock_verify.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_easy_question_does_not_require_loaded_index(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("What is 2 + 2?")])
+        session = _make_study_session()
+        session.rag_index = None
+        session.source_files = ("materials/notes.md",)
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("Can you ask me a really easy question"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == ["What is 2 + 2?"]
+        assert "materials index could not be loaded" not in orch.last_reply
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_assessment_records_study_schedule(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = StudyTurnPlan(
+            action=StudyAction.ASSESS,
+            phase=StudyPhase.ASSESS,
+            prompt="assess",
+            retrieval_query="Q1",
+            buffer_response=True,
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(_make_evidence_chunk())
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("CORRECT: Correct.")])
+
+        session = _make_study_session()
+        assert session.armory_path is not None
+        session.armory_path.mkdir(parents=True, exist_ok=True)
+        session.study_state = StudyState(
+            phase=StudyPhase.RECALL,
+            current_item="Q1",
+            retrieval_query="Q1",
+        )
+        orch = TurnOrchestrator(session)
+
+        list(orch.iter_events("answer"))
+
+        store = load_study_schedule(session.armory_path)
+        assert len(store.item_list) == 1
+        assert store.item_list[0].item == "Q1"
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -745,7 +943,7 @@ class TestHelperFunctions:
 
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_overview")
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
-    def testresolve_turn_evidence_uses_overview_for_calibration(
+    def test_resolve_turn_evidence_uses_hidden_overview_for_calibration(
         self,
         mock_query: MagicMock,
         mock_overview: MagicMock,

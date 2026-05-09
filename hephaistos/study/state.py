@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 
 from hephaistos._types import is_object_list, is_string_mapping
@@ -20,7 +21,10 @@ class StudyPhase(StrEnum):
 class StudyAction(StrEnum):
     """Controller actions for a single user turn."""
 
+    CHAT = "chat"
     CALIBRATE = "calibrate"
+    PRIORITY = "priority"
+    SOURCE_QA = "source_qa"
     PRESENT = "present"
     WAIT_READY_REMINDER = "wait_ready_reminder"
     PROMPT_RECALL = "prompt_recall"
@@ -49,6 +53,15 @@ class StudyFeedbackType(StrEnum):
     WRONG = "wrong"
 
 
+class StudyRecallRating(StrEnum):
+    """Recall effort derived from correctness and response latency."""
+
+    NONE = "none"
+    HARD = "hard"
+    GOOD = "good"
+    EASY = "easy"
+
+
 @dataclass(slots=True)
 class StudyState:
     """Persistent study-loop state stored with the chat session."""
@@ -59,6 +72,9 @@ class StudyState:
     attempt_count: int = 0
     last_feedback_type: StudyFeedbackType = StudyFeedbackType.NONE
     retrieval_query: str = ""
+    recall_started_at: datetime | None = None
+    last_recall_seconds: int | None = None
+    last_recall_rating: StudyRecallRating = StudyRecallRating.NONE
 
     def clone(self) -> StudyState:
         """Return a deep-enough copy for rollback and persistence."""
@@ -73,6 +89,11 @@ class StudyState:
             "attempt_count": self.attempt_count,
             "last_feedback_type": self.last_feedback_type.value,
             "retrieval_query": self.retrieval_query,
+            "recall_started_at": (
+                self.recall_started_at.isoformat() if self.recall_started_at is not None else ""
+            ),
+            "last_recall_seconds": self.last_recall_seconds,
+            "last_recall_rating": self.last_recall_rating.value,
         }
 
     @classmethod
@@ -111,6 +132,23 @@ class StudyState:
         raw_query = data.get("retrieval_query", "")
         retrieval_query = raw_query if isinstance(raw_query, str) else ""
 
+        recall_started_at = _parse_datetime(data.get("recall_started_at"))
+
+        raw_last_recall_seconds = data.get("last_recall_seconds")
+        last_recall_seconds = (
+            raw_last_recall_seconds
+            if isinstance(raw_last_recall_seconds, int) and raw_last_recall_seconds >= 0
+            else None
+        )
+
+        recall_rating = StudyRecallRating.NONE
+        raw_recall_rating = data.get("last_recall_rating")
+        if isinstance(raw_recall_rating, str):
+            try:
+                recall_rating = StudyRecallRating(raw_recall_rating)
+            except ValueError:
+                recall_rating = StudyRecallRating.NONE
+
         return cls(
             phase=phase,
             current_item=current_item,
@@ -118,4 +156,16 @@ class StudyState:
             attempt_count=attempt_count,
             last_feedback_type=feedback,
             retrieval_query=retrieval_query,
+            recall_started_at=recall_started_at,
+            last_recall_seconds=last_recall_seconds,
+            last_recall_rating=recall_rating,
         )
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None

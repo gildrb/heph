@@ -156,6 +156,11 @@ def test_top_level_help_is_compact_and_points_to_interactive_help() -> None:
     assert "--profile" not in help_text
     assert "tracemalloc" not in help_text
     assert "Inside Hephaistos, type /help" in help_text
+    assert "/models" in help_text
+    assert "/exam" in help_text
+    assert "/priority" in help_text
+    assert "/model," not in help_text
+    assert "/study" not in help_text
     assert "positional arguments:" not in help_text
 
 

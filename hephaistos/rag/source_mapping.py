@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from hephaistos.materials import infer_material_role
 from hephaistos.rag.chunker import Chunk
 
 
@@ -64,6 +65,20 @@ def line_label(span: SourceLineSpan | None) -> str:
     if span.start_line == span.end_line:
         return f"line {span.start_line}"
     return f"lines {span.start_line}-{span.end_line}"
+
+
+def evidence_location_label(source: str, chunk: Chunk, span: SourceLineSpan | None) -> str:
+    """Return a reader-facing source location label without exposing chunk jargon."""
+    if span is not None:
+        return line_label(span)
+
+    role, _confidence, _reason = infer_material_role(source)
+    ordinal = chunk.index + 1
+    if role == "slides":
+        return f"slide/deck excerpt {ordinal}"
+    if role == "past_exam":
+        return f"exam excerpt {ordinal}"
+    return f"source excerpt {ordinal}"
 
 
 def source_excerpt(

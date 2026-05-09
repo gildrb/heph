@@ -134,7 +134,9 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
   that memory in future sessions for the same armory.
 - **The study loop is recall-first.** Hephaistos can present a material-backed
   solution, ask you to recall it, assess your attempt against the retrieved
-  material, and give small hints instead of dumping the answer again.
+  material, and give small hints instead of dumping the answer again. Material-
+  backed reviews are scheduled with an FSRS-style stability/difficulty model
+  that adjusts from your recall timing and effort.
 - **The model is swappable.** Your armory is not tied to one LLM. Switch
   providers or models while keeping the same materials, chats, notes, and
   memory.
@@ -239,6 +241,8 @@ Useful shell commands:
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
 | /stats | Show session, armory, and study progress stats |
+| /priority | Find priority topics and prerequisites |
+| /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |
 | /remind | Show upcoming study reminders and due cards |

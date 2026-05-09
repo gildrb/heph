@@ -20,10 +20,11 @@ from hephaistos.rag.source_mapping import (
     SourceLineSpan,
     SourceMappingError,
     chunk_line_span,
-    line_label,
+    evidence_location_label,
     resolve_source_path,
     source_excerpt,
 )
+from hephaistos.study.schedule import load_study_schedule
 from hephaistos.study.state import StudyFeedbackType
 from hephaistos.terminal.display import print_error, print_info, print_success
 from hephaistos.terminal.source_open import open_source_file
@@ -67,32 +68,49 @@ def _preview(content: str, max_chars: int = 160) -> str:
 
 def _format_evidence_summary(session: ChatSession, item: EvidenceChunk) -> list[str]:
     path, span = _item_path_and_span(session, item)
-    location = line_label(span)
-    source = item.source if path is None else str(path)
+    location = evidence_location_label(item.source, item.chunk, span)
     details = [
-        f"  {item.evidence_id}  {source}#chunk={item.chunk_index}",
-        f"      {location}; chars {item.chunk.char_start}-{item.chunk.char_end}; "
-        f"score={item.score:.3f}",
+        f"  {item.evidence_id}  {location}; score={item.score:.3f}",
     ]
     if item.chunk.heading:
         details.append(f"      heading: {item.chunk.heading}")
     preview = _preview(item.content)
     if preview:
         details.append(f"      {preview}")
+    details.append(f"      expand: /evidence {item.evidence_id}")
+    if path is not None:
+        details.append(f"      open:   /evidence {item.evidence_id} open")
     return details
+
+
+def _format_evidence_overview(session: ChatSession, items: tuple[EvidenceChunk, ...]) -> str:
+    by_source: dict[str, list[EvidenceChunk]] = {}
+    for item in items:
+        by_source.setdefault(item.source, []).append(item)
+
+    lines = ["Last turn sources:"]
+    for source, source_items in by_source.items():
+        lines.append(f"{source}")
+        for item in source_items:
+            lines.extend(_format_evidence_summary(session, item))
+    lines.append("")
+    lines.append("Expand exact source text: /evidence E1")
+    lines.append("Open source at line:      /evidence E1 open")
+    return "\n".join(lines)
 
 
 def _format_evidence_detail(session: ChatSession, item: EvidenceChunk) -> str:
     path, span = _item_path_and_span(session, item)
     source = item.source if path is None else str(path)
+    location = evidence_location_label(item.source, item.chunk, span)
     lines = [
-        f"{item.evidence_id}  {source}#chunk={item.chunk_index}",
-        f"{line_label(span)}; chars {item.chunk.char_start}-{item.chunk.char_end}; "
-        f"score={item.score:.3f}",
+        f"{item.evidence_id}  {source}",
+        f"{location}; score={item.score:.3f}",
     ]
     if item.chunk.heading:
         lines.append(f"heading: {item.chunk.heading}")
     lines.append("")
+    lines.append("Source text:")
     if path is not None:
         excerpt = source_excerpt(path, item.chunk)
         if excerpt:
@@ -156,13 +174,7 @@ class EvidenceCommand(Command):
             print_error("Usage: /evidence <EID> open")
             return CommandResult()
 
-        lines = ["Last turn evidence:"]
-        for item in evidence.items:
-            lines.extend(_format_evidence_summary(s, item))
-        lines.append("")
-        lines.append("Show context: /evidence E1")
-        lines.append("Open source:  /evidence E1 open")
-        print("\n".join(lines))
+        print(_format_evidence_overview(s, evidence.items))
         return CommandResult()
 
 
@@ -311,7 +323,21 @@ class StatsCommand(Command):
             lines.append(f"  Item:      {study.current_item[:60]}")
         if study.attempt_count > 0:
             lines.append(f"  Attempts:  {study.attempt_count}")
+        if study.last_recall_seconds is not None:
+            lines.append(f"  Recall:    {format_duration(study.last_recall_seconds)}")
+        if study.last_recall_rating.value != "none":
+            lines.append(f"  Effort:    {study.last_recall_rating.value}")
         lines.append(f"  Feedback:  {study.last_feedback_type.value}")
+        if session.armory_path is not None:
+            store = load_study_schedule(session.armory_path)
+            if store.item_list:
+                now = datetime.now(UTC)
+                due = sum(
+                    1
+                    for item in store.item_list
+                    if item.next_review is not None and item.next_review <= now
+                )
+                lines.append(f"  Scheduled: {len(store.item_list)} item(s), {due} due")
         return lines
 
 

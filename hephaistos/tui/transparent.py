@@ -27,7 +27,13 @@ def style_without_black_background(style: _RichStyle | None) -> _RichStyle:
         return _RichStyle()
     bgcolor = style.bgcolor
     triplet = bgcolor.triplet if bgcolor is not None else None
-    if triplet is None or (triplet.red, triplet.green, triplet.blue) != (0, 0, 0):
+    is_standard_black = bgcolor is not None and bgcolor.name == "black" and bgcolor.number == 0
+    is_truecolor_black = triplet is not None and (triplet.red, triplet.green, triplet.blue) == (
+        0,
+        0,
+        0,
+    )
+    if not is_standard_black and not is_truecolor_black:
         return style
     return _RichStyle(
         color=style.color,

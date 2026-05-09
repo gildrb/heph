@@ -13,6 +13,7 @@ def _tui_css() -> str:
     p = current_palette()
     bg = "transparent"
     bt = "transparent"
+    transcript_bg = p.panel
     return f"""
 App {{
     background: {bg};
@@ -23,6 +24,13 @@ Screen {{
     background: {bg};
     color: {p.text};
     layers: base suggestions;
+}}
+Horizontal,
+Vertical,
+Static,
+RichLog {{
+    background: {bg};
+    background-tint: {bt};
 }}
 #main-layout {{
     layer: base;
@@ -64,7 +72,7 @@ Screen {{
     max-width: 100%;
     padding: 0 2;
     content-align: left bottom;
-    background: {bg};
+    background: {transcript_bg};
     color: {p.text};
     scrollbar-size: 0 0;
     background-tint: {bt};
@@ -73,7 +81,7 @@ Screen {{
     display: none;
 }}
 #transcript:focus {{
-    background: {bg};
+    background: {transcript_bg};
     background-tint: {bt};
 }}
 #armory-inline {{
@@ -259,9 +267,9 @@ Screen {{
     scrollbar-color: {p.highlight};
     scrollbar-color-hover: {p.stone};
     scrollbar-color-active: {p.stone};
-    scrollbar-background: {p.panel};
-    scrollbar-background-hover: {p.panel};
-    scrollbar-background-active: {p.panel};
+    scrollbar-background: {bg};
+    scrollbar-background-hover: {bg};
+    scrollbar-background-active: {bg};
     scrollbar-corner-color: {bg};
     scrollbar-size-vertical: 1;
     layer: suggestions;

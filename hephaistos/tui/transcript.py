@@ -53,9 +53,39 @@ class TuiTranscriptMixin:
     def _write_transcript_renderable(self, log: RichLog, renderable: object) -> None:
         if log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
             log.write(renderable)
+            self._scroll_transcript_to_end(log)
             return
         width = max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING)
         log.write(renderable, width=width)
+        self._scroll_transcript_to_end(log)
+
+    @staticmethod
+    def _scroll_transcript_to_end(log: RichLog) -> None:
+        scroll_end = getattr(log, "scroll_end", None)
+        if callable(scroll_end):
+            scroll_end(animate=False)
+
+    def _write_transcript_lines(
+        self,
+        log: RichLog,
+        text: str,
+        *,
+        style: _RichStyle | None = None,
+        ansi: bool = False,
+    ) -> None:
+        lines = text.splitlines() or [""]
+        for line in lines:
+            if _RichText is None:
+                renderable = line
+            elif ansi:
+                renderable = _RichText.from_ansi(line)
+                if style is not None:
+                    renderable.stylize(style)
+            elif style is not None:
+                renderable = _RichText.styled(line, style)
+            else:
+                renderable = line
+            self._write_transcript_renderable(log, renderable)
 
     def _write_transcript_entry(self, entry: object) -> None:
         log = self.query_one("#transcript", RichLog)
@@ -63,25 +93,29 @@ class TuiTranscriptMixin:
             self._write_transcript_renderable(log, Markdown(entry.content))
         elif entry.kind == "user":
             p = current_palette()
-            self._write_transcript_renderable(
+            self._write_transcript_lines(
                 log,
-                _RichText.styled(entry.content, _RichStyle(color=p.ember, bold=True)),
+                entry.content,
+                style=_RichStyle(color=p.ember, bold=True),
             )
         elif entry.kind == "ansi":
             if _RichText is None:
-                self._write_transcript_renderable(log, entry.content)
+                self._write_transcript_lines(log, entry.content)
                 return
-            self._write_transcript_renderable(log, _RichText.from_ansi(entry.content))
+            self._write_transcript_lines(log, entry.content, ansi=True)
         elif entry.kind == "notice":
             if _RichText is None:
-                self._write_transcript_renderable(log, entry.content)
+                self._write_transcript_lines(log, entry.content)
                 return
             p = current_palette()
-            rich_text = _RichText.from_ansi(entry.content)
-            rich_text.stylize(_RichStyle(color=p.dim))
-            self._write_transcript_renderable(log, rich_text)
+            self._write_transcript_lines(
+                log,
+                entry.content,
+                style=_RichStyle(color=p.dim),
+                ansi=True,
+            )
         else:
-            self._write_transcript_renderable(log, entry.content)
+            self._write_transcript_lines(log, entry.content)
 
     def _write_transcript_gap(self) -> None:
         log = self.query_one("#transcript", RichLog)
@@ -118,8 +152,7 @@ class TuiTranscriptMixin:
         self._write_transcript_entry(entry)
 
     def _append_notice(self, text: str) -> None:
-        p = current_palette()
-        self._append_entry(f"[{p.dim}]{text}[/{p.dim}]")
+        self._append_entry(text, "notice")
 
     def _append_error(self, text: str) -> None:
         p = current_palette()

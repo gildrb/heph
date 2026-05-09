@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from hephaistos.rag.context import TurnEvidence
+from hephaistos.rag.source_mapping import evidence_location_label
 
 _CITATION_RE = re.compile(r"(?:\[|【)([Ee]\d+(?:\s*[,;]\s*[Ee]\d+)*)(?:\]|】)")
 _SINGLE_ID_RE = re.compile(r"[Ee](\d+)")
@@ -81,20 +82,18 @@ def _render_evidence_panel(evidence: TurnEvidence, cited_ids: list[str]) -> str:
     parts: list[str] = []
     for item in items:
         source_name = item.source.rsplit("/", 1)[-1]
+        location = evidence_location_label(item.source, item.chunk, None)
         location_parts = [
             item.source,
-            f"chars {item.chunk.char_start}-{item.chunk.char_end}",
+            location,
             f"score {item.score:.2f}",
-            f"show /evidence {item.evidence_id}",
-            f"open /evidence {item.evidence_id} open",
+            f"expand: /evidence {item.evidence_id}",
+            f"open: /evidence {item.evidence_id} open",
         ]
         if item.chunk.heading:
             location_parts.insert(1, f"under {item.chunk.heading}")
-        parts.append(
-            f"{item.evidence_id}: {source_name} chunk {item.chunk_index} "
-            f"({'; '.join(location_parts)})"
-        )
-    return f"_evidence: {'; '.join(parts)}_"
+        parts.append(f"{item.evidence_id}: {source_name} ({'; '.join(location_parts)})")
+    return f"_sources: {'; '.join(parts)}_"
 
 
 def enrich_reply(text: str, evidence: TurnEvidence | None) -> EnrichedReply:
@@ -133,5 +132,5 @@ def evidence_summary_text(evidence: TurnEvidence | None) -> str:
     sources = {chunk.source for chunk in evidence.items}
     if len(sources) == 1:
         src = next(iter(sources))
-        return f"{len(evidence.items)} chunk(s) from {src}"
-    return f"{len(evidence.items)} chunk(s) from {len(sources)} source(s)"
+        return f"{len(evidence.items)} evidence item(s) from {src}"
+    return f"{len(evidence.items)} evidence item(s) from {len(sources)} source(s)"

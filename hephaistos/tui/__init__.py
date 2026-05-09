@@ -40,6 +40,7 @@ from hephaistos.tui.materials_view import (
     MATERIAL_DISABLED_COLOR,
     MATERIAL_ENABLED_COLOR,
 )
+from hephaistos.tui.no_armory import record_no_armory_turn
 from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
     TuiInputRoute,
@@ -346,8 +347,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if self.session.armory_path is None and not self.state.armory_home_shown:
             self.state.armory_home_shown = True
             self._append_armory_home()
-            if load_known_armories():
-                self._open_armory_inline("manage")
         self._schedule_transcript_reflow()
         self._prefetch_model_catalogs()
         self.set_interval(1.0, self._tick_session_duration)
@@ -559,6 +558,14 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if route is _TuiInputRoute.EXTERNAL:
             self._record_history(value)
             self._handle_external_input(value)
+            return
+        if self.session.armory_path is None:
+            reply = record_no_armory_turn(self.session, value)
+            self._record_history(value)
+            self._append_user(value, mark_working=False)
+            self._append_assistant_reply(reply)
+            self._refresh_status("ready")
+            self._update_info_panel()
             return
         config_error = _config_error(self.session)
         if config_error is not None:

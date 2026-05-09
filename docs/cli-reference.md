@@ -50,6 +50,8 @@ new docs.
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
 | /stats | Show session, armory, and study progress stats |
+| /priority | Find priority topics and prerequisites |
+| /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |
 | /remind | Show upcoming study reminders and due cards |

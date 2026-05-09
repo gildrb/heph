@@ -119,6 +119,14 @@ _PLAIN_CHAT_CONTEXT = (
 )
 
 
+def no_armory_guidance_reply() -> str:
+    """Return the local guardrail reply for study prompts without an armory."""
+    return (
+        "No armory is attached. Open or create an armory with /armory, then add study "
+        "materials so I can answer from your sources."
+    )
+
+
 def _metadata_datetime(metadata: dict[str, object], key: str) -> datetime | None:
     value = metadata.get(key)
     if not isinstance(value, str):
@@ -180,6 +188,18 @@ def _scan_source_files(armory_path: Path) -> tuple[int, list[str]]:
         count += 1
         names.append(str(file_path.relative_to(armory_path)))
     return count, names
+
+
+def refresh_armory_sources(session: ChatSession) -> None:
+    """Refresh material metadata for a running armory session."""
+    if session.armory_path is None:
+        return
+    source_file_count, source_files = _scan_source_files(session.armory_path)
+    session.source_file_count = source_file_count
+    session.source_files = tuple(source_files)
+    session.disabled_source_files &= set(source_files)
+    session.rag_index = None
+    _replace_system_prompt(session)
 
 
 def _load_armory_tools(armory_path: Path) -> ToolRegistry:

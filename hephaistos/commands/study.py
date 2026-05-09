@@ -7,6 +7,11 @@ from datetime import UTC, datetime
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.diagnostics.events import capture as capture_analytics
+from hephaistos.rag.index import load_or_build
+from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
+from hephaistos.study.exam import select_exam_question, supporting_source_refs
+from hephaistos.study.priority import analyze_priority
+from hephaistos.study.schedule import load_study_schedule
 from hephaistos.terminal import (
     STYLE_PROMPT,
     MenuOption,
@@ -33,6 +38,15 @@ _HARD_OPTION = MenuOption("Hard", "had to think about it")
 _GOOD_OPTION = MenuOption("Good", "knew it")
 _EASY_OPTION = MenuOption("Easy", "instant recall")
 _RATING_OPTIONS = [_HARD_OPTION, _GOOD_OPTION, _EASY_OPTION]
+
+
+def _format_relative_seconds(seconds: float) -> str:
+    hours = seconds / 3600
+    if hours < 1:
+        return f"{int(seconds / 60)}m"
+    if hours < 48:
+        return f"{int(hours)}h"
+    return f"{int(hours / 24)}d"
 
 
 class TerminalDrillUi:
@@ -150,9 +164,14 @@ class RemindCommand(Command):
         all_cards = store.card_list
         due = select_due_cards(all_cards)
         now = datetime.now(UTC)
+        study_store = load_study_schedule(s.armory_path)
+        due_study_items = study_store.due_items(now=now)
 
-        if not all_cards:
-            print_info("No vocab cards yet. Add Q&A pairs to your materials.")
+        if not all_cards and not study_store.item_list:
+            print_info(
+                "No scheduled reviews yet. Use /exam or ask for a material-backed question "
+                "to start active recall."
+            )
             return CommandResult()
 
         lines: list[str] = []
@@ -160,7 +179,47 @@ class RemindCommand(Command):
         if due:
             lines.append(f"You have {len(due)} card{'s' if len(due) != 1 else ''} due for review.")
             lines.append(f"  Run {styled('/vocab drill', STYLE_ACCENT)} to study them now.")
-        else:
+        elif all_cards:
+            lines.append(styled("Vocabulary is caught up.", STYLE_SUCCESS))
+
+        if due_study_items:
+            item_plural = "s" if len(due_study_items) != 1 else ""
+            lines.append(
+                f"You have {len(due_study_items)} study item{item_plural} due for active recall."
+            )
+            lines.append(f"  Run {styled('/exam', STYLE_ACCENT)} or ask to review a due item.")
+        elif study_store.item_list:
+            lines.append(styled("Material-backed study items are caught up.", STYLE_SUCCESS))
+
+        if not lines:
+            lines.append("No vocabulary cards yet, but you can start with /exam or /priority.")
+
+        scheduled_study = [item for item in study_store.item_list if item.next_review is not None]
+        if scheduled_study:
+            next_item = min(scheduled_study, key=lambda item: item.next_review or now)
+            assert next_item.next_review is not None
+            delta = next_item.next_review - now
+            secs = float(delta.total_seconds())
+            if secs > 0:
+                lines.append(
+                    f"  Next study item in {_format_relative_seconds(secs)} "
+                    f"({len(scheduled_study)} item(s) scheduled)."
+                )
+
+        if due_study_items:
+            lines.append("")
+            lines.append("Due study items:")
+            for item in due_study_items[:10]:
+                label = item.item or item.retrieval_query
+                lines.append(f"  {styled(label[:60], STYLE_DIM)}")
+            if len(due_study_items) > 10:
+                lines.append(f"  ... and {len(due_study_items) - 10} more")
+
+        if not all_cards:
+            print("\n".join(lines))
+            return CommandResult()
+
+        if not due and not due_study_items and not any("caught up" in line for line in lines):
             lines.append(styled("All caught up!", STYLE_SUCCESS))
 
         with_scheduled = [c for c in all_cards if c.next_review is not None]
@@ -171,13 +230,7 @@ class RemindCommand(Command):
             delta = next_card.next_review - now  # type: ignore[reportUnknownMemberType,reportUnknownVariableType]
             secs = float(delta.total_seconds())  # type: ignore[reportUnknownMemberType]
             if secs > 0:
-                hours = secs / 3600
-                if hours < 1:
-                    when = f"{int(secs / 60)}m"  # type: ignore[reportUnknownArgumentType]
-                elif hours < 48:
-                    when = f"{int(hours)}h"  # type: ignore[reportUnknownArgumentType]
-                else:
-                    when = f"{int(hours / 24)}d"  # type: ignore[reportUnknownArgumentType]
+                when = _format_relative_seconds(secs)
                 n_scheduled = len(scheduled)  # type: ignore[reportUnknownArgumentType]
                 plural = "s" if n_scheduled != 1 else ""
                 lines.append(f"  Next review in {when} ({n_scheduled} card{plural} scheduled).")
@@ -190,4 +243,80 @@ class RemindCommand(Command):
                 lines.append(f"  ... and {len(due) - 10} more")
 
         print("\n".join(lines))
+        return CommandResult()
+
+
+class ExamCommand(Command):
+    name = "exam"
+    description = "Start an active-recall exam question"
+    aliases = ("drill",)
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = ensure_session(session)
+        if s.armory_path is None:
+            print_error("No armory attached. Use /armory to open one first.")
+            return CommandResult()
+        print_info(
+            "Active recall works best with materials aside unless your exam allows a cheat "
+            "sheet. Use the time limit as real exam pressure."
+        )
+        topic = args.strip()
+        chunks = list(load_or_build(s.armory_path).all_chunks)
+        question = select_exam_question(chunks, topic=topic)
+        if question is not None:
+            source_refs = [
+                question.source_ref,
+                *supporting_source_refs(chunks, question.question),
+            ]
+            s.study_state.phase = StudyPhase.RECALL
+            s.study_state.current_item = question.question
+            s.study_state.expected_source_refs = source_refs
+            s.study_state.attempt_count = 0
+            s.study_state.last_feedback_type = StudyFeedbackType.CALIBRATING
+            s.study_state.retrieval_query = question.question
+            s.study_state.recall_started_at = datetime.now(UTC)
+            s.study_state.last_recall_seconds = None
+            s.study_state.last_recall_rating = StudyRecallRating.NONE
+            print(
+                "\n".join(
+                    [
+                        "Exam question",
+                        f"Time limit: {question.time_limit_minutes} minutes",
+                        question.question,
+                        "Answer from memory. Do not open the material unless your exam allows it.",
+                    ]
+                )
+            )
+            return CommandResult()
+        if topic:
+            prompt = (
+                f"Ask me one random exam-style question about {topic}. Include a concrete "
+                "time limit, require me to reason from memory, and do not show the result, "
+                "answer key, rubric, source explanation, source IDs, or citations until "
+                "after my attempt."
+            )
+        else:
+            prompt = (
+                "Ask me one random exam-style question from my past exams and materials. "
+                "Include a concrete time limit, require me to reason from memory, and do "
+                "not show the result, answer key, rubric, source explanation, source IDs, "
+                "or citations until after my attempt."
+            )
+        return CommandResult(output=f"__RESEND__:{prompt}")
+
+
+class PriorityCommand(Command):
+    name = "priority"
+    description = "Find priority topics and prerequisites"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = ensure_session(session)
+        if s.armory_path is None:
+            print_error("No armory attached. Use /armory to open one first.")
+            return CommandResult()
+        analysis = analyze_priority(load_or_build(s.armory_path).all_chunks)
+        print_info(analysis.render_for_prompt())
+        focus = args.strip()
+        if focus:
+            print_info(f"Focus requested: {focus}")
         return CommandResult()

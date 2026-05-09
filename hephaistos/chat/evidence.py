@@ -255,6 +255,8 @@ def resolve_turn_evidence(session: ChatSession, plan: StudyTurnPlan) -> TurnEvid
     """Resolve the best evidence for a study turn plan."""
     if plan.action is StudyAction.CALIBRATE:
         return build_turn_evidence_from_overview(session)
+    if plan.action is StudyAction.PRIORITY:
+        return build_turn_evidence_from_overview(session)
     if plan.use_expected_source_refs and session.study_state.expected_source_refs:
         turn_evidence = build_turn_evidence_from_refs(
             session,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,8 @@ from hephaistos.providers.config import default_config
 from hephaistos.providers.registry import ModelInfo
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import EvidenceChunk, TurnEvidence
+from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
+from hephaistos.study.schedule import load_study_schedule
 from hephaistos.terminal import MenuOption
 from hephaistos.terminal.source_open import SourceOpenResult
 
@@ -64,6 +67,95 @@ def test_command_registry_includes_settings() -> None:
 
     assert registry.find("settings") is not None
     assert "settings" in names
+
+
+def test_command_registry_includes_exam_and_priority() -> None:
+    registry = commands.get_registry()
+    suggestions = registry.suggestions()
+    names = {suggestion.name for suggestion in suggestions}
+
+    assert registry.find("exam") is not None
+    assert registry.find("priority") is not None
+    assert "exam" in names
+    assert "priority" in names
+
+
+def test_import_command_refreshes_running_session_sources(tmp_path: Path) -> None:
+    armory = tmp_path / "import-armory"
+    initialize(armory)
+    first = armory / "materials" / "first.md"
+    first.write_text("# First\n", encoding="utf-8")
+    imported = tmp_path / "imported.md"
+    imported.write_text("# Imported\n", encoding="utf-8")
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="import-session",
+        armory_path=armory,
+        source_file_count=1,
+        source_files=("materials/first.md",),
+    )
+
+    commands.ImportCommand().handle(session, str(imported))
+
+    assert session.source_file_count == 2
+    assert "materials/imported.md" in session.source_files
+    assert session.rag_index is None
+
+
+def test_exam_command_warns_and_resends_active_recall_prompt(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    armory = tmp_path / "exam-armory"
+    initialize(armory)
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="exam-session",
+        armory_path=armory,
+    )
+
+    result = commands.ExamCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "materials aside" in out
+    assert "time limit" in out
+    assert result.output is not None
+    assert result.output.startswith("__RESEND__:Ask me one random exam-style question")
+    assert "concrete time limit" in result.output
+    assert "reason from memory" in result.output
+    assert "do not show the result" in result.output
+    assert "source IDs" in result.output
+    assert "citations" in result.output
+
+
+def test_priority_command_prints_local_priority_scan(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    armory = tmp_path / "priority-armory"
+    initialize(armory)
+    exam = armory / "materials" / "past-exams"
+    exam.mkdir(parents=True)
+    (exam / "2024.md").write_text(
+        "Explain Dijkstra shortest paths. [10 marks]\n",
+        encoding="utf-8",
+    )
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="priority-session",
+        armory_path=armory,
+    )
+
+    result = commands.PriorityCommand().handle(session, "graphs")
+    out = capsys.readouterr().out
+
+    assert result.output is None
+    assert "Local priority scan" in out
+    assert "graphs" in out
+    assert "exam marks 10" in out
 
 
 def test_command_registry_includes_memory_and_recommend() -> None:
@@ -163,6 +255,75 @@ def test_stats_command_reports_current_session(capsys: pytest.CaptureFixture[str
     assert "Current session:" in out
     assert "Turns:      1" in out
     assert "Assistant:  1 messages" in out
+
+
+def test_stats_command_reports_study_recall_timing(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    armory = tmp_path / "study-stats"
+    initialize(armory)
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="study-stats",
+        armory_path=armory,
+    )
+    session.study_state.phase = StudyPhase.RECALL
+    session.study_state.current_item = "Q1"
+    session.study_state.attempt_count = 2
+    session.study_state.last_feedback_type = StudyFeedbackType.PARTIAL
+    session.study_state.last_recall_seconds = 75
+    session.study_state.last_recall_rating = StudyRecallRating.HARD
+    store = load_study_schedule(armory)
+    store.record_review(
+        "Q1",
+        retrieval_query="Q1",
+        source_refs=["materials/exam.md#chunk=0"],
+        rating=StudyRecallRating.HARD,
+        elapsed_seconds=75,
+    )
+    store.save()
+
+    commands.StatsCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "Study mode:" in out
+    assert "Recall:    1m 15s" in out
+    assert "Effort:    hard" in out
+    assert "Scheduled: 1 item(s)" in out
+
+
+def test_remind_command_reports_due_study_items_without_vocab(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    armory = tmp_path / "remind-study"
+    initialize(armory)
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="remind-study",
+        armory_path=armory,
+    )
+    store = load_study_schedule(armory)
+    store.record_review(
+        "Explain Dijkstra",
+        retrieval_query="dijkstra",
+        source_refs=["materials/exam.md#chunk=0"],
+        rating=StudyRecallRating.HARD,
+        elapsed_seconds=160,
+        now=datetime.now(UTC) - timedelta(days=2),
+    )
+    store.save()
+
+    commands.RemindCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "study item" in out
+    assert "due for active recall" in out
+    assert "Explain Dijkstra" in out
+    assert "/exam" in out
 
 
 def test_command_registry_uses_models_not_model() -> None:
@@ -469,11 +630,81 @@ def test_evidence_command_lists_exact_source_location(
 
     out = capsys.readouterr().out
     assert "E1" in out
-    assert "materials/notes.md#chunk=0" in out
+    assert "materials/notes.md" in out
+    assert "#chunk=0" not in out
     assert "line 4" in out
     assert "heading: Target" in out
-    assert "Show context: /evidence E1" in out
-    assert "Open source:  /evidence E1 open" in out
+    assert "expand: /evidence E1" in out
+    assert "open:   /evidence E1 open" in out
+    assert "Expand exact source text: /evidence E1" in out
+    assert "Open source at line:      /evidence E1 open" in out
+
+
+def test_evidence_command_uses_reader_friendly_label_when_lines_unknown(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    armory = tmp_path / "evidence-armory"
+    initialize(armory)
+    chunk = Chunk(
+        text="Slide text extracted by a converter.",
+        source="materials/week-02-slides.pdf",
+        index=2,
+        char_start=0,
+        char_end=35,
+    )
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="evidence-session",
+        armory_path=armory,
+    )
+    session.last_turn_evidence = TurnEvidence(
+        (EvidenceChunk(evidence_id="E1", chunk=chunk, score=0.91, content=chunk.text),)
+    )
+
+    commands.EvidenceCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "slide/deck excerpt 3" in out
+    assert "line unknown" not in out
+    assert "chunk" not in out.lower()
+
+
+def test_evidence_command_groups_multiple_items_by_source(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = _session_with_line_mapped_evidence(tmp_path)
+    armory = session.armory_path
+    assert armory is not None
+    other = armory / "materials" / "other.md"
+    other.write_text("Alpha\nBeta evidence line.\n", encoding="utf-8")
+    text = other.read_text(encoding="utf-8")
+    start = text.index("Beta")
+    chunk = Chunk(
+        text="Beta evidence line.",
+        source="materials/other.md",
+        index=0,
+        char_start=start,
+        char_end=start + len("Beta evidence line."),
+    )
+    assert session.last_turn_evidence is not None
+    session.last_turn_evidence = TurnEvidence(
+        (
+            *session.last_turn_evidence.items,
+            EvidenceChunk(evidence_id="E2", chunk=chunk, score=0.82, content=chunk.text),
+        )
+    )
+
+    commands.EvidenceCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "Last turn sources:" in out
+    assert "materials/notes.md" in out
+    assert "materials/other.md" in out
+    assert "E1  line 4; score=0.910" in out
+    assert "E2  line 2; score=0.820" in out
 
 
 def test_evidence_command_shows_numbered_excerpt(
@@ -485,7 +716,10 @@ def test_evidence_command_shows_numbered_excerpt(
     commands.EvidenceCommand().handle(session, "E1")
 
     out = capsys.readouterr().out
+    assert "line 4; score=0.910" in out
+    assert "chars " not in out
     assert "heading: Target" in out
+    assert "Source text:" in out
     assert "> 4 │ Exact sentinel phrase amber forge." in out
     assert "Open source: /evidence E1 open" in out
 

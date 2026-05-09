@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from hephaistos.logging import get_logger
 from hephaistos.study.overview import OVERVIEW_REQUEST_RE
-from hephaistos.study.state import StudyAction, StudyFeedbackType, StudyPhase, StudyState
+from hephaistos.study.state import (
+    StudyAction,
+    StudyFeedbackType,
+    StudyPhase,
+    StudyRecallRating,
+    StudyState,
+)
 
 _log = get_logger("study.controller")
 
@@ -17,13 +24,16 @@ _READY_RE = re.compile(
 )
 _INITIAL_CALIBRATION_RE = re.compile(
     r"^(?:"
-    r"hi|hey|hello|yo|start|begin|"
+    r"start|begin|"
     r"study|study with me|let'?s study|"
-    r"quiz me|test me|ask me something|"
+    r"quiz me|test me|ask me .*question.*|ask me something|"
     r"what should i study(?: next)?|what do i study(?: next)?"
     r")\??$",
     re.IGNORECASE,
 )
+_GREETING_RE = re.compile(r"^(?:hi|hey|hello|yo|sup)\.?!?$", re.IGNORECASE)
+_THANKS_RE = re.compile(r"^(?:thanks|thank you|thx)\.?!?$", re.IGNORECASE)
+_EXAM_DRILL_RE = re.compile(r"\b(?:exam|past exam|past paper|exam-style|timed)\b", re.IGNORECASE)
 _SKIP_RE = re.compile(
     r"\b(?:skip|pass|next|move on|different question|another question|new question)\b",
     re.IGNORECASE,
@@ -50,6 +60,16 @@ _REVIEW_MATERIAL_RE = re.compile(
     r"show (?:me )?(?:the )?material|teach me|walk me through)\b",
     re.IGNORECASE,
 )
+_SOURCE_QA_RE = re.compile(
+    r"\b(?:"
+    r"using (?:the )?source files?|"
+    r"from (?:the )?(?:source|sources|materials?)|"
+    r"according to (?:the )?(?:source|sources|materials?)|"
+    r"answer with (?:just )?(?:the )?exact|"
+    r"exact phrase|exact wording"
+    r")\b",
+    re.IGNORECASE,
+)
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
 
 
@@ -64,6 +84,7 @@ class StudyTurnPlan:
     use_expected_source_refs: bool = False
     allow_tools: bool = True
     buffer_response: bool = False
+    direct_reply: str | None = None
 
 
 def _normalize(text: str) -> str:
@@ -81,7 +102,26 @@ def _derive_presentation_query(user_input: str, state: StudyState) -> str:
 
 def _needs_initial_calibration(user_input: str) -> bool:
     text = _normalize(user_input)
-    return bool(_INITIAL_CALIBRATION_RE.fullmatch(text))
+    return bool(_INITIAL_CALIBRATION_RE.fullmatch(text)) or bool(
+        re.fullmatch(
+            r"(?:can|could|would) you ask me .*question.*\??",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _is_simple_greeting(user_input: str) -> bool:
+    return bool(_GREETING_RE.fullmatch(_normalize(user_input)))
+
+
+def _direct_chat_reply(user_input: str) -> str | None:
+    text = _normalize(user_input)
+    if _GREETING_RE.fullmatch(text):
+        return "Hey."
+    if _THANKS_RE.fullmatch(text):
+        return "You're welcome."
+    return None
 
 
 def _is_overview_request(text: str) -> bool:
@@ -90,6 +130,10 @@ def _is_overview_request(text: str) -> bool:
 
 def _is_reveal_request(text: str) -> bool:
     return bool(_REVEAL_RE.search(text) or _SHORT_REVEAL_RE.fullmatch(text))
+
+
+def _is_source_qa_request(text: str) -> bool:
+    return bool(_SOURCE_QA_RE.search(_normalize(text)))
 
 
 def _calibration_prompt() -> str:
@@ -109,11 +153,31 @@ def _calibration_prompt() -> str:
         "in a procedure, comparisons between concepts, or applications of a "
         "principle.\n"
         "- Prefer an introductory, concrete item a new student can attempt.\n"
+        "- If the student asked for an easy question, make it genuinely easy and "
+        "prerequisite-level.\n"
+        "- If the student asked for an exam-style or timed question, include one "
+        "reasonable time limit and require them to reason their answer from memory.\n"
         "- Do not present the solution or method.\n"
-        "- Cite evidence IDs only if you state a factual setup from the material.\n"
+        "- Do not include evidence IDs, citations, source labels, or answer-location hints "
+        "in the question.\n"
         "- End with exactly: Answer from memory, or say easier or review material.\n"
         "- If no retrieved source material is available, ask which material or topic "
         "to start with."
+    )
+
+
+def _priority_prompt() -> str:
+    return (
+        "Controlled study state machine. Execute PRIORITY.\n"
+        "Rules:\n"
+        "- Analyze the retrieved materials and past exams only.\n"
+        "- Identify the highest-priority topics by recurrence, exam weighting signals, "
+        "and prerequisite value.\n"
+        "- Separate direct evidence from inference. Cite evidence IDs for direct claims.\n"
+        "- Include missing prerequisites the student should review first.\n"
+        "- Do not ask a recall question and do not start an exam drill.\n"
+        "- If the retrieved evidence is too thin to infer priorities, say so and list "
+        "what materials are needed."
     )
 
 
@@ -130,6 +194,21 @@ def _present_prompt(item: str) -> str:
         "evidence was found for this item. Do not answer from outside knowledge. "
         "Ask for a more specific material-backed prompt or for the material to be indexed.\n"
         "- Do not switch into assessment or extra tutoring."
+    )
+
+
+def _source_qa_prompt(query: str) -> str:
+    return (
+        "Controlled study state machine. Execute SOURCE_QA.\n"
+        f"User question: {query}\n"
+        "Rules:\n"
+        "- Answer the user's question directly using only the retrieved source material.\n"
+        "- If the user asks for an exact phrase, quote only the exact phrase plus citations.\n"
+        "- Cite evidence IDs for source-backed claims.\n"
+        "- Do not ask a recall question.\n"
+        "- Do not end with readiness, drill, or study-loop instructions.\n"
+        "- If no retrieved source material answers the question, say that the armory sources "
+        "do not contain the answer and ask for more specific material."
     )
 
 
@@ -232,14 +311,48 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
     text = _normalize(user_input)
 
     if not state.current_item:
+        direct_reply = _direct_chat_reply(user_input)
+        if direct_reply is not None:
+            return StudyTurnPlan(
+                action=StudyAction.CHAT,
+                phase=state.phase,
+                prompt="",
+                allow_tools=False,
+                direct_reply=direct_reply,
+            )
+        if "priorit" in text.lower():
+            return StudyTurnPlan(
+                action=StudyAction.PRIORITY,
+                phase=state.phase,
+                prompt=_priority_prompt(),
+                retrieval_query="exam priority topics prerequisites past exams materials overview",
+                allow_tools=False,
+            )
         if _needs_initial_calibration(user_input):
+            prompt = _calibration_prompt()
+            if _EXAM_DRILL_RE.search(text):
+                prompt = (
+                    f"{prompt}\n"
+                    "- This is an active-recall exam drill: do not show the result, "
+                    "answer key, rubric, source explanation, source IDs, or citations until "
+                    "after the student's attempt has been assessed."
+                )
             return StudyTurnPlan(
                 action=StudyAction.CALIBRATE,
                 phase=StudyPhase.RECALL,
-                prompt=_calibration_prompt(),
+                prompt=prompt,
                 allow_tools=False,
+                buffer_response=True,
             )
         query = _derive_presentation_query(user_input, state)
+        if _is_source_qa_request(query):
+            return StudyTurnPlan(
+                action=StudyAction.SOURCE_QA,
+                phase=StudyPhase.PRESENTING,
+                prompt=_source_qa_prompt(query),
+                retrieval_query=query,
+                allow_tools=False,
+            )
         return StudyTurnPlan(
             action=StudyAction.PRESENT,
             phase=StudyPhase.PRESENTING,
@@ -360,14 +473,68 @@ def _parse_assessment_reply(reply: str) -> tuple[StudyFeedbackType, str]:
     return feedback, cleaned or _fallback_assessment_message(feedback)
 
 
+def _recall_elapsed_seconds(state: StudyState, now: datetime) -> int | None:
+    started = state.recall_started_at
+    if started is None:
+        return None
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    elapsed = now - started
+    return max(0, int(elapsed.total_seconds()))
+
+
+def _derive_recall_rating(
+    feedback: StudyFeedbackType,
+    elapsed_seconds: int | None,
+) -> StudyRecallRating:
+    """Map correctness and response time into a scheduler-friendly effort signal."""
+    if feedback is StudyFeedbackType.WRONG:
+        return StudyRecallRating.HARD
+    if feedback is StudyFeedbackType.PARTIAL:
+        if elapsed_seconds is not None and elapsed_seconds <= 30:
+            return StudyRecallRating.GOOD
+        return StudyRecallRating.HARD
+    if feedback is StudyFeedbackType.CORRECT:
+        if elapsed_seconds is None:
+            return StudyRecallRating.GOOD
+        if elapsed_seconds <= 30:
+            return StudyRecallRating.EASY
+        if elapsed_seconds <= 120:
+            return StudyRecallRating.GOOD
+        return StudyRecallRating.HARD
+    return StudyRecallRating.NONE
+
+
 def apply_turn_result(
     state: StudyState,
     plan: StudyTurnPlan,
     reply: str,
     source_refs: list[str],
+    *,
+    now: datetime | None = None,
 ) -> tuple[StudyState, str]:
     """Advance the state machine after a successful model reply."""
+    current_time = now or datetime.now(UTC)
     next_state = state.clone()
+
+    if plan.action is StudyAction.CHAT:
+        next_state.last_feedback_type = StudyFeedbackType.NONE
+        return next_state, plan.direct_reply or reply
+
+    if plan.action is StudyAction.PRIORITY:
+        next_state.phase = StudyPhase.PRESENTING
+        next_state.last_feedback_type = StudyFeedbackType.NONE
+        return next_state, reply
+
+    if plan.action is StudyAction.SOURCE_QA:
+        next_state.phase = StudyPhase.PRESENTING
+        next_state.current_item = ""
+        next_state.retrieval_query = ""
+        next_state.expected_source_refs = []
+        next_state.attempt_count = 0
+        next_state.last_feedback_type = StudyFeedbackType.NONE
+        next_state.recall_started_at = None
+        return next_state, reply
 
     if plan.action is StudyAction.CALIBRATE:
         if source_refs:
@@ -377,6 +544,9 @@ def apply_turn_result(
             next_state.expected_source_refs = list(source_refs)
             next_state.attempt_count = 0
             next_state.last_feedback_type = StudyFeedbackType.CALIBRATING
+            next_state.recall_started_at = current_time
+            next_state.last_recall_seconds = None
+            next_state.last_recall_rating = StudyRecallRating.NONE
         else:
             next_state.phase = StudyPhase.PRESENTING
             next_state.current_item = ""
@@ -384,6 +554,7 @@ def apply_turn_result(
             next_state.expected_source_refs = []
             next_state.attempt_count = 0
             next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
+            next_state.recall_started_at = None
         return next_state, reply
 
     if plan.action is StudyAction.PRESENT:
@@ -394,6 +565,7 @@ def apply_turn_result(
             next_state.expected_source_refs = list(source_refs)
             next_state.attempt_count = 0
             next_state.last_feedback_type = StudyFeedbackType.PRESENTED
+            next_state.recall_started_at = None
         else:
             next_state.phase = StudyPhase.PRESENTING
             next_state.current_item = ""
@@ -401,11 +573,15 @@ def apply_turn_result(
             next_state.expected_source_refs = []
             next_state.attempt_count = 0
             next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
+            next_state.recall_started_at = None
         return next_state, reply
 
     if plan.action is StudyAction.PROMPT_RECALL:
         next_state.phase = StudyPhase.RECALL
         next_state.last_feedback_type = StudyFeedbackType.READY
+        next_state.recall_started_at = current_time
+        next_state.last_recall_seconds = None
+        next_state.last_recall_rating = StudyRecallRating.NONE
         return next_state, reply
 
     if plan.action is StudyAction.WAIT_READY_REMINDER:
@@ -433,6 +609,9 @@ def apply_turn_result(
             next_state.expected_source_refs = list(source_refs)
             next_state.attempt_count = 0
             next_state.last_feedback_type = StudyFeedbackType.EASIER
+            next_state.recall_started_at = current_time
+            next_state.last_recall_seconds = None
+            next_state.last_recall_rating = StudyRecallRating.NONE
         else:
             next_state.phase = StudyPhase.RECALL
             next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
@@ -446,6 +625,7 @@ def apply_turn_result(
             next_state.expected_source_refs = list(source_refs)
             next_state.attempt_count = 0
             next_state.last_feedback_type = StudyFeedbackType.REVIEWING
+            next_state.recall_started_at = None
         else:
             next_state.phase = StudyPhase.RECALL
             next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
@@ -453,17 +633,22 @@ def apply_turn_result(
 
     if plan.action is StudyAction.ASSESS:
         feedback, cleaned_reply = _parse_assessment_reply(reply)
+        elapsed_seconds = _recall_elapsed_seconds(state, current_time)
         next_state.attempt_count = state.attempt_count + 1
         if source_refs:
             next_state.expected_source_refs = list(source_refs)
         next_state.last_feedback_type = feedback
+        next_state.last_recall_seconds = elapsed_seconds
+        next_state.last_recall_rating = _derive_recall_rating(feedback, elapsed_seconds)
         if feedback is StudyFeedbackType.CORRECT:
             next_state.phase = StudyPhase.PRESENTING
             next_state.current_item = ""
             next_state.retrieval_query = ""
             next_state.expected_source_refs = []
+            next_state.recall_started_at = None
         else:
             next_state.phase = StudyPhase.RECALL
+            next_state.recall_started_at = current_time
         return next_state, cleaned_reply
 
     return next_state, reply

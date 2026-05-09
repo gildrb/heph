@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
 from hephaistos.study import (
     StudyAction,
     StudyFeedbackType,
     StudyPhase,
+    StudyRecallRating,
     StudyState,
     apply_turn_result,
     plan_turn,
@@ -43,19 +48,108 @@ def test_first_turn_explain_material_simply_uses_overview() -> None:
     assert plan.allow_tools is False
 
 
-def test_initial_greeting_starts_calibration() -> None:
+def test_explicit_source_question_answers_without_entering_recall_loop() -> None:
     state = StudyState()
 
-    plan = plan_turn(state, "hey")
+    plan = plan_turn(
+        state,
+        "Using the source files, what is the QA sentinel phrase? Answer with the exact phrase.",
+    )
+    next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        'The QA sentinel phrase is "amber forge" [E1].',
+        ["materials/rag-target.md#chunk=0"],
+    )
+
+    assert plan.action is StudyAction.SOURCE_QA
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.retrieval_query is not None
+    assert plan.allow_tools is False
+    assert "Do not end with readiness" in plan.prompt
+    assert cleaned == 'The QA sentinel phrase is "amber forge" [E1].'
+    assert next_state.phase is StudyPhase.PRESENTING
+    assert next_state.current_item == ""
+    assert next_state.expected_source_refs == []
+
+
+@pytest.mark.parametrize(
+    ("message", "reply"),
+    [
+        ("hey", "Hey."),
+        ("hello!", "Hey."),
+        ("thanks", "You're welcome."),
+        ("thank you", "You're welcome."),
+    ],
+)
+def test_initial_casual_message_gets_plain_reply(message: str, reply: str) -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is False
+    assert plan.direct_reply == reply
+
+    next_state, cleaned = apply_turn_result(state, plan, "", [])
+
+    assert cleaned == reply
+    assert next_state.current_item == ""
+    assert next_state.last_feedback_type is StudyFeedbackType.NONE
+
+
+def test_easy_question_starts_calibration() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "Can you ask me a really easy question")
 
     assert plan.action is StudyAction.CALIBRATE
     assert plan.phase is StudyPhase.RECALL
     assert plan.retrieval_query is None
     assert plan.allow_tools is False
     assert "Execute CALIBRATE" in plan.prompt
+    assert "genuinely easy" in plan.prompt
     # Calibration must explicitly forbid trivial metadata questions
     assert "FORBIDDEN" in plan.prompt
     assert "Titles of documents" in plan.prompt
+
+
+def test_exam_question_prompt_requires_timing_and_no_solution() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "Ask me one random exam-style question from my past exams")
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.buffer_response is True
+    assert "reasonable time limit" in plan.prompt
+    assert "reason their answer from memory" in plan.prompt
+    assert "do not show the result" in plan.prompt
+    assert "answer key" in plan.prompt
+    assert "source IDs" in plan.prompt
+    assert "citations" in plan.prompt
+
+
+def test_priority_request_does_not_start_recall_item() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "Figure out my priorities")
+    next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        "Prioritize recurrence relations first [E1].",
+        ["materials/exam.md#chunk=0"],
+    )
+
+    assert plan.action is StudyAction.PRIORITY
+    assert (
+        plan.retrieval_query == "exam priority topics prerequisites past exams materials overview"
+    )
+    assert "Do not ask a recall question" in plan.prompt
+    assert cleaned == "Prioritize recurrence relations first [E1]."
+    assert next_state.current_item == ""
+    assert next_state.phase is StudyPhase.PRESENTING
 
 
 def test_calibration_prompt_forbids_metadata_questions() -> None:
@@ -108,19 +202,23 @@ def test_ready_signal_moves_to_recall() -> None:
     )
 
     plan = plan_turn(state, "ready")
-    next_state, cleaned = apply_turn_result(state, plan, "State it from memory.", [])
+    now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    next_state, cleaned = apply_turn_result(state, plan, "State it from memory.", [], now=now)
 
     assert cleaned == "State it from memory."
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.last_feedback_type is StudyFeedbackType.READY
+    assert next_state.recall_started_at == now
 
 
 def test_assess_partial_keeps_item_active() -> None:
+    started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     state = StudyState(
         phase=StudyPhase.RECALL,
         current_item="Q1",
         retrieval_query="Q1",
         expected_source_refs=["source/exam.md#chunk=0"],
+        recall_started_at=started,
     )
 
     plan = plan_turn(state, "I forgot the last step")
@@ -129,6 +227,7 @@ def test_assess_partial_keeps_item_active() -> None:
         plan,
         "PARTIAL: You omitted the final justification.",
         ["source/exam.md#chunk=0"],
+        now=started + timedelta(seconds=45),
     )
 
     assert cleaned == "You omitted the final justification."
@@ -136,15 +235,20 @@ def test_assess_partial_keeps_item_active() -> None:
     assert next_state.current_item == "Q1"
     assert next_state.attempt_count == 1
     assert next_state.last_feedback_type is StudyFeedbackType.PARTIAL
+    assert next_state.last_recall_seconds == 45
+    assert next_state.last_recall_rating is StudyRecallRating.HARD
+    assert next_state.recall_started_at == started + timedelta(seconds=45)
 
 
 def test_assess_correct_resets_for_next_item() -> None:
+    started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     state = StudyState(
         phase=StudyPhase.RECALL,
         current_item="Q1",
         retrieval_query="Q1",
         expected_source_refs=["source/exam.md#chunk=0"],
         attempt_count=1,
+        recall_started_at=started,
     )
 
     plan = plan_turn(state, "It equals 4 because ...")
@@ -153,6 +257,7 @@ def test_assess_correct_resets_for_next_item() -> None:
         plan,
         "CORRECT: Correct. Move to the next item.",
         ["source/exam.md#chunk=0"],
+        now=started + timedelta(seconds=18),
     )
 
     assert cleaned == "Correct. Move to the next item."
@@ -162,6 +267,32 @@ def test_assess_correct_resets_for_next_item() -> None:
     assert next_state.expected_source_refs == []
     assert next_state.attempt_count == 2
     assert next_state.last_feedback_type is StudyFeedbackType.CORRECT
+    assert next_state.last_recall_seconds == 18
+    assert next_state.last_recall_rating is StudyRecallRating.EASY
+    assert next_state.recall_started_at is None
+
+
+def test_slow_correct_recall_is_hard_for_scheduler_signal() -> None:
+    started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        recall_started_at=started,
+    )
+
+    plan = plan_turn(state, "Eventually, the answer is 4")
+    next_state, _cleaned = apply_turn_result(
+        state,
+        plan,
+        "CORRECT: Correct. Move to the next item.",
+        [],
+        now=started + timedelta(minutes=3),
+    )
+
+    assert next_state.last_feedback_type is StudyFeedbackType.CORRECT
+    assert next_state.last_recall_seconds == 180
+    assert next_state.last_recall_rating is StudyRecallRating.HARD
 
 
 def test_missing_assessment_prefix_defaults_to_partial() -> None:

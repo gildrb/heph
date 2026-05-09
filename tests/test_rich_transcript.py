@@ -53,9 +53,9 @@ def test_enrich_reply_appends_evidence_panel() -> None:
     result = enrich_reply("The answer is O(log n) [E1].", evidence)
 
     assert "[E1]" in result.markdown_text
-    assert "evidence" in result.markdown_text
+    assert "sources" in result.markdown_text
     assert "algorithms.md" in result.markdown_text
-    assert "chunk 0" in result.markdown_text
+    assert "expand: /evidence E1" in result.markdown_text
     assert "Binary search is O(log n)" not in result.markdown_text
 
 
@@ -113,7 +113,7 @@ def test_evidence_summary_text_with_single_source() -> None:
         ("E2", "source/algorithms.md", 1, 0.8, "chunk2"),
     )
     summary = evidence_summary_text(evidence)
-    assert "2 chunk(s)" in summary
+    assert "2 evidence item(s)" in summary
     assert "algorithms.md" in summary
 
 
@@ -123,7 +123,7 @@ def test_evidence_summary_text_with_multiple_sources() -> None:
         ("E2", "source/datastructures.md", 0, 0.8, "chunk2"),
     )
     summary = evidence_summary_text(evidence)
-    assert "2 chunk(s)" in summary
+    assert "2 evidence item(s)" in summary
     assert "2 source(s)" in summary
 
 
@@ -132,8 +132,20 @@ def test_evidence_panel_omits_chunk_preview_content() -> None:
     evidence = _make_evidence(("E1", "source/long.md", 0, 0.5, long_text))
     result = enrich_reply("See [E1].", evidence)
 
-    assert "long.md chunk 0" in result.markdown_text
+    assert "long.md" in result.markdown_text
+    assert "expand: /evidence E1" in result.markdown_text
     assert long_text not in result.markdown_text
+
+
+def test_evidence_panel_uses_reader_friendly_location_labels() -> None:
+    evidence = _make_evidence(
+        ("E1", "materials/week-02-slides.pdf", 2, 0.5, "slide content"),
+    )
+    result = enrich_reply("See [E1].", evidence)
+
+    assert "slide/deck excerpt 3" in result.markdown_text
+    assert "chars " not in result.markdown_text
+    assert "chunk" not in result.markdown_text.lower()
 
 
 def test_enrich_reply_formats_common_latex_inline_math() -> None:
@@ -155,5 +167,5 @@ def test_evidence_footer_shows_only_cited_evidence_when_available() -> None:
     )
     result = enrich_reply("See [E2].", evidence)
 
-    assert "E2: b.md chunk 1" in result.markdown_text
-    assert "E1: a.md chunk 0" not in result.markdown_text
+    assert "E2: b.md" in result.markdown_text
+    assert "E1: a.md" not in result.markdown_text

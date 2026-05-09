@@ -46,7 +46,7 @@ from hephaistos.commands.session import (
     StatusCommand,
 )
 from hephaistos.commands.settings import SettingsCommand
-from hephaistos.commands.study import RemindCommand, VocabCommand
+from hephaistos.commands.study import ExamCommand, PriorityCommand, RemindCommand, VocabCommand
 from hephaistos.commands.suggestions import CommandSuggestion
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.terminal import confirm
@@ -100,6 +100,8 @@ def get_registry() -> CommandRegistry:
             TokensCommand,
             CostCommand,
             StatsCommand,
+            PriorityCommand,
+            ExamCommand,
             ExportCommand,
             ImportCommand,
             RemindCommand,
@@ -135,6 +137,7 @@ __all__ = [
     "CostCommand",
     "EditCommand",
     "EvidenceCommand",
+    "ExamCommand",
     "ExitCommand",
     "ExportCommand",
     "HelpCommand",
@@ -146,6 +149,7 @@ __all__ = [
     "ModelsCommand",
     "NewCommand",
     "PersonaCommand",
+    "PriorityCommand",
     "ProviderConfig",
     "QuitCommand",
     "RecommendCommand",

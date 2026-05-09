@@ -10,6 +10,7 @@ from hephaistos.armory.search import (
     load_known_armories,
     remove_known_armory,
 )
+from hephaistos.chat.session import refresh_armory_sources
 from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.terminal.display import print_error, print_info, print_success
 
@@ -57,6 +58,7 @@ class ImportCommand(Command):
         print_success(f"Imported {len(imported)} file{'s' if len(imported) != 1 else ''}:")
         for name in imported:
             print(f"  {name}")
+        refresh_armory_sources(s)
         print_info("Use /materials to browse or /vocab drill to review extracted cards.")
         return CommandResult()
 

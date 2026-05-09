@@ -286,7 +286,7 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
         *_format_rows(options),
         "",
         "Tip: name armories after modules, e.g. gdp or swt, then open them with `heph gdp`.",
-        "Inside Hephaistos, type /help for chat commands like /status, /model, and /study.",
+        "Inside Hephaistos, type /help for commands like /status, /models, /exam, and /priority.",
     ]
     return "\n".join(lines) + "\n"
 

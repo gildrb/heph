@@ -7,9 +7,11 @@ import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
+from hephaistos.chat.session import no_armory_guidance_reply
 from hephaistos.diagnostics.crashes import capture_exception
 from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.providers.endpoints import is_keyless_endpoint
+from hephaistos.study import plan_turn
 from hephaistos.terminal.display import (
     STYLE_ASSISTANT,
     STYLE_DIM,
@@ -217,7 +219,14 @@ def _send_message(session: ChatSession, user_input: str) -> ChatSession:
     from hephaistos.chat.session import send_user_message
     from hephaistos.runtime import EngineError, StreamRecoveryError
 
-    config_error = _preflight_config_check(session)
+    can_reply_without_model = plan_turn(session.study_state, user_input).direct_reply is not None
+    if session.armory_path is None and not can_reply_without_model:
+        reply = no_armory_guidance_reply()
+        session.conversation.add("user", user_input)
+        session.conversation.add("assistant", reply)
+        print(f"{styled('Hephaistos:', STYLE_ASSISTANT)} {reply}")
+        return session
+    config_error = None if can_reply_without_model else _preflight_config_check(session)
     if config_error:
         print_error(config_error)
         return session
