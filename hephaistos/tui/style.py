@@ -13,7 +13,7 @@ def _tui_css() -> str:
     p = current_palette()
     bg = "transparent"
     bt = "transparent"
-    transcript_bg = p.panel
+    user_bg = p.panel
     return f"""
 App {{
     background: {bg};
@@ -72,7 +72,7 @@ RichLog {{
     max-width: 100%;
     padding: 0 2;
     content-align: left bottom;
-    background: {transcript_bg};
+    background: {bg};
     color: {p.text};
     scrollbar-size: 0 0;
     background-tint: {bt};
@@ -81,7 +81,7 @@ RichLog {{
     display: none;
 }}
 #transcript:focus {{
-    background: {transcript_bg};
+    background: {bg};
     background-tint: {bt};
 }}
 #armory-inline {{
@@ -321,7 +321,7 @@ OptionList:focus > .option-list--option-highlighted {{
     width: auto;
     max-width: 100%;
     padding: 0 0;
-    background: {bg};
+    background: {user_bg};
     color: {p.text};
 }}
 #footer-hints {{
@@ -347,7 +347,7 @@ Input {{
     max-height: 1;
     border: none;
     padding: 0 0;
-    background: {bg};
+    background: {user_bg};
     background-tint: {bt};
     color: {p.text};
 }}
@@ -357,7 +357,7 @@ Input > .input--suggestion {{
 }}
 Input:focus {{
     border: none;
-    background: {bg};
+    background: {user_bg};
     background-tint: {bt};
 }}
 Input > .input--cursor {{

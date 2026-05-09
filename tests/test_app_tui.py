@@ -161,7 +161,11 @@ def test_tui_css_keeps_surface_transparent() -> None:
     transcript_start = css.index("#transcript {")
     transcript_end = css.index("}", transcript_start)
     transcript_block = css[transcript_start:transcript_end]
-    assert f"background: {tui.current_palette().panel};" in transcript_block
+    composer_start = css.index("#composer {")
+    composer_end = css.index("}", composer_start)
+    composer_block = css[composer_start:composer_end]
+    assert "background: transparent;" in transcript_block
+    assert f"background: {tui.current_palette().panel};" in composer_block
     assert "border-bottom: tall" not in css
     assert "background: #FFFFFF;" not in css
     assert "#suggestions:focus > .option-list--option-highlighted" in css
@@ -308,6 +312,43 @@ def test_tui_css_transparent_container_defaults_prevent_panel_stripes() -> None:
 
     assert "background: transparent;" in container_block
     assert "background-tint: transparent;" in container_block
+
+
+def test_transcript_panel_background_only_paints_user_entries() -> None:
+    if tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_transcript_backgrounds() -> None:
+        async with typed_app.run_test(size=(100, 16)) as pilot:
+            app._append_user("User prompt", mark_working=False)  # type: ignore[reportPrivateUsage]
+            app._append_assistant_reply("Assistant reply")  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+
+            transcript = app.query_one("#transcript")
+            panel = tui.current_palette().panel.lower()
+            user_segments: list[str] = []
+            assistant_segments: list[str] = []
+            for line_number in range(transcript.size.height):
+                for segment in transcript.render_line(line_number):
+                    style = str(segment.style)
+                    if "User prompt" in segment.text:
+                        user_segments.append(style)
+                    if "Assistant reply" in segment.text:
+                        assistant_segments.append(style)
+
+            assert user_segments
+            assert assistant_segments
+            assert all(f"on {panel}" in style.lower() for style in user_segments)
+            assert all(f"on {panel}" not in style.lower() for style in assistant_segments)
+
+    asyncio.run(check_transcript_backgrounds())
 
 
 def test_transparent_style_strips_standard_and_truecolor_black_backgrounds() -> None:
