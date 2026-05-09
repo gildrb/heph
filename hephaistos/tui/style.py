@@ -66,8 +66,7 @@ RichLog {{
     color: {p.dim};
 }}
 #transcript {{
-    height: auto;
-    max-height: 1fr;
+    height: 1fr;
     width: 100%;
     max-width: 100%;
     padding: 0 2;

@@ -1634,6 +1634,39 @@ def test_transcript_scrolls_to_latest_entry_after_long_output() -> None:
     asyncio.run(check_scroll())
 
 
+def test_small_terminal_keeps_composer_reachable_after_long_output() -> None:
+    if tui.Input is None or tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_composer_reachable() -> None:
+        async with typed_app.run_test(size=(80, 8)) as pilot:
+            await pilot.pause()
+            app._append_plain("\n".join(f"old line {i}" for i in range(60)))  # type: ignore[reportPrivateUsage]
+            app._append_plain("latest exam question line")  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+
+            log = app.query_one("#transcript", tui.RichLog)
+            composer_frame = app.query_one("#composer-frame")
+            composer = app.query_one("#composer", tui.Input)
+            footer_hints = app.query_one("#footer-hints")
+            screen_height = app.screen.size.height
+
+            assert log.region.y + log.region.height <= composer_frame.region.y
+            assert composer_frame.region.y + composer_frame.region.height <= screen_height
+            assert composer.region.y < screen_height
+            assert footer_hints.region.y < screen_height
+
+    asyncio.run(check_composer_reachable())
+
+
 def test_transcript_scrolls_to_final_line_of_multiline_command_output() -> None:
     if tui.Input is None or tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
         pytest.skip("Textual is not installed")
