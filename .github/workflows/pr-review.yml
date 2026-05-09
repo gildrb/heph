@@ -26,12 +26,10 @@ jobs:
       - name: Ruff lint check
         run: |
           mkdir -p .artifacts
-          uv run ruff check . > .artifacts/ruff-output.txt 2>&1
-        continue-on-error: true
+          uv run ruff check . > .artifacts/ruff-output.txt 2>&1 || true
 
       - name: Ruff format check
-        run: uv run ruff format --check . > .artifacts/format-output.txt 2>&1
-        continue-on-error: true
+        run: uv run ruff format --check . > .artifacts/format-output.txt 2>&1 || true
 
       - name: Upload review outputs
         if: always()
