@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from hephaistos.armory.cli import default_armory_home
-from hephaistos.armory.search import add_known_armory
+from hephaistos.armory.search import add_known_armory, set_last_armory
 from hephaistos.armory.storage import ArmoryError, initialize
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
@@ -68,6 +68,7 @@ def onboard_new_armory(config: ChatConfig) -> ChatSession | None:
         print_error(str(exc))
         return None
     _ = add_known_armory(armory_path)
+    set_last_armory(armory_path)
     module_name = armory_path.name
     materials_path = armory_path / "materials"
     print_success(f"Created armory '{module_name}' at {armory_path}")

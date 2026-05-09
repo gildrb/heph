@@ -35,6 +35,7 @@ STRING_KEYS: Final[frozenset[str]] = frozenset(
         "supermemory_profile",
         "theme",
         "default_armory_path",
+        "last_armory_path",
         "interface_mode",
     }
 )
@@ -55,6 +56,7 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
 )
 INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "known_armories",
+    "last_armory_path",
     "supermemory_onboarding_seen",
     "privacy_notice_seen",
     "session_count",
@@ -76,6 +78,7 @@ _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
 class AppSettings:
     theme: str = DEFAULT_THEME
     default_armory_path: str = ""
+    last_armory_path: str = ""
     interface_mode: str = DEFAULT_INTERFACE_MODE
     analytics_enabled: bool = False
     crash_reports_enabled: bool = False
@@ -156,6 +159,11 @@ def normalize_setting_value(key: str, value: object) -> object:
         if not raw:
             return ""
         return str(Path(raw).expanduser().resolve())
+    if key == "last_armory_path":
+        raw = str(value).strip()
+        if not raw:
+            return ""
+        return str(Path(raw).expanduser().resolve())
     if key == "feature_flags":
         flags = parse_feature_flags(str(value))
         return ",".join(sorted(flags))
@@ -232,12 +240,14 @@ def load_app_settings() -> AppSettings:
     if theme not in THEME_PRESETS:
         theme = DEFAULT_THEME
     default_armory = str(raw.get("default_armory_path", "")).strip()
+    last_armory = str(raw.get("last_armory_path", "")).strip()
     interface_mode = str(raw.get("interface_mode", DEFAULT_INTERFACE_MODE)).strip().lower()
     if interface_mode not in INTERFACE_MODES:
         interface_mode = DEFAULT_INTERFACE_MODE
     return AppSettings(
         theme=theme,
         default_armory_path=default_armory,
+        last_armory_path=last_armory,
         interface_mode=interface_mode,
         analytics_enabled=_coerce_bool(raw.get("analytics_enabled"), default=False),
         crash_reports_enabled=_coerce_bool(raw.get("crash_reports_enabled"), default=False),

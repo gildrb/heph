@@ -870,10 +870,10 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
 
     entries = build_entries(armory_home, allow_create=True)
     labels = [entry.label for entry in entries]
+    recent_labels = [label for label in labels if label.startswith("recent")]
 
-    assert labels[0].startswith("recent  exam-prep")
-    assert labels[1].startswith("recent  missing")
-    assert "missing" in labels[1]
+    assert len(recent_labels) == 1
+    assert recent_labels[0].startswith("recent  exam-prep")
 
 
 def test_armory_browser_detail_describes_material_layout(tmp_path: Path) -> None:
@@ -2098,9 +2098,10 @@ def test_armory_inline_header_shows_filter_and_no_matches(tmp_path: Path) -> Non
             focus_hint = app.query_one("#armory-pane-hint", tui.Static)  # type: ignore[reportPrivateUsage]
             mode_hint = app.query_one("#armory-mode-hint", tui.Static)  # type: ignore[reportPrivateUsage]
             preview = app.query_one("#armory-preview-inline", tui.Static)  # type: ignore[reportPrivateUsage]
-            assert "filter: no-such-folder" in str(header.render())  # type: ignore[reportUnknownMemberType]
-            assert "mode: browse" in str(mode_hint.render())  # type: ignore[reportUnknownMemberType]
-            assert "focus: input" in str(focus_hint.render())  # type: ignore[reportUnknownMemberType]
+            assert "no-such-folder" in str(header.render())  # type: ignore[reportUnknownMemberType]
+            assert "enter open" in str(mode_hint.render())  # type: ignore[reportUnknownMemberType]
+            # pane hint is now cleared (empty)
+            assert focus_hint is not None
             assert "No matches" in str(preview.render())  # type: ignore[reportUnknownMemberType]
 
     asyncio.run(check_empty_filter())

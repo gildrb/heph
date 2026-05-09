@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from hephaistos.armory.search import set_last_armory
 from hephaistos.chat.session import (
     ChatSession,
     SessionError,
@@ -46,7 +47,9 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
         print_info("Run `heph armory init <name>`, add files to ~/.armories/<name>/materials/.")
         return create_plain_session(config)
     try:
-        return create_session(config, armory)
+        session = create_session(config, armory)
+        set_last_armory(armory)
+        return session
     except SessionError:
         print_error("Auto-discovered armory has no study materials.")
         print_info(empty_armory_guidance(armory))

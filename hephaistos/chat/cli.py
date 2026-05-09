@@ -6,6 +6,7 @@ import argparse
 import sys
 from collections.abc import Callable
 
+from hephaistos.armory.search import set_last_armory
 from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.session import (
@@ -29,7 +30,9 @@ def resolve_armory_session(path: str) -> ChatSession:
         raise SystemExit(2) from exc
 
     try:
-        return create_session(load_config(armory_path), armory_path)
+        session = create_session(load_config(armory_path), armory_path)
+        set_last_armory(armory_path)
+        return session
     except SessionError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc

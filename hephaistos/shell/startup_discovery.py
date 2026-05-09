@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from hephaistos.armory.cli import default_armory_home
-from hephaistos.armory.search import add_known_armory, load_known_armory_entries
+from hephaistos.armory.search import add_known_armory, get_last_armory, load_known_armory_entries
 from hephaistos.armory.storage import MARKER_FILE, ArmoryError
 from hephaistos.chat.session import validate_armory_path
 
@@ -37,6 +37,10 @@ def discover_startup_armory() -> Path | None:
         return validate_armory_path(str(Path.cwd()))
     except ArmoryError:
         pass
+
+    last = get_last_armory()
+    if last is not None:
+        return last
 
     valid = discover_available_armories()
     if len(valid) == 1:

@@ -94,6 +94,22 @@ def remove_known_armory(path: Path) -> list[Path]:
     return paths
 
 
+def get_last_armory() -> Path | None:
+    """Return the last-opened armory path, or None if unset or invalid."""
+    raw = load_raw_settings().get("last_armory_path")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    path = Path(raw).expanduser().resolve()
+    if path.is_dir() and (path / MARKER_FILE).is_file():
+        return path
+    return None
+
+
+def set_last_armory(path: Path) -> None:
+    """Persist *path* as the most-recently-opened armory."""
+    save_setting("last_armory_path", str(path.expanduser().resolve()))
+
+
 @dataclass
 class CrossArmoryIndex:
     """Lightweight search index across multiple armories.

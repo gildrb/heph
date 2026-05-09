@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from hephaistos import commands
-from hephaistos.armory.search import add_known_armory, load_known_armories, save_known_armories
+from hephaistos.armory.search import (
+    add_known_armory,
+    get_last_armory,
+    load_known_armories,
+    save_known_armories,
+    set_last_armory,
+)
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import (
@@ -146,6 +153,54 @@ class TestDiscoverStartupArmory:
 
         result = discover_startup_armory()
         assert result is None
+
+    def test_last_armory_used_when_multiple_known(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory_a = clean_armory_env / "armory-a"
+        armory_b = clean_armory_env / "armory-b"
+        initialize(armory_a)
+        initialize(armory_b)
+        add_known_armory(armory_a)
+        add_known_armory(armory_b)
+        set_last_armory(armory_b)
+
+        result = discover_startup_armory()
+        assert result == armory_b
+
+    def test_last_armory_ignored_when_deleted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        armory = clean_armory_env / "deleted"
+        initialize(armory)
+        set_last_armory(armory)
+        shutil.rmtree(armory)
+
+        result = discover_startup_armory()
+        assert result is None
+
+
+class TestLastArmoryHelpers:
+    def test_set_and_get_last_armory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        armory = clean_armory_env / "my-armory"
+        initialize(armory)
+        set_last_armory(armory)
+        assert get_last_armory() == armory.resolve()
+
+    def test_get_last_armory_returns_none_when_unset(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        assert get_last_armory() is None
+
+    def test_get_last_armory_returns_none_for_missing_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
+    ) -> None:
+        set_last_armory(tmp_path / "nonexistent")
+        assert get_last_armory() is None
 
 
 # ---------------------------------------------------------------------------
