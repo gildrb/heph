@@ -241,7 +241,12 @@ class TuiArmoryMixin:
                 )
                 return
             if entry.path.is_dir() and not entry.is_recent:
-                self._armory_current = entry.path
+                try:
+                    _validate_armory(entry.path)
+                except (OSError, ArmoryError):
+                    self._armory_current = entry.path
+                    return
+                self._open_selected_armory(entry.path)
                 return
             self._open_selected_armory(entry.path)
 

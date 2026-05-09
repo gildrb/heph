@@ -2241,6 +2241,40 @@ def test_handle_armory_browser_rejects_invalid_directory(
     asyncio.run(check_invalid_directory())
 
 
+def test_armory_inline_enter_opens_highlighted_armory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    armory_path = tmp_path / "study"
+    initialize(armory_path)
+    (armory_path / "materials" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_enter_opens_armory() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._handle_armory_browser("/armory")  # type: ignore[reportPrivateUsage]
+            labels = [entry.label for entry in app._armory_entries]  # type: ignore[reportPrivateUsage]
+            index = next(i for i, label in enumerate(labels) if "study" in label)
+            current = app.query_one("#armory-current-inline", tui.OptionList)  # type: ignore[reportPrivateUsage]
+            current.highlighted = index
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._armory_inline_active is False  # type: ignore[reportPrivateUsage]
+            assert app.session.armory_path == armory_path
+            assert app.session.source_file_count == 1
+
+    asyncio.run(check_enter_opens_armory())
+
+
 def test_handle_armory_browser_switches_to_selected_armory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
