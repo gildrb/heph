@@ -1,15 +1,13 @@
 # pylint: disable=duplicate-code
-"""Inline Textual armory browser screen with Miller-column layout.
+"""Inline Textual armory selector screen.
 
-A ModalScreen that uses three columns — parent directory, current directory,
-and a preview/detail pane — inspired by the Yazi file manager UX.  The parent
-column shows the siblings of the current directory.  The current column shows
-directory entries (and file entries when inside an armory).  The preview pane
-shows metadata or file content snippets.
+A ModalScreen that lists recent armories and all available armories under the
+configured armory home.  The current column shows selectable armory entries and
+the preview pane shows metadata.
 
-All interaction is keyboard-first: hjkl or arrows to navigate, enter to drill
-into directories, c to choose the current directory as an armory, n to create
-a new armory, / to focus the fuzzy filter, and escape/q to cancel.
+All interaction is keyboard-first: arrows or j/k move, enter opens the selected
+armory, n creates a new armory, / focuses the fuzzy filter, and escape/q
+cancels.
 
 All Textual imports are guarded so the module can be imported safely in
 environments where Textual is not installed.
@@ -23,7 +21,11 @@ import time
 from pathlib import Path
 from typing import ClassVar
 
-from hephaistos.armory.search import load_known_armory_entries
+from hephaistos.armory.search import (
+    MAX_RECENT_ARMORIES,
+    load_known_armory_entries,
+    load_recent_armory_entries,
+)
 from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
 from hephaistos.matching import ranked_matches
 from hephaistos.materials import count_material_files
@@ -56,14 +58,18 @@ except ImportError:
 # Constants
 # ---------------------------------------------------------------------------
 
-_PARENT_LABEL = ".."
+_PARENT_LABEL = "all armories"
 _NEW_ARMORY_LABEL = "+ new armory"
 _DIR_PREFIX = "  "
 _FILE_PREFIX = "  "
 _ARMORY_BADGE = "  armory"
-_RECENT_PREFIX = "recent  "
+_RECENT_PREFIX = "  "
 _MISSING_BADGE = "  missing"
-_PARENT_COLUMN_WIDTH = 24
+_RECENT_HEADING = "recent armories"
+_ALL_HEADING = "all armories"
+_EMPTY_RECENT_LABEL = "  no recent armories"
+_EMPTY_ALL_LABEL = "  no armories found"
+_PARENT_COLUMN_WIDTH = 0
 _PREVIEW_COLUMN_WIDTH = 38
 _DEFAULT_ARMORY_HOME_ENV = "HEPHAISTOS_ARMORY_HOME"
 
@@ -272,6 +278,7 @@ class _DirEntry:
         "is_parent",
         "is_place",
         "is_recent",
+        "is_section",
         "label",
         "path",
     )
@@ -287,6 +294,7 @@ class _DirEntry:
         is_missing: bool = False,
         is_file: bool = False,
         is_place: bool = False,
+        is_section: bool = False,
     ) -> None:
         self.label = label
         self.path = path
@@ -296,6 +304,7 @@ class _DirEntry:
         self.is_missing = is_missing
         self.is_file = is_file
         self.is_place = is_place
+        self.is_section = is_section
 
 
 def _place_entries() -> list[_DirEntry]:
@@ -325,8 +334,11 @@ def _recent_entries() -> list[_DirEntry]:
     """Return recent armories as quick-open entries."""
     discover_available_armories()
     entries: list[_DirEntry] = []
-    for known in load_known_armory_entries():
-        if len(entries) >= 5:
+    recent = load_recent_armory_entries()
+    if not recent:
+        recent = load_known_armory_entries()
+    for known in recent:
+        if len(entries) >= MAX_RECENT_ARMORIES:
             break
         if not known.valid:
             continue
@@ -342,6 +354,28 @@ def _recent_entries() -> list[_DirEntry]:
     return entries
 
 
+def _available_armory_entries() -> list[_DirEntry]:
+    """Return all valid armories under the configured armory home."""
+    armories = discover_available_armories()
+    child_entries = [
+        _DirEntry(f"{_DIR_PREFIX}{path.name}{_ARMORY_BADGE}", path=path)
+        for path in armories
+        if _is_within_armory_home(path)
+    ]
+    if child_entries:
+        return child_entries
+    current = default_armory_home()
+    children = _list_entries(current)
+    return [
+        _DirEntry(
+            f"{_DIR_PREFIX}{child.name}{_ARMORY_BADGE if _is_armory(child) else ''}",
+            path=child,
+        )
+        for child in children
+        if _is_within_armory_home(child)
+    ]
+
+
 def build_entries(
     current: Path,
     allow_create: bool,
@@ -350,32 +384,14 @@ def build_entries(
     filter_query: str = "",
     show_places: bool = False,
 ) -> list[_DirEntry]:
-    """Build the ordered list of browser entries for the current column."""
-    place_entries = _place_entries() if show_places else []
+    """Build the ordered armory selector entries for the current column."""
+    place_entries = _place_entries() if show_places and not filter_query.strip() else []
     recent_entries = _recent_entries()
     entries: list[_DirEntry] = []
-
-    child_entries: list[_DirEntry] = []
-    children = (
-        _list_entries(current, show_files=show_files) if _is_within_armory_home(current) else []
-    )
-    for child in children:
-        if not _is_within_armory_home(child):
-            continue
-
-        is_file = child.is_file()
-        if is_file:
-            prefix = _FILE_PREFIX
-            badge = ""
-        else:
-            prefix = _DIR_PREFIX
-            badge = _ARMORY_BADGE if _is_armory(child) else ""
-        child_entries.append(
-            _DirEntry(f"{prefix}{child.name}{badge}", path=child, is_file=is_file)
-        )
+    child_entries = _available_armory_entries()
 
     if filter_query.strip():
-        searchable = [*place_entries, *recent_entries, *child_entries]
+        searchable = [*recent_entries, *child_entries]
         matches = ranked_matches(
             filter_query,
             searchable,
@@ -386,15 +402,20 @@ def build_entries(
         return [m.value for m in matches]
 
     entries.extend(place_entries)
-    if entries and recent_entries:
-        entries.append(_DirEntry(""))
-    entries.extend(recent_entries)
     if entries:
         entries.append(_DirEntry(""))
-    entries.append(_DirEntry(_PARENT_LABEL, is_parent=True))
+    entries.append(_DirEntry(_RECENT_HEADING, is_section=True))
+    entries.extend(recent_entries)
+    if not recent_entries:
+        entries.append(_DirEntry(_EMPTY_RECENT_LABEL, is_section=True))
+    if entries:
+        entries.append(_DirEntry(""))
     if allow_create:
         entries.append(_DirEntry(_NEW_ARMORY_LABEL, is_create=True))
+    entries.append(_DirEntry(_ALL_HEADING, is_section=True))
     entries.extend(child_entries)
+    if not child_entries:
+        entries.append(_DirEntry(_EMPTY_ALL_LABEL, is_section=True))
     return entries
 
 
@@ -552,10 +573,11 @@ ArmoryBrowserScreen {{
     width: 100%;
 }}
 #armory-parent-col {{
+    display: none;
     width: {_PARENT_COLUMN_WIDTH};
     height: 100%;
     background: transparent;
-    border-right: solid {border_color};
+    border: none;
     padding: 0 1 0 0;
     color: {dim_color};
     scrollbar-size: 0 0;
@@ -627,24 +649,19 @@ ArmoryBrowserScreen {{
 
 
 class ArmoryBrowserScreen(ModalScreen[Path | None]):
-    """Modal directory browser with Miller-column layout.
+    """Modal armory selector.
 
-    Three columns: parent siblings | current directory entries | preview.
-    Keyboard-first interaction using OptionList widgets.  Returns the chosen
-    *Path* when the user picks a directory, or *None* when cancelled.
+    Lists recent armories and all available armories. Keyboard-first interaction
+    uses an OptionList widget. Returns the chosen *Path* when the user picks an
+    armory, or *None* when cancelled.
     """
 
     BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
         Binding("escape", "cancel", "Cancel"),
         Binding("q", "cancel", "Cancel", show=False),
-        Binding("c", "choose", "Choose"),
         Binding("n", "new_armory", "New"),
         Binding("slash", "start_filter", "Filter", show=False),
         Binding("enter", "activate", "Open", show=False),
-        Binding("right", "navigate_into", "Open", show=False),
-        Binding("l", "navigate_into", "Open", show=False),
-        Binding("left", "navigate_parent", "Back", show=False),
-        Binding("h", "navigate_parent", "Back", show=False),
     ]
 
     def __init__(
@@ -662,7 +679,6 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         self._filtering = False
         self._filter_query = ""
         self._entries: list[_DirEntry] = []
-        self._parent_entries: list[tuple[str, Path]] = []
         self.CSS = _armory_browser_css(current_palette())  # ty:ignore[invalid-attribute-access]
 
     # -----------------------------------------------------------------------
@@ -691,7 +707,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
                 )
             yield Static("", id="armory-error")
             yield Static(
-                "arrows navigate  enter/right open  c choose  n new  / filter  esc cancel",
+                "arrows navigate  enter open  n new  / filter  esc cancel",
                 id="armory-hint",
             )
 
@@ -735,24 +751,16 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             filter_query=self._filter_query,
             show_places=True,
         )
-        self._parent_entries = build_parent_entries(self._current)
 
         path_widget = self.query_one("#armory-path", Static)
         path_widget.update(str(self._current))
-
-        # Parent column
-        parent_ol = self.query_one("#armory-parent-col", OptionList)
-        parent_ol.clear_options()
-        for label, _path in self._parent_entries:
-            parent_ol.add_option(label)
 
         # Current column
         cur_ol = self.query_one("#armory-current-col", OptionList)
         cur_ol.clear_options()
         for entry in self._entries:
             cur_ol.add_option(_format_entry(entry))
-        if self._entries:
-            cur_ol.highlighted = 0
+        cur_ol.highlighted = self._first_selectable_index()
 
         self._update_preview()
 
@@ -778,10 +786,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             preview.update("No selection")
             return
         if not entry.label:
-            preview.update("Recent armories\n\nEnter opens a recent armory directly.")
-            return
-        if entry.is_parent:
-            preview.update("Parent directory\n\nMove up one folder.\n\nLeft/h also navigates up.")
+            preview.update("")
             return
         if entry.is_place:
             preview.update(f"Place\n\nJump to:\n{entry.path}")
@@ -803,6 +808,12 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         else:
             preview.update(armory_detail(entry.path))
 
+    def _first_selectable_index(self) -> int | None:
+        for index, entry in enumerate(self._entries):
+            if entry.path is not None or entry.is_create:
+                return index
+        return None
+
     # -----------------------------------------------------------------------
     # Entry access
     # -----------------------------------------------------------------------
@@ -818,21 +829,12 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     # Navigation
     # -----------------------------------------------------------------------
 
-    def _navigate_parent(self) -> None:
-        parent = self._current.parent
-        if parent != self._current and parent.exists() and _is_within_armory_home(parent):
-            self._current = parent
-            self._filter_query = ""
-            self._refresh()
-
     def _navigate_into(self, entry: _DirEntry) -> None:
         if not entry.label:
             return
-        if entry.is_parent:
-            self._navigate_parent()
-        elif entry.is_create:
+        if entry.is_create:
             self._start_new_armory()
-        elif entry.is_recent and entry.path is not None:
+        elif entry.path is not None:
             if not _is_within_armory_home(entry.path):
                 self._set_error(f"Cannot navigate outside armory home: {entry.path}")
                 return
@@ -840,16 +842,6 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
                 self._set_error(f"Missing armory: {entry.path}")
                 return
             self.dismiss(entry.path)
-        elif entry.path is not None and entry.path.is_dir():
-            if not _is_within_armory_home(entry.path):
-                self._set_error(f"Cannot navigate outside armory home: {entry.path}")
-                return
-            self._current = entry.path
-            self._filter_query = ""
-            self._refresh()
-        elif entry.path is not None and entry.is_file:
-            # Files don't navigate but could be previewed — already shown
-            pass
 
     def _move_highlight(self, offset: int) -> None:
         if not self._entries:
@@ -857,8 +849,13 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         ol = self.query_one("#armory-current-col", OptionList)
         current = ol.highlighted
         if current is None:
-            current = 0
-        ol.highlighted = (current + offset) % len(self._entries)
+            current = -1 if offset > 0 else 0
+        for step in range(1, len(self._entries) + 1):
+            index = (current + (offset * step)) % len(self._entries)
+            entry = self._entries[index]
+            if entry.path is not None or entry.is_create:
+                ol.highlighted = index
+                break
         self._update_preview()
 
     # -----------------------------------------------------------------------
@@ -866,21 +863,12 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     # -----------------------------------------------------------------------
 
     def action_activate(self) -> None:
-        """Enter key: drill into directory or activate special entry."""
+        """Enter key: open the highlighted armory or activate special entry."""
         if self._creating or self._filtering:
             return
         entry = self._highlighted_entry()
         if entry is not None:
             self._navigate_into(entry)
-
-    def action_choose(self) -> None:
-        """c key: choose the current directory as the armory."""
-        if self._creating or self._filtering:
-            return
-        if not _is_within_armory_home(self._current):
-            self._set_error(f"Cannot choose a folder outside armory home: {self._current}")
-            return
-        self.dismiss(self._current)
 
     def action_cancel(self) -> None:
         """escape/q: cancel or stop creating/filtering."""
@@ -898,20 +886,6 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             return
         if self._allow_create:
             self._start_new_armory()
-
-    def action_navigate_parent(self) -> None:
-        """Left/h: navigate to parent directory."""
-        if self._creating or self._filtering:
-            return
-        self._navigate_parent()
-
-    def action_navigate_into(self) -> None:
-        """Right/l: drill into the highlighted directory."""
-        if self._creating or self._filtering:
-            return
-        entry = self._highlighted_entry()
-        if entry is not None:
-            self._navigate_into(entry)
 
     def action_start_filter(self) -> None:
         """Slash key: activate fuzzy filter bar."""
@@ -938,7 +912,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         container = self.query_one("#armory-filter-container", Vertical)
         container.remove_class("active")
         hint = self.query_one("#armory-hint", Static)
-        hint.update("arrows navigate  enter/right open  c choose  n new  / filter  esc cancel")
+        hint.update("arrows navigate  enter open  n new  / filter  esc cancel")
         self._focus_current_col()
 
     def _accept_filter(self) -> None:
@@ -947,7 +921,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         container = self.query_one("#armory-filter-container", Vertical)
         container.remove_class("active")
         hint = self.query_one("#armory-hint", Static)
-        hint.update("arrows navigate  enter/right open  c choose  n new  / filter  esc cancel")
+        hint.update("arrows navigate  enter open  n new  / filter  esc cancel")
         self._focus_current_col()
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -965,8 +939,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             cur_ol.clear_options()
             for entry in self._entries:
                 cur_ol.add_option(_format_entry(entry))
-            if self._entries:
-                cur_ol.highlighted = 0
+            cur_ol.highlighted = self._first_selectable_index()
             self._update_preview()
             return
         if event.input.id == "armory-new-input":
@@ -1018,7 +991,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         container = self.query_one("#armory-new-input-container", Vertical)
         container.remove_class("active")
         hint = self.query_one("#armory-hint", Static)
-        hint.update("arrows navigate  enter/right open  c choose  n new  / filter  esc cancel")
+        hint.update("arrows navigate  enter open  n new  / filter  esc cancel")
         self._focus_current_col()
 
     # -----------------------------------------------------------------------
@@ -1034,16 +1007,6 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             idx = event.option_list.highlighted
             if idx is not None and 0 <= idx < len(self._entries):
                 self._navigate_into(self._entries[idx])
-            return
-        if event.option_list.id == "armory-parent-col":
-            event.stop()
-            idx = event.option_list.highlighted
-            if idx is not None and 0 <= idx < len(self._parent_entries):
-                _label, path = self._parent_entries[idx]
-                if path.is_dir() and _is_within_armory_home(path):
-                    self._current = path
-                    self._filter_query = ""
-                    self._refresh()
             return
 
     # -----------------------------------------------------------------------
@@ -1075,24 +1038,6 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
         if event.key in ("down", "j"):
             self._move_highlight(1)
-            event.prevent_default()
-            event.stop()
-            return
-
-        if event.key in ("left", "h"):
-            self.action_navigate_parent()
-            event.prevent_default()
-            event.stop()
-            return
-
-        if event.key in ("right", "l"):
-            self.action_navigate_into()
-            event.prevent_default()
-            event.stop()
-            return
-
-        if event.key == "c":
-            self.action_choose()
             event.prevent_default()
             event.stop()
             return

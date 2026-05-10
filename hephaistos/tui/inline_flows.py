@@ -76,7 +76,7 @@ class TuiInlineFlowMixin:
         self._render_inline_menu_options(options)
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = f"{title} · type to filter · ↑/↓ enter · esc"
+        composer.placeholder = f"{title}  type to filter  ↑/↓ enter  esc"
         composer.focus()
         self.set_focus(composer)
 
@@ -108,7 +108,7 @@ class TuiInlineFlowMixin:
         self._open_inline_menu(
             name="login",
             step="menu",
-            title="Login · choose an account source",
+            title="Login  choose an account source",
             options=[
                 ("OpenAI Codex", "ChatGPT Plus/Pro subscription"),
                 ("OpenRouter", "API key"),
@@ -124,7 +124,7 @@ class TuiInlineFlowMixin:
         self._open_inline_menu(
             name="settings",
             step="menu",
-            title=f"Settings · current model source: {current}",
+            title=f"Settings  current model source: {current}",
             options=[
                 ("Privacy & Diagnostics", self._privacy_settings_summary()),
                 ("Appearance", f"theme: {settings.theme}"),
@@ -147,14 +147,14 @@ class TuiInlineFlowMixin:
     ) -> str:
         status = "enabled" if enabled else "disabled"
         availability = "available" if available else "inactive until configured"
-        suffix = " · env override" if overridden else ""
-        return f"{status} · {availability}{suffix}"
+        suffix = "  env override" if overridden else ""
+        return f"{status}  {availability}{suffix}"
 
     def _open_privacy_flow(self) -> None:
         self._open_inline_menu(
             name="settings",
             step="privacy",
-            title="Settings · Privacy & Diagnostics",
+            title="Settings  Privacy & Diagnostics",
             options=[
                 (
                     "Usage analytics",
@@ -180,7 +180,7 @@ class TuiInlineFlowMixin:
         self._open_inline_menu(
             name="settings",
             step="appearance",
-            title="Settings · Appearance",
+            title="Settings  Appearance",
             options=[
                 (
                     theme,
@@ -217,7 +217,7 @@ class TuiInlineFlowMixin:
         self._open_inline_menu(
             name="models",
             step="menu",
-            title=f"Models · current: {self.session.config.model}",
+            title=f"Models  current: {self.session.config.model}",
             options=self._model_flow_options(pc, choices),
         )
         self.run_worker(self._refresh_models_flow_worker, thread=True)
@@ -256,7 +256,7 @@ class TuiInlineFlowMixin:
         self._open_inline_menu(
             name="logout",
             step="menu",
-            title="Logout · choose credentials to clear",
+            title="Logout  choose credentials to clear",
             options=options,
         )
 
@@ -303,7 +303,7 @@ class TuiInlineFlowMixin:
         self._open_inline_menu(
             name="sessions",
             step="menu",
-            title="Sessions · choose a chat to resume",
+            title="Sessions  choose a chat to resume",
             options=[
                 (
                     entry["session_id"],

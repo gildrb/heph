@@ -1157,11 +1157,11 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
     )
 
     entries = build_entries(armory_home, allow_create=True)
-    labels = [entry.label for entry in entries]
-    recent_labels = [label for label in labels if label.startswith("recent")]
+    recent_labels = [entry.label for entry in entries if entry.is_recent]
 
     assert len(recent_labels) == 1
-    assert recent_labels[0].startswith("recent  exam-prep")
+    assert "exam-prep" in recent_labels[0]
+    assert "recent  " not in recent_labels[0]
 
 
 def test_armory_browser_detail_describes_material_layout(tmp_path: Path) -> None:
@@ -2066,7 +2066,7 @@ def test_armory_inline_place_entries_stay_inside_armory_home(
     asyncio.run(check_places())
 
 
-def test_armory_inline_left_stops_at_armory_home(
+def test_armory_inline_left_does_not_navigate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     if tui.Input is None:  # type: ignore[reportUnnecessaryComparison]
@@ -2090,10 +2090,10 @@ def test_armory_inline_left_stops_at_armory_home(
             app._refresh_armory_inline()  # type: ignore[reportPrivateUsage]
             await pilot.press("left")
             await pilot.pause()
-            assert app._armory_current == armory_home  # type: ignore[reportPrivateUsage]
+            assert app._armory_current == child  # type: ignore[reportPrivateUsage]
             await pilot.press("left")
             await pilot.pause()
-            assert app._armory_current == armory_home  # type: ignore[reportPrivateUsage]
+            assert app._armory_current == child  # type: ignore[reportPrivateUsage]
 
     asyncio.run(check_left_navigation())
 

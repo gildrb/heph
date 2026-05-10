@@ -77,10 +77,10 @@ def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False)
     elif filtering:
         parts = ["armory", "enter open", "esc clear", "arrows move", "n new"]
     else:
-        parts = ["armory", "type filter", "enter open", "c choose", "n new", "esc close"]
+        parts = ["armory", "type filter", "enter open", "n new", "esc close"]
     plain = "  ".join(parts)
     text = require_rich_text()(plain, style=palette.dim)
-    for label in ("armory", "enter", "esc", "arrows", "type", "c", "n"):
+    for label in ("armory", "enter", "esc", "arrows", "type", "n"):
         start = 0
         while True:
             idx = plain.find(label, start)

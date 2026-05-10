@@ -14,9 +14,7 @@ from hephaistos.tui.armory_browser import (
     _is_within_armory_home,
     armory_detail,
     build_entries,
-    build_parent_entries,
     default_armory_home,
-    file_detail,
     new_armory_path,
 )
 
@@ -114,38 +112,40 @@ class TuiArmoryMixin:
             self._armory_current,
             allow_create=self._armory_mode in ("manage", "create"),
             filter_query=self._armory_filter,
-            show_places=True,
+            show_places=False,
         )
-        self._armory_parent_entries = build_parent_entries(self._armory_current)
         header = self.query_one("#armory-header", Static)
         breadcrumbs = self.query_one("#armory-breadcrumbs", Static)
         mode_hint = self.query_one("#armory-mode-hint", Static)
         pane_hint = self.query_one("#armory-pane-hint", Static)
 
         location = _display_path(self._armory_current)
-        filter_hint = f" · {self._armory_filter}" if self._armory_filter else ""
-        count_hint = f" · {len(self._armory_entries)} item(s)"
-        header.update(f"armory · {location}{filter_hint}{count_hint}")
+        filter_hint = f"  {self._armory_filter}" if self._armory_filter else ""
+        selectable_count = sum(
+            1 for entry in self._armory_entries if entry.path is not None or entry.is_create
+        )
+        count_hint = f"  {selectable_count} item(s)"
+        header.update(f"armory  {location}{filter_hint}{count_hint}")
         breadcrumbs.update("")
 
         if self._armory_creating:
-            mode_hint.update("enter create · esc cancel")
+            mode_hint.update("enter create  esc cancel")
         else:
-            mode_hint.update("enter open · c choose · n new · esc close")
+            mode_hint.update("enter open  n new  esc close")
 
         pane_hint.update("")
         self.query_one("#armory-count-hint", Static).update("")
 
-        parent = self.query_one("#armory-parent-inline", OptionList)
-        parent.clear_options()
-        for label, _path in self._armory_parent_entries:
-            parent.add_option(label)
         current.clear_options()
         for entry in self._armory_entries:
             current.add_option(entry.label)
         current.highlighted = self._armory_index_for_key(previous_key)
-        if current.highlighted is None and self._armory_entries:
-            current.highlighted = 0
+        if current.highlighted is not None:
+            entry = self._armory_entries[current.highlighted]
+            if entry.path is None and not entry.is_create:
+                current.highlighted = None
+        if current.highlighted is None:
+            current.highlighted = self._first_selectable_armory_index()
         self._update_armory_preview()
 
     def _armory_focus_name(self) -> str:
@@ -154,10 +154,8 @@ class TuiArmoryMixin:
         if focused is None:
             return "none"
         widget_id = getattr(focused, "id", None)
-        if widget_id == "armory-parent-inline":
-            return "parents"
         if widget_id == "armory-current-inline":
-            return "entries"
+            return "armories"
         if widget_id == "composer":
             return "input"
         return "preview"
@@ -168,8 +166,6 @@ class TuiArmoryMixin:
             return None
         if entry.path is not None:
             return ("path", str(entry.path))
-        if entry.is_parent:
-            return ("parent", entry.label)
         if entry.is_create:
             return ("create", entry.label)
         return ("label", entry.label)
@@ -182,9 +178,13 @@ class TuiArmoryMixin:
                 return index
             if entry.path is None and key == ("label", entry.label):
                 return index
-            if entry.is_parent and key == ("parent", entry.label):
-                return index
             if entry.is_create and key == ("create", entry.label):
+                return index
+        return None
+
+    def _first_selectable_armory_index(self) -> int | None:
+        for index, entry in enumerate(self._armory_entries):
+            if entry.path is not None or entry.is_create:
                 return index
         return None
 
@@ -209,17 +209,21 @@ class TuiArmoryMixin:
         if entry.path is None:
             preview.update(entry.label or "")
             return
-        if entry.is_file:
-            preview.update(file_detail(entry.path))
-        else:
-            preview.update(armory_detail(entry.path))
+        preview.update(armory_detail(entry.path))
 
     def _move_armory_highlight(self, offset: int) -> None:
         if not self._armory_entries:
             return
         current = self.query_one("#armory-current-inline", OptionList)
-        highlighted = current.highlighted or 0
-        current.highlighted = (highlighted + offset) % len(self._armory_entries)
+        highlighted = current.highlighted
+        if highlighted is None:
+            highlighted = -1 if offset > 0 else 0
+        for step in range(1, len(self._armory_entries) + 1):
+            index = (highlighted + (offset * step)) % len(self._armory_entries)
+            entry = self._armory_entries[index]
+            if entry.path is not None or entry.is_create:
+                current.highlighted = index
+                break
         self._update_armory_preview()
 
     def _armory_open_highlighted(self) -> None:
@@ -229,24 +233,13 @@ class TuiArmoryMixin:
         if entry.is_create:
             self._start_inline_create()
             return
-        if entry.is_parent:
-            parent = self._armory_current.parent
-            if parent != self._armory_current and _is_within_armory_home(parent):
-                self._armory_current = parent
+        if entry.is_section:
             return
         if entry.path is not None:
             if not _is_within_armory_home(entry.path):
                 self.query_one("#armory-error-inline", Static).update(
                     f"Cannot navigate outside armory home: {entry.path}"
                 )
-                return
-            if entry.path.is_dir() and not entry.is_recent:
-                try:
-                    _validate_armory(entry.path)
-                except (OSError, ArmoryError):
-                    self._armory_current = entry.path
-                    return
-                self._open_selected_armory(entry.path)
                 return
             self._open_selected_armory(entry.path)
 
@@ -346,33 +339,6 @@ class TuiArmoryMixin:
             return True
         if event.key in ("down", "j"):
             self._move_armory_highlight(1)
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key in ("left", "h"):
-            parent = self._armory_current.parent
-            if parent != self._armory_current and _is_within_armory_home(parent):
-                self._armory_current = parent
-                self._armory_filter = ""
-                composer.value = ""
-                self._refresh_armory_inline()
-            self.query_one("#armory-parent-inline", OptionList).focus()
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key in ("right", "l"):
-            if self._armory_creating:
-                return False
-            composer.value = ""
-            self._armory_filter = ""
-            self._armory_open_highlighted()
-            self._refresh_armory_inline()
-            self.query_one("#armory-current-inline", OptionList).focus()
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key == "c":
-            self._open_selected_armory(self._armory_current)
             event.prevent_default()
             event.stop()
             return True

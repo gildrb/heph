@@ -56,6 +56,7 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
 )
 INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "known_armories",
+    "recent_armories",
     "last_armory_path",
     "supermemory_onboarding_seen",
     "privacy_notice_seen",
@@ -172,7 +173,7 @@ def normalize_setting_value(key: str, value: object) -> object:
         return profile or "heph-study"
     if key in STRING_KEYS:
         return str(value)
-    if key == "known_armories":
+    if key in ("known_armories", "recent_armories"):
         if isinstance(value, list):
             return [str(v) for v in value]  # type: ignore[reportUnknownArgumentType,reportUnknownVariableType]
         return []
