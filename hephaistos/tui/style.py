@@ -243,9 +243,9 @@ RichLog {{
     color: {p.text};
 }}
 #completion-stack {{
-    height: 8;
-    min-height: 8;
-    max-height: 8;
+    height: 9;
+    min-height: 9;
+    max-height: 9;
     width: 100%;
     max-width: 100%;
     background: {bg};
@@ -315,6 +315,17 @@ OptionList:focus > .option-list--option-highlighted {{
     max-width: 100%;
     background: {bg};
     color: {p.dim};
+}}
+#completion-position {{
+    height: 1;
+    width: auto;
+    max-width: 100%;
+    background: {bg};
+    color: {p.dim};
+    display: none;
+}}
+#completion-position.visible {{
+    display: block;
 }}
 #info-panel {{
     width: 46;
