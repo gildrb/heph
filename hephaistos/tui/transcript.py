@@ -11,12 +11,13 @@ try:
     from rich.style import Style as _RichStyle
     from rich.text import Text as _RichText
     from textual.css.query import NoMatches
-    from textual.widgets import RichLog, Static
+    from textual.widgets import OptionList, RichLog, Static
 except ImportError:
     Markdown = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     _RichStyle = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     _RichText = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     NoMatches = Exception  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
@@ -200,6 +201,19 @@ class TuiTranscriptMixin:
 
     def _refresh_footer_hints(self) -> None:
         hints = self.query_one("#footer-hints", Static)
+        suggestions = self.query_one("#suggestions", OptionList)
+        if suggestions.has_class("visible"):
+            option_count = len(self.completion_candidates) or len(self._inline_flow.options)
+            highlighted = suggestions.highlighted
+            if option_count > 0 and highlighted is not None:
+                tui_module = sys.modules["hephaistos.tui"]
+                hints.update(
+                    tui_module._footer_hints_text(
+                        self.session,
+                        completion_position=(highlighted + 1, option_count),
+                    )
+                )
+                return
         if self._armory_inline_active:
             hints.update(
                 sys.modules["hephaistos.tui"]._armory_footer_hints_text(
