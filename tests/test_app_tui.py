@@ -548,7 +548,7 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             assert frame.region.y == frame_y
             assert stack.region.y == stack_y
             assert frame.size.width == stack.size.width
-            assert str(position.render()) == f"(1/{suggestions.option_count})"
+            assert str(position.render()) == f"  (1/{suggestions.option_count})"
             assert str(footer.render()).startswith("enter send")
             assert suggestions.size.width == stack.size.width
             assert suggestions.has_class("visible")
@@ -2895,7 +2895,7 @@ def test_models_command_shows_plain_suggestion() -> None:
             assert suggestions.has_class("visible")
             assert not suggestions.has_class("model-picker")
             position = app.query_one("#completion-position", tui.Static)  # type: ignore[reportPrivateUsage]
-            assert str(position.render()) == "(1/1)"
+            assert str(position.render()) == "  (1/1)"
             assert str(footer.render()).startswith("enter send")
 
     asyncio.run(check_models_suggestion())
@@ -2925,7 +2925,7 @@ def test_busy_footer_keeps_cancel_hint_with_completion_menu_visible() -> None:
             footer = app.query_one("#footer-hints", tui.Static)  # type: ignore[reportPrivateUsage]
             position = app.query_one("#completion-position", tui.Static)  # type: ignore[reportPrivateUsage]
             assert str(footer.render()) == "ctrl+c cancel"
-            assert str(position.render()) == "(1/28)"
+            assert str(position.render()) == "  (1/28)"
 
     asyncio.run(check_busy_footer())
 
@@ -3083,7 +3083,8 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
                 assert suggestions.highlighted == highlighted
                 assert suggestions.scroll_y == scroll_y
                 position = app.query_one("#completion-position", tui.Static)  # type: ignore[reportPrivateUsage]
-                assert str(position.render()) == f"({highlighted + 1}/{suggestions.option_count})"
+                expected_position = f"  ({highlighted + 1}/{suggestions.option_count})"
+                assert str(position.render()) == expected_position
                 assert str(footer.render()).startswith("enter send")
 
     asyncio.run(check_scroll_policy())

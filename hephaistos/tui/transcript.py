@@ -35,7 +35,7 @@ class TuiTranscriptMixin:
         highlighted = suggestions.highlighted
         if suggestions.has_class("visible") and option_count > 0 and highlighted is not None:
             palette = current_palette()
-            position.update(_RichText(f"({highlighted + 1}/{option_count})", style=palette.dim))
+            position.update(_RichText(f"  ({highlighted + 1}/{option_count})", style=palette.dim))
             position.add_class("visible")
             return
         position.update("")
