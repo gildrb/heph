@@ -195,6 +195,14 @@ PriorityWebSearcher = Callable[[str], Iterable[PriorityWebSearchResult]]
 
 
 @dataclass(frozen=True, slots=True)
+class PriorityExamQuestion:
+    source: str
+    prompt: str
+    marks: int
+    topics: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PriorityTopic:
     """A locally observed priority topic."""
 
@@ -225,6 +233,7 @@ class PriorityAnalysis:
     past_exam_sources: tuple[str, ...]
     material_sources: tuple[str, ...]
     chunks: tuple[PriorityChunk, ...] = ()
+    exam_questions: tuple[PriorityExamQuestion, ...] = ()
 
     def render_for_prompt(self, *, limit: int = 6) -> str:
         """Render concise context for the model-facing priority request."""
@@ -274,14 +283,16 @@ def analyze_priority(
     evidence_by_topic: dict[str, list[PriorityTopicEvidence]] = {}
     past_exam_sources: set[str] = set()
     material_sources: set[str] = set()
+    exam_questions: list[PriorityExamQuestion] = []
 
     for chunk in chunk_list:
         role, _confidence, _reason = infer_material_role(chunk.source)
+        exam_sections = tuple(_exam_sections(chunk.text)) if role == "past_exam" else ()
         if role == "past_exam":
             past_exam_sources.add(chunk.source)
+            exam_questions.extend(_exam_questions(chunk.source, exam_sections))
         else:
             material_sources.add(chunk.source)
-        exam_sections = tuple(_exam_sections(chunk.text)) if role == "past_exam" else ()
         terms = set(_topic_terms(chunk.heading, chunk.text))
         if not terms:
             continue
@@ -341,6 +352,7 @@ def analyze_priority(
         past_exam_sources=tuple(sorted(past_exam_sources)),
         material_sources=tuple(sorted(material_sources)),
         chunks=tuple(chunk_list),
+        exam_questions=tuple(exam_questions),
     )
 
 
@@ -622,6 +634,19 @@ def _exam_section_terms(sections: Iterable[str]) -> dict[str, int]:
     return marks_by_term
 
 
+def _exam_questions(source: str, sections: Iterable[str]) -> Iterator[PriorityExamQuestion]:
+    for section in sections:
+        prompt = _topic_excerpt(section, "", max_chars=360)
+        if not prompt:
+            continue
+        yield PriorityExamQuestion(
+            source=source,
+            prompt=prompt,
+            marks=_mark_weight(section),
+            topics=tuple(_topic_terms("", section)[:5]),
+        )
+
+
 def _topic_evidence(chunk: PriorityChunk, term: str, marks: int) -> PriorityTopicEvidence:
     return PriorityTopicEvidence(
         source=chunk.source,
@@ -736,6 +761,7 @@ def generate_priority_report(
     output_dir.mkdir(parents=True, exist_ok=True)
     if _web_prerequisite_search_enabled(config):
         analysis = _analysis_with_web_prerequisites(analysis)
+    analysis = _analysis_for_full_report(analysis)
     model_payload = _model_priority_payload(analysis, config=config, focus=focus)
     html_text = _render_priority_html(analysis, model_payload=model_payload, focus=focus)
     path = output_dir / _priority_report_filename()
@@ -762,6 +788,35 @@ def _analysis_with_web_prerequisites(analysis: PriorityAnalysis) -> PriorityAnal
         past_exam_sources=analysis.past_exam_sources,
         material_sources=analysis.material_sources,
         chunks=analysis.chunks,
+        exam_questions=analysis.exam_questions,
+    )
+
+
+def _analysis_for_full_report(analysis: PriorityAnalysis) -> PriorityAnalysis:
+    if len(analysis.topics) >= 18:
+        return analysis
+    expanded = analyze_priority(analysis.chunks, limit=40)
+    web_by_topic = {topic.topic: topic.web_prerequisites for topic in analysis.topics}
+    topics = [
+        PriorityTopic(
+            topic=topic.topic,
+            score=topic.score,
+            exam_hits=topic.exam_hits,
+            exam_marks=topic.exam_marks,
+            material_hits=topic.material_hits,
+            sources=topic.sources,
+            prerequisites=topic.prerequisites,
+            web_prerequisites=web_by_topic.get(topic.topic, ()),
+            evidence=topic.evidence,
+        )
+        for topic in expanded.topics
+    ]
+    return PriorityAnalysis(
+        topics=tuple(topics),
+        past_exam_sources=expanded.past_exam_sources,
+        material_sources=expanded.material_sources,
+        chunks=expanded.chunks,
+        exam_questions=expanded.exam_questions,
     )
 
 
@@ -926,6 +981,7 @@ def _render_priority_html(
               materials only.</p>
             </header>
             {_topics_html(analysis, model_payload)}
+            {_study_map_html(analysis)}
             {_past_exams_html(analysis, model_payload)}
             {_plan_html(model_payload)}
             {_sources_html(analysis)}
@@ -1077,6 +1133,64 @@ def _topic_metric_html(topic: PriorityTopic) -> str:
     return f'<p class="meta">{_escape(metrics)}</p>'
 
 
+def _study_map_html(analysis: PriorityAnalysis) -> str:
+    if not analysis.topics:
+        return ""
+    rows = [
+        (
+            "<tr>"
+            f"<td>{_escape(topic.topic)}</td>"
+            f"<td>{_escape(_topic_short_description(topic))}</td>"
+            f"<td>{_escape(_topic_exam_signal(topic))}</td>"
+            f"<td>{_escape(_topic_source_signal(topic))}</td>"
+            "</tr>"
+        )
+        for topic in analysis.topics
+    ]
+    return (
+        "<section><h2>Factual study map</h2>"
+        '<p class="meta">Every row is derived from the enabled indexed materials. '
+        "Descriptions are intentionally short and source-grounded.</p>"
+        "<table><thead><tr><th>Topic</th><th>What it is here</th><th>Exam signal</th>"
+        "<th>Where it appears</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></section>"
+    )
+
+
+def _topic_short_description(topic: PriorityTopic) -> str:
+    if not topic.evidence:
+        return "Found in indexed materials; no clean excerpt available."
+    excerpt = topic.evidence[0].excerpt
+    for sentence_match in _SENTENCE_RE.finditer(excerpt):
+        sentence = _WHITESPACE_RE.sub(" ", sentence_match.group(0)).strip()
+        if topic.topic in sentence.lower():
+            return _truncate(sentence, 180)
+    return _truncate(excerpt, 180)
+
+
+def _topic_exam_signal(topic: PriorityTopic) -> str:
+    if topic.exam_marks:
+        return f"{topic.exam_hits} exam hit(s), {topic.exam_marks} visible mark(s)"
+    if topic.exam_hits:
+        return f"{topic.exam_hits} exam hit(s), no explicit marks found"
+    return "No past-exam hit found"
+
+
+def _topic_source_signal(topic: PriorityTopic) -> str:
+    source_count = len(topic.sources)
+    first_sources = ", ".join(topic.sources[:3])
+    suffix = f" (+{source_count - 3} more)" if source_count > 3 else ""
+    return f"{first_sources}{suffix}" if first_sources else "No source recorded"
+
+
+def _truncate(value: str, max_chars: int) -> str:
+    value = _WHITESPACE_RE.sub(" ", value).strip()
+    if len(value) <= max_chars:
+        return value
+    return f"{value[: max_chars - 1]}…"
+
+
 def _string_object_mapping(value: object) -> TypeGuard[dict[str, object]]:
     if not isinstance(value, dict):
         return False
@@ -1178,7 +1292,33 @@ def _past_exams_html(analysis: PriorityAnalysis, model_payload: dict[str, object
     return (
         "<section><h2>Past exams scanned</h2><table><thead><tr>"
         "<th>Source</th><th>What it tested</th><th>Scoring signals</th>"
-        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></section>"
+        "</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+        + _exam_questions_html(analysis.exam_questions)
+        + "</section>"
+    )
+
+
+def _exam_questions_html(exam_questions: tuple[PriorityExamQuestion, ...]) -> str:
+    if not exam_questions:
+        return ""
+    rows = []
+    for question in exam_questions[:40]:
+        marks = f"{question.marks} marks" if question.marks else "marks not found"
+        topics = ", ".join(question.topics) if question.topics else "No topic signal extracted"
+        rows.append(
+            "<tr>"
+            f"<td>{_escape(question.source)}</td>"
+            f"<td>{_escape(question.prompt)}</td>"
+            f"<td>{_escape(marks)}</td>"
+            f"<td>{_escape(topics)}</td>"
+            "</tr>"
+        )
+    return (
+        "<h3>Exam questions and points</h3>"
+        "<table><thead><tr><th>Source</th><th>Question / prompt</th><th>Points</th>"
+        "<th>Detected topics</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
 
 

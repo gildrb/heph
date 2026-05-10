@@ -34,6 +34,7 @@ from hephaistos.tui.display_text import (
     status_text,
 )
 from hephaistos.tui.flow_state import InlineFlow
+from hephaistos.tui.history import TuiHistoryMixin
 from hephaistos.tui.inline_flows import TuiInlineFlowMixin
 from hephaistos.tui.keymap import armory_binding_keys, armory_shortcut_key
 from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENABLED_COLOR
@@ -234,7 +235,13 @@ class SlashSuggester(Suggester):  # type: ignore[misc]
 _InlineFlow = InlineFlow
 
 
-class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[None]):
+class HephaistosTui(
+    TuiHistoryMixin,
+    TuiInlineFlowMixin,
+    TuiArmoryMixin,
+    TuiTranscriptMixin,
+    App[None],
+):
     BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
         Binding("tab", "complete", "Complete"),
         Binding("ctrl+p", "command_palette", "Commands", show=False, priority=True),
@@ -941,43 +948,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         before_cursor = composer.value[: composer.cursor_position]
         replacement_start = len(before_cursor) + candidate.start_position
         return before_cursor[:replacement_start] + candidate.text
-
-    def _record_history(self, value: str) -> None:
-        value = value.strip()
-        if not value:
-            return
-        if not self.state.history or self.state.history[-1] != value:
-            self.state.history.append(value)
-            self.state.history = self.state.history[-500:]
-            if self.state.history_obj is not None:
-                self.state.history_obj.add(value)
-        self.state.history_index = None
-        self.state.history_draft = ""
-
-    def _history_previous(self) -> None:
-        if not self.state.history:
-            return
-        composer = self.query_one("#composer", Input)
-        if self.state.history_index is None:
-            self.state.history_draft = composer.value
-            self.state.history_index = len(self.state.history) - 1
-        else:
-            self.state.history_index = max(0, self.state.history_index - 1)
-        composer.value = self.state.history[self.state.history_index]
-        composer.cursor_position = len(composer.value)
-
-    def _history_next(self) -> None:
-        if self.state.history_index is None:
-            return
-        composer = self.query_one("#composer", Input)
-        if self.state.history_index >= len(self.state.history) - 1:
-            composer.value = self.state.history_draft
-            self.state.history_index = None
-            self.state.history_draft = ""
-        else:
-            self.state.history_index += 1
-            composer.value = self.state.history[self.state.history_index]
-        composer.cursor_position = len(composer.value)
 
     def _start_thinking_animation(self) -> None:
         self._thinking_start = time.monotonic()

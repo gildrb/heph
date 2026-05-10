@@ -248,6 +248,9 @@ def test_priority_report_writes_printable_html_from_local_evidence(tmp_path: Pat
     assert "recursion" in html
     assert "Write a one-page answer" in html
     assert "Answer every cited past-exam prompt" in html
+    assert "Factual study map" in html
+    assert "Exam questions and points" in html
+    assert "Explain dynamic programming recurrence tables" in html
 
 
 def test_priority_analysis_prefers_meaningful_phrases_over_artifacts(tmp_path: Path) -> None:

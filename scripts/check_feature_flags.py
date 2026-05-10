@@ -29,8 +29,7 @@ SOURCE_DIR = REPO_ROOT / "hephaistos"
 # Known feature flags and their descriptions.
 # Update this set when adding new flags.
 KNOWN_FLAGS: dict[str, str] = {
-    # Add flags here as they are introduced, e.g.:
-    # "rag": "Enable RAG retrieval in chat sessions",
+    "priority_web_prereqs": "Allow /priority to enrich prerequisite hints via web search",
 }
 
 FLAG_DEFINITION_PATTERNS = [
