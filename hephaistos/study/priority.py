@@ -173,14 +173,20 @@ _STOPWORDS = frozenset(
         "gegen",
         "have",
         "haben",
+        "hilfsmittel",
         "heißt",
         "heisst",
         "hier",
         "informatiker",
         "identify",
         "into",
+        "klausur",
+        "können",
+        "konnen",
         "marks",
         "mathematik",
+        "matrikelnummer",
+        "maximal",
         "mit",
         "mittig",
         "module",
@@ -200,6 +206,7 @@ _STOPWORDS = frozenset(
         "semester",
         "sei",
         "seien",
+        "sie",
         "sommersemester",
         "show",
         "somit",
@@ -228,6 +235,7 @@ _STOPWORDS = frozenset(
         "würzburg",
         "wuerzburg",
         "your",
+        "zur",
         "formula",
         "not",
         "decoded",
@@ -280,6 +288,7 @@ _STOPWORDS = frozenset(
         "overview",
         "should",
         "tutorial",
+        "untersuchen",
         "understand",
         "understanding",
     }
@@ -426,6 +435,7 @@ def analyze_priority(
     material_sources: set[str] = set()
     exam_questions: list[PriorityExamQuestion] = []
     material_signal_by_source: dict[str, PriorityMaterialSignal] = {}
+    seen_exam_sections: set[tuple[str, str]] = set()
 
     for chunk in chunk_list:
         role, confidence, reason = _priority_material_role(chunk)
@@ -441,38 +451,52 @@ def analyze_priority(
         exam_sections = tuple(_exam_sections(chunk.text)) if role == "past_exam" else ()
         if role == "past_exam":
             past_exam_sources.add(chunk.source)
-            exam_questions.extend(_exam_questions(chunk.source, exam_sections))
-        else:
-            material_sources.add(chunk.source)
+            new_sections = []
+            for section in exam_sections:
+                fingerprint = _exam_section_fingerprint(section)
+                key = (chunk.source, fingerprint)
+                if key in seen_exam_sections:
+                    continue
+                seen_exam_sections.add(key)
+                new_sections.append(section)
+            exam_questions.extend(_exam_questions(chunk.source, new_sections))
+            for section in new_sections:
+                marks = _mark_weight(section)
+                for term in set(_topic_terms("", section)):
+                    exam_counts[term] += 1
+                    if marks:
+                        exam_marks[term] += marks
+                    sources_by_topic.setdefault(term, set()).add(chunk.source)
+                    evidence_by_topic.setdefault(term, [])
+                    if len(evidence_by_topic[term]) < 4:
+                        evidence_by_topic[term].append(
+                            PriorityTopicEvidence(
+                                source=chunk.source,
+                                heading=chunk.heading,
+                                excerpt=_topic_excerpt(section, term, heading=chunk.heading),
+                                marks=marks,
+                            )
+                        )
+            continue
+        material_sources.add(chunk.source)
         terms = set(_topic_terms(chunk.heading, chunk.text))
         if not terms:
             continue
-        prerequisites: list[str] = []
-        section_terms: dict[str, int] = {}
-        if role == "past_exam":
-            target = exam_counts
-            section_terms = _exam_section_terms(exam_sections)
-        else:
-            target = material_counts
-            prerequisites = _explicit_prerequisites(chunk.text)
+        prerequisites = _explicit_prerequisites(chunk.text)
         for term in terms:
-            target[term] += 1
-            marks = section_terms.get(term, 0) if role == "past_exam" else 0
-            if marks:
-                exam_marks[term] += marks
+            material_counts[term] += 1
             sources_by_topic.setdefault(term, set()).add(chunk.source)
             evidence_by_topic.setdefault(term, [])
             if len(evidence_by_topic[term]) < 4:
-                evidence_by_topic[term].append(_topic_evidence(chunk, term, marks))
-        if role != "past_exam":
-            dependency_prerequisites = _dependency_prerequisites(chunk.text, terms)
-            for term in terms:
-                if prerequisites:
-                    prerequisite_hints.setdefault(term, Counter()).update(prerequisites)
-                if term in dependency_prerequisites:
-                    prerequisite_hints.setdefault(term, Counter()).update(
-                        dependency_prerequisites[term]
-                    )
+                evidence_by_topic[term].append(_topic_evidence(chunk, term, 0))
+        dependency_prerequisites = _dependency_prerequisites(chunk.text, terms)
+        for term in terms:
+            if prerequisites:
+                prerequisite_hints.setdefault(term, Counter()).update(prerequisites)
+            if term in dependency_prerequisites:
+                prerequisite_hints.setdefault(term, Counter()).update(
+                    dependency_prerequisites[term]
+                )
 
     topics: list[PriorityTopic] = []
     for term in sorted(set(exam_counts) | set(material_counts)):
@@ -664,6 +688,8 @@ def _heading_candidates(raw: str) -> Iterator[str]:
         cleaned = _HEADING_PREFIX_RE.sub("", line.strip())
         if not cleaned or len(cleaned) > 90 or _metadata_heading(cleaned):
             continue
+        if _line_looks_like_question_or_sentence(cleaned):
+            continue
         words = _normalized_words(cleaned)
         useful = [word for word in words if _useful_topic_word(word)]
         if 1 <= len(useful) <= 6 and _candidate_has_concept_signal(useful):
@@ -700,6 +726,15 @@ def _metadata_heading(value: str) -> bool:
         "wuerzburg",
     }
     return len(words) <= 12 and len(set(words) & metadata_words) >= 2
+
+
+def _line_looks_like_question_or_sentence(value: str) -> bool:
+    if _MARK_RE.search(value):
+        return True
+    if re.search(r"\b(?:aufgabe|question|q)\s*\d+\b", value, re.IGNORECASE):
+        return True
+    words = _normalized_words(value)
+    return len(words) > 4 and value.endswith((".", "?", "!"))
 
 
 def _path_contains_metadata(value: str) -> bool:
@@ -921,6 +956,16 @@ def _exam_section_terms(sections: Iterable[str]) -> dict[str, int]:
         for term in _topic_terms("", section):
             marks_by_term[term] = max(marks_by_term.get(term, 0), marks)
     return marks_by_term
+
+
+def _exam_section_fingerprint(section: str) -> str:
+    normalized = _repair_pdf_unicode_spacing(section).casefold()
+    normalized = _WHITESPACE_RE.sub(" ", normalized).strip()
+    match = _exam_question_matches(normalized)
+    first_match = next(match, None)
+    if first_match is not None:
+        normalized = normalized[first_match.start() :]
+    return normalized
 
 
 def _exam_questions(source: str, sections: Iterable[str]) -> Iterator[PriorityExamQuestion]:

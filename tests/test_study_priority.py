@@ -482,3 +482,62 @@ def test_priority_report_classifies_realistic_german_exam_by_content(tmp_path: P
     assert "path suggests an exam or past paper" in html
     assert "past exam" in html
     assert "aufgabennummer nachname vorname matrikelnummer" not in html.casefold()
+
+
+def test_priority_report_ignores_exam_filename_and_question_sentence_topics(
+    tmp_path: Path,
+) -> None:
+    index = ArmoryIndex(tmp_path)
+    source = "materials/Mathematik+fur+Informatiker+2-Ratzkin-SS23.pdf"
+    index.documents = [
+        ChunkedDocument(
+            source=source,
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    source,
+                    "Klausur zur Mathematik 2 für Informatiker. "
+                    "Sie können maximal 80 Punkte erreichen. "
+                    "Aufgabennummer Nachname Vorname Matrikelnummer. "
+                    "1.(4+4+4 Punkte) Berechnen Sie die folgenden Grenzwerte und begründen "
+                    "Sie die Konvergenz. "
+                    "2.(8 Punkte) Untersuchen Sie eine geometrische Reihe auf Konvergenz. "
+                    "3.(6 Punkte) Bestimmen Sie die Potenzreihenentwicklung des Kosinus.",
+                ),
+                _chunk(
+                    source,
+                    "ometrische Reihe auf Konvergenz. "
+                    "3.(6 Punkte) Bestimmen Sie die Potenzreihenentwicklung des Kosinus.",
+                    index=1,
+                ),
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/Folien_2026_04_13.pdf",
+            content_hash="slides",
+            chunks=[
+                _chunk(
+                    "materials/Folien_2026_04_13.pdf",
+                    "Jesse Ratzkin Universit¨ at W¨ urzburg April 2026\n"
+                    "Mathematik f¨ ur Informatiker 2 Sommersemester 2026.\n"
+                    "Geometrische Reihe und Konvergenz von Partialsummen.",
+                )
+            ],
+        ),
+    ]
+
+    analysis = analyze_priority(index.all_chunks, limit=20)
+    topics = {topic.topic: topic for topic in analysis.topics}
+    html = generate_priority_report(analysis, tmp_path / "Downloads").path.read_text(
+        encoding="utf-8"
+    )
+
+    assert "mathematik-fur-informatiker-ratzkin" not in topics
+    assert "bestimmen sie potenzreihenentwicklung kosinus" not in topics
+    assert "untersuchen sie geometrische reihe konvergenz" not in topics
+    assert topics["potenzreihenentwicklung"].exam_marks == 6
+    assert topics["potenzreihenentwicklung"].exam_hits == 1
+    assert topics["geometrische reihe"].exam_marks == 8
+    assert "mathematik-fur-informatiker-ratzkin" not in html.casefold()
+    assert "bestimmen sie potenzreihenentwicklung kosinus" not in html.casefold()
+    assert "untersuchen sie geometrische reihe konvergenz" not in html.casefold()
