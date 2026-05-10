@@ -187,6 +187,7 @@ class TestToolSchemas:
             "compact",
             "create_armory",
             "edit_file",
+            "inspect_materials",
             "list_files",
             "read_file",
             "search_files",
