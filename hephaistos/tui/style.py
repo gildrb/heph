@@ -271,9 +271,9 @@ RichLog {{
     height: auto;
     max-height: 7;
     min-width: 30;
-    width: 85%;
-    max-width: 85%;
-    padding-right: 1;
+    width: 100%;
+    max-width: 100%;
+    padding-right: 0;
     background: {bg};
     color: {p.text};
     scrollbar-color: {p.highlight};
@@ -344,7 +344,7 @@ OptionList:focus > .option-list--option-highlighted {{
     min-width: 46;
     max-width: 46;
     height: 100%;
-    padding: 0 1;
+    padding: 0 1 0 2;
     background: {bg};
     color: {p.dim};
 }}

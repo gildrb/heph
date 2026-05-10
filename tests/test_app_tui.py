@@ -307,6 +307,10 @@ def test_tui_css_has_info_panel_layout() -> None:
     shell_end = css.index("}", shell_start)
     shell_block = css[shell_start:shell_end]
     assert "min-width: 0;" in shell_block
+    info_start = css.index("#info-panel {")
+    info_end = css.index("}", info_start)
+    info_block = css[info_start:info_end]
+    assert "padding: 0 1 0 2;" in info_block
 
 
 def test_tui_css_transparent_container_defaults_prevent_panel_stripes() -> None:
@@ -486,6 +490,11 @@ def test_tui_css_reserves_inline_completion_stack_below_composer() -> None:
     assert "height: 8;" in stack_block
     assert "min-height: 8;" in stack_block
     assert "max-height: 8;" in stack_block
+    assert "width: 100%;" in suggestions_block
+    assert "max-width: 100%;" in suggestions_block
+    assert "padding-right: 0;" in suggestions_block
+    assert "width: 85%;" not in suggestions_block
+    assert "max-width: 85%;" not in suggestions_block
     assert "max-height: 7;" in suggestions_block
     assert "dock: bottom;" not in suggestions_block
     assert "layer: suggestions;" not in suggestions_block
@@ -524,6 +533,8 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             )  # ty:ignore[redundant-cast]
             assert frame.region.y == frame_y
             assert stack.region.y == stack_y
+            assert frame.size.width == stack.size.width
+            assert suggestions.size.width == stack.size.width
             assert suggestions.has_class("visible")
             assert suggestions.size.height <= 7
             assert footer.region.y == suggestions.region.y + suggestions.size.height
