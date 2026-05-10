@@ -206,6 +206,10 @@ def test_priority_report_writes_printable_html_from_local_evidence(tmp_path: Pat
     assert report.used_model is False
     assert "background: #fff" in html
     assert "color: #111" in html
+    assert "box-shadow" not in html
+    assert 'class="topic-list"' in html
+    assert 'class="card"' not in html
+    assert 'class="grid"' not in html
     assert "dynamic programming" in html
     assert "materials/past-exam-2026.md" in html
     assert "10 marks" in html
