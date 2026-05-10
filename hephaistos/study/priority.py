@@ -715,17 +715,25 @@ def _metadata_heading(value: str) -> bool:
         return True
     metadata_words = {
         "april",
+        "emester",
+        "er",
         "mathematik",
+        "matiker",
         "informatiker",
         "jesse",
         "ratzkin",
+        "rmatiker",
         "sommersemester",
         "universität",
         "universitaet",
         "würzburg",
         "wuerzburg",
     }
-    return len(words) <= 12 and len(set(words) & metadata_words) >= 2
+    metadata_hits = len(set(words) & metadata_words)
+    if len(words) <= 12 and metadata_hits >= 2:
+        return True
+    has_year = re.search(r"\b(?:19|20)\d{2}\b", value) is not None
+    return has_year and len(words) <= 8 and metadata_hits >= 1
 
 
 def _line_looks_like_question_or_sentence(value: str) -> bool:

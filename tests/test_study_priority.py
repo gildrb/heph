@@ -434,6 +434,8 @@ def test_priority_report_ranks_exam_topics_before_repeated_metadata(tmp_path: Pa
     assert "jesse ratzkin" not in html.casefold()
     assert "universität würzburg" not in html.casefold()
     assert "mathematik f ur informatiker" not in html
+    assert "emester 2026" not in html
+    assert "rmatiker 2 Sommersemester" not in html
     assert "geometrische Reihe" in html
     assert "<title>Study priorities</title>" in html
     assert "Hephaistos priority" not in html
@@ -541,3 +543,4 @@ def test_priority_report_ignores_exam_filename_and_question_sentence_topics(
     assert "mathematik-fur-informatiker-ratzkin" not in html.casefold()
     assert "bestimmen sie potenzreihenentwicklung kosinus" not in html.casefold()
     assert "untersuchen sie geometrische reihe konvergenz" not in html.casefold()
+    assert "emester 2026" not in html
