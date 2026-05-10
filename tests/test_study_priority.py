@@ -4,7 +4,11 @@ from pathlib import Path
 
 from hephaistos.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.rag.index import ArmoryIndex
-from hephaistos.study.priority import analyze_priority, generate_priority_report
+from hephaistos.study.priority import (
+    PriorityWebSearchResult,
+    analyze_priority,
+    generate_priority_report,
+)
 
 
 def _chunk(source: str, text: str, index: int = 0, heading: str = "") -> Chunk:
@@ -242,6 +246,8 @@ def test_priority_report_writes_printable_html_from_local_evidence(tmp_path: Pat
     assert "materials/past-exam-2026.md" in html
     assert "10 marks" in html
     assert "recursion" in html
+    assert "Write a one-page answer" in html
+    assert "Answer every cited past-exam prompt" in html
 
 
 def test_priority_analysis_prefers_meaningful_phrases_over_artifacts(tmp_path: Path) -> None:
@@ -277,3 +283,62 @@ def test_priority_analysis_prefers_meaningful_phrases_over_artifacts(tmp_path: P
     assert "die" not in topics
     assert "ocr noise" not in topics
     assert "gradient descent" in topics
+
+
+def test_priority_report_cleans_repeated_headings_in_evidence(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/lectures/graphs.md",
+            content_hash="graphs",
+            chunks=[
+                _chunk(
+                    "materials/lectures/graphs.md",
+                    "# Graph Algorithms\n"
+                    "Graph Algorithms Dijkstra shortest paths use graph relaxation.",
+                    heading="Graph Algorithms",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/past-exams/mock.md",
+            content_hash="exam",
+            chunks=[_chunk("materials/past-exams/mock.md", "Question [12 marks]: Explain graph.")],
+        ),
+    ]
+
+    report = generate_priority_report(analyze_priority(index.all_chunks), tmp_path / "Downloads")
+    html = report.path.read_text(encoding="utf-8")
+
+    assert "Graph Algorithms Dijkstra" not in html
+    assert "Dijkstra shortest paths use graph relaxation" in html
+
+
+def test_priority_analysis_can_add_web_backed_prerequisite_hints(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/past-exams/mock.md",
+            content_hash="exam",
+            chunks=[_chunk("materials/past-exams/mock.md", "Question [12 marks]: Explain graph.")],
+        )
+    ]
+
+    def web_searcher(_query: str) -> tuple[PriorityWebSearchResult, ...]:
+        return (
+            PriorityWebSearchResult(
+                title="Graph theory prerequisites",
+                url="https://example.test/graph",
+                snippet="Prerequisites: set notation, vertices, edges, and proof basics.",
+            ),
+        )
+
+    analysis = analyze_priority(index.all_chunks, web_searcher=web_searcher)
+    topic = next(topic for topic in analysis.topics if topic.topic == "graph")
+    report = generate_priority_report(analysis, tmp_path / "Downloads")
+    html = report.path.read_text(encoding="utf-8")
+
+    assert topic.web_prerequisites[0].term == "set notation"
+    assert "web-backed prerequisite hints" in analysis.render_for_prompt()
+    assert "web prerequisite hint" in html
+    assert "https://example.test/graph" in html

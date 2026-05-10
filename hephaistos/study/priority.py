@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import textwrap
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +34,17 @@ _QUESTION_START_RE = re.compile(r"\b(?:question|q)\s*\d+[A-Za-z]?\b", re.IGNOREC
 _HEADING_PREFIX_RE = re.compile(r"^(?:#+\s*|\d+(?:\.\d+)*[.)]?\s*|[-*]\s*)")
 _WHITESPACE_RE = re.compile(r"\s+")
 _WORD_SPLIT_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*")
+_WEB_RESULT_RE = re.compile(
+    r'<a[^>]+class="result__a"[^>]+href="(?P<url>[^"]+)"[^>]*>(?P<title>.*?)</a>'
+    r".{0,1800}?"
+    r'<a[^>]+class="result__snippet"[^>]*>(?P<snippet>.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+_WEB_PREREQ_CLAUSE_RE = re.compile(
+    r"\b(?:prerequisites?|requires?|need(?:ed)?|before learning|familiar with|"
+    r"understand(?:ing)?)\b[^.?!:;]{0,48}[:;\-]?\s*(?P<tail>[^.?!]{0,180})",
+    re.IGNORECASE,
+)
 _KNOWN_SINGLE_WORD_TOPICS = frozenset({"dijkstra", "graph", "heap", "heaps"})
 _KNOWN_TOPIC_PHRASES = frozenset(
     {
@@ -53,6 +68,12 @@ _MARK_RE = re.compile(
     re.IGNORECASE,
 )
 _NO_PREREQUISITE_TEXT = "No explicit prerequisite found in indexed materials."
+_WEB_PREREQ_ENV = "HEPHAISTOS_PRIORITY_WEB_PREREQS"
+_WEB_PREREQ_TIMEOUT = 8
+_WEB_PREREQ_TOPICS = 6
+_WEB_PREREQ_RESULTS = 4
+_WEB_PREREQ_USER_AGENT = "Hephaistos/0.1 priority prerequisites"
+_WEB_PREREQ_SEARCH_URL = "https://duckduckgo.com/html/"
 
 _STOPWORDS = frozenset(
     {
@@ -120,6 +141,22 @@ _STOPWORDS = frozenset(
         "ist",
         "und",
         "wir",
+        "algorithm",
+        "algorithms",
+        "article",
+        "course",
+        "example",
+        "examples",
+        "guide",
+        "implementation",
+        "introduction",
+        "learn",
+        "learning",
+        "overview",
+        "should",
+        "tutorial",
+        "understand",
+        "understanding",
     }
 )
 
@@ -141,6 +178,23 @@ class PriorityTopicEvidence:
 
 
 @dataclass(frozen=True, slots=True)
+class PriorityWebSearchResult:
+    title: str
+    url: str
+    snippet: str
+
+
+@dataclass(frozen=True, slots=True)
+class PriorityWebPrerequisite:
+    term: str
+    source_title: str
+    source_url: str
+
+
+PriorityWebSearcher = Callable[[str], Iterable[PriorityWebSearchResult]]
+
+
+@dataclass(frozen=True, slots=True)
 class PriorityTopic:
     """A locally observed priority topic."""
 
@@ -151,6 +205,7 @@ class PriorityTopic:
     material_hits: int
     sources: tuple[str, ...]
     prerequisites: tuple[str, ...] = ()
+    web_prerequisites: tuple[PriorityWebPrerequisite, ...] = ()
     evidence: tuple[PriorityTopicEvidence, ...] = ()
 
 
@@ -184,11 +239,7 @@ class PriorityAnalysis:
         lines.append("- Candidate priorities:")
         for topic in self.topics[:limit]:
             sources = ", ".join(topic.sources[:3])
-            prerequisites = (
-                f"; prerequisites to check: {', '.join(topic.prerequisites[:3])}"
-                if topic.prerequisites
-                else ""
-            )
+            prerequisites = _prompt_prerequisite_summary(topic)
             lines.append(
                 f"  - {topic.topic}: score {topic.score:.1f}, "
                 f"exam hits {topic.exam_hits}, exam marks {topic.exam_marks}, "
@@ -198,7 +249,21 @@ class PriorityAnalysis:
         return "\n".join(lines)
 
 
-def analyze_priority(chunks: Iterable[PriorityChunk], *, limit: int = 8) -> PriorityAnalysis:
+def _prompt_prerequisite_summary(topic: PriorityTopic) -> str:
+    if topic.prerequisites:
+        return f"; prerequisites to check: {', '.join(topic.prerequisites[:3])}"
+    if topic.web_prerequisites:
+        terms = ", ".join(item.term for item in topic.web_prerequisites[:3])
+        return f"; web-backed prerequisite hints: {terms}"
+    return ""
+
+
+def analyze_priority(
+    chunks: Iterable[PriorityChunk],
+    *,
+    limit: int = 8,
+    web_searcher: PriorityWebSearcher | None = None,
+) -> PriorityAnalysis:
     """Rank recurring topics, weighting past-exam occurrences most heavily."""
     chunk_list = list(chunks)
     exam_counts: Counter[str] = Counter()
@@ -270,8 +335,9 @@ def analyze_priority(chunks: Iterable[PriorityChunk], *, limit: int = 8) -> Prio
 
     topics.sort(key=lambda topic: (-topic.score, -topic.exam_marks, -topic.exam_hits, topic.topic))
     topics = _collapse_component_topics(topics)
+    topics = _with_web_prerequisites(topics[:limit], web_searcher)
     return PriorityAnalysis(
-        topics=tuple(topics[:limit]),
+        topics=tuple(topics),
         past_exam_sources=tuple(sorted(past_exam_sources)),
         material_sources=tuple(sorted(material_sources)),
         chunks=tuple(chunk_list),
@@ -287,6 +353,98 @@ def _topic_terms(heading: str, text: str) -> list[str]:
             terms.append(candidate)
             seen.add(candidate)
     return terms
+
+
+def _with_web_prerequisites(
+    topics: list[PriorityTopic],
+    web_searcher: PriorityWebSearcher | None,
+) -> list[PriorityTopic]:
+    if web_searcher is None:
+        return topics
+    enriched: list[PriorityTopic] = []
+    for index, topic in enumerate(topics):
+        if index >= _WEB_PREREQ_TOPICS or topic.prerequisites:
+            enriched.append(topic)
+            continue
+        web_prerequisites = _web_prerequisites_for(topic.topic, web_searcher)
+        enriched.append(
+            PriorityTopic(
+                topic=topic.topic,
+                score=topic.score,
+                exam_hits=topic.exam_hits,
+                exam_marks=topic.exam_marks,
+                material_hits=topic.material_hits,
+                sources=topic.sources,
+                prerequisites=topic.prerequisites,
+                web_prerequisites=web_prerequisites,
+                evidence=topic.evidence,
+            )
+        )
+    return enriched
+
+
+def _web_prerequisites_for(
+    topic: str,
+    web_searcher: PriorityWebSearcher,
+) -> tuple[PriorityWebPrerequisite, ...]:
+    results: list[PriorityWebPrerequisite] = []
+    seen: set[str] = set()
+    try:
+        search_results = tuple(web_searcher(f"{topic} prerequisites"))
+    except (OSError, TimeoutError, ValueError, urllib.error.URLError):
+        return ()
+    for result in search_results[:_WEB_PREREQ_RESULTS]:
+        for term in _prerequisite_terms_from_web_result(topic, result):
+            if term in seen:
+                continue
+            seen.add(term)
+            results.append(
+                PriorityWebPrerequisite(
+                    term=term,
+                    source_title=result.title,
+                    source_url=result.url,
+                )
+            )
+            if len(results) >= 3:
+                return tuple(results)
+    return tuple(results)
+
+
+def _prerequisite_terms_from_web_result(
+    topic: str,
+    result: PriorityWebSearchResult,
+) -> Iterator[str]:
+    text = f"{result.title}. {result.snippet}"
+    matches = list(_WEB_PREREQ_CLAUSE_RE.finditer(text))
+    candidate_texts = [match.group("tail") for match in matches]
+    if not candidate_texts:
+        candidate_texts = [result.snippet]
+    topic_words = set(topic.split())
+    for candidate_text in candidate_texts:
+        yield from _candidate_web_prerequisite_terms(candidate_text, topic_words)
+
+
+def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Iterator[str]:
+    seen: set[str] = set()
+    for phrase_match in _TOPIC_PHRASE_RE.finditer(text):
+        words = [word.lower() for word in _WORD_SPLIT_RE.findall(phrase_match.group(0))]
+        useful = [
+            word
+            for word in words
+            if word not in _STOPWORDS and word not in topic_words and not word.isdigit()
+        ]
+        if not useful:
+            continue
+        term = " ".join(useful[:3])
+        if term not in seen:
+            seen.add(term)
+            yield term
+    for word_match in _TOKEN_RE.finditer(text):
+        term = word_match.group(0).lower()
+        if term in _STOPWORDS or term in topic_words or term in seen:
+            continue
+        seen.add(term)
+        yield term
 
 
 def _candidate_topic_phrases(raw: str) -> Iterator[str]:
@@ -468,13 +626,13 @@ def _topic_evidence(chunk: PriorityChunk, term: str, marks: int) -> PriorityTopi
     return PriorityTopicEvidence(
         source=chunk.source,
         heading=chunk.heading,
-        excerpt=_topic_excerpt(chunk.text, term),
+        excerpt=_topic_excerpt(chunk.text, term, heading=chunk.heading),
         marks=marks,
     )
 
 
-def _topic_excerpt(text: str, term: str, *, max_chars: int = 260) -> str:
-    normalized = _WHITESPACE_RE.sub(" ", text).strip()
+def _topic_excerpt(text: str, term: str, *, heading: str = "", max_chars: int = 260) -> str:
+    normalized = _clean_evidence_excerpt(text, heading=heading)
     if len(normalized) <= max_chars:
         return normalized
     idx = normalized.lower().find(term.lower())
@@ -486,6 +644,25 @@ def _topic_excerpt(text: str, term: str, *, max_chars: int = 260) -> str:
     prefix = "…" if start > 0 else ""
     suffix = "…" if end < len(normalized) else ""
     return f"{prefix}{normalized[start:end]}{suffix}"
+
+
+def _clean_evidence_excerpt(text: str, *, heading: str = "") -> str:
+    cleaned_lines = []
+    previous_line = ""
+    for raw_line in text.splitlines():
+        line = _HEADING_PREFIX_RE.sub("", raw_line.strip())
+        line = _WHITESPACE_RE.sub(" ", line).strip()
+        if not line or line == previous_line:
+            continue
+        if previous_line and line.lower().startswith(f"{previous_line.lower()} "):
+            line = line[len(previous_line) :].strip()
+        cleaned_lines.append(line)
+        previous_line = line
+    cleaned = _WHITESPACE_RE.sub(" ", " ".join(cleaned_lines)).strip()
+    heading_text = _HEADING_PREFIX_RE.sub("", heading.strip())
+    if heading_text and cleaned.lower().startswith(f"{heading_text.lower()} "):
+        cleaned = cleaned[len(heading_text) :].strip()
+    return cleaned
 
 
 def _prerequisites_for(
@@ -519,8 +696,8 @@ _PRIORITY_SCHEMA = """
       "name": "exact topic name from the materials",
       "importance": "critical|high|medium|low",
       "why": "why this is important based only on supplied evidence",
-      "study_actions": ["concrete action grounded in the material"],
-      "prerequisites": ["required prerequisite found in evidence"]
+      "study_actions": ["concrete, measurable goal grounded in the material"],
+      "prerequisites": ["required prerequisite found in evidence or marked as web-backed"]
     }
   ],
   "past_exams": [
@@ -538,8 +715,12 @@ _PRIORITY_SCHEMA = """
 
 _PRIORITY_SYSTEM_PROMPT = """
 You are Hephaistos priority analysis. Produce a study-priority report using only the supplied
-indexed material excerpts. Do not add outside facts. If the material does not specify a detail,
-write that it is unknown. Favor exact topic names from the evidence over filename fragments.
+indexed material excerpts for topics, exam claims, marks, and source evidence. Do not add outside
+facts for those sections. Web-backed prerequisite hints may be used only when they are explicitly
+listed in the local scan context; label them as web-backed if you mention them. If the material
+does not specify a detail, write that it is unknown. Favor exact topic names from the evidence
+over filename fragments. Make each study action a concrete, checkable goal rather than a vague
+instruction to review the topic.
 Return JSON only, matching this schema:
 """.strip()
 
@@ -553,6 +734,8 @@ def generate_priority_report(
 ) -> PriorityReport:
     """Write a printable source-grounded priority HTML report."""
     output_dir.mkdir(parents=True, exist_ok=True)
+    if _web_prerequisite_search_enabled(config):
+        analysis = _analysis_with_web_prerequisites(analysis)
     model_payload = _model_priority_payload(analysis, config=config, focus=focus)
     html_text = _render_priority_html(analysis, model_payload=model_payload, focus=focus)
     path = output_dir / _priority_report_filename()
@@ -563,6 +746,48 @@ def generate_priority_report(
         topic_count=len(analysis.topics),
         source_count=len(set(analysis.past_exam_sources) | set(analysis.material_sources)),
     )
+
+
+def _web_prerequisite_search_enabled(config: ChatConfig | None) -> bool:
+    env_value = os.environ.get(_WEB_PREREQ_ENV, "")
+    if env_value.lower() in {"1", "true", "yes", "on"}:
+        return True
+    return config is not None and config.is_feature_enabled("priority_web_prereqs")
+
+
+def _analysis_with_web_prerequisites(analysis: PriorityAnalysis) -> PriorityAnalysis:
+    topics = _with_web_prerequisites(list(analysis.topics), _duckduckgo_search)
+    return PriorityAnalysis(
+        topics=tuple(topics),
+        past_exam_sources=analysis.past_exam_sources,
+        material_sources=analysis.material_sources,
+        chunks=analysis.chunks,
+    )
+
+
+def _duckduckgo_search(query: str) -> Iterable[PriorityWebSearchResult]:
+    params = urllib.parse.urlencode({"q": query})
+    request = urllib.request.Request(
+        f"{_WEB_PREREQ_SEARCH_URL}?{params}",
+        headers={"User-Agent": _WEB_PREREQ_USER_AGENT},
+    )
+    with urllib.request.urlopen(request, timeout=_WEB_PREREQ_TIMEOUT) as response:  # nosec B310
+        raw_html = response.read().decode("utf-8", errors="replace")
+    return tuple(_parse_duckduckgo_results(raw_html))
+
+
+def _parse_duckduckgo_results(raw_html: str) -> Iterator[PriorityWebSearchResult]:
+    for match in _WEB_RESULT_RE.finditer(raw_html):
+        url = html.unescape(match.group("url"))
+        title = _clean_web_text(match.group("title"))
+        snippet = _clean_web_text(match.group("snippet"))
+        if title and url and snippet:
+            yield PriorityWebSearchResult(title=title, url=url, snippet=snippet)
+
+
+def _clean_web_text(value: str) -> str:
+    no_tags = re.sub(r"<[^>]+>", " ", value)
+    return _WHITESPACE_RE.sub(" ", html.unescape(no_tags)).strip()
 
 
 def _model_priority_payload(
@@ -792,6 +1017,7 @@ def _topics_html(analysis: PriorityAnalysis, model_payload: dict[str, object] | 
         why = _payload_string(payload, "why") or _fallback_topic_why(topic)
         actions = _payload_string_list(payload, "study_actions") or _fallback_study_actions(topic)
         prerequisites = _payload_string_list(payload, "prerequisites") or list(topic.prerequisites)
+        prerequisites_html = _prerequisite_section_html(prerequisites, topic.web_prerequisites)
         items.append(
             "\n".join(
                 (
@@ -804,7 +1030,7 @@ def _topics_html(analysis: PriorityAnalysis, model_payload: dict[str, object] | 
                     "</div>",
                     '<aside class="topic-side">',
                     _topic_metric_html(topic),
-                    _list_html("Prerequisites", prerequisites or [_NO_PREREQUISITE_TEXT]),
+                    prerequisites_html,
                     "</aside>",
                     "</article>",
                 )
@@ -817,6 +1043,30 @@ def _topics_html(analysis: PriorityAnalysis, model_payload: dict[str, object] | 
         '<section><h2>Topics to prioritize</h2><div class="topic-list">'
         f"{topic_html}</div></section>"
     )
+
+
+def _prerequisite_section_html(
+    prerequisites: list[str],
+    web_prerequisites: tuple[PriorityWebPrerequisite, ...],
+) -> str:
+    if prerequisites:
+        return _list_html("Prerequisites", prerequisites)
+    if web_prerequisites:
+        return _web_prerequisite_html(web_prerequisites)
+    return _list_html("Prerequisites", [_NO_PREREQUISITE_TEXT])
+
+
+def _web_prerequisite_html(web_prerequisites: tuple[PriorityWebPrerequisite, ...]) -> str:
+    items = []
+    for prerequisite in web_prerequisites:
+        label = _escape(prerequisite.term)
+        source_title = _escape(prerequisite.source_title)
+        source_url = _escape(prerequisite.source_url)
+        items.append(
+            f'<li>{label}<br><span class="source">web prerequisite hint: '
+            f'<a href="{source_url}">{source_title}</a></span></li>'
+        )
+    return "<h4>Prerequisites</h4><ul>" + "".join(items) + "</ul>"
 
 
 def _topic_metric_html(topic: PriorityTopic) -> str:
@@ -874,11 +1124,27 @@ def _fallback_topic_why(topic: PriorityTopic) -> str:
 
 
 def _fallback_study_actions(topic: PriorityTopic) -> list[str]:
-    actions = [f"Explain {topic.topic} from memory, then verify against the cited excerpts."]
+    actions = [
+        f"Write a one-page answer that defines {topic.topic}, explains why it matters here, "
+        "and cites at least two report excerpts."
+    ]
     if topic.exam_marks or topic.exam_hits:
-        actions.append("Practice the past-exam style prompts where this topic appears.")
+        mark_text = f" for {topic.exam_marks} visible marks" if topic.exam_marks else ""
+        actions.append(
+            f"Answer every cited past-exam prompt about {topic.topic}{mark_text}, then mark "
+            "which source line supports each sentence."
+        )
     if topic.prerequisites:
-        actions.append(f"Check prerequisites first: {', '.join(topic.prerequisites[:3])}.")
+        actions.append(
+            f"Before attempting exam practice, prove you can define and use: "
+            f"{', '.join(topic.prerequisites[:3])}."
+        )
+    elif topic.web_prerequisites:
+        terms = ", ".join(item.term for item in topic.web_prerequisites[:3])
+        actions.append(
+            "Use the web-backed prerequisite hints only as a prep checklist, then verify "
+            f"against course material where possible: {terms}."
+        )
     return actions
 
 
@@ -888,7 +1154,7 @@ def _topic_evidence_html(topic: PriorityTopic) -> str:
         marks = f" · {evidence.marks} marks" if evidence.marks else ""
         heading = f" · {evidence.heading}" if evidence.heading else ""
         items.append(
-            f"<blockquote><p>{_escape(evidence.excerpt)}</p>"
+            f'<blockquote class="evidence"><p>{_escape(evidence.excerpt)}</p>'
             f'<p class="source">{_escape(evidence.source)}{_escape(heading)}{marks}</p>'
             "</blockquote>"
         )
@@ -931,8 +1197,13 @@ def _payload_exam_rows(model_payload: dict[str, object] | None) -> dict[str, dic
 
 
 def _fallback_exam_focus(analysis: PriorityAnalysis, source: str) -> str:
-    topics = [topic.topic for topic in analysis.topics if source in topic.sources][:5]
-    return ", ".join(topics) if topics else "No topic signal extracted from indexed chunks."
+    marked_topics = [
+        topic.topic
+        for topic in analysis.topics
+        if source in topic.sources and (topic.exam_marks or topic.exam_hits)
+    ]
+    topics = marked_topics or [topic.topic for topic in analysis.topics if source in topic.sources]
+    return ", ".join(topics[:5]) if topics else "No topic signal extracted from indexed chunks."
 
 
 def _fallback_exam_marks(analysis: PriorityAnalysis, source: str) -> str:
