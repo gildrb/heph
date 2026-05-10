@@ -417,15 +417,14 @@ def test_transparent_style_strips_standard_and_truecolor_black_backgrounds() -> 
     assert nonblack.bgcolor is not None
 
 
-def test_tui_css_suggestion_scrollbar_tracks_are_transparent() -> None:
+def test_tui_css_suggestion_scrollbar_is_hidden() -> None:
     css = tui._tui_css()  # type: ignore[reportPrivateUsage]
     suggestions_start = css.index("#suggestions {")
     suggestions_end = css.index("}", suggestions_start)
     suggestions_block = css[suggestions_start:suggestions_end]
 
-    assert "scrollbar-background: transparent;" in suggestions_block
-    assert "scrollbar-background-hover: transparent;" in suggestions_block
-    assert "scrollbar-background-active: transparent;" in suggestions_block
+    assert "scrollbar-size: 0 0;" in suggestions_block
+    assert "scrollbar-background:" not in suggestions_block
     assert "scrollbar-background: #1C1C1C;" not in suggestions_block
 
 
