@@ -113,6 +113,8 @@ _STOPWORDS = frozenset(
         "not",
         "decoded",
         "image",
+        "ocr",
+        "noise",
         "die",
         "ist",
         "und",

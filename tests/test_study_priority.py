@@ -247,4 +247,5 @@ def test_priority_analysis_prefers_meaningful_phrases_over_artifacts(tmp_path: P
     assert "formula-not-decoded" not in topics
     assert "image" not in topics
     assert "die" not in topics
+    assert "ocr noise" not in topics
     assert "gradient descent" in topics
