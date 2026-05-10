@@ -544,3 +544,27 @@ def test_priority_report_ignores_exam_filename_and_question_sentence_topics(
     assert "bestimmen sie potenzreihenentwicklung kosinus" not in html.casefold()
     assert "untersuchen sie geometrische reihe konvergenz" not in html.casefold()
     assert "emester 2026" not in html
+
+
+def test_priority_report_keeps_exam_sections_in_source_order(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    source = "materials/Mathematik+fur+Informatiker+2-Ratzkin-SS23.pdf"
+    index.documents = [
+        ChunkedDocument(
+            source=source,
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    source,
+                    "Aufgabe 2 Untersuchen Sie eine geometrische Reihe. 2.(8 Punkte) "
+                    "Aufgabe 3 Bestimmen Sie die Potenzreihenentwicklung des Kosinus. "
+                    "3.(6 Punkte)",
+                )
+            ],
+        )
+    ]
+
+    topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
+
+    assert topics["geometrische reihe"].exam_marks == 8
+    assert topics["potenzreihenentwicklung"].exam_marks == 6

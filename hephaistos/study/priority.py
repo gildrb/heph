@@ -932,7 +932,7 @@ def _mark_weight(text: str) -> int:
 
 
 def _exam_sections(text: str) -> Iterator[str]:
-    matches = list(_exam_question_matches(text))
+    matches = sorted(_exam_question_matches(text), key=lambda match: match.start())
     if not matches:
         yield text
         return
@@ -944,15 +944,21 @@ def _exam_sections(text: str) -> Iterator[str]:
 
 
 def _exam_question_matches(text: str) -> Iterator[re.Match[str]]:
-    seen: set[int] = set()
-    for match in _QUESTION_START_RE.finditer(text):
-        seen.add(match.start())
-        yield match
+    matches = list(_QUESTION_START_RE.finditer(text))
+    explicit_question_starts_by_number: dict[str, int] = {}
+    for match in matches:
+        number_match = re.search(r"\d{1,2}", match.group(0))
+        if number_match is not None:
+            explicit_question_starts_by_number.setdefault(number_match.group(0), match.start())
     question_mark_pattern = r"(?<!\d)\d{1,2}\.\s*\([^)]*?(?:punkte?|marks?|pts?)[^)]*\)"
     for match in re.finditer(question_mark_pattern, text, re.IGNORECASE):
-        if match.start() not in seen:
-            seen.add(match.start())
-            yield match
+        number = match.group(0).split(".", 1)[0]
+        explicit_start = explicit_question_starts_by_number.get(number)
+        if explicit_start is not None and explicit_start < match.start():
+            continue
+        if all(existing.start() != match.start() for existing in matches):
+            matches.append(match)
+    yield from sorted(matches, key=lambda match: match.start())
 
 
 def _exam_section_terms(sections: Iterable[str]) -> dict[str, int]:
