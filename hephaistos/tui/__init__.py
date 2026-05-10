@@ -34,6 +34,7 @@ from hephaistos.tui.display_text import (
     status_text,
 )
 from hephaistos.tui.flow_state import InlineFlow
+from hephaistos.tui.history import TuiHistoryMixin
 from hephaistos.tui.inline_flows import TuiInlineFlowMixin
 from hephaistos.tui.keymap import armory_binding_keys, armory_shortcut_key
 from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENABLED_COLOR
@@ -234,7 +235,13 @@ class SlashSuggester(Suggester):  # type: ignore[misc]
 _InlineFlow = InlineFlow
 
 
-class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[None]):
+class HephaistosTui(
+    TuiHistoryMixin,
+    TuiInlineFlowMixin,
+    TuiArmoryMixin,
+    TuiTranscriptMixin,
+    App[None],
+):
     BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
         Binding("tab", "complete", "Complete"),
         Binding("ctrl+p", "command_palette", "Commands", show=False, priority=True),
@@ -776,6 +783,13 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             self.exit()
             return
 
+        self._append_user(value)
+        self.busy = True
+        self.abort_event.clear()
+        self._refresh_status("command working")
+        self.run_worker(lambda: self._run_external_command(value), thread=True)
+
+    def _run_external_command(self, value: str) -> None:
         from hephaistos.terminal.input import handle_input
 
         history = InputHistory(self.state.history)
@@ -783,13 +797,23 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         stderr = _TuiCaptureWriter()
         with redirect_stdout(stdout), redirect_stderr(stderr):
             new_session, should_continue = handle_input(self.session, value, history)
-        self.session = new_session
-        self.state.history = history.entries
         output = _command_output_text(stdout, stderr)
+        self.call_from_thread(
+            self._finish_external_command, new_session, history.entries, output, should_continue
+        )
+
+    def _finish_external_command(
+        self,
+        new_session: ChatSession,
+        history_entries: list[str],
+        output: str,
+        should_continue: bool,
+    ) -> None:
+        self.session = new_session
+        self.state.history = history_entries
         if output:
             self._append_entry(output, "notice")
-        self._refresh_status("ready")
-        self._update_info_panel()
+        self._finish_turn()
         if not should_continue:
             self.exit()
 
@@ -930,43 +954,6 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         before_cursor = composer.value[: composer.cursor_position]
         replacement_start = len(before_cursor) + candidate.start_position
         return before_cursor[:replacement_start] + candidate.text
-
-    def _record_history(self, value: str) -> None:
-        value = value.strip()
-        if not value:
-            return
-        if not self.state.history or self.state.history[-1] != value:
-            self.state.history.append(value)
-            self.state.history = self.state.history[-500:]
-            if self.state.history_obj is not None:
-                self.state.history_obj.add(value)
-        self.state.history_index = None
-        self.state.history_draft = ""
-
-    def _history_previous(self) -> None:
-        if not self.state.history:
-            return
-        composer = self.query_one("#composer", Input)
-        if self.state.history_index is None:
-            self.state.history_draft = composer.value
-            self.state.history_index = len(self.state.history) - 1
-        else:
-            self.state.history_index = max(0, self.state.history_index - 1)
-        composer.value = self.state.history[self.state.history_index]
-        composer.cursor_position = len(composer.value)
-
-    def _history_next(self) -> None:
-        if self.state.history_index is None:
-            return
-        composer = self.query_one("#composer", Input)
-        if self.state.history_index >= len(self.state.history) - 1:
-            composer.value = self.state.history_draft
-            self.state.history_index = None
-            self.state.history_draft = ""
-        else:
-            self.state.history_index += 1
-            composer.value = self.state.history[self.state.history_index]
-        composer.cursor_position = len(composer.value)
 
     def _start_thinking_animation(self) -> None:
         self._thinking_start = time.monotonic()

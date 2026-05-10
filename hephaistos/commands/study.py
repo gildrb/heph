@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands._base import Command, CommandResult, ensure_session
@@ -10,7 +11,7 @@ from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.rag.index import load_or_build
 from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
 from hephaistos.study.exam import select_exam_question, supporting_source_refs
-from hephaistos.study.priority import analyze_priority
+from hephaistos.study.priority import analyze_priority, generate_priority_report
 from hephaistos.study.schedule import load_study_schedule
 from hephaistos.terminal import (
     STYLE_PROMPT,
@@ -314,9 +315,27 @@ class PriorityCommand(Command):
         if s.armory_path is None:
             print_error("No armory attached. Use /armory to open one first.")
             return CommandResult()
-        analysis = analyze_priority(load_or_build(s.armory_path).all_chunks)
-        print_info(analysis.render_for_prompt())
         focus = args.strip()
+        index = load_or_build(s.armory_path)
+        enabled_chunks = [
+            chunk for chunk in index.all_chunks if chunk.source not in s.disabled_source_files
+        ]
+        analysis = analyze_priority(enabled_chunks, limit=12)
+        report = generate_priority_report(
+            analysis,
+            _priority_output_dir(),
+            config=s.config,
+            focus=focus,
+        )
+        print_info(analysis.render_for_prompt())
         if focus:
             print_info(f"Focus requested: {focus}")
+        print_success(
+            f"Priority report saved to {report.path} "
+            f"({report.topic_count} topics, {report.source_count} sources)."
+        )
         return CommandResult()
+
+
+def _priority_output_dir() -> Path:
+    return Path.home() / "Downloads"
