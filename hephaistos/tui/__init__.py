@@ -189,7 +189,7 @@ _transparent_option_list_class = _tui_widgets._transparent_option_list_class
 
 _slash_suggestion = slash_suggestion
 
-_COMPLETION_MENU_MAX_VISIBLE_ROWS = 6
+_COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
 _SIDEBAR_MIN_WINDOW_WIDTH = 120
 
 

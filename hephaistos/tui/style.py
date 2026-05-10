@@ -237,15 +237,14 @@ RichLog {{
     max-height: 3;
     width: 100%;
     max-width: 100%;
-    margin-top: 1;
     padding: 1 0;
     background: {user_bg};
     color: {p.text};
 }}
 #completion-stack {{
-    height: 8;
-    min-height: 8;
-    max-height: 8;
+    height: 9;
+    min-height: 9;
+    max-height: 9;
     width: 100%;
     max-width: 100%;
     background: {bg};
@@ -253,7 +252,7 @@ RichLog {{
 }}
 #suggestions {{
     height: auto;
-    max-height: 6;
+    max-height: 7;
     min-width: 30;
     width: 100%;
     max-width: 100%;
@@ -320,6 +319,7 @@ OptionList:focus > .option-list--option-highlighted {{
     height: 1;
     width: auto;
     max-width: 100%;
+    padding: 0 2;
     background: {bg};
     color: {p.dim};
     display: none;

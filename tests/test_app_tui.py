@@ -158,12 +158,13 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
     assert "#status {\n    height: auto;\n    max-height: 2;\n    width: auto;" in css
     assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
-    assert "#completion-stack {\n    height: 8;" in css
+    assert "#completion-stack {\n    height: 9;" in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
     suggestions_start = css.index("#suggestions {")
     suggestions_end = css.index("}", suggestions_start)
     suggestions_block = css[suggestions_start:suggestions_end]
+
     option_start = css.index("OptionList > .option-list--option {")
     option_end = css.index("}", option_start)
     option_block = css[option_start:option_end]
@@ -413,7 +414,6 @@ def test_tui_css_suggestion_scrollbar_is_hidden() -> None:
     suggestions_start = css.index("#suggestions {")
     suggestions_end = css.index("}", suggestions_start)
     suggestions_block = css[suggestions_start:suggestions_end]
-
     assert "scrollbar-size: 0 0;" in suggestions_block
     assert "scrollbar-background:" not in suggestions_block
     assert "scrollbar-background: #1C1C1C;" not in suggestions_block
@@ -490,20 +490,24 @@ def test_tui_css_reserves_inline_completion_stack_below_composer() -> None:
     suggestions_start = css.index("#suggestions {")
     suggestions_end = css.index("}", suggestions_start)
     suggestions_block = css[suggestions_start:suggestions_end]
+    position_start = css.index("#completion-position {")
+    position_end = css.index("}", position_start)
+    position_block = css[position_start:position_end]
     footer_start = css.index("#footer-hints {")
     footer_end = css.index("}", footer_start)
     footer_block = css[footer_start:footer_end]
 
-    assert "margin-top: 1;" in composer_block
-    assert "height: 8;" in stack_block
-    assert "min-height: 8;" in stack_block
-    assert "max-height: 8;" in stack_block
+    assert "margin-top: 1;" not in composer_block
+    assert "height: 9;" in stack_block
+    assert "min-height: 9;" in stack_block
+    assert "max-height: 9;" in stack_block
     assert "width: 100%;" in suggestions_block
     assert "max-width: 100%;" in suggestions_block
     assert "padding-right: 0;" in suggestions_block
     assert "width: 85%;" not in suggestions_block
     assert "max-width: 85%;" not in suggestions_block
-    assert "max-height: 6;" in suggestions_block
+    assert "max-height: 7;" in suggestions_block
+    assert "padding: 0 2;" in position_block
     assert "dock: bottom;" not in suggestions_block
     assert "layer: suggestions;" not in suggestions_block
     assert "margin-top: 1;" not in footer_block
@@ -529,7 +533,7 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             frame_y = frame.region.y
             stack_y = stack.region.y
             assert stack_y > frame_y
-            assert stack.size.height == 8
+            assert stack.size.height == 9
             assert footer.region.y == stack_y
 
             await pilot.press("/")
@@ -548,7 +552,7 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             assert str(footer.render()).startswith("enter send")
             assert suggestions.size.width == stack.size.width
             assert suggestions.has_class("visible")
-            assert suggestions.size.height <= 6
+            assert suggestions.size.height <= 7
             assert position.region.y == suggestions.region.y + suggestions.size.height
             assert footer.region.y == position.region.y + 1
 
@@ -585,7 +589,7 @@ def test_transcript_overflow_scrolls_without_moving_composer() -> None:
             transcript = app.query_one("#transcript", tui.RichLog)  # type: ignore[reportPrivateUsage]
             assert transcript.max_scroll_y > 0
             assert frame.region.y == baseline_y
-            assert stack.region.y - frame.region.y == baseline_stack_gap == 3
+            assert stack.region.y - frame.region.y == baseline_stack_gap == 2
             assert frame.region.y < 30
 
     asyncio.run(check_transcript_overflow())
@@ -3054,13 +3058,14 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
 
             assert suggestions.highlighted == 0
             assert suggestions.scroll_y == 0
-            assert [c.text.strip() for c in app.completion_candidates[:6]] == [
+            assert [c.text.strip() for c in app.completion_candidates[:7]] == [
                 "help",
                 "exit",
                 "login",
                 "logout",
                 "status",
                 "new",
+                "armory",
             ]
 
             expected = (
@@ -3106,7 +3111,7 @@ def test_completion_menu_highlight_moves_down_at_bottom() -> None:
             visible_rows = min(
                 suggestions.option_count,
                 suggestions.size.height,
-                6,
+                7,
             )
             last_index = suggestions.option_count - 1
             last_scroll_y = suggestions.option_count - visible_rows
