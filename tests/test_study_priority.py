@@ -564,7 +564,10 @@ def test_priority_report_keeps_exam_sections_in_source_order(tmp_path: Path) -> 
         )
     ]
 
-    topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
+    analysis = analyze_priority(index.all_chunks)
+    topics = {topic.topic: topic for topic in analysis.topics}
 
     assert topics["geometrische reihe"].exam_marks == 8
     assert topics["potenzreihenentwicklung"].exam_marks == 6
+    assert all(question.topics for question in analysis.exam_questions)
+    assert not any(question.prompt == "(8 Punkte)" for question in analysis.exam_questions)

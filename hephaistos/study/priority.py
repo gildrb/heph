@@ -984,6 +984,9 @@ def _exam_section_fingerprint(section: str) -> str:
 
 def _exam_questions(source: str, sections: Iterable[str]) -> Iterator[PriorityExamQuestion]:
     for section in sections:
+        topics = tuple(_topic_terms("", section)[:5])
+        if not topics and _exam_section_is_score_only(section):
+            continue
         prompt = _topic_excerpt(section, "", max_chars=360)
         if not prompt:
             continue
@@ -991,8 +994,14 @@ def _exam_questions(source: str, sections: Iterable[str]) -> Iterator[PriorityEx
             source=source,
             prompt=prompt,
             marks=_mark_weight(section),
-            topics=tuple(_topic_terms("", section)[:5]),
+            topics=topics,
         )
+
+
+def _exam_section_is_score_only(section: str) -> bool:
+    without_marks = _MARK_RE.sub(" ", _repair_pdf_unicode_spacing(section))
+    words = _normalized_words(without_marks)
+    return not any(_useful_topic_word(word) for word in words)
 
 
 def _topic_evidence(chunk: PriorityChunk, term: str, marks: int) -> PriorityTopicEvidence:
