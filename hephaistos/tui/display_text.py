@@ -158,6 +158,10 @@ def _material_panel_lines(session: ChatSession) -> list[str]:
     return lines
 
 
+def _indent_info_panel_lines(lines: list[str]) -> list[str]:
+    return [f"  {line}" if line else "" for line in lines]
+
+
 def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
     """Build the default info panel content showing session length and material names."""
     title = session.title or "Study session"
@@ -174,10 +178,11 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
         "  /priority plan focus",
         "  /remind due review",
     ]
+    lines = _indent_info_panel_lines(lines)
     plain = "\n".join(lines)
     text = require_rich_text()(plain, style="#808080")
-    title_end = len(lines[0])
-    text.stylize("bold #9B4A2E", 0, title_end)
+    title_start = plain.index(title)
+    text.stylize("bold #9B4A2E", title_start, title_start + len(title))
     for label in ("time", "materials", "next"):
         start = 0
         while True:
@@ -236,26 +241,30 @@ def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> 
         content = entry.content
         preview = content[:120] + ("..." if len(content) > 120 else "")
         sep = "\u2500" * 26
-        plain = f"You message\n{sep}\n{preview}"
+        lines = ["You message", sep, preview]
     elif is_assistant:
         model = session.config.model or "unknown"
         evidence_str = evidence_summary_text(entry.evidence or session.last_turn_evidence)
         usage = session.usage.summary()
         sep = "\u2500" * 26
-        plain = (
-            f"Assistant reply\n{sep}"
-            f"\nmodel   {model}"
-            f"\ntokens  {usage['total_tokens']}"
-            f"\ncost    ${usage['cost_usd']:.4f}"
-            f"\nevidence {evidence_str}"
-        )
+        lines = [
+            "Assistant reply",
+            sep,
+            f"model   {model}",
+            f"tokens  {usage['total_tokens']}",
+            f"cost    ${usage['cost_usd']:.4f}",
+            f"evidence {evidence_str}",
+        ]
     else:
         sep = "\u2500" * 26
-        plain = f"Message\n{sep}\n{entry.kind}"
+        lines = ["Message", sep, entry.kind]
 
+    lines = _indent_info_panel_lines(lines)
+    plain = "\n".join(lines)
     text = require_rich_text()(plain, style="#808080")
-    first_newline = plain.index("\n") if "\n" in plain else len(plain)
-    text.stylize("bold #9B4A2E", 0, first_newline)
+    first_line = lines[0].strip()
+    title_start = plain.index(first_line)
+    text.stylize("bold #9B4A2E", title_start, title_start + len(first_line))
     for label in ("model", "tokens", "cost", "evidence"):
         try:
             start = plain.index(label)

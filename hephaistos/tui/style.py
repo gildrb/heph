@@ -344,7 +344,7 @@ OptionList:focus > .option-list--option-highlighted {{
     min-width: 46;
     max-width: 46;
     height: 100%;
-    padding: 0 1 0 2;
+    padding: 0 1;
     background: {bg};
     color: {p.dim};
 }}

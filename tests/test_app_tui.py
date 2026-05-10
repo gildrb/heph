@@ -310,7 +310,7 @@ def test_tui_css_has_info_panel_layout() -> None:
     info_start = css.index("#info-panel {")
     info_end = css.index("}", info_start)
     info_block = css[info_start:info_end]
-    assert "padding: 0 1 0 2;" in info_block
+    assert "padding: 0 1;" in info_block
 
 
 def test_tui_css_transparent_container_defaults_prevent_panel_stripes() -> None:
@@ -841,6 +841,10 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
         session_seconds=125,
     )
 
+    lines = panel.plain.splitlines()
+    assert lines[0].startswith("  Study session")
+    assert lines[1].startswith("  \u2500")
+    assert all(line.startswith("  ") for line in lines if line)
     assert "time 2m 05s" in panel.plain
     assert "materials" in panel.plain
     assert "/exam active recall" in panel.plain
@@ -854,6 +858,18 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
     assert "model" not in panel.plain
     assert "armory" not in panel.plain
     assert "evidence" not in panel.plain
+
+
+def test_info_panel_message_text_is_indented_from_sidebar_edge() -> None:
+    session = _plain_session()
+    entry = tui.TuiTranscriptEntry("How do I prepare for the exam?", kind="user")
+
+    panel = tui._info_panel_message_text(entry, session)  # type: ignore[reportPrivateUsage]
+
+    lines = panel.plain.splitlines()
+    assert lines[0].startswith("  You message")
+    assert lines[1].startswith("  \u2500")
+    assert all(line.startswith("  ") for line in lines if line)
 
 
 def test_run_tui_reports_missing_textual(monkeypatch: pytest.MonkeyPatch) -> None:
