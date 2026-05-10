@@ -243,9 +243,9 @@ RichLog {{
     color: {p.text};
 }}
 #completion-stack {{
-    height: 9;
-    min-height: 9;
-    max-height: 9;
+    height: 8;
+    min-height: 8;
+    max-height: 8;
     width: 100%;
     max-width: 100%;
     background: {bg};

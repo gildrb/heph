@@ -158,7 +158,7 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
     assert "#status {\n    height: auto;\n    max-height: 2;\n    width: auto;" in css
     assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
-    assert "#completion-stack {\n    height: 9;" in css
+    assert "#completion-stack {\n    height: 8;" in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
     suggestions_start = css.index("#suggestions {")
@@ -495,9 +495,9 @@ def test_tui_css_reserves_inline_completion_stack_below_composer() -> None:
     footer_block = css[footer_start:footer_end]
 
     assert "margin-top: 1;" in composer_block
-    assert "height: 9;" in stack_block
-    assert "min-height: 9;" in stack_block
-    assert "max-height: 9;" in stack_block
+    assert "height: 8;" in stack_block
+    assert "min-height: 8;" in stack_block
+    assert "max-height: 8;" in stack_block
     assert "width: 100%;" in suggestions_block
     assert "max-width: 100%;" in suggestions_block
     assert "padding-right: 0;" in suggestions_block
@@ -529,7 +529,7 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             frame_y = frame.region.y
             stack_y = stack.region.y
             assert stack_y > frame_y
-            assert stack.size.height == 9
+            assert stack.size.height == 8
             assert footer.region.y == stack_y
 
             await pilot.press("/")
