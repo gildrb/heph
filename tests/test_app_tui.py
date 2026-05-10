@@ -158,6 +158,7 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
     assert "#status {\n    height: auto;\n    max-height: 2;\n    width: auto;" in css
     assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
+    assert "#completion-stack {\n    height: 8;" in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
     transcript_start = css.index("#transcript {")
@@ -341,27 +342,35 @@ def test_transcript_panel_background_only_paints_user_entries() -> None:
             panel = tui.current_palette().panel.lower()
             user_segments: list[str] = []
             assistant_segments: list[str] = []
-            user_line_index = -1
-            for line_number in range(transcript.size.height):
-                strip = transcript.render_line(line_number)
-                line_text = "".join(segment.text for segment in strip)
-                if "User prompt" in line_text:
-                    user_line_index = line_number
-                for segment in strip:
-                    style = str(segment.style)
-                    if "User prompt" in segment.text:
-                        user_segments.append(style)
-                    if "Assistant reply" in segment.text:
-                        assistant_segments.append(style)
+            panel_scroll_y = -1
+            panel_line_index = -1
+            for scroll_y in range(int(transcript.max_scroll_y) + 1):  # type: ignore[attr-defined]
+                transcript.scroll_y = scroll_y  # type: ignore[attr-defined]
+                await pilot.pause(0)
+                for line_number in range(transcript.size.height):
+                    strip = transcript.render_line(line_number)
+                    line_text = "".join(segment.text for segment in strip)
+                    if "User prompt" in line_text and 0 < line_number < transcript.size.height - 1:
+                        panel_scroll_y = scroll_y
+                        panel_line_index = line_number
+                    for segment in strip:
+                        style = str(segment.style)
+                        if "User prompt" in segment.text:
+                            user_segments.append(style)
+                        if "Assistant reply" in segment.text:
+                            assistant_segments.append(style)
 
             assert user_segments
             assert assistant_segments
             assert all(f"on {panel}" in style.lower() for style in user_segments)
             assert all(f"on {panel}" not in style.lower() for style in assistant_segments)
-            assert user_line_index >= 1
-            assert _strip_is_panel_filled(transcript.render_line(user_line_index - 1), panel)
-            assert _strip_is_panel_filled(transcript.render_line(user_line_index), panel)
-            assert _strip_is_panel_filled(transcript.render_line(user_line_index + 1), panel)
+            assert panel_scroll_y >= 0
+            assert panel_line_index >= 1
+            transcript.scroll_y = panel_scroll_y  # type: ignore[attr-defined]
+            await pilot.pause(0)
+            assert _strip_is_panel_filled(transcript.render_line(panel_line_index - 1), panel)
+            assert _strip_is_panel_filled(transcript.render_line(panel_line_index), panel)
+            assert _strip_is_panel_filled(transcript.render_line(panel_line_index + 1), panel)
 
     asyncio.run(check_transcript_backgrounds())
 
@@ -457,12 +466,15 @@ def test_tui_css_pads_composer_as_full_width_user_block() -> None:
     assert "padding: 0 1;" in input_block
 
 
-def test_tui_css_positions_suggestions_above_composer_spacer() -> None:
+def test_tui_css_reserves_inline_completion_stack_below_composer() -> None:
     css = tui._tui_css()  # type: ignore[reportPrivateUsage]
 
     composer_start = css.index("#composer-frame {")
     composer_end = css.index("}", composer_start)
     composer_block = css[composer_start:composer_end]
+    stack_start = css.index("#completion-stack {")
+    stack_end = css.index("}", stack_start)
+    stack_block = css[stack_start:stack_end]
     suggestions_start = css.index("#suggestions {")
     suggestions_end = css.index("}", suggestions_start)
     suggestions_block = css[suggestions_start:suggestions_end]
@@ -471,8 +483,88 @@ def test_tui_css_positions_suggestions_above_composer_spacer() -> None:
     footer_block = css[footer_start:footer_end]
 
     assert "margin-top: 1;" in composer_block
-    assert "margin-bottom: 1;" in suggestions_block
-    assert "margin-top: 1;" in footer_block
+    assert "height: 8;" in stack_block
+    assert "min-height: 8;" in stack_block
+    assert "max-height: 8;" in stack_block
+    assert "max-height: 7;" in suggestions_block
+    assert "dock: bottom;" not in suggestions_block
+    assert "layer: suggestions;" not in suggestions_block
+    assert "margin-top: 1;" not in footer_block
+
+
+def test_completion_menu_expands_below_stationary_composer() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_inline_menu_layout() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            frame = app.query_one("#composer-frame")
+            stack = app.query_one("#completion-stack")
+            footer = app.query_one("#footer-hints")
+
+            frame_y = frame.region.y
+            stack_y = stack.region.y
+            assert stack_y > frame_y
+            assert stack.size.height == 8
+            assert footer.region.y == stack_y
+
+            await pilot.press("/")
+            await pilot.pause()
+
+            suggestions = cast(
+                "TextualOptionList",
+                app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
+            )  # ty:ignore[redundant-cast]
+            assert frame.region.y == frame_y
+            assert stack.region.y == stack_y
+            assert suggestions.has_class("visible")
+            assert suggestions.size.height <= 7
+            assert footer.region.y == suggestions.region.y + suggestions.size.height
+
+    asyncio.run(check_inline_menu_layout())
+
+
+def test_transcript_overflow_scrolls_without_moving_composer() -> None:
+    if tui.Input is None or tui.RichLog is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_transcript_overflow() -> None:
+        async with typed_app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            frame = app.query_one("#composer-frame")
+            stack = app.query_one("#completion-stack")
+            baseline_y = frame.region.y
+            baseline_stack_gap = stack.region.y - frame.region.y
+
+            for index in range(18):
+                app._append_user(f"stress history message {index}", mark_working=False)  # type: ignore[reportPrivateUsage]
+                app._append_assistant_reply(
+                    "No armory is attached. Open or create an armory with /armory, "
+                    "then add study materials so I can answer from your sources."
+                )  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+
+            transcript = app.query_one("#transcript", tui.RichLog)  # type: ignore[reportPrivateUsage]
+            assert transcript.max_scroll_y > 0
+            assert frame.region.y == baseline_y
+            assert stack.region.y - frame.region.y == baseline_stack_gap == 3
+            assert frame.region.y < 30
+
+    asyncio.run(check_transcript_overflow())
 
 
 def test_status_and_footer_hints_segments_do_not_paint_black_background() -> None:
