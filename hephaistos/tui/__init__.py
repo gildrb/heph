@@ -775,6 +775,13 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             self.exit()
             return
 
+        self._append_user(value)
+        self.busy = True
+        self.abort_event.clear()
+        self._refresh_status("command working")
+        self.run_worker(lambda: self._run_external_command(value), thread=True)
+
+    def _run_external_command(self, value: str) -> None:
         from hephaistos.terminal.input import handle_input
 
         history = InputHistory(self.state.history)
@@ -782,13 +789,27 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         stderr = _TuiCaptureWriter()
         with redirect_stdout(stdout), redirect_stderr(stderr):
             new_session, should_continue = handle_input(self.session, value, history)
-        self.session = new_session
-        self.state.history = history.entries
         output = _command_output_text(stdout, stderr)
+        self.call_from_thread(
+            self._finish_external_command,
+            new_session,
+            history.entries,
+            output,
+            should_continue,
+        )
+
+    def _finish_external_command(
+        self,
+        new_session: ChatSession,
+        history_entries: list[str],
+        output: str,
+        should_continue: bool,
+    ) -> None:
+        self.session = new_session
+        self.state.history = history_entries
         if output:
             self._append_entry(output, "notice")
-        self._refresh_status("ready")
-        self._update_info_panel()
+        self._finish_turn()
         if not should_continue:
             self.exit()
 

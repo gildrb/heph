@@ -10,6 +10,7 @@ import hephaistos.commands.memory as _commands_memory
 import hephaistos.commands.model as _commands_model
 import hephaistos.commands.persona as _commands_persona
 import hephaistos.commands.session as _commands_session
+import hephaistos.commands.study as _commands_study
 from hephaistos import commands
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig, Conversation
@@ -133,6 +134,7 @@ def test_exam_command_warns_and_resends_active_recall_prompt(
 def test_priority_command_prints_local_priority_scan(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     armory = tmp_path / "priority-armory"
     initialize(armory)
@@ -142,6 +144,7 @@ def test_priority_command_prints_local_priority_scan(
         "Explain Dijkstra shortest paths. [10 marks]\n",
         encoding="utf-8",
     )
+    monkeypatch.setattr(_commands_study, "_priority_output_dir", lambda: tmp_path / "Downloads")
     session = ChatSession(
         config=ChatConfig(api_key="test-key"),
         conversation=Conversation(),
@@ -156,6 +159,9 @@ def test_priority_command_prints_local_priority_scan(
     assert "Local priority scan" in out
     assert "graphs" in out
     assert "exam marks 10" in out
+    assert "Priority report saved" in out
+    assert "Downloads" in out
+    assert list((tmp_path / "Downloads").glob("hephaistos-priority-*.html"))
 
 
 def test_command_registry_includes_memory_and_recommend() -> None:

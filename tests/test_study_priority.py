@@ -4,7 +4,7 @@ from pathlib import Path
 
 from hephaistos.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.rag.index import ArmoryIndex
-from hephaistos.study.priority import analyze_priority
+from hephaistos.study.priority import analyze_priority, generate_priority_report
 
 
 def _chunk(source: str, text: str, index: int = 0, heading: str = "") -> Chunk:
@@ -170,3 +170,77 @@ def test_priority_analysis_filters_exam_boilerplate_and_uses_explicit_prerequisi
     assert "network" not in topics
     assert "neural network" in topics
     assert topics["neural network"].prerequisites[:3] == ("calculus", "derivatives", "matrix")
+
+
+def test_priority_report_writes_printable_html_from_local_evidence(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/past-exam-2026.md",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/past-exam-2026.md",
+                    "Question 1 [10 marks]: Explain dynamic programming recurrence tables.",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/lecture-dp.md",
+            content_hash="notes",
+            chunks=[
+                _chunk(
+                    "materials/lecture-dp.md",
+                    "Dynamic programming requires recurrence relations and base cases.\n"
+                    "Prerequisites: recursion, induction.",
+                )
+            ],
+        ),
+    ]
+
+    report = generate_priority_report(analyze_priority(index.all_chunks), tmp_path / "Downloads")
+    html = report.path.read_text(encoding="utf-8")
+
+    assert report.path.parent == tmp_path / "Downloads"
+    assert report.path.suffix == ".html"
+    assert report.used_model is False
+    assert "background: #fff" in html
+    assert "color: #111" in html
+    assert "dynamic programming" in html
+    assert "materials/past-exam-2026.md" in html
+    assert "10 marks" in html
+    assert "recursion" in html
+
+
+def test_priority_analysis_prefers_meaningful_phrases_over_artifacts(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/Folien_2026_04_13.pdf",
+            content_hash="slides",
+            chunks=[
+                _chunk(
+                    "materials/Folien_2026_04_13.pdf",
+                    "Formula not decoded. Image. Die und wir ist noise. "
+                    "Gradient descent optimization uses learning rates.",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/mock-exam.md",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/mock-exam.md",
+                    "Question [8 marks]: Explain gradient descent optimization.",
+                )
+            ],
+        ),
+    ]
+
+    topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
+
+    assert "formula-not-decoded" not in topics
+    assert "image" not in topics
+    assert "die" not in topics
+    assert "gradient descent" in topics

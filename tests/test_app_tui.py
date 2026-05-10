@@ -3072,3 +3072,31 @@ def test_completion_menu_highlight_moves_down_at_bottom() -> None:
             assert highlighted - suggestions.scroll_y == visible_rows - 1
 
     asyncio.run(check_bottom_policy())
+
+
+def test_tui_runs_external_commands_in_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    calls: list[str] = []
+
+    def fake_append_user(value: str, mark_working: bool = True) -> None:
+        calls.append(f"user:{value}:{mark_working}")
+
+    def fake_refresh_status(state: str = "ready") -> None:
+        calls.append(f"status:{state}")
+
+    def fake_run_worker(work: object, *, thread: bool = False) -> object:
+        calls.append(f"worker:{thread}")
+        return work
+
+    monkeypatch.setattr(app, "_append_user", fake_append_user)
+    monkeypatch.setattr(app, "_refresh_status", fake_refresh_status)
+    monkeypatch.setattr(app, "run_worker", fake_run_worker)
+
+    app._handle_external_input("/priority")  # type: ignore[reportPrivateUsage]
+
+    assert app.busy is True
+    assert calls == ["user:/priority:True", "status:command working", "worker:True"]
