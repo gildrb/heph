@@ -258,9 +258,16 @@ RichLog {{
     background: {user_bg};
     color: {p.text};
 }}
+#completion-stack {{
+    height: 8;
+    min-height: 8;
+    max-height: 8;
+    width: 100%;
+    max-width: 100%;
+    background: {bg};
+    color: {p.text};
+}}
 #suggestions {{
-    dock: bottom;
-    margin-bottom: 1;
     height: auto;
     max-height: 7;
     min-width: 30;
@@ -277,7 +284,6 @@ RichLog {{
     scrollbar-background-active: {bg};
     scrollbar-corner-color: {bg};
     scrollbar-size-vertical: 1;
-    layer: suggestions;
     display: none;
 }}
 #suggestions.visible {{
@@ -330,7 +336,6 @@ OptionList:focus > .option-list--option-highlighted {{
     height: 1;
     width: auto;
     max-width: 100%;
-    margin-top: 1;
     background: {bg};
     color: {p.dim};
 }}

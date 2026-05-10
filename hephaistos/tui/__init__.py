@@ -313,13 +313,14 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                     yield w.option_list(id="materials-list")
                     yield w.static("", id="materials-footer")
                 yield w.static("", id="thinking-indicator")
-                yield w.option_list(id="suggestions", markup=False)
                 with w.vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
                     yield w.input(
                         placeholder='Ask anything... "What do I need to study next?"',
                         id="composer",
                     )
-                yield w.static(_footer_hints_text(self.session), id="footer-hints")
+                with w.vertical(id="completion-stack"):  # type: ignore[reportCallIssue]
+                    yield w.option_list(id="suggestions", markup=False)
+                    yield w.static(_footer_hints_text(self.session), id="footer-hints")
             yield w.static(
                 _info_panel_default_text(
                     self.session,

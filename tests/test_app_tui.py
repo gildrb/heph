@@ -158,6 +158,7 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
     assert "#status {\n    height: auto;\n    max-height: 2;\n    width: auto;" in css
     assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
+    assert "#completion-stack {\n    height: 8;" in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
     transcript_start = css.index("#transcript {")
@@ -457,12 +458,15 @@ def test_tui_css_pads_composer_as_full_width_user_block() -> None:
     assert "padding: 0 1;" in input_block
 
 
-def test_tui_css_positions_suggestions_above_composer_spacer() -> None:
+def test_tui_css_reserves_inline_completion_stack_below_composer() -> None:
     css = tui._tui_css()  # type: ignore[reportPrivateUsage]
 
     composer_start = css.index("#composer-frame {")
     composer_end = css.index("}", composer_start)
     composer_block = css[composer_start:composer_end]
+    stack_start = css.index("#completion-stack {")
+    stack_end = css.index("}", stack_start)
+    stack_block = css[stack_start:stack_end]
     suggestions_start = css.index("#suggestions {")
     suggestions_end = css.index("}", suggestions_start)
     suggestions_block = css[suggestions_start:suggestions_end]
@@ -471,8 +475,52 @@ def test_tui_css_positions_suggestions_above_composer_spacer() -> None:
     footer_block = css[footer_start:footer_end]
 
     assert "margin-top: 1;" in composer_block
-    assert "margin-bottom: 1;" in suggestions_block
-    assert "margin-top: 1;" in footer_block
+    assert "height: 8;" in stack_block
+    assert "min-height: 8;" in stack_block
+    assert "max-height: 8;" in stack_block
+    assert "max-height: 7;" in suggestions_block
+    assert "dock: bottom;" not in suggestions_block
+    assert "layer: suggestions;" not in suggestions_block
+    assert "margin-top: 1;" not in footer_block
+
+
+def test_completion_menu_expands_below_stationary_composer() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_inline_menu_layout() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            frame = app.query_one("#composer-frame")
+            stack = app.query_one("#completion-stack")
+            footer = app.query_one("#footer-hints")
+
+            frame_y = frame.region.y
+            stack_y = stack.region.y
+            assert stack_y > frame_y
+            assert stack.size.height == 8
+            assert footer.region.y == stack_y
+
+            await pilot.press("/")
+            await pilot.pause()
+
+            suggestions = cast(
+                "TextualOptionList",
+                app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
+            )  # ty:ignore[redundant-cast]
+            assert frame.region.y == frame_y
+            assert stack.region.y == stack_y
+            assert suggestions.has_class("visible")
+            assert suggestions.size.height <= 7
+            assert footer.region.y == suggestions.region.y + suggestions.size.height
+
+    asyncio.run(check_inline_menu_layout())
 
 
 def test_status_and_footer_hints_segments_do_not_paint_black_background() -> None:
