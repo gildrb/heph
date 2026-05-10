@@ -49,7 +49,7 @@ RichLog {{
     color: {p.text};
 }}
 #transcript-spacer {{
-    height: 1fr;
+    height: 0;
     background: {bg};
     color: transparent;
 }}
@@ -66,8 +66,8 @@ RichLog {{
     color: {p.dim};
 }}
 #transcript {{
-    height: auto;
-    max-height: 1fr;
+    height: 1fr;
+    min-height: 0;
     width: 100%;
     max-width: 100%;
     padding: 0 0;
