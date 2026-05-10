@@ -201,6 +201,10 @@ class TuiTranscriptMixin:
 
     def _refresh_footer_hints(self) -> None:
         hints = self.query_one("#footer-hints", Static)
+        if self.busy:
+            tui_module = sys.modules["hephaistos.tui"]
+            hints.update(tui_module._footer_hints_text(self.session, busy=True))
+            return
         suggestions = self.query_one("#suggestions", OptionList)
         if suggestions.has_class("visible"):
             option_count = len(self.completion_candidates) or len(self._inline_flow.options)
