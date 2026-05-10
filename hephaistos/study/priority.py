@@ -26,6 +26,7 @@ from hephaistos.runtime import (
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]{2,}")
 _SENTENCE_RE = re.compile(r"[^.!?\n]+")
 _TOPIC_PHRASE_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9_+-]*(?:\s+[A-Za-z][A-Za-z0-9_+-]*){1,5}\b")
+_QUESTION_START_RE = re.compile(r"\b(?:question|q)\s*\d+[A-Za-z]?\b", re.IGNORECASE)
 _HEADING_PREFIX_RE = re.compile(r"^(?:#+\s*|\d+(?:\.\d+)*[.)]?\s*|[-*]\s*)")
 _WHITESPACE_RE = re.compile(r"\s+")
 _WORD_SPLIT_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*")
@@ -215,19 +216,21 @@ def analyze_priority(chunks: Iterable[PriorityChunk], *, limit: int = 8) -> Prio
             past_exam_sources.add(chunk.source)
         else:
             material_sources.add(chunk.source)
+        exam_sections = tuple(_exam_sections(chunk.text)) if role == "past_exam" else ()
         terms = set(_topic_terms(chunk.heading, chunk.text))
         if not terms:
             continue
         prerequisites: list[str] = []
+        section_terms: dict[str, int] = {}
         if role == "past_exam":
             target = exam_counts
-            marks = _mark_weight(chunk.text)
+            section_terms = _exam_section_terms(exam_sections)
         else:
             target = material_counts
-            marks = 0
             prerequisites = _explicit_prerequisites(chunk.text)
         for term in terms:
             target[term] += 1
+            marks = section_terms.get(term, 0) if role == "past_exam" else 0
             if marks:
                 exam_marks[term] += marks
             sources_by_topic.setdefault(term, set()).add(chunk.source)
@@ -433,6 +436,32 @@ def _mark_weight(text: str) -> int:
                 marks.append(int(group))
                 break
     return max(marks, default=0)
+
+
+def _exam_sections(text: str) -> Iterator[str]:
+    matches = list(_QUESTION_START_RE.finditer(text))
+    if not matches:
+        yield text
+        return
+    prefix = text[: matches[0].start()].strip()
+    if prefix:
+        yield prefix
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        section = text[match.start() : end].strip()
+        if section:
+            yield section
+
+
+def _exam_section_terms(sections: Iterable[str]) -> dict[str, int]:
+    marks_by_term: dict[str, int] = {}
+    for section in sections:
+        marks = _mark_weight(section)
+        if not marks:
+            continue
+        for term in _topic_terms("", section):
+            marks_by_term[term] = max(marks_by_term.get(term, 0), marks)
+    return marks_by_term
 
 
 def _topic_evidence(chunk: PriorityChunk, term: str, marks: int) -> PriorityTopicEvidence:

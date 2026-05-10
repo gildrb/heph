@@ -131,6 +131,34 @@ def test_priority_analysis_weights_exam_marks(tmp_path: Path) -> None:
     assert "exam marks 12" in analyze_priority(index.all_chunks).render_for_prompt()
 
 
+def test_priority_analysis_keeps_inline_question_marks_with_matching_topics(
+    tmp_path: Path,
+) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/past-exams/mock-2025.md",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/past-exams/mock-2025.md",
+                    "Question 1 [12 marks]: Explain Dijkstra shortest paths and graph relaxation. "
+                    "Question 2 [4 marks]: Explain heaps and priority queues. "
+                    "Question 3 [2 marks]: Image. Formula not decoded. Die und wir ist OCR noise.",
+                )
+            ],
+        ),
+    ]
+
+    topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
+
+    assert topics["dijkstra"].exam_marks == 12
+    assert topics["graph"].exam_marks == 12
+    assert topics["heaps"].exam_marks == 4
+    assert topics["heaps"].score < topics["dijkstra"].score
+    assert "ocr noise" not in topics
+
+
 def test_priority_analysis_filters_exam_boilerplate_and_uses_explicit_prerequisites(
     tmp_path: Path,
 ) -> None:
