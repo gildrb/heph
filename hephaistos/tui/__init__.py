@@ -791,11 +791,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             new_session, should_continue = handle_input(self.session, value, history)
         output = _command_output_text(stdout, stderr)
         self.call_from_thread(
-            self._finish_external_command,
-            new_session,
-            history.entries,
-            output,
-            should_continue,
+            self._finish_external_command, new_session, history.entries, output, should_continue
         )
 
     def _finish_external_command(
