@@ -96,15 +96,9 @@ def footer_hints_text(
     session: ChatSession,
     *,
     busy: bool = False,
-    completion_position: tuple[int, int] | None = None,
 ) -> Text:
     """Build contextual footer hints that change based on current state."""
     palette = current_palette()
-
-    if completion_position is not None:
-        current, total = completion_position
-        plain = f"({current}/{total})"
-        return require_rich_text()(plain, style=palette.dim)
 
     if busy:
         plain = "ctrl+c cancel"

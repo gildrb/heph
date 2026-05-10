@@ -314,6 +314,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
                     )
                 with w.vertical(id="completion-stack"):  # type: ignore[reportCallIssue]
                     yield w.option_list(id="suggestions", markup=False)
+                    yield w.static("", id="completion-position")
                     yield w.static(_footer_hints_text(self.session), id="footer-hints")
             yield w.static(
                 _info_panel_default_text(
