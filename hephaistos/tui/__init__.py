@@ -321,6 +321,7 @@ class HephaistosTui(
                     )
                 with w.vertical(id="completion-stack"):  # type: ignore[reportCallIssue]
                     yield w.option_list(id="suggestions", markup=False)
+                    yield w.static("", id="completion-position")
                     yield w.static(_footer_hints_text(self.session), id="footer-hints")
             yield w.static(
                 _info_panel_default_text(
@@ -882,6 +883,7 @@ class HephaistosTui(
         if not self.completion_candidates:
             suggestions.set_options([])
             suggestions.remove_class("visible")
+            self._refresh_footer_hints()
             return
         suggestions.set_options(
             [
@@ -891,6 +893,8 @@ class HephaistosTui(
         )
         suggestions.add_class("visible")
         suggestions.highlighted = 0
+        suggestions.scroll_y = 0
+        self._refresh_footer_hints()
         composer.focus()
 
     def _hide_completions(self) -> None:
@@ -898,6 +902,7 @@ class HephaistosTui(
         suggestions = self.query_one("#suggestions", OptionList)
         suggestions.set_options([])
         suggestions.remove_class("visible")
+        self._refresh_footer_hints()
 
     def _move_completion(self, offset: int) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
@@ -915,6 +920,7 @@ class HephaistosTui(
             suggestions.size.height,
             _COMPLETION_MENU_MAX_VISIBLE_ROWS,
         )
+        self._refresh_footer_hints()
 
     def _apply_completion(self, index: int) -> None:
         if not (0 <= index < len(self.completion_candidates)):

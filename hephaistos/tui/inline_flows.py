@@ -94,6 +94,7 @@ class TuiInlineFlowMixin:
             suggestions.set_options([f"No matches{suffix}"])
             suggestions.highlighted = None
         suggestions.add_class("visible")
+        self._refresh_footer_hints()
 
     def _filter_inline_menu_options(self, query: str) -> None:
         if not self._inline_flow.all_options:

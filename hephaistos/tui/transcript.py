@@ -11,12 +11,13 @@ try:
     from rich.style import Style as _RichStyle
     from rich.text import Text as _RichText
     from textual.css.query import NoMatches
-    from textual.widgets import RichLog, Static
+    from textual.widgets import OptionList, RichLog, Static
 except ImportError:
     Markdown = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     _RichStyle = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     _RichText = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     NoMatches = Exception  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
@@ -27,6 +28,19 @@ _USER_TRANSCRIPT_VERTICAL_PADDING = 1
 
 
 class TuiTranscriptMixin:
+    def _refresh_completion_position(self) -> None:
+        position = self.query_one("#completion-position", Static)
+        suggestions = self.query_one("#suggestions", OptionList)
+        option_count = len(self.completion_candidates) or len(self._inline_flow.options)
+        highlighted = suggestions.highlighted
+        if suggestions.has_class("visible") and option_count > 0 and highlighted is not None:
+            palette = current_palette()
+            position.update(_RichText(f"  ({highlighted + 1}/{option_count})", style=palette.dim))
+            position.add_class("visible")
+            return
+        position.update("")
+        position.remove_class("visible")
+
     def _schedule_transcript_reflow(self) -> None:
         if self._transcript_reflow_pending:
             return
@@ -199,7 +213,12 @@ class TuiTranscriptMixin:
         status.update(tui_module._status_text(self.session, state))
 
     def _refresh_footer_hints(self) -> None:
+        self._refresh_completion_position()
         hints = self.query_one("#footer-hints", Static)
+        if self.busy:
+            tui_module = sys.modules["hephaistos.tui"]
+            hints.update(tui_module._footer_hints_text(self.session, busy=True))
+            return
         if self._armory_inline_active:
             hints.update(
                 sys.modules["hephaistos.tui"]._armory_footer_hints_text(

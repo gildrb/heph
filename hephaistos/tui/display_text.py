@@ -92,7 +92,11 @@ def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False)
     return text
 
 
-def footer_hints_text(session: ChatSession, *, busy: bool = False) -> Text:
+def footer_hints_text(
+    session: ChatSession,
+    *,
+    busy: bool = False,
+) -> Text:
     """Build contextual footer hints that change based on current state."""
     palette = current_palette()
 
