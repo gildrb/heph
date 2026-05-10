@@ -13,7 +13,7 @@ def _tui_css() -> str:
     p = current_palette()
     bg = "transparent"
     bt = "transparent"
-    transcript_bg = p.panel
+    user_bg = p.panel
     return f"""
 App {{
     background: {bg};
@@ -70,9 +70,9 @@ RichLog {{
     max-height: 1fr;
     width: 100%;
     max-width: 100%;
-    padding: 0 2;
+    padding: 0 0;
     content-align: left bottom;
-    background: {transcript_bg};
+    background: {bg};
     color: {p.text};
     scrollbar-size: 0 0;
     background-tint: {bt};
@@ -81,7 +81,7 @@ RichLog {{
     display: none;
 }}
 #transcript:focus {{
-    background: {transcript_bg};
+    background: {bg};
     background-tint: {bt};
 }}
 #armory-inline {{
@@ -248,17 +248,19 @@ RichLog {{
     display: block;
 }}
 #composer-frame {{
-    height: auto;
-    width: auto;
+    height: 3;
+    min-height: 3;
+    max-height: 3;
+    width: 100%;
     max-width: 100%;
     margin-top: 1;
-    padding: 0 0;
-    background: {bg};
+    padding: 1 0;
+    background: {user_bg};
     color: {p.text};
 }}
 #suggestions {{
     dock: bottom;
-    margin-bottom: 3;
+    margin-bottom: 1;
     height: auto;
     max-height: 7;
     min-width: 30;
@@ -318,10 +320,10 @@ OptionList:focus > .option-list--option-highlighted {{
     height: 1;
     min-height: 1;
     max-height: 1;
-    width: auto;
+    width: 100%;
     max-width: 100%;
-    padding: 0 0;
-    background: {bg};
+    padding: 0 1;
+    background: {user_bg};
     color: {p.text};
 }}
 #footer-hints {{
@@ -346,8 +348,8 @@ Input {{
     min-height: 1;
     max-height: 1;
     border: none;
-    padding: 0 0;
-    background: {bg};
+    padding: 0 1;
+    background: {user_bg};
     background-tint: {bt};
     color: {p.text};
 }}
@@ -357,7 +359,7 @@ Input > .input--suggestion {{
 }}
 Input:focus {{
     border: none;
-    background: {bg};
+    background: {user_bg};
     background-tint: {bt};
 }}
 Input > .input--cursor {{

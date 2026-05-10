@@ -21,7 +21,9 @@ except ImportError:
     Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
 _TRANSCRIPT_ENTRY_GAP = ""
-_TRANSCRIPT_HORIZONTAL_PADDING = 4
+_TRANSCRIPT_HORIZONTAL_PADDING = 0
+_USER_TRANSCRIPT_HORIZONTAL_PADDING = 2
+_USER_TRANSCRIPT_VERTICAL_PADDING = 1
 
 
 class TuiTranscriptMixin:
@@ -87,17 +89,41 @@ class TuiTranscriptMixin:
                 renderable = line
             self._write_transcript_renderable(log, renderable)
 
+    def _write_user_transcript_lines(self, log: RichLog, text: str) -> None:
+        p = current_palette()
+        style = _RichStyle(color=p.ember, bgcolor=p.panel, bold=True)
+        if _RichText is None or log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
+            self._write_transcript_lines(log, text, style=style)
+            return
+        width = max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING)
+        content_width = max(1, width - (_USER_TRANSCRIPT_HORIZONTAL_PADDING * 2))
+        console = self.console
+        blank = _RichText.styled(" " * width, style)
+        for _ in range(_USER_TRANSCRIPT_VERTICAL_PADDING):
+            self._write_transcript_renderable(log, blank.copy())
+        for line in text.splitlines() or [""]:
+            renderable = _RichText.styled(line, style)
+            wrapped = renderable.wrap(console, width=content_width) or [
+                _RichText.styled("", style)
+            ]
+            for wrapped_line in wrapped:
+                if wrapped_line.cell_len < content_width:
+                    style_start = len(wrapped_line.plain)
+                    wrapped_line.pad_right(content_width - wrapped_line.cell_len)
+                    wrapped_line.stylize(style, style_start, len(wrapped_line.plain))
+                panel_line = _RichText.styled(" " * _USER_TRANSCRIPT_HORIZONTAL_PADDING, style)
+                panel_line.append_text(wrapped_line)
+                panel_line.append(" " * _USER_TRANSCRIPT_HORIZONTAL_PADDING, style=style)
+                self._write_transcript_renderable(log, panel_line)
+        for _ in range(_USER_TRANSCRIPT_VERTICAL_PADDING):
+            self._write_transcript_renderable(log, blank.copy())
+
     def _write_transcript_entry(self, entry: object) -> None:
         log = self.query_one("#transcript", RichLog)
         if entry.kind == "markdown":
             self._write_transcript_renderable(log, Markdown(entry.content))
         elif entry.kind == "user":
-            p = current_palette()
-            self._write_transcript_lines(
-                log,
-                entry.content,
-                style=_RichStyle(color=p.ember, bold=True),
-            )
+            self._write_user_transcript_lines(log, entry.content)
         elif entry.kind == "ansi":
             if _RichText is None:
                 self._write_transcript_lines(log, entry.content)
