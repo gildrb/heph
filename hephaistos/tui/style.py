@@ -248,19 +248,19 @@ RichLog {{
     display: block;
 }}
 #composer-frame {{
-    height: 5;
-    min-height: 5;
-    max-height: 5;
+    height: 3;
+    min-height: 3;
+    max-height: 3;
     width: 100%;
     max-width: 100%;
     margin-top: 1;
-    padding: 2 0;
+    padding: 1 0;
     background: {user_bg};
     color: {p.text};
 }}
 #suggestions {{
     dock: bottom;
-    margin-bottom: 3;
+    margin-bottom: 1;
     height: auto;
     max-height: 7;
     min-width: 30;

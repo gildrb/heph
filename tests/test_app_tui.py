@@ -448,9 +448,9 @@ def test_tui_css_pads_composer_as_full_width_user_block() -> None:
     input_end = css.index("}", input_start)
     input_block = css[input_start:input_end]
 
-    assert "height: 5;" in frame_block
+    assert "height: 3;" in frame_block
     assert "width: 100%;" in frame_block
-    assert "padding: 2 0;" in frame_block
+    assert "padding: 1 0;" in frame_block
     assert f"background: {panel};" in frame_block
     assert "width: 100%;" in composer_block
     assert "padding: 0 1;" in composer_block
@@ -471,7 +471,7 @@ def test_tui_css_positions_suggestions_above_composer_spacer() -> None:
     footer_block = css[footer_start:footer_end]
 
     assert "margin-top: 1;" in composer_block
-    assert "margin-bottom: 3;" in suggestions_block
+    assert "margin-bottom: 1;" in suggestions_block
     assert "margin-top: 1;" in footer_block
 
 
