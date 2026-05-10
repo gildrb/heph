@@ -375,7 +375,7 @@ def _topic_is_preferred(candidate: str, current: str) -> bool:
     current_known = current in _KNOWN_TOPIC_PHRASES
     if candidate_known != current_known:
         return candidate_known
-    return len(candidate_words) < len(current_words)
+    return len(candidate_words) > len(current_words)
 
 
 def _explicit_prerequisites(text: str) -> list[str]:
