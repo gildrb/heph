@@ -36,10 +36,7 @@ from hephaistos.tui.display_text import (
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.inline_flows import TuiInlineFlowMixin
 from hephaistos.tui.keymap import armory_binding_keys, armory_shortcut_key
-from hephaistos.tui.materials_view import (
-    MATERIAL_DISABLED_COLOR,
-    MATERIAL_ENABLED_COLOR,
-)
+from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENABLED_COLOR
 from hephaistos.tui.no_armory import record_no_armory_turn
 from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
@@ -908,7 +905,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             highlighted,
             option_count,
             suggestions.size.height,
-            7,
+            _COMPLETION_MENU_MAX_VISIBLE_ROWS,
         )
 
     def _apply_completion(self, index: int) -> None:
