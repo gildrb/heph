@@ -13,6 +13,7 @@ from hephaistos.agent.tools import (
     get_handler,
     run_bash,
     run_create_armory,
+    run_inspect_materials,
     run_validate_armory,
     run_web_fetch,
 )
@@ -237,6 +238,23 @@ class TestArmoryTools:
         assert result.success is False
         assert result.error == "invalid_armory"
 
+    def test_inspect_materials_returns_role_inventory(self, tmp_path: Path) -> None:
+        run_create_armory("math", workspace=tmp_path)
+        materials = tmp_path / "math" / "materials"
+        (materials / "Folien_2026_04_13.pdf").write_text("slides", encoding="utf-8")
+        (materials / "Mathematik+fur+Informatiker+2-Ratzkin-SS23.pdf").write_text(
+            "exam",
+            encoding="utf-8",
+        )
+
+        result = run_inspect_materials(workspace=tmp_path, path="math")
+
+        assert result.success is True
+        assert "Material inventory" in result.content
+        assert "Folien_2026_04_13.pdf: slides" in result.content
+        assert "Mathematik+fur+Informatiker+2-Ratzkin-SS23.pdf: past_exam" in result.content
+        assert result.metadata["count"] == 2
+
 
 # ---------------------------------------------------------------------------
 # web_fetch
@@ -305,6 +323,7 @@ class TestToolSchemas:
         names = [s["function"]["name"] for s in TOOL_SCHEMAS]
         assert "create_armory" in names
         assert "validate_armory" in names
+        assert "inspect_materials" in names
 
     def test_web_fetch_handler_registered(self):
         handler = get_handler("web_fetch")
@@ -313,6 +332,7 @@ class TestToolSchemas:
     def test_armory_handlers_registered(self):
         assert get_handler("create_armory") is not None
         assert get_handler("validate_armory") is not None
+        assert get_handler("inspect_materials") is not None
 
     def test_all_schemas_have_required_fields(self):
         for schema in TOOL_SCHEMAS:

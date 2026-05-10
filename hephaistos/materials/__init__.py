@@ -8,6 +8,7 @@ buckets.
 from __future__ import annotations
 
 import fnmatch
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,7 +82,19 @@ def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]
     normalized = "/".join(part.lower() for part in path.parts)
     suffix = path.suffix.lower()
 
-    if any(token in normalized for token in ("exam", "past-paper", "past_paper", "mock")):
+    exam_tokens = (
+        "exam",
+        "klausur",
+        "past-paper",
+        "past_paper",
+        "mock",
+        "pruefung",
+        "prüfung",
+    )
+    if any(token in normalized for token in exam_tokens) or re.search(
+        r"\bss\d{2,4}\b",
+        normalized,
+    ):
         return "past_exam", 0.9, "path suggests an exam or past paper"
     if any(token in normalized for token in ("assignment", "homework", "problem-set", "pset")):
         return "assignment", 0.85, "path suggests assigned problems"
@@ -89,10 +102,8 @@ def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]
         return "vocabulary", 0.85, "path suggests vocabulary practice"
     if any(token in normalized for token in ("lecture", "seminar", "class-notes")):
         return "lecture", 0.8, "path suggests lecture material"
-    if any(token in normalized for token in ("slide", "deck", "presentation")) or suffix in (
-        ".ppt",
-        ".pptx",
-    ):
+    slide_tokens = ("folien", "slide", "deck", "presentation")
+    if any(token in normalized for token in slide_tokens) or suffix in (".ppt", ".pptx"):
         return "slides", 0.8, "path or file type suggests slides"
     if any(token in normalized for token in ("book", "textbook", "chapter")):
         return "textbook", 0.8, "path suggests a textbook or chapter"

@@ -52,7 +52,7 @@ def test_priority_analysis_weights_past_exam_occurrence(tmp_path: Path) -> None:
     assert analysis.topics[0].exam_hits == 1
     assert analysis.topics[0].exam_marks == 0
     assert analysis.topics[0].material_hits == 1
-    assert analysis.topics[0].score == 4.0
+    assert analysis.topics[0].score == 8.5
 
 
 def test_priority_analysis_render_includes_exam_and_material_sources(tmp_path: Path) -> None:
@@ -246,8 +246,8 @@ def test_priority_report_writes_printable_html_from_local_evidence(tmp_path: Pat
     assert "materials/past-exam-2026.md" in html
     assert "10 marks" in html
     assert "recursion" in html
-    assert "Write a one-page answer" in html
-    assert "Answer every cited past-exam prompt" in html
+    assert "definition card" in html
+    assert "timed answer" in html
     assert "Factual study map" in html
     assert "Exam questions and points" in html
     assert "Explain dynamic programming recurrence tables" in html
@@ -345,3 +345,140 @@ def test_priority_analysis_can_add_web_backed_prerequisite_hints(tmp_path: Path)
     assert "web-backed prerequisite hints" in analysis.render_for_prompt()
     assert "web prerequisite hint" in html
     assert "https://example.test/graph" in html
+
+
+def test_priority_analysis_filters_metadata_and_preserves_german_concepts(
+    tmp_path: Path,
+) -> None:
+    index = ArmoryIndex(tmp_path)
+    slide_header = "Jesse Ratzkin Universit¨ at W¨ urzburg April 2026"
+    index.documents = [
+        ChunkedDocument(
+            source="materials/Folien_2026_04_13.pdf",
+            content_hash="slides-1",
+            chunks=[
+                _chunk(
+                    "materials/Folien_2026_04_13.pdf",
+                    f"{slide_header}\n"
+                    "Mathematik f¨ ur Informatiker 2 Sommersemester 2026\n"
+                    "## Exponential Logarithmus\n"
+                    "Der Exponential Logarithmus ist wichtig für Potenzreihenentwicklung.",
+                    heading="Mathematik f¨ ur Informatiker 2 Sommersemester 2026",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/Folien_2026_04_22.pdf",
+            content_hash="slides-2",
+            chunks=[
+                _chunk(
+                    "materials/Folien_2026_04_22.pdf",
+                    "## Beispiel: Potenzreihenentwicklung des Kosinus\n"
+                    "Die Potenzreihenentwicklung des Kosinus nutzt geometrische Reihen.",
+                    heading="Beispiel: Potenzreihenentwicklung des Kosinus",
+                )
+            ],
+        ),
+    ]
+
+    topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks, limit=20).topics}
+
+    assert "jesse ratzkin" not in topics
+    assert "mathematik informatiker sommersemester" not in topics
+    assert "universität würzburg" not in topics
+    assert "exponential logarithmus" in topics
+    assert "potenzreihenentwicklung kosinus" in topics or "potenzreihenentwicklung" in topics
+
+
+def test_priority_report_ranks_exam_topics_before_repeated_metadata(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/Folien_2026_04_13.pdf",
+            content_hash="slides",
+            chunks=[
+                _chunk(
+                    "materials/Folien_2026_04_13.pdf",
+                    "Jesse Ratzkin Universit¨ at W¨ urzburg April 2026\n"
+                    "Mathematik f¨ ur Informatiker 2 Sommersemester 2026",
+                )
+                for _index in range(8)
+            ]
+            + [
+                _chunk(
+                    "materials/Folien_2026_04_20.pdf",
+                    "Geometrische Reihe beschreibt Konvergenz von Partialsummen.",
+                    heading="Geometrische Reihe",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/past-exams/klausur.md",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/past-exams/klausur.md",
+                    "Aufgabe 1 [10 Punkte]: Untersuchen Sie eine geometrische Reihe "
+                    "auf Konvergenz.",
+                )
+            ],
+        ),
+    ]
+
+    analysis = analyze_priority(index.all_chunks, limit=20)
+    report = generate_priority_report(analysis, tmp_path / "Downloads")
+    html = report.path.read_text(encoding="utf-8")
+
+    assert analysis.topics[0].topic == "geometrische reihe"
+    assert analysis.topics[0].exam_marks == 10
+    assert "jesse ratzkin" not in html.casefold()
+    assert "universität würzburg" not in html.casefold()
+    assert "mathematik f ur informatiker" not in html
+    assert "geometrische Reihe" in html
+    assert "<title>Study priorities</title>" in html
+    assert "Hephaistos priority" not in html
+
+
+def test_priority_report_classifies_realistic_german_exam_by_content(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/Mathematik+fur+Informatiker+2-Ratzkin-SS23.pdf",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/Mathematik+fur+Informatiker+2-Ratzkin-SS23.pdf",
+                    "Klausur zur Mathematik 2 fir Informatiker. "
+                    "Sie konnen maximal 80 Punkte erreichen. "
+                    "Aufgabennummer Nachname Vorname Matrikelnummer. "
+                    "1.(4+4+4 Punkte) Berechnen Sie die folgenden Grenzwerte. "
+                    "2.(8 Punkte) Untersuchen Sie eine geometrische Reihe auf Konvergenz.",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/Folien_2026_04_20.pdf",
+            content_hash="slides",
+            chunks=[
+                _chunk(
+                    "materials/Folien_2026_04_20.pdf",
+                    "Geometrische Reihe und Konvergenz von Partialsummen.",
+                    heading="Geometrische Reihe",
+                )
+            ],
+        ),
+    ]
+
+    analysis = analyze_priority(index.all_chunks, limit=20)
+    report = generate_priority_report(analysis, tmp_path / "Downloads")
+    html = report.path.read_text(encoding="utf-8")
+
+    assert analysis.past_exam_sources == (
+        "materials/Mathematik+fur+Informatiker+2-Ratzkin-SS23.pdf",
+    )
+    signals = {signal.source: signal for signal in analysis.material_signals}
+    assert signals["materials/Mathematik+fur+Informatiker+2-Ratzkin-SS23.pdf"].role == "past_exam"
+    assert "What was checked" in html
+    assert "path suggests an exam or past paper" in html
+    assert "past exam" in html
+    assert "aufgabennummer nachname vorname matrikelnummer" not in html.casefold()

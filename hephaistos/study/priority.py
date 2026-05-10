@@ -7,6 +7,7 @@ import json
 import os
 import re
 import textwrap
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -27,13 +28,14 @@ from hephaistos.runtime import (
     stream_completion,
 )
 
-_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]{2,}")
+_TOKEN_RE = re.compile(r"[^\W\d_][^\W_+-]{2,}")
 _SENTENCE_RE = re.compile(r"[^.!?\n]+")
-_TOPIC_PHRASE_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9_+-]*(?:\s+[A-Za-z][A-Za-z0-9_+-]*){1,5}\b")
-_QUESTION_START_RE = re.compile(r"\b(?:question|q)\s*\d+[A-Za-z]?\b", re.IGNORECASE)
+_TOPIC_TOKEN_PATTERN = r"[^\W\d_][^\W_+-]*"
+_TOPIC_PHRASE_RE = re.compile(rf"\b{_TOPIC_TOKEN_PATTERN}(?:\s+{_TOPIC_TOKEN_PATTERN}){{1,5}}\b")
+_QUESTION_START_RE = re.compile(r"\b(?:question|q|aufgabe)\s*\d+[A-Za-z]?\b", re.IGNORECASE)
 _HEADING_PREFIX_RE = re.compile(r"^(?:#+\s*|\d+(?:\.\d+)*[.)]?\s*|[-*]\s*)")
 _WHITESPACE_RE = re.compile(r"\s+")
-_WORD_SPLIT_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*")
+_WORD_SPLIT_RE = re.compile(_TOPIC_TOKEN_PATTERN)
 _WEB_RESULT_RE = re.compile(
     r'<a[^>]+class="result__a"[^>]+href="(?P<url>[^"]+)"[^>]*>(?P<title>.*?)</a>'
     r".{0,1800}?"
@@ -59,12 +61,30 @@ _KNOWN_TOPIC_PHRASES = frozenset(
         "dijkstra shortest",
         "dijkstra shortest paths",
         "graph shortest paths",
+        "archimedisches prinzip",
+        "bestimmte divergenz",
+        "cosinus",
+        "differenzierbare funktionen",
+        "exponential logarithmus",
+        "geometrische reihe",
+        "grenzwert",
+        "höhere ableitungen",
+        "hoehere ableitungen",
+        "konvergenz",
+        "lineare approximation",
+        "monotonie",
+        "partialbruchzerlegung",
+        "potenzreihenentwicklung",
+        "potenzreihenentwicklung des kosinus",
+        "stetige funktionen",
+        "trigonometrische funktionen",
     }
 )
 _MARK_RE = re.compile(
     r"(?:\[\s*(\d{1,2})\s*(?:marks?|pts?|points?)\s*\]|"
     r"\((\d{1,2})\s*(?:marks?|pts?|points?)\)|"
-    r"\b(\d{1,2})\s*(?:marks?|pts?|points?)\b)",
+    r"\b(\d{1,2})\s*(?:marks?|pts?|points?|punkte?|pkt\.?)\b|"
+    r"(?:punkte?|pkt\.?)\s*[:=]?\s*(\d{1,2})\b)",
     re.IGNORECASE,
 )
 _NO_PREREQUISITE_TEXT = "No explicit prerequisite found in indexed materials."
@@ -74,62 +94,139 @@ _WEB_PREREQ_TOPICS = 6
 _WEB_PREREQ_RESULTS = 4
 _WEB_PREREQ_USER_AGENT = "Hephaistos/0.1 priority prerequisites"
 _WEB_PREREQ_SEARCH_URL = "https://duckduckgo.com/html/"
+_ROLE_LABELS: dict[str, str] = {
+    "assignment": "assignment",
+    "codebase": "codebase",
+    "lecture": "lecture notes",
+    "past_exam": "past exam",
+    "reference": "reference material",
+    "slides": "lecture slides",
+    "textbook": "textbook",
+    "vocabulary": "vocabulary material",
+}
 
 _STOPWORDS = frozenset(
     {
         "about",
         "after",
+        "am",
+        "an",
         "also",
         "and",
         "answer",
         "are",
         "against",
+        "auf",
+        "alle",
+        "alles",
+        "als",
+        "analog",
+        "april",
         "basic",
         "basics",
         "because",
+        "beispiel",
+        "beispiele",
+        "bekannte",
+        "bekannten",
+        "beliebiges",
         "before",
+        "berechnen",
+        "beweis",
         "brief",
         "briefly",
+        "daher",
+        "damit",
+        "dann",
+        "dass",
         "calculate",
         "connected",
+        "der",
+        "des",
         "define",
+        "dem",
+        "den",
+        "denn",
         "depend",
         "depends",
         "describe",
+        "eine",
+        "einem",
+        "einen",
+        "einer",
+        "eines",
+        "existiert",
         "does",
         "each",
         "exam",
         "explain",
+        "falls",
         "following",
         "from",
+        "folgt",
         "for",
+        "für",
+        "fuer",
+        "gilt",
         "give",
         "given",
+        "gegen",
         "have",
+        "haben",
+        "heißt",
+        "heisst",
+        "hier",
+        "informatiker",
         "identify",
         "into",
         "marks",
+        "mathematik",
+        "mit",
+        "mittig",
+        "module",
+        "modul",
+        "muss",
+        "nach",
+        "nachname",
+        "nicht",
+        "ohne",
         "one",
         "past",
+        "punkte",
+        "punkt",
         "question",
         "questions",
+        "ratzkin",
+        "semester",
+        "sei",
+        "seien",
+        "sommersemester",
         "show",
+        "somit",
         "state",
         "that",
+        "teil",
         "the",
         "their",
         "then",
         "this",
         "through",
         "two",
+        "über",
+        "ueber",
         "using",
         "use",
         "uses",
+        "von",
+        "vorname",
         "what",
         "when",
         "where",
         "which",
         "with",
+        "womit",
+        "würzburg",
+        "wuerzburg",
         "your",
         "formula",
         "not",
@@ -138,9 +235,37 @@ _STOPWORDS = frozenset(
         "ocr",
         "noise",
         "die",
+        "das",
+        "universität",
+        "universitaet",
+        "university",
+        "universit",
         "ist",
+        "januar",
+        "februar",
+        "märz",
+        "maerz",
+        "mai",
+        "juni",
+        "juli",
+        "august",
+        "september",
+        "oktober",
+        "november",
+        "dezember",
+        "january",
+        "february",
+        "march",
+        "may",
+        "june",
+        "july",
+        "october",
+        "december",
         "und",
         "wir",
+        "wahr",
+        "wählen",
+        "waehlen",
         "algorithm",
         "algorithms",
         "article",
@@ -203,6 +328,14 @@ class PriorityExamQuestion:
 
 
 @dataclass(frozen=True, slots=True)
+class PriorityMaterialSignal:
+    source: str
+    role: str
+    confidence: float
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class PriorityTopic:
     """A locally observed priority topic."""
 
@@ -234,6 +367,7 @@ class PriorityAnalysis:
     material_sources: tuple[str, ...]
     chunks: tuple[PriorityChunk, ...] = ()
     exam_questions: tuple[PriorityExamQuestion, ...] = ()
+    material_signals: tuple[PriorityMaterialSignal, ...] = ()
 
     def render_for_prompt(self, *, limit: int = 6) -> str:
         """Render concise context for the model-facing priority request."""
@@ -245,6 +379,13 @@ class PriorityAnalysis:
             lines.append(f"- Past exams scanned: {', '.join(self.past_exam_sources[:5])}")
         if self.material_sources:
             lines.append(f"- Supporting materials scanned: {', '.join(self.material_sources[:5])}")
+        if self.material_signals:
+            lines.append("- Material classification:")
+            for signal in self.material_signals[:8]:
+                label = _ROLE_LABELS.get(signal.role, signal.role.replace("_", " "))
+                lines.append(
+                    f"  - {signal.source}: {label} ({signal.confidence:.2f}; {signal.reason})"
+                )
         lines.append("- Candidate priorities:")
         for topic in self.topics[:limit]:
             sources = ", ".join(topic.sources[:3])
@@ -284,9 +425,19 @@ def analyze_priority(
     past_exam_sources: set[str] = set()
     material_sources: set[str] = set()
     exam_questions: list[PriorityExamQuestion] = []
+    material_signal_by_source: dict[str, PriorityMaterialSignal] = {}
 
     for chunk in chunk_list:
-        role, _confidence, _reason = infer_material_role(chunk.source)
+        role, confidence, reason = _priority_material_role(chunk)
+        material_signal_by_source.setdefault(
+            chunk.source,
+            PriorityMaterialSignal(
+                source=chunk.source,
+                role=role,
+                confidence=confidence,
+                reason=reason,
+            ),
+        )
         exam_sections = tuple(_exam_sections(chunk.text)) if role == "past_exam" else ()
         if role == "past_exam":
             past_exam_sources.add(chunk.source)
@@ -328,7 +479,7 @@ def analyze_priority(
         exam_hits = exam_counts[term]
         marks = exam_marks[term]
         material_hits = material_counts[term]
-        score = exam_hits * 3.0 + marks * 0.4 + material_hits
+        score = exam_hits * 8.0 + marks * 1.0 + min(material_hits, 6) * 0.5
         if score <= 0:
             continue
         topics.append(
@@ -344,7 +495,15 @@ def analyze_priority(
             )
         )
 
-    topics.sort(key=lambda topic: (-topic.score, -topic.exam_marks, -topic.exam_hits, topic.topic))
+    topics.sort(
+        key=lambda topic: (
+            topic.exam_hits == 0,
+            -topic.exam_marks,
+            -topic.exam_hits,
+            -topic.score,
+            topic.topic,
+        )
+    )
     topics = _collapse_component_topics(topics)
     topics = _with_web_prerequisites(topics[:limit], web_searcher)
     return PriorityAnalysis(
@@ -353,11 +512,42 @@ def analyze_priority(
         material_sources=tuple(sorted(material_sources)),
         chunks=tuple(chunk_list),
         exam_questions=tuple(exam_questions),
+        material_signals=tuple(
+            material_signal_by_source[source] for source in sorted(material_signal_by_source)
+        ),
     )
 
 
+def _priority_material_role(chunk: PriorityChunk) -> tuple[str, float, str]:
+    role, confidence, reason = infer_material_role(chunk.source)
+    if role == "past_exam":
+        return role, confidence, reason
+    text = _repair_pdf_unicode_spacing(chunk.text[:2000]).casefold()
+    if _exam_like_text(text):
+        return "past_exam", max(confidence, 0.92), "content contains exam instructions/questions"
+    return role, confidence, reason
+
+
+def _exam_like_text(text: str) -> bool:
+    signals = (
+        "klausur",
+        "punkte",
+        "aufgabe",
+        "aufgabennummer",
+        "maximal",
+        "bestehen",
+        "hilfsmittel",
+        "bearbeitungen",
+        "matrikelnummer",
+    )
+    hits = sum(1 for signal in signals if signal in text)
+    question_signal = re.search(r"\b(?:aufgabe|question|q)\s*\d+", text, re.IGNORECASE)
+    mark_signal = _MARK_RE.search(text) is not None
+    return hits >= 3 or (question_signal is not None and mark_signal)
+
+
 def _topic_terms(heading: str, text: str) -> list[str]:
-    raw = f"{heading}\n{text}"
+    raw = _repair_pdf_unicode_spacing(f"{heading}\n{text}")
     seen: set[str] = set()
     terms: list[str] = []
     for candidate in _candidate_topic_phrases(raw):
@@ -439,12 +629,8 @@ def _prerequisite_terms_from_web_result(
 def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Iterator[str]:
     seen: set[str] = set()
     for phrase_match in _TOPIC_PHRASE_RE.finditer(text):
-        words = [word.lower() for word in _WORD_SPLIT_RE.findall(phrase_match.group(0))]
-        useful = [
-            word
-            for word in words
-            if word not in _STOPWORDS and word not in topic_words and not word.isdigit()
-        ]
+        words = _normalized_words(phrase_match.group(0))
+        useful = [word for word in words if _useful_topic_word(word) and word not in topic_words]
         if not useful:
             continue
         term = " ".join(useful[:3])
@@ -452,8 +638,8 @@ def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Itera
             seen.add(term)
             yield term
     for word_match in _TOKEN_RE.finditer(text):
-        term = word_match.group(0).lower()
-        if term in _STOPWORDS or term in topic_words or term in seen:
+        term = _normalize_word(word_match.group(0))
+        if not _useful_topic_word(term) or term in topic_words or term in seen:
             continue
         seen.add(term)
         yield term
@@ -462,8 +648,8 @@ def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Itera
 def _candidate_topic_phrases(raw: str) -> Iterator[str]:
     yield from _heading_candidates(raw)
     for phrase_match in _TOPIC_PHRASE_RE.finditer(raw):
-        words = [word.lower() for word in _WORD_SPLIT_RE.findall(phrase_match.group(0))]
-        useful = [word for word in words if word not in _STOPWORDS and not word.isdigit()]
+        words = _normalized_words(phrase_match.group(0))
+        useful = [word for word in words if _useful_topic_word(word)]
         if len(useful) >= 2:
             if len(useful) <= 4 and _topic_phrase_is_known(useful):
                 yield " ".join(useful)
@@ -476,12 +662,103 @@ def _candidate_topic_phrases(raw: str) -> Iterator[str]:
 def _heading_candidates(raw: str) -> Iterator[str]:
     for line in raw.splitlines():
         cleaned = _HEADING_PREFIX_RE.sub("", line.strip())
-        if not cleaned or len(cleaned) > 90:
+        if not cleaned or len(cleaned) > 90 or _metadata_heading(cleaned):
             continue
-        words = [word.lower() for word in _WORD_SPLIT_RE.findall(cleaned)]
-        useful = [word for word in words if word not in _STOPWORDS and not word.isdigit()]
-        if 2 <= len(useful) <= 6:
+        words = _normalized_words(cleaned)
+        useful = [word for word in words if _useful_topic_word(word)]
+        if 1 <= len(useful) <= 6 and _candidate_has_concept_signal(useful):
             yield " ".join(useful)
+
+
+def _normalized_words(value: str) -> list[str]:
+    return [_normalize_word(word) for word in _WORD_SPLIT_RE.findall(value)]
+
+
+def _normalize_word(word: str) -> str:
+    lowered = word.casefold()
+    return unicodedata.normalize("NFC", lowered)
+
+
+def _useful_topic_word(word: str) -> bool:
+    return len(word) >= 2 and word not in _STOPWORDS and not word.isdigit()
+
+
+def _metadata_heading(value: str) -> bool:
+    words = _normalized_words(value)
+    if not words:
+        return True
+    metadata_words = {
+        "april",
+        "mathematik",
+        "informatiker",
+        "jesse",
+        "ratzkin",
+        "sommersemester",
+        "universität",
+        "universitaet",
+        "würzburg",
+        "wuerzburg",
+    }
+    return len(words) <= 12 and len(set(words) & metadata_words) >= 2
+
+
+def _path_contains_metadata(value: str) -> bool:
+    words = set(_normalized_words(value.replace("/", " ").replace("_", " ")))
+    metadata_words = {"jesse", "ratzkin", "universität", "universitaet", "würzburg", "wuerzburg"}
+    return bool(words & metadata_words)
+
+
+def _candidate_has_concept_signal(words: list[str]) -> bool:
+    term = " ".join(words)
+    if term in _KNOWN_TOPIC_PHRASES:
+        return True
+    if len(words) == 1:
+        return words[0] in _KNOWN_SINGLE_WORD_TOPICS
+    banned = {
+        "aussage",
+        "aufgaben",
+        "aufgabennummer",
+        "begründen",
+        "begruenden",
+        "bearbeitungen",
+        "dirfen",
+        "dürfen",
+        "erreichen",
+        "erzielen",
+        "hilfsmittel",
+        "matrikelnummer",
+        "maximal",
+        "name",
+        "nomen",
+        "vorname",
+        "widerspruch",
+    }
+    if any(word in banned for word in words):
+        return False
+    concept_endings = (
+        "heit",
+        "keit",
+        "tion",
+        "ung",
+        "ungen",
+        "enz",
+        "anz",
+        "mus",
+        "men",
+        "reihe",
+        "reihen",
+        "funktion",
+        "funktionen",
+        "satz",
+        "prinzip",
+        "regel",
+        "wert",
+        "werte",
+        "logarithmus",
+        "kosinus",
+        "sinus",
+    )
+    return any(word.endswith(concept_endings) for word in words)
 
 
 def _topic_phrase_is_known(words: list[str]) -> bool:
@@ -561,9 +838,9 @@ def _explicit_prerequisites(text: str) -> list[str]:
         _label, _sep, rest = line.partition(":")
         raw = rest or line
         terms.extend(
-            token.lower()
+            _normalize_word(token)
             for token in _TOKEN_RE.findall(raw)
-            if token.lower() not in _STOPWORDS and not token.isdigit()
+            if _useful_topic_word(_normalize_word(token))
         )
     return terms
 
@@ -581,9 +858,9 @@ def _dependency_prerequisites(text: str, terms: set[str]) -> dict[str, Counter[s
         if not sentence_terms:
             continue
         prerequisites = [
-            token.lower()
+            _normalize_word(token)
             for token in _TOKEN_RE.findall(after)
-            if token.lower() not in _STOPWORDS and not token.isdigit()
+            if _useful_topic_word(_normalize_word(token))
         ]
         for term in sentence_terms:
             hints.setdefault(term, Counter()).update(prerequisites)
@@ -601,6 +878,9 @@ def _dependency_marker(sentence: str) -> int | None:
 def _mark_weight(text: str) -> int:
     marks = []
     for match in _MARK_RE.finditer(text):
+        context = text[max(0, match.start() - 16) : match.start()].casefold()
+        if any(word in context for word in ("maximal", "total", "insgesamt")):
+            continue
         for group in match.groups():
             if group is not None:
                 marks.append(int(group))
@@ -609,18 +889,27 @@ def _mark_weight(text: str) -> int:
 
 
 def _exam_sections(text: str) -> Iterator[str]:
-    matches = list(_QUESTION_START_RE.finditer(text))
+    matches = list(_exam_question_matches(text))
     if not matches:
         yield text
         return
-    prefix = text[: matches[0].start()].strip()
-    if prefix:
-        yield prefix
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         section = text[match.start() : end].strip()
         if section:
             yield section
+
+
+def _exam_question_matches(text: str) -> Iterator[re.Match[str]]:
+    seen: set[int] = set()
+    for match in _QUESTION_START_RE.finditer(text):
+        seen.add(match.start())
+        yield match
+    question_mark_pattern = r"(?<!\d)\d{1,2}\.\s*\([^)]*?(?:punkte?|marks?|pts?)[^)]*\)"
+    for match in re.finditer(question_mark_pattern, text, re.IGNORECASE):
+        if match.start() not in seen:
+            seen.add(match.start())
+            yield match
 
 
 def _exam_section_terms(sections: Iterable[str]) -> dict[str, int]:
@@ -648,21 +937,32 @@ def _exam_questions(source: str, sections: Iterable[str]) -> Iterator[PriorityEx
 
 
 def _topic_evidence(chunk: PriorityChunk, term: str, marks: int) -> PriorityTopicEvidence:
+    text = _evidence_text_for_term(chunk.text, term) if marks else chunk.text
     return PriorityTopicEvidence(
         source=chunk.source,
         heading=chunk.heading,
-        excerpt=_topic_excerpt(chunk.text, term, heading=chunk.heading),
+        excerpt=_topic_excerpt(text, term, heading=chunk.heading),
         marks=marks,
     )
 
 
+def _evidence_text_for_term(text: str, term: str) -> str:
+    for section in _exam_sections(text):
+        if term in set(_topic_terms("", section)):
+            return section
+    return text
+
+
 def _topic_excerpt(text: str, term: str, *, heading: str = "", max_chars: int = 260) -> str:
     normalized = _clean_evidence_excerpt(text, heading=heading)
-    if len(normalized) <= max_chars:
-        return normalized
-    idx = normalized.lower().find(term.lower())
+    idx = normalized.casefold().find(term.casefold())
     if idx < 0:
+        if len(normalized) <= max_chars:
+            return normalized
         return f"{normalized[: max_chars - 1]}…"
+    if _metadata_heading(normalized[:idx]):
+        normalized = normalized[idx:]
+        idx = 0
     start = max(0, idx - max_chars // 3)
     end = min(len(normalized), start + max_chars)
     start = max(0, end - max_chars)
@@ -674,20 +974,51 @@ def _topic_excerpt(text: str, term: str, *, heading: str = "", max_chars: int = 
 def _clean_evidence_excerpt(text: str, *, heading: str = "") -> str:
     cleaned_lines = []
     previous_line = ""
-    for raw_line in text.splitlines():
+    repaired = _repair_pdf_unicode_spacing(text)
+    for raw_line in repaired.splitlines():
         line = _HEADING_PREFIX_RE.sub("", raw_line.strip())
         line = _WHITESPACE_RE.sub(" ", line).strip()
         if not line or line == previous_line:
             continue
-        if previous_line and line.lower().startswith(f"{previous_line.lower()} "):
+        if previous_line and line.casefold().startswith(f"{previous_line.casefold()} "):
             line = line[len(previous_line) :].strip()
         cleaned_lines.append(line)
         previous_line = line
     cleaned = _WHITESPACE_RE.sub(" ", " ".join(cleaned_lines)).strip()
-    heading_text = _HEADING_PREFIX_RE.sub("", heading.strip())
-    if heading_text and cleaned.lower().startswith(f"{heading_text.lower()} "):
+    heading_text = _HEADING_PREFIX_RE.sub("", _repair_pdf_unicode_spacing(heading).strip())
+    if heading_text and cleaned.casefold().startswith(f"{heading_text.casefold()} "):
         cleaned = cleaned[len(heading_text) :].strip()
-    return cleaned
+    return _strip_metadata_prefix(cleaned)
+
+
+def _strip_metadata_prefix(value: str) -> str:
+    value = re.sub(r"(?<=[a-zäöüß])(?=[A-ZÄÖÜ])", ". ", value)
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", value) if part.strip()]
+    while sentences and _metadata_heading(sentences[0]):
+        sentences.pop(0)
+    return " ".join(sentences) if sentences else value
+
+
+def _repair_pdf_unicode_spacing(value: str) -> str:
+    repaired = value
+    replacements = {
+        "a¨": "ä",
+        "A¨": "Ä",
+        "o¨": "ö",
+        "O¨": "Ö",
+        "u¨": "ü",
+        "U¨": "Ü",
+        "¨ a": "ä",
+        "¨ A": "Ä",
+        "¨ o": "ö",
+        "¨ O": "Ö",
+        "¨ u": "ü",
+        "¨ U": "Ü",
+        "¨ s": "ß",
+    }
+    for source, replacement in replacements.items():
+        repaired = repaired.replace(source, replacement)
+    return unicodedata.normalize("NFC", repaired)
 
 
 def _prerequisites_for(
@@ -789,6 +1120,7 @@ def _analysis_with_web_prerequisites(analysis: PriorityAnalysis) -> PriorityAnal
         material_sources=analysis.material_sources,
         chunks=analysis.chunks,
         exam_questions=analysis.exam_questions,
+        material_signals=analysis.material_signals,
     )
 
 
@@ -817,6 +1149,7 @@ def _analysis_for_full_report(analysis: PriorityAnalysis) -> PriorityAnalysis:
         material_sources=expanded.material_sources,
         chunks=expanded.chunks,
         exam_questions=expanded.exam_questions,
+        material_signals=expanded.material_signals,
     )
 
 
@@ -877,14 +1210,21 @@ def _can_use_model(config: ChatConfig) -> bool:
 def _priority_model_context(analysis: PriorityAnalysis, *, focus: str) -> str:
     chunks = list(_representative_chunks(analysis))
     evidence_lines = []
+    role_by_source = {signal.source: signal for signal in analysis.material_signals}
     for idx, chunk in enumerate(chunks, start=1):
-        role, _confidence, _reason = infer_material_role(chunk.source)
+        role_signal = role_by_source.get(chunk.source)
+        if role_signal is None:
+            role, confidence, reason = _priority_material_role(chunk)
+        else:
+            role = role_signal.role
+            confidence = role_signal.confidence
+            reason = role_signal.reason
         evidence_lines.append(
             "\n".join(
                 (
                     f"Evidence {idx}",
                     f"Source: {chunk.source}",
-                    f"Role: {role}",
+                    f"Role: {role} ({confidence:.2f}; {reason})",
                     f"Heading: {chunk.heading or 'none'}",
                     f"Text: {_compact_evidence_text(chunk.text)}",
                 )
@@ -963,17 +1303,16 @@ def _render_priority_html(
     return textwrap.dedent(
         f"""
         <!doctype html>
-        <html lang="en">
+        <html lang="de">
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
-          <title>Hephaistos Priority Report</title>
+          <title>Study priorities</title>
           <style>{_priority_css()}</style>
         </head>
         <body>
           <main>
             <header class="hero">
-              <p class="eyebrow">Hephaistos priority</p>
               <h1>Study priority report</h1>
               <p>{_escape(summary)}</p>
               {_focus_html(focus)}
@@ -983,6 +1322,7 @@ def _render_priority_html(
             {_topics_html(analysis, model_payload)}
             {_study_map_html(analysis)}
             {_past_exams_html(analysis, model_payload)}
+            {_material_inventory_html(analysis)}
             {_plan_html(model_payload)}
             {_sources_html(analysis)}
           </main>
@@ -1008,20 +1348,10 @@ def _priority_css() -> str:
 body { margin: 0; color: #111; background: #fff; font-size: 16px; }
 main { width: min(920px, calc(100% - 48px)); margin: 0 auto; padding: 40px 0 64px; }
 .hero { border-bottom: 2px solid #111; padding-bottom: 22px; margin-bottom: 30px; }
-.eyebrow {
-  color: #111;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  font-weight: 700;
-  margin: 0 0 10px;
-  font-size: .78rem;
-}
 h1 { font-size: clamp(2.2rem, 5vw, 3.5rem); line-height: 1; margin: 0 0 18px; }
 h2 {
   font-size: 1.45rem;
   margin: 36px 0 16px;
-  border-bottom: 1px solid #111;
-  padding-bottom: 8px;
 }
 h3 { font-size: 1.16rem; margin: 0 0 8px; }
 h4 { font-size: .95rem; margin: 16px 0 8px; }
@@ -1184,6 +1514,33 @@ def _topic_source_signal(topic: PriorityTopic) -> str:
     return f"{first_sources}{suffix}" if first_sources else "No source recorded"
 
 
+def _material_inventory_html(analysis: PriorityAnalysis) -> str:
+    if not analysis.material_signals:
+        return ""
+    rows = []
+    for signal in analysis.material_signals:
+        if signal.role != "past_exam" and _path_contains_metadata(signal.source):
+            reason = "path metadata; not treated as a study topic"
+        else:
+            reason = signal.reason
+        label = _ROLE_LABELS.get(signal.role, signal.role.replace("_", " "))
+        rows.append(
+            "<tr>"
+            f"<td>{_escape(signal.source)}</td>"
+            f"<td>{_escape(label)}</td>"
+            f"<td>{_escape(f'{signal.confidence:.2f}')}</td>"
+            f"<td>{_escape(reason)}</td>"
+            "</tr>"
+        )
+    return (
+        "<section><h2>What was checked</h2>"
+        '<p class="meta">These file roles are part of the analysis. Exam ranking only uses '
+        "files classified as past exams.</p>"
+        "<table><thead><tr><th>Source</th><th>Role</th><th>Confidence</th>"
+        "<th>Why</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></section>"
+    )
+
+
 def _truncate(value: str, max_chars: int) -> str:
     value = _WHITESPACE_RE.sub(" ", value).strip()
     if len(value) <= max_chars:
@@ -1227,26 +1584,33 @@ def _topic_importance(topic: PriorityTopic, payload: dict[str, object] | None) -
 def _fallback_topic_why(topic: PriorityTopic) -> str:
     parts = []
     if topic.exam_marks:
-        parts.append(f"visible past-exam marks total {topic.exam_marks}")
+        parts.append(f"{topic.exam_marks} visible past-exam mark(s)")
     if topic.exam_hits:
-        parts.append(f"appears in {topic.exam_hits} past-exam excerpt(s)")
+        parts.append(f"{topic.exam_hits} past-exam hit(s)")
     if topic.material_hits:
-        parts.append(f"appears in {topic.material_hits} supporting-material excerpt(s)")
+        parts.append(f"{topic.material_hits} supporting-material excerpt(s)")
     if not parts:
         return "Observed in the indexed material excerpts."
-    return "Prioritize because it " + " and ".join(parts) + "."
+    if topic.exam_hits or topic.exam_marks:
+        return "Ranked here because it has " + " and ".join(parts) + "."
+    return "Included as a supporting-material concept, but below exam-linked topics."
 
 
 def _fallback_study_actions(topic: PriorityTopic) -> list[str]:
     actions = [
-        f"Write a one-page answer that defines {topic.topic}, explains why it matters here, "
-        "and cites at least two report excerpts."
+        f"Make a concise definition card for {topic.topic}: definition, one worked example, "
+        "and the exact source excerpt that supports it."
     ]
     if topic.exam_marks or topic.exam_hits:
         mark_text = f" for {topic.exam_marks} visible marks" if topic.exam_marks else ""
         actions.append(
-            f"Answer every cited past-exam prompt about {topic.topic}{mark_text}, then mark "
-            "which source line supports each sentence."
+            f"Write a timed answer for every cited exam prompt about {topic.topic}{mark_text}; "
+            "then compare each sentence against the cited material."
+        )
+    else:
+        actions.append(
+            "Do not treat this as high priority unless it supports an exam-linked topic or your "
+            "lecturer emphasized it."
         )
     if topic.prerequisites:
         actions.append(
@@ -1417,11 +1781,18 @@ def _payload_string_list(payload: dict[str, object] | None, key: str) -> list[st
 
 def _fallback_summary(analysis: PriorityAnalysis) -> str:
     if not analysis.topics:
-        return "No recurring priority topics were found in the indexed materials."
+        return "No study concepts could be separated from the indexed materials."
+    exam_topics = [topic.topic for topic in analysis.topics if topic.exam_hits or topic.exam_marks]
+    if exam_topics:
+        top = ", ".join(exam_topics[:3])
+        return (
+            f"Exam-linked priorities: {top}. Ranking puts visible exam questions and marks before "
+            "lecture-only coverage."
+        )
     top = ", ".join(topic.topic for topic in analysis.topics[:3])
     return (
-        f"Top indexed priorities are {top}. Scores combine past-exam appearances, "
-        "visible marks, and supporting-material coverage."
+        f"Material concepts found: {top}. No indexed past-exam hits were detected, so ranking is "
+        "based only on supporting-material coverage."
     )
 
 

@@ -958,7 +958,7 @@ class HephaistosTui(
     def _start_thinking_animation(self) -> None:
         self._thinking_start = time.monotonic()
         indicator = self.query_one("#thinking-indicator", Static)
-        indicator.update(f"[dim]{_THINKING_FRAMES[0]} thinking...[/dim]")
+        indicator.update(f"[dim]{_THINKING_FRAMES[0]} checking sources...[/dim]")
         indicator.remove_class("hidden")
         indicator.add_class("active")
         self._refresh_footer_hints()
@@ -971,7 +971,7 @@ class HephaistosTui(
         elapsed = time.monotonic() - self._thinking_start
         frame_idx = int(elapsed / 0.12) % len(_THINKING_FRAMES)
         indicator = self.query_one("#thinking-indicator", Static)
-        indicator.update(f"[dim]{_THINKING_FRAMES[frame_idx]} thinking...[/dim]")
+        indicator.update(f"[dim]{_THINKING_FRAMES[frame_idx]} checking sources...[/dim]")
 
     def _stop_thinking_animation(self) -> None:
         if self._thinking_timer is not None:

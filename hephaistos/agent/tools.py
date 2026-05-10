@@ -54,6 +54,7 @@ from hephaistos.armory.storage import (
     read_marker,
     validate,
 )
+from hephaistos.materials import material_manifest
 
 
 def safe_path(workspace: Path, rel_path: str) -> Path:
@@ -337,6 +338,17 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
             "case_sensitive": _boolean("Whether the search is case-sensitive. Default: false."),
         },
         required=("pattern",),
+    ),
+    _tool(
+        "inspect_materials",
+        (
+            "Inspect the armory material inventory before study planning. Returns each source, "
+            "its inferred role, confidence, and the reason for the classification so the agent "
+            "can distinguish lecture material from past exams instead of guessing from mentions."
+        ),
+        {
+            "path": _string("Relative armory path. Defaults to workspace root."),
+        },
     ),
     _tool(
         "web_fetch",
@@ -796,6 +808,47 @@ def run_search_files(
     return header + "\n" + "\n".join(matches)
 
 
+def run_inspect_materials(
+    *,
+    workspace: Path,
+    path: str = "",
+    **_kwargs: object,
+) -> ToolResult:
+    """Return the material manifest with transparent role classification."""
+    try:
+        armory = safe_path(workspace, path or ".")
+    except ValueError as exc:
+        return ToolResult(success=False, content=str(exc), error="path_escape")
+    try:
+        materials = material_manifest(armory)
+    except OSError as exc:
+        return ToolResult(
+            success=False,
+            content=f"Error reading materials: {exc}",
+            error="io_error",
+        )
+    if not materials:
+        return ToolResult(
+            success=True,
+            content="No visible materials found.",
+            metadata={"count": 0, "roles": {}},
+        )
+
+    role_counts: dict[str, int] = {}
+    rows = ["Material inventory:"]
+    for material in materials:
+        role_counts[material.role] = role_counts.get(material.role, 0) + 1
+        rows.append(
+            f"- {material.rel_path}: {material.role} "
+            f"({material.confidence:.2f}; {material.reason})"
+        )
+    return ToolResult(
+        success=True,
+        content="\n".join(rows),
+        metadata={"count": len(materials), "roles": role_counts},
+    )
+
+
 def run_web_fetch(url: str, timeout: int | None = None, **_kwargs: object) -> str:
     """Fetch a URL and return the text content with source attribution.
 
@@ -930,6 +983,7 @@ _HANDLERS: dict[str, Callable[..., ToolHandlerResult]] = {
     "create_armory": run_create_armory,
     "validate_armory": run_validate_armory,
     "search_files": run_search_files,
+    "inspect_materials": run_inspect_materials,
     "web_fetch": run_web_fetch,
 }
 

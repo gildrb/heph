@@ -147,6 +147,9 @@ def test_priority_request_does_not_start_recall_item() -> None:
         plan.retrieval_query == "exam priority topics prerequisites past exams materials overview"
     )
     assert "Do not ask a recall question" in plan.prompt
+    assert "source inventory" in plan.prompt
+    assert "Mentions are not importance" in plan.prompt
+    assert "past exams as the strongest priority signal" in plan.prompt
     assert cleaned == "Prioritize recurrence relations first [E1]."
     assert next_state.current_item == ""
     assert next_state.phase is StudyPhase.PRESENTING
