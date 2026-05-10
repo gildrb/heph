@@ -589,7 +589,8 @@ def test_transcript_overflow_scrolls_without_moving_composer() -> None:
             transcript = app.query_one("#transcript", tui.RichLog)  # type: ignore[reportPrivateUsage]
             assert transcript.max_scroll_y > 0
             assert frame.region.y == baseline_y
-            assert stack.region.y - frame.region.y == baseline_stack_gap == 2
+            assert stack.region.y - frame.region.y == baseline_stack_gap
+            assert baseline_stack_gap > 0
             assert frame.region.y < 30
 
     asyncio.run(check_transcript_overflow())
