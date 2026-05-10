@@ -253,7 +253,7 @@ RichLog {{
 }}
 #suggestions {{
     height: auto;
-    max-height: 7;
+    max-height: 6;
     min-width: 30;
     width: 100%;
     max-width: 100%;

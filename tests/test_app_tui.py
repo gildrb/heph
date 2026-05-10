@@ -503,7 +503,7 @@ def test_tui_css_reserves_inline_completion_stack_below_composer() -> None:
     assert "padding-right: 0;" in suggestions_block
     assert "width: 85%;" not in suggestions_block
     assert "max-width: 85%;" not in suggestions_block
-    assert "max-height: 7;" in suggestions_block
+    assert "max-height: 6;" in suggestions_block
     assert "dock: bottom;" not in suggestions_block
     assert "layer: suggestions;" not in suggestions_block
     assert "margin-top: 1;" not in footer_block
@@ -548,7 +548,7 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             assert str(footer.render()).startswith("enter send")
             assert suggestions.size.width == stack.size.width
             assert suggestions.has_class("visible")
-            assert suggestions.size.height <= 7
+            assert suggestions.size.height <= 6
             assert position.region.y == suggestions.region.y + suggestions.size.height
             assert footer.region.y == position.region.y + 1
 
@@ -3106,7 +3106,7 @@ def test_completion_menu_highlight_moves_down_at_bottom() -> None:
             visible_rows = min(
                 suggestions.option_count,
                 suggestions.size.height,
-                7,
+                6,
             )
             last_index = suggestions.option_count - 1
             last_scroll_y = suggestions.option_count - visible_rows
