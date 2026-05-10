@@ -260,14 +260,7 @@ RichLog {{
     padding-right: 0;
     background: {bg};
     color: {p.text};
-    scrollbar-color: {p.highlight};
-    scrollbar-color-hover: {p.stone};
-    scrollbar-color-active: {p.stone};
-    scrollbar-background: {bg};
-    scrollbar-background-hover: {bg};
-    scrollbar-background-active: {bg};
-    scrollbar-corner-color: {bg};
-    scrollbar-size-vertical: 1;
+    scrollbar-size: 0 0;
     display: none;
 }}
 #suggestions.visible {{
@@ -294,17 +287,17 @@ OptionList {{
 OptionList > .option-list--option {{
     background: {bg};
     color: {p.text};
-    padding: 0 0;
+    padding: 0 2;
 }}
 OptionList > .option-list--option-highlighted {{
     background: {p.ember};
     color: {p.panel};
-    padding: 0 0;
+    padding: 0 2;
 }}
 OptionList:focus > .option-list--option-highlighted {{
     background: {p.ember};
     color: {p.panel};
-    padding: 0 0;
+    padding: 0 2;
 }}
 #composer {{
     height: 1;

@@ -858,6 +858,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         if not self.completion_candidates:
             suggestions.set_options([])
             suggestions.remove_class("visible")
+            self._refresh_footer_hints()
             return
         suggestions.set_options(
             [
@@ -867,6 +868,8 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         )
         suggestions.add_class("visible")
         suggestions.highlighted = 0
+        suggestions.scroll_y = 0
+        self._refresh_footer_hints()
         composer.focus()
 
     def _hide_completions(self) -> None:
@@ -874,6 +877,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
         suggestions = self.query_one("#suggestions", OptionList)
         suggestions.set_options([])
         suggestions.remove_class("visible")
+        self._refresh_footer_hints()
 
     def _move_completion(self, offset: int) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
@@ -891,6 +895,7 @@ class HephaistosTui(TuiInlineFlowMixin, TuiArmoryMixin, TuiTranscriptMixin, App[
             suggestions.size.height,
             _COMPLETION_MENU_MAX_VISIBLE_ROWS,
         )
+        self._refresh_footer_hints()
 
     def _apply_completion(self, index: int) -> None:
         if not (0 <= index < len(self.completion_candidates)):

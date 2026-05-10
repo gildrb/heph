@@ -111,6 +111,15 @@ def test_footer_hints_show_cancel_when_busy() -> None:
     assert "/help" not in plain
 
 
+def test_footer_hints_show_completion_position() -> None:
+    hints = tui._footer_hints_text(  # type: ignore[reportPrivateUsage]
+        _plain_session(),
+        completion_position=(3, 53),
+    )
+
+    assert hints.plain == "(3/53)"
+
+
 def test_armory_shortcut_uses_tmux_fallback_for_ctrl_a_prefix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -161,6 +170,12 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "#completion-stack {\n    height: 8;" in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
+    suggestions_start = css.index("#suggestions {")
+    suggestions_end = css.index("}", suggestions_start)
+    suggestions_block = css[suggestions_start:suggestions_end]
+    option_start = css.index("OptionList > .option-list--option {")
+    option_end = css.index("}", option_start)
+    option_block = css[option_start:option_end]
     transcript_start = css.index("#transcript {")
     transcript_end = css.index("}", transcript_start)
     transcript_block = css[transcript_start:transcript_end]
@@ -173,6 +188,9 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "background: transparent;" in transcript_block
     assert f"background: {tui.current_palette().panel};" in composer_frame_block
     assert f"background: {tui.current_palette().panel};" in composer_block
+    assert "scrollbar-size: 0 0;" in suggestions_block
+    assert "scrollbar-size-vertical" not in suggestions_block
+    assert "padding: 0 2;" in option_block
     assert "border-bottom: tall" not in css
     assert "background: #FFFFFF;" not in css
     assert "#suggestions:focus > .option-list--option-highlighted" in css
@@ -399,15 +417,14 @@ def test_transparent_style_strips_standard_and_truecolor_black_backgrounds() -> 
     assert nonblack.bgcolor is not None
 
 
-def test_tui_css_suggestion_scrollbar_tracks_are_transparent() -> None:
+def test_tui_css_suggestion_scrollbar_is_hidden() -> None:
     css = tui._tui_css()  # type: ignore[reportPrivateUsage]
     suggestions_start = css.index("#suggestions {")
     suggestions_end = css.index("}", suggestions_start)
     suggestions_block = css[suggestions_start:suggestions_end]
 
-    assert "scrollbar-background: transparent;" in suggestions_block
-    assert "scrollbar-background-hover: transparent;" in suggestions_block
-    assert "scrollbar-background-active: transparent;" in suggestions_block
+    assert "scrollbar-size: 0 0;" in suggestions_block
+    assert "scrollbar-background:" not in suggestions_block
     assert "scrollbar-background: #1C1C1C;" not in suggestions_block
 
 
@@ -531,9 +548,11 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
                 "TextualOptionList",
                 app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
             )  # ty:ignore[redundant-cast]
+            footer = app.query_one("#footer-hints", tui.Static)  # type: ignore[reportPrivateUsage]
             assert frame.region.y == frame_y
             assert stack.region.y == stack_y
             assert frame.size.width == stack.size.width
+            assert str(footer.render()) == f"(1/{suggestions.option_count})"
             assert suggestions.size.width == stack.size.width
             assert suggestions.has_class("visible")
             assert suggestions.size.height <= 7
@@ -2873,10 +2892,39 @@ def test_models_command_shows_plain_suggestion() -> None:
             assert app.completion_candidates[0].text == "models "
             assert app.completion_candidates[0].description == "Pick the active model"
             suggestions = app.query_one("#suggestions", tui.OptionList)  # type: ignore[reportPrivateUsage]
+            footer = app.query_one("#footer-hints", tui.Static)  # type: ignore[reportPrivateUsage]
             assert suggestions.has_class("visible")
             assert not suggestions.has_class("model-picker")
+            assert str(footer.render()) == "(1/1)"
 
     asyncio.run(check_models_suggestion())
+
+
+def test_busy_footer_keeps_cancel_hint_with_completion_menu_visible() -> None:
+    if tui.Input is None or tui.OptionList is None:  # type: ignore[reportUnnecessaryComparison]
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),  # type: ignore[reportPrivateUsage]
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_busy_footer() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)  # type: ignore[reportPrivateUsage]
+            composer.value = "/"
+            composer.cursor_position = 1  # type: ignore[reportUnknownMemberType]
+            app._refresh_completions()  # type: ignore[reportPrivateUsage]
+            app.busy = True
+            app._refresh_footer_hints()  # type: ignore[reportPrivateUsage]
+            await pilot.pause()
+
+            footer = app.query_one("#footer-hints", tui.Static)  # type: ignore[reportPrivateUsage]
+            assert str(footer.render()) == "ctrl+c cancel"
+
+    asyncio.run(check_busy_footer())
 
 
 def test_slash_on_empty_composer_preserves_cursor_after_focus_swap() -> None:
@@ -3004,6 +3052,7 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
                 "TextualOptionList",
                 app.query_one("#suggestions", tui.OptionList),  # type: ignore[reportPrivateUsage]
             )  # ty:ignore[redundant-cast]
+            footer = app.query_one("#footer-hints", tui.Static)  # type: ignore[reportPrivateUsage]
 
             assert suggestions.highlighted == 0
             assert suggestions.scroll_y == 0
@@ -3029,6 +3078,7 @@ def test_completion_menu_scrolls_after_highlight_reaches_center() -> None:
 
                 assert suggestions.highlighted == highlighted
                 assert suggestions.scroll_y == scroll_y
+                assert str(footer.render()) == f"({highlighted + 1}/{suggestions.option_count})"
 
     asyncio.run(check_scroll_policy())
 
