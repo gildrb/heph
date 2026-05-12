@@ -9,9 +9,9 @@ import pytest
 from keyring.errors import KeyringError
 
 from hephaistos.providers.keyring_store import (
-    _SERVICE_PREFIX,  # type: ignore[reportPrivateUsage]
-    _USERNAME,  # type: ignore[reportPrivateUsage]
-    _keychain_cache,  # type: ignore[reportPrivateUsage]
+    _SERVICE_PREFIX,
+    _USERNAME,
+    _keychain_cache,
     clear_key,
     get_volatile,
     mask_key,
@@ -26,7 +26,7 @@ _TEST_SLUG = "__test_hephaistos_unit__"
 
 
 @pytest.fixture(autouse=True)
-def _clean_test_key():  # ty: ignore
+def _clean_test_key():
     """Ensure no leftover test key in system keyring."""
     _keychain_cache.pop(_TEST_SLUG, None)
     with contextlib.suppress(Exception):

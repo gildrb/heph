@@ -137,6 +137,22 @@ def _coerce_bool(value: object, default: bool = False) -> bool:
     return default
 
 
+def _coerce_int(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return default
+        with contextlib.suppress(ValueError):
+            return int(raw)
+    return default
+
+
 def normalize_setting_value(key: str, value: object) -> object:
     """Normalize a user-facing config value to a JSON-safe representation."""
     if key in BOOL_KEYS:
@@ -175,7 +191,7 @@ def normalize_setting_value(key: str, value: object) -> object:
         return str(value)
     if key in ("known_armories", "recent_armories"):
         if isinstance(value, list):
-            return [str(v) for v in value]  # type: ignore[reportUnknownArgumentType,reportUnknownVariableType]
+            return [str(v) for v in value]
         return []
     raise KeyError(key)
 
@@ -259,7 +275,7 @@ def load_app_settings() -> AppSettings:
             raw.get("supermemory_onboarding_seen"), default=False
         ),
         privacy_notice_seen=_coerce_bool(raw.get("privacy_notice_seen"), default=False),
-        session_count=int(raw.get("session_count", 0) or 0),  # type: ignore[reportArgumentType]  # ty:ignore[invalid-argument-type]
+        session_count=_coerce_int(raw.get("session_count"), default=0),
     )
 
 

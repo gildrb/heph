@@ -138,7 +138,7 @@ def test_compare_reports_fails_on_study_mastery_metadata_regression(
     assert report.regressions == ("study_state.mastery_metadata_rate",)
 
 
-def test_compare_reports_fails_on_regression(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_compare_reports_fails_on_regression(tmp_path: Path, capsys) -> None:
     baseline = tmp_path / "baseline.json"
     current = tmp_path / "current.json"
     _write_json(baseline, {"answers": {"pass_rate": 1.0}})

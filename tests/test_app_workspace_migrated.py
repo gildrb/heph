@@ -384,7 +384,7 @@ class TestSaveOnExit:
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
         session = create_plain_session(config)
         mock_trace = MagicMock()
-        session.trace = mock_trace  # type: ignore[assignment]
+        session.trace = mock_trace
         save_on_exit(session)
         mock_trace.close.assert_called_once()
 
@@ -439,9 +439,7 @@ class TestHandleInput:
         with patch("hephaistos.terminal.input.run_shell_command"):
             _new_session, should_continue = handle_input(session, "!echo hi", history)
         assert should_continue is True
-        assert "echo hi" in str(
-            history._entries  # type: ignore[reportPrivateUsage]
-        )
+        assert "echo hi" in str(history._entries)
 
     def test_unknown_command_prints_error(self, capsys: pytest.CaptureFixture[str]) -> None:
         session = self._make_session()

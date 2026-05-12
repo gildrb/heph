@@ -241,16 +241,16 @@ class RemindCommand(Command):
         if not due and not due_study_items and not any("caught up" in line for line in lines):
             lines.append(styled("All caught up!", STYLE_SUCCESS))
 
-        with_scheduled = [c for c in all_cards if c.next_review is not None]
-        scheduled = sorted(with_scheduled, key=lambda c: c.next_review)  # type: ignore[arg-type]
+        with_scheduled = [card for card in all_cards if card.next_review is not None]
+        scheduled = sorted(with_scheduled, key=lambda card: card.next_review or now)
         if scheduled:
-            next_card: VocabCardState = scheduled[0]  # type: ignore[reportUnknownVariableType]
-            assert next_card.next_review is not None  # type: ignore[reportUnknownMemberType]
-            delta = next_card.next_review - now  # type: ignore[reportUnknownMemberType,reportUnknownVariableType]
-            secs = float(delta.total_seconds())  # type: ignore[reportUnknownMemberType]
+            next_card: VocabCardState = scheduled[0]
+            assert next_card.next_review is not None
+            delta = next_card.next_review - now
+            secs = float(delta.total_seconds())
             if secs > 0:
                 when = _format_relative_seconds(secs)
-                n_scheduled = len(scheduled)  # type: ignore[reportUnknownArgumentType]
+                n_scheduled = len(scheduled)
                 plural = "s" if n_scheduled != 1 else ""
                 lines.append(f"  Next review in {when} ({n_scheduled} card{plural} scheduled).")
 

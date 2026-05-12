@@ -157,7 +157,7 @@ def test_codex_http_error_detail_redacts_sensitive_text() -> None:
         io.BytesIO(body.encode()),
     )
 
-    detail = runtime_engine._codex_http_error_detail(exc)  # type: ignore[reportPrivateUsage]
+    detail = runtime_engine._codex_http_error_detail(exc)
 
     assert token not in detail
     assert "***REDACTED***" in detail
@@ -184,7 +184,7 @@ def test_codex_backend_stream_redacts_http_error_detail(
 
     with pytest.raises(EngineError) as exc_info:
         list(
-            runtime_engine._stream_codex_backend_completion(  # type: ignore[reportPrivateUsage]
+            runtime_engine._stream_codex_backend_completion(
                 config,
                 [{"role": "user", "content": "hello"}],
                 ("access-token", "account-id"),
@@ -219,7 +219,7 @@ def test_codex_backend_stream_stops_after_response_completed(
     config = ChatConfig(base_url="https://api.openai.com/v1", model="gpt-5.4-mini")
 
     deltas = list(
-        runtime_engine._stream_codex_backend_completion(  # type: ignore[reportPrivateUsage]
+        runtime_engine._stream_codex_backend_completion(
             config,
             [{"role": "user", "content": "hello"}],
             ("access-token", "account-id"),

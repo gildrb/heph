@@ -30,8 +30,21 @@ SKIP_COMMANDS = {
     "uv run heph armory",
 }
 
-# Tools that must be present on the system
-REQUIRED_TOOLS = ["uv", "ruff", "ty", "vulture", "pylint", "pytest"]
+# Tools that must be present on the hook runner itself. Commands invoked through
+# ``uv run`` are project tools, so they should not have to exist in pre-commit's
+# own virtual environment.
+REQUIRED_TOOLS = ["uv"]
+PROJECT_RUN_TOOLS = {
+    "heph",
+    "hephaistos",
+    "lint-imports",
+    "pylint",
+    "pytest",
+    "python",
+    "ruff",
+    "ty",
+    "vulture",
+}
 
 
 def extract_commands(text: str) -> list[str]:
@@ -80,16 +93,7 @@ def validate_commands(commands: list[str], strict: bool = False) -> list[str]:
         # uv run <tool> — check the inner tool
         if base == "uv" and len(parts) >= 2 and parts[1] == "run":
             inner_tool = parts[2] if len(parts) > 2 else ""
-            if (
-                inner_tool
-                and not check_tool_available(inner_tool)
-                and inner_tool
-                not in (
-                    "heph",
-                    "hephaistos",
-                    "python",
-                )
-            ):
+            if inner_tool and inner_tool not in PROJECT_RUN_TOOLS:
                 errors.append(f"Command references unavailable tool: {cmd}")
 
         # Check that the base tool exists

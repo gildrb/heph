@@ -187,6 +187,7 @@ class TestRunTuiTurn:
     def test_material_operation_events_produce_ordered_notices(self, chat_session) -> None:
         replies: list[str] = []
         notices: list[str] = []
+        progress: list[str] = []
 
         def fake_iter(session, user_input, *, abort):
             yield MaterialOperationEvent(
@@ -205,9 +206,11 @@ class TestRunTuiTurn:
                 on_notice=notices.append,
                 on_error=lambda _: None,
                 on_finish=lambda: None,
+                on_progress=progress.append,
             )
 
-        assert notices == ["Searching indexed materials for: integration by parts"]
+        assert progress == ["searching materials"]
+        assert notices == ["materials: searched `integration by parts`."]
         assert replies == ["Grounded answer [E1]."]
 
     def test_tool_events_produce_notices(self, chat_session) -> None:
@@ -238,7 +241,7 @@ class TestRunTuiTurn:
                 on_finish=lambda: None,
             )
 
-        assert notices == ["Running: ls", "file1.py\nfile2.py"]
+        assert notices == ["tool: bash; results summarized."]
 
     def test_engine_error_reports_error(self, chat_session) -> None:
         errors: list[str] = []

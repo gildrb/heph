@@ -163,7 +163,7 @@ def test_document_understanding_required_roles_must_be_indexed(
     assert report.failures == ("required indexed role not found: past_exam",)
 
 
-def test_document_understanding_cli_writes_json_report(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_document_understanding_cli_writes_json_report(tmp_path: Path, capsys) -> None:
     armory = _make_armory(tmp_path)
     (armory / "materials" / "exam.md").write_text(
         "Question 1. Explain Hamiltonian mechanics. [12 marks]\n",

@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 from hephaistos.diagnostics.crashes import (
-    _NoopCounter,  # type: ignore[reportPrivateUsage]
-    _NoopGauge,  # type: ignore[reportPrivateUsage]
-    _NoopHistogram,  # type: ignore[reportPrivateUsage]
-    _NoopMeter,  # type: ignore[reportPrivateUsage]
-    _NoopSpan,  # type: ignore[reportPrivateUsage]
-    _NoopTracer,  # type: ignore[reportPrivateUsage]
+    _NoopCounter,
+    _NoopGauge,
+    _NoopHistogram,
+    _NoopMeter,
+    _NoopSpan,
+    _NoopTracer,
     get_current_trace_id,
     get_meter,
     get_tracer,
 )
-from hephaistos.logging import _get_trace_context  # type: ignore[reportPrivateUsage]
+from hephaistos.logging import _get_trace_context
 
 
 class TestNoopClasses:

@@ -16,7 +16,7 @@ def test_config_show_uses_registered_handler(
     monkeypatch.setattr(
         params_cli,
         "load_config",
-        lambda _armory_path=None: ChatConfig(  # type: ignore[reportUnknownLambdaType]
+        lambda _armory_path=None: ChatConfig(
             base_url="https://example.com/v1",
             model="test-model",
             max_tokens=1234,
@@ -26,7 +26,7 @@ def test_config_show_uses_registered_handler(
     monkeypatch.setattr(
         params_cli,
         "_effective_setting_value",
-        lambda key: {  # type: ignore[reportUnknownLambdaType]
+        lambda key: {
             "theme": "forge",
             "default_armory_path": "(not set)",
             "interface_mode": "tui",
@@ -96,7 +96,7 @@ def test_load_config_precedence(
 
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda _cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        classmethod(lambda _cls: _FakeProviderConfig()),
     )
     monkeypatch.setenv("HEPHAISTOS_BASE_URL", "https://env.example/v1")
     monkeypatch.setenv("HEPHAISTOS_MODEL", "env-model")
@@ -121,9 +121,9 @@ def test_load_config_falls_back_to_user_overrides_when_env_is_missing(
     )
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-            lambda _cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
-                apply_to_config=lambda _config: None,  # type: ignore[reportUnknownLambdaType]
+        classmethod(
+            lambda _cls: SimpleNamespace(
+                apply_to_config=lambda _config: None,
             )
         ),
     )
@@ -152,7 +152,7 @@ def test_parse_toml_simple_handles_comments_and_literals(
         encoding="utf-8",
     )
 
-    assert params_cli._parse_toml_simple(isolated_config_dir.defaults_file) == {  # type: ignore[reportPrivateUsage]
+    assert params_cli._parse_toml_simple(isolated_config_dir.defaults_file) == {
         "base_url": "https://example.com/v1",
         "max_tokens": "2048",
         "enabled": "true",
@@ -166,7 +166,7 @@ def test_load_user_overrides_returns_empty_for_invalid_json(
     isolated_config_dir.config_dir.mkdir(parents=True, exist_ok=True)
     isolated_config_dir.config_file.write_text("{", encoding="utf-8")
 
-    assert params_cli._load_user_overrides() == {}  # type: ignore[reportPrivateUsage]
+    assert params_cli._load_user_overrides() == {}
 
 
 def test_load_user_overrides_filters_unknown_keys(
@@ -178,7 +178,7 @@ def test_load_user_overrides_filters_unknown_keys(
         encoding="utf-8",
     )
 
-    assert params_cli._load_user_overrides() == {  # type: ignore[reportPrivateUsage]
+    assert params_cli._load_user_overrides() == {
         "model": "user-model",
         "max_tokens": "1234",
     }
@@ -191,12 +191,12 @@ def test_load_config_warns_when_provider_config_load_fails(
 ) -> None:
     isolated_config_dir.defaults_file.write_text("", encoding="utf-8")
 
-    def _raise(_cls: type) -> None:  # type: ignore[reportMissingParameterType]
+    def _raise(_cls: type) -> None:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(_raise),  # type: ignore[reportUnknownArgumentType]
+        classmethod(_raise),
     )
 
     config = params_cli.load_config()
@@ -219,9 +219,9 @@ def test_invalid_integer_overrides_are_ignored(
     )
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-            lambda _cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
-                apply_to_config=lambda _config: None,  # type: ignore[reportUnknownLambdaType]
+        classmethod(
+            lambda _cls: SimpleNamespace(
+                apply_to_config=lambda _config: None,
             )
         ),
     )
@@ -246,13 +246,13 @@ def test_config_set_unknown_key_exits_with_code_1(capsys: pytest.CaptureFixture[
 
 
 def test_parse_feature_flags_normalizes() -> None:
-    assert params_cli._parse_feature_flags("alpha, Beta , ,GAMMA") == frozenset(  # type: ignore[reportPrivateUsage]
+    assert params_cli._parse_feature_flags("alpha, Beta , ,GAMMA") == frozenset(
         {"alpha", "beta", "gamma"}
     )
 
 
 def test_parse_feature_flags_empty_string() -> None:
-    assert params_cli._parse_feature_flags("") == frozenset()  # type: ignore[reportPrivateUsage]
+    assert params_cli._parse_feature_flags("") == frozenset()
 
 
 def test_config_set_feature_flags_persists(
@@ -272,7 +272,7 @@ def test_config_show_displays_feature_flags(
     monkeypatch.setattr(
         params_cli,
         "load_config",
-        lambda _armory_path=None: ChatConfig(  # type: ignore[reportUnknownLambdaType]
+        lambda _armory_path=None: ChatConfig(
             base_url="https://example.com/v1",
             model="test-model",
             max_tokens=1234,
@@ -283,7 +283,7 @@ def test_config_show_displays_feature_flags(
     monkeypatch.setattr(
         params_cli,
         "_effective_setting_value",
-        lambda key: {  # type: ignore[reportUnknownLambdaType]
+        lambda key: {
             "theme": "forge",
             "default_armory_path": "(not set)",
             "interface_mode": "tui",
@@ -306,7 +306,7 @@ def test_config_show_displays_no_feature_flags(
     monkeypatch.setattr(
         params_cli,
         "load_config",
-        lambda _armory_path=None: ChatConfig(  # type: ignore[reportUnknownLambdaType]
+        lambda _armory_path=None: ChatConfig(
             base_url="https://example.com/v1",
             model="test-model",
             max_tokens=1234,
@@ -316,7 +316,7 @@ def test_config_show_displays_no_feature_flags(
     monkeypatch.setattr(
         params_cli,
         "_effective_setting_value",
-        lambda key: {  # type: ignore[reportUnknownLambdaType]
+        lambda key: {
             "theme": "forge",
             "default_armory_path": "(not set)",
             "interface_mode": "tui",
@@ -396,9 +396,9 @@ def test_load_config_feature_flags_env_overrides_user(
     )
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-            lambda _cls: SimpleNamespace(  # type: ignore[reportUnknownLambdaType]
-                apply_to_config=lambda _config: None,  # type: ignore[reportUnknownLambdaType]
+        classmethod(
+            lambda _cls: SimpleNamespace(
+                apply_to_config=lambda _config: None,
             )
         ),
     )
@@ -438,19 +438,19 @@ def test_load_config_falls_back_when_active_provider_has_no_key(
 
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda _cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        classmethod(lambda _cls: _FakeProviderConfig()),
     )
     # Ensure no key is resolved for openrouter.
     monkeypatch.setattr(
         "hephaistos.runtime.engine.resolve_key",
-        lambda _slug, _env="": "",  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        lambda _slug, _env="": "",
     )
 
     config = params_cli.load_config()
 
     assert config.base_url == "https://text.pollinations.ai/openai"
     assert config.model == "openai"
-    assert config._provider_slug == "pollinations"  # type: ignore[reportPrivateUsage]
+    assert config._provider_slug == "pollinations"
     err = capsys.readouterr().err
     assert "falling back to Pollinations AI" in err
 
@@ -471,13 +471,13 @@ def test_load_config_no_fallback_when_keyless(
 
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda _cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        classmethod(lambda _cls: _FakeProviderConfig()),
     )
 
     config = params_cli.load_config()
 
     assert config.base_url == "https://text.pollinations.ai/openai"
-    assert config._provider_slug == "pollinations"  # type: ignore[reportPrivateUsage]
+    assert config._provider_slug == "pollinations"
     err = capsys.readouterr().err
     assert "falling back" not in err
 
@@ -498,16 +498,16 @@ def test_load_config_no_fallback_when_key_present(
 
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
-        classmethod(lambda _cls: _FakeProviderConfig()),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        classmethod(lambda _cls: _FakeProviderConfig()),
     )
     monkeypatch.setattr(
         "hephaistos.runtime.engine.resolve_key",
-        lambda _slug, _env="": "sk-test-key",  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        lambda _slug, _env="": "sk-test-key",
     )
 
     config = params_cli.load_config()
 
     assert config.base_url == "https://api.openai.com/v1"
-    assert config._provider_slug == "openai-codex"  # type: ignore[reportPrivateUsage]
+    assert config._provider_slug == "openai-codex"
     err = capsys.readouterr().err
     assert "falling back" not in err

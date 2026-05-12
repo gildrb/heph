@@ -20,7 +20,7 @@ class HephaistosArgumentParser(argparse.ArgumentParser):
     """Top-level help that stays compact while deriving commands from argparse."""
 
     def __init__(self, *args: object, compact_help: bool = False, **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)  # type: ignore[reportUnknownArgumentType]  # ty:ignore[invalid-argument-type]
+        super().__init__(*args, **kwargs)  # ty:ignore[invalid-argument-type]
         self._compact_help = compact_help
 
     def format_help(self) -> str:
@@ -43,7 +43,7 @@ def _version_string() -> str:
 
 
 def _hide_subparser(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     name: str,
 ) -> None:
     subparsers._choices_actions = [
@@ -262,18 +262,18 @@ def _cmd_update(_args: argparse.Namespace) -> None:
 
 def _get_subcommand_names(parser: argparse.ArgumentParser) -> set[str]:
     """Return the set of registered subcommand names."""
-    for action in parser._actions:  # type: ignore[reportPrivateUsage]
-        if isinstance(action, argparse._SubParsersAction):  # type: ignore[reportPrivateUsage]
-            return set(action.choices.keys())  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return set(action.choices.keys())
     return set()
 
 
 def _get_visible_subcommands(parser: argparse.ArgumentParser) -> list[tuple[str, str]]:
-    for action in parser._actions:  # type: ignore[reportPrivateUsage]
-        if isinstance(action, argparse._SubParsersAction):  # type: ignore[reportPrivateUsage]
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
             return [
                 (choice.dest, choice.help or "")
-                for choice in action._choices_actions  # type: ignore[reportPrivateUsage]
+                for choice in action._choices_actions
                 if choice.help is not argparse.SUPPRESS
             ]
     return []
@@ -281,7 +281,7 @@ def _get_visible_subcommands(parser: argparse.ArgumentParser) -> list[tuple[str,
 
 def _get_visible_options(parser: argparse.ArgumentParser) -> list[tuple[str, str]]:
     options: list[tuple[str, str]] = []
-    for action in parser._actions:  # type: ignore[reportPrivateUsage]
+    for action in parser._actions:
         if not action.option_strings or action.help is argparse.SUPPRESS:
             continue
         option = ", ".join(action.option_strings)
@@ -589,7 +589,7 @@ def _increment_session_count() -> None:
     """Bump the persisted session count (used for progressive keybind hints)."""
     settings_mod = importlib.import_module("hephaistos.parameters.settings")
     settings = settings_mod.load_raw_settings()
-    count = int(settings.get("session_count", 0) or 0) + 1  # type: ignore[reportArgumentType]  # ty:ignore[invalid-argument-type]
+    count = int(settings.get("session_count", 0) or 0) + 1  # ty:ignore[invalid-argument-type]
     settings["session_count"] = count
     settings_mod.save_raw_settings(settings)
 
@@ -664,9 +664,9 @@ def _report_profile(prof: object) -> None:
     profile_dir = pathlib.Path.home() / ".cache" / "hephaistos" / "profiles"
     profile_dir.mkdir(parents=True, exist_ok=True)
     profile_path = profile_dir / f"{ts}.prof"
-    prof.dump_stats(str(profile_path))  # type: ignore[reportUnknownMemberType]  # ty:ignore[unresolved-attribute]
+    prof.dump_stats(str(profile_path))  # ty:ignore[unresolved-attribute]
 
     sys.stderr.write(f"\n=== CPU Profile saved to {profile_path} ===\n")
-    stats = pstats.Stats(prof, stream=sys.stderr)  # type: ignore[reportUnknownArgumentType]  # ty:ignore[invalid-argument-type]
+    stats = pstats.Stats(prof, stream=sys.stderr)  # ty:ignore[invalid-argument-type]
     stats.strip_dirs().sort_stats("cumulative").print_stats(20)
     sys.stderr.write("\n")

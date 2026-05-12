@@ -25,8 +25,8 @@ from hephaistos.runtime import (
     stream_completion as _runtime_stream_completion,
 )
 
-_circuit_breaker = _runtime_engine._circuit_breaker  # type: ignore[reportPrivateUsage]
-_wait_backoff = _runtime_engine._wait_backoff  # type: ignore[reportPrivateUsage]
+_circuit_breaker = _runtime_engine._circuit_breaker
+_wait_backoff = _runtime_engine._wait_backoff
 is_retryable_error = _runtime_engine.is_retryable_error
 resolve_key = _runtime_engine.resolve_key
 
@@ -44,10 +44,10 @@ def stream_completion(
     yield from _runtime_stream_completion(
         config,
         conversation,
-        tools=tools,  # type: ignore[arg-type]
-        abort=abort,  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+        tools=tools,
+        abort=abort,  # ty:ignore[invalid-argument-type]
         retry=retry,
-        client_factory=client_factory or _runtime_engine.build_client,  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+        client_factory=client_factory or _runtime_engine.build_client,  # ty:ignore[invalid-argument-type]
     )
 
 

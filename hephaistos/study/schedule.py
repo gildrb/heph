@@ -270,9 +270,9 @@ def load_study_schedule(armory_path: Path) -> StudyScheduleStore:
 
 
 def save_study_schedule(store: StudyScheduleStore) -> Path:
-    if store._dirty:  # type: ignore[reportPrivateUsage]
+    if store._dirty:
         return store.save()
-    return store._path  # type: ignore[reportPrivateUsage]
+    return store._path
 
 
 def _next_difficulty(

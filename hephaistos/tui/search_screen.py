@@ -20,14 +20,14 @@ try:
     from textual.screen import ModalScreen
     from textual.widgets import Input, OptionList, Static
 except ImportError:
-    events = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    ComposeResult = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Binding = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Vertical = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    ModalScreen = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    events = None  # ty:ignore[invalid-assignment]
+    ComposeResult = None  # ty:ignore[invalid-assignment]
+    Binding = None  # ty:ignore[invalid-assignment]
+    Vertical = None  # ty:ignore[invalid-assignment]
+    ModalScreen = object  # ty:ignore[invalid-assignment]
+    Input = None  # ty:ignore[invalid-assignment]
+    OptionList = None  # ty:ignore[invalid-assignment]
+    Static = None  # ty:ignore[invalid-assignment]
 
 
 def _open_file_at_system(path: Path) -> None:
@@ -92,10 +92,10 @@ def _format_result(result: SearchResult) -> str:
     return f"  [{result.armory_name}]  {result.source_rel}  ({score_pct})\n    {preview}"
 
 
-class SearchScreen(ModalScreen[SearchResult | None]):  # type: ignore[misc]
+class SearchScreen(ModalScreen[SearchResult | None]):
     """Modal search screen that searches across all indexed armories."""
 
-    BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "cancel", "Cancel"),
         Binding("enter", "select", "Select"),
     ]
@@ -107,7 +107,7 @@ class SearchScreen(ModalScreen[SearchResult | None]):  # type: ignore[misc]
         self._built = False
         self.CSS = _search_screen_css(current_palette())  # ty:ignore[invalid-attribute-access]
 
-    def compose(self) -> ComposeResult:  # type: ignore[override,reportInvalidTypeForm]
+    def compose(self) -> ComposeResult:
         p = current_palette()
         title = f"[bold {p.ember}]\u2301 Search[/bold {p.ember}]"
         with Vertical(id="search-dialog"):
@@ -124,20 +124,20 @@ class SearchScreen(ModalScreen[SearchResult | None]):  # type: ignore[misc]
             self._index.build(armories)
             self._built = True
 
-    def on_key(self, event: events.Key) -> None:  # type: ignore[override]
+    def on_key(self, event: events.Key) -> None:
         if event.key == "o":
             self._open_selected_source()
             event.prevent_default()
             event.stop()
             return
 
-    def on_input_changed(self, event: Input.Changed) -> None:  # type: ignore[override]
+    def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "search-input":
             self._run_search(event.value)
 
-    def on_option_list_option_selected(  # type: ignore[override]
+    def on_option_list_option_selected(
         self,
-        event: OptionList.OptionSelected,  # type: ignore[reportInvalidTypeForm]
+        event: OptionList.OptionSelected,
     ) -> None:
         if event.option_list.id == "search-results":
             self.action_select()

@@ -6,7 +6,7 @@ from hephaistos.study.schedule import load_study_schedule
 from hephaistos.study.state import StudyRecallRating
 
 
-def test_study_schedule_records_fast_easy_review(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_study_schedule_records_fast_easy_review(tmp_path) -> None:
     store = load_study_schedule(tmp_path)
     now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
 
@@ -40,7 +40,7 @@ def test_study_schedule_records_fast_easy_review(tmp_path) -> None:  # type: ign
     assert state.retrievability(now=now) == 1.0
 
 
-def test_study_schedule_persists_reviews(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_study_schedule_persists_reviews(tmp_path) -> None:
     store = load_study_schedule(tmp_path)
     store.record_review(
         "Explain recurrence relations",
@@ -73,7 +73,7 @@ def test_study_schedule_persists_reviews(tmp_path) -> None:  # type: ignore[no-u
     assert item.last_confidence == 0.2
 
 
-def test_study_schedule_loads_legacy_reviews_without_mastery_fields(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_study_schedule_loads_legacy_reviews_without_mastery_fields(tmp_path) -> None:
     schedule_path = tmp_path / ".hephaistos" / "study_schedule.json"
     schedule_path.parent.mkdir()
     schedule_path.write_text(
@@ -109,7 +109,7 @@ def test_study_schedule_loads_legacy_reviews_without_mastery_fields(tmp_path) ->
     assert item.last_transfer_success is False
 
 
-def test_study_schedule_tracks_transfer_success_for_application_items(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_study_schedule_tracks_transfer_success_for_application_items(tmp_path) -> None:
     store = load_study_schedule(tmp_path)
 
     state = store.record_review(
@@ -125,7 +125,7 @@ def test_study_schedule_tracks_transfer_success_for_application_items(tmp_path) 
     assert state.last_transfer_success is True
 
 
-def test_study_schedule_accumulates_failures_for_weak_concepts(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_study_schedule_accumulates_failures_for_weak_concepts(tmp_path) -> None:
     store = load_study_schedule(tmp_path)
     now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
 
@@ -152,7 +152,7 @@ def test_study_schedule_accumulates_failures_for_weak_concepts(tmp_path) -> None
     assert second.last_correct is True
 
 
-def test_slow_recall_reduces_next_stability_more_than_fast_recall(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_slow_recall_reduces_next_stability_more_than_fast_recall(tmp_path) -> None:
     now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     fast_store = load_study_schedule(tmp_path / "fast")
     slow_store = load_study_schedule(tmp_path / "slow")
@@ -181,7 +181,7 @@ def test_slow_recall_reduces_next_stability_more_than_fast_recall(tmp_path) -> N
     assert fast.next_review > slow.next_review
 
 
-def test_retrievability_decays_toward_target_by_next_review(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_retrievability_decays_toward_target_by_next_review(tmp_path) -> None:
     now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     store = load_study_schedule(tmp_path)
 
@@ -198,7 +198,7 @@ def test_retrievability_decays_toward_target_by_next_review(tmp_path) -> None:  
     assert 0.86 <= state.retrievability(now=state.next_review) <= 0.94
 
 
-def test_due_items_prioritize_exam_importance_before_difficulty(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_due_items_prioritize_exam_importance_before_difficulty(tmp_path) -> None:
     store = load_study_schedule(tmp_path)
     now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
 
@@ -233,7 +233,7 @@ def test_due_items_prioritize_exam_importance_before_difficulty(tmp_path) -> Non
     assert [item.concept for item in due] == ["High", "Low"]
 
 
-def test_due_items_prioritize_repeated_failures_before_difficulty(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_due_items_prioritize_repeated_failures_before_difficulty(tmp_path) -> None:
     store = load_study_schedule(tmp_path)
     now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
 

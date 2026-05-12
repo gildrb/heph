@@ -16,7 +16,7 @@ from hephaistos.commands import LogoutCommand, get_registry
 from hephaistos.providers.keyring_store import get_volatile, resolve_key, set_volatile
 from hephaistos.providers.oauth import (
     OAuthCredentials,
-    _ssl_context,  # type: ignore[reportPrivateUsage]
+    _ssl_context,
     clear_credentials,
     generate_pkce,
     list_providers,

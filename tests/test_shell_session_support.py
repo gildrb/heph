@@ -22,7 +22,7 @@ def test_prompt_module_name_returns_none_on_eof(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr("builtins.input", _raise_eof)
 
-    assert session_support._prompt_module_name() is None  # type: ignore[reportPrivateUsage]
+    assert session_support._prompt_module_name() is None
 
 
 def test_onboard_new_armory_returns_none_for_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -35,7 +35,7 @@ def test_onboard_new_armory_reports_initialize_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", tmp_path)  # type: ignore[reportPrivateUsage]
+    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", tmp_path)
     monkeypatch.setattr("builtins.input", lambda _prompt: "demo")
     monkeypatch.setattr(
         session_support,
@@ -53,7 +53,7 @@ def test_onboard_new_armory_returns_none_when_user_skips_materials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", tmp_path)  # type: ignore[reportPrivateUsage]
+    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", tmp_path)
     monkeypatch.setattr(session_support, "add_known_armory", lambda _path: [])
     answers = iter(["demo", "skip"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
@@ -66,7 +66,7 @@ def test_onboard_new_armory_rejects_path_like_module_names(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", tmp_path)  # type: ignore[reportPrivateUsage]
+    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", tmp_path)
     monkeypatch.setattr(session_support, "add_known_armory", lambda _path: [])
     answers = iter(["../evil", "nested/demo", "demo", "skip"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
@@ -85,7 +85,7 @@ def test_onboard_new_armory_uses_configured_armory_home(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     armory_home = tmp_path / "custom-armories"
-    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", None)  # type: ignore[reportPrivateUsage]
+    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", None)
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     monkeypatch.setattr(session_support, "add_known_armory", lambda _path: [])
     answers = iter(["demo", "skip"])
@@ -99,7 +99,7 @@ def test_onboard_new_armory_returns_none_when_material_prompt_is_interrupted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", tmp_path)  # type: ignore[reportPrivateUsage]
+    monkeypatch.setattr(session_support, "_DEFAULT_ARMORY_HOME", tmp_path)
     monkeypatch.setattr(session_support, "add_known_armory", lambda _path: [])
 
     def _input(prompt: str) -> str:
@@ -166,8 +166,8 @@ def test_save_on_exit_saves_dirty_armory_session(
 ) -> None:
     session = create_plain_session(_config())
     session.dirty = True
-    session.armory_path = tmp_path  # type: ignore[assignment]
-    session.trace = MagicMock()  # type: ignore[assignment]
+    session.armory_path = tmp_path
+    session.trace = MagicMock()
     saved = tmp_path / "chat.json"
     success: list[str] = []
 
@@ -187,8 +187,8 @@ def test_save_on_exit_reports_storage_errors(
 ) -> None:
     session = create_plain_session(_config())
     session.dirty = True
-    session.armory_path = tmp_path  # type: ignore[assignment]
-    session.trace = MagicMock()  # type: ignore[assignment]
+    session.armory_path = tmp_path
+    session.trace = MagicMock()
     errors: list[str] = []
 
     monkeypatch.setattr(session_support, "session_has_messages", lambda _session: True)

@@ -61,7 +61,7 @@ def _cmd_missing_index_handler(_args: argparse.Namespace) -> None:
 
 
 def _register_material_commands(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     *,
     name: str,
     help_text: str,
@@ -84,7 +84,7 @@ def _register_material_commands(
 
 
 def register(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     *,
     index_handler: IndexHandler | None = None,
 ) -> None:
@@ -98,7 +98,7 @@ def register(
 
 
 def register_source_alias(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     *,
     index_handler: IndexHandler | None = None,
 ) -> None:

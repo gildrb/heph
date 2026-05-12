@@ -81,23 +81,23 @@ try:
     from textual.suggester import Suggester
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
-    Binding = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    _RichStyle = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Markdown = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Segment = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    _RichText = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    events = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    App = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    ComposeResult = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    Horizontal = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    Vertical = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    Screen = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    Suggester = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    Strip = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Binding = None  # ty:ignore[invalid-assignment]
+    _RichStyle = None  # ty:ignore[invalid-assignment]
+    Markdown = None  # ty:ignore[invalid-assignment]
+    Segment = None  # ty:ignore[invalid-assignment]
+    _RichText = None  # ty:ignore[invalid-assignment]
+    events = None  # ty:ignore[invalid-assignment]
+    App = object  # ty:ignore[invalid-assignment]
+    ComposeResult = object  # ty:ignore[invalid-assignment]
+    Horizontal = object  # ty:ignore[invalid-assignment]
+    Vertical = object  # ty:ignore[invalid-assignment]
+    Screen = object  # ty:ignore[invalid-assignment]
+    Suggester = object  # ty:ignore[invalid-assignment]
+    Strip = None  # ty:ignore[invalid-assignment]
+    Input = None  # ty:ignore[invalid-assignment]
+    OptionList = None  # ty:ignore[invalid-assignment]
+    RichLog = None  # ty:ignore[invalid-assignment]
+    Static = None  # ty:ignore[invalid-assignment]
 
 
 def get_registry() -> CommandRegistry:
@@ -223,7 +223,7 @@ _command_output_text = command_output_text
 _run_shell_escape_captured = run_shell_escape_captured
 
 
-class SlashSuggester(Suggester):  # type: ignore[misc]
+class SlashSuggester(Suggester):
     def __init__(self, engine: SlashCompletionEngine) -> None:
         super().__init__()
         self.engine = engine
@@ -242,7 +242,7 @@ class HephaistosTui(
     TuiTranscriptMixin,
     App[None],
 ):
-    BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("tab", "complete", "Complete"),
         Binding("ctrl+p", "command_palette", "Commands", show=False, priority=True),
         Binding(armory_binding_keys(), "open_armory_home", "Armory", show=False, priority=True),
@@ -287,39 +287,39 @@ class HephaistosTui(
         self._inline_flow = _InlineFlow()
 
     def get_default_screen(self) -> Screen:
-        return self._widgets.screen(id="_default")  # type: ignore[reportCallIssue]
+        return self._widgets.screen(id="_default")
 
     def compose(self) -> ComposeResult:
         w = self._widgets
-        with w.horizontal(id="main-layout"):  # type: ignore[reportCallIssue]
-            with w.vertical(id="shell"):  # type: ignore[reportCallIssue]
+        with w.horizontal(id="main-layout"):
+            with w.vertical(id="shell"):
                 yield w.static(_status_text(self.session), id="status")
                 yield w.static("", id="transcript-spacer")
                 yield w.rich_log(id="transcript", markup=True, wrap=True, highlight=True)
-                with w.vertical(id="armory-inline"):  # type: ignore[reportCallIssue]
+                with w.vertical(id="armory-inline"):
                     yield w.static("", id="armory-header")
                     yield w.static("", id="armory-breadcrumbs")
                     yield w.static("", id="armory-mode-hint")
                     yield w.static("", id="armory-pane-hint")
                     yield w.static("", id="armory-count-hint")
-                    with w.horizontal(id="armory-columns-inline-labels"):  # type: ignore[reportCallIssue]
+                    with w.horizontal(id="armory-columns-inline-labels"):
                         yield w.static("armories", id="armory-current-label")
                         yield w.static("preview", id="armory-preview-label")
-                    with w.horizontal(id="armory-columns-inline"):  # type: ignore[reportCallIssue]
+                    with w.horizontal(id="armory-columns-inline"):
                         yield w.option_list(id="armory-current-inline")
                         yield w.static("", id="armory-preview-inline")
                     yield w.static("", id="armory-error-inline")
-                with w.vertical(id="materials-inline"):  # type: ignore[reportCallIssue]
+                with w.vertical(id="materials-inline"):
                     yield w.static("", id="materials-header")
                     yield w.option_list(id="materials-list")
                     yield w.static("", id="materials-footer")
                 yield w.static("", id="thinking-indicator")
-                with w.vertical(id="composer-frame"):  # type: ignore[reportCallIssue]
+                with w.vertical(id="composer-frame"):
                     yield w.input(
                         placeholder='Ask anything... "What do I need to study next?"',
                         id="composer",
                     )
-                with w.vertical(id="completion-stack"):  # type: ignore[reportCallIssue]
+                with w.vertical(id="completion-stack"):
                     yield w.option_list(id="suggestions", markup=False)
                     yield w.static("", id="completion-position")
                     yield w.static(_footer_hints_text(self.session), id="footer-hints")
@@ -850,6 +850,9 @@ class HephaistosTui(
         def on_notice(notice: str) -> None:
             self.call_from_thread(self._append_notice, notice)
 
+        def on_progress(progress: str) -> None:
+            self.call_from_thread(self._refresh_status, f"assistant {progress}")
+
         def on_error(error: str) -> None:
             self.call_from_thread(self._append_error, error)
 
@@ -864,6 +867,7 @@ class HephaistosTui(
             on_notice=on_notice,
             on_error=on_error,
             on_finish=on_finish,
+            on_progress=on_progress,
         )
 
     def _completion_menu_visible(self) -> bool:
@@ -975,7 +979,7 @@ class HephaistosTui(
 
     def _stop_thinking_animation(self) -> None:
         if self._thinking_timer is not None:
-            self._thinking_timer.stop()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
+            self._thinking_timer.stop()  # ty:ignore[unresolved-attribute]
             self._thinking_timer = None
         indicator = self.query_one("#thinking-indicator", Static)
         indicator.update("")

@@ -1,9 +1,8 @@
-# ty: ignore
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, TypeVar, overload
 
 from hephaistos.armory.search import add_known_armory, set_last_armory
 from hephaistos.armory.storage import ArmoryError, initialize
@@ -21,13 +20,85 @@ from hephaistos.tui.armory_browser import (
 try:
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
-    Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Input = None  # ty:ignore[invalid-assignment]
+    OptionList = None  # ty:ignore[invalid-assignment]
+    RichLog = None  # ty:ignore[invalid-assignment]
+    Static = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
     from textual import events
+    from textual.widget import Widget
+
+    from hephaistos.chat.session import ChatSession
+
+_WidgetT = TypeVar("_WidgetT")
+
+
+class _ClassableWidget(Protocol):
+    def add_class(self, *_class_names: str) -> object: ...
+
+    def remove_class(self, *_class_names: str) -> object: ...
+
+
+class _ArmoryHost(Protocol):
+    _armory_inline_active: bool
+    _armory_current: Path
+    _armory_filter: str
+    _armory_mode: str
+    _armory_creating: bool
+    _armory_entries: list[_DirEntry]
+    _sidebar_width_visible: bool
+    _focused_msg_index: int | None
+    session: ChatSession
+
+    @property
+    def focused(self) -> object | None: ...
+
+    @overload
+    def query_one(self, selector: str) -> _ClassableWidget: ...
+
+    @overload
+    def query_one(self, selector: str, expect_type: type[_WidgetT]) -> _WidgetT: ...
+
+    def set_focus(self, widget: Widget | None) -> None: ...
+
+    def _append_error(self, text: str) -> None: ...
+
+    def _append_notice(self, text: str) -> None: ...
+
+    def _set_sidebar_visible(self, visible: bool) -> None: ...
+
+    def _hide_completions(self) -> None: ...
+
+    def _refresh_footer_hints(self) -> None: ...
+
+    def _schedule_transcript_reflow(self) -> None: ...
+
+    def _refresh_status(self, state: str) -> None: ...
+
+    def _update_info_panel(self) -> None: ...
+
+    def _open_armory_inline(self, mode: str) -> None: ...
+
+    def _close_armory_inline(self) -> None: ...
+
+    def _refresh_armory_inline(self, *, mode: str = "manage") -> None: ...
+
+    def _armory_selection_key(self) -> tuple[str, str] | None: ...
+
+    def _armory_index_for_key(self, key: tuple[str, str] | None) -> int | None: ...
+
+    def _first_selectable_armory_index(self) -> int | None: ...
+
+    def _armory_highlighted_entry(self) -> _DirEntry | None: ...
+
+    def _update_armory_preview(self) -> None: ...
+
+    def _move_armory_highlight(self, offset: int) -> None: ...
+
+    def _start_inline_create(self) -> None: ...
+
+    def _open_selected_armory(self, path: Path) -> None: ...
 
 
 def _armory_command_mode(value: str) -> str | None:
@@ -56,7 +127,7 @@ def _display_path(path: Path) -> str:
 
 
 class TuiArmoryMixin:
-    def _handle_armory_browser(self, value: str) -> None:
+    def _handle_armory_browser(self: _ArmoryHost, value: str) -> None:
         mode = _armory_command_mode(value)
         composer = self.query_one("#composer", Input)
         if mode is None:
@@ -65,7 +136,7 @@ class TuiArmoryMixin:
             return
         self._open_armory_inline(mode)
 
-    def _open_armory_inline(self, mode: str) -> None:
+    def _open_armory_inline(self: _ArmoryHost, mode: str) -> None:
         self._armory_inline_active = True
         self._armory_current = default_armory_home()
         self._armory_filter = ""
@@ -86,7 +157,7 @@ class TuiArmoryMixin:
         composer.focus()
         self.set_focus(composer)
 
-    def _close_armory_inline(self) -> None:
+    def _close_armory_inline(self: _ArmoryHost) -> None:
         self._armory_inline_active = False
         self._armory_filter = ""
         self._armory_creating = False
@@ -103,7 +174,7 @@ class TuiArmoryMixin:
         composer.focus()
         self.set_focus(composer)
 
-    def _refresh_armory_inline(self, *, mode: str = "manage") -> None:
+    def _refresh_armory_inline(self: _ArmoryHost, *, mode: str = "manage") -> None:
         if not _is_within_armory_home(self._armory_current):
             self._armory_current = default_armory_home()
         current = self.query_one("#armory-current-inline", OptionList)
@@ -148,7 +219,7 @@ class TuiArmoryMixin:
             current.highlighted = self._first_selectable_armory_index()
         self._update_armory_preview()
 
-    def _armory_focus_name(self) -> str:
+    def _armory_focus_name(self: _ArmoryHost) -> str:
         """Return which pane is focused for explicit navigation feedback."""
         focused = self.focused
         if focused is None:
@@ -160,7 +231,7 @@ class TuiArmoryMixin:
             return "input"
         return "preview"
 
-    def _armory_selection_key(self) -> tuple[str, str] | None:
+    def _armory_selection_key(self: _ArmoryHost) -> tuple[str, str] | None:
         entry = self._armory_highlighted_entry()
         if entry is None:
             return None
@@ -170,7 +241,7 @@ class TuiArmoryMixin:
             return ("create", entry.label)
         return ("label", entry.label)
 
-    def _armory_index_for_key(self, key: tuple[str, str] | None) -> int | None:
+    def _armory_index_for_key(self: _ArmoryHost, key: tuple[str, str] | None) -> int | None:
         if key is None:
             return None
         for index, entry in enumerate(self._armory_entries):
@@ -182,20 +253,20 @@ class TuiArmoryMixin:
                 return index
         return None
 
-    def _first_selectable_armory_index(self) -> int | None:
+    def _first_selectable_armory_index(self: _ArmoryHost) -> int | None:
         for index, entry in enumerate(self._armory_entries):
             if entry.path is not None or entry.is_create:
                 return index
         return None
 
-    def _armory_highlighted_entry(self) -> _DirEntry | None:
+    def _armory_highlighted_entry(self: _ArmoryHost) -> _DirEntry | None:
         current = self.query_one("#armory-current-inline", OptionList)
         idx = current.highlighted
         if idx is None or idx < 0 or idx >= len(self._armory_entries):
             return None
         return self._armory_entries[idx]
 
-    def _update_armory_preview(self) -> None:
+    def _update_armory_preview(self: _ArmoryHost) -> None:
         preview = self.query_one("#armory-preview-inline", Static)
         entry = self._armory_highlighted_entry()
         if entry is None:
@@ -211,7 +282,7 @@ class TuiArmoryMixin:
             return
         preview.update(armory_detail(entry.path))
 
-    def _move_armory_highlight(self, offset: int) -> None:
+    def _move_armory_highlight(self: _ArmoryHost, offset: int) -> None:
         if not self._armory_entries:
             return
         current = self.query_one("#armory-current-inline", OptionList)
@@ -226,7 +297,7 @@ class TuiArmoryMixin:
                 break
         self._update_armory_preview()
 
-    def _armory_open_highlighted(self) -> None:
+    def _armory_open_highlighted(self: _ArmoryHost) -> None:
         entry = self._armory_highlighted_entry()
         if entry is None or not entry.label:
             return
@@ -243,7 +314,7 @@ class TuiArmoryMixin:
                 return
             self._open_selected_armory(entry.path)
 
-    def _start_inline_create(self) -> None:
+    def _start_inline_create(self: _ArmoryHost) -> None:
         self._armory_creating = True
         self._armory_mode = "create"
         composer = self.query_one("#composer", Input)
@@ -253,7 +324,7 @@ class TuiArmoryMixin:
         self._refresh_footer_hints()
         composer.focus()
 
-    def _create_inline_armory(self, name: str) -> None:
+    def _create_inline_armory(self: _ArmoryHost, name: str) -> None:
         if not name:
             self._armory_creating = False
             self.query_one("#composer", Input).placeholder = "Filter armory paths..."
@@ -283,7 +354,7 @@ class TuiArmoryMixin:
         display_root = _display_path(armory_path.parent)
         self._append_notice(f"Add study files to {display_root}/{armory_path.name}/materials/")
 
-    def _open_selected_armory(self, path: Path) -> None:
+    def _open_selected_armory(self: _ArmoryHost, path: Path) -> None:
         if not _is_within_armory_home(path):
             self.query_one("#armory-error-inline", Static).update(
                 f"Cannot open an armory outside armory home: {path}"
@@ -313,7 +384,7 @@ class TuiArmoryMixin:
         if src_count:
             self._append_notice(f"Loaded {src_count} file(s).")
 
-    def _handle_armory_key(self, event: events.Key) -> bool:
+    def _handle_armory_key(self: _ArmoryHost, event: events.Key) -> bool:
         composer = self.query_one("#composer", Input)
         if event.key == "escape":
             if self._armory_creating:

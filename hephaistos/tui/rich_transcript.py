@@ -31,6 +31,7 @@ _LATEX_REPLACEMENTS = {
     r"\mathbb{N}": "\u2115",
     r"\mathbb{Z}": "\u2124",
 }
+_MAX_VISIBLE_SOURCE_ITEMS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,16 +79,45 @@ def _render_evidence_panel(evidence: TurnEvidence, cited_ids: list[str]) -> str:
     if not evidence.items:
         return ""
     cited = set(cited_ids)
-    items = [item for item in evidence.items if not cited or item.evidence_id in cited]
+    if not cited:
+        return f"_sources: {_evidence_scope_text(evidence)}. Details: /evidence_"
+    items = [item for item in evidence.items if item.evidence_id in cited]
     parts: list[str] = []
-    for item in items:
+    for item in items[:_MAX_VISIBLE_SOURCE_ITEMS]:
         source_name = item.source.rsplit("/", 1)[-1]
         location = evidence_location_label(item.source, item.chunk, None)
         location_parts = [location]
         if item.chunk.heading:
             location_parts.insert(1, f"under {item.chunk.heading}")
         parts.append(f"{item.evidence_id}: {source_name} ({'; '.join(location_parts)})")
+    remaining = len(items) - _MAX_VISIBLE_SOURCE_ITEMS
+    if remaining > 0:
+        parts.append(f"+{remaining} more cited source{'' if remaining == 1 else 's'}")
     return f"_sources: {'; '.join(parts)}. Details: /evidence_"
+
+
+def evidence_citation_spans(text: str) -> list[tuple[int, int]]:
+    """Return text spans for visible evidence citation markers."""
+    return [(match.start(), match.end()) for match in _CITATION_RE.finditer(text)]
+
+
+def is_evidence_sources_line(text: str) -> bool:
+    """Return whether rendered text starts the appended evidence sources footer."""
+    return text.lstrip().startswith("sources:")
+
+
+def _evidence_scope_text(evidence: TurnEvidence) -> str:
+    item_count = len(evidence.items)
+    excerpt = "evidence excerpt" if item_count == 1 else "evidence excerpts"
+    sampled_sources = evidence.sampled_source_count or len(
+        {item.source for item in evidence.items}
+    )
+    total_sources = evidence.total_source_count or sampled_sources
+    if total_sources > sampled_sources:
+        source_text = f"{sampled_sources} of {total_sources} indexed sources"
+    else:
+        source_text = f"{sampled_sources} source{'' if sampled_sources == 1 else 's'}"
+    return f"{item_count} {excerpt} from {source_text}"
 
 
 def enrich_reply(text: str, evidence: TurnEvidence | None) -> EnrichedReply:

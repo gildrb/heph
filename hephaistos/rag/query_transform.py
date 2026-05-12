@@ -43,7 +43,7 @@ class _WordNetProtocol(Protocol):
 
 
 try:
-    from nltk.corpus import wordnet as _imported_wordnet  # type: ignore[import-untyped]
+    from nltk.corpus import wordnet as _imported_wordnet
 except ImportError:
     _wordnet: _WordNetProtocol | None = None
 else:

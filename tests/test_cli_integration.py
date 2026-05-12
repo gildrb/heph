@@ -449,7 +449,7 @@ def test_chat_ask_jsonl_emits_structured_turn_events(
     def fake_resolve(_path: str) -> object:
         return object()
 
-    def fake_events(_session: object, prompt: str):  # type: ignore[no-untyped-def]
+    def fake_events(_session: object, prompt: str):
         assert prompt == "what is the material about"
         yield NoticeEvent("Reading enabled indexed materials.", code="reading")
         yield MaterialOperationEvent(
@@ -605,13 +605,13 @@ def test_golden_path_init_source_index_dry_run(tmp_path: Path) -> None:
 
 def test_inject_default_subcommand_empty_args() -> None:
     """No args at all → inject 'tui'."""
-    result = _inject_default_subcommand([], {"armory", "tui", "source"})  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand([], {"armory", "tui", "source"})
     assert result == ["tui"]
 
 
 def test_inject_default_subcommand_bare_path() -> None:
     """A bare path that isn't a known command → inject 'tui' before it."""
-    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(
         ["/tmp/my-armory"],
         {"armory", "tui", "source"},
     )
@@ -620,7 +620,7 @@ def test_inject_default_subcommand_bare_path() -> None:
 
 def test_inject_default_subcommand_flags_before_path() -> None:
     """Flags before the path are skipped, 'tui' injected before the path."""
-    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(
         ["--profile", "/tmp/armory"],
         {"armory", "tui", "source"},
     )
@@ -629,7 +629,7 @@ def test_inject_default_subcommand_flags_before_path() -> None:
 
 def test_inject_default_subcommand_known_command_unchanged() -> None:
     """A known subcommand is left unchanged — argparse handles it."""
-    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(
         ["armory", "init", "/tmp/armory"],
         {"armory", "tui", "source"},
     )
@@ -638,7 +638,7 @@ def test_inject_default_subcommand_known_command_unchanged() -> None:
 
 def test_inject_default_subcommand_flags_only() -> None:
     """Only flags, no positional → return unchanged (argparse will show help or error)."""
-    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(
         ["--version"],
         {"armory", "tui", "source"},
     )
@@ -647,7 +647,7 @@ def test_inject_default_subcommand_flags_only() -> None:
 
 def test_inject_default_subcommand_relative_path() -> None:
     """Relative paths that aren't known commands get 'tui' injected."""
-    result = _inject_default_subcommand(  # type: ignore[reportPrivateUsage]
+    result = _inject_default_subcommand(
         ["./my-armory"],
         {"armory", "tui", "source"},
     )

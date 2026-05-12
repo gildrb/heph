@@ -124,7 +124,7 @@ def _sdk_add_document(
             content=content,
             container_tag=container_tag,
             custom_id=custom_id,
-            metadata=flat,  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+            metadata=flat,  # ty:ignore[invalid-argument-type]
         )
         return resp.id
     except APIConnectionError as exc:

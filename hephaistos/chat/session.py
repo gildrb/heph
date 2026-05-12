@@ -235,7 +235,7 @@ def _scan_extraction_health_issues(armory_path: Path) -> tuple[ExtractionHealthI
         return ()
 
 
-def _replace_system_prompt(session: ChatSession) -> None:  # ty: ignore
+def _replace_system_prompt(session: ChatSession) -> None:
     """Replace the system prompt in the conversation with the current persona."""
     if session.armory_path is None:
         new_prompt = _build_plain_system_prompt(session.persona)
@@ -290,7 +290,7 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
 
 def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     """Create a fresh chat session scoped to an armory."""
-    if armory_path is None:  # ty: ignore runtime guard for untyped callers
+    if armory_path is None:
         raise SessionError("An armory is required. Create one with: hephaistos armory init <path>")
 
     source_file_count, source_files = _scan_source_files(armory_path)

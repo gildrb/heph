@@ -166,7 +166,7 @@ class TestMemoryPersistence:
         _path = tmp_path / ".hephaistos" / "memory.json"
         # Actually save() always writes, but save_memory() checks dirty
         store.add("test", "content")
-        assert store._dirty  # type: ignore[reportPrivateUsage]
+        assert store._dirty
         save_memory(store)
 
         loaded = load_memory(tmp_path)

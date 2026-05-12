@@ -19,6 +19,13 @@ TextualOptionList  # unused import (tests/test_app_tui.py)
 convert_to_numpy  # Protocol param (hephaistos/rag/optional_backends.py)
 show_progress_bar  # Protocol param (hephaistos/rag/optional_backends.py)
 
+# Textual Protocol signatures — these keyword-only params must keep Textual's names
+# because the TUI mixins pass them as keyword arguments.
+expect_type  # Protocol param (hephaistos/tui mixins)
+callback  # Protocol param (hephaistos/tui mixins)
+is_default_css  # Protocol param (hephaistos/tui/inline_flows.py)
+animate  # Protocol param (hephaistos/tui/inline_flows.py)
+
 # fake_iter callback params for iter_chat_events mock -- vulture sees them as unused
 session  # unused variable (tests/test_coverage_boost.py)
 user_input  # unused variable (tests/test_coverage_boost.py)

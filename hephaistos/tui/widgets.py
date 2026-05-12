@@ -13,15 +13,15 @@ try:
     from textual.screen import Screen
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
-    Binding = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    events = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Horizontal = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    Vertical = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    Screen = object  # type: ignore[assignment, misc]  # ty:ignore[invalid-assignment]
-    Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Static = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Binding = None  # ty:ignore[invalid-assignment]
+    events = None  # ty:ignore[invalid-assignment]
+    Horizontal = object  # ty:ignore[invalid-assignment]
+    Vertical = object  # ty:ignore[invalid-assignment]
+    Screen = object  # ty:ignore[invalid-assignment]
+    Input = None  # ty:ignore[invalid-assignment]
+    OptionList = None  # ty:ignore[invalid-assignment]
+    RichLog = None  # ty:ignore[invalid-assignment]
+    Static = None  # ty:ignore[invalid-assignment]
 
 
 @dataclass
@@ -51,12 +51,12 @@ class WidgetClasses:
 def input_without_ctrl_a_class(base: type) -> type:
     input_bindings = cast(
         "list[tuple[str, Binding]]",
-        base._merged_bindings,  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        base._merged_bindings,  # ty:ignore[unresolved-attribute]
     )
     bindings = [binding for key, binding in input_bindings if key != "ctrl+a"]
 
     class HephaistosInput(
-        base,  # type: ignore[misc]  # ty: ignore[unsupported-base]
+        base,  # ty:ignore[unsupported-base]
         inherit_bindings=False,
     ):
         BINDINGS = bindings
@@ -90,7 +90,7 @@ def transparent_static_class() -> type:
 def transparent_rich_log_class() -> type:
     base = make_transparent_cls(RichLog)
 
-    class TransparentNonFocusRichLog(base):  # type: ignore[misc]  # ty:ignore[unsupported-base]
+    class TransparentNonFocusRichLog(base):  # ty:ignore[unsupported-base]
         can_focus = False
 
     return TransparentNonFocusRichLog

@@ -96,7 +96,7 @@ def _cmd_chat_list(args: argparse.Namespace) -> None:
 
 
 def register(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     *,
     run_tui: Callable[..., None],
 ) -> None:
@@ -113,7 +113,7 @@ def register(
         help="Start a new chat session in an armory.",
     )
     start.add_argument("path", help="Path to the armory folder.")
-    start.set_defaults(handler=lambda a: _cmd_chat_start(a, run_tui=run_tui))  # type: ignore[arg-type]
+    start.set_defaults(handler=lambda a: _cmd_chat_start(a, run_tui=run_tui))
 
     ask = chat_sub.add_parser("ask", help="Ask one question without opening the TUI.")
     ask.add_argument(
@@ -131,7 +131,7 @@ def register(
     )
     resume.add_argument("path", help="Path to the armory folder.")
     resume.add_argument("session_id", help="Session ID to resume.")
-    resume.set_defaults(handler=lambda a: _cmd_chat_resume(a, run_tui=run_tui))  # type: ignore[arg-type]
+    resume.set_defaults(handler=lambda a: _cmd_chat_resume(a, run_tui=run_tui))
 
     list_cmd = chat_sub.add_parser(
         "list",

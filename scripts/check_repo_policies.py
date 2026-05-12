@@ -28,6 +28,16 @@ SKIP_DIRS: Final[frozenset[str]] = frozenset(
         "dist",
     }
 )
+TYPE_IGNORE_MARKER: Final[str] = "".join(("# type:", " ignore"))
+PRIVATE_USAGE_IGNORE_CODE: Final[str] = "".join(("report", "PrivateUsage"))
+TY_IGNORE_MARKER: Final[str] = "".join(("# ty:", "ignore"))
+LEGACY_TY_IGNORE_MARKER: Final[str] = "".join(("# ty:", " ignore"))
+TYPE_IGNORE_POLICY_MESSAGE: Final[str] = (
+    f"`{TYPE_IGNORE_MARKER}` is forbidden; use `{TY_IGNORE_MARKER}[code]` or `# noqa: RULE`"
+)
+TY_IGNORE_POLICY_MESSAGE: Final[str] = (
+    f"ty suppressions must use `{TY_IGNORE_MARKER}[exact-diagnostic]`"
+)
 ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
     "hephaistos/app/cli.py": frozenset(
         {
@@ -288,12 +298,53 @@ def _check_file(path: Path) -> list[Violation]:
     tree = ast.parse(source, filename=str(path))
     visitor = PolicyVisitor(rel_path)
     visitor.visit(tree)
-    return visitor.violations
+
+    violations = visitor.violations
+    for line_number, line in enumerate(source.splitlines(), start=1):
+        if TYPE_IGNORE_MARKER in line:
+            message = TYPE_IGNORE_POLICY_MESSAGE
+            if PRIVATE_USAGE_IGNORE_CODE in line:
+                message = "private-usage checks must not be suppressed with broad type ignores"
+            violations.append(
+                Violation(
+                    path=rel_path,
+                    line=line_number,
+                    column=line.index(TYPE_IGNORE_MARKER) + 1,
+                    message=message,
+                )
+            )
+
+        if LEGACY_TY_IGNORE_MARKER in line:
+            violations.append(
+                Violation(
+                    path=rel_path,
+                    line=line_number,
+                    column=line.index(LEGACY_TY_IGNORE_MARKER) + 1,
+                    message=TY_IGNORE_POLICY_MESSAGE,
+                )
+            )
+            continue
+
+        if TY_IGNORE_MARKER not in line:
+            continue
+        marker_column = line.index(TY_IGNORE_MARKER) + 1
+        code_start = line.find("[", marker_column - 1)
+        code_end = line.find("]", marker_column - 1)
+        if code_start == -1 or code_end == -1 or code_end <= code_start + 1:
+            violations.append(
+                Violation(
+                    path=rel_path,
+                    line=line_number,
+                    column=marker_column,
+                    message="ty suppressions must include an exact diagnostic code",
+                )
+            )
+    return violations
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Enforce explicit Any and deferred-import repo policies.",
+        description="Enforce explicit Any, deferred-import, and type-suppression policies.",
     )
     parser.parse_args()
 

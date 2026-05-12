@@ -38,7 +38,7 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 0,  # type: ignore[reportUnknownLambdaType]
+        lambda _title, _options, **_kw: 0,
     )
     monkeypatch.setattr(
         "hephaistos.providers.oauth.login_openai_codex",
@@ -46,7 +46,7 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
     )
     monkeypatch.setattr(
         "hephaistos.providers.keyring_store.set_volatile",
-        lambda _slug, _key: None,  # type: ignore[reportUnknownLambdaType]
+        lambda _slug, _key: None,
     )
 
     saved_configs: list[ProviderConfig] = []
@@ -61,13 +61,13 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         _commands_auth,
         "print_error",
-        lambda _msg: None,  # type: ignore[reportUnknownLambdaType]
+        lambda _msg: None,
     )
 
     result = commands.LoginCommand().handle(session, "")
 
     assert result.should_exit is False
-    assert session.config._provider_slug == "openai-codex"  # type: ignore[reportPrivateUsage]
+    assert session.config._provider_slug == "openai-codex"
     assert session.config.base_url == "https://api.openai.com/v1"
     assert session.config.model == "gpt-5.4"
     assert len(saved_configs) == 1
@@ -85,7 +85,7 @@ def test_login_openrouter_api_key_switches_provider(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 1,  # type: ignore[reportUnknownLambdaType]
+        lambda _title, _options, **_kw: 1,
     )
 
     def _direct_input(_prompt: str) -> str:
@@ -108,7 +108,7 @@ def test_login_openrouter_api_key_switches_provider(monkeypatch: pytest.MonkeyPa
     commands.LoginCommand().handle(session, "")
 
     assert stored == [("openrouter", "sk-or-test")]
-    assert session.config._provider_slug == "openrouter"  # type: ignore[reportPrivateUsage]
+    assert session.config._provider_slug == "openrouter"
     assert session.config.base_url == "https://openrouter.ai/api/v1"
     assert session.config.model
     assert "OpenRouter" in success_msgs[0]
@@ -122,7 +122,7 @@ def test_login_custom_endpoint_switches_provider(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 3,  # type: ignore[reportUnknownLambdaType]
+        lambda _title, _options, **_kw: 3,
     )
 
     def _direct_input(_prompt: str) -> str:
@@ -145,7 +145,7 @@ def test_login_custom_endpoint_switches_provider(monkeypatch: pytest.MonkeyPatch
     commands.LoginCommand().handle(session, "")
 
     assert stored == [("custom", "sk-custom")]
-    assert session.config._provider_slug == "custom"  # type: ignore[reportPrivateUsage]
+    assert session.config._provider_slug == "custom"
     assert session.config.base_url == "https://example.test/v1"
     assert session.config.model == "custom-model"
     custom = saved_configs[0].providers["custom"]
@@ -171,7 +171,7 @@ def test_login_failure_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 0,  # type: ignore[reportUnknownLambdaType]
+        lambda _title, _options, **_kw: 0,
     )
     monkeypatch.setattr(
         "hephaistos.providers.oauth.login_openai_codex",
@@ -183,12 +183,12 @@ def test_login_failure_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         _commands_auth,
         "print_success",
-        lambda _msg: None,  # type: ignore[reportUnknownLambdaType]
+        lambda _msg: None,
     )
 
     commands.LoginCommand().handle(session, "")
 
-    assert session.config._provider_slug == "zai"  # type: ignore[reportPrivateUsage]
+    assert session.config._provider_slug == "zai"
     assert "OAuth failed" in error_msgs[0]
 
 
@@ -210,12 +210,12 @@ def test_login_cancel_does_not_switch_provider(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: None,  # type: ignore[reportUnknownLambdaType]
+        lambda _title, _options, **_kw: None,
     )
 
     commands.LoginCommand().handle(session, "")
 
-    assert session.config._provider_slug == "zai"  # type: ignore[reportPrivateUsage]
+    assert session.config._provider_slug == "zai"
 
 
 def test_login_openai_codex_generic_failure_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,7 +229,7 @@ def test_login_openai_codex_generic_failure_is_reported(monkeypatch: pytest.Monk
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 0,  # type: ignore[reportUnknownLambdaType]
+        lambda _title, _options, **_kw: 0,
     )
     monkeypatch.setattr(
         "hephaistos.providers.oauth.login_openai_codex",
@@ -254,7 +254,7 @@ def test_login_custom_endpoint_requires_model(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 3,  # type: ignore[reportUnknownLambdaType]
+        lambda _title, _options, **_kw: 3,
     )
     monkeypatch.setattr(_commands_auth, "direct_input", lambda _prompt: next(values))
     monkeypatch.setattr(_commands_auth, "print_error", errors.append)
@@ -276,7 +276,7 @@ def test_login_api_key_falls_back_to_volatile_storage(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 1,  # type: ignore[reportUnknownLambdaType]
+        lambda _title, _options, **_kw: 1,
     )
     monkeypatch.setattr(_commands_auth, "direct_input", lambda _prompt: "sk-or-test")
     monkeypatch.setattr(
@@ -341,7 +341,7 @@ def test_logout_all_providers_clears_everything(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 2,  # type: ignore[reportUnknownLambdaType]
+        lambda _title, _options, **_kw: 2,
     )
     monkeypatch.setattr(
         _commands_auth,

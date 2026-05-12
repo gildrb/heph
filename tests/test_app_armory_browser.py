@@ -13,7 +13,7 @@ from hephaistos.tui import armory_browser
 
 # Skip the entire module if Textual is not installed.
 pytestmark = pytest.mark.skipif(
-    armory_browser.ModalScreen is object,  # type: ignore[comparison-overlap]
+    armory_browser.ModalScreen is object,
     reason="Textual is not installed",
 )
 
@@ -21,11 +21,11 @@ try:
     from textual.app import App, ComposeResult
     from textual.widgets import Input, OptionList, Static
 except ImportError:
-    App = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    ComposeResult = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Input = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    OptionList = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Static = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    App = None  # ty:ignore[invalid-assignment]
+    ComposeResult = None  # ty:ignore[invalid-assignment]
+    Input = None  # ty:ignore[invalid-assignment]
+    OptionList = None  # ty:ignore[invalid-assignment]
+    Static = None  # ty:ignore[invalid-assignment]
 
 
 class _ShellApp(App[None]):
@@ -494,7 +494,7 @@ def test_browser_new_armory_creates_and_dismisses(
             inp = screen.query_one("#armory-new-input", armory_browser.Input)
             inp.value = "test-armory"
             screen.on_input_submitted(
-                armory_browser.Input.Submitted(inp, "test-armory", "test-armory")  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+                armory_browser.Input.Submitted(inp, "test-armory", "test-armory")  # ty:ignore[invalid-argument-type]
             )
             await pilot.pause()
 
@@ -603,7 +603,7 @@ def test_browser_new_armory_surfaces_creation_errors(
             await pilot.pause()
             inp = screen.query_one("#armory-new-input", armory_browser.Input)
             screen.on_input_submitted(
-                armory_browser.Input.Submitted(inp, "blocked", "blocked")  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+                armory_browser.Input.Submitted(inp, "blocked", "blocked")  # ty:ignore[invalid-argument-type]
             )
             await pilot.pause()
             error = screen.query_one("#armory-error", armory_browser.Static)
@@ -633,7 +633,7 @@ def test_browser_new_armory_empty_name_cancels_create(
             inp = screen.query_one("#armory-new-input", armory_browser.Input)
             inp.value = "   "
             screen.on_input_submitted(
-                armory_browser.Input.Submitted(inp, "   ", "   ")  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+                armory_browser.Input.Submitted(inp, "   ", "   ")  # ty:ignore[invalid-argument-type]
             )
             await pilot.pause()
             assert screen._creating is False

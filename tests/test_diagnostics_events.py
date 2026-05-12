@@ -39,7 +39,7 @@ def test_capture_posts_sanitized_payload(monkeypatch: pytest.MonkeyPatch) -> Non
 
     def _fake_urlopen(request: object, timeout: int = 0) -> _Response:
         assert timeout == 5
-        data = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]  # ty:ignore[unresolved-attribute]
+        data = json.loads(request.data.decode("utf-8"))  # ty:ignore[unresolved-attribute]
         responses.append(data)
         return _Response()
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest import mock
 
-from hephaistos.matching import _score, ranked_matches  # type: ignore[reportPrivateUsage]
+from hephaistos.matching import _score, ranked_matches
 
 
 def test_ranked_matches_returns_best_match_first() -> None:

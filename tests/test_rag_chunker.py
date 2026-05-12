@@ -9,15 +9,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hephaistos.rag.chunker import (
-    _DOCLING_EXTENSIONS,  # type: ignore[reportPrivateUsage]
+    _DOCLING_EXTENSIONS,
     ChunkStrategy,
-    _convert_pdf_to_text,  # type: ignore[reportPrivateUsage]
-    _convert_pdf_with_ocr,  # type: ignore[reportPrivateUsage]
-    _convert_to_markdown,  # type: ignore[reportPrivateUsage]
-    _is_docling_available,  # type: ignore[reportPrivateUsage]
-    _is_docling_file,  # type: ignore[reportPrivateUsage]
-    _is_text_file,  # type: ignore[reportPrivateUsage]
-    _normalize_extracted_text,  # type: ignore[reportPrivateUsage]
+    _convert_pdf_to_text,
+    _convert_pdf_with_ocr,
+    _convert_to_markdown,
+    _is_docling_available,
+    _is_docling_file,
+    _is_text_file,
+    _normalize_extracted_text,
     chunk_file,
     chunk_markdown,
     chunk_semantic,

@@ -47,7 +47,7 @@ def test_configured_choices_uses_cached_openrouter_live_catalog(
 ) -> None:
     monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
     catalog.invalidate_catalog_cache()
-    catalog._catalog_cache["openrouter"] = catalog._CatalogCacheEntry(  # type: ignore[reportPrivateUsage]
+    catalog._catalog_cache["openrouter"] = catalog._CatalogCacheEntry(
         fetched_at=100.0,
         catalog=_openrouter_live_catalog(),
     )
@@ -185,15 +185,15 @@ def test_hydrate_provider_models_resets_invalid_current_model(
 def test_live_catalog_for_provider_uses_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     cached_catalog = LiveProviderCatalog(models=["cached/model"], metadata=[])
     catalog.invalidate_catalog_cache()
-    catalog._catalog_cache["openrouter"] = catalog._CatalogCacheEntry(  # type: ignore[reportPrivateUsage]
+    catalog._catalog_cache["openrouter"] = catalog._CatalogCacheEntry(
         fetched_at=100.0,
         catalog=cached_catalog,
     )
     monkeypatch.setattr(catalog.time, "time", lambda: 101.0)
 
-    assert catalog._live_catalog_for_provider("zai", "https://api.z.ai") is None  # type: ignore[reportPrivateUsage]
+    assert catalog._live_catalog_for_provider("zai", "https://api.z.ai") is None
     assert (
-        catalog._live_catalog_for_provider(  # type: ignore[reportPrivateUsage]
+        catalog._live_catalog_for_provider(
             "openrouter",
             "https://openrouter.ai/api/v1",
         )
@@ -244,7 +244,7 @@ def test_fetch_openrouter_catalog_parses_models(monkeypatch: pytest.MonkeyPatch)
         lambda request, timeout, context: _FakeResponse(payload),
     )
 
-    result = catalog._fetch_openrouter_catalog("https://openrouter.ai/api/v1/")  # type: ignore[reportPrivateUsage]
+    result = catalog._fetch_openrouter_catalog("https://openrouter.ai/api/v1/")
 
     assert result.models == ["acme/text-model"]
     info = result.metadata[0]
@@ -275,4 +275,4 @@ def test_fetch_openrouter_catalog_rejects_invalid_payload(
     )
 
     with pytest.raises(ValueError, match=message):
-        catalog._fetch_openrouter_catalog("https://openrouter.ai/api/v1/")  # type: ignore[reportPrivateUsage]
+        catalog._fetch_openrouter_catalog("https://openrouter.ai/api/v1/")

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from rich.console import Console
+from rich.segment import Segment
+from rich.style import Style
+
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import EvidenceChunk, TurnEvidence
 from hephaistos.tui.rich_transcript import (
@@ -9,6 +13,7 @@ from hephaistos.tui.rich_transcript import (
     evidence_summary_text,
     extract_cited_ids,
 )
+from hephaistos.tui.transcript import _EvidenceMarkdown
 
 
 def _make_chunk(source: str, index: int, text: str) -> Chunk:
@@ -33,6 +38,23 @@ def _make_evidence(*items: tuple[str, str, int, float, str]) -> TurnEvidence:
             )
         )
     return TurnEvidence(tuple(chunks))
+
+
+def _render_evidence_markdown(markdown_text: str) -> list[Segment]:
+    console = Console(width=160)
+    return list(
+        console.render(
+            _EvidenceMarkdown(markdown_text, Style.parse("dim #808080")),
+        )
+    )
+
+
+def _assert_dim_gray(style: Style | None) -> None:
+    assert style is not None
+    assert style.dim is True
+    assert style.color is not None
+    color = style.color.get_truecolor()
+    assert (color.red, color.green, color.blue) == (128, 128, 128)
 
 
 def test_enrich_reply_with_no_evidence_returns_text_unchanged() -> None:
@@ -182,3 +204,55 @@ def test_evidence_footer_shows_only_cited_evidence_when_available() -> None:
 
     assert "E2: b.md" in result.markdown_text
     assert "E1: a.md" not in result.markdown_text
+
+
+def test_evidence_footer_summarizes_uncited_evidence() -> None:
+    evidence = _make_evidence(
+        ("E1", "source/a.md", 0, 0.5, "a"),
+        ("E2", "source/b.md", 1, 0.5, "b"),
+    )
+    result = enrich_reply("No citations in this answer.", evidence)
+
+    assert "2 evidence excerpts from 2 sources" in result.markdown_text
+    assert "E1: a.md" not in result.markdown_text
+    assert "E2: b.md" not in result.markdown_text
+    assert "Details: /evidence" in result.markdown_text
+
+
+def test_evidence_footer_caps_many_cited_sources() -> None:
+    evidence = _make_evidence(
+        ("E1", "source/a.md", 0, 0.5, "a"),
+        ("E2", "source/b.md", 1, 0.5, "b"),
+        ("E3", "source/c.md", 2, 0.5, "c"),
+        ("E4", "source/d.md", 3, 0.5, "d"),
+    )
+    result = enrich_reply("See [E1], [E2], [E3], and [E4].", evidence)
+
+    assert "E1: a.md" in result.markdown_text
+    assert "E3: c.md" in result.markdown_text
+    assert "E4: d.md" not in result.markdown_text
+    assert "+1 more cited source" in result.markdown_text
+
+
+def test_evidence_markdown_dims_inline_citations() -> None:
+    segments = _render_evidence_markdown("See [E1] and [E2].\n\n_sources: E1: a.md (excerpt 1)._")
+    citation_segments = [segment for segment in segments if segment.text in {"[E1]", "[E2]"}]
+
+    assert len(citation_segments) == 2
+    for segment in citation_segments:
+        _assert_dim_gray(segment.style)
+
+
+def test_evidence_markdown_dims_sources_footer() -> None:
+    segments = _render_evidence_markdown(
+        "See [E1].\n\n_sources: E1: a.md (excerpt 1); +1 more cited source. Details: /evidence_"
+    )
+    source_segments = [
+        segment
+        for segment in segments
+        if "sources:" in segment.text or "+1 more" in segment.text or "/evidence" in segment.text
+    ]
+
+    assert source_segments
+    for segment in source_segments:
+        _assert_dim_gray(segment.style)

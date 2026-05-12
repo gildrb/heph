@@ -6,7 +6,7 @@ import sys
 import pytest
 
 from hephaistos.terminal import (
-    _real_stdout,  # type: ignore[reportPrivateUsage]
+    _real_stdout,
     display,
 )
 
@@ -20,7 +20,7 @@ def test_real_stdout_unwraps_patch_stdout_proxy(monkeypatch: pytest.MonkeyPatch)
     real_stdout = io.StringIO()
     monkeypatch.setattr(sys, "stdout", _ProxyStdout(_ProxyStdout(real_stdout)))
 
-    assert _real_stdout() is real_stdout  # type: ignore[reportPrivateUsage]
+    assert _real_stdout() is real_stdout
 
 
 def test_direct_print_writes_to_real_stdout(monkeypatch: pytest.MonkeyPatch) -> None:

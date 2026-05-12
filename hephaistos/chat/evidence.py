@@ -224,7 +224,7 @@ def adaptive_rag_budget(session: ChatSession) -> int:
     """Allocate a bounded retrieval context budget for the current session."""
     budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
     api_msgs = session.conversation.to_api_messages()
-    remaining = budget.tokens_remaining(api_msgs)  # type: ignore[arg-type]
+    remaining = budget.tokens_remaining(api_msgs)
     return min(session.config.rag_context_budget, max(200, int(remaining * 0.3)))
 
 

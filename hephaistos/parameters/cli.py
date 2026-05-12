@@ -15,9 +15,9 @@ from hephaistos.parameters import settings as settings_store
 if TYPE_CHECKING:
     from hephaistos.runtime import ChatConfig
 
-_DEFAULTS_FILE = settings_store._DEFAULTS_FILE  # type: ignore[reportPrivateUsage]
-_USER_CONFIG_DIR = settings_store._USER_CONFIG_DIR  # type: ignore[reportPrivateUsage]
-_USER_CONFIG_FILE = settings_store._USER_CONFIG_FILE  # type: ignore[reportPrivateUsage]
+_DEFAULTS_FILE = settings_store._DEFAULTS_FILE
+_USER_CONFIG_DIR = settings_store._USER_CONFIG_DIR
+_USER_CONFIG_FILE = settings_store._USER_CONFIG_FILE
 
 
 def _parse_toml_simple(path: Path) -> dict[str, str]:
@@ -38,9 +38,7 @@ def _load_user_overrides() -> dict[str, str]:
     return result
 
 
-def _save_user_override(  # ty: ignore
-    key: str, value: str
-) -> None:
+def _save_user_override(key: str, value: str) -> None:
     settings_store.save_setting(key, value)
 
 
@@ -51,7 +49,7 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
 
     _ = armory_path
     config = runtime.ChatConfig()
-    toml_path = settings_store._DEFAULTS_FILE  # type: ignore[reportPrivateUsage]
+    toml_path = settings_store._DEFAULTS_FILE
     if toml_path.is_file():
         toml = _parse_toml_simple(toml_path)
         if toml.get("base_url"):
@@ -71,7 +69,7 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
             and not config.resolved_api_key
         ):
             print(
-                f"warning: active provider '{config._provider_slug}' has no API key, "  # type: ignore[reportPrivateUsage]
+                f"warning: active provider '{config._provider_slug}' has no API key, "
                 "falling back to Pollinations AI (free)",
                 file=sys.stderr,
             )
@@ -208,7 +206,7 @@ def _cmd_config_list(_args: argparse.Namespace) -> None:
 
 
 def _cmd_config_path(_args: argparse.Namespace) -> None:
-    print(settings_store._USER_CONFIG_FILE)  # type: ignore[reportPrivateUsage]
+    print(settings_store._USER_CONFIG_FILE)
 
 
 def _cmd_config_set(args: argparse.Namespace) -> None:
@@ -223,14 +221,14 @@ def _cmd_config_set(args: argparse.Namespace) -> None:
         if key in _BOOL_KEYS:
             settings_store.save_setting(key, value)
             normalized = str(getattr(settings_store.load_app_settings(), key)).lower()
-            print(f"Set {key} = {normalized} (persisted to {settings_store._USER_CONFIG_FILE})")  # type: ignore[reportPrivateUsage]
+            print(f"Set {key} = {normalized} (persisted to {settings_store._USER_CONFIG_FILE})")
             return
         settings_store.save_setting(key, value)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Set {key} = {value} (persisted to {settings_store._USER_CONFIG_FILE})")  # type: ignore[reportPrivateUsage]
+    print(f"Set {key} = {value} (persisted to {settings_store._USER_CONFIG_FILE})")
 
 
 def _cmd_config_unset(args: argparse.Namespace) -> None:
@@ -240,10 +238,10 @@ def _cmd_config_unset(args: argparse.Namespace) -> None:
         print(f"  valid keys: {', '.join(_CONFIG_KEY_TO_ENV)}", file=sys.stderr)
         sys.exit(1)
     settings_store.clear_setting(key)
-    print(f"Unset {key} (persisted to {settings_store._USER_CONFIG_FILE})")  # type: ignore[reportPrivateUsage]
+    print(f"Unset {key} (persisted to {settings_store._USER_CONFIG_FILE})")
 
 
-def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:  # type: ignore[reportPrivateUsage]
+def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Register config subcommands."""
     config = subparsers.add_parser("config", help="View and set configuration values.")
     config_sub = config.add_subparsers(dest="config_command", required=True)

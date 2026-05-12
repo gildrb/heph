@@ -42,16 +42,16 @@ try:
     from textual.strip import Strip
     from textual.widgets import Input, OptionList, Static
 except ImportError:
-    events = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    ComposeResult = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Binding = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Horizontal = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Vertical = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    ModalScreen = object  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Strip = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Input = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    OptionList = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
-    Static = None  # type: ignore[assignment,misc]  # ty:ignore[invalid-assignment]
+    events = None  # ty:ignore[invalid-assignment]
+    ComposeResult = None  # ty:ignore[invalid-assignment]
+    Binding = None  # ty:ignore[invalid-assignment]
+    Horizontal = None  # ty:ignore[invalid-assignment]
+    Vertical = None  # ty:ignore[invalid-assignment]
+    ModalScreen = object  # ty:ignore[invalid-assignment]
+    Strip = None  # ty:ignore[invalid-assignment]
+    Input = None  # ty:ignore[invalid-assignment]
+    OptionList = None  # ty:ignore[invalid-assignment]
+    Static = None  # ty:ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ def _list_entries(path: Path, *, show_files: bool = False) -> list[Path]:
     return result
 
 
-def _list_child_dirs(path: Path) -> list[Path]:  # ty: ignore
+def _list_child_dirs(path: Path) -> list[Path]:
     """Return sorted child directories, skipping hidden ones.
 
     Backward-compatible wrapper kept for existing tests.
@@ -656,7 +656,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     armory, or *None* when cancelled.
     """
 
-    BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "cancel", "Cancel"),
         Binding("q", "cancel", "Cancel", show=False),
         Binding("n", "new_armory", "New"),
@@ -1013,7 +1013,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     # Key handling
     # -----------------------------------------------------------------------
 
-    def on_key(self, event: events.Key) -> None:  # type: ignore[override]
+    def on_key(self, event: events.Key) -> None:
         # When creating, only intercept escape; let the Input handle the rest.
         if self._creating:
             if event.key == "escape":

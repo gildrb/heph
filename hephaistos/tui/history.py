@@ -1,13 +1,22 @@
-# ty: ignore
 """Input history helpers for the TUI."""
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from textual.widgets import Input
+
+from hephaistos.tui.session_state import TuiRuntimeState
+
+
+class _HistoryHost(Protocol):
+    state: TuiRuntimeState
+
+    def query_one(self, selector: str, expect_type: type[Input]) -> Input: ...
 
 
 class TuiHistoryMixin:
-    def _record_history(self, value: str) -> None:
+    def _record_history(self: _HistoryHost, value: str) -> None:
         value = value.strip()
         if not value:
             return
@@ -19,7 +28,7 @@ class TuiHistoryMixin:
         self.state.history_index = None
         self.state.history_draft = ""
 
-    def _history_previous(self) -> None:
+    def _history_previous(self: _HistoryHost) -> None:
         if not self.state.history:
             return
         composer = self.query_one("#composer", Input)
@@ -31,7 +40,7 @@ class TuiHistoryMixin:
         composer.value = self.state.history[self.state.history_index]
         composer.cursor_position = len(composer.value)
 
-    def _history_next(self) -> None:
+    def _history_next(self: _HistoryHost) -> None:
         if self.state.history_index is None:
             return
         composer = self.query_one("#composer", Input)

@@ -53,7 +53,7 @@ def test_default_config_activates_pollinations_as_default() -> None:
     assert config.get_active() is config.providers["pollinations"]
     assert chat_config.base_url == "https://text.pollinations.ai/openai"
     assert chat_config.model == "openai"
-    assert chat_config._provider_slug == "pollinations"  # type: ignore[reportPrivateUsage]
+    assert chat_config._provider_slug == "pollinations"
 
 
 def test_load_missing_config_stays_in_memory_until_saved(tmp_path: Path) -> None:

@@ -198,7 +198,7 @@ def load_project_scripts(pyproject_path: Path) -> dict[str, str]:
 
 
 def build_help_map(
-    subparsers: _argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
+    subparsers: _argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> dict[str, str]:
     help_map: dict[str, str] = {}
     for action in subparsers._choices_actions:
@@ -213,9 +213,9 @@ def build_help_map(
 
 def get_subparsers_action(
     parser: argparse.ArgumentParser,
-) -> _argparse._SubParsersAction[argparse.ArgumentParser]:  # type: ignore[reportPrivateUsage]
-    for action in parser._actions:  # type: ignore[reportPrivateUsage]
-        if isinstance(action, _argparse._SubParsersAction):  # type: ignore[reportPrivateUsage]
+) -> _argparse._SubParsersAction[argparse.ArgumentParser]:
+    for action in parser._actions:
+        if isinstance(action, _argparse._SubParsersAction):
             return cast("_argparse._SubParsersAction[argparse.ArgumentParser]", action)
     raise RuntimeError(f"Parser {parser.prog!r} does not define subcommands.")
 
@@ -353,11 +353,7 @@ def collect_slash_commands() -> tuple[CommandLine, ...]:
 
 
 def collect_env_vars() -> tuple[EnvVarDoc, ...]:
-    config_envs = [
-        env
-        for env in parameters_cli._CONFIG_KEY_TO_ENV.values()  # type: ignore[attr-defined]
-        if env
-    ]
+    config_envs = [env for env in parameters_cli._CONFIG_KEY_TO_ENV.values() if env]
     provider_envs = [
         provider.api_key_env
         for provider in default_config().providers.values()

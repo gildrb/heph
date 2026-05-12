@@ -369,7 +369,7 @@ def test_models_command_switches_selected_model(
     monkeypatch.setattr(
         _commands_model.ProviderConfig,
         "load",
-        classmethod(lambda _cls: default_config()),  # type: ignore[reportUnknownLambdaType]
+        classmethod(lambda _cls: default_config()),
     )
 
     def select_gpt_53_codex(_title: str, options: list[MenuOption]) -> int:
@@ -388,12 +388,12 @@ def test_models_command_switches_selected_model(
     monkeypatch.setattr(
         _commands_model,
         "print_success",
-        lambda msg: messages.append(("success", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        lambda msg: messages.append(("success", msg)),
     )
     monkeypatch.setattr(
         _commands_model,
         "print_error",
-        lambda msg: messages.append(("error", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        lambda msg: messages.append(("error", msg)),
     )
 
     result = commands.ModelsCommand().handle(session, "gpt-5.3-codex")
@@ -465,7 +465,7 @@ def test_models_command_shows_live_openrouter_models(
     monkeypatch.setattr(
         _commands_model.ProviderConfig,
         "load",
-        classmethod(lambda _cls: pc),  # type: ignore[reportUnknownLambdaType]
+        classmethod(lambda _cls: pc),
     )
     monkeypatch.setattr(_commands_model, "select_option", capture_options)
 
@@ -486,7 +486,7 @@ def test_clear_command_supports_plain_chat(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(
         _commands_session,
         "confirm",
-        lambda *_args, **_kwargs: True,  # type: ignore[reportUnknownLambdaType]
+        lambda *_args, **_kwargs: True,
     )
 
     result = commands.ClearCommand().handle(session, "")
@@ -506,7 +506,7 @@ def test_persona_command_updates_plain_chat_system_prompt(
     monkeypatch.setattr(
         _commands_persona,
         "print_success",
-        lambda _msg: None,  # type: ignore[reportUnknownLambdaType]
+        lambda _msg: None,
     )
 
     result = commands.PersonaCommand().handle(session, "tutor")
@@ -537,17 +537,17 @@ def test_models_command_reports_no_matching_model(
     monkeypatch.setattr(
         _commands_model.ProviderConfig,
         "load",
-        classmethod(lambda _cls: default_config()),  # type: ignore[reportUnknownLambdaType]
+        classmethod(lambda _cls: default_config()),
     )
     monkeypatch.setattr(
         _commands_model,
         "print_success",
-        lambda msg: messages.append(("success", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        lambda msg: messages.append(("success", msg)),
     )
     monkeypatch.setattr(
         _commands_model,
         "print_error",
-        lambda msg: messages.append(("error", msg)),  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        lambda msg: messages.append(("error", msg)),
     )
 
     result = commands.ModelsCommand().handle(session, "does-not-exist")
@@ -788,7 +788,7 @@ def test_save_command_plain_session(
     monkeypatch.setattr(
         _commands_session,
         "save_session",
-        lambda _s: Path("/fake/saved.json"),  # type: ignore[reportUnknownLambdaType]
+        lambda _s: Path("/fake/saved.json"),
     )
 
     result = commands.SaveCommand().handle(session, "")

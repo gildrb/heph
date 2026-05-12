@@ -41,7 +41,7 @@ class TestToolRegistry:
 
     def test_register_and_get(self) -> None:
         reg = ToolRegistry()
-        spec = make_tool_spec("custom", handler=lambda **_kw: "custom result")  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        spec = make_tool_spec("custom", handler=lambda **_kw: "custom result")
         reg.register(spec)
         assert reg.get("custom") is spec
         assert reg.get_handler("custom") is spec.handler
@@ -61,8 +61,8 @@ class TestToolRegistry:
 
     def test_register_overrides(self) -> None:
         reg = ToolRegistry()
-        reg.register(make_tool_spec("tool", handler=lambda **_kw: "v1"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
-        reg.register(make_tool_spec("tool", handler=lambda **_kw: "v2"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        reg.register(make_tool_spec("tool", handler=lambda **_kw: "v1"))
+        reg.register(make_tool_spec("tool", handler=lambda **_kw: "v2"))
         handler = reg.get_handler("tool")
         assert handler is not None
         assert handler() == "v2"
@@ -77,7 +77,7 @@ class TestToolRegistry:
 class TestChildRegistry:
     def test_child_inherits_parent_tools(self) -> None:
         parent = ToolRegistry()
-        parent.register(make_tool_spec("parent_tool", handler=lambda **_kw: "parent"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        parent.register(make_tool_spec("parent_tool", handler=lambda **_kw: "parent"))
         child = parent.child()
         assert child.get("parent_tool") is not None
         h = child.get_handler("parent_tool")
@@ -87,15 +87,15 @@ class TestChildRegistry:
     def test_child_can_add_tools(self) -> None:
         parent = ToolRegistry()
         child = parent.child()
-        child.register(make_tool_spec("child_tool", handler=lambda **_kw: "child"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        child.register(make_tool_spec("child_tool", handler=lambda **_kw: "child"))
         assert child.get("child_tool") is not None
         assert parent.get("child_tool") is None  # parent unaffected
 
     def test_child_can_override_parent(self) -> None:
         parent = ToolRegistry()
-        parent.register(make_tool_spec("tool", handler=lambda **_kw: "parent"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        parent.register(make_tool_spec("tool", handler=lambda **_kw: "parent"))
         child = parent.child()
-        child.register(make_tool_spec("tool", handler=lambda **_kw: "child"))  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+        child.register(make_tool_spec("tool", handler=lambda **_kw: "child"))
         h_child = child.get_handler("tool")
         h_parent = parent.get_handler("tool")
         assert h_child is not None
@@ -297,7 +297,7 @@ class TestDispatchWithRegistry:
                         },
                     },
                 },
-                handler=lambda msg, **_kw: f"echo: {msg}",  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+                handler=lambda msg, **_kw: f"echo: {msg}",
             )
         )
         tool_calls: list[ToolCall] = [
@@ -331,7 +331,7 @@ class TestDispatchWithRegistry:
                         },
                     },
                 },
-                handler=lambda **_kw: ToolResult(  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+                handler=lambda **_kw: ToolResult(
                     success=False,
                     content="temporary failure",
                     metadata={"retryable": True},

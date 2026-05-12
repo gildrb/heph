@@ -88,7 +88,7 @@ def _cmd_armory_open(args: argparse.Namespace) -> None:
 
 
 def register(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # type: ignore[reportPrivateUsage]
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     *,
     post_init: Callable[[Path], None] | None = None,
 ) -> None:

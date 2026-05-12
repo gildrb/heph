@@ -13,8 +13,8 @@ import pytest
 from hephaistos.logging import (
     Timer,
     TraceWriter,
-    _JsonFormatter,  # type: ignore[reportPrivateUsage]
-    _TextFormatter,  # type: ignore[reportPrivateUsage]
+    _JsonFormatter,
+    _TextFormatter,
     get_logger,
 )
 
@@ -66,7 +66,7 @@ class TestJsonFormatter:
             args=(),
             exc_info=None,
         )
-        record.fields = {"model": "gpt-4o", "latency_ms": 123.4}  # type: ignore[attr-defined]
+        record.fields = {"model": "gpt-4o", "latency_ms": 123.4}
         output = fmt.format(record)
         data = json.loads(output)
         assert data["model"] == "gpt-4o"
@@ -125,7 +125,7 @@ class TestTextFormatter:
             args=(),
             exc_info=None,
         )
-        record.fields = {"key": "val"}  # type: ignore[attr-defined]
+        record.fields = {"key": "val"}
         output = fmt.format(record)
         assert "key=val" in output
 

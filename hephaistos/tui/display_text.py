@@ -18,7 +18,7 @@ from hephaistos.tui.status import status_lines
 try:
     from rich.text import Text as _RichText
 except ImportError:
-    _RichText = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    _RichText = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
     from rich.text import Text
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 def require_rich_text() -> type[Text]:
     if _RichText is None:
         raise TuiDependencyError(tui_dependency_message())
-    return _RichText  # type: ignore[return-value]
+    return _RichText
 
 
 def status_text(session: ChatSession, state: str = "ready") -> Text:

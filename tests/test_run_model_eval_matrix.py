@@ -143,7 +143,7 @@ def asdict_like(report: run_model_eval_matrix.ModelEvalMatrixReport) -> dict[str
     }
 
 
-def test_load_candidates_uses_env_api_key(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_load_candidates_uses_env_api_key(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("HEPH_EVAL_KEY", "secret")
     matrix = tmp_path / "matrix.json"
     matrix.write_text(
@@ -220,7 +220,7 @@ def test_model_eval_matrix_runs_candidates_and_writes_combined_report(tmp_path: 
     matrix.write_text(json.dumps(payload), encoding="utf-8")
     _write_replay_dataset(replay_dataset)
 
-    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+    def fake_eval(*_args, **kwargs) -> int:
         report = kwargs["report_path"]
         _write_candidate_report(report)
         return 0
@@ -306,7 +306,7 @@ def test_model_eval_matrix_records_codex_subscription_auth_source(tmp_path: Path
         ),
     ]
 
-    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+    def fake_eval(*_args, **kwargs) -> int:
         _write_candidate_report(kwargs["report_path"])
         return 0
 
@@ -351,7 +351,7 @@ def test_model_eval_matrix_requires_codex_oauth_for_codex_candidate(tmp_path: Pa
         ),
     ]
 
-    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+    def fake_eval(*_args, **kwargs) -> int:
         _write_candidate_report(kwargs["report_path"])
         return 0
 
@@ -687,7 +687,7 @@ def test_model_eval_matrix_fails_when_candidate_fails(tmp_path: Path) -> None:
         ),
     ]
 
-    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+    def fake_eval(*_args, **kwargs) -> int:
         report = kwargs["report_path"]
         pass_rate = 0.5 if "local-small" in str(report) else 1.0
         _write_candidate_report(report, pass_rate=pass_rate)
@@ -721,7 +721,7 @@ def test_model_eval_matrix_records_candidate_timeout(tmp_path: Path) -> None:
         )
     ]
 
-    def slow_eval(*_args, **_kwargs) -> int:  # type: ignore[no-untyped-def]
+    def slow_eval(*_args, **_kwargs) -> int:
         time.sleep(2)
         return 0
 
@@ -763,7 +763,7 @@ def test_model_eval_matrix_fails_when_candidate_report_is_missing_metrics(
         ),
     ]
 
-    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+    def fake_eval(*_args, **kwargs) -> int:
         report = kwargs["report_path"]
         _write_candidate_report(report, include_required_text=False)
         return 0
@@ -801,7 +801,7 @@ def test_model_eval_matrix_fails_when_candidate_report_is_missing_coverage(
         ),
     ]
 
-    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+    def fake_eval(*_args, **kwargs) -> int:
         report = kwargs["report_path"]
         _write_candidate_report(report, include_coverage=False)
         return 0
@@ -839,7 +839,7 @@ def test_model_eval_matrix_fails_when_candidate_report_has_narrow_coverage(
         ),
     ]
 
-    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+    def fake_eval(*_args, **kwargs) -> int:
         report = kwargs["report_path"]
         _write_candidate_report(report, domains=["mathematics"])
         return 0
@@ -877,7 +877,7 @@ def test_model_eval_matrix_fails_when_candidate_report_coverage_differs_from_rep
         ),
     ]
 
-    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+    def fake_eval(*_args, **kwargs) -> int:
         report = kwargs["report_path"]
         _write_candidate_report(
             report,

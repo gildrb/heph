@@ -24,7 +24,7 @@ from hephaistos.logging import get_logger
 _log = get_logger("chat.resilience")
 _meter = get_meter("chat.resilience")
 
-_state_gauge = _meter.create_gauge(  # type: ignore[union-attr]
+_state_gauge = _meter.create_gauge(
     "llm.circuit_breaker.state",
     description="Circuit breaker state: 0=closed, 1=open, 2=half-open",
 )

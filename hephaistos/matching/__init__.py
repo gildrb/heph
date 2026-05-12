@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 try:
-    from rapidfuzz import fuzz  # ty: ignore
+    from rapidfuzz import fuzz
 except ImportError:
-    fuzz = None  # type: ignore[assignment]
+    fuzz = None
 
 T = TypeVar("T")
 
@@ -48,7 +48,7 @@ def ranked_matches[T](
 def _score(query: str, candidate: str) -> float:
     """Score a fuzzy match, falling back to simple substring checks."""
     if fuzz is not None:
-        return float(fuzz.WRatio(query, candidate))  # type: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        return float(fuzz.WRatio(query, candidate))
     normalized_query = query.casefold().strip()
     normalized_candidate = candidate.casefold().strip()
     if not normalized_query or not normalized_candidate:

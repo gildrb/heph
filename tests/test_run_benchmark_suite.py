@@ -140,7 +140,7 @@ def test_suite_gates_answer_shape_thresholds() -> None:
     assert run_benchmark_suite.run_suite(document_understanding_overview_coverage=1.01) == 1
 
 
-def test_missing_suite_returns_error(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_missing_suite_returns_error(tmp_path: Path, capsys) -> None:
     status = run_benchmark_suite.main(["--suite", str(tmp_path / "missing")])
 
     captured = capsys.readouterr()
@@ -148,7 +148,7 @@ def test_missing_suite_returns_error(tmp_path: Path, capsys) -> None:  # type: i
     assert "benchmark suite error:" in captured.err
 
 
-def test_suite_rejects_empty_replay_dataset(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_suite_rejects_empty_replay_dataset(tmp_path: Path, capsys) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     (suite / "replay.jsonl").write_text("# empty replay dataset\n", encoding="utf-8")
@@ -160,7 +160,7 @@ def test_suite_rejects_empty_replay_dataset(tmp_path: Path, capsys) -> None:  # 
     assert "replay dataset does not contain any cases" in captured.err
 
 
-def test_suite_rejects_missing_chat_event_dataset(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_suite_rejects_missing_chat_event_dataset(tmp_path: Path, capsys) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     (suite / "chat_events.jsonl").unlink()
@@ -174,7 +174,7 @@ def test_suite_rejects_missing_chat_event_dataset(tmp_path: Path, capsys) -> Non
 
 def test_suite_rejects_chat_event_stream_without_evidence_notice(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -192,7 +192,7 @@ def test_suite_rejects_chat_event_stream_without_evidence_notice(
     assert "missing evidence notice" in captured.out
 
 
-def test_suite_rejects_narrow_replay_tasks(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_suite_rejects_narrow_replay_tasks(tmp_path: Path, capsys) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     (suite / "replay.jsonl").write_text(
@@ -220,7 +220,7 @@ def test_suite_rejects_narrow_replay_tasks(tmp_path: Path, capsys) -> None:  # t
 
 def test_suite_rejects_replay_without_shaped_material_overview(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -240,7 +240,7 @@ def test_suite_rejects_replay_without_shaped_material_overview(
 
 def test_suite_rejects_replay_material_overview_without_shape_contract(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -269,7 +269,7 @@ def test_suite_rejects_replay_material_overview_without_shape_contract(
     assert "replay material-overview case must include" in captured.err
 
 
-def test_suite_rejects_narrow_answer_tasks(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_suite_rejects_narrow_answer_tasks(tmp_path: Path, capsys) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     (suite / "answers.jsonl").write_text(
@@ -299,7 +299,7 @@ def test_suite_rejects_narrow_answer_tasks(tmp_path: Path, capsys) -> None:  # t
     assert "answer benchmark must cover at least" in captured.err
 
 
-def test_suite_rejects_narrow_material_role_domains(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_suite_rejects_narrow_material_role_domains(tmp_path: Path, capsys) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     (suite / "material_roles.jsonl").write_text(
@@ -325,7 +325,7 @@ def test_suite_rejects_narrow_material_role_domains(tmp_path: Path, capsys) -> N
     assert "material role benchmark must cover at least" in captured.err
 
 
-def test_suite_rejects_narrow_rag_tasks(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_suite_rejects_narrow_rag_tasks(tmp_path: Path, capsys) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     (suite / "rag.jsonl").write_text(
@@ -355,7 +355,7 @@ def test_suite_rejects_narrow_rag_tasks(tmp_path: Path, capsys) -> None:  # type
 
 def test_suite_rejects_rag_without_multi_source_case(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -375,7 +375,7 @@ def test_suite_rejects_rag_without_multi_source_case(
 
 def test_suite_rejects_answers_without_multi_evidence_case(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -395,7 +395,7 @@ def test_suite_rejects_answers_without_multi_evidence_case(
 
 def test_suite_rejects_answers_without_active_recall_case(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -415,7 +415,7 @@ def test_suite_rejects_answers_without_active_recall_case(
 
 def test_suite_rejects_answers_without_hint_case(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -435,7 +435,7 @@ def test_suite_rejects_answers_without_hint_case(
 
 def test_suite_rejects_overview_answers_without_boilerplate_forbidden_terms(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -463,7 +463,7 @@ def test_suite_rejects_overview_answers_without_boilerplate_forbidden_terms(
 
 def test_suite_rejects_chat_expectation_without_boilerplate_forbidden_terms(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -484,7 +484,7 @@ def test_suite_rejects_chat_expectation_without_boilerplate_forbidden_terms(
     assert "heute sprechen" in captured.err
 
 
-def test_suite_rejects_narrow_priority_domains(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_suite_rejects_narrow_priority_domains(tmp_path: Path, capsys) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     (suite / "priority.jsonl").write_text(
@@ -505,7 +505,7 @@ def test_suite_rejects_narrow_priority_domains(tmp_path: Path, capsys) -> None: 
 
 def test_suite_rejects_narrow_index_integrity_tasks(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -527,7 +527,7 @@ def test_suite_rejects_narrow_index_integrity_tasks(
 
 def test_suite_rejects_narrow_index_integrity_domains(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
@@ -565,7 +565,7 @@ def test_suite_rejects_narrow_index_integrity_domains(
 
 def test_suite_rejects_narrow_study_state_domains(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)

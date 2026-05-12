@@ -32,11 +32,11 @@ from hephaistos.chat.session import create_session
 from hephaistos.terminal import set_theme
 
 # Cache noop diagnostics objects to avoid recreating per test
-_NOOP_TRACER = _obs_mod._NoopTracer()  # type: ignore[reportPrivateUsage]
-_NOOP_METER = _obs_mod._NoopMeter()  # type: ignore[reportPrivateUsage]
-_NOOP_HISTOGRAM = _obs_mod._NoopHistogram()  # type: ignore[reportPrivateUsage]
-_NOOP_COUNTER = _obs_mod._NoopCounter()  # type: ignore[reportPrivateUsage]
-_NOOP_GAUGE = _obs_mod._NoopGauge()  # type: ignore[reportPrivateUsage]
+_NOOP_TRACER = _obs_mod._NoopTracer()
+_NOOP_METER = _obs_mod._NoopMeter()
+_NOOP_HISTOGRAM = _obs_mod._NoopHistogram()
+_NOOP_COUNTER = _obs_mod._NoopCounter()
+_NOOP_GAUGE = _obs_mod._NoopGauge()
 
 
 def _reset_diagnostics_module_objects() -> None:
@@ -45,32 +45,30 @@ def _reset_diagnostics_module_objects() -> None:
     _noop_meter = _NOOP_METER
 
     # engine.py
-    _engine_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
-    _engine_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
-    _engine_mod._llm_duration_hist = _NOOP_HISTOGRAM  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
-    _engine_mod._llm_token_counter = _NOOP_COUNTER  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
+    _engine_mod._tracer = _noop_tracer  # ty:ignore[unresolved-attribute]
+    _engine_mod._meter = _noop_meter  # ty:ignore[unresolved-attribute]
+    _engine_mod._llm_duration_hist = _NOOP_HISTOGRAM  # ty:ignore[unresolved-attribute]
+    _engine_mod._llm_token_counter = _NOOP_COUNTER  # ty:ignore[unresolved-attribute]
 
     # resilience.py
-    _res_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
-    _res_mod._state_gauge = _NOOP_GAUGE  # type: ignore[reportPrivateUsage]  # ty:ignore[unresolved-attribute]
+    _res_mod._meter = _noop_meter  # ty:ignore[unresolved-attribute]
+    _res_mod._state_gauge = _NOOP_GAUGE  # ty:ignore[unresolved-attribute]
 
     # orchestrator.py
-    _orch_mod._tracer = _noop_tracer  # type: ignore[reportPrivateUsage]
-    _orch_mod._meter = _noop_meter  # type: ignore[reportPrivateUsage]
-    _orch_mod._rag_duration_hist = _NOOP_HISTOGRAM  # type: ignore[reportPrivateUsage]
+    _orch_mod._tracer = _noop_tracer
+    _orch_mod._meter = _noop_meter
+    _orch_mod._rag_duration_hist = _NOOP_HISTOGRAM
 
 
 @pytest.fixture(autouse=True)
-def _isolate_global_state(  # ty: ignore
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Generator[None]:
+def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Reset mutable module-level globals between tests."""
     config_dir = tmp_path / "hephaistos_config"
     config_file = config_dir / "config.json"
     providers_file = config_dir / "providers.toml"
-    _ks._volatile.clear()  # type: ignore[reportPrivateUsage]
-    _log_mod._root_initialised = False  # type: ignore[reportPrivateUsage]
-    _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
+    _ks._volatile.clear()
+    _log_mod._root_initialised = False
+    _engine_mod._circuit_breaker.reset()
     _settings_mod.invalidate_settings_cache()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
@@ -95,9 +93,9 @@ def _isolate_global_state(  # ty: ignore
 
     yield
 
-    _ks._volatile.clear()  # type: ignore[reportPrivateUsage]
-    _log_mod._root_initialised = False  # type: ignore[reportPrivateUsage]
-    _engine_mod._circuit_breaker.reset()  # type: ignore[reportPrivateUsage]
+    _ks._volatile.clear()
+    _log_mod._root_initialised = False
+    _engine_mod._circuit_breaker.reset()
     _settings_mod.invalidate_settings_cache()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()

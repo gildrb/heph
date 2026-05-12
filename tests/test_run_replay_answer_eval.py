@@ -89,7 +89,7 @@ def _fixtures() -> list[replay_answer_benchmark.AnswerFixture]:
 
 def test_replay_answer_eval_writes_and_scores_fixtures(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     dataset = tmp_path / "replay.jsonl"
     output = tmp_path / "answers.jsonl"

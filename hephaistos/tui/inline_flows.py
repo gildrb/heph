@@ -1,9 +1,9 @@
-# ty: ignore
 from __future__ import annotations
 
 import contextlib
 import inspect
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
 
 from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.model_selection import switch_model
@@ -32,21 +32,182 @@ from hephaistos.providers.keyring_store import (
 from hephaistos.providers.model_choices import configured_model_choices
 from hephaistos.terminal import set_theme
 from hephaistos.tui.flow_state import InlineFlow
+from hephaistos.tui.session_state import TuiRuntimeState
 from hephaistos.tui.style import _tui_css
 
 try:
     from textual.widgets import Input, OptionList, RichLog
 except ImportError:
-    Input = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    OptionList = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Input = None  # ty:ignore[invalid-assignment]
+    OptionList = None  # ty:ignore[invalid-assignment]
+    RichLog = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
     from textual import events
+    from textual.widget import Widget
+
+    from hephaistos.chat.session import ChatSession
+
+_P = ParamSpec("_P")
+_WidgetT = TypeVar("_WidgetT")
+
+
+class _StyleObject(Protocol):
+    background: str
+    background_tint: str
+
+
+class _ScreenObject(Protocol):
+    styles: _StyleObject
+
+
+class _StylesheetObject(Protocol):
+    def add_source(
+        self,
+        css: str,
+        *,
+        read_from: tuple[str, str],
+        is_default_css: bool,
+    ) -> None: ...
+
+
+class _InlineFlowHost(Protocol):
+    CSS: str
+    session: ChatSession
+    state: TuiRuntimeState
+    _inline_flow: InlineFlow
+
+    @property
+    def stylesheet(self) -> _StylesheetObject: ...
+
+    @property
+    def styles(self) -> _StyleObject: ...
+
+    @property
+    def screen(self) -> object: ...
+
+    def query_one(self, selector: str, expect_type: type[_WidgetT]) -> _WidgetT: ...
+
+    def set_focus(self, widget: Widget | None) -> None: ...
+
+    def run_worker(self, work: Callable[[], object], *, thread: bool = False) -> object: ...
+
+    def call_from_thread(
+        self,
+        callback: Callable[_P, object],
+        *args: _P.args,
+        **kwargs: _P.kwargs,
+    ) -> object: ...
+
+    def refresh_css(self, *, animate: bool = True) -> None: ...
+
+    def _append_notice(self, text: str) -> None: ...
+
+    def _append_error(self, text: str) -> None: ...
+
+    def _append_plain(self, text: str) -> None: ...
+
+    def _append_entry(self, content: str, kind: str = "plain") -> None: ...
+
+    def _hide_completions(self) -> None: ...
+
+    def _move_completion(self, offset: int) -> None: ...
+
+    def _refresh_status(self, state: str) -> None: ...
+
+    def _refresh_footer_hints(self) -> None: ...
+
+    def _update_info_panel(self) -> None: ...
+
+    def _schedule_transcript_reflow(self) -> None: ...
+
+    def _open_login_flow(self) -> None: ...
+
+    def _open_logout_flow(self) -> None: ...
+
+    def _open_settings_flow(self) -> None: ...
+
+    def _open_models_flow(self) -> None: ...
+
+    def _handle_sessions_command(self, value: str) -> None: ...
+
+    def _open_inline_menu(
+        self,
+        *,
+        name: str,
+        step: str,
+        title: str,
+        options: list[tuple[str, str]],
+    ) -> None: ...
+
+    def _render_inline_menu_options(self, options: list[tuple[str, str]]) -> None: ...
+
+    def _filter_inline_menu_options(self, query: str) -> None: ...
+
+    def _privacy_settings_summary(self) -> str: ...
+
+    def _privacy_option_description(
+        self,
+        *,
+        enabled: bool,
+        available: bool,
+        overridden: bool,
+    ) -> str: ...
+
+    def _open_privacy_flow(self) -> None: ...
+
+    def _open_appearance_flow(self) -> None: ...
+
+    def _model_flow_options(
+        self,
+        pc: ProviderConfig,
+        choices: list[tuple[str, str, str, bool]],
+    ) -> list[tuple[str, str]]: ...
+
+    def _refresh_models_flow_worker(self) -> None: ...
+
+    def _refresh_models_flow_options(
+        self,
+        choices: list[tuple[str, str, str, bool]],
+    ) -> None: ...
+
+    def _logout_targets(self) -> list[tuple[str, str, str]]: ...
+
+    def _format_sessions_listing(self, sessions: list[chat_storage.SessionRecord]) -> str: ...
+
+    def _open_sessions_flow(self, sessions: list[chat_storage.SessionRecord]) -> None: ...
+
+    def _select_inline_flow_option(self, index: int) -> None: ...
+
+    def _submit_inline_flow(self, value: str) -> None: ...
+
+    def _handle_inline_menu_choice(self, label: str) -> None: ...
+
+    def _handle_privacy_choice(self, label: str) -> None: ...
+
+    def _handle_appearance_choice(self, label: str) -> None: ...
+
+    def _refresh_tui_css(self) -> None: ...
+
+    def _perform_session_resume(self, session_id: str) -> None: ...
+
+    def _prompt_inline_text(self, name: str, step: str, placeholder: str) -> None: ...
+
+    def _handle_inline_text(self, value: str) -> None: ...
+
+    def _store_provider_key(self, slug: str, key: str) -> None: ...
+
+    def _login_openai_worker(self) -> None: ...
+
+    def _perform_logout(self, label: str) -> None: ...
+
+    def _perform_model_switch(self, model: str) -> None: ...
+
+    def _close_inline_flow(self, notice: str = "") -> None: ...
 
 
 class TuiInlineFlowMixin:
-    def _handle_inline_command(self, value: str) -> None:
+    def _handle_inline_command(self: _InlineFlowHost, value: str) -> None:
         if value == "/login":
             self._open_login_flow()
         elif value == "/logout":
@@ -59,7 +220,7 @@ class TuiInlineFlowMixin:
             self._handle_sessions_command(value)
 
     def _open_inline_menu(
-        self,
+        self: _InlineFlowHost,
         *,
         name: str,
         step: str,
@@ -80,7 +241,7 @@ class TuiInlineFlowMixin:
         composer.focus()
         self.set_focus(composer)
 
-    def _render_inline_menu_options(self, options: list[tuple[str, str]]) -> None:
+    def _render_inline_menu_options(self: _InlineFlowHost, options: list[tuple[str, str]]) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
         composer = self.query_one("#composer", Input)
         if options:
@@ -96,7 +257,7 @@ class TuiInlineFlowMixin:
         suggestions.add_class("visible")
         self._refresh_footer_hints()
 
-    def _filter_inline_menu_options(self, query: str) -> None:
+    def _filter_inline_menu_options(self: _InlineFlowHost, query: str) -> None:
         if not self._inline_flow.all_options:
             return
         self._inline_flow.options = _filtered_inline_options(
@@ -105,7 +266,7 @@ class TuiInlineFlowMixin:
         )
         self._render_inline_menu_options(self._inline_flow.options)
 
-    def _open_login_flow(self) -> None:
+    def _open_login_flow(self: _InlineFlowHost) -> None:
         self._open_inline_menu(
             name="login",
             step="menu",
@@ -118,7 +279,7 @@ class TuiInlineFlowMixin:
             ],
         )
 
-    def _open_settings_flow(self) -> None:
+    def _open_settings_flow(self: _InlineFlowHost) -> None:
         active = ProviderConfig.load().get_active()
         current = active.display_name if active is not None else "none"
         settings = load_app_settings()
@@ -134,13 +295,13 @@ class TuiInlineFlowMixin:
             ],
         )
 
-    def _privacy_settings_summary(self) -> str:
+    def _privacy_settings_summary(self: _InlineFlowHost) -> str:
         analytics = "analytics on" if analytics_enabled() else "analytics off"
         crashes = "crash reports on" if crash_reports_enabled() else "crash reports off"
         return f"{analytics}, {crashes}"
 
     def _privacy_option_description(
-        self,
+        self: _InlineFlowHost,
         *,
         enabled: bool,
         available: bool,
@@ -151,7 +312,7 @@ class TuiInlineFlowMixin:
         suffix = "  env override" if overridden else ""
         return f"{status}  {availability}{suffix}"
 
-    def _open_privacy_flow(self) -> None:
+    def _open_privacy_flow(self: _InlineFlowHost) -> None:
         self._open_inline_menu(
             name="settings",
             step="privacy",
@@ -176,7 +337,7 @@ class TuiInlineFlowMixin:
             ],
         )
 
-    def _open_appearance_flow(self) -> None:
+    def _open_appearance_flow(self: _InlineFlowHost) -> None:
         current = load_app_settings().theme
         self._open_inline_menu(
             name="settings",
@@ -192,7 +353,7 @@ class TuiInlineFlowMixin:
         )
 
     def _model_flow_options(
-        self,
+        self: _InlineFlowHost,
         pc: ProviderConfig,
         choices: list[tuple[str, str, str, bool]],
     ) -> list[tuple[str, str]]:
@@ -209,7 +370,7 @@ class TuiInlineFlowMixin:
             options.append((model, desc))
         return options
 
-    def _open_models_flow(self) -> None:
+    def _open_models_flow(self: _InlineFlowHost) -> None:
         pc = ProviderConfig.load()
         choices = configured_model_choices(pc)
         if not choices:
@@ -223,7 +384,7 @@ class TuiInlineFlowMixin:
         )
         self.run_worker(self._refresh_models_flow_worker, thread=True)
 
-    def _refresh_models_flow_worker(self) -> None:
+    def _refresh_models_flow_worker(self: _InlineFlowHost) -> None:
         try:
             pc = ProviderConfig.load()
             choices = configured_model_choices(pc, refresh_live=True)
@@ -232,7 +393,7 @@ class TuiInlineFlowMixin:
         self.call_from_thread(self._refresh_models_flow_options, choices)
 
     def _refresh_models_flow_options(
-        self,
+        self: _InlineFlowHost,
         choices: list[tuple[str, str, str, bool]],
     ) -> None:
         if not self._inline_flow.active or self._inline_flow.name != "models":
@@ -245,7 +406,7 @@ class TuiInlineFlowMixin:
         composer = self.query_one("#composer", Input)
         self._filter_inline_menu_options(composer.value)
 
-    def _open_logout_flow(self) -> None:
+    def _open_logout_flow(self: _InlineFlowHost) -> None:
         targets = self._logout_targets()
         if not targets:
             self._append_notice(
@@ -261,7 +422,7 @@ class TuiInlineFlowMixin:
             options=options,
         )
 
-    def _handle_sessions_command(self, value: str) -> None:
+    def _handle_sessions_command(self: _InlineFlowHost, value: str) -> None:
         _, _, args = value.partition(" ")
         subcmd = args.strip().lower()
         if self.session.armory_path is None:
@@ -291,7 +452,7 @@ class TuiInlineFlowMixin:
         self._append_error("Usage: /sessions [list|recent|browse|resume]")
 
     def _format_sessions_listing(
-        self,
+        self: _InlineFlowHost,
         sessions: list[chat_storage.SessionRecord],
     ) -> str:
         lines = [f"Saved sessions for {self.session.armory_path}:"]
@@ -300,7 +461,9 @@ class TuiInlineFlowMixin:
             lines.append(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
         return "\n".join(lines)
 
-    def _open_sessions_flow(self, sessions: list[chat_storage.SessionRecord]) -> None:
+    def _open_sessions_flow(
+        self: _InlineFlowHost, sessions: list[chat_storage.SessionRecord]
+    ) -> None:
         self._open_inline_menu(
             name="sessions",
             step="menu",
@@ -314,7 +477,7 @@ class TuiInlineFlowMixin:
             ],
         )
 
-    def _logout_targets(self) -> list[tuple[str, str, str]]:
+    def _logout_targets(self: _InlineFlowHost) -> list[tuple[str, str, str]]:
         pc = ProviderConfig.load()
         targets: list[tuple[str, str, str]] = []
         for slug in sorted(oauth.list_providers()):
@@ -325,7 +488,7 @@ class TuiInlineFlowMixin:
                 targets.append((slug, "api_key", f"{provider.display_name} API key"))
         return targets
 
-    def _handle_inline_flow_key(self, event: events.Key) -> bool:
+    def _handle_inline_flow_key(self: _InlineFlowHost, event: events.Key) -> bool:
         composer = self.query_one("#composer", Input)
         if event.key == "escape":
             if self._inline_flow.all_options and composer.value:
@@ -350,12 +513,12 @@ class TuiInlineFlowMixin:
             return True
         return False
 
-    def _select_inline_flow_option(self, index: int) -> None:
+    def _select_inline_flow_option(self: _InlineFlowHost, index: int) -> None:
         if not (0 <= index < len(self._inline_flow.options)):
             return
         self._submit_inline_flow(self._inline_flow.options[index][0])
 
-    def _submit_inline_flow(self, value: str) -> None:
+    def _submit_inline_flow(self: _InlineFlowHost, value: str) -> None:
         composer = self.query_one("#composer", Input)
         if self._inline_flow.all_options:
             if not self._inline_flow.options:
@@ -382,7 +545,7 @@ class TuiInlineFlowMixin:
         self._handle_inline_text(value)
         composer.value = ""
 
-    def _handle_inline_menu_choice(self, label: str) -> None:
+    def _handle_inline_menu_choice(self: _InlineFlowHost, label: str) -> None:
         if self._inline_flow.name == "settings":
             if self._inline_flow.step == "menu":
                 if label == "Privacy & Diagnostics":
@@ -420,7 +583,7 @@ class TuiInlineFlowMixin:
         elif label == "Custom endpoint":
             self._prompt_inline_text("login", "custom_endpoint", "OpenAI-compatible base URL")
 
-    def _handle_privacy_choice(self, label: str) -> None:
+    def _handle_privacy_choice(self: _InlineFlowHost, label: str) -> None:
         settings = load_app_settings()
         if label == "Usage analytics":
             save_setting("analytics_enabled", str(not settings.analytics_enabled).lower())
@@ -432,7 +595,7 @@ class TuiInlineFlowMixin:
                 self._append_notice("Crash-report preference saved; env override is active.")
         self._open_privacy_flow()
 
-    def _handle_appearance_choice(self, label: str) -> None:
+    def _handle_appearance_choice(self: _InlineFlowHost, label: str) -> None:
         if label not in THEME_PRESETS:
             return
         save_setting("theme", label)
@@ -441,7 +604,7 @@ class TuiInlineFlowMixin:
         self._append_notice(f"theme: {label}")
         self._open_appearance_flow()
 
-    def _refresh_tui_css(self) -> None:
+    def _refresh_tui_css(self: _InlineFlowHost) -> None:
         self.CSS = _tui_css()
         screen_path = inspect.getfile(self.__class__)
         read_from = (screen_path, f"{self.__class__.__name__}.CSS")
@@ -449,14 +612,15 @@ class TuiInlineFlowMixin:
         self.refresh_css(animate=False)
         self.styles.background = "transparent"
         self.styles.background_tint = "transparent"
-        self.screen.styles.background = "transparent"
-        self.screen.styles.background_tint = "transparent"
+        screen = cast("_ScreenObject", self.screen)
+        screen.styles.background = "transparent"
+        screen.styles.background_tint = "transparent"
         self._refresh_status("ready")
         self._refresh_footer_hints()
         self._update_info_panel()
         self._schedule_transcript_reflow()
 
-    def _perform_session_resume(self, session_id: str) -> None:
+    def _perform_session_resume(self: _InlineFlowHost, session_id: str) -> None:
         if self.session.armory_path is None:
             self._close_inline_flow("No armory attached. Use /armory to open one.")
             return
@@ -480,7 +644,7 @@ class TuiInlineFlowMixin:
         self._refresh_status("ready")
         self._update_info_panel()
 
-    def _prompt_inline_text(self, name: str, step: str, placeholder: str) -> None:
+    def _prompt_inline_text(self: _InlineFlowHost, name: str, step: str, placeholder: str) -> None:
         self._inline_flow.name = name
         self._inline_flow.step = step
         self._inline_flow.options = []
@@ -493,7 +657,7 @@ class TuiInlineFlowMixin:
         composer.focus()
         self.set_focus(composer)
 
-    def _handle_inline_text(self, value: str) -> None:
+    def _handle_inline_text(self: _InlineFlowHost, value: str) -> None:
         if not value:
             self._append_error("Value is required.")
             return
@@ -523,7 +687,7 @@ class TuiInlineFlowMixin:
             self._refresh_status("ready")
             self._update_info_panel()
 
-    def _store_provider_key(self, slug: str, key: str) -> None:
+    def _store_provider_key(self: _InlineFlowHost, slug: str, key: str) -> None:
         try:
             store_key(slug, key)
         except Exception:
@@ -534,7 +698,7 @@ class TuiInlineFlowMixin:
         self._refresh_status("ready")
         self._update_info_panel()
 
-    def _login_openai_worker(self) -> None:
+    def _login_openai_worker(self: _InlineFlowHost) -> None:
         try:
             oauth.login_openai_codex()
         except Exception as exc:
@@ -549,7 +713,7 @@ class TuiInlineFlowMixin:
         self.call_from_thread(self._refresh_status, "ready")
         self.call_from_thread(self._update_info_panel)
 
-    def _perform_logout(self, label: str) -> None:
+    def _perform_logout(self: _InlineFlowHost, label: str) -> None:
         targets = self._logout_targets()
         if label == "All":
             for slug, kind, _description in targets:
@@ -568,7 +732,7 @@ class TuiInlineFlowMixin:
                 self._close_inline_flow(f"logged out: {slug}")
                 return
 
-    def _perform_model_switch(self, model: str) -> None:
+    def _perform_model_switch(self: _InlineFlowHost, model: str) -> None:
         pc = ProviderConfig.load()
         choices = configured_model_choices(pc)
         matching = next((c for c in choices if c[1] == model), None)
@@ -588,7 +752,7 @@ class TuiInlineFlowMixin:
         self._refresh_status("ready")
         self._update_info_panel()
 
-    def _close_inline_flow(self, notice: str = "") -> None:
+    def _close_inline_flow(self: _InlineFlowHost, notice: str = "") -> None:
         self._inline_flow = InlineFlow()
         self._hide_completions()
         composer = self.query_one("#composer", Input)

@@ -14,11 +14,11 @@ try:
     from textual.strip import Strip
     from textual.widgets import RichLog
 except ImportError:
-    Segment = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    _RichStyle = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Region = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    Strip = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-    RichLog = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+    Segment = None  # ty:ignore[invalid-assignment]
+    _RichStyle = None  # ty:ignore[invalid-assignment]
+    Region = None  # ty:ignore[invalid-assignment]
+    Strip = None  # ty:ignore[invalid-assignment]
+    RichLog = None  # ty:ignore[invalid-assignment]
 
 
 def style_without_black_background(style: _RichStyle | None) -> _RichStyle:
@@ -90,11 +90,11 @@ def make_blank_background_cls(base_cls: type) -> type:
     if Strip is None or _RichStyle is None or Region is None:
         raise RuntimeError("Rich / Textual is not available")
 
-    class BlankBackgroundWidget(base_cls):  # type: ignore[misc]  # ty:ignore[unsupported-base]
+    class BlankBackgroundWidget(base_cls):  # ty:ignore[unsupported-base]
         def render_line(self, y: int) -> Strip:
             return transparent_strip(super().render_line(y), self.size.width)
 
-        def render_lines(self, crop: Region) -> list[Strip]:  # type: ignore[name-defined]
+        def render_lines(self, crop: Region) -> list[Strip]:
             strips = super().render_lines(crop)
             return [transparent_strip(strip, crop.width) for strip in strips]
 
@@ -117,14 +117,14 @@ def make_transparent_cls(base_cls: type) -> type:
     if Strip is None or _RichStyle is None or Region is None:
         raise RuntimeError("Rich / Textual is not available")
 
-    class TransparentWidget(base_cls):  # type: ignore[misc]  # ty:ignore[unsupported-base]
+    class TransparentWidget(base_cls):  # ty:ignore[unsupported-base]
         def render_line(self, y: int) -> Strip:
             if y < 0 or y >= self.size.height:
                 return Strip.blank(self.size.width, self.rich_style)
             strip = super().render_line(y).extend_cell_length(self.size.width, self.rich_style)
             return transparent_strip(strip, self.size.width)
 
-        def render_lines(self, crop: Region) -> list[Strip]:  # type: ignore[name-defined]
+        def render_lines(self, crop: Region) -> list[Strip]:
             strips: list[Strip] = []
             for y in range(crop.y, crop.y + crop.height):
                 strip = self.render_line(y).crop_extend(
@@ -141,7 +141,7 @@ def nonfocus_rich_log_class() -> type[RichLog]:
     if RichLog is None:
         raise RuntimeError("Textual is not available")
 
-    class NonFocusRichLog(RichLog):  # type: ignore[misc]
+    class NonFocusRichLog(RichLog):
         can_focus = False
 
     return NonFocusRichLog

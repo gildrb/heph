@@ -161,8 +161,8 @@ exclude = ["vulture-whitelist.py", ".venv"]
 [tool.ty.rules]
 all = "error"
 unresolved-import = "ignore"
-unused-ignore-comment = "ignore"
-unused-type-ignore-comment = "ignore"
+unused-ignore-comment = "error"
+unused-type-ignore-comment = "error"
 
 [tool.pylint.similarities]
 ignore-comments = true

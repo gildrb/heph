@@ -517,7 +517,7 @@ def test_required_label_must_start_answer() -> None:
     assert report.results[1].missing_required_label is False
 
 
-def test_main_fails_below_threshold(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_main_fails_below_threshold(tmp_path: Path, capsys) -> None:
     dataset = tmp_path / "answers.json"
     dataset.write_text(
         json.dumps(
@@ -545,7 +545,7 @@ def test_main_fails_below_threshold(tmp_path: Path, capsys) -> None:  # type: ig
 
 def test_main_gates_expected_required_and_forbidden_rates(
     tmp_path: Path,
-    capsys,  # type: ignore[no-untyped-def]
+    capsys,
 ) -> None:
     dataset = tmp_path / "answers.json"
     dataset.write_text(
@@ -589,7 +589,7 @@ def test_main_gates_expected_required_and_forbidden_rates(
     )
 
 
-def test_main_gates_required_label_rate(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_main_gates_required_label_rate(tmp_path: Path, capsys) -> None:
     dataset = tmp_path / "answers.json"
     dataset.write_text(
         json.dumps(
@@ -614,7 +614,7 @@ def test_main_gates_required_label_rate(tmp_path: Path, capsys) -> None:  # type
     assert "required_label=0.0%" in captured.out
 
 
-def test_main_gates_answer_shape_rate(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_main_gates_answer_shape_rate(tmp_path: Path, capsys) -> None:
     dataset = tmp_path / "answers.json"
     dataset.write_text(
         json.dumps(

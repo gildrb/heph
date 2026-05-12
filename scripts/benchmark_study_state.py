@@ -169,7 +169,7 @@ def _as_raw_cases(payload: object) -> list[RawStudyStateCase]:
             ):
                 raw_value = raw_turn.get(field)
                 if isinstance(raw_value, str) and raw_value.strip():
-                    turn[field] = raw_value.strip()  # type: ignore[literal-required]
+                    turn[field] = raw_value.strip()
             raw_advance = raw_turn.get("advance_seconds")
             if isinstance(raw_advance, int):
                 turn["advance_seconds"] = raw_advance
@@ -194,7 +194,7 @@ def _as_raw_cases(payload: object) -> list[RawStudyStateCase]:
         for field in ("expected_scheduled_reviews", "expected_due_reviews"):
             raw_count = raw.get(field)
             if isinstance(raw_count, int):
-                case[field] = raw_count  # type: ignore[literal-required]
+                case[field] = raw_count
         expected_scheduled_concepts = _as_optional_string_list(
             raw.get("expected_scheduled_concepts"),
             f"case {idx} expected_scheduled_concepts",

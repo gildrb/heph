@@ -17,7 +17,7 @@ from hephaistos.chat.engine import (
     EngineError,
     RetryConfig,
     StreamRecoveryError,
-    _wait_backoff,  # type: ignore[reportPrivateUsage]
+    _wait_backoff,
     get_reply,
     is_retryable_error,
     stream_reply,

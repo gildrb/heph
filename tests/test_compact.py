@@ -14,7 +14,7 @@ from hephaistos.agent.compact import (
     estimate_messages_tokens,
     micro_compact,
 )
-from hephaistos.agent.dispatch import _sync_conversation  # type: ignore[reportPrivateUsage]
+from hephaistos.agent.dispatch import _sync_conversation
 from hephaistos.chat._api_types import ApiMessage, ToolCallDelta
 from hephaistos.chat.engine import Conversation
 
@@ -222,7 +222,7 @@ class TestAutoCompact:
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
             "hephaistos.agent.compact.build_client",
-            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,
         )
 
         auto_compact(messages, config, tmp_path)
@@ -249,7 +249,7 @@ class TestAutoCompact:
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
             "hephaistos.agent.compact.build_client",
-            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,
         )
 
         compressed = auto_compact(messages, config, tmp_path)
@@ -274,7 +274,7 @@ class TestAutoCompact:
         config, mock_client = self._mock_config_and_client()
         monkeypatch.setattr(
             "hephaistos.agent.compact.build_client",
-            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,
         )
 
         compressed = auto_compact(messages, config, tmp_path, keep_recent_exchanges=2)
@@ -294,7 +294,7 @@ class TestAutoCompact:
         config, mock_client = self._mock_config_and_client(summary="Key fact: the answer is 42.")
         monkeypatch.setattr(
             "hephaistos.agent.compact.build_client",
-            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,
         )
 
         compressed = auto_compact(messages, config, tmp_path)
@@ -315,7 +315,7 @@ class TestAutoCompact:
         mock_client.chat.completions.create.side_effect = RuntimeError("no API key")
         monkeypatch.setattr(
             "hephaistos.agent.compact.build_client",
-            lambda _c: mock_client,  # type: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+            lambda _c: mock_client,
         )
 
         result = auto_compact(messages, config, tmp_path)
@@ -344,7 +344,7 @@ class TestSyncConversation:
             {"role": "system", "content": "new system"},
             {"role": "user", "content": "[Earlier conversation summary]\n\nSummary here"},
         ]
-        _sync_conversation(conv, api_messages)  # type: ignore[reportPrivateUsage]
+        _sync_conversation(conv, api_messages)
 
         assert len(conv.messages) == 2
         assert conv.messages[0].content == "new system"
@@ -357,7 +357,7 @@ class TestSyncConversation:
             {"role": "user", "content": "hi"},
             {"role": "tool", "tool_call_id": "c1", "content": "output"},
         ]
-        _sync_conversation(conv, api_messages)  # type: ignore[reportPrivateUsage]
+        _sync_conversation(conv, api_messages)
         assert len(conv.messages) == 2
 
     def test_skips_none_content(self) -> None:
@@ -366,6 +366,6 @@ class TestSyncConversation:
             {"role": "assistant", "content": None, "tool_calls": []},
             {"role": "assistant", "content": "text reply"},
         ]
-        _sync_conversation(conv, api_messages)  # type: ignore[reportPrivateUsage]
+        _sync_conversation(conv, api_messages)
         assert len(conv.messages) == 1
         assert conv.messages[0].content == "text reply"

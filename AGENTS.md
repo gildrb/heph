@@ -86,6 +86,7 @@ Operational playbooks for incident response:
 - Naming: PascalCase classes, snake_case functions/variables, UPPER_SNAKE_CASE constants (enforced by ruff N rules)
 - Type checking: ty strict mode
 - Explicit `Any` is forbidden; use concrete SDK types, `TypedDict`, dataclasses, or protocols instead
+- Type suppressions: prefer fixing the issue. For `ty` diagnostics, use `# ty:ignore[exact-diagnostic]`; for Ruff diagnostics, use `# noqa: RULE`. Do not add `# type: ignore[...]`.
 - Standard top-level imports by default; deferred imports require a policy allowlist for optional extras, plugin loading, or measured startup-critical paths
 - Import boundaries: only `app` may import other packages; all other packages are forbidden from importing `app` (enforced by import-linter)
 - Tests: pytest with `--cov-fail-under=75`, `@pytest.mark.flaky(reruns=2)` for flaky tests

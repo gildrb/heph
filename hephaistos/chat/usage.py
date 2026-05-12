@@ -259,7 +259,7 @@ def save_usage(
     usage: SessionUsage,
 ) -> Path | None:
     """Persist session usage to the armory."""
-    if armory_path is None:  # ty: ignore
+    if armory_path is None:
         return None
 
     # Defense-in-depth: validate session_id has no path traversal.

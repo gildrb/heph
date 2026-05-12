@@ -39,9 +39,9 @@ class TestFileMutationQueue:
     def test_clear_removes_locks(self) -> None:
         queue = FileMutationQueue()
         queue.execute(Path("/tmp/a.txt"), lambda: "a")
-        assert len(queue._locks) == 1  # type: ignore[reportPrivateUsage]
+        assert len(queue._locks) == 1
         queue.clear()
-        assert len(queue._locks) == 0  # type: ignore[reportPrivateUsage]
+        assert len(queue._locks) == 0
 
     def test_same_file_serializes(self) -> None:
         """Two mutations on the same file path must run sequentially."""

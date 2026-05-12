@@ -99,7 +99,7 @@ def test_run_benchmark_scores_source_and_chunk_matches(tmp_path: Path) -> None:
     assert report.results[0].elapsed_ms >= 0.0
 
 
-def test_main_fails_below_threshold(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_main_fails_below_threshold(tmp_path: Path, capsys) -> None:
     armory = _make_armory(tmp_path)
     dataset = tmp_path / "cases.json"
     dataset.write_text(
@@ -134,7 +134,7 @@ def test_main_fails_below_threshold(tmp_path: Path, capsys) -> None:  # type: ig
     assert "misses=miss" in captured.out
 
 
-def test_main_gates_expected_recall(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_main_gates_expected_recall(tmp_path: Path, capsys) -> None:
     armory = _make_armory(tmp_path)
     dataset = tmp_path / "cases.json"
     dataset.write_text(
@@ -174,7 +174,7 @@ def test_main_gates_expected_recall(tmp_path: Path, capsys) -> None:  # type: ig
 def test_main_gates_forbidden_before_expected_avoidance(
     tmp_path: Path,
     capsys,
-) -> None:  # type: ignore[no-untyped-def]
+) -> None:
     armory = _make_armory(tmp_path)
     dataset = tmp_path / "cases.json"
     dataset.write_text(

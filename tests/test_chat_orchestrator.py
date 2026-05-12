@@ -477,7 +477,7 @@ class TestResolvedTurnPlan:
     def test_frozen(self) -> None:
         plan = ResolvedTurnPlan()
         with pytest.raises(AttributeError):
-            plan.study_plan = _make_study_plan()  # type: ignore[misc]  # ty:ignore[invalid-assignment]
+            plan.study_plan = _make_study_plan()  # ty:ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -1399,7 +1399,7 @@ class TestTurnOrchestratorStudy:
         orch = TurnOrchestrator(session)
         resolved = ResolvedTurnPlan()
 
-        orch._finalize_successful_turn("hello", resolved, latency_ms=1.0)  # type: ignore[reportPrivateUsage]
+        orch._finalize_successful_turn("hello", resolved, latency_ms=1.0)
 
         mock_schedule_memory.assert_not_called()
 

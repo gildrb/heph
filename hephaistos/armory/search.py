@@ -56,7 +56,7 @@ def _load_armory_entries(key: str) -> list[KnownArmory]:
         return []
     armories: list[KnownArmory] = []
     seen: set[Path] = set()
-    for entry in entries:  # type: ignore[reportUnknownVariableType]
+    for entry in entries:
         path = Path(str(entry)).expanduser().resolve()
         if path in seen:
             continue

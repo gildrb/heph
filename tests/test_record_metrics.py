@@ -17,7 +17,7 @@ def test_extract_jobs_supports_wrapped_jobs_payload() -> None:
         }
     )
 
-    jobs = record_metrics._extract_jobs(payload)  # type: ignore[reportPrivateUsage]
+    jobs = record_metrics._extract_jobs(payload)
 
     assert len(jobs) == 2
     assert jobs[0]["startedAt"] == "2026-04-22T10:00:00Z"
@@ -57,7 +57,7 @@ def test_get_recent_run_durations_handles_wrapped_jobs_payload(
 
     monkeypatch.setattr(record_metrics, "_gh", fake_gh)
 
-    durations = record_metrics._get_recent_run_durations(limit=1)  # type: ignore[reportPrivateUsage]
+    durations = record_metrics._get_recent_run_durations(limit=1)
 
     assert durations == [
         {
@@ -69,6 +69,6 @@ def test_get_recent_run_durations_handles_wrapped_jobs_payload(
 
 
 def test_parse_iso_accepts_utc_z_suffix() -> None:
-    parsed = record_metrics._parse_iso("2026-04-22T10:00:00Z")  # type: ignore[reportPrivateUsage]
+    parsed = record_metrics._parse_iso("2026-04-22T10:00:00Z")
 
     assert parsed is not None

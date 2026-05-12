@@ -246,19 +246,19 @@ def retrieve(
     cache_key = _retriever_cache_key(transform_strategy, prompt_fn)
     retriever = cast(
         "RetrieverProtocol | None",
-        index._retriever_cache.get(cache_key),  # type: ignore[reportPrivateUsage]
+        index._retriever_cache.get(cache_key),
     )
     if retriever is None:
         if cache_key == _IDENTITY_CACHE_KEY:
             retriever = cast(
                 "RetrieverProtocol | None",
-                index._retriever,  # type: ignore[reportPrivateUsage]
+                index._retriever,
             )
         if retriever is None:
             retriever = _create_retriever(index, query_transformer=transformer)
             if cache_key == _IDENTITY_CACHE_KEY:
-                index._retriever = retriever  # type: ignore[reportPrivateUsage]
-        index._retriever_cache[cache_key] = retriever  # type: ignore[reportPrivateUsage]
+                index._retriever = retriever
+        index._retriever_cache[cache_key] = retriever
     search_query = _normalize_query_for_retrieval(query)
     results = retriever.retrieve(search_query, top_k)
     results = _apply_negation_precision_penalty(search_query, results)

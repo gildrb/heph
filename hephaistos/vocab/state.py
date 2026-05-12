@@ -262,6 +262,6 @@ def load_schedule(armory_path: Path) -> VocabScheduleStore:
 
 def save_schedule(store: VocabScheduleStore) -> Path:
     """Save schedule if it has changed."""
-    if store._dirty:  # type: ignore[reportPrivateUsage]
+    if store._dirty:
         return store.save()
-    return store._path  # type: ignore[reportPrivateUsage]
+    return store._path
