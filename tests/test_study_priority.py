@@ -48,11 +48,45 @@ def test_priority_analysis_weights_past_exam_occurrence(tmp_path: Path) -> None:
     analysis = analyze_priority(index.all_chunks)
 
     assert analysis.past_exam_sources == ("materials/past-exams/2024.md",)
-    assert analysis.topics[0].topic == "dijkstra"
+    assert analysis.topics[0].topic == "dijkstra shortest"
     assert analysis.topics[0].exam_hits == 1
     assert analysis.topics[0].exam_marks == 0
     assert analysis.topics[0].material_hits == 1
     assert analysis.topics[0].score == 4.0
+
+
+def test_priority_analysis_uses_extracted_text_to_classify_generic_sources(
+    tmp_path: Path,
+) -> None:
+    index = ArmoryIndex(tmp_path)
+    exam_chunk = _chunk(
+        "materials/document-a.pdf",
+        "Klausur Mathematik für Informatiker 2. Bearbeitungszeit 90 Minuten. "
+        "Aufgabe 1 [10 Punkte]: Explain Dijkstra shortest paths.",
+    )
+    slides_chunk = _chunk(
+        "materials/document-b.pdf",
+        "Mathematik für Informatiker 2. Sommersemester 2026. Vorlesung. "
+        "Table of contents. Dijkstra shortest paths use graph relaxation.",
+    )
+    index.documents = [
+        ChunkedDocument(
+            source="materials/document-a.pdf", content_hash="exam", chunks=[exam_chunk]
+        ),
+        ChunkedDocument(
+            source="materials/document-b.pdf",
+            content_hash="slides",
+            chunks=[slides_chunk],
+        ),
+    ]
+
+    analysis = analyze_priority(index.all_chunks)
+    dijkstra = next(topic for topic in analysis.topics if topic.topic == "dijkstra shortest")
+
+    assert analysis.past_exam_sources == ("materials/document-a.pdf",)
+    assert analysis.material_sources == ("materials/document-b.pdf",)
+    assert dijkstra.exam_hits == 1
+    assert dijkstra.material_hits == 1
 
 
 def test_priority_analysis_render_includes_exam_and_material_sources(tmp_path: Path) -> None:
@@ -125,13 +159,13 @@ def test_priority_analysis_weights_exam_marks(tmp_path: Path) -> None:
     ]
 
     topics = analyze_priority(index.all_chunks).topics
-    graph = next(topic for topic in topics if topic.topic == "graph")
+    graph = next(topic for topic in topics if topic.topic == "graph shortest")
     heaps = next(topic for topic in topics if topic.topic == "heaps")
 
     assert graph.exam_marks == 12
     assert heaps.exam_marks == 4
     assert graph.score > heaps.score
-    assert topics[0].topic == "graph"
+    assert topics[0].topic == "graph shortest"
     assert "exam marks 12" in analyze_priority(index.all_chunks).render_for_prompt()
 
 
@@ -156,10 +190,9 @@ def test_priority_analysis_keeps_inline_question_marks_with_matching_topics(
 
     topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
 
-    assert topics["dijkstra"].exam_marks == 12
-    assert topics["graph"].exam_marks == 12
-    assert topics["heaps"].exam_marks == 4
-    assert topics["heaps"].score < topics["dijkstra"].score
+    assert topics["shortest paths"].exam_marks == 12
+    assert topics["heaps priority"].exam_marks == 4
+    assert topics["heaps priority"].score < topics["shortest paths"].score
     assert "ocr noise" not in topics
 
 
@@ -288,6 +321,91 @@ def test_priority_analysis_prefers_meaningful_phrases_over_artifacts(tmp_path: P
     assert "gradient descent" in topics
 
 
+def test_priority_analysis_filters_repeated_lecture_boilerplate(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source=f"materials/Folien_2026_04_{day}.pdf",
+            content_hash=str(day),
+            chunks=[
+                _chunk(
+                    f"materials/Folien_2026_04_{day}.pdf",
+                    "Mathematik f ur Informatiker Sommersemester. Jesse Ratzkin. "
+                    "Universit at W urzburg. Beispiel. Ohne Beweis. "
+                    "Geometrische Reihe und Konvergenz von Partialsummen.",
+                )
+            ],
+        )
+        for day in range(13, 18)
+    ]
+    index.documents.append(
+        ChunkedDocument(
+            source="materials/past-exams/mock.md",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/past-exams/mock.md",
+                    "Aufgabe 1 [8 Punkte]: Untersuchen Sie eine geometrische Reihe.",
+                )
+            ],
+        )
+    )
+
+    topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
+
+    assert "jesse ratzkin" not in topics
+    assert "mathematik f ur informatiker sommersemester" not in topics
+    assert "universit at w urzburg" not in topics
+    assert "ohne beweis" not in topics
+    assert "geometrische reihe" in topics
+    assert topics["geometrische reihe"].exam_marks == 8
+
+
+def test_priority_analysis_filters_generic_course_boilerplate(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/biochemistry-lecture.md",
+            content_hash="lecture",
+            chunks=[
+                _chunk(
+                    "materials/biochemistry-lecture.md",
+                    "# Biochemistry 201\n"
+                    "Professor Amelia Carter. Northbridge University. "
+                    "Department of Biochemistry. Fall semester.\n"
+                    "## Enzyme Kinetics\n"
+                    "Enzyme kinetics explains Michaelis Menten saturation and reaction velocity.\n"
+                    "## Protein Folding\n"
+                    "Protein folding depends on hydrogen bonds and hydrophobic interactions.",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/biochemistry-midterm.md",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/biochemistry-midterm.md",
+                    "Midterm Exam. Student name. Student ID.\n"
+                    "Question 1 [12 points]: Explain enzyme kinetics and Michaelis Menten "
+                    "saturation.\n"
+                    "Question 2 [6 points]: Describe protein folding.",
+                )
+            ],
+        ),
+    ]
+
+    topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
+
+    assert "amelia carter" not in topics
+    assert "northbridge university" not in topics
+    assert "department biochemistry" not in topics
+    assert "student name student id" not in topics
+    assert "enzyme kinetics" in topics
+    assert "protein folding" in topics
+    assert topics["enzyme kinetics"].exam_marks == 12
+
+
 def test_priority_report_cleans_repeated_headings_in_evidence(tmp_path: Path) -> None:
     index = ArmoryIndex(tmp_path)
     index.documents = [
@@ -315,6 +433,56 @@ def test_priority_report_cleans_repeated_headings_in_evidence(tmp_path: Path) ->
 
     assert "Graph Algorithms Dijkstra" not in html
     assert "Dijkstra shortest paths use graph relaxation" in html
+
+
+def test_priority_report_does_not_expand_beyond_requested_analysis(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    chunks = [
+        _chunk("materials/past-exams/mock.md", "Question [8 marks]: Explain graph."),
+        _chunk("materials/slides.md", "Graph shortest paths."),
+    ]
+    chunks.extend(
+        _chunk("materials/slides.md", f"## Extra Topic {i}\nExtra Topic {i}.") for i in range(12)
+    )
+    index.documents = [
+        ChunkedDocument(
+            source="materials/past-exams/mock.md", content_hash="exam", chunks=chunks[:1]
+        ),
+        ChunkedDocument(source="materials/slides.md", content_hash="slides", chunks=chunks[1:]),
+    ]
+
+    analysis = analyze_priority(index.all_chunks, limit=2)
+    report = generate_priority_report(analysis, tmp_path / "Downloads")
+
+    html = report.path.read_text(encoding="utf-8")
+    assert report.topic_count == 2
+    assert html.count('class="topic"') == 2
+
+
+def test_priority_analysis_deduplicates_identical_evidence(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    repeated = "Graph shortest paths use Dijkstra relaxation."
+    index.documents = [
+        ChunkedDocument(
+            source="materials/slides.md",
+            content_hash="slides",
+            chunks=[
+                _chunk("materials/slides.md", repeated),
+                _chunk("materials/slides.md", repeated, index=1),
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/past-exams/mock.md",
+            content_hash="exam",
+            chunks=[_chunk("materials/past-exams/mock.md", "Question [8 marks]: Explain graph.")],
+        ),
+    ]
+
+    graph = next(
+        topic for topic in analyze_priority(index.all_chunks).topics if topic.topic == "graph"
+    )
+
+    assert [evidence.excerpt for evidence in graph.evidence].count(repeated) == 1
 
 
 def test_priority_analysis_can_add_web_backed_prerequisite_hints(tmp_path: Path) -> None:

@@ -83,17 +83,11 @@ def _render_evidence_panel(evidence: TurnEvidence, cited_ids: list[str]) -> str:
     for item in items:
         source_name = item.source.rsplit("/", 1)[-1]
         location = evidence_location_label(item.source, item.chunk, None)
-        location_parts = [
-            item.source,
-            location,
-            f"score {item.score:.2f}",
-            f"expand: /evidence {item.evidence_id}",
-            f"open: /evidence {item.evidence_id} open",
-        ]
+        location_parts = [location]
         if item.chunk.heading:
             location_parts.insert(1, f"under {item.chunk.heading}")
         parts.append(f"{item.evidence_id}: {source_name} ({'; '.join(location_parts)})")
-    return f"_sources: {'; '.join(parts)}_"
+    return f"_sources: {'; '.join(parts)}. Details: /evidence_"
 
 
 def enrich_reply(text: str, evidence: TurnEvidence | None) -> EnrichedReply:

@@ -254,20 +254,29 @@ def _summarise_args(name: str, args: dict[str, object]) -> dict[str, object]:
 def format_tool_args(name: str, args: dict[str, object]) -> str:
     """Format tool call for display."""
     if name == "bash":
-        return f"  $ {_string_arg(args, 'command')}"
+        return f"  Running: {_string_arg(args, 'command')}"
     if name == "read_file":
-        return f"  [read] {_string_arg(args, 'path')}"
+        return f"  Reading: {_string_arg(args, 'path')}"
     if name == "write_file":
         path = _string_arg(args, "path")
         size = len(_string_arg(args, "content"))
-        return f"  [write] {path} ({size} chars)"
+        return f"  Writing: {path} ({size} chars)"
     if name == "edit_file":
-        return f"  [edit] {_string_arg(args, 'path')}"
+        return f"  Editing: {_string_arg(args, 'path')}"
     if name == "list_files":
         path = _string_arg(args, "path") or "."
-        return f"  [list] {path}"
+        return f"  Listing: {path}"
+    if name == "search_materials":
+        query = _string_arg(args, "query")
+        return f"  Searching materials: {query}"
+    if name == "open_material":
+        source = _string_arg(args, "source")
+        chunk = args.get("chunk")
+        if isinstance(chunk, int):
+            return f"  Opening material: {source}#chunk={chunk}"
+        return f"  Opening material: {source}"
     if name == "compact":
-        return "  [compact] compressing conversation"
+        return "  Compacting conversation"
     return f"  [{name}] {args}"
 
 

@@ -58,6 +58,14 @@ class TestExtractCitations:
         cits = extract_citations("Claim [e1, e2].")
         assert [c.evidence_id for c in cits] == ["E1", "E2"]
 
+    def test_accepts_whitespace_inside_brackets(self) -> None:
+        cits = extract_citations("Claim [ E1 ][ E2 ].")
+        assert [c.evidence_id for c in cits] == ["E1", "E2"]
+
+    def test_accepts_whitespace_inside_evidence_id(self) -> None:
+        cits = extract_citations("Claim [ E 1 ][ E 2 ].")
+        assert [c.evidence_id for c in cits] == ["E1", "E2"]
+
     def test_fullwidth_brackets(self) -> None:
         cits = extract_citations("Claim 【E1, E2】.")
         assert [c.evidence_id for c in cits] == ["E1", "E2"]

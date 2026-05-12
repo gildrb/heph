@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 import io
+import json
 import sys
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+import hephaistos.rag.health as rag_health
 from hephaistos.agent.dispatch import iter_agent_events
 from hephaistos.armory.search import add_known_armory
 from hephaistos.armory.storage import initialize
+from hephaistos.chat import cli as chat_cli
 from hephaistos.chat.engine import ChatConfig
-from hephaistos.chat.events import TurnCompleteEvent
+from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnCompleteEvent
 from hephaistos.chat.session import create_session
 from hephaistos.cli.main import _inject_default_subcommand, build_parser, run_argv
 from hephaistos.cli.main import main as cli_main
 from hephaistos.cli.main import sys as cli_sys
+from hephaistos.rag.health import ExtractionHealthIssue, ExtractionHealthReport
 from hephaistos.rag.index import load_or_build
 from hephaistos.tui import TuiDependencyError
 
@@ -37,6 +42,7 @@ def test_parser_includes_expected_top_level_commands() -> None:
 
     assert "armory" in help_text
     assert "index" in help_text
+    assert "health" in help_text
     assert "update" in help_text
     assert "start           " not in help_text
     assert "shell           " not in help_text
@@ -196,8 +202,65 @@ def test_top_level_index_defaults_to_current_armory(
     run_argv(parser, ["index"])
 
     out = capsys.readouterr().out
+    assert "Reading: materials/notes.md" in out
+    assert "Writing:" in out
     assert "Indexed 4 documents" in out
     assert (armory / ".hephaistos" / "rag_index.json").is_file()
+
+
+def test_top_level_health_defaults_to_current_armory(
+    armory: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parser = build_parser()
+    initialize(armory)
+    (armory / "materials" / "notes.md").write_text("Hello from the material.", encoding="utf-8")
+    monkeypatch.chdir(armory)
+
+    run_argv(parser, ["health"])
+
+    out = capsys.readouterr().out
+    assert "Extraction health:" in out
+    assert "Corpus forbidden text: 100.0%" in out
+    assert "No generic extraction poison found." in out
+
+
+def test_top_level_health_exits_nonzero_for_extraction_noise(
+    armory: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parser = build_parser()
+    initialize(armory)
+    (armory / "materials" / "notes.md").write_text("Clean source text.", encoding="utf-8")
+    monkeypatch.chdir(armory)
+
+    def fake_scan_extraction_health(_armory_path: Path) -> ExtractionHealthReport:
+        return ExtractionHealthReport(
+            armory_path=str(armory),
+            documents=1,
+            checks=1,
+            pass_rate=0.0,
+            forbidden_text=("ExtractionNoise",),
+            issues=(
+                ExtractionHealthIssue(
+                    source="materials/notes.md",
+                    forbidden_text_present=("ExtractionNoise",),
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(rag_health, "scan_extraction_health", fake_scan_extraction_health)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_argv(parser, ["health"])
+
+    out = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert "Extraction issues:" in out
+    assert "materials/notes.md" in out
+    assert "ExtractionNoise" in out
 
 
 def test_main_without_args_uses_tui(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -353,17 +416,103 @@ def test_tui_flag_alias_help(
 
 def test_chat_ask_dispatches_without_tui(monkeypatch: pytest.MonkeyPatch) -> None:
     parser = build_parser()
-    captured: tuple[str, list[str]] | None = None
+    captured: tuple[str, list[str], bool] | None = None
 
-    def fake_ask(args: object) -> None:
+    def fake_ask(args: Namespace) -> None:
         nonlocal captured
-        captured = (args.path, args.prompt)  # type: ignore[attr-defined]  # ty:ignore[unresolved-attribute]
+        captured = (
+            args.path,
+            args.prompt,
+            args.jsonl,
+        )
 
     monkeypatch.setattr("hephaistos.chat.cli._cmd_chat_ask", fake_ask)
 
-    run_argv(parser, ["chat", "ask", "notes", "what", "is", "rag?"])
+    run_argv(parser, ["chat", "ask", "--jsonl", "notes", "what", "is", "rag?"])
 
-    assert captured == ("notes", ["what", "is", "rag?"])
+    assert captured == ("notes", ["what", "is", "rag?"], True)
+
+
+def test_chat_ask_jsonl_emits_structured_turn_events(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory = tmp_path / "armory"
+    initialize(armory)
+
+    def fake_resolve(_path: str) -> object:
+        return object()
+
+    def fake_events(_session: object, prompt: str):  # type: ignore[no-untyped-def]
+        assert prompt == "what is the material about"
+        yield NoticeEvent("Reading enabled indexed materials.", code="reading")
+        yield NoticeEvent(
+            "Using 2 overview evidence excerpts.",
+            code="evidence",
+            metadata={
+                "refs": ["materials/a.md#chunk=0", "materials/b.md#chunk=0"],
+                "coverage": {
+                    "evidence_blocks": 2,
+                    "sampled_sources": 2,
+                    "total_sources": 2,
+                },
+                "items": [
+                    {
+                        "evidence_id": "E1",
+                        "ref": "materials/a.md#chunk=0",
+                        "text_excerpt": "Alpha source text.",
+                    },
+                    {
+                        "evidence_id": "E2",
+                        "ref": "materials/b.md#chunk=0",
+                        "text_excerpt": "Beta source text.",
+                    },
+                ],
+            },
+        )
+        yield NoticeEvent("Writing a grounded corpus overview.", code="writing")
+        yield AssistantDeltaEvent("Retrieved overview sample: content [E1][E2].")
+        yield TurnCompleteEvent(
+            full_text="Retrieved overview sample: content [E1][E2].",
+            turn_index=1,
+            latency_ms=12.5,
+            finish_reason="stop",
+            tokens_remaining=1000,
+        )
+
+    monkeypatch.setattr(chat_cli, "resolve_armory_session", fake_resolve)
+    monkeypatch.setattr(chat_cli, "iter_chat_events", fake_events)
+
+    parser = build_parser()
+    run_argv(
+        parser,
+        [
+            "chat",
+            "ask",
+            "--jsonl",
+            str(armory),
+            "what",
+            "is",
+            "the",
+            "material",
+            "about",
+        ],
+    )
+
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert [event["type"] for event in events] == [
+        "notice",
+        "notice",
+        "notice",
+        "assistant_delta",
+        "turn_complete",
+    ]
+    assert [event["code"] for event in events[:3]] == ["reading", "evidence", "writing"]
+    assert events[1]["metadata"]["coverage"]["evidence_blocks"] == 2
+    assert events[1]["metadata"]["items"][0]["evidence_id"] == "E1"
+    assert events[3]["delta"].startswith("Retrieved overview sample")
+    assert events[4]["full_text"].startswith("Retrieved overview sample")
 
 
 def test_tui_command_reports_missing_dependency(

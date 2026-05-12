@@ -13,6 +13,8 @@ from hephaistos.agent.tools import (
     get_handler,
     run_bash,
     run_create_armory,
+    run_open_material,
+    run_search_materials,
     run_validate_armory,
     run_web_fetch,
 )
@@ -237,6 +239,46 @@ class TestArmoryTools:
         assert result.success is False
         assert result.error == "invalid_armory"
 
+    def test_search_materials_uses_indexed_armory_content(self, tmp_path: Path) -> None:
+        run_create_armory(".", workspace=tmp_path)
+        material = tmp_path / "materials" / "enzyme-notes.md"
+        material.write_text(
+            "# Enzyme Kinetics\n\n"
+            "Michaelis-Menten kinetics explains how substrate concentration changes "
+            "reaction velocity through Vmax and Km.\n",
+            encoding="utf-8",
+        )
+
+        result = run_search_materials("substrate concentration velocity", workspace=tmp_path)
+
+        assert result.success is True
+        assert "materials/enzyme-notes.md#chunk=0" in result.content
+        assert "Michaelis-Menten" in result.content
+        assert result.metadata["matches"] == 1
+
+    def test_open_material_reads_indexed_neighbor_chunks(self, tmp_path: Path) -> None:
+        run_create_armory(".", workspace=tmp_path)
+        material = tmp_path / "materials" / "lab-guide.md"
+        material.write_text(
+            "# Extraction\n\n"
+            "Prepare the sample and record the buffer conditions.\n\n"
+            "# Analysis\n\n"
+            "Compare the measured band intensity against the calibration curve.\n",
+            encoding="utf-8",
+        )
+
+        result = run_open_material(
+            "materials/lab-guide.md",
+            chunk=1,
+            context=1,
+            workspace=tmp_path,
+        )
+
+        assert result.success is True
+        assert "Opened indexed material: materials/lab-guide.md" in result.content
+        assert "Prepare the sample" in result.content
+        assert "calibration curve" in result.content
+
 
 # ---------------------------------------------------------------------------
 # web_fetch
@@ -259,7 +301,10 @@ class TestWebFetch:
         mock_response.__enter__ = lambda s: s  # type: ignore[reportUnknownLambdaType]
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("hephaistos.agent.tools.urllib.request.urlopen", return_value=mock_response):
+        with patch(
+            "hephaistos.agent.web_tools.urllib.request.urlopen",
+            return_value=mock_response,
+        ):
             result = run_web_fetch("https://example.com/test")
 
         assert "Source: https://example.com/test" in result
@@ -268,7 +313,7 @@ class TestWebFetch:
 
     def test_fetch_http_error(self):
         with patch(
-            "hephaistos.agent.tools.urllib.request.urlopen",
+            "hephaistos.agent.web_tools.urllib.request.urlopen",
             side_effect=urllib.error.HTTPError(
                 "url",
                 404,
@@ -286,7 +331,10 @@ class TestWebFetch:
         mock_response.__enter__ = lambda s: s  # type: ignore[reportUnknownLambdaType]
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("hephaistos.agent.tools.urllib.request.urlopen", return_value=mock_response):
+        with patch(
+            "hephaistos.agent.web_tools.urllib.request.urlopen",
+            return_value=mock_response,
+        ):
             result = run_web_fetch("https://example.com/image.png")
             assert "non-text content" in result
 
@@ -305,6 +353,8 @@ class TestToolSchemas:
         names = [s["function"]["name"] for s in TOOL_SCHEMAS]
         assert "create_armory" in names
         assert "validate_armory" in names
+        assert "search_materials" in names
+        assert "open_material" in names
 
     def test_web_fetch_handler_registered(self):
         handler = get_handler("web_fetch")
@@ -313,6 +363,8 @@ class TestToolSchemas:
     def test_armory_handlers_registered(self):
         assert get_handler("create_armory") is not None
         assert get_handler("validate_armory") is not None
+        assert get_handler("search_materials") is not None
+        assert get_handler("open_material") is not None
 
     def test_all_schemas_have_required_fields(self):
         for schema in TOOL_SCHEMAS:

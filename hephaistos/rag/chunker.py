@@ -28,9 +28,14 @@ import importlib
 import importlib.util
 import io
 import re
+import shutil
+import subprocess
+import tempfile
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
 
@@ -105,8 +110,28 @@ _DOCLING_EXTENSIONS = frozenset(
 _DEFAULT_CHUNK_SIZE = 500
 _DEFAULT_OVERLAP = 100
 _MAX_CHUNK_SIZE = 2000
+_PDF_TEXT_TIMEOUT_SECONDS = 30
+_PDF_OCR_RENDER_TIMEOUT_SECONDS = 60
+_PDF_OCR_PAGE_TIMEOUT_SECONDS = 45
+_PDF_OCR_DPI = 200
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
+_MISPLACED_DIAERESIS_RE = re.compile(r"¨\s*([AaOoUu])")
+_EXTRACTION_PLACEHOLDER_RE = re.compile(
+    r"(?i)(?:<!--\s*)?\b(?:formula|image|table|picture|figure)"
+    r"[-_ ]+not[-_ ]+decoded\b\.?(?:\s*-->)?"
+)
+_HTML_EXTRACTION_COMMENT_RE = re.compile(
+    r"(?i)<!--\s*(?:image|table|picture|figure|formula)\s*-->"
+)
+_UMLAUTS = {
+    "A": "Ä",
+    "O": "Ö",
+    "U": "Ü",
+    "a": "ä",
+    "o": "ö",
+    "u": "ü",
+}
 
 
 class _MarkdownExportProtocol(Protocol):
@@ -175,6 +200,8 @@ class ChunkedDocument:
 def _is_text_file(path: Path) -> bool:
     if path.suffix.lower() in _TEXT_EXTENSIONS:
         return True
+    if path.suffix.lower() in _DOCLING_EXTENSIONS:
+        return False
     try:
         sample = path.read_bytes()[:8192]
         return b"\x00" not in sample
@@ -188,6 +215,110 @@ def _is_markdown(path: Path) -> bool:
 
 def _is_docling_file(path: Path) -> bool:
     return path.suffix.lower() in _DOCLING_EXTENSIONS
+
+
+def _is_pdf_file(path: Path) -> bool:
+    return path.suffix.lower() == ".pdf"
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Extract readable text from HTML without adding a parser dependency."""
+
+    _BLOCK_TAGS = frozenset(
+        {
+            "address",
+            "article",
+            "aside",
+            "blockquote",
+            "br",
+            "dd",
+            "div",
+            "dl",
+            "dt",
+            "figcaption",
+            "footer",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "header",
+            "li",
+            "main",
+            "nav",
+            "ol",
+            "p",
+            "pre",
+            "section",
+            "table",
+            "td",
+            "th",
+            "tr",
+            "ul",
+        }
+    )
+    _SKIPPED_TAGS = frozenset({"script", "style", "noscript", "template", "svg"})
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        del attrs
+        normalized = tag.casefold()
+        if normalized in self._SKIPPED_TAGS:
+            self._skip_depth += 1
+            return
+        if normalized in self._BLOCK_TAGS:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized = tag.casefold()
+        if normalized in self._SKIPPED_TAGS and self._skip_depth:
+            self._skip_depth -= 1
+            return
+        if normalized in self._BLOCK_TAGS:
+            self._parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        text = " ".join(data.split())
+        if text:
+            self._parts.append(text)
+            self._parts.append(" ")
+
+    def text(self) -> str:
+        lines = (" ".join(line.split()) for line in "".join(self._parts).splitlines())
+        return "\n".join(line for line in lines if line)
+
+
+def _read_indexable_text(path: Path) -> str:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() not in {".html", ".htm"}:
+        return text
+    extractor = _HTMLTextExtractor()
+    extractor.feed(text)
+    extractor.close()
+    return extractor.text()
+
+
+def _is_pdftotext_available() -> bool:
+    return shutil.which("pdftotext") is not None
+
+
+def _is_pdf_ocr_available() -> bool:
+    return shutil.which("pdftoppm") is not None and shutil.which("tesseract") is not None
+
+
+def _can_convert_binary_file(path: Path) -> bool:
+    if not _is_docling_file(path):
+        return False
+    if _is_pdf_file(path) and (_is_pdftotext_available() or _is_pdf_ocr_available()):
+        return True
+    return _is_docling_available()
 
 
 def _is_docling_available() -> bool:
@@ -264,7 +395,7 @@ def _convert_to_markdown(path: Path) -> str | None:
             if converter is None:
                 return None
             result = converter.convert(str(path))
-            return result.document.export_to_markdown()
+            return _normalize_extracted_text(result.document.export_to_markdown())
     except Exception as exc:
         detail = str(exc).strip() or type(exc).__name__
         _log.warning(
@@ -272,6 +403,125 @@ def _convert_to_markdown(path: Path) -> str | None:
             extra={"fields": {"path": str(path), "error": detail}},
         )
         return None
+
+
+def _convert_pdf_to_text(path: Path) -> str | None:
+    """Extract plain PDF text with the local ``pdftotext`` binary when available."""
+    if not _is_pdf_file(path) or not _is_pdftotext_available():
+        return None
+    try:
+        completed = subprocess.run(
+            ["pdftotext", "-layout", "-enc", "UTF-8", str(path), "-"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=_PDF_TEXT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        detail = str(exc).strip() or type(exc).__name__
+        _log.warning(
+            "pdftotext extraction failed",
+            extra={"fields": {"path": str(path), "error": detail}},
+        )
+        return None
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or f"exit status {completed.returncode}"
+        _log.warning(
+            "pdftotext extraction failed",
+            extra={"fields": {"path": str(path), "error": detail}},
+        )
+        return None
+    text = _normalize_extracted_text(completed.stdout)
+    return text if text.strip() else None
+
+
+def _convert_pdf_with_ocr(path: Path) -> str | None:
+    """Extract image-only PDF text through local Poppler + Tesseract when available."""
+    if not _is_pdf_file(path) or not _is_pdf_ocr_available():
+        return None
+    try:
+        with tempfile.TemporaryDirectory(prefix="heph-pdf-ocr-") as temp_dir:
+            output_prefix = str(Path(temp_dir) / "page")
+            render = subprocess.run(
+                [
+                    "pdftoppm",
+                    "-r",
+                    str(_PDF_OCR_DPI),
+                    "-png",
+                    str(path),
+                    output_prefix,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=_PDF_OCR_RENDER_TIMEOUT_SECONDS,
+            )
+            if render.returncode != 0:
+                detail = render.stderr.strip() or f"exit status {render.returncode}"
+                _log.warning(
+                    "pdf OCR render failed",
+                    extra={"fields": {"path": str(path), "error": detail}},
+                )
+                return None
+            page_paths = sorted(Path(temp_dir).glob("page-*.png"))
+            texts: list[str] = []
+            for page_path in page_paths:
+                page = subprocess.run(
+                    ["tesseract", str(page_path), "stdout", "-l", "eng"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=_PDF_OCR_PAGE_TIMEOUT_SECONDS,
+                )
+                if page.returncode != 0:
+                    detail = page.stderr.strip() or f"exit status {page.returncode}"
+                    _log.warning(
+                        "pdf OCR page failed",
+                        extra={
+                            "fields": {
+                                "path": str(path),
+                                "page": page_path.name,
+                                "error": detail,
+                            }
+                        },
+                    )
+                    continue
+                texts.append(page.stdout)
+    except (OSError, subprocess.SubprocessError) as exc:
+        detail = str(exc).strip() or type(exc).__name__
+        _log.warning(
+            "pdf OCR extraction failed",
+            extra={"fields": {"path": str(path), "error": detail}},
+        )
+        return None
+    text = _normalize_extracted_text("\n\n".join(texts))
+    return text if text.strip() else None
+
+
+def _convert_binary_to_indexable_text(path: Path) -> str | None:
+    """Convert a supported binary material to indexable text."""
+    if _is_pdf_file(path):
+        pdf_text = _convert_pdf_to_text(path)
+        if pdf_text and pdf_text.strip():
+            return pdf_text
+        ocr_text = _convert_pdf_with_ocr(path)
+        if ocr_text and ocr_text.strip():
+            return ocr_text
+    docling_text = _convert_to_markdown(path) if _is_docling_available() else None
+    if docling_text and docling_text.strip():
+        return docling_text
+    return None
+
+
+def _normalize_extracted_text(text: str) -> str:
+    """Normalize common PDF extraction artifacts before indexing."""
+    normalized = unicodedata.normalize("NFC", text)
+    repaired = _MISPLACED_DIAERESIS_RE.sub(
+        lambda match: _UMLAUTS[match.group(1)],
+        normalized,
+    )
+    without_placeholders = _EXTRACTION_PLACEHOLDER_RE.sub("", repaired)
+    return _HTML_EXTRACTION_COMMENT_RE.sub("", without_placeholders)
 
 
 def _parse_sections(text: str) -> list[tuple[str, int, int, int]]:
@@ -671,15 +921,18 @@ def chunk_file(
         return None
 
     if not _is_text_file(path):
-        if _is_docling_file(path) and _is_docling_available():
+        if _can_convert_binary_file(path):
             return _chunk_docling_file(path, armory_root, chunk_size, overlap)
         return None
 
     try:
-        text = path.read_text(encoding="utf-8")
+        text = _read_indexable_text(path)
     except (UnicodeDecodeError, OSError):
         return None
 
+    if not text.strip():
+        return None
+    text = _normalize_extracted_text(text)
     if not text.strip():
         return None
 
@@ -702,11 +955,11 @@ def _chunk_docling_file(
     chunk_size: int = _DEFAULT_CHUNK_SIZE,
     overlap: int = _DEFAULT_OVERLAP,
 ) -> ChunkedDocument | None:
-    """Convert a binary document to Markdown via Docling, then chunk it."""
+    """Convert a binary document to text, then chunk it."""
     if _resolved_path_within_armory(path, armory_root) is None:
         return None
 
-    text = _convert_to_markdown(path)
+    text = _convert_binary_to_indexable_text(path)
     if not text or not text.strip():
         return None
 

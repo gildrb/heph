@@ -11,9 +11,13 @@ import pytest
 from hephaistos.rag.chunker import (
     _DOCLING_EXTENSIONS,  # type: ignore[reportPrivateUsage]
     ChunkStrategy,
+    _convert_pdf_to_text,  # type: ignore[reportPrivateUsage]
+    _convert_pdf_with_ocr,  # type: ignore[reportPrivateUsage]
     _convert_to_markdown,  # type: ignore[reportPrivateUsage]
     _is_docling_available,  # type: ignore[reportPrivateUsage]
     _is_docling_file,  # type: ignore[reportPrivateUsage]
+    _is_text_file,  # type: ignore[reportPrivateUsage]
+    _normalize_extracted_text,  # type: ignore[reportPrivateUsage]
     chunk_file,
     chunk_markdown,
     chunk_semantic,
@@ -115,6 +119,34 @@ class TestChunkFile:
         assert doc1 is not None
         assert doc2 is not None
         assert doc1.content_hash != doc2.content_hash
+
+    def test_chunk_html_file_extracts_readable_body_text(self, tmp_path: Path) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        src = armory / "syllabus.html"
+        src.write_text(
+            """
+            <!doctype html>
+            <html>
+              <head><title>Noise</title><script>window.tracker = true;</script></head>
+              <body>
+                <h1>Course Syllabus</h1>
+                <p>Prerequisites include calculus and linear algebra.</p>
+                <style>.hidden { display: none; }</style>
+              </body>
+            </html>
+            """,
+            encoding="utf-8",
+        )
+
+        doc = chunk_file(src, armory)
+
+        assert doc is not None
+        combined = "\n".join(chunk.text for chunk in doc.chunks)
+        assert "Course Syllabus" in combined
+        assert "Prerequisites include calculus and linear algebra." in combined
+        assert "<html" not in combined
+        assert "window.tracker" not in combined
 
     def test_skips_symlinked_file(self, tmp_path: Path) -> None:
         armory = tmp_path / "armory"
@@ -265,6 +297,12 @@ class TestDoclingIntegration:
         assert not _is_docling_file(Path("code.py"))
         assert not _is_docling_file(Path("image.png"))
 
+    def test_known_document_extension_is_not_guessed_as_text(self, tmp_path: Path) -> None:
+        pdf = tmp_path / "scan.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n")
+
+        assert not _is_text_file(pdf)
+
     def test_docling_extensions_covered(self) -> None:
         assert ".pdf" in _DOCLING_EXTENSIONS
         assert ".docx" in _DOCLING_EXTENSIONS
@@ -296,6 +334,43 @@ class TestDoclingIntegration:
         assert md is not None
         assert "# Report" in md
 
+    def test_convert_to_markdown_repairs_misplaced_german_umlauts(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        pdf = tmp_path / "mfi.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
+
+        mock_result = MagicMock()
+        mock_result.document.export_to_markdown.return_value = (
+            "Mathematik f¨ ur Informatiker\nUniversit¨ at W¨ urzburg\n¨ Ubungstermine"
+        )
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+
+        with patch(
+            "hephaistos.rag.chunker._get_docling_converter",
+            return_value=mock_converter,
+        ):
+            md = _convert_to_markdown(pdf)
+
+        assert md == "Mathematik für Informatiker\nUniversität Würzburg\nÜbungstermine"
+
+    def test_normalize_extracted_text_repairs_misplaced_umlauts(self) -> None:
+        text = "f¨ ur beschr¨ ankt ¨ Ubung Universit¨ at W¨ urzburg"
+        assert _normalize_extracted_text(text) == ("für beschränkt Übung Universität Würzburg")
+
+    def test_normalize_extracted_text_removes_extraction_placeholders(self) -> None:
+        text = "Definition\nFormula-not-decoded.\nImage not decoded.\nNext fact"
+        assert _normalize_extracted_text(text) == "Definition\n\n\nNext fact"
+        assert _normalize_extracted_text("Formula-not-decoded. Image not decoded. OCR noise.") == (
+            "  OCR noise."
+        )
+        assert _normalize_extracted_text("Before <!-- formula-not-decoded --> after") == (
+            "Before  after"
+        )
+        assert _normalize_extracted_text("Before <!-- image --> after") == "Before  after"
+
     def test_convert_to_markdown_failure_returns_none(self, tmp_path: Path) -> None:
         pdf = tmp_path / "bad.pdf"
         pdf.write_bytes(b"%PDF\x00corrupt")
@@ -310,6 +385,108 @@ class TestDoclingIntegration:
             md = _convert_to_markdown(pdf)
 
         assert md is None
+
+    def test_convert_pdf_to_text_uses_pdftotext_when_available(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf = tmp_path / "plain.pdf"
+        pdf.write_bytes(b"%PDF\x00content")
+
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stdout = "Plain extracted text."
+        completed.stderr = ""
+        monkeypatch.setattr("hephaistos.rag.chunker.shutil.which", lambda _name: "pdftotext")
+        run = MagicMock(return_value=completed)
+        monkeypatch.setattr("hephaistos.rag.chunker.subprocess.run", run)
+
+        text = _convert_pdf_to_text(pdf)
+
+        assert text == "Plain extracted text."
+        assert run.call_args.args[0] == [
+            "pdftotext",
+            "-layout",
+            "-enc",
+            "UTF-8",
+            str(pdf),
+            "-",
+        ]
+
+    def test_convert_pdf_with_ocr_uses_local_tesseract(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf = tmp_path / "scan.pdf"
+        pdf.write_bytes(b"%PDF\x00image")
+
+        def fake_run(args: list[str], **_kwargs: object) -> MagicMock:
+            completed = MagicMock()
+            completed.returncode = 0
+            completed.stderr = ""
+            if args[0] == "pdftoppm":
+                Path(f"{args[-1]}-1.png").write_bytes(b"png")
+                completed.stdout = ""
+                return completed
+            completed.stdout = "OCR extracted theorem text."
+            return completed
+
+        monkeypatch.setattr("hephaistos.rag.chunker.shutil.which", lambda _name: "/usr/bin/tool")
+        monkeypatch.setattr("hephaistos.rag.chunker.subprocess.run", fake_run)
+
+        text = _convert_pdf_with_ocr(pdf)
+
+        assert text == "OCR extracted theorem text."
+
+    def test_chunk_pdf_falls_back_to_pdftotext_when_docling_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        pdf = armory / "lecture.pdf"
+        pdf.write_bytes(b"%PDF\x00content")
+
+        monkeypatch.setattr("hephaistos.rag.chunker._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaistos.rag.chunker._convert_to_markdown", lambda _path: None)
+        monkeypatch.setattr(
+            "hephaistos.rag.chunker._convert_pdf_to_text",
+            lambda _path: "# Lecture\n\nPlain extracted fallback text.",
+        )
+
+        doc = chunk_file(pdf, armory)
+
+        assert doc is not None
+        assert doc.source == "lecture.pdf"
+        assert any("Plain extracted fallback text" in chunk.text for chunk in doc.chunks)
+
+    def test_chunk_pdf_prefers_pdftotext_before_docling(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        armory = tmp_path / "armory"
+        armory.mkdir()
+        pdf = armory / "lecture.pdf"
+        pdf.write_bytes(b"%PDF\x00content")
+        docling = MagicMock(return_value="# Lecture\n\nSlow docling text.")
+
+        monkeypatch.setattr("hephaistos.rag.chunker._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaistos.rag.chunker._convert_to_markdown", docling)
+        monkeypatch.setattr("hephaistos.rag.chunker._convert_pdf_with_ocr", lambda _path: None)
+        monkeypatch.setattr(
+            "hephaistos.rag.chunker._convert_pdf_to_text",
+            lambda _path: "# Lecture\n\nFast pdftotext text.",
+        )
+
+        doc = chunk_file(pdf, armory)
+
+        assert doc is not None
+        assert any("Fast pdftotext text" in chunk.text for chunk in doc.chunks)
+        docling.assert_not_called()
 
     def test_convert_to_markdown_failure_suppresses_converter_output(
         self,
@@ -366,6 +543,14 @@ class TestDoclingIntegration:
                 return_value=True,
             ),
             patch(
+                "hephaistos.rag.chunker._convert_pdf_to_text",
+                return_value=None,
+            ),
+            patch(
+                "hephaistos.rag.chunker._convert_pdf_with_ocr",
+                return_value=None,
+            ),
+            patch(
                 "hephaistos.rag.chunker._get_docling_converter",
                 return_value=mock_converter,
             ),
@@ -385,9 +570,16 @@ class TestDoclingIntegration:
         pdf = armory / "doc.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00binary")
 
-        with patch(
-            "hephaistos.rag.chunker._is_docling_available",
-            return_value=False,
+        with (
+            patch(
+                "hephaistos.rag.chunker._is_docling_available",
+                return_value=False,
+            ),
+            patch("hephaistos.rag.chunker._is_pdftotext_available", return_value=False),
+            patch(
+                "hephaistos.rag.chunker._is_pdf_ocr_available",
+                return_value=False,
+            ),
         ):
             doc = chunk_file(pdf, armory)
 
@@ -408,6 +600,14 @@ class TestDoclingIntegration:
             patch(
                 "hephaistos.rag.chunker._is_docling_available",
                 return_value=True,
+            ),
+            patch(
+                "hephaistos.rag.chunker._convert_pdf_to_text",
+                return_value=None,
+            ),
+            patch(
+                "hephaistos.rag.chunker._convert_pdf_with_ocr",
+                return_value=None,
             ),
             patch(
                 "hephaistos.rag.chunker._get_docling_converter",

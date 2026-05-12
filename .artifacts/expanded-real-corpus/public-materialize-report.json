@@ -1,0 +1,71 @@
+{
+  "status": 0,
+  "manifest_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/public-seed-manifest.json",
+  "armory_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory",
+  "documents": [
+    {
+      "source": "materials/public/mit-ocw-chemistry-biochemistry-lecture-notes.pdf",
+      "source_url": "https://ocw.mit.edu/courses/5-111-principles-of-chemical-science-fall-2008/ef38e21a42d17bf6165f51fcca1f5237_lecnotes36.pdf",
+      "output_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory/materials/public/mit-ocw-chemistry-biochemistry-lecture-notes.pdf",
+      "status": "written",
+      "bytes_written": 309284,
+      "sha256": "292dcaf665afb116d3f028608ba99af9e38bab0d90febd2368fc22e9038ddca6",
+      "error": ""
+    },
+    {
+      "source": "materials/public/mit-ocw-psychology-introduction-lecture.pdf",
+      "source_url": "https://ocw.mit.edu/courses/9-00sc-introduction-to-psychology-fall-2011/568e0d32a2401684b5daca281261f210_MIT9_00SCF11_lec01.pdf",
+      "output_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory/materials/public/mit-ocw-psychology-introduction-lecture.pdf",
+      "status": "written",
+      "bytes_written": 653244,
+      "sha256": "a4e7b7fb1710620fbedd6d4e3df9a3c8c0ec75db4518458bfd287d3336ed7e3e",
+      "error": ""
+    },
+    {
+      "source": "materials/public/mit-ocw-biology-practice-final.pdf",
+      "source_url": "https://ocw.mit.edu/courses/7-013-introductory-biology-spring-2013/2e7a5c7f348db8dceb6d993307d54652_MIT7_013S13_Final_SP09Q.pdf",
+      "output_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory/materials/public/mit-ocw-biology-practice-final.pdf",
+      "status": "written",
+      "bytes_written": 673920,
+      "sha256": "e4ae19c10820a81a7b3201e7dc5338879ac72b37f5578d6a1bdf0dc83fd4c5a5",
+      "error": ""
+    },
+    {
+      "source": "materials/public/mit-ocw-economics-final-exam.pdf",
+      "source_url": "https://ocw.mit.edu/courses/14-01sc-principles-of-microeconomics-fall-2011/39c21ac1c3eb1c3de18b206bab7f287c_MIT14_01SCF11_final_f07.pdf",
+      "output_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory/materials/public/mit-ocw-economics-final-exam.pdf",
+      "status": "written",
+      "bytes_written": 278576,
+      "sha256": "975e6cfd2130baa8a8cdc59014796043b69b74b120adee2b4d2ccc82663a07d2",
+      "error": ""
+    },
+    {
+      "source": "materials/public/mit-ocw-computer-systems-design-project.pdf",
+      "source_url": "https://ocw.mit.edu/courses/6-033-computer-system-engineering-spring-2018/d0c9f5a952353e8d1757fbb2c66bef51_MIT6_033S18dp.pdf",
+      "output_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory/materials/public/mit-ocw-computer-systems-design-project.pdf",
+      "status": "written",
+      "bytes_written": 225203,
+      "sha256": "d87fc7f87f5f66e8e00da97263088c082ae803464870494240fd1d42a60f394b",
+      "error": ""
+    },
+    {
+      "source": "materials/public/mit-ocw-digital-systems-project-howto.pdf",
+      "source_url": "https://ocw.mit.edu/courses/6-111-introductory-digital-systems-laboratory-spring-2006/b2dd9d7968e29ac14ba583d56f1faa2b_howto.pdf",
+      "output_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory/materials/public/mit-ocw-digital-systems-project-howto.pdf",
+      "status": "written",
+      "bytes_written": 106185,
+      "sha256": "0f3c31b7ec3b3bcc06391f75f4b82ede0539b3a061c2953e414d94f12febbb59",
+      "error": ""
+    },
+    {
+      "source": "materials/public/mit-ocw-labor-economics-syllabus.html",
+      "source_url": "https://ocw.mit.edu/courses/14-661-labor-economics-i-fall-2024/pages/syllabus/",
+      "output_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory/materials/public/mit-ocw-labor-economics-syllabus.html",
+      "status": "written",
+      "bytes_written": 54152,
+      "sha256": "dd6ea3e7c5e31a594e92e061133bfb5f828db8961146149d9023f876d7c5f57d",
+      "error": ""
+    }
+  ],
+  "failures": []
+}

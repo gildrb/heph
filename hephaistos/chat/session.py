@@ -25,6 +25,7 @@ from hephaistos.logging import TraceWriter, get_logger
 from hephaistos.materials import iter_material_files
 from hephaistos.memory import MemoryStore, load_memory
 from hephaistos.rag import ArmoryIndex, TurnEvidence, scan_unindexable_files
+from hephaistos.rag.health import ExtractionHealthIssue, scan_extraction_health
 from hephaistos.runtime import ChatConfig, Conversation, Message
 from hephaistos.study import StudyState
 
@@ -221,6 +222,19 @@ def _build_plain_system_prompt(persona: Persona) -> str:
     return f"{persona.role_block}\n\n{_PLAIN_CHAT_CONTEXT}"
 
 
+def _scan_extraction_health_issues(armory_path: Path) -> tuple[ExtractionHealthIssue, ...]:
+    """Return generic corpus extraction failures without blocking chat on health crashes."""
+    try:
+        return scan_extraction_health(armory_path).issues
+    except Exception:
+        _log.warning(
+            "extraction health scan failed",
+            extra={"fields": {"armory": str(armory_path)}},
+            exc_info=True,
+        )
+        return ()
+
+
 def _replace_system_prompt(session: ChatSession) -> None:  # ty: ignore
     """Replace the system prompt in the conversation with the current persona."""
     if session.armory_path is None:
@@ -235,6 +249,7 @@ def _replace_system_prompt(session: ChatSession) -> None:  # ty: ignore
             armory_path=session.armory_path,
             source_files=source_files or None,
             unindexable_files=unindexable or None,
+            extraction_health_issues=_scan_extraction_health_issues(session.armory_path),
             memory_context=memory_ctx,
             persona=session.persona,
         )
@@ -292,6 +307,7 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
             armory_path=armory_path,
             source_files=source_files,
             unindexable_files=scan_unindexable_files(armory_path),
+            extraction_health_issues=_scan_extraction_health_issues(armory_path),
             memory_context=memory_ctx,
             persona=None,
         ),

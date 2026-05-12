@@ -4,6 +4,7 @@ from pathlib import Path
 
 from hephaistos.agent.persona import TUTOR
 from hephaistos.agent.prompt import build_system_prompt, build_system_prompt_sections
+from hephaistos.rag.health import ExtractionHealthIssue
 
 
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
@@ -92,11 +93,15 @@ def test_build_system_prompt_instructs_citation_inspection(armory: Path) -> None
     assert "quote the matching evidence text" in prompt
 
 
-def test_build_system_prompt_forbids_outside_knowledge_without_evidence(armory: Path) -> None:
+def test_build_system_prompt_anchors_general_reasoning_to_material_evidence(
+    armory: Path,
+) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert "do not answer from outside knowledge" in prompt
-    assert "Answer from your own knowledge" not in prompt
+    assert "Use the sources as the anchor, not as a cage" in prompt
+    assert "general academic reasoning" in prompt
+    assert "material-specific claim" in prompt
+    assert "Do not present memory or general knowledge as if it came from" in prompt
 
 
 def test_build_system_prompt_sections_render_matches_string_builder(armory: Path) -> None:
@@ -157,3 +162,24 @@ def test_no_unindexable_warning_when_empty(armory: Path) -> None:
 
     assert "WARNING" not in prompt
     assert "could not be indexed" not in prompt
+
+
+def test_extraction_health_warning_in_prompt(armory: Path) -> None:
+    prompt = build_system_prompt(
+        armory_path=armory,
+        source_files=["materials/lecture.pdf"],
+        extraction_health_issues=(
+            ExtractionHealthIssue(
+                source="materials/lecture.pdf",
+                forbidden_text_present=("formula-not-decoded", "<!-- image -->"),
+            ),
+        ),
+    )
+
+    assert "WARNING: The following indexed files contain extraction health issues" in prompt
+    assert "materials/lecture.pdf" in prompt
+    assert "formula-not-decoded" in prompt
+    assert "<!-- image -->" in prompt
+    assert "Treat affected indexed chunks as unreliable extraction output" in prompt
+    assert "Do NOT answer from affected files" in prompt
+    assert "`heph health`" in prompt

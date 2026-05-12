@@ -8,6 +8,7 @@ buckets.
 from __future__ import annotations
 
 import fnmatch
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,9 +17,11 @@ from typing import Literal, cast
 from hephaistos.logging import get_logger
 
 try:
-    import pathspec
+    import pathspec as _pathspec
 except ImportError:
-    pathspec = None  # type: ignore[assignment]
+    pathspec: object | None = None
+else:
+    pathspec = _pathspec
 
 _log = get_logger("materials")
 
@@ -47,6 +50,39 @@ DEFAULT_IGNORE_PATTERNS: tuple[str, ...] = (
     ".pytest_cache/",
     ".mypy_cache/",
     ".ruff_cache/",
+)
+_QUESTION_MARKS_RE = re.compile(
+    r"\b(?:aufgabe|problem|question|exercise)\s+\d{1,2}[\s\S]{0,240}?"
+    r"\b(?:punkte|points?|marks?)\b",
+    re.IGNORECASE,
+)
+_STRUCTURED_QUESTION_PART_RE = re.compile(r"(?:^|\s)[\-\u2013\u2014]?\s*(?:\([a-z]\)|[a-z]\))\s+")
+_ACADEMIC_DATE_RE = re.compile(
+    r"\b(?:ss|ws|sose|wise)\s*\d{2,4}\b|\b(?:summer|winter)\s+semester\b|\b\d{4}\b",
+    re.IGNORECASE,
+)
+_TASK_DIRECTIVE_RE = re.compile(
+    r"\b(?:"
+    r"bestimmen|berechnen|beweisen|begründen|entscheiden|erklären|zeigen|"
+    r"calculate|compute|determine|decide|explain|prove|show|derive"
+    r")\b",
+    re.IGNORECASE,
+)
+_ASSIGNMENT_STRUCTURE_RE = re.compile(
+    r"\b(?:"
+    r"assignment|due\s+date|exercise\s+sheet|homework|problem\s+set|worksheet|"
+    r"abgabe|hausaufgabe|übungsblatt|uebungsblatt|übung\s*\d+|uebung\s*\d+"
+    r")\b",
+    re.IGNORECASE,
+)
+_EXERCISE_ITEM_RE = re.compile(
+    r"\b(?:exercise|problem|aufgabe|übung|uebung)\s+\d{1,2}\b",
+    re.IGNORECASE,
+)
+_LECTURE_STRUCTURE_RE = re.compile(
+    r"\b(?:table of contents|inhaltsverzeichnis|willkommen|vorlesungstermine|"
+    r"übungstermine|ubungstermine)\b",
+    re.IGNORECASE,
 )
 
 
@@ -81,12 +117,27 @@ def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]
     normalized = "/".join(part.lower() for part in path.parts)
     suffix = path.suffix.lower()
 
-    if any(token in normalized for token in ("exam", "past-paper", "past_paper", "mock")):
+    if any(
+        token in normalized
+        for token in (
+            "exam",
+            "past-paper",
+            "past_paper",
+            "mock",
+            "klausur",
+            "altklausur",
+            "nachklausur",
+            "pruefung",
+            "prüfung",
+        )
+    ):
         return "past_exam", 0.9, "path suggests an exam or past paper"
     if any(token in normalized for token in ("assignment", "homework", "problem-set", "pset")):
         return "assignment", 0.85, "path suggests assigned problems"
     if any(token in normalized for token in ("vocab", "glossary", "flashcard")):
         return "vocabulary", 0.85, "path suggests vocabulary practice"
+    if any(token in normalized for token in ("folie", "folien", "slides")):
+        return "slides", 0.9, "path suggests lecture slides"
     if any(token in normalized for token in ("lecture", "seminar", "class-notes")):
         return "lecture", 0.8, "path suggests lecture material"
     if any(token in normalized for token in ("slide", "deck", "presentation")) or suffix in (
@@ -99,6 +150,83 @@ def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]
     if suffix in (".py", ".js", ".ts", ".java", ".go", ".rs", ".cpp", ".c", ".h"):
         return "codebase", 0.75, "file extension suggests source code"
     return "reference", 0.5, "default material role"
+
+
+def infer_material_role_from_text(
+    rel_path: str | Path,
+    text: str,
+) -> tuple[MaterialRole, float, str]:
+    """Infer a material role using path hints plus extracted content.
+
+    Filename hints remain the first signal because they are cheap and explicit.
+    When the path is generic, indexed text lets the study harness distinguish
+    exams from lecture decks without asking the user to classify files manually.
+    """
+    path_role, path_confidence, path_reason = infer_material_role(rel_path)
+    if path_confidence >= 0.75:
+        return path_role, path_confidence, path_reason
+
+    normalized = text.lower()
+    exam_hits = sum(
+        token in normalized
+        for token in (
+            "klausur",
+            "nachklausur",
+            "prüfung",
+            "pruefung",
+            "aufgabe",
+            "bearbeitungszeit",
+            "hilfsmittel",
+            "punkte",
+        )
+    )
+    question_parts = len(_STRUCTURED_QUESTION_PART_RE.findall(text))
+    task_directives = len(_TASK_DIRECTIVE_RE.findall(text))
+    has_academic_date = bool(_ACADEMIC_DATE_RE.search(f"{rel_path} {text[:500]}"))
+    if (
+        exam_hits >= 3
+        or _QUESTION_MARKS_RE.search(text)
+        or (question_parts >= 2 and (has_academic_date or task_directives >= 2))
+    ):
+        return "past_exam", 0.82, "content contains exam questions or marks"
+
+    assignment_hits = sum(
+        token in normalized
+        for token in (
+            "assignment",
+            "due date",
+            "exercise sheet",
+            "homework",
+            "problem set",
+            "worksheet",
+            "abgabe",
+            "hausaufgabe",
+            "übungsblatt",
+            "uebungsblatt",
+        )
+    )
+    exercise_items = len(_EXERCISE_ITEM_RE.findall(text))
+    if assignment_hits >= 1 or exercise_items >= 2 or _ASSIGNMENT_STRUCTURE_RE.search(text):
+        return "assignment", 0.8, "content suggests exercises or assigned problems"
+
+    lecture_hits = sum(
+        token in normalized
+        for token in (
+            "vorlesung",
+            "folie",
+            "folien",
+            "table of contents",
+            "inhaltsverzeichnis",
+            "übungsgruppe",
+            "ubungsgruppe",
+            "sommersemester",
+            "wintersemester",
+        )
+    )
+    if lecture_hits >= 3 or _LECTURE_STRUCTURE_RE.search(text):
+        return "slides", 0.78, "content suggests lecture slides"
+
+    return path_role, path_confidence, path_reason
 
 
 def iter_materials(armory_path: Path) -> Iterator[MaterialFile]:
@@ -230,6 +358,7 @@ __all__ = [
     "MaterialRole",
     "count_material_files",
     "infer_material_role",
+    "infer_material_role_from_text",
     "iter_material_files",
     "iter_materials",
     "material_kind",

@@ -10,6 +10,7 @@ import pytest
 from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import SessionError, create_session, resume_session, save_session
+from hephaistos.rag.health import ExtractionHealthIssue
 from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
 
 
@@ -88,6 +89,34 @@ def test_resume_refreshes_stale_system_prompt(tmp_path: Path) -> None:
     assert resumed.conversation.messages[0].role == "system"
     assert resumed.conversation.messages[0].content != "stale system prompt"
     assert "materials/exam.md" in resumed.conversation.messages[0].content
+
+
+def test_create_session_includes_extraction_health_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory = _make_armory(tmp_path)
+
+    def fake_scan(_armory_path: Path) -> tuple[ExtractionHealthIssue, ...]:
+        return (
+            ExtractionHealthIssue(
+                source="materials/exam.md",
+                forbidden_text_present=("formula-not-decoded",),
+            ),
+        )
+
+    monkeypatch.setattr("hephaistos.chat.session._scan_extraction_health_issues", fake_scan)
+
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+
+    system_prompt = session.conversation.messages[0].content
+    assert "WARNING: The following indexed files contain extraction health issues" in system_prompt
+    assert "materials/exam.md" in system_prompt
+    assert "formula-not-decoded" in system_prompt
+    assert "Do NOT answer from affected files" in system_prompt
 
 
 def test_session_source_scan_respects_armory_ignore(tmp_path: Path) -> None:

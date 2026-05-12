@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from hephaistos.materials import infer_material_role
+from hephaistos.materials import infer_material_role_from_text
 
 _MARK_RE = re.compile(
     r"(?:\[\s*)?(?P<marks>\d{1,2})\s*(?:marks?|pts?|points?)(?:\s*\])?",
@@ -80,7 +80,7 @@ def supporting_source_refs(
 
     scored: list[tuple[int, str]] = []
     for chunk in chunks:
-        role, _confidence, _reason = infer_material_role(chunk.source)
+        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
         if role == "past_exam":
             continue
         overlap = len(question_terms & _content_terms(chunk.text))
@@ -95,7 +95,7 @@ def supporting_source_refs(
 def _iter_exam_questions(chunks: Sequence[ExamChunk]) -> list[ExamQuestion]:
     questions: list[ExamQuestion] = []
     for chunk in chunks:
-        role, _confidence, _reason = infer_material_role(chunk.source)
+        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
         if role != "past_exam":
             continue
         for line in chunk.text.splitlines():

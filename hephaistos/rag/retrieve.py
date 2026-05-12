@@ -46,6 +46,40 @@ _MAX_QUERY_TOKENS = 160
 _QUERY_PREFIX_TOKENS = 40
 _QUERY_SUFFIX_TOKENS = 140
 _MAX_QUERY_TOKEN_REPEATS = 2
+_NEGATION_PENALTY = 0.65
+_NEGATION_MARKERS = (
+    " not ",
+    " isn't ",
+    " aren't ",
+    " wasn't ",
+    " weren't ",
+    " does not ",
+    " do not ",
+    " did not ",
+    " cannot ",
+    " can't ",
+    " unrelated to ",
+    " different from ",
+)
+_SOURCE_MATCH_BOOST = 0.12
+_SOURCE_MATCH_MAX_BOOST = 0.36
+_SOURCE_INTENT_TOKENS = {
+    "document",
+    "documents",
+    "exam",
+    "file",
+    "files",
+    "howto",
+    "indexed",
+    "lecture",
+    "material",
+    "materials",
+    "pdf",
+    "pdfs",
+    "project",
+    "source",
+    "sources",
+}
 
 
 def _is_sentence_transformers_available() -> bool:
@@ -116,6 +150,68 @@ def _normalize_query_for_retrieval(query: str) -> str:
     return " ".join(deduped) if deduped else query
 
 
+def _has_negation_marker(text: str) -> bool:
+    normalized = f" {text.lower()} "
+    return any(marker in normalized for marker in _NEGATION_MARKERS)
+
+
+def _query_is_negated(query: str) -> bool:
+    return _has_negation_marker(query)
+
+
+def _apply_negation_precision_penalty(
+    query: str,
+    results: list[ScoredChunk],
+) -> list[ScoredChunk]:
+    """Down-rank negative contrast passages for affirmative factual queries.
+
+    Sparse retrieval can over-rank a passage that says "X is not the answer"
+    because it shares nearly every topical token with the question.  That kind
+    of passage is useful context, but it should not outrank an affirmative
+    answer for ordinary "what/which/how" questions.
+    """
+    if _query_is_negated(query):
+        return results
+    reranked: list[ScoredChunk] = []
+    changed = False
+    for result in results:
+        if _has_negation_marker(result.chunk.text):
+            reranked.append(
+                ScoredChunk(chunk=result.chunk, score=result.score * _NEGATION_PENALTY)
+            )
+            changed = True
+        else:
+            reranked.append(result)
+    if changed:
+        reranked.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
+    return reranked
+
+
+def _apply_source_path_boost(
+    query: str,
+    results: list[ScoredChunk],
+) -> list[ScoredChunk]:
+    query_tokens = set(tokenize(query))
+    if not query_tokens or not results:
+        return results
+    if not (query_tokens & _SOURCE_INTENT_TOKENS):
+        return results
+    boosted: list[ScoredChunk] = []
+    changed = False
+    for result in results:
+        source_tokens = set(tokenize(result.chunk.source))
+        overlap = query_tokens & source_tokens
+        if not overlap:
+            boosted.append(result)
+            continue
+        boost = min(_SOURCE_MATCH_MAX_BOOST, _SOURCE_MATCH_BOOST * len(overlap))
+        boosted.append(ScoredChunk(chunk=result.chunk, score=result.score + boost))
+        changed = True
+    if changed:
+        boosted.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
+    return boosted
+
+
 def retrieve(
     query: str,
     index: ArmoryIndex,
@@ -165,6 +261,8 @@ def retrieve(
         index._retriever_cache[cache_key] = retriever  # type: ignore[reportPrivateUsage]
     search_query = _normalize_query_for_retrieval(query)
     results = retriever.retrieve(search_query, top_k)
+    results = _apply_negation_precision_penalty(search_query, results)
+    results = _apply_source_path_boost(search_query, results)
 
     # Filter by minimum relevance score
     if min_score > 0.0 and results:

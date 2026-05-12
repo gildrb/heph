@@ -1,0 +1,10 @@
+{"id":"mfi-lecture-role","domain":"mathematics","source":"materials/mfi-lecture.md","expected_role":"lecture"}
+{"id":"mfi-past-exam-role","domain":"mathematics","source":"materials/mfi-past-exam.md","expected_role":"past_exam"}
+{"id":"biochem-lecture-role","domain":"biochemistry","source":"materials/biochem-lecture.md","expected_role":"lecture"}
+{"id":"biochem-midterm-role","domain":"biochemistry","source":"materials/biochem-midterm.md","expected_role":"past_exam"}
+{"id":"physics-lecture-role","domain":"physics","source":"materials/physics-lecture.md","expected_role":"lecture"}
+{"id":"physics-final-role","domain":"physics","source":"materials/physics-final.md","expected_role":"past_exam"}
+{"id":"history-lecture-role","domain":"history","source":"materials/history-lecture.md","expected_role":"lecture"}
+{"id":"history-exam-role","domain":"history","source":"materials/history-exam.md","expected_role":"past_exam"}
+{"id":"generic-exercise-role","domain":"general","source":"materials/generic-exercise-sheet.md","expected_role":"assignment"}
+{"id":"structured-exam-parts-role","domain":"mathematics","source":"materials/structured-exam-parts.md","expected_role":"past_exam"}

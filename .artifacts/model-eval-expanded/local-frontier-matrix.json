@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "id": "local-qwen2-7b",
+      "group": "local",
+      "model": "qwen2:7b",
+      "base_url": "http://localhost:11434/v1",
+      "api_key": "ollama",
+      "max_tokens": 768,
+      "rag_context_budget": 2500,
+      "timeout_seconds": 600
+    },
+    {
+      "id": "frontier-gpt-5.4-mini",
+      "group": "frontier",
+      "model": "gpt-5.4-mini",
+      "provider_slug": "openai-codex",
+      "max_tokens": 768,
+      "rag_context_budget": 2500,
+      "timeout_seconds": 600
+    }
+  ]
+}

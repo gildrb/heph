@@ -1,0 +1,8 @@
+{
+  "status": 0,
+  "armory_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/permissioned-local-corpus/armory",
+  "manifest_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/permissioned-local-corpus/real-corpus-manifest.json",
+  "copied_documents": 60,
+  "skipped_documents": 9,
+  "failures": []
+}

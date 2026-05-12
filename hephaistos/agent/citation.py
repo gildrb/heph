@@ -16,8 +16,10 @@ from hephaistos.rag.context import TurnEvidence
 
 _log = get_logger("agent.citation")
 
-_EVIDENCE_CITATION_RE = re.compile(r"(?:\[|【)((?:e|E)\d+(?:\s*[,;]\s*(?:e|E)\d+)*)(?:\]|】)")
-_EVIDENCE_ID_RE = re.compile(r"(?:e|E)\d+")
+_EVIDENCE_CITATION_RE = re.compile(
+    r"(?:\[|【)\s*((?:e|E)\s*\d+(?:\s*[,;]\s*(?:e|E)\s*\d+)*)\s*(?:\]|】)"
+)
+_EVIDENCE_ID_RE = re.compile(r"(?:e|E)\s*\d+")
 
 # Responses shorter than this are considered conversational.
 _NO_CITATION_CHAR_THRESHOLD = 200
@@ -57,7 +59,7 @@ def extract_citations(text: str) -> list[ExtractedCitation]:
 
     for match in _EVIDENCE_CITATION_RE.finditer(text):
         for evidence_match in _EVIDENCE_ID_RE.finditer(match.group(1)):
-            evidence_id = evidence_match.group(0).upper()
+            evidence_id = "".join(evidence_match.group(0).split()).upper()
             if evidence_id in seen:
                 continue
             seen.add(evidence_id)

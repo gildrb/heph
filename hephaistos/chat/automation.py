@@ -93,4 +93,11 @@ def event_to_json_object(event: TurnEvent) -> dict[str, object]:
             "finish_reason": event.finish_reason,
             "tokens_remaining": event.tokens_remaining,
         }
-    return {"type": event.kind, "message": event.message, "code": event.code}
+    payload: dict[str, object] = {
+        "type": event.kind,
+        "message": event.message,
+        "code": event.code,
+    }
+    if event.metadata:
+        payload["metadata"] = event.metadata
+    return payload

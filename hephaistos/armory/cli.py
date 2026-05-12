@@ -99,7 +99,7 @@ def register(
         description=(
             "Create armories named after modules. "
             "Armories can only be created in the armories directory (~/.armories). "
-            "Shortcut: `heph armory mfi-1` creates ~/.armories/mfi-1."
+            "Shortcut: `heph armory algorithms` creates ~/.armories/algorithms."
         ),
     )
     armory_sub = armory.add_subparsers(dest="armory_command", required=True)

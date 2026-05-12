@@ -29,6 +29,8 @@ theme:
 nav:
   - Home: index.md
   - Architecture: architecture.md
+  - Agent Harness Roadmap: agent-harness-roadmap.md
+  - Agent Harness Audit: agent-harness-completion-audit.md
   - CLI Reference: cli-reference.md
   - API Reference:
     - cli: api/cli.md

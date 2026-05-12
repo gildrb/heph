@@ -1,0 +1,2 @@
+{"id": "dijkstra-source", "query": "How does Dijkstra choose the next node?", "expected": ["materials/graphs.md"]}
+{"id": "dijkstra-chunk", "query": "What data structure does Dijkstra use?", "expected": ["materials/graphs.md#chunk=0"]}

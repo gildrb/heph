@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from hephaistos.materials import infer_material_role
+from hephaistos.materials import infer_material_role_from_text
 from hephaistos.rag.chunker import Chunk
 
 
@@ -72,7 +72,7 @@ def evidence_location_label(source: str, chunk: Chunk, span: SourceLineSpan | No
     if span is not None:
         return line_label(span)
 
-    role, _confidence, _reason = infer_material_role(source)
+    role, _confidence, _reason = infer_material_role_from_text(source, chunk.text)
     ordinal = chunk.index + 1
     if role == "slides":
         return f"slide/deck excerpt {ordinal}"

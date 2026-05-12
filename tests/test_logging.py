@@ -249,6 +249,13 @@ class TestTraceWriter:
             retrieved=3,
             scores=[0.95, 0.82, 0.71],
             latency_ms=120.3,
+            chunks=[
+                {
+                    "ref": "materials/notes.md#chunk=0",
+                    "score": 0.95,
+                    "text_excerpt": "async await suspends work without blocking the thread",
+                }
+            ],
         )
         tw.close()
 
@@ -258,6 +265,8 @@ class TestTraceWriter:
         assert data["type"] == "rag_retrieve"
         assert data["retrieved"] == 3
         assert data["scores"] == [0.95, 0.82, 0.71]
+        assert data["chunks"][0]["ref"] == "materials/notes.md#chunk=0"
+        assert "async await" in data["chunks"][0]["text_excerpt"]
 
     def test_record_session_event(self, trace_dir: Path) -> None:
         tw = TraceWriter("sess7", armory_path=trace_dir)

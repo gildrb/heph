@@ -1,0 +1,34 @@
+{
+  "armory": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory",
+  "replay_dataset": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/replay.jsonl",
+  "output_dir": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-expanded/local-remote-run",
+  "required_groups": [
+    "local",
+    "frontier"
+  ],
+  "status": 0,
+  "candidates": 2,
+  "groups": [
+    "frontier",
+    "local"
+  ],
+  "failures": [],
+  "results": [],
+  "replay_cases": 7,
+  "replay_domains": [
+    "biology",
+    "chemistry",
+    "computer-science",
+    "cross-domain",
+    "economics",
+    "electrical-engineering"
+  ],
+  "replay_tasks": [
+    "abstention",
+    "assignment-understanding",
+    "exam-understanding",
+    "grounded-explanation",
+    "material-overview",
+    "procedural-guidance"
+  ]
+}

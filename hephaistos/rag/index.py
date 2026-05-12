@@ -9,7 +9,9 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
-from collections.abc import Iterator
+import os
+import signal
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import cast
 
@@ -20,9 +22,11 @@ from hephaistos.rag.chunker import (
     Chunk,
     ChunkedDocument,
     ChunkStrategy,
+    _can_convert_binary_file,
     _is_docling_available,
     _is_docling_file,
     _is_text_file,
+    _normalize_extracted_text,
     chunk_file,
 )
 
@@ -32,9 +36,15 @@ _INDEX_FILE = "rag_index.json"
 
 _CHUNK_SIZE = 500
 _OVERLAP = 100
+_FILE_TIMEOUT_ENV = "HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS"
 
 # Persisted index format version — bump when layout changes.
-_INDEX_VERSION = 4
+_INDEX_VERSION = 5
+IndexProgress = Callable[[str, str], None]
+
+
+class _IndexFileTimeoutError(TimeoutError):
+    """Raised when a single material file exceeds the configured index budget."""
 
 
 def _file_hash(path: Path) -> str | None:
@@ -52,13 +62,72 @@ def _file_hash(path: Path) -> str | None:
 def _unindexable_reason(path: Path) -> str:
     """Return a human-readable reason why a file could not be indexed."""
     if _is_docling_file(path):
-        if _is_docling_available():
-            return "docling conversion failed (empty or corrupt document)"
+        if _can_convert_binary_file(path):
+            return "document conversion failed (empty or corrupt document)"
         return (
             "binary document; document conversion backend unavailable "
             "(update or reinstall Hephaistos, then rebuild the index)"
         )
     return "binary file; unsupported format"
+
+
+def _timeout_reason(seconds: int) -> str:
+    return f"document conversion timed out after {seconds} second(s)"
+
+
+def _file_timeout_seconds() -> int:
+    raw = os.environ.get(_FILE_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return 0
+    try:
+        seconds = int(raw)
+    except ValueError:
+        return 0
+    return max(seconds, 0)
+
+
+def _chunk_file_with_timeout(
+    file_path: Path,
+    armory_path: Path,
+    *,
+    strategy: ChunkStrategy,
+    timeout_seconds: int,
+) -> tuple[ChunkedDocument | None, bool]:
+    if timeout_seconds <= 0:
+        return (
+            chunk_file(
+                file_path,
+                armory_path,
+                _CHUNK_SIZE,
+                _OVERLAP,
+                strategy=strategy,
+            ),
+            False,
+        )
+    timed_out = False
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def _handle_timeout(_signum: int, _frame: object) -> None:
+        nonlocal timed_out
+        timed_out = True
+        raise _IndexFileTimeoutError(_timeout_reason(timeout_seconds))
+
+    signal.signal(signal.SIGALRM, _handle_timeout)
+    signal.alarm(timeout_seconds)
+    try:
+        document = chunk_file(
+            file_path,
+            armory_path,
+            _CHUNK_SIZE,
+            _OVERLAP,
+            strategy=strategy,
+        )
+    except _IndexFileTimeoutError:
+        document = None
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous_handler)
+    return document, timed_out
 
 
 def _resolved_path_within_materials(path: Path, armory_path: Path) -> Path | None:
@@ -89,39 +158,9 @@ def _resolved_path_within_materials(path: Path, armory_path: Path) -> Path | Non
     return resolved_path
 
 
-def _chunks_match(left: Chunk, right: Chunk, *, include_heading: bool) -> bool:
-    if left.text != right.text:
-        return False
-    if left.source != right.source:
-        return False
-    if left.index != right.index:
-        return False
-    if left.char_start != right.char_start or left.char_end != right.char_end:
-        return False
-    if not include_heading:
-        return True
-    return left.heading == right.heading and left.heading_level == right.heading_level
-
-
-def _documents_match(
-    loaded: list[ChunkedDocument],
-    expected: list[ChunkedDocument],
-    *,
-    include_heading: bool,
-) -> bool:
-    if len(loaded) != len(expected):
-        return False
-    for left_doc, right_doc in zip(loaded, expected, strict=True):
-        if left_doc.source != right_doc.source:
-            return False
-        if left_doc.content_hash != right_doc.content_hash:
-            return False
-        if len(left_doc.chunks) != len(right_doc.chunks):
-            return False
-        for left_chunk, right_chunk in zip(left_doc.chunks, right_doc.chunks, strict=True):
-            if not _chunks_match(left_chunk, right_chunk, include_heading=include_heading):
-                return False
-    return True
+def _documents_digest(documents: object) -> str:
+    encoded = json.dumps(documents, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
 class ArmoryIndex:
@@ -228,7 +267,7 @@ class ArmoryIndex:
     def chunk_count(self) -> int:
         return sum(len(doc.chunks) for doc in self.documents)
 
-    def build(self) -> None:
+    def build(self, *, progress: IndexProgress | None = None) -> None:
         """Scan material files and build the chunk index."""
         timer = Timer()
         self.documents = []
@@ -240,22 +279,32 @@ class ArmoryIndex:
         with timer:
             for file_path in self._iter_source_files():
                 rel = str(file_path.relative_to(self.armory_path))
+                if progress is not None:
+                    progress("reading", rel)
                 content_hash = _file_hash(file_path)
                 if content_hash is not None:
                     self._file_hashes[rel] = content_hash
 
-                doc = chunk_file(
+                timeout_seconds = _file_timeout_seconds()
+                doc, timed_out = _chunk_file_with_timeout(
                     file_path,
                     self.armory_path,
-                    _CHUNK_SIZE,
-                    _OVERLAP,
                     strategy=self.strategy,
+                    timeout_seconds=timeout_seconds,
                 )
                 if doc is not None and doc.chunks:
                     self.documents.append(doc)
+                    if progress is not None:
+                        progress("indexed", f"{rel} ({len(doc.chunks)} chunks)")
                 elif not _is_text_file(file_path):
-                    reason = _unindexable_reason(file_path)
+                    reason = (
+                        _timeout_reason(timeout_seconds)
+                        if timed_out
+                        else _unindexable_reason(file_path)
+                    )
                     self.unindexable_files[rel] = reason
+                    if progress is not None:
+                        progress("skipped", f"{rel}: {reason}")
 
         _log.info(
             "index built",
@@ -274,6 +323,25 @@ class ArmoryIndex:
         """Persist the index to ``.hephaistos/rag_index.json``."""
         index_path = self.armory_path / ".hephaistos" / _INDEX_FILE
         index_path.parent.mkdir(parents=True, exist_ok=True)
+        documents = [
+            {
+                "source": doc.source,
+                "content_hash": doc.content_hash,
+                "chunks": [
+                    {
+                        "text": c.text,
+                        "source": c.source,
+                        "index": c.index,
+                        "char_start": c.char_start,
+                        "char_end": c.char_end,
+                        "heading": c.heading,
+                        "heading_level": c.heading_level,
+                    }
+                    for c in doc.chunks
+                ],
+            }
+            for doc in self.documents
+        ]
 
         data = {
             "version": _INDEX_VERSION,
@@ -281,25 +349,8 @@ class ArmoryIndex:
             "overlap": _OVERLAP,
             "strategy": self.strategy.value,
             "file_hashes": self._file_hashes,
-            "documents": [
-                {
-                    "source": doc.source,
-                    "content_hash": doc.content_hash,
-                    "chunks": [
-                        {
-                            "text": c.text,
-                            "source": c.source,
-                            "index": c.index,
-                            "char_start": c.char_start,
-                            "char_end": c.char_end,
-                            "heading": c.heading,
-                            "heading_level": c.heading_level,
-                        }
-                        for c in doc.chunks
-                    ],
-                }
-                for doc in self.documents
-            ],
+            "documents_digest": _documents_digest(documents),
+            "documents": documents,
         }
         index_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return index_path
@@ -319,7 +370,7 @@ class ArmoryIndex:
 
         raw_version = data.get("version", 1)
         version = raw_version if isinstance(raw_version, int) else 1
-        if version not in (1, 2, 3, 4):
+        if version not in (1, 2, 3, 5):
             return False
         if version >= 2 and "strategy" in data:
             raw_strategy = data["strategy"]
@@ -339,6 +390,13 @@ class ArmoryIndex:
         raw_documents = data.get("documents", [])
         if not is_object_list(raw_documents):
             return False
+        raw_documents_digest = data.get("documents_digest")
+        if (
+            version >= 4
+            and isinstance(raw_documents_digest, str)
+            and (raw_documents_digest != _documents_digest(raw_documents))
+        ):
+            return False
         for doc_data in raw_documents:
             if not is_string_mapping(doc_data):
                 continue
@@ -351,6 +409,7 @@ class ArmoryIndex:
                     continue
                 raw_text = raw_chunk.get("text", "")
                 text = raw_text if isinstance(raw_text, str) else ""
+                text = _normalize_extracted_text(text)
                 raw_source = raw_chunk.get("source", "")
                 source = raw_source if isinstance(raw_source, str) else ""
                 raw_index = raw_chunk.get("index", 0)
@@ -387,7 +446,7 @@ class ArmoryIndex:
             if doc.content_hash and doc.source not in self._file_hashes:
                 self._file_hashes[doc.source] = doc.content_hash
 
-        if not self._matches_material_files(include_heading=version >= 2):
+        if not self._file_hashes_match_material_files():
             _log.warning(
                 "rag index cache does not match material files",
                 extra={"fields": {"armory": str(self.armory_path)}},
@@ -413,7 +472,7 @@ class ArmoryIndex:
             if h is None or h != self._file_hashes.get(rel):
                 return True
             if (
-                _is_docling_available()
+                _can_convert_binary_file(file_path)
                 and _is_docling_file(file_path)
                 and rel not in indexed_sources
             ):
@@ -430,38 +489,6 @@ class ArmoryIndex:
                 continue
             yield file_path
 
-    def _fresh_documents_and_hashes(self) -> tuple[list[ChunkedDocument], dict[str, str]]:
-        documents: list[ChunkedDocument] = []
-        file_hashes: dict[str, str] = {}
-        loaded_by_source = {doc.source: doc for doc in self.documents}
-        docling_available = _is_docling_available()
-        for file_path in self._iter_source_files():
-            rel = str(file_path.relative_to(self.armory_path))
-            content_hash = _file_hash(file_path)
-            if content_hash is not None:
-                file_hashes[rel] = content_hash
-            loaded_doc = loaded_by_source.get(rel)
-            if not docling_available and _is_docling_file(file_path):
-                if loaded_doc is not None and loaded_doc.content_hash == content_hash:
-                    documents.append(loaded_doc)
-                continue
-            doc = chunk_file(
-                file_path,
-                self.armory_path,
-                _CHUNK_SIZE,
-                _OVERLAP,
-                strategy=self.strategy,
-            )
-            if doc is not None and doc.chunks:
-                documents.append(doc)
-            elif (
-                _is_docling_file(file_path)
-                and loaded_doc is not None
-                and loaded_doc.content_hash == content_hash
-            ):
-                documents.append(loaded_doc)
-        return documents, file_hashes
-
     def _preserve_unavailable_docling_documents_from(self, previous: ArmoryIndex) -> None:
         """Keep converted Docling chunks when this runtime cannot recreate them."""
         if _is_docling_available():
@@ -475,11 +502,30 @@ class ArmoryIndex:
             self.documents.append(document)
             self.unindexable_files.pop(document.source, None)
 
-    def _matches_material_files(self, *, include_heading: bool) -> bool:
-        documents, file_hashes = self._fresh_documents_and_hashes()
-        if self._file_hashes != file_hashes:
-            return False
-        return _documents_match(self.documents, documents, include_heading=include_heading)
+    def _preserve_failed_binary_documents_from(self, previous: ArmoryIndex) -> None:
+        """Keep unchanged converted binary docs when conversion fails transiently."""
+        indexed_sources = {doc.source for doc in self.documents}
+        for document in previous.documents:
+            if document.source in indexed_sources:
+                continue
+            if document.source not in self.unindexable_files:
+                continue
+            if _is_text_file(self.armory_path / document.source):
+                continue
+            if self._file_hashes.get(document.source) != document.content_hash:
+                continue
+            self.documents.append(document)
+            self.unindexable_files.pop(document.source, None)
+
+    def _file_hashes_match_material_files(self) -> bool:
+        file_hashes: dict[str, str] = {}
+        for file_path in self._iter_source_files():
+            rel = str(file_path.relative_to(self.armory_path))
+            content_hash = _file_hash(file_path)
+            if content_hash is None:
+                continue
+            file_hashes[rel] = content_hash
+        return self._file_hashes == file_hashes
 
     def _rebuild_unindexable_files(self) -> None:
         """Populate ``unindexable_files`` by comparing scanned files against indexed docs."""
@@ -513,9 +559,7 @@ def scan_unindexable_files(armory_path: Path) -> dict[str, str]:
         # Skip hidden files
         if any(part.startswith(".") for part in Path(rel).parts):
             continue
-        if not _is_text_file(file_path) and not (
-            _is_docling_file(file_path) and _is_docling_available()
-        ):
+        if not _is_text_file(file_path) and not _can_convert_binary_file(file_path):
             result[rel] = _unindexable_reason(file_path)
     return result
 
@@ -524,14 +568,18 @@ def build_index(
     armory_path: Path,
     *,
     strategy: ChunkStrategy = ChunkStrategy.AUTO,
+    progress: IndexProgress | None = None,
 ) -> ArmoryIndex:
     """Build a fresh index for the armory and persist it."""
     previous = ArmoryIndex(armory_path, strategy=strategy)
     previous_loaded = previous.load()
     index = ArmoryIndex(armory_path, strategy=strategy)
-    index.build()
+    index.build(progress=progress)
     if previous_loaded:
         index._preserve_unavailable_docling_documents_from(previous)
+        index._preserve_failed_binary_documents_from(previous)
+    if progress is not None:
+        progress("writing", str(index.armory_path / ".hephaistos" / _INDEX_FILE))
     index.save()
     _log.info(
         "index built and saved",

@@ -1,0 +1,21 @@
+{
+  "candidates": [
+    {
+      "id": "local-small",
+      "group": "local",
+      "model": "llama-3.1-8b",
+      "base_url": "http://localhost:11434/v1",
+      "api_key_env": "LOCAL_OPENAI_API_KEY",
+      "max_tokens": 4096,
+      "rag_context_budget": 2000
+    },
+    {
+      "id": "frontier-hosted",
+      "group": "frontier",
+      "model": "gpt-4.1",
+      "api_key_env": "OPENAI_API_KEY",
+      "max_tokens": 4096,
+      "rag_context_budget": 2000
+    }
+  ]
+}

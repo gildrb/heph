@@ -1,0 +1,11 @@
+{
+  "status": 1,
+  "armory_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/permissioned-small-corpus/armory",
+  "manifest_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/permissioned-small-corpus/real-corpus-manifest.json",
+  "failures": [
+    "manifest: manifest known_limits include forbidden unresolved gap(s): Generated scaffold: domains, stressors, and roles require human review.; Document provenance requires human review.; No model-backed run result is committed.",
+    "document-understanding: timed out after 30 second(s)"
+  ],
+  "manifest": null,
+  "document_understanding": null
+}

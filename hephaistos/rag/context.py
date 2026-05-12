@@ -47,6 +47,8 @@ class TurnEvidence:
     """Evidence assembled for a single user turn."""
 
     items: tuple[EvidenceChunk, ...] = ()
+    sampled_source_count: int = 0
+    total_source_count: int = 0
 
     def __bool__(self) -> bool:
         return bool(self.items)

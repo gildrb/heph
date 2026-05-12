@@ -1,0 +1,58 @@
+{
+  "armory": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory",
+  "replay_dataset": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/replay.jsonl",
+  "output_dir": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-expanded/local-run",
+  "required_groups": [
+    "local"
+  ],
+  "status": 1,
+  "candidates": 1,
+  "groups": [
+    "local"
+  ],
+  "failures": [
+    "local-qwen3.6"
+  ],
+  "results": [
+    {
+      "candidate_id": "local-qwen3.6",
+      "group": "local",
+      "model": "qwen3.6:latest",
+      "base_url": "http://localhost:11434/v1",
+      "status": 2,
+      "output": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-expanded/local-run/local-qwen3.6.answers.jsonl",
+      "report_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-expanded/local-run/local-qwen3.6.report.json",
+      "cases": null,
+      "domains": [],
+      "tasks": [],
+      "pass_rate": null,
+      "citation_validity_rate": null,
+      "citation_presence_rate": null,
+      "expected_citation_rate": null,
+      "required_text_rate": null,
+      "forbidden_text_rate": null,
+      "supported_claim_rate": null,
+      "answer_shape_rate": null,
+      "evidence_coverage_rate": null,
+      "required_label_rate": null,
+      "error": "candidate timed out after 240 second(s)"
+    }
+  ],
+  "replay_cases": 7,
+  "replay_domains": [
+    "biology",
+    "chemistry",
+    "computer-science",
+    "cross-domain",
+    "economics",
+    "electrical-engineering"
+  ],
+  "replay_tasks": [
+    "abstention",
+    "assignment-understanding",
+    "exam-understanding",
+    "grounded-explanation",
+    "material-overview",
+    "procedural-guidance"
+  ]
+}

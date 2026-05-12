@@ -11,7 +11,7 @@ from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.rag.index import load_or_build
 from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
 from hephaistos.study.exam import select_exam_question, supporting_source_refs
-from hephaistos.study.priority import analyze_priority, generate_priority_report
+from hephaistos.study.priority import PriorityAnalysis, analyze_priority, generate_priority_report
 from hephaistos.study.schedule import load_study_schedule
 from hephaistos.terminal import (
     STYLE_PROMPT,
@@ -327,7 +327,7 @@ class PriorityCommand(Command):
             config=s.config,
             focus=focus,
         )
-        print_info(analysis.render_for_prompt())
+        print_info(_priority_terminal_summary(analysis))
         if focus:
             print_info(f"Focus requested: {focus}")
         print_success(
@@ -339,3 +339,32 @@ class PriorityCommand(Command):
 
 def _priority_output_dir() -> Path:
     return Path.home() / "Downloads"
+
+
+def _priority_terminal_summary(analysis: PriorityAnalysis, *, limit: int = 5) -> str:
+    """Render a compact human-facing priority summary for terminal transcripts."""
+    if not analysis.topics:
+        return "Local priority scan: no recurring indexed topics were found."
+
+    past_exam_count = len(analysis.past_exam_sources)
+    support_count = len(analysis.material_sources)
+    lines = [
+        (
+            "Local priority scan: "
+            f"{len(analysis.topics)} candidate topics, "
+            f"{past_exam_count} past exam source(s), "
+            f"{support_count} supporting source(s)."
+        )
+    ]
+    lines.append("Top candidates:")
+    lines.extend(
+        (
+            f"  - {topic.topic}: score {topic.score:.1f}, "
+            f"exam hits {topic.exam_hits}, exam marks {topic.exam_marks}, "
+            f"material hits {topic.material_hits}"
+        )
+        for topic in analysis.topics[:limit]
+    )
+    if len(analysis.topics) > limit:
+        lines.append(f"  - ... {len(analysis.topics) - limit} more in the HTML report")
+    return "\n".join(lines)

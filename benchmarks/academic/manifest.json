@@ -1,0 +1,122 @@
+{
+  "id": "academic-smoke",
+  "description": "Small deterministic academic benchmark suite for harness regression checks.",
+  "corpus_kind": "synthetic-snippets",
+  "documents": [
+    {
+      "source": "materials/algorithms.md",
+      "domain": "computer-science",
+      "role": "lecture",
+      "document_type": "notes",
+      "stressors": ["single-source-fact", "near-miss-concept"]
+    },
+    {
+      "source": "materials/graph-negative-weights.md",
+      "domain": "computer-science",
+      "role": "lecture",
+      "document_type": "notes",
+      "stressors": ["near-miss-negative", "misleading-overlap"]
+    },
+    {
+      "source": "materials/calculus.md",
+      "domain": "mathematics",
+      "role": "lecture",
+      "document_type": "notes",
+      "stressors": ["formula-language", "concept-origin", "multi-source-synthesis"]
+    },
+    {
+      "source": "materials/study-methods.md",
+      "domain": "study-methods",
+      "role": "reference",
+      "document_type": "notes",
+      "stressors": ["abstention-policy", "study-pedagogy", "active-recall-assessment", "hint-without-reveal"]
+    },
+    {
+      "source": "materials/mfi-lecture.md",
+      "domain": "mathematics",
+      "role": "lecture",
+      "document_type": "lecture-notes",
+      "stressors": ["german-text", "unicode", "ocr-noise", "boilerplate"]
+    },
+    {
+      "source": "materials/mfi-past-exam.md",
+      "domain": "mathematics",
+      "role": "past_exam",
+      "document_type": "past-exam",
+      "stressors": ["german-text", "unicode", "exam-boilerplate", "points-format"]
+    },
+    {
+      "source": "materials/biochem-lecture.md",
+      "domain": "biochemistry",
+      "role": "lecture",
+      "document_type": "lecture-notes",
+      "stressors": ["non-math-domain", "lecturer-boilerplate"]
+    },
+    {
+      "source": "materials/biochem-midterm.md",
+      "domain": "biochemistry",
+      "role": "past_exam",
+      "document_type": "midterm-exam",
+      "stressors": ["non-math-domain", "exam-boilerplate", "points-format"]
+    },
+    {
+      "source": "materials/physics-lecture.md",
+      "domain": "physics",
+      "role": "lecture",
+      "document_type": "lecture-notes",
+      "stressors": ["formula-language", "lecturer-boilerplate", "multi-source-synthesis"]
+    },
+    {
+      "source": "materials/physics-final.md",
+      "domain": "physics",
+      "role": "past_exam",
+      "document_type": "final-exam",
+      "stressors": ["formula-language", "exam-boilerplate", "points-format"]
+    },
+    {
+      "source": "materials/history-lecture.md",
+      "domain": "history",
+      "role": "lecture",
+      "document_type": "lecture-notes",
+      "stressors": ["humanities-domain", "lecturer-boilerplate"]
+    },
+    {
+      "source": "materials/history-exam.md",
+      "domain": "history",
+      "role": "past_exam",
+      "document_type": "past-exam",
+      "stressors": ["humanities-domain", "exam-boilerplate", "points-format"]
+    },
+    {
+      "source": "materials/generic-exercise-sheet.md",
+      "domain": "general",
+      "role": "assignment",
+      "document_type": "exercise-sheet",
+      "stressors": ["exercise-sheet", "due-date-boilerplate"]
+    },
+    {
+      "source": "materials/structured-exam-parts.md",
+      "domain": "mathematics",
+      "role": "past_exam",
+      "document_type": "past-exam",
+      "stressors": ["structured-question-parts", "exam-without-title-token", "formula-language"]
+    }
+  ],
+  "datasets": [
+    {"path": "rag.jsonl", "kind": "retrieval"},
+    {"path": "material_roles.jsonl", "kind": "material-roles"},
+    {"path": "priority.jsonl", "kind": "priority"},
+    {"path": "answers.jsonl", "kind": "grounded-answers"},
+    {"path": "chat_events.jsonl", "kind": "chat-events"},
+    {"path": "chat_event_expectation.json", "kind": "chat-event-answer-expectation"},
+    {"path": "replay.jsonl", "kind": "model-replay-prompts"},
+    {"path": "study_state.jsonl", "kind": "study-state"},
+    {"path": "index_integrity.jsonl", "kind": "index-integrity"}
+  ],
+  "known_limits": [
+    "Synthetic snippets, not a large public corpus.",
+    "No real scanned PDFs are committed.",
+    "No model-backed run result is committed.",
+    "No table-heavy or multi-column PDF fixture is committed."
+  ]
+}

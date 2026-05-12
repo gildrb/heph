@@ -63,8 +63,11 @@ _REVIEW_MATERIAL_RE = re.compile(
 _SOURCE_QA_RE = re.compile(
     r"\b(?:"
     r"using (?:the )?source files?|"
+    r"using (?:the )?indexed (?:source|sources|materials?|documents?)|"
     r"from (?:the )?(?:source|sources|materials?)|"
+    r"from (?:the )?indexed (?:source|sources|materials?|documents?)|"
     r"according to (?:the )?(?:source|sources|materials?)|"
+    r"according to (?:the )?indexed (?:source|sources|materials?|documents?)|"
     r"answer with (?:just )?(?:the )?exact|"
     r"exact phrase|exact wording"
     r")\b",
@@ -194,6 +197,36 @@ def _present_prompt(item: str) -> str:
         "evidence was found for this item. Do not answer from outside knowledge. "
         "Ask for a more specific material-backed prompt or for the material to be indexed.\n"
         "- Do not switch into assessment or extra tutoring."
+    )
+
+
+def _overview_prompt(query: str) -> str:
+    return (
+        "Controlled study state machine. Execute MATERIAL_OVERVIEW.\n"
+        f"User request: {query}\n"
+        "Rules:\n"
+        "- Treat the retrieved evidence as a sample across the enabled corpus, not as the "
+        "entire corpus.\n"
+        "- Identify the subject, document types, and major topic clusters only from cited "
+        "evidence.\n"
+        "- Mention whether the evidence appears to include lectures, exercises, exams, "
+        "notes, or other document roles when the evidence supports it.\n"
+        "- Do not infer from filenames, lecturer names, language, institution, or outside "
+        "knowledge.\n"
+        "- If the retrieved sample is too thin to summarize the whole corpus, say what is "
+        "covered by the sample and what remains uncertain.\n"
+        "- Use material tools to inspect indexed sources when retrieval evidence is too thin, "
+        "ambiguous, or contradictory. Do not rely on outside knowledge.\n"
+        "- Synthesize the material in your own words. Do not paste long source excerpts; quote "
+        "only short exact wording when it materially helps the answer.\n"
+        "- Include at least two concise bullet lines, and cite each bullet with evidence IDs.\n"
+        "- Cite at least two distinct evidence sources when the retrieved evidence provides "
+        "them.\n"
+        "- Be explicit about whether the answer is a sampled orientation or a complete "
+        "corpus-level conclusion.\n"
+        "- Cite evidence IDs for every factual claim.\n"
+        "- Do not ask a recall question.\n"
+        "- Do not end with readiness, drill, or study-loop instructions."
     )
 
 
@@ -345,6 +378,16 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
                 buffer_response=True,
             )
         query = _derive_presentation_query(user_input, state)
+        is_overview = _is_overview_request(query)
+        if is_overview:
+            return StudyTurnPlan(
+                action=StudyAction.PRESENT,
+                phase=StudyPhase.PRESENTING,
+                prompt=_overview_prompt(query),
+                retrieval_query=query,
+                allow_tools=True,
+                buffer_response=True,
+            )
         if _is_source_qa_request(query):
             return StudyTurnPlan(
                 action=StudyAction.SOURCE_QA,
@@ -352,23 +395,27 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
                 prompt=_source_qa_prompt(query),
                 retrieval_query=query,
                 allow_tools=False,
+                buffer_response=True,
             )
         return StudyTurnPlan(
             action=StudyAction.PRESENT,
             phase=StudyPhase.PRESENTING,
-            prompt=_present_prompt(query),
+            prompt=_overview_prompt(query) if is_overview else _present_prompt(query),
             retrieval_query=query,
-            allow_tools=not _is_overview_request(query),
+            allow_tools=True,
+            buffer_response=is_overview,
         )
 
     if _SKIP_RE.search(text):
         query = _derive_presentation_query(user_input, state)
+        is_overview = _is_overview_request(query)
         return StudyTurnPlan(
             action=StudyAction.PRESENT,
             phase=StudyPhase.PRESENTING,
-            prompt=_present_prompt(query),
+            prompt=_overview_prompt(query) if is_overview else _present_prompt(query),
             retrieval_query=query,
-            allow_tools=not _is_overview_request(query),
+            allow_tools=True,
+            buffer_response=is_overview,
         )
 
     if state.phase == StudyPhase.WAITING_FOR_READY:
@@ -439,12 +486,14 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
         )
 
     query = _derive_presentation_query(user_input, state)
+    is_overview = _is_overview_request(query)
     return StudyTurnPlan(
         action=StudyAction.PRESENT,
         phase=StudyPhase.PRESENTING,
-        prompt=_present_prompt(query),
+        prompt=_overview_prompt(query) if is_overview else _present_prompt(query),
         retrieval_query=query,
-        allow_tools=not _is_overview_request(query),
+        allow_tools=True,
+        buffer_response=is_overview,
     )
 
 

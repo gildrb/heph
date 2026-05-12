@@ -103,8 +103,41 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    index = rag_index.build_index(armory_path)
+    def progress(action: str, detail: str) -> None:
+        labels = {
+            "reading": "Reading",
+            "indexed": "Indexed",
+            "skipped": "Skipped",
+            "writing": "Writing",
+        }
+        print(f"{labels.get(action, action.title())}: {detail}")
+
+    index = rag_index.build_index(armory_path, progress=progress)
     print(f"Indexed {len(index.documents)} documents ({index.chunk_count} chunks)")
+
+
+def _cmd_health(args: argparse.Namespace) -> None:
+    """Run generic extraction health checks for indexed study materials."""
+    armory_storage = importlib.import_module("hephaistos.armory.storage")
+    rag_health = importlib.import_module("hephaistos.rag.health")
+    try:
+        armory_path = armory_storage.normalize_path(args.path)
+        armory_storage.validate(armory_path)
+    except (armory_storage.ArmoryError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+    report = rag_health.scan_extraction_health(armory_path)
+    print(f"Extraction health: {report.documents} indexed document(s)")
+    print(f"Corpus forbidden text: {report.pass_rate:.1%}")
+    if report.issues:
+        print("Extraction issues:")
+        for issue in report.issues[:10]:
+            print(f"- {issue.source}: {', '.join(issue.forbidden_text_present)}")
+        if len(report.issues) > 10:
+            print(f"- ... {len(report.issues) - 10} more")
+        raise SystemExit(1)
+    print("No generic extraction poison found.")
 
 
 def _project_root() -> Path:
@@ -275,9 +308,9 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
         f"  {parser.prog}                         Open your current armory or plain chat",
         f"  {parser.prog} gdp                     Open the known armory named gdp",
         f"  {parser.prog} ./gdp                   Open an armory by path",
-        f"  {parser.prog} armory mfi-1           Create ~/.armories/mfi-1",
-        "  cp notes.pdf ~/.armories/mfi-1/materials/",
-        f"  {parser.prog} mfi-1                   Start studying",
+        f"  {parser.prog} armory algorithms      Create ~/.armories/algorithms",
+        "  cp notes.pdf ~/.armories/algorithms/materials/",
+        f"  {parser.prog} algorithms              Start studying",
         "",
         _HELP_COMMANDS_HEADER,
         *_format_rows(commands),
@@ -454,6 +487,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     index.set_defaults(handler=_cmd_materials_index)
 
+    health = subparsers.add_parser(
+        "health",
+        help="Check indexed materials for generic extraction problems.",
+    )
+    health.add_argument(
+        "path",
+        nargs="?",
+        default=".",
+        help="Path to the armory folder. Defaults to the current directory.",
+    )
+    health.set_defaults(handler=_cmd_health)
+
     update = subparsers.add_parser(
         "update",
         help="Show how to update the active Hephaistos install.",
@@ -496,6 +541,11 @@ def build_parser() -> argparse.ArgumentParser:
     start.set_defaults(handler=_chat_handler("start"))
 
     ask = chat_sub.add_parser("ask", help="Ask one question without opening the TUI.")
+    ask.add_argument(
+        "--jsonl",
+        action="store_true",
+        help="Emit structured turn events as JSON Lines instead of rendered text.",
+    )
     ask.add_argument("path", help="Path to the armory folder.")
     ask.add_argument("prompt", nargs="+", help="Question or instruction to send.")
     ask.set_defaults(handler=_chat_handler("ask"))

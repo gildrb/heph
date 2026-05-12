@@ -8,6 +8,7 @@ from hephaistos.armory.storage import initialize
 from hephaistos.materials import (
     count_material_files,
     infer_material_role,
+    infer_material_role_from_text,
     iter_material_files,
     material_kind,
     material_manifest,
@@ -120,6 +121,8 @@ def test_infer_material_role_uses_path_hints() -> None:
         "materials/vocab/french.md": "vocabulary",
         "materials/lectures/week-1.md": "lecture",
         "materials/slides/deck.pptx": "slides",
+        "materials/Folien_2026_04_13.pdf": "slides",
+        "materials/Klausur_MfI2_WS2024.pdf": "past_exam",
         "materials/book/chapter-2.pdf": "textbook",
         "materials/project/main.py": "codebase",
         "materials/misc/context.md": "reference",
@@ -130,3 +133,99 @@ def test_infer_material_role_uses_path_hints() -> None:
         assert role == expected_role
         assert 0.0 <= confidence <= 1.0
         assert reason
+
+
+def test_infer_material_role_does_not_treat_semester_marker_as_exam() -> None:
+    role, confidence, reason = infer_material_role("materials/Linear-Algebra-SS23.pdf")
+
+    assert role == "reference"
+    assert confidence == 0.5
+    assert reason == "default material role"
+
+
+def test_infer_material_role_from_text_detects_generic_exam_file() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/document.pdf",
+        """
+        Mathematik für Informatiker 2
+        Klausur SS23
+        Bearbeitungszeit: 90 Minuten
+        Hilfsmittel: keine
+        Aufgabe 1. Beweisen Sie die Aussage. [10 Punkte]
+        Aufgabe 2. Berechnen Sie das Integral. [8 Punkte]
+        """,
+    )
+
+    assert role == "past_exam"
+    assert confidence >= 0.8
+    assert "exam" in reason
+
+
+def test_infer_material_role_from_text_detects_structured_exam_parts() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/generic-ss23.pdf",
+        """
+        Sommersemester 2023
+        Für den Definitionsbereich D = {(x,y) in R2 : xy > -1}.
+        - (a) Bestimmen Sie alle kritischen Punkte von f auf D.
+        - (b) Entscheiden Sie, ob ein lokales Minimum vorliegt.
+        """,
+    )
+
+    assert role == "past_exam"
+    assert confidence >= 0.8
+    assert "exam" in reason
+
+
+def test_infer_material_role_from_text_detects_generic_lecture_slides() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/document.pdf",
+        """
+        Introduction to Statistical Learning
+        Spring semester 2026
+        Lecture notes
+        Table of contents
+        Welcome to the course
+        Lecture schedule and tutorial sessions
+        """,
+    )
+
+    assert role == "slides"
+    assert confidence >= 0.75
+    assert "lecture slides" in reason
+
+
+def test_infer_material_role_from_text_detects_generic_exercise_sheet() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/document.pdf",
+        """
+        Exercise Sheet 4
+        Due date: Friday
+
+        Exercise 1. Prove the recurrence relation.
+        Exercise 2. Compute the matrix product.
+        Exercise 3. Explain the boundary condition.
+        """,
+    )
+
+    assert role == "assignment"
+    assert confidence >= 0.75
+    assert "exercises" in reason
+
+
+def test_infer_material_role_from_text_detects_german_exercise_sheet() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/document.pdf",
+        """
+        Übungsblatt 6
+        Abgabe: Mittwoch
+
+        Aufgabe 1. Zeigen Sie die Konvergenz der Folge.
+        Aufgabe 2. Berechnen Sie die Ableitung.
+        Aufgabe 3. Begründen Sie Ihre Antwort.
+        """,
+    )
+
+    assert role == "assignment"
+    assert confidence >= 0.75
+    assert "exercises" in reason

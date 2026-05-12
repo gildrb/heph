@@ -66,6 +66,7 @@ class NoticeEvent:
 
     message: str
     code: str = "notice"
+    metadata: dict[str, object] = field(default_factory=dict)
     kind: str = field(default="notice", init=False)
 
 

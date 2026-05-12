@@ -21,6 +21,7 @@ from hephaistos.rag.retrieve import (
     RetrieverProtocol,
     ScoredChunk,
     TfidfRetriever,
+    _apply_negation_precision_penalty,  # type: ignore[reportPrivateUsage]
     _cosine_similarity,  # type: ignore[reportPrivateUsage]
     _create_retriever,  # type: ignore[reportPrivateUsage]
     _normalize_query_for_retrieval,  # type: ignore[reportPrivateUsage]
@@ -79,6 +80,46 @@ def test_retrieve_long_noisy_query_still_finds_tail_match() -> None:
 
     assert results
     assert results[0].chunk.source == "target.md"
+
+
+def test_retrieve_downranks_negative_contrast_for_affirmative_query() -> None:
+    index = _make_index_with_chunks(
+        [
+            _make_chunk(
+                "Dijkstra chooses the next frontier node with a priority queue.",
+                "dijkstra.md",
+            ),
+            _make_chunk(
+                "Bellman-Ford handles negative weights. This is not the standard choice "
+                "when the question asks for Dijkstra's frontier data structure.",
+                "bellman-ford.md",
+            ),
+        ]
+    )
+
+    results = retrieve(
+        "For Dijkstra with non-negative edge weights, which data structure chooses "
+        "the next frontier node?",
+        index,
+        top_k=2,
+        min_score=0.0,
+    )
+
+    assert [result.chunk.source for result in results] == ["dijkstra.md", "bellman-ford.md"]
+
+
+def test_negation_precision_penalty_keeps_negated_queries_in_order() -> None:
+    results = [
+        ScoredChunk(
+            chunk=_make_chunk("This is not the standard method.", "negative.md"),
+            score=0.9,
+        ),
+        ScoredChunk(chunk=_make_chunk("This is the standard method.", "positive.md"), score=0.8),
+    ]
+
+    reranked = _apply_negation_precision_penalty("Which method is not standard?", results)
+
+    assert [result.chunk.source for result in reranked] == ["negative.md", "positive.md"]
 
 
 # ---------------------------------------------------------------------------
@@ -1228,3 +1269,26 @@ class TestMinScoreThreshold:
         ):
             results = retrieve("python programming", index, min_score=0.05)
             assert len(results) > 0
+
+    def test_source_path_match_can_rescue_material_named_query(self) -> None:
+        chunks = [
+            _make_chunk(
+                "Clock distribution and timing diagrams help practical debugging.",
+                "materials/mit-ocw-digital-systems-project-howto.pdf",
+                0,
+            ),
+            _make_chunk(
+                "A Java method overloading example with recursion.",
+                "materials/java-repetitorium.pdf",
+                0,
+            ),
+        ]
+        index = _make_index_with_chunks(chunks)
+        with patch(
+            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            return_value=False,
+        ):
+            results = retrieve("digital systems project how-to", index, min_score=0.1)
+
+        assert results
+        assert results[0].chunk.source == "materials/mit-ocw-digital-systems-project-howto.pdf"

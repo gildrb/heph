@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -14,19 +15,32 @@ from hephaistos.chat.engine import (
     EngineError,
     StreamRecoveryError,
 )
-from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent
+from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnCompleteEvent
 from hephaistos.chat.evidence import (
     ResolvedTurnPlan,
     adaptive_rag_budget,
+    build_overview_context,
+    build_priority_context,
+    build_priority_turn_evidence,
     build_turn_evidence_from_overview,
     build_turn_evidence_from_query,
     build_turn_evidence_from_refs,
     ensure_rag_index,
     evidence_refs,
+    is_overview_query,
     parse_source_ref,
     resolve_turn_evidence,
 )
-from hephaistos.chat.orchestrator import TurnOrchestrator
+from hephaistos.chat.orchestrator import (
+    TurnOrchestrator,
+    _evidence_notice,
+    _evidence_notice_metadata,
+    _needs_overview_fallback,
+    _overview_answer_has_bad_shape,
+    _overview_fallback_reply,
+    _overview_topic_is_useful,
+    _overview_topic_looks_like_metadata,
+)
 from hephaistos.chat.session import ChatSession
 from hephaistos.rag import ArmoryIndex, ScoredChunk, TurnEvidence
 from hephaistos.rag.chunker import Chunk
@@ -34,19 +48,20 @@ from hephaistos.rag.context import EvidenceChunk
 from hephaistos.study import StudyAction, StudyPhase, StudyTurnPlan
 from hephaistos.study.schedule import load_study_schedule
 from hephaistos.study.state import StudyState
+from scripts import benchmark_answers
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_chunk(source: str = "source.py", index: int = 0) -> Chunk:
+def _make_chunk(source: str = "source.py", index: int = 0, text: str = "sample content") -> Chunk:
     return Chunk(
-        text="sample content",
+        text=text,
         source=source,
         index=index,
         char_start=0,
-        char_end=15,
+        char_end=len(text),
     )
 
 
@@ -54,12 +69,14 @@ def _make_evidence_chunk(
     source: str = "source.py",
     index: int = 0,
     evidence_id: str = "E1",
+    content: str = "evidence content",
 ) -> EvidenceChunk:
+    chunk = _make_chunk(source, index, content)
     return EvidenceChunk(
         evidence_id=evidence_id,
-        chunk=_make_chunk(source, index),
+        chunk=chunk,
         score=0.9,
-        content="evidence content",
+        content=content,
     )
 
 
@@ -126,6 +143,312 @@ def test_build_turn_evidence_from_query_excludes_disabled_materials() -> None:
 
     assert result is expected
     assert mock_build.call_args.args[0] == [enabled]
+
+
+def test_evidence_notice_summarizes_visible_evidence_refs() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk("materials/a.md", 0, "E1"),
+        _make_evidence_chunk("materials/b.md", 2, "E2"),
+    )
+
+    notice = _evidence_notice(ResolvedTurnPlan(turn_evidence=evidence))
+
+    assert notice == (
+        "Using 2 retrieved evidence excerpts: materials/a.md#chunk=0, materials/b.md#chunk=2"
+    )
+
+
+def test_evidence_notice_metadata_exposes_reviewable_evidence() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk("materials/a.md", 0, "E1", "First reviewed excerpt."),
+        _make_evidence_chunk("materials/b.md", 2, "E2", "Second reviewed excerpt."),
+    )
+
+    metadata = _evidence_notice_metadata(ResolvedTurnPlan(turn_evidence=evidence))
+
+    assert metadata["refs"] == ["materials/a.md#chunk=0", "materials/b.md#chunk=2"]
+    assert metadata["coverage"] == {
+        "evidence_blocks": 2,
+        "sampled_sources": 2,
+        "total_sources": 2,
+    }
+    assert metadata["items"] == [
+        {
+            "evidence_id": "E1",
+            "ref": "materials/a.md#chunk=0",
+            "score": 0.9,
+            "text_excerpt": "First reviewed excerpt.",
+        },
+        {
+            "evidence_id": "E2",
+            "ref": "materials/b.md#chunk=2",
+            "score": 0.9,
+            "text_excerpt": "Second reviewed excerpt.",
+        },
+    ]
+
+
+def test_evidence_notice_summarizes_overview_sources() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk("materials/lecture-a.pdf", 0, "E1"),
+        _make_evidence_chunk("materials/lecture-a.pdf", 1, "E2"),
+        _make_evidence_chunk("materials/past-exam.pdf", 0, "E3"),
+    )
+    evidence = TurnEvidence(
+        items=evidence.items,
+        sampled_source_count=2,
+        total_source_count=9,
+    )
+    plan = _make_study_plan(
+        action=StudyAction.PRESENT,
+        retrieval_query="what is the material about",
+    )
+
+    notice = _evidence_notice(ResolvedTurnPlan(study_plan=plan, turn_evidence=evidence))
+
+    assert notice == (
+        "Using 3 overview evidence excerpts from 2 of 9 indexed sources: "
+        "@lecture-a.pdf, @past-exam.pdf"
+    )
+
+
+def test_evidence_notice_hides_calibration_evidence() -> None:
+    evidence = _make_turn_evidence(_make_evidence_chunk("materials/a.md", 0, "E1"))
+    plan = _make_study_plan(action=StudyAction.CALIBRATE)
+
+    assert _evidence_notice(ResolvedTurnPlan(study_plan=plan, turn_evidence=evidence)) == ""
+
+
+def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.PRESENT,
+        retrieval_query="what is the material about",
+    )
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/lecture.pdf",
+            0,
+            "E1",
+            "Vorlesung. Table of contents. Folien for graph algorithms and recurrence.",
+        ),
+        _make_evidence_chunk(
+            "materials/exam.pdf",
+            0,
+            "E2",
+            "Klausur. Aufgabe 1. Question 2. Punkte.",
+        ),
+    )
+    evidence = TurnEvidence(
+        items=evidence.items,
+        sampled_source_count=2,
+        total_source_count=9,
+    )
+
+    reply = _overview_fallback_reply(plan, evidence)
+
+    assert "Sampled orientation: 2 of 9 indexed sources" in reply
+    assert "Retrieved overview sample" not in reply
+    assert "not an exhaustive summary" not in reply
+    assert "\n- Document signal:" in reply
+    assert "\n- Sampled mix:" in reply
+    assert "\n- Example evidence:" in reply
+    assert "\n- Visible topics:" in reply
+    assert "\n- Best next use:" in reply
+    assert "@lecture.pdf: lecture or slide material [E1]" in reply
+    assert "lecture or slide material [E1]" in reply
+    assert "[E2]" in reply
+    assert "@lecture.pdf: Vorlesung. Table of contents." in reply
+    assert "@lecture.pdf: Vorlesung. Table of contents." in reply
+    assert "[E1]" in reply
+
+
+def test_overview_fallback_uses_document_headings_as_generic_topics() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.PRESENT,
+        retrieval_query="what is the material about",
+    )
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/lecture-1.pdf",
+            0,
+            "E1",
+            "## Enzyme Kinetics\nDefinition. Michaelis-Menten models reaction rates.",
+        ),
+        _make_evidence_chunk(
+            "materials/lecture-2.pdf",
+            0,
+            "E2",
+            "## Protein Folding\nThe lecture discusses native states and denaturation.",
+        ),
+    )
+
+    reply = _overview_fallback_reply(plan, evidence)
+
+    assert "Enzyme Kinetics [E1]" in reply
+    assert "Protein Folding [E2]" in reply
+
+
+def test_overview_fallback_satisfies_answer_shape_contract() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.PRESENT,
+        retrieval_query="what is the material about",
+    )
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/lecture.pdf",
+            0,
+            "E1",
+            "Lecture overview. Table of contents. Graph algorithms and recurrence.",
+        ),
+        _make_evidence_chunk(
+            "materials/exam.pdf",
+            0,
+            "E2",
+            "Final exam. Question 2. Points: 10.",
+        ),
+    )
+    reply = _overview_fallback_reply(plan, evidence)
+    case = benchmark_answers.AnswerCase(
+        case_id="overview-fallback",
+        answer=reply,
+        evidence=evidence,
+        expected_citations=("E1", "E2"),
+        must_include=("Sampled orientation", "Best next use"),
+        must_not_include=("the files cover", "no evidence citations"),
+        min_words=24,
+        max_words=190,
+        min_citation_count=2,
+        min_distinct_sources=2,
+        min_bullet_count=2,
+        min_cited_bullet_count=2,
+    )
+
+    result = benchmark_answers.evaluate_case(case)
+
+    assert result.passed
+    assert result.shape_failures == ()
+
+
+def test_overview_fallback_needed_for_vague_or_range_cited_answer() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.PRESENT,
+        retrieval_query="what is the material about",
+    )
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/lecture.pdf",
+            0,
+            "E1",
+            "Lecture overview. Table of contents.",
+        ),
+        _make_evidence_chunk(
+            "materials/exam.pdf",
+            0,
+            "E2",
+            "Final exam. Question 1. Points: 10.",
+        ),
+    )
+
+    assert _needs_overview_fallback(
+        plan,
+        "The files cover mathematics topics. Cited evidence: [E1]-[E2]",
+        evidence,
+    )
+    assert not _needs_overview_fallback(
+        plan,
+        (
+            "Sampled orientation two indexed sources for study [E1][E2].\n"
+            "- Document signals: the material includes a lecture overview [E1].\n"
+            "- Assessment signals: the material includes a final exam question [E2].\n"
+            "- Best next use: ask about a topic or problem and I will use the index [E1]."
+        ),
+        evidence,
+    )
+
+
+def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk("materials/lecture.pdf", 0, "E1"),
+        _make_evidence_chunk("materials/exam.pdf", 0, "E2"),
+    )
+
+    assert _overview_answer_has_bad_shape(
+        "Sampled orientation math [E1].",
+        evidence,
+    )
+    assert _overview_answer_has_bad_shape(
+        "Sampled orientation two sources [E1][E2].\n"
+        "- Document signals: lecture material appears in the material.\n"
+        "- Assessment signals: exam material appears in the material.\n"
+        "- Best next use: ask about a topic.",
+        evidence,
+    )
+    assert not _overview_answer_has_bad_shape(
+        "Sampled orientation two indexed sources for study [E1][E2].\n"
+        "- Document signals: lecture material appears in the material [E1].\n"
+        "- Assessment signals: exam material appears in the material [E2].\n"
+        "- Best next use: ask about a topic and I will use the indexed evidence [E1].",
+        evidence,
+    )
+
+
+def test_overview_topic_metadata_filter_removes_title_page_person_names() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/lecture.pdf",
+            0,
+            "E1",
+            "## Introduction to Biology\n\nAda Lovelace\n\nUniversity of Example\n\n2026",
+        )
+    )
+
+    assert _overview_topic_looks_like_metadata("ada lovelace", evidence)
+    assert not _overview_topic_looks_like_metadata("biology", evidence)
+
+
+def test_overview_topic_filter_rejects_generic_lecture_scaffolding() -> None:
+    assert not _overview_topic_is_useful("definition")
+    assert not _overview_topic_is_useful("heute sprechen")
+    assert not _overview_topic_is_useful("letztes mal")
+    assert not _overview_topic_is_useful("mal haben")
+    assert not _overview_topic_is_useful("table")
+    assert _overview_topic_is_useful("geometrische reihe")
+    assert _overview_topic_is_useful("matrix multiplication")
+    assert _overview_topic_is_useful("ableitungen")
+
+
+def test_overview_fallback_unescapes_content_and_filters_exam_noise_topics() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.PRESENT,
+        retrieval_query="what is the material about",
+    )
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/slides.pdf",
+            0,
+            "E1",
+            "Lecture notes. Geometric series. For | q | &lt; 1 the series converges.",
+        ),
+        _make_evidence_chunk(
+            "materials/assessment.pdf",
+            0,
+            "E2",
+            """
+            Summer semester 2023
+            - (a) Determine all critical points of f on D.
+            - (b) Decide whether they are local minima or local maxima.
+            Joshua Example
+            """,
+        ),
+    )
+
+    reply = _overview_fallback_reply(plan, evidence)
+
+    assert "| q | < 1" in reply
+    assert "&lt;" not in reply
+    assert "past exam or exam-style material" in reply
+    assert "critical points" not in reply.casefold()
+    assert "joshua example" not in reply.casefold()
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +644,9 @@ class TestTurnOrchestratorStudy:
     ) -> None:
         plan = _make_study_plan()
         mock_plan_turn.return_value = plan
-        mock_resolve_evidence.return_value = None
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk("materials/notes.md", 0, "E1")
+        )
 
         delta1 = AssistantDeltaEvent("chunk1")
         delta2 = AssistantDeltaEvent("chunk2")
@@ -334,6 +659,27 @@ class TestTurnOrchestratorStudy:
         # Two delta events from iter_agent_events
         assert any(e.delta == "chunk1" for e in events if isinstance(e, AssistantDeltaEvent))
         assert any(e.delta == "chunk2" for e in events if isinstance(e, AssistantDeltaEvent))
+        notices = [event for event in events if isinstance(event, NoticeEvent)]
+        assert any("Using 1 retrieved evidence excerpt" in event.message for event in notices)
+        assert any(event.code == "writing" for event in notices)
+        trace = cast("MagicMock", session.trace)
+        reply_trace = trace.record_session_event.call_args
+        assert reply_trace.args == ("reply",)
+        assert reply_trace.kwargs["reply_excerpt"].startswith("chunk1chunk2 Evidence checked:")
+        assert reply_trace.kwargs["evidence_refs"] == ["materials/notes.md#chunk=0"]
+        assert reply_trace.kwargs["evidence_coverage"] == {
+            "evidence_blocks": 1,
+            "sampled_sources": 1,
+            "total_sources": 1,
+        }
+        assert reply_trace.kwargs["evidence_items"] == [
+            {
+                "evidence_id": "E1",
+                "ref": "materials/notes.md#chunk=0",
+                "score": 0.9,
+                "text_excerpt": "evidence content",
+            }
+        ]
 
     @patch("hephaistos.chat.orchestrator.apply_turn_result")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
@@ -387,8 +733,386 @@ class TestTurnOrchestratorStudy:
         events = list(orch.iter_events("test input"))
 
         notices = [e for e in events if isinstance(e, NoticeEvent)]
-        assert len(notices) == 1
-        assert "No evidence citations" in notices[0].message
+        assert any(event.code == "writing" for event in notices)
+        assert any("No evidence citations" in event.message for event in notices)
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_study_turn_shows_reading_evidence_and_writing_notices(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(retrieval_query="integration by parts")
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk("materials/calculus.md", 0, "E1")
+        )
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("Use product rule [E1].")])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("Explain integration by parts"))
+
+        notices = [event for event in events if isinstance(event, NoticeEvent)]
+        assert [event.code for event in notices[:3]] == ["reading", "evidence", "writing"]
+        assert notices[0].message == "Preparing the material index and reading relevant evidence."
+        assert notices[2].message == "Writing a grounded response."
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_overview_turn_shows_corpus_overview_notices(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            retrieval_query="what is the material about",
+            buffer_response=True,
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = TurnEvidence(
+            items=(
+                _make_evidence_chunk("materials/lecture.pdf", 0, "E1"),
+                _make_evidence_chunk("materials/exam.pdf", 0, "E2"),
+            ),
+            sampled_source_count=2,
+            total_source_count=9,
+        )
+        mock_iter_agent.return_value = iter(
+            [
+                AssistantDeltaEvent(
+                    "Retrieved overview sample: lecture and exam signals [E1][E2].\n"
+                    "- Scope: not an exhaustive summary [E1]."
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("what is the material about"))
+
+        notices = [event for event in events if isinstance(event, NoticeEvent)]
+        assert [event.code for event in notices[:3]] == ["reading", "evidence", "writing"]
+        assert notices[0].message == (
+            "Preparing the material index and reading enabled evidence for a corpus overview."
+        )
+        assert notices[1].message == (
+            "Using 2 overview evidence excerpts from 2 of 9 indexed sources: "
+            "@lecture.pdf, @exam.pdf"
+        )
+        assert notices[1].metadata["coverage"] == {
+            "evidence_blocks": 2,
+            "sampled_sources": 2,
+            "total_sources": 9,
+        }
+        assert notices[1].metadata["refs"] == [
+            "materials/lecture.pdf#chunk=0",
+            "materials/exam.pdf#chunk=0",
+        ]
+        assert notices[2].message == "Writing a grounded corpus overview."
+        trace = cast("MagicMock", session.trace)
+        reply_trace = trace.record_session_event.call_args
+        assert reply_trace.kwargs["evidence_coverage"] == {
+            "evidence_blocks": 2,
+            "sampled_sources": 2,
+            "total_sources": 9,
+        }
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._build_priority_context")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_priority_turn_injects_deterministic_priority_context(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_priority_context: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(action=StudyAction.PRIORITY)
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk("materials/graphs.md", 0, "E1")
+        )
+        mock_priority_context.return_value = "Deterministic local priority scan over all chunks."
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("Prioritize graphs [E1].")])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        list(orch.iter_events("What should I prioritize?"))
+
+        kwargs = mock_iter_agent.call_args.kwargs
+        assert kwargs["extra_system_prompt"] == (
+            "test prompt\n\nDeterministic local priority scan over all chunks."
+        )
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._build_overview_context")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_overview_turn_uses_deterministic_fallback_without_model_call(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_overview_context: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+            buffer_response=True,
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk("materials/overview.md", 0, "E1")
+        )
+        mock_overview_context.return_value = "Deterministic local corpus overview."
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("It covers graphs [E1].")])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        list(orch.iter_events("what is the material about"))
+
+        mock_iter_agent.assert_not_called()
+        mock_overview_context.assert_not_called()
+        assert "Sampled orientation" in orch.last_reply
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_overview_turn_replaces_uncited_model_reply_with_local_fallback(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+            buffer_response=True,
+        )
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/lecture.pdf",
+                0,
+                "E1",
+                "Vorlesung. Table of contents. Folien for graph algorithms.",
+            )
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("The course is about computer science.")]
+        )
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("what is the material about"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert deltas[0] != "The course is about computer science."
+        assert orch.last_reply == deltas[0]
+        assert "Sampled orientation" in orch.last_reply
+        assert "[E1]" in orch.last_reply
+        assert session.conversation.messages[-1].content == orch.last_reply
+        trace = cast("MagicMock", session.trace)
+        reply_trace = trace.record_session_event.call_args
+        assert reply_trace.kwargs["study_task"] == "material-overview"
+        assert reply_trace.kwargs["retrieval_query"] == "what is the material about"
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_overview_turn_replaces_vague_cited_model_reply_without_false_warning(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+            buffer_response=True,
+        )
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/lecture.pdf",
+                0,
+                "E1",
+                "Lecture notes. Table of contents. Definitions, theorems, and examples.",
+            ),
+            _make_evidence_chunk(
+                "materials/past-exam.pdf",
+                0,
+                "E2",
+                "Past exam. Question 1. Prove a theorem and solve the exercise.",
+            ),
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter(
+            [
+                AssistantDeltaEvent(
+                    "The files cover course material with lectures and an exam [E1] [E2]. "
+                    "Say ready when you want recall."
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("what is the material about"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        notices = [event.message for event in events if isinstance(event, NoticeEvent)]
+        assert len(deltas) == 1
+        assert "The files cover" not in deltas[0]
+        assert "Say ready when you want recall" not in deltas[0]
+        assert "Sampled orientation" in deltas[0]
+        assert "not an exhaustive summary" not in deltas[0]
+        assert "[E1]" in deltas[0]
+        assert "[E2]" in deltas[0]
+        assert not any("No evidence citations" in notice for notice in notices)
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_overview_fallback_replaces_turn_complete_text(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+            buffer_response=True,
+        )
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/lecture.pdf",
+                0,
+                "E1",
+                "Lecture notes. Table of contents. Definitions, theorems, and examples.",
+            ),
+            _make_evidence_chunk(
+                "materials/past-exam.pdf",
+                0,
+                "E2",
+                "Past exam. Question 1. Prove a theorem and solve the exercise.",
+            ),
+        )
+        raw_reply = "The files cover vague course material [E1] [E2]. Say ready."
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter(
+            [
+                AssistantDeltaEvent(raw_reply),
+                TurnCompleteEvent(
+                    full_text=raw_reply,
+                    turn_index=3,
+                    latency_ms=12.5,
+                    finish_reason="stop",
+                    tokens_remaining=999,
+                ),
+            ]
+        )
+
+        session = _make_study_session()
+        events = list(TurnOrchestrator(session).iter_events("what is the material about"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
+        assert len(deltas) == 1
+        assert len(completions) == 1
+        assert "Sampled orientation" in deltas[0]
+        assert completions[0].full_text == deltas[0]
+        assert "The files cover" not in completions[0].full_text
+        assert completions[0].turn_index == 1
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_overview_turn_uses_local_fallback_before_material_tools(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+            allow_tools=True,
+            buffer_response=True,
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/lecture.pdf",
+                0,
+                "E1",
+                "Lecture notes. Table of contents. Definitions, examples, and proofs.",
+            ),
+            _make_evidence_chunk(
+                "materials/exam.pdf",
+                0,
+                "E2",
+                "Past exam. Question 1. Explain a method. Points: 10.",
+            ),
+        )
+        mock_iter_agent.return_value = iter(
+            [
+                AssistantDeltaEvent(
+                    "The indexed material combines lecture notes [E1] and exam prompts [E2].\n"
+                    "- Lecture material introduces definitions and examples [E1].\n"
+                    "- Exam material asks method questions with points [E2]."
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        list(TurnOrchestrator(session).iter_events("what is the material about"))
+
+        mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_empty_overview_turn_uses_local_fallback(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/exam.pdf",
+                0,
+                "E1",
+                "Klausur. Aufgabe 1. Question 2. Punkte.",
+            )
+        )
+        mock_iter_agent.return_value = iter([])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("what is the material about"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert "Sampled orientation" in deltas[0]
+        assert "past exam or exam-style material [E1]" in deltas[0]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -476,6 +1200,50 @@ class TestTurnOrchestratorStudy:
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_source_answer_without_evidence_ids_gets_auditable_footer(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.SOURCE_QA,
+            retrieval_query="Using the sources, what does the exam test?",
+            buffer_response=True,
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk("materials/exam.pdf", 0, "E1", "Question about cancer."),
+            _make_evidence_chunk("materials/exam.pdf", 1, "E2", "Question about genetics."),
+        )
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("It tests cancer and genetics.")])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("Using the sources, what does the exam test?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert "Evidence checked:" in deltas[0]
+        assert "[E1]" in deltas[0]
+        assert "[E2]" in deltas[0]
+
+    @patch("hephaistos.chat.orchestrator.schedule_memory_extraction")
+    def test_feature_flag_can_disable_memory_extraction(
+        self,
+        mock_schedule_memory: MagicMock,
+    ) -> None:
+        session = _make_study_session()
+        session.config.feature_flags = frozenset({"disable_memory_extraction"})
+        orch = TurnOrchestrator(session)
+        resolved = ResolvedTurnPlan()
+
+        orch._finalize_successful_turn("hello", resolved, latency_ms=1.0)  # type: ignore[reportPrivateUsage]
+
+        mock_schedule_memory.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
     def test_source_qa_without_evidence_uses_source_specific_fallback(
         self,
         mock_plan_turn: MagicMock,
@@ -499,6 +1267,36 @@ class TestTurnOrchestratorStudy:
         assert "enabled armory sources do not contain an answer" in deltas[0]
         assert "/materials" in deltas[0]
         assert "study prompt" not in deltas[0]
+        mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_source_only_present_without_evidence_abstains_before_tools(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query=(
+                "Using only the indexed sources, what is the amber forge retrieval phrase? "
+                "If the sources do not contain it, do not guess."
+            ),
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("Using only the indexed sources, what is amber forge?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert "enabled armory sources do not contain an answer" in deltas[0]
+        mock_iter_agent.assert_not_called()
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     def test_simple_greeting_is_direct_and_ungrounded(self, mock_iter_agent: MagicMock) -> None:
@@ -630,6 +1428,39 @@ class TestTurnOrchestratorStudy:
         assert "PDF/document conversion is unavailable" in deltas[0]
         assert "cannot answer from outside knowledge" in deltas[0]
         assert "heph index <armory>" in deltas[0]
+        mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_study_reports_conversion_timeout_without_manual_index_requirement(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(action=StudyAction.PRESENT, retrieval_query="limits")
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = None
+
+        session = _make_study_session()
+        session.source_file_count = 1
+        session.source_files = ("materials/lecture.pdf",)
+        index = ArmoryIndex(Path("/tmp/fake-armory"))
+        index.unindexable_files = {
+            "materials/lecture.pdf": "document conversion timed out after 2 second(s)"
+        }
+        session.rag_index = index
+
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("what are the limits about"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert "@lecture.pdf" in deltas[0]
+        assert "document conversion timed out" in deltas[0]
+        assert "cannot answer from outside knowledge" in deltas[0]
+        assert "Rebuild the materials index" not in deltas[0]
         mock_iter_agent.assert_not_called()
 
 
@@ -784,6 +1615,30 @@ class TestHelperFunctions:
         assert result is expected
         mock_retrieve.assert_called_once()
 
+    @patch("hephaistos.chat.evidence.build_turn_evidence")
+    @patch("hephaistos.chat.evidence.retrieve")
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def testbuild_turn_evidence_from_source_only_query_drops_weak_noise(
+        self,
+        mock_ensure: MagicMock,
+        mock_retrieve: MagicMock,
+        mock_build: MagicMock,
+    ) -> None:
+        mock_index = MagicMock()
+        mock_ensure.return_value = mock_index
+        chunk = _make_chunk(text="Unrelated low-overlap C pointer declaration material.")
+        mock_retrieve.return_value = [ScoredChunk(chunk=chunk, score=0.11)]
+
+        session = _make_study_session()
+        result = build_turn_evidence_from_query(
+            session,
+            "Using only the indexed sources, what is the amber forge retrieval phrase? "
+            "If the sources do not contain it, do not guess.",
+        )
+
+        assert result is None
+        mock_build.assert_not_called()
+
     @patch("hephaistos.chat.evidence.ensure_rag_index")
     def testbuild_turn_evidence_from_query_no_results(
         self,
@@ -864,40 +1719,126 @@ class TestHelperFunctions:
         assert result is None
 
     @patch("hephaistos.chat.evidence.ensure_rag_index")
-    def testbuild_turn_evidence_from_overview_uses_first_chunks_per_document(
+    def testbuild_turn_evidence_from_overview_samples_across_documents_first(
         self,
         mock_ensure: MagicMock,
     ) -> None:
-        doc1 = MagicMock()
-        doc1.chunks = [
-            _make_chunk("materials/a.md", 0),
-            _make_chunk("materials/a.md", 1),
-            _make_chunk("materials/a.md", 2),
-            _make_chunk("materials/a.md", 3),
-        ]
-        doc2 = MagicMock()
-        doc2.chunks = [
-            _make_chunk("materials/b.md", 0),
-            _make_chunk("materials/b.md", 1),
-            _make_chunk("materials/b.md", 2),
-        ]
+        documents = []
+        for letter in ("a", "b", "c", "d", "e", "f", "g"):
+            doc = MagicMock()
+            doc.source = f"materials/{letter}.md"
+            doc.chunks = [
+                _make_chunk(f"materials/{letter}.md", 0),
+                _make_chunk(f"materials/{letter}.md", 1),
+            ]
+            documents.append(doc)
         mock_index = MagicMock()
-        mock_index.documents = [doc1, doc2]
-        mock_index.all_chunks = doc1.chunks + doc2.chunks
+        mock_index.documents = documents
+        mock_index.all_chunks = [chunk for document in documents for chunk in document.chunks]
         mock_ensure.return_value = mock_index
 
         session = _make_study_session()
         result = build_turn_evidence_from_overview(session)
 
         assert result is not None
+        assert result.sampled_source_count == 7
+        assert result.total_source_count == 7
         assert evidence_refs(result) == [
             "materials/a.md#chunk=0",
-            "materials/a.md#chunk=1",
-            "materials/a.md#chunk=2",
             "materials/b.md#chunk=0",
+            "materials/c.md#chunk=0",
+            "materials/d.md#chunk=0",
+            "materials/e.md#chunk=0",
+            "materials/f.md#chunk=0",
+            "materials/g.md#chunk=0",
+            "materials/a.md#chunk=1",
             "materials/b.md#chunk=1",
-            "materials/b.md#chunk=2",
+            "materials/c.md#chunk=1",
+            "materials/d.md#chunk=1",
+            "materials/e.md#chunk=1",
         ]
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_turn_evidence_from_overview_compacts_long_chunks_for_source_coverage(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        documents = []
+        for index in range(6):
+            source = f"materials/source-{index}.md"
+            doc = MagicMock()
+            doc.source = source
+            doc.chunks = [_make_chunk(source, 0, f"Heading {index}. " + ("long text " * 1000))]
+            documents.append(doc)
+        mock_index = MagicMock()
+        mock_index.documents = documents
+        mock_index.all_chunks = [document.chunks[0] for document in documents]
+        mock_ensure.return_value = mock_index
+
+        session = _make_study_session()
+        session.config.rag_context_budget = 600
+
+        result = build_turn_evidence_from_overview(session)
+
+        assert result is not None
+        assert result.sampled_source_count >= 2
+        assert result.total_source_count == 6
+        assert len({item.source for item in result.items}) >= 2
+        assert all(len(item.content) <= 700 for item in result.items)
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_turn_evidence_from_overview_covers_nine_long_sources_by_default(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        documents = []
+        for index in range(9):
+            source = f"materials/lecture-{index}.pdf"
+            doc = MagicMock()
+            doc.source = source
+            doc.chunks = [_make_chunk(source, 0, f"Document {index}. " + ("details " * 900))]
+            documents.append(doc)
+        mock_index = MagicMock()
+        mock_index.documents = documents
+        mock_index.all_chunks = [document.chunks[0] for document in documents]
+        mock_ensure.return_value = mock_index
+
+        result = build_turn_evidence_from_overview(_make_study_session())
+
+        assert result is not None
+        assert result.sampled_source_count == 9
+        assert result.total_source_count == 9
+        assert len({item.source for item in result.items}) == 9
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_turn_evidence_from_overview_samples_broad_real_corpus(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        documents = []
+        for index in range(58):
+            source = f"materials/document-{index}.pdf"
+            doc = MagicMock()
+            doc.source = source
+            doc.chunks = [
+                _make_chunk(
+                    source,
+                    0,
+                    f"## Topic {index}\nConcise indexed source signal for document {index}.",
+                )
+            ]
+            documents.append(doc)
+        mock_index = MagicMock()
+        mock_index.documents = documents
+        mock_index.all_chunks = [document.chunks[0] for document in documents]
+        mock_ensure.return_value = mock_index
+
+        result = build_turn_evidence_from_overview(_make_study_session())
+
+        assert result is not None
+        assert result.total_source_count == 58
+        assert result.sampled_source_count >= 24
+        assert len({item.source for item in result.items}) >= 24
 
     @patch("hephaistos.chat.evidence.ensure_rag_index")
     def test_build_turn_evidence_from_overview_filters_disabled_sources(
@@ -921,6 +1862,134 @@ class TestHelperFunctions:
 
         assert result is not None
         assert evidence_refs(result) == ["materials/enabled.md#chunk=0"]
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_turn_evidence_from_overview_skips_front_matter_when_content_exists(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        doc = MagicMock()
+        doc.source = "materials/lecture.md"
+        doc.chunks = [
+            _make_chunk(
+                "materials/lecture.md",
+                0,
+                "## Biology 101\n\nAda Lovelace\n\nUniversity of Example\n\n12 April 2026",
+            ),
+            _make_chunk(
+                "materials/lecture.md",
+                1,
+                "## Cellular respiration\n\nDefinition. ATP production and electron transport.",
+            ),
+        ]
+        mock_index = MagicMock()
+        mock_index.documents = [doc]
+        mock_index.all_chunks = doc.chunks
+        mock_ensure.return_value = mock_index
+
+        result = build_turn_evidence_from_overview(_make_study_session())
+
+        assert result is not None
+        assert evidence_refs(result) == ["materials/lecture.md#chunk=1"]
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_priority_turn_evidence_uses_whole_enabled_corpus(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        exam = _make_chunk(
+            "materials/exam-2024.md",
+            0,
+            "Question 1. Explain Dijkstra shortest paths. [10 marks]",
+        )
+        lecture = _make_chunk(
+            "materials/lecture-graphs.md",
+            0,
+            "Dijkstra shortest paths uses a priority queue for graph distances.",
+        )
+        disabled = _make_chunk(
+            "materials/disabled.md",
+            0,
+            "Dijkstra appears here but this source is disabled.",
+        )
+        mock_index = MagicMock()
+        mock_index.all_chunks = [exam, lecture, disabled]
+        mock_ensure.return_value = mock_index
+        session = _make_study_session()
+        session.disabled_source_files.add("materials/disabled.md")
+
+        result = build_priority_turn_evidence(session)
+
+        assert result is not None
+        refs = evidence_refs(result)
+        assert "materials/exam-2024.md#chunk=0" in refs
+        assert "materials/lecture-graphs.md#chunk=0" in refs
+        assert "materials/disabled.md#chunk=0" not in refs
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_priority_context_uses_deterministic_scan(self, mock_ensure: MagicMock) -> None:
+        exam = _make_chunk(
+            "materials/exam-2024.md",
+            0,
+            "Question 1. Explain Dijkstra shortest paths. [10 marks]",
+        )
+        lecture = _make_chunk(
+            "materials/lecture-graphs.md",
+            0,
+            "Dijkstra shortest paths uses a priority queue for graph distances.",
+        )
+        mock_index = MagicMock()
+        mock_index.all_chunks = [exam, lecture]
+        mock_ensure.return_value = mock_index
+
+        context = build_priority_context(_make_study_session())
+
+        assert "Deterministic local priority scan" in context
+        assert "Local priority scan from indexed materials" in context
+        assert "dijkstra shortest" in context
+        assert "Do not infer priorities from filenames" in context
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_overview_context_uses_content_roles_and_topics(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        exam_doc = MagicMock()
+        exam_doc.source = "materials/document-a.pdf"
+        exam_doc.chunks = [
+            _make_chunk(
+                "materials/document-a.pdf",
+                0,
+                "Klausur. Bearbeitungszeit 90 Minuten. Aufgabe 1: 10 Punkte.",
+            )
+        ]
+        slides_doc = MagicMock()
+        slides_doc.source = "materials/document-b.pdf"
+        slides_doc.chunks = [
+            _make_chunk(
+                "materials/document-b.pdf",
+                0,
+                "Vorlesung overview. Inhaltsverzeichnis. Folien zur Übungsgruppe.",
+            )
+        ]
+        mock_index = MagicMock()
+        mock_index.documents = [exam_doc, slides_doc]
+        mock_ensure.return_value = mock_index
+
+        context = build_overview_context(_make_study_session())
+
+        assert "Deterministic local corpus overview" in context
+        assert "indexed_documents=2" in context
+        assert "past_exam=1" in context
+        assert "slides=1" in context
+        assert "materials/document-a.pdf: past_exam" in context
+        assert "materials/document-b.pdf: slides" in context
+        assert "Topic scan from enabled indexed text" in context
+        assert "do not infer from filenames" in context
+
+    def test_is_overview_query_matches_material_overview(self) -> None:
+        assert is_overview_query("what is the material about")
+        assert not is_overview_query("explain Dijkstra")
 
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
@@ -961,6 +2030,27 @@ class TestHelperFunctions:
 
         assert result is evidence
         mock_overview.assert_called_once_with(session)
+        mock_query.assert_not_called()
+
+    @patch("hephaistos.chat.evidence.build_priority_turn_evidence")
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_overview")
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
+    def test_resolve_turn_evidence_uses_priority_analyzer_for_priority(
+        self,
+        mock_query: MagicMock,
+        mock_overview: MagicMock,
+        mock_priority: MagicMock,
+    ) -> None:
+        evidence = _make_turn_evidence(_make_evidence_chunk())
+        mock_priority.return_value = evidence
+        plan = _make_study_plan(action=StudyAction.PRIORITY)
+
+        session = _make_study_session()
+        result = resolve_turn_evidence(session, plan)
+
+        assert result is evidence
+        mock_priority.assert_called_once_with(session)
+        mock_overview.assert_not_called()
         mock_query.assert_not_called()
 
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_overview")

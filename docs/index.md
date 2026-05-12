@@ -208,21 +208,23 @@ The armory stays the same when the model changes.
 ## Common Commands
 
 ```text
-heph                             Open your current armory or plain chat.
-heph <name-or-path>              Open a known armory by name, e.g. `heph gdp`, or by path.
-heph armory <name> [parent]      Create a named armory in ~/Armories or in <parent>/Armories.
-heph armory init <name-or-path>  Create a new named armory folder.
-heph armory open <path>          Open and validate an armory.
-heph materials list <path>       List study material files.
-heph materials count <path>      Count study material files.
-heph materials index <path>      Build or refresh the RAG index.
-heph index [path]                Build or refresh the materials index; defaults to the current armory.
-heph update                      Show how to update the active Hephaistos install.
-heph chat resume <path> <id>     Resume an existing chat session.
-heph chat ask <path> [prompt]    Ask one question without opening the TUI.
-heph chat list <path>            List chat sessions in an armory.
-heph start [path]                Hidden backwards-compatible alias for `heph [path]`.
-heph tui [path]                  Explicit alias for the default Textual TUI.
+heph                                   Open your current armory or plain chat.
+heph <name-or-path>                    Open a known armory by name, e.g. `heph gdp`, or by path.
+heph armory <name> [parent]            Create a named armory in ~/Armories or in <parent>/Armories.
+heph armory init <name-or-path>        Create a new named armory folder.
+heph armory open <path>                Open and validate an armory.
+heph materials list <path>             List study material files.
+heph materials count <path>            Count study material files.
+heph materials index <path>            Build or refresh the RAG index.
+heph index [path]                      Build or refresh the materials index; defaults to the current armory.
+heph health [path]                     Check indexed materials for generic extraction problems; defaults to the current armory.
+heph update                            Show how to update the active Hephaistos install.
+heph chat resume <path> <id>           Resume an existing chat session.
+heph chat ask <path> [prompt]          Ask one question without opening the TUI.
+heph chat ask --jsonl <path> [prompt]  Emit structured turn events as JSON Lines for harness audits.
+heph chat list <path>                  List chat sessions in an armory.
+heph start [path]                      Hidden backwards-compatible alias for `heph [path]`.
+heph tui [path]                        Explicit alias for the default Textual TUI.
 ```
 
 Useful shell commands:

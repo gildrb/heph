@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, TypeGuard
 
-from hephaistos.materials import infer_material_role
+from hephaistos.materials import infer_material_role_from_text
 from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.runtime import (
     ChatConfig,
@@ -27,13 +27,39 @@ from hephaistos.runtime import (
     stream_completion,
 )
 
-_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]{2,}")
+_LETTER = r"A-Za-zÀ-ÖØ-öø-ÿ"
+_TOKEN_RE = re.compile(rf"[{_LETTER}][{_LETTER}0-9_+-]{{2,}}")
 _SENTENCE_RE = re.compile(r"[^.!?\n]+")
-_TOPIC_PHRASE_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9_+-]*(?:\s+[A-Za-z][A-Za-z0-9_+-]*){1,5}\b")
-_QUESTION_START_RE = re.compile(r"\b(?:question|q)\s*\d+[A-Za-z]?\b", re.IGNORECASE)
+_TOPIC_PHRASE_RE = re.compile(
+    rf"\b[{_LETTER}][{_LETTER}0-9_+-]*(?:\s+[{_LETTER}][{_LETTER}0-9_+-]*){{1,5}}\b"
+)
+_QUESTION_START_RE = re.compile(
+    rf"\b(?:aufgabe|question|q)\s*\d+[{_LETTER}]?\b",
+    re.IGNORECASE,
+)
+_PROMPT_TOPIC_RE = re.compile(
+    r"\b(?:"
+    r"analyze|berechnen|calculate|compare|compute|define|derive|describe|discuss|"
+    r"evaluate|explain|prove|show|sketch|state|untersuchen"
+    r")\b\s+(?P<tail>[^.?!:\n]{3,180})",
+    re.IGNORECASE,
+)
+_PROMPT_TOPIC_SPLIT_RE = re.compile(r"\s+(?:and|und|or|oder)\s+|[,;]")
 _HEADING_PREFIX_RE = re.compile(r"^(?:#+\s*|\d+(?:\.\d+)*[.)]?\s*|[-*]\s*)")
 _WHITESPACE_RE = re.compile(r"\s+")
-_WORD_SPLIT_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*")
+_WORD_SPLIT_RE = re.compile(rf"[{_LETTER}][{_LETTER}0-9_+-]*")
+_BOILERPLATE_LINE_RE = re.compile(
+    r"\b(?:"
+    r"all\s+rights\s+reserved|candidate\s+number|copyright|course|department|"
+    r"e-?mail|exam\s+seat|faculty|institute|instructor|lecturer|office\s+hours|"
+    r"prof(?:essor)?|school|semester|student\s+id|student\s+name|student\s+number|"
+    r"term|university|aufgabennummer|dozent|dozentin|hochschule|matrikelnummer|"
+    r"nachname|sommersemester|universität|universitaet|vorname|"
+    r"wintersemester"
+    r")\b|@",
+    re.IGNORECASE,
+)
+_PAGE_OR_SLIDE_LINE_RE = re.compile(r"\b(?:page|slide|folie)\s+\d+\b", re.IGNORECASE)
 _WEB_RESULT_RE = re.compile(
     r'<a[^>]+class="result__a"[^>]+href="(?P<url>[^"]+)"[^>]*>(?P<title>.*?)</a>'
     r".{0,1800}?"
@@ -45,26 +71,10 @@ _WEB_PREREQ_CLAUSE_RE = re.compile(
     r"understand(?:ing)?)\b[^.?!:;]{0,48}[:;\-]?\s*(?P<tail>[^.?!]{0,180})",
     re.IGNORECASE,
 )
-_KNOWN_SINGLE_WORD_TOPICS = frozenset({"dijkstra", "graph", "heap", "heaps"})
-_KNOWN_TOPIC_PHRASES = frozenset(
-    {
-        "binary search",
-        "chain rule",
-        "dynamic programming",
-        "gradient descent",
-        "hash table",
-        "neural network",
-        "shortest paths",
-        "validation set",
-        "dijkstra shortest",
-        "dijkstra shortest paths",
-        "graph shortest paths",
-    }
-)
 _MARK_RE = re.compile(
-    r"(?:\[\s*(\d{1,2})\s*(?:marks?|pts?|points?)\s*\]|"
-    r"\((\d{1,2})\s*(?:marks?|pts?|points?)\)|"
-    r"\b(\d{1,2})\s*(?:marks?|pts?|points?)\b)",
+    r"(?:\[\s*(\d{1,2})\s*(?:marks?|pts?|points?|punkte?)\s*\]|"
+    r"\((\d{1,2})\s*(?:marks?|pts?|points?|punkte?)\)|"
+    r"\b(\d{1,2})\s*(?:marks?|pts?|points?|punkte?)\b)",
     re.IGNORECASE,
 )
 _NO_PREREQUISITE_TEXT = "No explicit prerequisite found in indexed materials."
@@ -78,43 +88,103 @@ _WEB_PREREQ_SEARCH_URL = "https://duckduckgo.com/html/"
 _STOPWORDS = frozenset(
     {
         "about",
+        "aber",
         "after",
         "also",
         "and",
+        "andernfalls",
         "answer",
         "are",
         "against",
+        "als",
+        "analyze",
+        "at",
+        "auf",
+        "aufgabe",
+        "aufgabennummer",
+        "aus",
         "basic",
         "basics",
         "because",
         "before",
+        "beispiel",
+        "beispiele",
+        "berechnen",
+        "bestehen",
+        "bestimmen",
+        "bestimmten",
         "brief",
         "briefly",
+        "bzw",
         "calculate",
+        "can",
+        "cheat-sheets",
+        "compare",
+        "compute",
         "connected",
         "define",
         "depend",
         "depends",
+        "derive",
         "describe",
+        "der",
+        "des",
+        "dann",
+        "das",
+        "discuss",
+        "dokumente",
         "does",
         "each",
+        "ein",
+        "eine",
+        "einer",
+        "eines",
         "exam",
+        "examination",
+        "es",
+        "erfolg",
+        "erste",
+        "erwartungsgemäß",
+        "euro",
+        "falls",
         "explain",
+        "folgenden",
+        "folgt",
         "following",
         "from",
         "for",
+        "für",
         "give",
         "given",
+        "gilt",
+        "gewinnt",
+        "handschriftlich",
         "have",
+        "hilfsmittel",
         "identify",
+        "ihre",
+        "insbesondere",
+        "in",
         "into",
         "marks",
+        "maximal",
+        "midterm",
+        "muss",
+        "nicht",
+        "notizen",
         "one",
+        "oder",
         "past",
+        "points",
+        "pro",
+        "problem",
+        "pts",
         "question",
         "questions",
         "show",
+        "sketch",
         "state",
+        "sowie",
         "that",
         "the",
         "their",
@@ -122,25 +192,87 @@ _STOPWORDS = frozenset(
         "this",
         "through",
         "two",
+        "untersuchen",
         "using",
         "use",
         "uses",
+        "taschenrechner",
+        "von",
         "what",
         "when",
         "where",
         "which",
         "with",
+        "wahrscheinlichkeit",
         "your",
+        "zur",
+        "zugelassen",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "januar",
+        "februar",
+        "märz",
+        "maerz",
+        "mai",
+        "juni",
+        "juli",
+        "oktober",
+        "dezember",
         "formula",
+        "ihnen",
+        "informatiker",
+        "jeweils",
+        "klausur",
+        "mathematik",
         "not",
         "decoded",
         "image",
         "ocr",
         "noise",
+        "ohne",
+        "punkte",
+        "punkten",
+        "punkt",
+        "sei",
+        "seien",
+        "spieler",
+        "sommersemester",
+        "sie",
+        "sind",
         "die",
         "ist",
         "und",
+        "universit",
+        "universität",
+        "urzburg",
+        "viel",
+        "w",
+        "wintersemester",
         "wir",
+        "wunschen",
+        "wünschen",
+        "wurzburg",
+        "würzburg",
+        "wenn",
+        "verliert",
+        "verfasste",
+        "viele",
+        "wettet",
+        "wie",
+        "matrikelnummer",
+        "nachname",
+        "nschen",
+        "vorname",
         "algorithm",
         "algorithms",
         "article",
@@ -157,6 +289,13 @@ _STOPWORDS = frozenset(
         "tutorial",
         "understand",
         "understanding",
+        "ur",
+    }
+)
+_BOILERPLATE_TOPIC_PHRASES = frozenset(
+    {
+        "a f x in e",
+        "ohne beweis",
     }
 )
 
@@ -281,12 +420,13 @@ def analyze_priority(
     prerequisite_hints: dict[str, Counter[str]] = {}
     sources_by_topic: dict[str, set[str]] = {}
     evidence_by_topic: dict[str, list[PriorityTopicEvidence]] = {}
+    seen_evidence_by_topic: dict[str, set[tuple[str, str]]] = {}
     past_exam_sources: set[str] = set()
     material_sources: set[str] = set()
     exam_questions: list[PriorityExamQuestion] = []
 
     for chunk in chunk_list:
-        role, _confidence, _reason = infer_material_role(chunk.source)
+        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
         exam_sections = tuple(_exam_sections(chunk.text)) if role == "past_exam" else ()
         if role == "past_exam":
             past_exam_sources.add(chunk.source)
@@ -311,8 +451,15 @@ def analyze_priority(
                 exam_marks[term] += marks
             sources_by_topic.setdefault(term, set()).add(chunk.source)
             evidence_by_topic.setdefault(term, [])
-            if len(evidence_by_topic[term]) < 4:
-                evidence_by_topic[term].append(_topic_evidence(chunk, term, marks))
+            seen_evidence_by_topic.setdefault(term, set())
+            evidence = _topic_evidence(chunk, term, marks)
+            evidence_key = (evidence.source, evidence.excerpt)
+            if (
+                len(evidence_by_topic[term]) < 4
+                and evidence_key not in seen_evidence_by_topic[term]
+            ):
+                evidence_by_topic[term].append(evidence)
+                seen_evidence_by_topic[term].add(evidence_key)
         if role != "past_exam":
             dependency_prerequisites = _dependency_prerequisites(chunk.text, terms)
             for term in terms:
@@ -328,7 +475,8 @@ def analyze_priority(
         exam_hits = exam_counts[term]
         marks = exam_marks[term]
         material_hits = material_counts[term]
-        score = exam_hits * 3.0 + marks * 0.4 + material_hits
+        material_signal = material_hits if exam_hits else min(material_hits, 4)
+        score = exam_hits * 3.0 + marks * 0.4 + material_signal
         if score <= 0:
             continue
         topics.append(
@@ -460,52 +608,125 @@ def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Itera
 
 
 def _candidate_topic_phrases(raw: str) -> Iterator[str]:
-    yield from _heading_candidates(raw)
-    for phrase_match in _TOPIC_PHRASE_RE.finditer(raw):
-        words = [word.lower() for word in _WORD_SPLIT_RE.findall(phrase_match.group(0))]
+    topic_text = _topic_candidate_text(raw)
+    yield from _heading_candidates(topic_text)
+    yield from _prompt_topic_candidates(topic_text)
+    for phrase_match in _TOPIC_PHRASE_RE.finditer(topic_text):
+        phrase = phrase_match.group(0)
+        words = [word.lower() for word in _WORD_SPLIT_RE.findall(phrase)]
         useful = [word for word in words if word not in _STOPWORDS and not word.isdigit()]
-        if len(useful) >= 2:
-            if len(useful) <= 4 and _topic_phrase_is_known(useful):
-                yield " ".join(useful)
-            yield from _known_phrases_in(useful)
-        for word in useful:
-            if word in _KNOWN_SINGLE_WORD_TOPICS:
-                yield word
+        yield from _content_phrase_candidates(phrase, useful)
 
 
 def _heading_candidates(raw: str) -> Iterator[str]:
     for line in raw.splitlines():
         cleaned = _HEADING_PREFIX_RE.sub("", line.strip())
-        if not cleaned or len(cleaned) > 90:
+        if not cleaned or len(cleaned) > 90 or _is_boilerplate_line(cleaned):
             continue
         words = [word.lower() for word in _WORD_SPLIT_RE.findall(cleaned)]
         useful = [word for word in words if word not in _STOPWORDS and not word.isdigit()]
         if 2 <= len(useful) <= 6:
             yield " ".join(useful)
+        elif len(useful) == 1 and len(useful[0]) >= 5:
+            yield useful[0]
 
 
-def _topic_phrase_is_known(words: list[str]) -> bool:
-    return " ".join(words) in _KNOWN_TOPIC_PHRASES
+def _prompt_topic_candidates(text: str) -> Iterator[str]:
+    for prompt_match in _PROMPT_TOPIC_RE.finditer(text):
+        for part in _PROMPT_TOPIC_SPLIT_RE.split(prompt_match.group("tail")):
+            words = [word.lower() for word in _WORD_SPLIT_RE.findall(part)]
+            useful = [word for word in words if word not in _STOPWORDS and not word.isdigit()]
+            if len(useful) >= 2:
+                if len(useful[0]) >= 5:
+                    yield useful[0]
+                if len(useful) > 2:
+                    yield " ".join(useful[:2])
+                yield " ".join(useful[:3])
+            elif len(useful) == 1 and len(useful[0]) >= 5:
+                yield useful[0]
 
 
-def _known_phrases_in(words: list[str]) -> Iterator[str]:
-    for phrase in _KNOWN_TOPIC_PHRASES:
-        phrase_words = phrase.split()
-        size = len(phrase_words)
+def _content_phrase_candidates(phrase: str, words: list[str]) -> Iterator[str]:
+    if len(words) < 2:
+        return
+    first_token_match = _WORD_SPLIT_RE.search(phrase)
+    if (
+        first_token_match is not None
+        and first_token_match.group(0)[:1].isupper()
+        and first_token_match.group(0).lower() == words[0]
+        and len(words[0]) >= 5
+    ):
+        yield words[0]
+    for size in (2, 3):
         for start in range(len(words) - size + 1):
-            if words[start : start + size] == phrase_words:
-                yield phrase
+            yield " ".join(words[start : start + size])
+
+
+def _topic_candidate_text(raw: str) -> str:
+    lines: list[str] = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        kept_units = [
+            unit.strip()
+            for unit in _content_units(line)
+            if unit.strip() and not _is_boilerplate_line(unit)
+        ]
+        if kept_units:
+            lines.append(" ".join(kept_units))
+    return "\n".join(lines)
+
+
+def _content_units(line: str) -> tuple[str, ...]:
+    units = tuple(unit.strip() for unit in re.split(r"(?<=[.!?])\s+", line) if unit.strip())
+    return units or (line,)
+
+
+def _is_boilerplate_line(line: str) -> bool:
+    cleaned = _HEADING_PREFIX_RE.sub("", line.strip())
+    if not cleaned:
+        return True
+    return bool(
+        _BOILERPLATE_LINE_RE.search(cleaned)
+        or _PAGE_OR_SLIDE_LINE_RE.search(cleaned)
+        or _looks_like_person_name_sentence(cleaned)
+    )
+
+
+def _looks_like_person_name_sentence(text: str) -> bool:
+    if not text.endswith("."):
+        return False
+    tokens = re.findall(rf"[{_LETTER}][{_LETTER}'-]*", text[:-1])
+    if not 2 <= len(tokens) <= 5:
+        return False
+    return all(token[:1].isupper() and token.lower() not in _STOPWORDS for token in tokens)
 
 
 def _valid_topic(candidate: str) -> bool:
     words = candidate.split()
     if not words:
         return False
+    if _ocr_placeholder_topic(candidate):
+        return False
+    if candidate in _BOILERPLATE_TOPIC_PHRASES:
+        return False
     if any(word in _STOPWORDS for word in words):
         return False
-    if len(words) == 1 and len(words[0]) < 4 and words[0] not in _KNOWN_SINGLE_WORD_TOPICS:
+    if any(len(word) <= 1 for word in words):
+        return False
+    if len(words) == 1 and len(words[0]) < 4:
         return False
     return len(words) <= 5
+
+
+def _ocr_placeholder_topic(candidate: str) -> bool:
+    lowered = candidate.lower()
+    return (
+        "not-decoded" in lowered
+        or "formula-not" in lowered
+        or "image-not" in lowered
+        or "ocr-noise" in lowered
+    )
 
 
 def _collapse_component_topics(topics: list[PriorityTopic]) -> list[PriorityTopic]:
@@ -542,14 +763,10 @@ def _topic_is_preferred(candidate: str, current: str) -> bool:
     current_words = set(current.split())
     if candidate_words.isdisjoint(current_words):
         return False
-    candidate_single_known = candidate in _KNOWN_SINGLE_WORD_TOPICS
-    current_single_known = current in _KNOWN_SINGLE_WORD_TOPICS
-    if candidate_single_known != current_single_known:
-        return candidate_single_known
-    candidate_known = candidate in _KNOWN_TOPIC_PHRASES
-    current_known = current in _KNOWN_TOPIC_PHRASES
-    if candidate_known != current_known:
-        return candidate_known
+    if len(candidate_words) >= 2 and candidate_words < current_words:
+        return True
+    if len(current_words) >= 2 and current_words < candidate_words:
+        return False
     return len(candidate_words) > len(current_words)
 
 
@@ -793,31 +1010,7 @@ def _analysis_with_web_prerequisites(analysis: PriorityAnalysis) -> PriorityAnal
 
 
 def _analysis_for_full_report(analysis: PriorityAnalysis) -> PriorityAnalysis:
-    if len(analysis.topics) >= 18:
-        return analysis
-    expanded = analyze_priority(analysis.chunks, limit=40)
-    web_by_topic = {topic.topic: topic.web_prerequisites for topic in analysis.topics}
-    topics = [
-        PriorityTopic(
-            topic=topic.topic,
-            score=topic.score,
-            exam_hits=topic.exam_hits,
-            exam_marks=topic.exam_marks,
-            material_hits=topic.material_hits,
-            sources=topic.sources,
-            prerequisites=topic.prerequisites,
-            web_prerequisites=web_by_topic.get(topic.topic, ()),
-            evidence=topic.evidence,
-        )
-        for topic in expanded.topics
-    ]
-    return PriorityAnalysis(
-        topics=tuple(topics),
-        past_exam_sources=expanded.past_exam_sources,
-        material_sources=expanded.material_sources,
-        chunks=expanded.chunks,
-        exam_questions=expanded.exam_questions,
-    )
+    return analysis
 
 
 def _duckduckgo_search(query: str) -> Iterable[PriorityWebSearchResult]:
@@ -878,7 +1071,7 @@ def _priority_model_context(analysis: PriorityAnalysis, *, focus: str) -> str:
     chunks = list(_representative_chunks(analysis))
     evidence_lines = []
     for idx, chunk in enumerate(chunks, start=1):
-        role, _confidence, _reason = infer_material_role(chunk.source)
+        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
         evidence_lines.append(
             "\n".join(
                 (
@@ -912,7 +1105,7 @@ def _representative_chunks(
         key = (chunk.source, chunk.text[:120])
         if key in seen:
             continue
-        role, _confidence, _reason = infer_material_role(chunk.source)
+        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
         text = chunk.text.lower()
         if role == "past_exam" or any(topic in text for topic in topic_names):
             selected.append(chunk)

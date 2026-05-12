@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,46 @@ class TestArmoryIndexBuild:
         index.build()
         assert index.chunk_count > 0
 
+    def test_build_reports_progress(self, armory: Path) -> None:
+        events: list[tuple[str, str]] = []
+        index = ArmoryIndex(armory)
+
+        index.build(progress=lambda action, detail: events.append((action, detail)))
+
+        assert any(action == "reading" for action, _detail in events)
+        assert any(action == "indexed" for action, _detail in events)
+        assert any("materials/python.md" in detail for _action, detail in events)
+
+    def test_build_marks_slow_binary_conversion_unindexable(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir()
+        pdf = arm / "materials" / "slow.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n\x00")
+
+        def slow_chunk_file(*_args: object, **_kwargs: object) -> ChunkedDocument | None:
+            try:
+                time.sleep(3)
+            except Exception:
+                return None
+            return None
+
+        monkeypatch.setenv("HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS", "1")
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaistos.rag.index.chunk_file", slow_chunk_file)
+        index = ArmoryIndex(arm)
+
+        index.build()
+
+        assert index.chunk_count == 0
+        assert index.unindexable_files == {
+            "materials/slow.pdf": "document conversion timed out after 1 second(s)"
+        }
+
     def test_all_chunks_have_source(self, armory: Path) -> None:
         index = ArmoryIndex(armory)
         index.build()
@@ -82,6 +123,24 @@ class TestArmoryIndexPersist:
         loaded = ArmoryIndex(armory)
         assert loaded.load()
         assert len(loaded.documents) == len(index.documents)
+        assert loaded.chunk_count == index.chunk_count
+
+    def test_load_validates_hashes_without_rechunking(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        index = ArmoryIndex(armory)
+        index.build()
+        index.save()
+
+        def fail_chunk_file(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("load must not rebuild chunks")
+
+        monkeypatch.setattr("hephaistos.rag.index.chunk_file", fail_chunk_file)
+
+        loaded = ArmoryIndex(armory)
+        assert loaded.load()
         assert loaded.chunk_count == index.chunk_count
 
     def test_load_missing_returns_false(self, armory: Path) -> None:
@@ -141,7 +200,7 @@ class TestArmoryIndexStaleness:
         armory: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
 
         index = ArmoryIndex(armory)
@@ -153,6 +212,23 @@ class TestArmoryIndexStaleness:
         loaded = ArmoryIndex(armory)
         assert loaded.load()
         assert not loaded.is_stale()
+
+    def test_failed_binary_file_becomes_stale_when_converter_available(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pdf = armory / "materials" / "scan.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
+
+        index = ArmoryIndex(armory)
+        index.build()
+        assert not index.is_stale()
+
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: True)
+
+        assert index.is_stale()
 
 
 class TestBuildIndex:
@@ -199,7 +275,7 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
         monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
@@ -210,7 +286,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 4,
+                    "version": 5,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -232,7 +308,7 @@ class TestLoadOrBuild:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
         monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
@@ -243,7 +319,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 4,
+                    "version": 5,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -292,7 +368,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 4,
+                    "version": 5,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -341,7 +417,56 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 4,
+                    "version": 5,
+                    "chunk_size": 500,
+                    "overlap": 100,
+                    "strategy": "auto",
+                    "file_hashes": {"materials/theorem.pdf": content_hash},
+                    "documents": [
+                        {
+                            "source": "materials/theorem.pdf",
+                            "content_hash": content_hash,
+                            "chunks": [
+                                {
+                                    "text": "Persisted converted content.",
+                                    "source": "materials/theorem.pdf",
+                                    "index": 0,
+                                    "char_start": 0,
+                                    "char_end": 28,
+                                    "heading": "Theorem",
+                                    "heading_level": 1,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        index = build_index(arm)
+
+        assert index.chunk_count == 1
+        assert index.unindexable_files == {}
+        assert index.all_chunks[0].text == "Persisted converted content."
+
+    def test_build_index_preserves_converted_pdf_when_conversion_temporarily_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaistos.rag.index.chunk_file", lambda *_args, **_kwargs: None)
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        pdf = arm / "materials" / "theorem.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
+        content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
+        (arm / ".hephaistos" / "rag_index.json").write_text(
+            json.dumps(
+                {
+                    "version": 5,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -389,7 +514,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 4,
+                    "version": 5,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -437,7 +562,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 4,
+                    "version": 5,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -625,6 +750,27 @@ class TestArmoryIndexStrategy:
             assert chunk.heading == ""
             assert chunk.heading_level == 0
 
+    def test_load_normalizes_legacy_extracted_text(self, armory: Path) -> None:
+        index = ArmoryIndex(armory)
+        index.build()
+        index.save()
+
+        index_path = armory / ".hephaistos" / "rag_index.json"
+        data = json.loads(index_path.read_text())
+        data["documents"][0]["chunks"][0]["text"] = (
+            "Mathematik f¨ ur Informatiker <!-- formula-not-decoded --> <!-- image -->"
+        )
+        data["documents_digest"] = "legacy-digest"
+        data["version"] = 3
+        index_path.write_text(json.dumps(data))
+
+        loaded = ArmoryIndex(armory)
+
+        assert loaded.load()
+        assert "Mathematik für Informatiker" in loaded.all_chunks[0].text
+        assert "formula-not-decoded" not in loaded.all_chunks[0].text
+        assert "<!-- image -->" not in loaded.all_chunks[0].text
+
 
 class TestArmoryIndexUnindexable:
     """Verify that unindexable (binary) files are tracked."""
@@ -634,7 +780,7 @@ class TestArmoryIndexUnindexable:
         armory: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
         (armory / "materials" / "doc.pdf").write_bytes(b"%PDF-1.4\x00fake pdf")
         index = ArmoryIndex(armory)
         index.build()
@@ -671,6 +817,7 @@ class TestScanUnindexableFiles:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: False)
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir(parents=True)
@@ -687,6 +834,7 @@ class TestScanUnindexableFiles:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr("hephaistos.rag.index._is_docling_available", lambda: True)
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: True)
         arm = tmp_path / "armory"
         (arm / "materials").mkdir(parents=True)
         (arm / ".hephaistos").mkdir(parents=True)

@@ -1,0 +1,35 @@
+{
+  "armory": "/Users/gilrodrigues/Code/Hephaistos/benchmarks/academic/armory",
+  "replay_dataset": "/Users/gilrodrigues/Code/Hephaistos/benchmarks/academic/replay.jsonl",
+  "output_dir": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval",
+  "required_groups": [
+    "local",
+    "frontier"
+  ],
+  "status": 1,
+  "candidates": 2,
+  "groups": [
+    "frontier",
+    "local"
+  ],
+  "failures": [
+    "candidate frontier-hosted has no api_key and no base_url; set api_key/api_key_env or an OpenAI-compatible local base_url"
+  ],
+  "results": [],
+  "replay_cases": 7,
+  "replay_domains": [
+    "computer-science",
+    "cross-domain",
+    "mathematics",
+    "study-methods"
+  ],
+  "replay_tasks": [
+    "abstention",
+    "active-recall-assessment",
+    "grounded-explanation",
+    "hint",
+    "material-overview",
+    "multi-source-synthesis",
+    "single-source-fact"
+  ]
+}

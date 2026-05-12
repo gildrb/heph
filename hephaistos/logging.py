@@ -340,18 +340,20 @@ class TraceWriter:
         retrieved: int,
         scores: list[float],
         latency_ms: float,
+        chunks: list[Mapping[str, object]] | None = None,
     ) -> None:
-        self._write(
-            {
-                "type": "rag_retrieve",
-                "ts": self._ts(),
-                "query": query[:200],
-                "top_k": top_k,
-                "retrieved": retrieved,
-                "scores": [round(s, 4) for s in scores],
-                "latency_ms": round(latency_ms, 1),
-            }
-        )
+        event: dict[str, object] = {
+            "type": "rag_retrieve",
+            "ts": self._ts(),
+            "query": query[:200],
+            "top_k": top_k,
+            "retrieved": retrieved,
+            "scores": [round(s, 4) for s in scores],
+            "latency_ms": round(latency_ms, 1),
+        }
+        if chunks is not None:
+            event["chunks"] = chunks
+        self._write(event)
 
     def record_session_event(self, event: str, **details: object) -> None:
         entry: dict[str, object] = {

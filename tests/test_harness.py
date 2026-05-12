@@ -28,7 +28,13 @@ from hephaistos.agent.tools import (
 )
 from hephaistos.chat._api_types import ApiMessage
 from hephaistos.chat.engine import ChatConfig, CompletionDelta, Conversation
-from hephaistos.chat.events import AssistantDeltaEvent, CompactRequestEvent, TurnCompleteEvent
+from hephaistos.chat.events import (
+    AssistantDeltaEvent,
+    CompactRequestEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+    TurnCompleteEvent,
+)
 
 # ---------------------------------------------------------------------------
 # safe_path
@@ -188,8 +194,10 @@ class TestToolSchemas:
             "create_armory",
             "edit_file",
             "list_files",
+            "open_material",
             "read_file",
             "search_files",
+            "search_materials",
             "validate_armory",
             "web_fetch",
             "write_file",
@@ -279,24 +287,35 @@ class TestMergeToolCallDeltas:
 class TestFormatToolArgs:
     def test_bash(self) -> None:
         result = format_tool_args("bash", {"command": "ls -la"})
-        assert "$ ls -la" in result
+        assert "Running: ls -la" in result
 
     def test_read(self) -> None:
         result = format_tool_args("read_file", {"path": "src/main.py"})
-        assert "[read] src/main.py" in result
+        assert "Reading: src/main.py" in result
 
     def test_write(self) -> None:
         result = format_tool_args("write_file", {"path": "out.txt", "content": "hi"})
-        assert "[write] out.txt" in result
+        assert "Writing: out.txt" in result
         assert "2 chars" in result
 
     def test_edit(self) -> None:
         result = format_tool_args("edit_file", {"path": "a.py"})
-        assert "[edit] a.py" in result
+        assert "Editing: a.py" in result
 
     def test_list(self) -> None:
         result = format_tool_args("list_files", {"path": "."})
-        assert "[list] ." in result
+        assert "Listing: ." in result
+
+    def test_search_materials(self) -> None:
+        result = format_tool_args("search_materials", {"query": "enzyme kinetics"})
+        assert "Searching materials: enzyme kinetics" in result
+
+    def test_open_material(self) -> None:
+        result = format_tool_args(
+            "open_material",
+            {"source": "materials/lecture.pdf", "chunk": 3},
+        )
+        assert "Opening material: materials/lecture.pdf#chunk=3" in result
 
 
 class TestSummarizeResult:
@@ -484,3 +503,58 @@ class TestIterAgentEvents:
         assert any(isinstance(event, CompactRequestEvent) for event in events)
         assert isinstance(events[-1], TurnCompleteEvent)
         assert events[-1].full_text == "after compact"
+
+    def test_material_search_tool_emits_readable_events(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        materials = workspace / "materials"
+        materials.mkdir()
+        (materials / "lecture.md").write_text(
+            "# Protein Folding\n\n"
+            "Chaperone proteins help prevent misfolding during translation.\n",
+            encoding="utf-8",
+        )
+        calls = 0
+
+        def fake_stream(*_args: object, **_kwargs: object):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                yield CompletionDelta(
+                    tool_calls=[
+                        {
+                            "index": 0,
+                            "id": "call_search",
+                            "function": {
+                                "name": "search_materials",
+                                "arguments": json.dumps({"query": "chaperone proteins"}),
+                            },
+                        }
+                    ],
+                    finish_reason="tool_calls",
+                )
+                return
+            yield CompletionDelta(content="Chaperones prevent misfolding [M1].")
+            yield CompletionDelta(finish_reason="stop")
+
+        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+
+        events = list(
+            dispatch_mod.iter_agent_events(
+                ChatConfig(base_url="https://example.invalid", model="test-model"),
+                Conversation(),
+                workspace,
+            )
+        )
+
+        tool_calls = [event for event in events if isinstance(event, ToolCallEvent)]
+        tool_results = [event for event in events if isinstance(event, ToolResultEvent)]
+        assert tool_calls
+        assert tool_calls[0].display == "  Searching materials: chaperone proteins"
+        assert tool_results
+        assert tool_results[0].success is True
+        assert "materials/lecture.md#chunk=0" in tool_results[0].content
+        assert isinstance(events[-1], TurnCompleteEvent)
+        assert events[-1].full_text == "Chaperones prevent misfolding [M1]."

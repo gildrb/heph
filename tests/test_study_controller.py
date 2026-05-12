@@ -28,14 +28,33 @@ def test_first_turn_plans_presentation() -> None:
     assert plan.allow_tools is True
 
 
-def test_first_turn_material_overview_disables_tools() -> None:
+def test_first_turn_material_overview_allows_index_tools() -> None:
     state = StudyState()
 
     plan = plan_turn(state, "what is the material about")
 
     assert plan.action is StudyAction.PRESENT
     assert plan.retrieval_query == "what is the material about"
-    assert plan.allow_tools is False
+    assert plan.allow_tools is True
+    assert plan.buffer_response is True
+    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
+    assert "not as the entire corpus" in plan.prompt
+    assert "Do not infer from filenames" in plan.prompt
+    assert "Use material tools to inspect indexed sources" in plan.prompt
+    assert "Do not paste long source excerpts" in plan.prompt
+
+
+def test_source_worded_material_overview_still_uses_overview_plan() -> None:
+    state = StudyState()
+
+    plan = plan_turn(
+        state,
+        "Using the indexed sources, give a concise grounded overview of the enabled material.",
+    )
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.buffer_response is True
+    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
 
 
 def test_first_turn_explain_material_simply_uses_overview() -> None:
@@ -45,7 +64,9 @@ def test_first_turn_explain_material_simply_uses_overview() -> None:
 
     assert plan.action is StudyAction.PRESENT
     assert plan.retrieval_query == "explain the material simply"
-    assert plan.allow_tools is False
+    assert plan.allow_tools is True
+    assert plan.buffer_response is True
+    assert "document types" in plan.prompt
 
 
 def test_explicit_source_question_answers_without_entering_recall_loop() -> None:

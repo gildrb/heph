@@ -15,12 +15,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from hephaistos.agent.persona import DEFAULT as _DEFAULT_PERSONA
 from hephaistos.agent.persona import Persona
 from hephaistos.agent.tools import ToolRegistry, ToolSchema, default_registry
 from hephaistos.logging import get_logger
 from hephaistos.materials import MaterialRole, infer_material_role
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from hephaistos.rag.health import ExtractionHealthIssue
 
 _log = get_logger("agent.prompt")
 
@@ -35,17 +41,20 @@ _ANTI_HALLUCINATION = """\
    Use read_file or search_files to verify before answering.
 4. **Distinguish certain from uncertain.** Use "according to [source]" for verified facts.
    Use "I believe..." or "this is my understanding" for inferences, and flag them.
-5. **If the source doesn't cover it, say so.** Do NOT draw on outside knowledge to fill gaps.
-   Say: "The armory documents don't cover this topic. I can search online if you'd like."
+5. **Use the sources as the anchor, not as a cage.** For study-material questions, factual
+   claims about what a lecture, exercise, exam, syllabus, or uploaded document says must be
+   grounded in retrieved material evidence. You may use general academic reasoning to explain,
+   connect, simplify, or solve from that evidence, but label unsupported extensions as general
+   explanation rather than as a source claim.
 6. **Verify before correcting the student.** Read the relevant source document before telling
    a student they are wrong. You might be the one who's wrong.
 7. **When describing diagrams/figures, be precise.** Every label, axis, unit, and value must
    come from the actual image — never approximate or invent details.
-8. **No retrieved evidence for a question.** If no "Retrieved evidence for this question"
-   section appears before a study-material question, do not answer from outside knowledge.
-   Say no searchable armory evidence was retrieved, and ask for a more specific
-   material-backed question or for the material to be indexed. Do NOT fabricate evidence
-   citations.
+8. **No retrieved evidence for a study-material question.** Search or open the materials before
+   answering. If tools still cannot find relevant material evidence, say that the enabled armory
+   sources do not contain enough evidence for the material-specific claim. You may still offer
+   clearly labelled general study guidance if it is useful and cannot be mistaken for a claim
+   about the user's files.
 """
 
 _VERIFICATION_FIRST = """\
@@ -55,10 +64,24 @@ Reliability is more important than sounding helpful.
 
 - Before answering factual questions about files, code, configuration, command output,
   study material, citations, or the current workspace, verify with retrieved evidence or a
-  tool call (`read_file`, `search_files`, `list_files`, `bash`, or `web_fetch`).
+  tool call (`search_materials`, `open_material`, `read_file`, `search_files`, `list_files`,
+  `bash`, or `web_fetch`).
 - If retrieved evidence already contains the needed fact, cite it and answer directly.
+- For study materials, prefer `search_materials` and `open_material` over raw file tools:
+  they search the prepared material index and work for converted PDFs, slides, notes,
+  exercises, and exams. Use them whenever the retrieved evidence is missing, stale,
+  ambiguous, too narrow, or only partially relevant.
+- Synthesize from the indexed materials in your own words. Do not merely paste passages
+  unless the user asks for exact wording or a quoted definition.
+- Be intellectually active: compare sources, identify likely document roles from structure,
+  solve from definitions, explain intermediate reasoning, and turn raw evidence into a useful
+  study answer. The evidence proves your answer; it is not the answer by itself.
 - If evidence is missing, stale, ambiguous, or only partially relevant, use tools before
   making claims. If tools cannot verify the claim, say exactly what is unknown.
+- If the tool/retrieval result still does not contain the answer, the final answer must
+  explicitly say the enabled armory sources do not contain enough evidence for that
+  material-specific claim. Do not present memory or general knowledge as if it came from
+  the user's files.
 - Use compressed or summarized command output only for navigation and triage. Before making
   exact claims, editing files, quoting values, or citing source material, inspect the exact
   source with `read_file` or retrieved evidence.
@@ -222,6 +245,7 @@ def build_system_prompt_sections(
     armory_path: Path | None = None,
     source_files: list[str] | None = None,
     unindexable_files: dict[str, str] | None = None,
+    extraction_health_issues: Sequence[ExtractionHealthIssue] = (),
     memory_context: str = "",
     persona: Persona | None = None,
     registry: ToolRegistry | None = None,
@@ -234,6 +258,9 @@ def build_system_prompt_sections(
         Path to the armory workspace (for context and custom prompt).
     source_files :
         List of material file names available in the armory.
+    extraction_health_issues :
+        Indexed documents with generic extraction poison markers.  These are
+        corpus-quality failures, independent of subject, university, or language.
     memory_context :
         Pre-built memory context string (from MemoryStore.build_system_context).
     persona :
@@ -288,6 +315,21 @@ def build_system_prompt_sections(
                 "armory evidence until document conversion or indexing succeeds."
             )
             context_parts.append("\n".join(lines))
+        if extraction_health_issues:
+            lines = ["WARNING: The following indexed files contain extraction health issues:"]
+            for issue in extraction_health_issues[:10]:
+                markers = ", ".join(issue.forbidden_text_present)
+                lines.append(f"  - {issue.source}: {markers}")
+            remaining = len(extraction_health_issues) - 10
+            if remaining > 0:
+                lines.append(f"  - ... and {remaining} more file(s)")
+            lines.append(
+                "Treat affected indexed chunks as unreliable extraction output. Do NOT "
+                "answer from affected files unless clean retrieved evidence directly "
+                "supports the claim. Tell the user to run `heph health` and rebuild or "
+                "reconvert the affected material before relying on it."
+            )
+            context_parts.append("\n".join(lines))
 
     return SystemPrompt(
         role=role,
@@ -307,6 +349,7 @@ def build_system_prompt(
     armory_path: Path | None = None,
     source_files: list[str] | None = None,
     unindexable_files: dict[str, str] | None = None,
+    extraction_health_issues: Sequence[ExtractionHealthIssue] = (),
     memory_context: str = "",
     persona: Persona | None = None,
     registry: ToolRegistry | None = None,
@@ -317,6 +360,7 @@ def build_system_prompt(
         armory_path=armory_path,
         source_files=source_files,
         unindexable_files=unindexable_files,
+        extraction_health_issues=extraction_health_issues,
         memory_context=memory_context,
         persona=persona,
         registry=registry,

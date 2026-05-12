@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Callable
 
 from hephaistos.armory.search import set_last_armory
 from hephaistos.armory.storage import ArmoryError
 from hephaistos.chat import storage as chat_storage
+from hephaistos.chat.automation import event_to_json_object, iter_chat_events
 from hephaistos.chat.session import (
     ChatSession,
     SessionError,
@@ -68,6 +70,10 @@ def _cmd_chat_ask(args: argparse.Namespace) -> None:
     if not prompt:
         print("error: prompt is required", file=sys.stderr)
         raise SystemExit(2)
+    if args.jsonl:
+        for event in iter_chat_events(session, prompt):
+            print(json.dumps(event_to_json_object(event), ensure_ascii=False))
+        return
     send_user_message(session, prompt)
 
 
@@ -110,6 +116,11 @@ def register(
     start.set_defaults(handler=lambda a: _cmd_chat_start(a, run_tui=run_tui))  # type: ignore[arg-type]
 
     ask = chat_sub.add_parser("ask", help="Ask one question without opening the TUI.")
+    ask.add_argument(
+        "--jsonl",
+        action="store_true",
+        help="Emit structured turn events as JSON Lines instead of rendered text.",
+    )
     ask.add_argument("path", help="Path to the armory folder.")
     ask.add_argument("prompt", nargs="+", help="Question or instruction to send.")
     ask.set_defaults(handler=_cmd_chat_ask)

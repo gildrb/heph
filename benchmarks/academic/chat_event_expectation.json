@@ -1,0 +1,35 @@
+[
+  {
+    "id": "chat-event-material-overview",
+    "domain": "cross-domain",
+    "task": "material-overview",
+    "must_not_include": [
+      "the files cover",
+      "say ready when you want recall",
+      "no evidence citations",
+      "Visible topics: definition",
+      "heute sprechen",
+      "letztes mal",
+      "mal haben"
+    ],
+    "min_words": 24,
+    "min_citation_count": 2,
+    "min_distinct_sources": 2,
+    "min_bullet_count": 2,
+    "min_cited_bullet_count": 2,
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "materials/algorithms.md",
+        "chunk": 0,
+        "text": "Algorithm material can appear as lecture notes or reference notes."
+      },
+      {
+        "id": "E2",
+        "source": "materials/mfi-past-exam.md",
+        "chunk": 0,
+        "text": "Past exam material contains exam prompts and point-format questions."
+      }
+    ]
+  }
+]

@@ -39,7 +39,7 @@ def _module_name_error(name: str) -> str | None:
 
 
 def _prompt_module_name() -> str | None:
-    print_info("What module or topic are you studying for? (e.g. 'gdp', 'algorithms', 'mfi-1')")
+    print_info("What module or topic are you studying for? (e.g. 'gdp', 'algorithms', 'biology')")
     armory_home = _onboarding_armory_home()
     print_info(f"Armories are saved in {armory_home}. You can create as many as you like.")
     while True:

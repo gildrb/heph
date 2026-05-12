@@ -1,0 +1,70 @@
+{
+  "armory": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/armory",
+  "replay_dataset": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/expanded-real-corpus/replay.jsonl",
+  "output_dir": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-expanded/remote-only-run",
+  "required_groups": [
+    "frontier"
+  ],
+  "status": 0,
+  "candidates": 1,
+  "groups": [
+    "frontier"
+  ],
+  "failures": [],
+  "results": [
+    {
+      "candidate_id": "remote-pollinations-openai",
+      "group": "frontier",
+      "model": "openai",
+      "base_url": "https://text.pollinations.ai/openai",
+      "status": 0,
+      "output": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-expanded/remote-only-run/remote-pollinations-openai.answers.jsonl",
+      "report_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-expanded/remote-only-run/remote-pollinations-openai.report.json",
+      "cases": 7,
+      "domains": [
+        "biology",
+        "chemistry",
+        "computer-science",
+        "cross-domain",
+        "economics",
+        "electrical-engineering"
+      ],
+      "tasks": [
+        "abstention",
+        "assignment-understanding",
+        "exam-understanding",
+        "grounded-explanation",
+        "material-overview",
+        "procedural-guidance"
+      ],
+      "pass_rate": 1.0,
+      "citation_validity_rate": 1.0,
+      "citation_presence_rate": 1.0,
+      "expected_citation_rate": 1.0,
+      "required_text_rate": 1.0,
+      "forbidden_text_rate": 1.0,
+      "supported_claim_rate": 1.0,
+      "answer_shape_rate": 1.0,
+      "evidence_coverage_rate": 1.0,
+      "required_label_rate": 1.0,
+      "error": ""
+    }
+  ],
+  "replay_cases": 7,
+  "replay_domains": [
+    "biology",
+    "chemistry",
+    "computer-science",
+    "cross-domain",
+    "economics",
+    "electrical-engineering"
+  ],
+  "replay_tasks": [
+    "abstention",
+    "assignment-understanding",
+    "exam-understanding",
+    "grounded-explanation",
+    "material-overview",
+    "procedural-guidance"
+  ]
+}

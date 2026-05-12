@@ -55,7 +55,7 @@ def test_enrich_reply_appends_evidence_panel() -> None:
     assert "[E1]" in result.markdown_text
     assert "sources" in result.markdown_text
     assert "algorithms.md" in result.markdown_text
-    assert "expand: /evidence E1" in result.markdown_text
+    assert "Details: /evidence" in result.markdown_text
     assert "Binary search is O(log n)" not in result.markdown_text
 
 
@@ -133,8 +133,21 @@ def test_evidence_panel_omits_chunk_preview_content() -> None:
     result = enrich_reply("See [E1].", evidence)
 
     assert "long.md" in result.markdown_text
-    assert "expand: /evidence E1" in result.markdown_text
+    assert "Details: /evidence" in result.markdown_text
     assert long_text not in result.markdown_text
+
+
+def test_evidence_panel_keeps_diagnostic_details_out_of_visible_reply() -> None:
+    evidence = _make_evidence(
+        ("E1", "materials/week-02-slides.pdf", 2, 0.5, "slide content"),
+        ("E2", "materials/past-exam.pdf", 4, 0.4, "exam content"),
+    )
+    result = enrich_reply("See [E1] and [E2].", evidence)
+
+    assert "score " not in result.markdown_text
+    assert "open: /evidence" not in result.markdown_text
+    assert "materials/week-02-slides.pdf" not in result.markdown_text
+    assert "materials/past-exam.pdf" not in result.markdown_text
 
 
 def test_evidence_panel_uses_reader_friendly_location_labels() -> None:

@@ -1,0 +1,1 @@
+{"id": "dijkstra-replay", "prompt": "Using the sources, explain how Dijkstra chooses the next node.", "expected_citations": ["E1"], "must_include": ["priority queue"], "must_not_include": ["negative weights"]}

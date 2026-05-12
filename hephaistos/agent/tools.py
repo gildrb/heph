@@ -20,24 +20,20 @@ Tool philosophy for a study RAG agent:
 from __future__ import annotations
 
 import importlib.util
-import ipaddress
 import os
 import re
 import shlex
 import shutil
-import socket
 import subprocess  # nosec B404
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlparse
 
+from hephaistos.agent.material_tools import run_open_material, run_search_materials
 from hephaistos.agent.mutation_queue import get_queue
 from hephaistos.agent.tool_schema import (
     ToolHandlerResult,
@@ -46,6 +42,7 @@ from hephaistos.agent.tool_schema import (
     ToolSchema,
     ToolSpec,
 )
+from hephaistos.agent.web_tools import run_web_fetch
 from hephaistos.armory.storage import (
     ARMORY_DIRS,
     MARKER_FILE,
@@ -62,15 +59,6 @@ def safe_path(workspace: Path, rel_path: str) -> Path:
     if not resolved.is_relative_to(workspace.resolve()):
         raise ValueError(f"Path escapes workspace: {rel_path}")
     return resolved
-
-
-def _resolve_hostname_ips(hostname: str) -> list[str]:
-    """Resolve a hostname to its IP addresses (to prevent DNS rebinding)."""
-    try:
-        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-    except socket.gaierror:
-        return []
-    return [str(sockaddr[0]) for _, _, _, _, sockaddr in addr_info]
 
 
 class ToolRegistry:
@@ -339,6 +327,34 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
         required=("pattern",),
     ),
     _tool(
+        "search_materials",
+        (
+            "Search the armory's indexed study materials, including converted PDFs and "
+            "slides. Use this before answering when the initial evidence is thin, broad, "
+            "or ambiguous. Returns ranked material excerpts with source names and chunk "
+            "numbers for citation and follow-up reading."
+        ),
+        {
+            "query": _string("Natural-language topic, question, term, or formula to search for."),
+            "top_k": _integer("Maximum number of excerpts to return. Default: 8."),
+        },
+        required=("query",),
+    ),
+    _tool(
+        "open_material",
+        (
+            "Open indexed study-material text around a source or chunk returned by "
+            "search_materials. Use this to read enough local context before synthesizing "
+            "an answer instead of pasting isolated passages."
+        ),
+        {
+            "source": _string("Indexed source path such as materials/lecture.pdf."),
+            "chunk": _integer("Chunk number to center on. Defaults to the first chunk."),
+            "context": _integer("Neighbor chunks to include on each side. Default: 1."),
+        },
+        required=("source",),
+    ),
+    _tool(
         "web_fetch",
         (
             "Fetch a web page and return its text content. "
@@ -357,9 +373,6 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
 _BASH_TIMEOUT = 30
 _MAX_READ_CHARS = 50_000
 _RTK_TIMEOUT_BUFFER_SECONDS = 5
-_WEB_FETCH_TIMEOUT = 15
-_WEB_FETCH_MAX_CHARS = 20_000
-_WEB_USER_AGENT = "Hephaistos/0.1 (study agent)"
 _MAX_SEARCH_RESULTS = 50
 _RTK_SHELL_META_CHARS = frozenset("|&;<>(){}[]*$?`!~\n")
 _RTK_TRUTHY = frozenset({"1", "true", "yes", "on", "enabled"})
@@ -796,69 +809,6 @@ def run_search_files(
     return header + "\n" + "\n".join(matches)
 
 
-def run_web_fetch(url: str, timeout: int | None = None, **_kwargs: object) -> str:
-    """Fetch a URL and return the text content with source attribution.
-
-    This tool is for filling knowledge gaps that cannot be answered from
-    the armory documents.  The response always includes the source URL
-    so the user can verify the information.
-    """
-    if not url.startswith(("http://", "https://")):
-        return "Error: URL must start with http:// or https://"
-
-    parsed = urlparse(url)
-    hostname = parsed.hostname
-    if hostname:
-        # Resolve once and use the IP directly to prevent DNS rebinding.
-        resolved_ips = _resolve_hostname_ips(hostname)
-        if not resolved_ips:
-            return f"Error: could not resolve host ({hostname})"
-        for ip_str in resolved_ips:
-            ip = ipaddress.ip_address(ip_str)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                return f"Error: blocked private/internal host ({hostname})"
-        # Replace hostname with resolved IP, set Host header for virtual hosting.
-        first_ip = resolved_ips[0]
-        # Format IPv6 addresses with brackets.
-        ip_host = f"[{first_ip}]" if ":" in first_ip else first_ip
-        netloc = parsed.netloc.replace(hostname, ip_host, 1)
-        safe_url = parsed._replace(netloc=netloc).geturl()
-        host_header = hostname if not parsed.port else f"{hostname}:{parsed.port}"
-    else:
-        safe_url = url
-        host_header = None
-
-    req = urllib.request.Request(
-        safe_url,
-        headers={"User-Agent": _WEB_USER_AGENT},
-    )
-    if host_header:
-        req.add_header("Host", host_header)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout or _WEB_FETCH_TIMEOUT) as resp:  # nosec B310
-            content_type = resp.headers.get("Content-Type", "")
-            if not any(ct in content_type for ct in ("text", "json", "xml")):
-                return f"Error: non-text content type ({content_type}). URL: {url}"
-            raw = resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        return f"Error: HTTP {exc.code} fetching {url}"
-    except urllib.error.URLError as exc:
-        return f"Error: could not reach {url} — {exc.reason}"
-    except Exception as exc:
-        return f"Error fetching {url}: {exc}"
-    if len(raw) > _WEB_FETCH_MAX_CHARS:
-        raw = raw[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
-    if "<html" in raw.lower() or "<body" in raw.lower():
-        raw = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw, flags=re.IGNORECASE)
-        raw = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", raw, flags=re.IGNORECASE)
-        raw = re.sub(r"<[^>]+>", " ", raw)
-        raw = re.sub(r"\s+", " ", raw).strip()
-        if len(raw) > _WEB_FETCH_MAX_CHARS:
-            raw = raw[:_WEB_FETCH_MAX_CHARS] + "\n... [truncated]"
-
-    return f"--- Source: {url} ---\n{raw}\n--- End of fetched content ---"
-
-
 def _mutation_wrap(path_str: str, fn: Callable[..., str], **kwargs: object) -> str:
     """Wrap a file mutation handler with the mutation queue for safety."""
     workspace = kwargs.get("workspace")
@@ -930,6 +880,8 @@ _HANDLERS: dict[str, Callable[..., ToolHandlerResult]] = {
     "create_armory": run_create_armory,
     "validate_armory": run_validate_armory,
     "search_files": run_search_files,
+    "search_materials": run_search_materials,
+    "open_material": run_open_material,
     "web_fetch": run_web_fetch,
 }
 
