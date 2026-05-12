@@ -137,6 +137,8 @@ _COMMON_LATIN_OCR_REPAIRS = (
     (re.compile(r"\bbegriinden\b"), "begründen"),
     (re.compile(r"\bBegrundung\b"), "Begründung"),
     (re.compile(r"\bbegrundung\b"), "begründung"),
+    (re.compile(r"\bfiir\b"), "für"),
+    (re.compile(r"\bFiir\b"), "Für"),
 )
 
 

@@ -286,7 +286,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 5,
+                    "version": 6,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -319,7 +319,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 5,
+                    "version": 6,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -368,7 +368,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 5,
+                    "version": 6,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -417,7 +417,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 5,
+                    "version": 6,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -466,7 +466,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 5,
+                    "version": 6,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -514,7 +514,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 5,
+                    "version": 6,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",
@@ -562,7 +562,7 @@ class TestLoadOrBuild:
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
-                    "version": 5,
+                    "version": 6,
                     "chunk_size": 500,
                     "overlap": 100,
                     "strategy": "auto",

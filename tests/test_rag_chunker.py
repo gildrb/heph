@@ -361,9 +361,9 @@ class TestDoclingIntegration:
         assert _normalize_extracted_text(text) == ("für beschränkt Übung Universität Würzburg")
 
     def test_normalize_extracted_text_repairs_common_latin_ocr_words(self) -> None:
-        text = "Begriinden Sie Ihre Antwort. Die Begrundung ist wichtig."
+        text = "Begriinden Sie Ihre Antwort. Die Begrundung ist wichtig fiir die Bewertung."
         assert _normalize_extracted_text(text) == (
-            "Begründen Sie Ihre Antwort. Die Begründung ist wichtig."
+            "Begründen Sie Ihre Antwort. Die Begründung ist wichtig für die Bewertung."
         )
 
     def test_normalize_extracted_text_removes_extraction_placeholders(self) -> None:

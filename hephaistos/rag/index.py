@@ -39,7 +39,7 @@ _OVERLAP = 100
 _FILE_TIMEOUT_ENV = "HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS"
 
 # Persisted index format version — bump when layout changes.
-_INDEX_VERSION = 5
+_INDEX_VERSION = 6
 IndexProgress = Callable[[str, str], None]
 
 
@@ -370,7 +370,7 @@ class ArmoryIndex:
 
         raw_version = data.get("version", 1)
         version = raw_version if isinstance(raw_version, int) else 1
-        if version not in (1, 2, 3, 5):
+        if version not in (1, 2, 3, 5, 6):
             return False
         if version >= 2 and "strategy" in data:
             raw_strategy = data["strategy"]
