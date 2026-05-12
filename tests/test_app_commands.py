@@ -372,12 +372,10 @@ def test_models_command_switches_selected_model(
         classmethod(lambda _cls: default_config()),
     )
 
-    def select_gpt_53_codex(_title: str, options: list[MenuOption]) -> int:
-        return next(
-            index for index, option in enumerate(options) if option.label == "gpt-5.3-codex"
-        )
+    def select_gpt_55(_title: str, options: list[MenuOption]) -> int:
+        return next(index for index, option in enumerate(options) if option.label == "gpt-5.5")
 
-    monkeypatch.setattr(_commands_model, "select_option", select_gpt_53_codex)
+    monkeypatch.setattr(_commands_model, "select_option", select_gpt_55)
 
     def switch(session: ChatSession, slug: str, model: str) -> bool:
         session.config.model = model
@@ -396,11 +394,11 @@ def test_models_command_switches_selected_model(
         lambda msg: messages.append(("error", msg)),
     )
 
-    result = commands.ModelsCommand().handle(session, "gpt-5.3-codex")
+    result = commands.ModelsCommand().handle(session, "gpt-5.5")
 
     assert result.output is None
-    assert session.config.model == "gpt-5.3-codex"
-    assert messages == [("success", "Switched to OpenAI Codex / gpt-5.3-codex")]
+    assert session.config.model == "gpt-5.5"
+    assert messages == [("success", "Switched to OpenAI API / gpt-5.5")]
 
 
 def test_models_command_shows_live_openrouter_models(

@@ -494,7 +494,7 @@ def test_load_config_no_fallback_when_key_present(
         def apply_to_config(self, config: ChatConfig) -> None:
             config.base_url = "https://api.openai.com/v1"
             config.model = "gpt-test"
-            config.apply_provider_reference("openai-codex", "OPENAI_API_KEY")
+            config.apply_provider_reference("openai", "OPENAI_API_KEY")
 
     monkeypatch.setattr(
         "hephaistos.providers.config.ProviderConfig.load",
@@ -508,6 +508,6 @@ def test_load_config_no_fallback_when_key_present(
     config = params_cli.load_config()
 
     assert config.base_url == "https://api.openai.com/v1"
-    assert config._provider_slug == "openai-codex"
+    assert config._provider_slug == "openai"
     err = capsys.readouterr().err
     assert "falling back" not in err

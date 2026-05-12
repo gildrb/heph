@@ -10,7 +10,13 @@ from pathlib import Path
 import pytest
 
 from hephaistos.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
-from hephaistos.rag.index import ArmoryIndex, build_index, load_or_build, scan_unindexable_files
+from hephaistos.rag.index import (
+    ArmoryIndex,
+    _documents_digest,
+    build_index,
+    load_or_build,
+    scan_unindexable_files,
+)
 
 
 @pytest.fixture
@@ -39,6 +45,37 @@ def armory(tmp_path: Path) -> Path:
         "Merge sort is stable and runs in O(n log n).\n"
     )
     return arm
+
+
+def _save_cached_index(
+    armory_path: Path,
+    *,
+    documents: list[ChunkedDocument],
+    file_hashes: dict[str, str],
+    strategy: ChunkStrategy = ChunkStrategy.AUTO,
+) -> None:
+    index = ArmoryIndex(armory_path, strategy=strategy)
+    index.documents = documents
+    index._file_hashes = file_hashes
+    index.save()
+
+
+def _converted_document(source: str, content_hash: str, text: str) -> ChunkedDocument:
+    return ChunkedDocument(
+        source=source,
+        content_hash=content_hash,
+        chunks=[
+            Chunk(
+                text=text,
+                source=source,
+                index=0,
+                char_start=0,
+                char_end=len(text),
+                heading="Theorem",
+                heading_level=1,
+            )
+        ],
+    )
 
 
 class TestArmoryIndexBuild:
@@ -264,6 +301,7 @@ class TestLoadOrBuild:
         index_path = armory / ".hephaistos" / "rag_index.json"
         data = json.loads(index_path.read_text())
         data["documents"][0]["chunks"][0]["text"] = "hidden poisoned evidence"
+        data["documents_digest"] = _documents_digest(data["documents"])
         index_path.write_text(json.dumps(data), encoding="utf-8")
 
         index = load_or_build(armory)
@@ -316,34 +354,16 @@ class TestLoadOrBuild:
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
-        (arm / ".hephaistos" / "rag_index.json").write_text(
-            json.dumps(
-                {
-                    "version": 6,
-                    "chunk_size": 500,
-                    "overlap": 100,
-                    "strategy": "auto",
-                    "file_hashes": {"materials/theorem.pdf": content_hash},
-                    "documents": [
-                        {
-                            "source": "materials/theorem.pdf",
-                            "content_hash": content_hash,
-                            "chunks": [
-                                {
-                                    "text": "Already converted theorem text.",
-                                    "source": "materials/theorem.pdf",
-                                    "index": 0,
-                                    "char_start": 0,
-                                    "char_end": 31,
-                                    "heading": "Theorem",
-                                    "heading_level": 1,
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
+        _save_cached_index(
+            arm,
+            documents=[
+                _converted_document(
+                    "materials/theorem.pdf",
+                    content_hash,
+                    "Already converted theorem text.",
+                )
+            ],
+            file_hashes={"materials/theorem.pdf": content_hash},
         )
 
         index = load_or_build(arm)
@@ -365,6 +385,53 @@ class TestLoadOrBuild:
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
+        _save_cached_index(
+            arm,
+            documents=[
+                _converted_document(
+                    "materials/theorem.pdf",
+                    content_hash,
+                    "Previously converted theorem text.",
+                )
+            ],
+            file_hashes={"materials/theorem.pdf": content_hash},
+        )
+
+        index = load_or_build(arm)
+
+        assert index.chunk_count == 1
+        assert index.unindexable_files == {}
+        assert index.all_chunks[0].text == "Previously converted theorem text."
+
+    def test_rejects_unsigned_converted_pdf_cache(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        pdf = arm / "materials" / "theorem.pdf"
+        pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
+        content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
+        documents = [
+            {
+                "source": "materials/theorem.pdf",
+                "content_hash": content_hash,
+                "chunks": [
+                    {
+                        "text": "Forged converted theorem text.",
+                        "source": "materials/theorem.pdf",
+                        "index": 0,
+                        "char_start": 0,
+                        "char_end": 30,
+                        "heading": "Theorem",
+                        "heading_level": 1,
+                    }
+                ],
+            }
+        ]
         (arm / ".hephaistos" / "rag_index.json").write_text(
             json.dumps(
                 {
@@ -373,33 +440,16 @@ class TestLoadOrBuild:
                     "overlap": 100,
                     "strategy": "auto",
                     "file_hashes": {"materials/theorem.pdf": content_hash},
-                    "documents": [
-                        {
-                            "source": "materials/theorem.pdf",
-                            "content_hash": content_hash,
-                            "chunks": [
-                                {
-                                    "text": "Previously converted theorem text.",
-                                    "source": "materials/theorem.pdf",
-                                    "index": 0,
-                                    "char_start": 0,
-                                    "char_end": 34,
-                                    "heading": "Theorem",
-                                    "heading_level": 1,
-                                }
-                            ],
-                        }
-                    ],
+                    "documents_digest": _documents_digest(documents),
+                    "documents": documents,
                 }
             ),
             encoding="utf-8",
         )
 
-        index = load_or_build(arm)
+        index = ArmoryIndex(arm)
 
-        assert index.chunk_count == 1
-        assert index.unindexable_files == {}
-        assert index.all_chunks[0].text == "Previously converted theorem text."
+        assert not index.load()
 
     def test_build_index_preserves_converted_pdf_when_conversion_unavailable(
         self,
@@ -414,34 +464,16 @@ class TestLoadOrBuild:
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
-        (arm / ".hephaistos" / "rag_index.json").write_text(
-            json.dumps(
-                {
-                    "version": 6,
-                    "chunk_size": 500,
-                    "overlap": 100,
-                    "strategy": "auto",
-                    "file_hashes": {"materials/theorem.pdf": content_hash},
-                    "documents": [
-                        {
-                            "source": "materials/theorem.pdf",
-                            "content_hash": content_hash,
-                            "chunks": [
-                                {
-                                    "text": "Persisted converted content.",
-                                    "source": "materials/theorem.pdf",
-                                    "index": 0,
-                                    "char_start": 0,
-                                    "char_end": 28,
-                                    "heading": "Theorem",
-                                    "heading_level": 1,
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
+        _save_cached_index(
+            arm,
+            documents=[
+                _converted_document(
+                    "materials/theorem.pdf",
+                    content_hash,
+                    "Persisted converted content.",
+                )
+            ],
+            file_hashes={"materials/theorem.pdf": content_hash},
         )
 
         index = build_index(arm)
@@ -463,34 +495,16 @@ class TestLoadOrBuild:
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
-        (arm / ".hephaistos" / "rag_index.json").write_text(
-            json.dumps(
-                {
-                    "version": 6,
-                    "chunk_size": 500,
-                    "overlap": 100,
-                    "strategy": "auto",
-                    "file_hashes": {"materials/theorem.pdf": content_hash},
-                    "documents": [
-                        {
-                            "source": "materials/theorem.pdf",
-                            "content_hash": content_hash,
-                            "chunks": [
-                                {
-                                    "text": "Persisted converted content.",
-                                    "source": "materials/theorem.pdf",
-                                    "index": 0,
-                                    "char_start": 0,
-                                    "char_end": 28,
-                                    "heading": "Theorem",
-                                    "heading_level": 1,
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
+        _save_cached_index(
+            arm,
+            documents=[
+                _converted_document(
+                    "materials/theorem.pdf",
+                    content_hash,
+                    "Persisted converted content.",
+                )
+            ],
+            file_hashes={"materials/theorem.pdf": content_hash},
         )
 
         index = build_index(arm)
@@ -511,34 +525,16 @@ class TestLoadOrBuild:
         pdf = arm / "materials" / "theorem.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00old theorem")
         content_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()[:16]
-        (arm / ".hephaistos" / "rag_index.json").write_text(
-            json.dumps(
-                {
-                    "version": 6,
-                    "chunk_size": 500,
-                    "overlap": 100,
-                    "strategy": "auto",
-                    "file_hashes": {"materials/theorem.pdf": content_hash},
-                    "documents": [
-                        {
-                            "source": "materials/theorem.pdf",
-                            "content_hash": content_hash,
-                            "chunks": [
-                                {
-                                    "text": "Old converted content.",
-                                    "source": "materials/theorem.pdf",
-                                    "index": 0,
-                                    "char_start": 0,
-                                    "char_end": 22,
-                                    "heading": "Theorem",
-                                    "heading_level": 1,
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
+        _save_cached_index(
+            arm,
+            documents=[
+                _converted_document(
+                    "materials/theorem.pdf",
+                    content_hash,
+                    "Old converted content.",
+                )
+            ],
+            file_hashes={"materials/theorem.pdf": content_hash},
         )
         index = ArmoryIndex(arm)
         assert index.load()
@@ -751,15 +747,18 @@ class TestArmoryIndexStrategy:
             assert chunk.heading_level == 0
 
     def test_load_normalizes_legacy_extracted_text(self, armory: Path) -> None:
+        legacy_text = "Mathematik f¨ ur Informatiker <!-- formula-not-decoded --> <!-- image -->"
+        (armory / "materials" / "python.md").write_text(legacy_text, encoding="utf-8")
         index = ArmoryIndex(armory)
         index.build()
         index.save()
 
         index_path = armory / ".hephaistos" / "rag_index.json"
         data = json.loads(index_path.read_text())
-        data["documents"][0]["chunks"][0]["text"] = (
-            "Mathematik f¨ ur Informatiker <!-- formula-not-decoded --> <!-- image -->"
-        )
+        for document in data["documents"]:
+            if document["source"] == "materials/python.md":
+                document["chunks"][0]["text"] = legacy_text
+                break
         data["documents_digest"] = "legacy-digest"
         data["version"] = 3
         index_path.write_text(json.dumps(data))
@@ -767,9 +766,12 @@ class TestArmoryIndexStrategy:
         loaded = ArmoryIndex(armory)
 
         assert loaded.load()
-        assert "Mathematik für Informatiker" in loaded.all_chunks[0].text
-        assert "formula-not-decoded" not in loaded.all_chunks[0].text
-        assert "<!-- image -->" not in loaded.all_chunks[0].text
+        chunk_text = next(
+            chunk.text for chunk in loaded.all_chunks if chunk.source == "materials/python.md"
+        )
+        assert "Mathematik für Informatiker" in chunk_text
+        assert "formula-not-decoded" not in chunk_text
+        assert "<!-- image -->" not in chunk_text
 
 
 class TestArmoryIndexUnindexable:
@@ -849,6 +851,38 @@ class TestScanUnindexableFiles:
         (arm / "materials" / "notes.md").write_text("# Notes")
 
         assert scan_unindexable_files(arm) == {}
+
+    def test_skips_symlinked_unindexable_materials(self, tmp_path: Path) -> None:
+        arm = tmp_path / "armory"
+        (arm / "materials").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        outside = tmp_path / "secret.pdf"
+        outside.write_bytes(b"%PDF-1.4\x00outside")
+        link = arm / "materials" / "linked.pdf"
+        try:
+            link.symlink_to(outside)
+        except OSError:
+            pytest.skip("symlinks are not supported on this filesystem")
+
+        assert scan_unindexable_files(arm) == {}
+
+    def test_respects_armory_ignore_patterns(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("hephaistos.rag.index._can_convert_binary_file", lambda _path: False)
+        arm = tmp_path / "armory"
+        (arm / "materials" / "private").mkdir(parents=True)
+        (arm / ".hephaistos").mkdir(parents=True)
+        (arm / ".hephaistosignore").write_text("materials/private/\n", encoding="utf-8")
+        (arm / "materials" / "private" / "secret.pdf").write_bytes(b"%PDF-1.4\x00secret")
+        (arm / "materials" / "public.pdf").write_bytes(b"%PDF-1.4\x00public")
+
+        result = scan_unindexable_files(arm)
+
+        assert "materials/private/secret.pdf" not in result
+        assert "materials/public.pdf" in result
 
     def test_returns_empty_when_no_materials_dir(self, tmp_path: Path) -> None:
         arm = tmp_path / "armory"

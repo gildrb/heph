@@ -28,6 +28,7 @@ _log = get_logger("chat.usage")
 _MODEL_PRICING: dict[str, tuple[float, float]] = {
     "gpt-4o": (0.0025, 0.01),
     "gpt-4o-mini": (0.00015, 0.0006),
+    "gpt-5.5": (0.005, 0.03),
     "gpt-5.4": (0.002, 0.008),
     "gpt-5.4-mini": (0.00015, 0.0006),
     "gpt-5.4-pro": (0.005, 0.015),
@@ -56,6 +57,7 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
 }
 _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "gpt-4o": 128_000,
+    "gpt-5.5": 1_000_000,
     "gpt-5.4": 128_000,
     "gpt-5.3": 128_000,
     "gpt-5.2": 128_000,

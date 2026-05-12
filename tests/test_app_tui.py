@@ -21,7 +21,12 @@ from hephaistos.parameters import settings as settings_store
 from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
-from hephaistos.tui.inline_flows import _dedupe_inline_options
+from hephaistos.tui.inline_flows import (
+    _dedupe_inline_options,
+    _duplicate_model_names,
+    _model_choice_from_label,
+    _model_choice_label,
+)
 from hephaistos.tui.transparent import Region as _Region
 from hephaistos.tui.transparent import style_without_black_background
 
@@ -151,6 +156,50 @@ def test_tui_config_error_allows_pollinations_without_api_key() -> None:
     assert tui._config_error(_keyless_session()) is None
 
 
+def test_tui_config_error_allows_openai_codex_oauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = ChatSession(
+        config=ChatConfig(
+            base_url="https://api.openai.com/v1",
+            model="gpt-5.5",
+            _provider_slug="openai-codex",
+        ),
+        conversation=Conversation(),
+        session_id="session-test",
+    )
+    monkeypatch.setattr(
+        "hephaistos.runtime.engine.load_credentials",
+        lambda _provider, **_kwargs: object(),
+    )
+
+    assert "api configured" in tui._status_lines(session)
+    assert tui._config_error(session) is None
+
+
+def test_tui_config_error_names_missing_openai_codex_oauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = ChatSession(
+        config=ChatConfig(
+            base_url="https://api.openai.com/v1",
+            model="gpt-5.5",
+            _provider_slug="openai-codex",
+        ),
+        conversation=Conversation(),
+        session_id="session-test",
+    )
+    monkeypatch.setattr(
+        "hephaistos.runtime.engine.load_credentials",
+        lambda _provider, **_kwargs: None,
+    )
+
+    assert tui._config_error(session) == (
+        "OpenAI Codex subscription requires /login OAuth credentials. "
+        "Use the OpenAI API provider for OPENAI_API_KEY billing."
+    )
+
+
 def test_tui_css_keeps_surface_transparent() -> None:
     css = tui._tui_css()
 
@@ -199,6 +248,21 @@ def test_inline_options_remove_exact_repetitions() -> None:
         ("model-a", "via OpenRouter"),
         ("model-a", "via Z.AI"),
     ]
+
+
+def test_duplicate_model_choices_keep_provider_identity() -> None:
+    choices = [
+        ("openai", "gpt-5.5", "OpenAI API", False),
+        ("openai-codex", "gpt-5.5", "OpenAI Codex", False),
+    ]
+
+    duplicates = _duplicate_model_names(choices)
+    label = _model_choice_label("gpt-5.5", "OpenAI Codex", duplicate=True)
+    selected = _model_choice_from_label(label, choices)
+
+    assert duplicates == {"gpt-5.5"}
+    assert label == "gpt-5.5 [OpenAI Codex]"
+    assert selected == ("openai-codex", "gpt-5.5", "OpenAI Codex", False)
 
 
 def test_non_default_themes_do_not_paint_terminal_background() -> None:

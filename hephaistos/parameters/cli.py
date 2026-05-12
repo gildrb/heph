@@ -66,7 +66,7 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         if (
             config.base_url
             and not runtime.is_keyless_endpoint(config.base_url)
-            and not config.resolved_api_key
+            and not runtime.has_configured_access(config)
         ):
             print(
                 f"warning: active provider '{config._provider_slug}' has no API key, "

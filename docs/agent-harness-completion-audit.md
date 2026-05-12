@@ -49,11 +49,11 @@ uv run python -m scripts.materialize_public_corpus \
   path/to/real-armory
 ```
 
-This downloads or copies each document with `source_url` into its declared
-`materials/...` path, refuses path traversal, and refuses to overwrite existing
-files unless `--overwrite` is supplied. Permissioned corpora can still use
-`permission_note` provenance. Local permissioned folders can be copied into a
-benchmark armory with:
+This downloads each document with a public HTTPS `source_url` into its declared
+`materials/...` path, refuses local or private-network URLs, refuses path
+traversal, and refuses to overwrite existing files unless `--overwrite` is
+supplied. Permissioned corpora can still use `permission_note` provenance. Local
+permissioned folders can be copied into a benchmark armory with:
 
 ```bash
 uv run python -m scripts.build_permissioned_corpus_armory \

@@ -50,6 +50,9 @@ def test_default_config_activates_pollinations_as_default() -> None:
 
     config.apply_to_config(chat_config)
 
+    assert "openai" in config.providers
+    assert "gpt-5.5" in config.providers["openai"].models
+    assert "gpt-5.5" in config.providers["openai-codex"].models
     assert config.get_active() is config.providers["pollinations"]
     assert chat_config.base_url == "https://text.pollinations.ai/openai"
     assert chat_config.model == "openai"
@@ -208,7 +211,8 @@ models = [
     loaded = ProviderConfig.load(config_path)
     provider = loaded.providers["openai-codex"]
 
-    assert provider.models == []
+    assert provider.api_key_env == ""
+    assert provider.models[0] == "gpt-5.5"
     assert provider.current_model == ""
 
 
@@ -247,13 +251,40 @@ def test_supported_model_for_zai_endpoint_accepts_trailing_slash_variants() -> N
     )
 
 
+def test_load_refreshes_legacy_openai_codex_model_catalog(tmp_path: Path) -> None:
+    config_path = tmp_path / "providers.toml"
+    config_path.write_text(
+        """
+[openai-codex]
+display_name = "OpenAI Codex"
+endpoint = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+active = true
+current_model = "gpt-5.4-mini"
+models = ["gpt-5.4", "gpt-5.4-mini"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = ProviderConfig.load(config_path)
+    provider = loaded.providers["openai-codex"]
+
+    assert provider.api_key_env == ""
+    assert provider.models[:2] == ["gpt-5.5", "gpt-5.4-pro"]
+    assert provider.current_model == "gpt-5.4-mini"
+
+
 def test_model_registry_ignores_unsupported_models() -> None:
     registry = ModelRegistry(
         [
             ModelInfo("legacy-model", "openrouter", "Legacy", 1, 1, 0.1, 0.2),
             ModelInfo("gpt-5.4", "openai-codex", "GPT-5.4", 1, 1, 0.1, 0.2),
+            ModelInfo("gpt-5.4", "openai", "GPT-5.4 API", 1, 1, 0.1, 0.2),
         ]
     )
 
     assert registry.get("legacy-model") is None
     assert registry.get("gpt-5.4") is not None
+    assert registry.get("gpt-5.4", provider="openai") is not None
+    assert registry.list_models(provider="openai")

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 from hephaistos.chat.session import no_armory_guidance_reply
 from hephaistos.diagnostics.crashes import capture_exception
 from hephaistos.diagnostics.events import capture as capture_analytics
-from hephaistos.providers.endpoints import is_keyless_endpoint
+from hephaistos.runtime import has_configured_access
 from hephaistos.study import plan_turn
 from hephaistos.terminal.display import (
     STYLE_ASSISTANT,
@@ -71,7 +71,7 @@ def _preflight_config_check(session: ChatSession) -> str | None:
         return "No model source configured. Use /login, then /models."
     if not session.config.model:
         return "No model configured. Use /models to select one."
-    if not is_keyless_endpoint(session.config.base_url) and not session.config.resolved_api_key:
+    if not has_configured_access(session.config):
         from hephaistos.runtime import missing_api_key_message
 
         return missing_api_key_message(session.config)

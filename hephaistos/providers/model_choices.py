@@ -9,10 +9,11 @@ from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.registry import get_registry as get_provider_registry
 
 _MODEL_PROVIDER_ORDER = {
-    "openrouter": 0,
+    "openai": 0,
     "openai-codex": 1,
-    "zai": 2,
-    "pollinations": 3,
+    "openrouter": 2,
+    "zai": 3,
+    "pollinations": 4,
     "custom": 99,
 }
 
@@ -40,6 +41,7 @@ _POLLINATIONS_FAMILIES = (
 )
 
 _SOURCE_LABELS = {
+    "openai": "OpenAI API",
     "openai-codex": "OpenAI Codex",
     "openrouter": "OpenRouter",
     "pollinations": "Pollinations",
@@ -77,7 +79,7 @@ def configured_model_choices(
         if slug not in eligible_slugs:
             continue
         for model in provider.models:
-            info = registry.get(model)
+            info = registry.get(model, provider=slug)
             is_free = info.is_free if info is not None else False
             choices.append((slug, model, provider.display_name, is_free))
     return sorted(

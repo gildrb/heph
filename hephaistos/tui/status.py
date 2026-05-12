@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from hephaistos import __version__
 from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.providers.endpoints import is_keyless_endpoint
+from hephaistos.runtime import has_configured_access
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -20,7 +21,7 @@ def status_lines(session: ChatSession, state: str = "ready") -> str:
     armory = str(session.armory_path) if session.armory_path is not None else "none"
     model = session.config.model or "none"
     keyless = is_keyless_endpoint(session.config.base_url)
-    key_ok = keyless or bool(session.config.resolved_api_key)
+    key_ok = has_configured_access(session.config, refresh_oauth=False)
     if keyless:
         api = "free"
     elif key_ok:
@@ -46,7 +47,7 @@ def config_error(session: ChatSession) -> str | None:
         return "No model source configured. Use /login, then /models."
     if not session.config.model:
         return "No model configured. Use /models to select one."
-    if not session.config.resolved_api_key and not is_keyless_endpoint(session.config.base_url):
+    if not has_configured_access(session.config):
         from hephaistos.runtime import missing_api_key_message
 
         return missing_api_key_message(session.config)

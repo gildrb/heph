@@ -69,13 +69,39 @@ def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None
     assert result.should_exit is False
     assert session.config._provider_slug == "openai-codex"
     assert session.config.base_url == "https://api.openai.com/v1"
-    assert session.config.model == "gpt-5.4"
+    assert session.config.model == "gpt-5.5"
     assert len(saved_configs) == 1
     active = saved_configs[0].get_active()
     assert active is not None
     assert active.slug == "openai-codex"
     assert "test-account-123" in success_msgs[0]
-    assert "gpt-5.4" in success_msgs[0]
+    assert "gpt-5.5" in success_msgs[0]
+
+
+def test_login_openai_api_key_switches_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = ChatConfig(api_key="", base_url="", model="")
+    session = ChatSession(config=cfg, conversation=Conversation(), session_id="test-openai-api")
+
+    monkeypatch.setattr(
+        _commands_auth,
+        "select_option",
+        lambda _title, _options, **_kw: 1,
+    )
+
+    stored: list[tuple[str, str]] = []
+    monkeypatch.setattr(_commands_auth, "direct_input", lambda _prompt: "sk-openai-test")
+    monkeypatch.setattr(_commands_auth, "store_key", lambda slug, key: stored.append((slug, key)))
+    monkeypatch.setattr(ProviderConfig, "save", lambda _pc, _path=None: None)
+    success_msgs: list[str] = []
+    monkeypatch.setattr(_commands_auth, "print_success", success_msgs.append)
+
+    commands.LoginCommand().handle(session, "")
+
+    assert stored == [("openai", "sk-openai-test")]
+    assert session.config._provider_slug == "openai"
+    assert session.config.base_url == "https://api.openai.com/v1"
+    assert session.config.model == "gpt-5.5"
+    assert "OpenAI API" in success_msgs[0]
 
 
 def test_login_openrouter_api_key_switches_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -85,7 +111,7 @@ def test_login_openrouter_api_key_switches_provider(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 1,
+        lambda _title, _options, **_kw: 2,
     )
 
     def _direct_input(_prompt: str) -> str:
@@ -122,7 +148,7 @@ def test_login_custom_endpoint_switches_provider(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 3,
+        lambda _title, _options, **_kw: 4,
     )
 
     def _direct_input(_prompt: str) -> str:
@@ -254,7 +280,7 @@ def test_login_custom_endpoint_requires_model(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 3,
+        lambda _title, _options, **_kw: 4,
     )
     monkeypatch.setattr(_commands_auth, "direct_input", lambda _prompt: next(values))
     monkeypatch.setattr(_commands_auth, "print_error", errors.append)
@@ -276,7 +302,7 @@ def test_login_api_key_falls_back_to_volatile_storage(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         _commands_auth,
         "select_option",
-        lambda _title, _options, **_kw: 1,
+        lambda _title, _options, **_kw: 2,
     )
     monkeypatch.setattr(_commands_auth, "direct_input", lambda _prompt: "sk-or-test")
     monkeypatch.setattr(

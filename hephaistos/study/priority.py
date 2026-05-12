@@ -24,6 +24,7 @@ from hephaistos.runtime import (
     Conversation,
     EngineError,
     RetryConfig,
+    has_configured_access,
     stream_completion,
 )
 
@@ -1064,7 +1065,7 @@ def _model_priority_payload(
 def _can_use_model(config: ChatConfig) -> bool:
     if not config.base_url or not config.model:
         return False
-    return is_keyless_endpoint(config.base_url) or bool(config.resolved_api_key)
+    return is_keyless_endpoint(config.base_url) or has_configured_access(config)
 
 
 def _priority_model_context(analysis: PriorityAnalysis, *, focus: str) -> str:

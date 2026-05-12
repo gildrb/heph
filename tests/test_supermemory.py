@@ -7,6 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hephaistos.chat.engine import ChatConfig, Conversation
+from hephaistos.chat.session import ChatSession
+from hephaistos.commands.memory import MemoryCommand
 from hephaistos.memory import MemoryStore, load_memory
 from hephaistos.memory.supermemory import (
     SUPERMEMORY_API_KEY_ENV,
@@ -173,3 +176,27 @@ def test_supermemory_disabled_uses_local_memory_even_with_key(
     store = load_memory(tmp_path)
 
     assert type(store) is MemoryStore
+
+
+def test_memory_disable_replaces_active_supermemory_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(SUPERMEMORY_API_KEY_ENV, "env-supermemory-key")
+    save_setting("supermemory_enabled", True)
+    remote_store, sdk_client = _store(tmp_path)
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="memory-disable",
+        armory_path=tmp_path,
+    )
+    session.configure_armory_context(memory=remote_store)
+
+    MemoryCommand().handle(session, "disable")
+
+    assert type(session.memory) is MemoryStore
+    assert not supermemory_configured()
+    assert session.memory is not None
+    session.memory.add_batch([{"topic": "Local", "content": "Stored locally"}])
+    sdk_client.add.assert_not_called()

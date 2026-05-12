@@ -8,16 +8,19 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import hmac
 import json
 import os
+import secrets
 import signal
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import cast
 
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import Timer, get_logger
 from hephaistos.materials import MATERIALS_DIR, iter_material_files
+from hephaistos.parameters.settings import user_config_dir
 from hephaistos.rag.chunker import (
     Chunk,
     ChunkedDocument,
@@ -39,8 +42,10 @@ _OVERLAP = 100
 _FILE_TIMEOUT_ENV = "HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS"
 
 # Persisted index format version — bump when layout changes.
-_INDEX_VERSION = 6
+_INDEX_VERSION = 7
 IndexProgress = Callable[[str, str], None]
+_CACHE_SIGNING_KEY_FILE = "rag_cache.key"
+_CACHE_SIGNING_KEY_PATH_ENV = "HEPHAISTOS_RAG_CACHE_KEY_FILE"
 
 
 class _IndexFileTimeoutError(TimeoutError):
@@ -161,6 +166,70 @@ def _resolved_path_within_materials(path: Path, armory_path: Path) -> Path | Non
 def _documents_digest(documents: object) -> str:
     encoded = json.dumps(documents, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def _cache_signing_key_path() -> Path:
+    raw_path = os.environ.get(_CACHE_SIGNING_KEY_PATH_ENV, "").strip()
+    if raw_path:
+        return Path(raw_path).expanduser()
+    return user_config_dir() / _CACHE_SIGNING_KEY_FILE
+
+
+def _cache_signing_key() -> bytes | None:
+    key_path = _cache_signing_key_path()
+    try:
+        key_path.parent.mkdir(parents=True, exist_ok=True)
+        if key_path.is_file():
+            raw_key = key_path.read_text(encoding="utf-8").strip()
+            key = bytes.fromhex(raw_key)
+            if len(key) < 32:
+                raise ValueError("rag cache signing key is too short")
+            return key
+        key = secrets.token_bytes(32)
+        key_path.write_text(f"{key.hex()}\n", encoding="utf-8")
+        with contextlib.suppress(OSError):
+            key_path.chmod(0o600)
+        return key
+    except (OSError, ValueError):
+        return None
+
+
+def _index_signature_payload(data: Mapping[str, object]) -> bytes:
+    signable_keys = (
+        "version",
+        "chunk_size",
+        "overlap",
+        "strategy",
+        "file_hashes",
+        "documents_digest",
+        "documents",
+    )
+    signable = {key: data[key] for key in signable_keys if key in data}
+    encoded = json.dumps(signable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return encoded.encode("utf-8")
+
+
+def _index_signature(data: Mapping[str, object]) -> str | None:
+    key = _cache_signing_key()
+    if key is None:
+        return None
+    return hmac.new(key, _index_signature_payload(data), hashlib.sha256).hexdigest()
+
+
+def _index_signature_matches(data: Mapping[str, object]) -> bool:
+    raw_signature = data.get("cache_signature")
+    if not isinstance(raw_signature, str) or not raw_signature:
+        return False
+    expected = _index_signature(data)
+    return expected is not None and hmac.compare_digest(raw_signature, expected)
+
+
+def _normalized_text_contains(source_text: str, chunk_text: str) -> bool:
+    if chunk_text in source_text:
+        return True
+    compact_source = " ".join(source_text.split())
+    compact_chunk = " ".join(chunk_text.split())
+    return bool(compact_chunk) and compact_chunk in compact_source
 
 
 class ArmoryIndex:
@@ -352,6 +421,9 @@ class ArmoryIndex:
             "documents_digest": _documents_digest(documents),
             "documents": documents,
         }
+        signature = _index_signature(data)
+        if signature is not None:
+            data["cache_signature"] = signature
         index_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return index_path
 
@@ -370,7 +442,7 @@ class ArmoryIndex:
 
         raw_version = data.get("version", 1)
         version = raw_version if isinstance(raw_version, int) else 1
-        if version not in (1, 2, 3, 5, 6):
+        if version not in (1, 2, 3, 5, 6, 7):
             return False
         if version >= 2 and "strategy" in data:
             raw_strategy = data["strategy"]
@@ -391,10 +463,19 @@ class ArmoryIndex:
         if not is_object_list(raw_documents):
             return False
         raw_documents_digest = data.get("documents_digest")
-        if (
+        documents_digest = _documents_digest(raw_documents)
+        if version >= 7:
+            if (
+                not isinstance(raw_documents_digest, str)
+                or raw_documents_digest != documents_digest
+            ):
+                return False
+            if not _index_signature_matches(data):
+                return False
+        elif (
             version >= 4
             and isinstance(raw_documents_digest, str)
-            and (raw_documents_digest != _documents_digest(raw_documents))
+            and raw_documents_digest != documents_digest
         ):
             return False
         for doc_data in raw_documents:
@@ -449,6 +530,15 @@ class ArmoryIndex:
         if not self._file_hashes_match_material_files():
             _log.warning(
                 "rag index cache does not match material files",
+                extra={"fields": {"armory": str(self.armory_path)}},
+            )
+            self.documents = []
+            self._file_hashes = {}
+            return False
+
+        if not self._documents_match_material_sources(allow_binary_cache=version >= 7):
+            _log.warning(
+                "rag index cache chunks do not match material files",
                 extra={"fields": {"armory": str(self.armory_path)}},
             )
             self.documents = []
@@ -517,6 +607,39 @@ class ArmoryIndex:
             self.documents.append(document)
             self.unindexable_files.pop(document.source, None)
 
+    def _documents_match_material_sources(self, *, allow_binary_cache: bool) -> bool:
+        for document in self.documents:
+            if not document.source:
+                return False
+            source_path = self.armory_path / document.source
+            resolved_path = _resolved_path_within_materials(source_path, self.armory_path)
+            if resolved_path is None or not resolved_path.is_file():
+                return False
+            material_hash = _file_hash(resolved_path)
+            if material_hash is None or self._file_hashes.get(document.source) != material_hash:
+                return False
+            if _is_text_file(resolved_path):
+                try:
+                    source_text = _normalize_extracted_text(
+                        resolved_path.read_text(encoding="utf-8")
+                    )
+                except (UnicodeDecodeError, OSError):
+                    return False
+                text_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
+                if document.content_hash and document.content_hash != text_hash:
+                    return False
+                for chunk in document.chunks:
+                    if chunk.source != document.source:
+                        return False
+                    if not _normalized_text_contains(source_text, chunk.text):
+                        return False
+            else:
+                if document.content_hash and document.content_hash != material_hash:
+                    return False
+                if document.chunks and not allow_binary_cache:
+                    return False
+        return True
+
     def _file_hashes_match_material_files(self) -> bool:
         file_hashes: dict[str, str] = {}
         for file_path in self._iter_source_files():
@@ -549,16 +672,10 @@ def scan_unindexable_files(armory_path: Path) -> dict[str, str]:
     Used to inform the system prompt about files the LLM cannot read or search.
     """
     result: dict[str, str] = {}
-    materials_dir = armory_path / MATERIALS_DIR
-    if not materials_dir.is_dir():
-        return result
-    for file_path in sorted(materials_dir.rglob("*")):
-        if not file_path.is_file():
+    for file_path in iter_source_files(armory_path):
+        if _resolved_path_within_materials(file_path, armory_path) is None:
             continue
         rel = str(file_path.relative_to(armory_path))
-        # Skip hidden files
-        if any(part.startswith(".") for part in Path(rel).parts):
-            continue
         if not _is_text_file(file_path) and not _can_convert_binary_file(file_path):
             result[rel] = _unindexable_reason(file_path)
     return result

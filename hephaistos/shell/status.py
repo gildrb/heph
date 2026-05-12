@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from hephaistos.chat.session import ChatSession
 from hephaistos.providers.endpoints import is_keyless_endpoint
+from hephaistos.runtime import has_configured_access
 from hephaistos.terminal.display import STYLE_DIM, styled
 
 
@@ -19,7 +20,7 @@ def session_status_lines(session: ChatSession) -> list[str]:
         "not needed (free provider)"
         if is_keyless_endpoint(session.config.base_url)
         else "configured"
-        if session.config.resolved_api_key
+        if has_configured_access(session.config, refresh_oauth=False)
         else styled("not set", STYLE_DIM)
     )
     return [

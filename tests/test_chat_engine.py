@@ -6,7 +6,7 @@ import io
 import json
 import urllib.error
 from email.message import Message as HttpHeaders
-from typing import Self
+from typing import Never, Self
 
 import pytest
 
@@ -232,3 +232,27 @@ def test_codex_backend_stream_stops_after_response_completed(
     assert deltas[-1].finish_reason == "stop"
     assert deltas[-1].usage == {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
     assert response.closed is True
+
+
+def test_codex_provider_requires_oauth_instead_of_api_key_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_engine, "load_credentials", lambda _provider: None)
+
+    def fail_client_factory(_config: ChatConfig) -> Never:
+        raise AssertionError("OpenAI SDK fallback should not be used for Codex OAuth")
+
+    config = ChatConfig(
+        base_url="https://api.openai.com/v1",
+        model="gpt-5.5",
+        _provider_slug="openai-codex",
+    )
+
+    with pytest.raises(EngineError, match="requires /login OAuth credentials"):
+        list(
+            runtime_engine.stream_completion(
+                config,
+                [{"role": "user", "content": "hello"}],
+                client_factory=fail_client_factory,
+            )
+        )

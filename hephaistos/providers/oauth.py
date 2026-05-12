@@ -14,8 +14,10 @@ from __future__ import annotations
 import base64
 import contextlib
 import hashlib
+import html
 import json
 import os
+import re
 import secrets
 import ssl
 import time
@@ -45,6 +47,8 @@ _TOKEN_URL = "https://auth.openai.com/oauth/token"
 _REDIRECT_URI = "http://localhost:1455/auth/callback"
 _SCOPE = "openid profile email offline_access"
 _CALLBACK_PORT = 1455
+_CALLBACK_TIMEOUT_SECONDS = 120
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)")
 
 _SUCCESS_HTML = (
     "<!DOCTYPE html><html><body"
@@ -139,16 +143,22 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             self._respond(404, "Callback route not found.")
             return
 
+        state = params.get("state", [None])[0]
+        if not state or state != _callback_state.get("expected_state"):
+            self._respond(400, "OAuth state mismatch.")
+            return
+
         err = params.get("error", [None])[0]
         if err:
-            _callback_state["error"] = err
-            self._respond(400, err)
+            safe_error = _sanitize_callback_error(err)
+            _callback_state["error"] = safe_error
+            _callback_state["received_state"] = state
+            self._respond(400, safe_error)
             return
 
         code = params.get("code", [None])[0]
-        state = params.get("state", [None])[0]
 
-        if not code or not state:
+        if not code:
             _callback_state["error"] = "Missing code or state"
             self._respond(400, "Missing code or state")
             return
@@ -162,7 +172,8 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         if status >= 400:
-            self.wfile.write(_ERROR_HTML_TEMPLATE.format(error=error).encode())
+            escaped_error = html.escape(error, quote=True)
+            self.wfile.write(_ERROR_HTML_TEMPLATE.format(error=escaped_error).encode())
         else:
             self.wfile.write(_SUCCESS_HTML.encode())
 
@@ -179,6 +190,26 @@ def _start_callback_server() -> HTTPServer | None:
         return server
     except OSError:
         return None
+
+
+def _sanitize_callback_error(error: str) -> str:
+    without_ansi = _ANSI_ESCAPE_RE.sub("", error)
+    cleaned = "".join(
+        char if (char == "\t" or (ord(char) >= 32 and ord(char) != 127)) else " "
+        for char in without_ansi
+    )
+    collapsed = " ".join(cleaned.split())
+    return collapsed[:500] or "OAuth provider returned an error."
+
+
+def _wait_for_callback(server: HTTPServer) -> None:
+    deadline = time.monotonic() + _CALLBACK_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if _callback_state.get("code") or _callback_state.get("error"):
+            return
+        remaining = deadline - time.monotonic()
+        server.timeout = max(0.1, min(1.0, remaining))
+        server.handle_request()
 
 
 # --- Token exchange ---------------------------------------------------------
@@ -311,10 +342,11 @@ def login_openai_codex() -> OAuthCredentials:
             raise RuntimeError("No authorization code received.")
     else:
         print("  Opening browser for OpenAI authentication...")
+        _callback_state["expected_state"] = state
         webbrowser.open(auth_url)
         print(f"  Waiting for callback on port {_CALLBACK_PORT}...")
 
-        server.handle_request()
+        _wait_for_callback(server)
         server.server_close()
 
         if _callback_state.get("error"):
@@ -442,11 +474,11 @@ def load_credentials(
 def clear_credentials(provider: str) -> bool:
     """Remove stored credentials.  Returns ``True`` if anything was removed."""
     removed_volatile = clear_volatile_key(provider)
+    removed_cached = _creds_cache.pop(provider, None) is not None
     data = _load_all()
     if provider not in data:
-        return removed_volatile
+        return removed_volatile or removed_cached
     del data[provider]
-    _creds_cache.pop(provider, None)
     _AUTH_DIR.mkdir(parents=True, exist_ok=True)
     _AUTH_DIR.chmod(0o700)
     raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")

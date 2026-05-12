@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from hephaistos.armory.search import load_known_armories
 from hephaistos.memory.supermemory import supermemory_configured
 from hephaistos.providers.endpoints import is_keyless_endpoint
+from hephaistos.runtime import has_configured_access
 from hephaistos.terminal import current_palette
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
 from hephaistos.tui.keymap import armory_shortcut_key
@@ -36,7 +37,7 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
     plain = status_lines(session, state)
     palette = current_palette()
     keyless = is_keyless_endpoint(session.config.base_url)
-    key_ok = keyless or bool(session.config.resolved_api_key)
+    key_ok = has_configured_access(session.config, refresh_oauth=False)
     if keyless:
         api = "free"
         api_style = palette.dim
@@ -107,7 +108,7 @@ def footer_hints_text(
         text.stylize(f"dim {palette.dim}", start, start + len("ctrl+c"))
         return text
 
-    key_ok = is_keyless_endpoint(session.config.base_url) or bool(session.config.resolved_api_key)
+    key_ok = has_configured_access(session.config, refresh_oauth=False)
     shortcut = armory_shortcut_key()
     parts = [
         "enter send",

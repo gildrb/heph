@@ -6,6 +6,7 @@ import os
 
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands._base import Command, CommandResult, ensure_session
+from hephaistos.memory import load_memory
 from hephaistos.memory.supermemory import (
     SUPERMEMORY_API_KEY_ENV,
     SUPERMEMORY_DEFAULT_PROFILE,
@@ -56,6 +57,8 @@ class MemoryCommand(Command):
         if subcmd == "disable":
             save_setting("supermemory_enabled", False)
             save_setting("supermemory_onboarding_seen", True)
+            if s.armory_path is not None:
+                s.configure_armory_context(memory=load_memory(s.armory_path))
             print_success("Supermemory disabled. Local armory memory remains active.")
             return CommandResult()
         if subcmd == "profile":

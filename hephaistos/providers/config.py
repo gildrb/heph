@@ -60,6 +60,10 @@ def _merge_default_providers(config: ProviderConfig) -> ProviderConfig:
             provider.active = False
             config.providers[slug] = provider
             changed = True
+            continue
+        if slug == "custom":
+            continue
+        changed = _refresh_builtin_provider(config.providers[slug], provider) or changed
 
     if config.get_active() is None:
         config.providers["pollinations"].active = True
@@ -200,6 +204,27 @@ def _merge_missing_default_providers(providers: dict[str, Provider]) -> None:
             providers[slug] = provider
 
 
+def _refresh_builtin_provider(provider: Provider, default: Provider) -> bool:
+    """Refresh built-in provider metadata while preserving user selection."""
+    changed = False
+    for attr in ("display_name", "endpoint", "api_key_env"):
+        if getattr(provider, attr) != getattr(default, attr):
+            setattr(provider, attr, getattr(default, attr))
+            changed = True
+
+    if provider.slug in {"openai", "openai-codex"}:
+        missing_models = [model for model in default.models if model not in provider.models]
+        if missing_models:
+            provider.models = [*missing_models, *provider.models]
+            changed = True
+
+    if provider.current_model and provider.current_model not in provider.models:
+        provider.current_model = ""
+        changed = True
+
+    return changed
+
+
 def default_config() -> ProviderConfig:
     return ProviderConfig(
         providers={
@@ -223,6 +248,7 @@ def default_config() -> ProviderConfig:
                 models=[
                     "openrouter/free",
                     "qwen/qwen3.6-plus:free",
+                    "openai/gpt-5.5",
                     "openai/gpt-5.4",
                     "openai/gpt-5.4-mini",
                     "openai/gpt-5.4-pro",
@@ -247,20 +273,46 @@ def default_config() -> ProviderConfig:
                     "arcee-ai/trinity-large-preview:free",
                 ],
             ),
-            "openai-codex": Provider(
-                slug="openai-codex",
-                display_name="OpenAI Codex",
+            "openai": Provider(
+                slug="openai",
+                display_name="OpenAI API",
                 endpoint="https://api.openai.com/v1",
                 api_key_env="OPENAI_API_KEY",
                 models=[
+                    "gpt-5.5",
                     "gpt-5.4",
                     "gpt-5.4-mini",
+                    "gpt-5.4-pro",
+                    "gpt-5.4-nano",
                     "gpt-5.3-codex",
                     "gpt-5.2-codex",
                     "gpt-5.2",
                     "gpt-5.1-codex-max",
                     "gpt-5.1-codex-mini",
                     "gpt-5.3-codex-spark",
+                    "gpt-4o",
+                    "gpt-4o-mini",
+                ],
+            ),
+            "openai-codex": Provider(
+                slug="openai-codex",
+                display_name="OpenAI Codex",
+                endpoint="https://api.openai.com/v1",
+                api_key_env="",
+                models=[
+                    "gpt-5.5",
+                    "gpt-5.4",
+                    "gpt-5.4-mini",
+                    "gpt-5.4-pro",
+                    "gpt-5.4-nano",
+                    "gpt-5.3-codex",
+                    "gpt-5.2-codex",
+                    "gpt-5.2",
+                    "gpt-5.1-codex-max",
+                    "gpt-5.1-codex-mini",
+                    "gpt-5.3-codex-spark",
+                    "gpt-4o",
+                    "gpt-4o-mini",
                 ],
             ),
             "zai": Provider(

@@ -24,6 +24,7 @@ import hephaistos.privacy.consent as _privacy_mod
 import hephaistos.providers.catalog as _provider_catalog_mod
 import hephaistos.providers.config as _provider_config_mod
 import hephaistos.providers.keyring_store as _ks
+import hephaistos.providers.oauth as _oauth_mod
 from hephaistos.agent.tools import ToolHandlerResult, ToolSpec
 from hephaistos.armory.storage import initialize
 from hephaistos.chat._api_types import ApiMessage
@@ -66,12 +67,15 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     config_dir = tmp_path / "hephaistos_config"
     config_file = config_dir / "config.json"
     providers_file = config_dir / "providers.toml"
+    auth_dir = tmp_path / "hephaistos_auth"
+    auth_file = auth_dir / "auth.json"
     _ks._volatile.clear()
     _log_mod._root_initialised = False
     _engine_mod._circuit_breaker.reset()
     _settings_mod.invalidate_settings_cache()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
+    _oauth_mod._creds_cache.clear()
     _reset_diagnostics_module_objects()
     _obs_mod.reset_state()
     set_theme("forge")
@@ -81,6 +85,8 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     monkeypatch.setattr(_params_cli, "_USER_CONFIG_FILE", config_file)
     monkeypatch.setattr(_provider_config_mod, "_CONFIG_DIR", config_dir)
     monkeypatch.setattr(_provider_config_mod, "_PROVIDERS_FILE", providers_file)
+    monkeypatch.setattr(_oauth_mod, "_AUTH_DIR", auth_dir)
+    monkeypatch.setattr(_oauth_mod, "_AUTH_FILE", auth_file)
     monkeypatch.setattr(
         _privacy_mod,
         "_INSTALL_ID_PATH",
@@ -99,6 +105,7 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     _settings_mod.invalidate_settings_cache()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
+    _oauth_mod._creds_cache.clear()
     _reset_diagnostics_module_objects()
     _obs_mod.reset_state()
     set_theme("forge")

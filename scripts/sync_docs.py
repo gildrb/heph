@@ -118,7 +118,7 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     ),
     "HEPHAISTOS_RERANK_MODEL": "Override the reranker model when available.",
     "HEPHAISTOS_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
-    "OPENAI_API_KEY": "API key for the OpenAI-compatible provider path.",
+    "OPENAI_API_KEY": "API key for the OpenAI API provider.",
     "OPENROUTER_API_KEY": "API key for OpenRouter.",
     "SUPERMEMORY_API_KEY": "API key for Supermemory study memory.",
     "SUPERMEMORY_URL": "Override the Supermemory API base URL.",

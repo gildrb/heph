@@ -273,6 +273,7 @@ class TuiInlineFlowMixin:
             title="Login  choose an account source",
             options=[
                 ("OpenAI Codex", "ChatGPT Plus/Pro subscription"),
+                ("OpenAI API", "API key"),
                 ("OpenRouter", "API key"),
                 ("Z.AI", "API key"),
                 ("Custom endpoint", "OpenAI-compatible base URL, model, API key"),
@@ -359,6 +360,7 @@ class TuiInlineFlowMixin:
     ) -> list[tuple[str, str]]:
         active = pc.get_active()
         current_model = self.session.config.model
+        duplicate_models = _duplicate_model_names(choices)
         options: list[tuple[str, str]] = []
         for slug, model, display_name, is_free in choices:
             is_current = active is not None and active.slug == slug and model == current_model
@@ -367,7 +369,16 @@ class TuiInlineFlowMixin:
                 desc += "  free"
             if is_current:
                 desc += "  current"
-            options.append((model, desc))
+            options.append(
+                (
+                    _model_choice_label(
+                        model,
+                        display_name,
+                        duplicate=model in duplicate_models,
+                    ),
+                    desc,
+                )
+            )
         return options
 
     def _open_models_flow(self: _InlineFlowHost) -> None:
@@ -576,6 +587,8 @@ class TuiInlineFlowMixin:
         if label == "OpenAI Codex":
             self._close_inline_flow("Opening browser login for OpenAI Codex...")
             self.run_worker(self._login_openai_worker, thread=True)
+        elif label == "OpenAI API":
+            self._prompt_inline_text("login", "openai_key", "OpenAI API key")
         elif label == "OpenRouter":
             self._prompt_inline_text("login", "openrouter_key", "OpenRouter API key")
         elif label == "Z.AI":
@@ -662,7 +675,9 @@ class TuiInlineFlowMixin:
             self._append_error("Value is required.")
             return
         step = self._inline_flow.step
-        if step == "openrouter_key":
+        if step == "openai_key":
+            self._store_provider_key("openai", value)
+        elif step == "openrouter_key":
             self._store_provider_key("openrouter", value)
         elif step == "zai_key":
             self._store_provider_key("zai", value)
@@ -735,20 +750,20 @@ class TuiInlineFlowMixin:
     def _perform_model_switch(self: _InlineFlowHost, model: str) -> None:
         pc = ProviderConfig.load()
         choices = configured_model_choices(pc)
-        matching = next((c for c in choices if c[1] == model), None)
+        matching = _model_choice_from_label(model, choices)
         if matching is None:
             self._close_inline_flow("Model not found.")
             return
         slug, _model, _display_name, _is_free = matching
         old_model = self.session.config.model
-        if not switch_model(self.session, slug, model):
+        if not switch_model(self.session, slug, _model):
             self._close_inline_flow("Model unavailable.")
             return
         capture_analytics(
             "model_changed",
-            {"provider": slug, "from_model": old_model, "to_model": model},
+            {"provider": slug, "from_model": old_model, "to_model": _model},
         )
-        self._close_inline_flow(f"model: {model}")
+        self._close_inline_flow(f"model: {_model}")
         self._refresh_status("ready")
         self._update_info_panel()
 
@@ -813,3 +828,42 @@ def _inline_option_label(
         if label.casefold() == cleaned:
             return label
     return ""
+
+
+def _duplicate_model_names(choices: list[tuple[str, str, str, bool]]) -> set[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for _slug, model, _display_name, _is_free in choices:
+        if model in seen:
+            duplicates.add(model)
+        seen.add(model)
+    return duplicates
+
+
+def _model_choice_label(model: str, display_name: str, *, duplicate: bool) -> str:
+    if not duplicate:
+        return model
+    return f"{model} [{display_name}]"
+
+
+def _model_choice_from_label(
+    label: str,
+    choices: list[tuple[str, str, str, bool]],
+) -> tuple[str, str, str, bool] | None:
+    model, provider = _parse_model_choice_label(label)
+    for choice in choices:
+        _slug, choice_model, display_name, _is_free = choice
+        if choice_model != model:
+            continue
+        if provider is not None and display_name != provider:
+            continue
+        return choice
+    return None
+
+
+def _parse_model_choice_label(label: str) -> tuple[str, str | None]:
+    stripped = label.strip()
+    if stripped.endswith("]") and " [" in stripped:
+        model, provider = stripped.rsplit(" [", 1)
+        return model, provider[:-1]
+    return stripped, None

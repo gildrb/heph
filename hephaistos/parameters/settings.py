@@ -75,6 +75,11 @@ _TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
 
 
+def user_config_dir() -> Path:
+    """Return the user configuration directory."""
+    return _USER_CONFIG_DIR
+
+
 @dataclass(frozen=True)
 class AppSettings:
     theme: str = DEFAULT_THEME

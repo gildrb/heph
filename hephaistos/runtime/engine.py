@@ -390,6 +390,11 @@ def build_client(config: ChatConfig) -> OpenAI:
 
 def missing_api_key_message(config: ChatConfig) -> str:
     """Return a precise missing-key message for the active provider/model."""
+    if config.provider_slug == "openai-codex":
+        return (
+            "OpenAI Codex subscription requires /login OAuth credentials. "
+            "Use the OpenAI API provider for OPENAI_API_KEY billing."
+        )
     model_info = get_provider_registry().get(config.model)
     if model_info is not None and model_info.is_free:
         return (
@@ -521,6 +526,15 @@ def _codex_backend_auth(config: ChatConfig) -> tuple[str, str] | None:
     if creds is None:
         return None
     return creds.access_token, creds.account_id or ""
+
+
+def has_configured_access(config: ChatConfig, *, refresh_oauth: bool = True) -> bool:
+    """Return whether the configured provider has usable auth."""
+    if is_keyless_endpoint(config.base_url):
+        return True
+    if config.provider_slug == "openai-codex":
+        return load_credentials("openai-codex", refresh_expired=refresh_oauth) is not None
+    return bool(config.resolved_api_key)
 
 
 def _content_part_text(part: object) -> str:
@@ -794,6 +808,12 @@ def stream_completion(
         _llm_duration_hist.record(timer.ms, {"model": config.model})
         span.end()
         return
+    if config.provider_slug == "openai-codex":
+        span.end()
+        raise EngineError(
+            "OpenAI Codex subscription requires /login OAuth credentials. "
+            "Use the OpenAI API provider for OPENAI_API_KEY billing."
+        )
 
     client = client_factory(config)
     last_error: Exception | None = None

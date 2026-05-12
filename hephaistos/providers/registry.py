@@ -195,7 +195,82 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         0.0,
         tags=("free", "router"),
     ),
-    # --- OpenAI ---
+    # --- OpenAI API ---
+    ModelInfo(
+        "gpt-5.5",
+        "openai",
+        "GPT-5.5",
+        1_000_000,
+        128_000,
+        0.005,
+        0.03,
+        tags=("study", "reasoning"),
+    ),
+    ModelInfo("gpt-5.4", "openai", "GPT-5.4", 128_000, 16_384, 0.002, 0.008),
+    ModelInfo(
+        "gpt-5.4-mini",
+        "openai",
+        "GPT-5.4 Mini",
+        128_000,
+        16_384,
+        0.00015,
+        0.0006,
+        tags=("study",),
+    ),
+    ModelInfo("gpt-5.4-pro", "openai", "GPT-5.4 Pro", 128_000, 16_384, 0.005, 0.015),
+    ModelInfo(
+        "gpt-5.4-nano",
+        "openai",
+        "GPT-5.4 Nano",
+        128_000,
+        16_384,
+        0.00005,
+        0.0002,
+        tags=("study",),
+    ),
+    ModelInfo("gpt-5.3-codex", "openai", "GPT-5.3 Codex", 128_000, 16_384, 0.002, 0.008),
+    ModelInfo("gpt-5.2-codex", "openai", "GPT-5.2 Codex", 128_000, 16_384, 0.002, 0.008),
+    ModelInfo("gpt-5.2", "openai", "GPT-5.2", 128_000, 16_384, 0.002, 0.008),
+    ModelInfo(
+        "gpt-5.1-codex-max",
+        "openai",
+        "GPT-5.1 Codex Max",
+        128_000,
+        16_384,
+        0.005,
+        0.015,
+    ),
+    ModelInfo(
+        "gpt-5.1-codex-mini",
+        "openai",
+        "GPT-5.1 Codex Mini",
+        128_000,
+        16_384,
+        0.0005,
+        0.0015,
+    ),
+    ModelInfo(
+        "gpt-5.3-codex-spark",
+        "openai",
+        "GPT-5.3 Codex Spark",
+        128_000,
+        16_384,
+        0.001,
+        0.003,
+    ),
+    ModelInfo("gpt-4o", "openai", "GPT-4o", 128_000, 16_384, 0.0025, 0.01),
+    ModelInfo("gpt-4o-mini", "openai", "GPT-4o Mini", 128_000, 16_384, 0.00015, 0.0006),
+    # --- OpenAI Codex subscription ---
+    ModelInfo(
+        "gpt-5.5",
+        "openai-codex",
+        "GPT-5.5",
+        1_000_000,
+        128_000,
+        0.005,
+        0.03,
+        tags=("study", "reasoning"),
+    ),
     ModelInfo("gpt-5.4", "openai-codex", "GPT-5.4", 128_000, 16_384, 0.002, 0.008),
     ModelInfo(
         "gpt-5.4-mini",
@@ -415,13 +490,15 @@ class ModelRegistry:
 
     def __init__(self, models: list[ModelInfo] | None = None) -> None:
         self._models: dict[str, ModelInfo] = {}
+        self._models_by_provider: dict[tuple[str, str], ModelInfo] = {}
         for m in models or builtin_models():
-            if not is_supported_model_for_provider(m.name, m.provider):
-                continue
-            self._models[m.name] = m
+            self.register(m)
 
-    def get(self, model_name: str) -> ModelInfo | None:
+    def get(self, model_name: str, provider: str | None = None) -> ModelInfo | None:
         """Look up a model by exact name, then provider-prefix match."""
+        if provider is not None and (info := self._models_by_provider.get((provider, model_name))):
+            return info
+
         if model_name in self._models:
             return self._models[model_name]
 
@@ -445,7 +522,9 @@ class ModelRegistry:
 
     def list_models(self, provider: str | None = None) -> list[ModelInfo]:
         """List all known models, optionally filtered by provider."""
-        models = list(self._models.values())
+        models = (
+            list(self._models_by_provider.values()) if provider else list(self._models.values())
+        )
         if provider:
             models = [m for m in models if m.provider == provider]
         return sorted(models, key=lambda m: (m.provider, m.name))
@@ -454,7 +533,10 @@ class ModelRegistry:
         """Add or replace a model in the registry."""
         if not is_supported_model_for_provider(model.name, model.provider):
             return
-        self._models[model.name] = model
+        self._models_by_provider[(model.provider, model.name)] = model
+        existing = self._models.get(model.name)
+        if existing is None or existing.provider == model.provider:
+            self._models[model.name] = model
 
 
 _registry: ModelRegistry | None = None

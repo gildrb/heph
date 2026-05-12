@@ -37,6 +37,11 @@ class TestFilterSupportedModels:
         result = filter_supported_models(models, "openai-codex")
         assert result == ["gpt-5.4", "gpt-5.4-mini"]
 
+    def test_openai_api_keeps_openai_model_families(self) -> None:
+        models = ["gpt-5.5", "o3", "glm-5", "random-model"]
+        result = filter_supported_models(models, "openai")
+        assert result == ["gpt-5.5", "o3"]
+
     def test_zai_keeps_glm_prefix(self) -> None:
         models = ["glm-5", "glm-5-plus", "gpt-5.4", "other"]
         result = filter_supported_models(models, "zai")
@@ -78,6 +83,9 @@ class TestIsSupportedModelForProvider:
     def test_openai_codex_matching(self) -> None:
         assert is_supported_model_for_provider("gpt-5.4", "openai-codex") is True
 
+    def test_openai_api_matching(self) -> None:
+        assert is_supported_model_for_provider("gpt-5.5", "openai") is True
+
     def test_zai_matching(self) -> None:
         assert is_supported_model_for_provider("glm-5-plus", "zai") is True
 
@@ -102,6 +110,7 @@ class TestIsSupportedModelForEndpoint:
         assert is_supported_model_for_endpoint("glm-5", "https://openrouter.ai/api/v1") is False
 
     def test_openai_endpoint(self) -> None:
+        assert is_supported_model_for_endpoint("gpt-5.5", "https://api.openai.com/v1") is True
         assert is_supported_model_for_endpoint("gpt-5.4", "https://api.openai.com/v1") is True
         assert is_supported_model_for_endpoint("glm-5", "https://api.openai.com/v1") is False
 

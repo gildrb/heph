@@ -6,10 +6,13 @@ from hephaistos.providers.catalog import hydrate_provider_models
 from hephaistos.providers.config import Provider, ProviderConfig
 from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.keyring_store import resolve_key
+from hephaistos.providers.oauth import resolve_oauth_key
 
 
 def provider_is_accessible(provider: Provider, *, refresh_oauth: bool = True) -> bool:
     """Return whether the user can call models from this provider now."""
+    if provider.slug == "openai-codex":
+        return bool(resolve_oauth_key(provider.slug, refresh_expired=refresh_oauth))
     if is_keyless_endpoint(provider.endpoint):
         return True
     return bool(

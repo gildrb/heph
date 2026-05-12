@@ -29,7 +29,8 @@ refresh the rolling edge prerelease.
 
 ## PyPI Release (version tags)
 
-Stable releases are published to PyPI on `v*` tags via `.github/workflows/release.yml`.
+Stable releases are published to PyPI by manually dispatching
+`.github/workflows/release.yml` from protected `main` for a reviewed `v*` tag.
 
 ### Rollback Steps
 
@@ -46,7 +47,8 @@ Stable releases are published to PyPI on `v*` tags via `.github/workflows/releas
    gh release delete v0.1.0 --yes
    ```
 
-3. **Fix forward** — create a new version with the fix and tag it:
+3. **Fix forward** — create a new version with the fix, tag it, and dispatch the
+   release workflow from `main` with that tag:
    ```bash
    git tag v0.1.1
    git push origin v0.1.1

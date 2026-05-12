@@ -113,8 +113,8 @@ permissioned materials. A passing reviewed report is suitable for the
 `scripts.audit_agent_harness_completion`; it still does not replace the
 model-backed local/frontier replay matrix.
 
-For public corpora with `source_url` provenance, rebuild the armory from the
-reviewed manifest instead of committing documents:
+For public corpora with public HTTPS `source_url` provenance, rebuild the armory
+from the reviewed manifest instead of committing documents:
 
 ```bash
 uv run python -m scripts.materialize_public_corpus \
@@ -122,8 +122,9 @@ uv run python -m scripts.materialize_public_corpus \
   path/to/real-armory
 ```
 
-This writes only under the declared `materials/...` paths and refuses to
-overwrite existing files unless `--overwrite` is supplied.
+This writes only under the declared `materials/...` paths, refuses local or
+private-network URLs, and refuses to overwrite existing files unless
+`--overwrite` is supplied.
 
 For permissioned local folders, copy the documents into a benchmark armory and
 write `file://` provenance in one step:

@@ -8,20 +8,37 @@ public corpus can be rebuilt without committing the documents.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
+import http.client
+import ipaddress
 import json
-import shutil
+import socket
+import ssl
+import tempfile
 import urllib.error
 import urllib.parse
-import urllib.request
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 from hephaistos.armory import storage
 
-_ALLOWED_URL_SCHEMES = frozenset({"http", "https", "file"})
+_ALLOWED_URL_SCHEMES = frozenset({"https"})
 _DOWNLOAD_TIMEOUT_SECONDS = 60
+_DEFAULT_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
+_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+
+type _IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+
+class _Readable(Protocol):
+    def read(self, size: int = -1, /) -> bytes: ...
+
+
+class _Writable(Protocol):
+    def write(self, data: bytes, /) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +61,24 @@ class MaterializeReport:
     failures: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _ValidatedSourceUrl:
+    parsed: urllib.parse.ParseResult
+    hostname: str
+    port: int
+    addresses: tuple[_IPAddress, ...]
+
+
+@dataclass(slots=True)
+class _PinnedHttpsResponse:
+    connection: http.client.HTTPConnection
+    response: http.client.HTTPResponse
+
+    def close(self) -> None:
+        self.response.close()
+        self.connection.close()
+
+
 def materialize_corpus(
     manifest_path: Path,
     armory_path: Path,
@@ -53,10 +88,21 @@ def materialize_corpus(
     """Download/copy manifest documents with ``source_url`` into an armory."""
     manifest_path = manifest_path.expanduser().resolve()
     armory_path = armory_path.expanduser().resolve()
-    storage.initialize(armory_path)
-    materials_root = (armory_path / storage.MATERIALS_DIR).resolve()
     failures: list[str] = []
     materialized: list[MaterializedDocument] = []
+    try:
+        _reject_symlinked_materials_root(armory_path)
+        storage.initialize(armory_path)
+        _reject_symlinked_materials_root(armory_path)
+        materials_root = (armory_path / storage.MATERIALS_DIR).resolve()
+    except (OSError, ValueError) as exc:
+        return MaterializeReport(
+            status=2,
+            manifest_path=str(manifest_path),
+            armory_path=str(armory_path),
+            documents=(),
+            failures=(str(exc),),
+        )
     try:
         documents = _manifest_documents(manifest_path)
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -78,9 +124,26 @@ def materialize_corpus(
             if output_path.exists() and not overwrite:
                 raise FileExistsError(f"{output_path} exists; pass --overwrite to replace it")
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            bytes_written = _fetch_to_path(source_url, output_path)
-            sha256 = _sha256(output_path)
-            _verify_expected_file(raw_document, source, output_path, bytes_written, sha256)
+            max_bytes = _max_download_bytes(raw_document, source)
+            download_path = _temporary_download_path(output_path)
+            try:
+                bytes_written = _fetch_to_path(
+                    source_url,
+                    download_path,
+                    max_bytes=max_bytes,
+                )
+                sha256 = _sha256(download_path)
+                _verify_expected_file(
+                    raw_document,
+                    source,
+                    download_path,
+                    bytes_written,
+                    sha256,
+                )
+                download_path.replace(output_path)
+            except Exception:
+                download_path.unlink(missing_ok=True)
+                raise
             materialized.append(
                 MaterializedDocument(
                     source=source,
@@ -123,10 +186,11 @@ def _manifest_documents(manifest_path: Path) -> list[dict[str, object]]:
     for index, raw_document in enumerate(documents, start=1):
         if not isinstance(raw_document, dict):
             raise TypeError(f"manifest document {index} must be an object")
-        source = raw_document.get("source")
+        raw_mapping = cast("dict[object, object]", raw_document)
+        source = raw_mapping.get("source")
         if not isinstance(source, str) or not source.strip():
             raise ValueError(f"manifest document {index} must include source")
-        result.append(cast("dict[str, object]", raw_document))
+        result.append(cast("dict[str, object]", raw_mapping))
     return result
 
 
@@ -144,25 +208,206 @@ def _safe_material_path(materials_root: Path, source: str) -> Path:
     return output_path
 
 
-def _fetch_to_path(source_url: str, output_path: Path) -> int:
+def _reject_symlinked_materials_root(armory_path: Path) -> None:
+    materials_path = armory_path / storage.MATERIALS_DIR
+    if materials_path.is_symlink():
+        raise ValueError(f"materials directory must not be a symlink: {materials_path}")
+
+
+def _temporary_download_path(output_path: Path) -> Path:
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+        dir=output_path.parent,
+        delete=False,
+    ) as handle:
+        return Path(handle.name)
+
+
+def _resolve_source_host_ips(
+    hostname: str,
+    port: int | None,
+) -> tuple[_IPAddress, ...]:
+    try:
+        infos = socket.getaddrinfo(hostname, port or 443, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"source_url host cannot be resolved: {hostname}") from exc
+
+    addresses: set[_IPAddress] = set()
+    for info in infos:
+        raw_address = str(info[4][0])
+        with contextlib.suppress(ValueError):
+            address = ipaddress.ip_address(raw_address)
+            if isinstance(address, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
+                addresses.add(address)
+    if not addresses:
+        raise ValueError(f"source_url host has no usable IP addresses: {hostname}")
+    return cast("tuple[_IPAddress, ...]", tuple(sorted(addresses, key=str)))
+
+
+def _validate_source_url(source_url: str) -> _ValidatedSourceUrl:
     parsed = urllib.parse.urlparse(source_url)
     if parsed.scheme not in _ALLOWED_URL_SCHEMES:
-        raise ValueError(f"unsupported source_url scheme: {parsed.scheme or '<none>'}")
-    if parsed.scheme == "file":
-        source_path = Path(urllib.request.url2pathname(parsed.path)).expanduser().resolve()
-        if not source_path.is_file():
-            raise FileNotFoundError(source_path)
-        shutil.copyfile(source_path, output_path)
-        return output_path.stat().st_size
-    request = urllib.request.Request(source_url, headers={"User-Agent": "hephaistos-benchmark/1"})
-    with (
-        urllib.request.urlopen(  # nosec B310
-            request,
-            timeout=_DOWNLOAD_TIMEOUT_SECONDS,
-        ) as response,
-        output_path.open("wb") as handle,
-    ):
-        return int(shutil.copyfileobj(response, handle) or output_path.stat().st_size)
+        allowed = ", ".join(sorted(_ALLOWED_URL_SCHEMES))
+        raise ValueError(
+            f"unsupported source_url scheme: {parsed.scheme or '<none>'}; expected {allowed}"
+        )
+    if not parsed.hostname:
+        raise ValueError("source_url must include a hostname")
+    port = parsed.port or 443
+    addresses = _resolve_source_host_ips(parsed.hostname, port)
+    for address in addresses:
+        if not address.is_global:
+            raise ValueError(f"source_url host resolves to a non-public address: {address}")
+    return _ValidatedSourceUrl(
+        parsed=parsed,
+        hostname=parsed.hostname,
+        port=port,
+        addresses=addresses,
+    )
+
+
+def _fetch_to_path(source_url: str, output_path: Path, *, max_bytes: int) -> int:
+    validated = _validate_source_url(source_url)
+    with _open_validated_https(validated) as response, output_path.open("wb") as handle:
+        return _copy_response_limited(response, handle, max_bytes=max_bytes)
+
+
+@contextlib.contextmanager
+def _open_validated_https(validated: _ValidatedSourceUrl) -> Iterator[_Readable]:
+    pinned_response = _request_validated_https(validated)
+    try:
+        yield pinned_response.response
+    finally:
+        pinned_response.close()
+
+
+def _request_validated_https(validated: _ValidatedSourceUrl) -> _PinnedHttpsResponse:
+    last_error: Exception | None = None
+    for address in validated.addresses:
+        try:
+            return _request_validated_https_address(validated, address)
+        except (OSError, http.client.HTTPException) as exc:
+            last_error = exc
+    if last_error is None:
+        raise ValueError(
+            f"source_url host has no validated public addresses: {validated.hostname}"
+        )
+    raise ValueError(
+        f"failed to fetch source_url from validated addresses: {last_error}"
+    ) from last_error
+
+
+def _request_validated_https_address(
+    validated: _ValidatedSourceUrl,
+    address: _IPAddress,
+) -> _PinnedHttpsResponse:
+    raw_socket = socket.create_connection(
+        (str(address), validated.port),
+        timeout=_DOWNLOAD_TIMEOUT_SECONDS,
+    )
+    try:
+        tls_context = ssl.create_default_context()
+        tls_socket = tls_context.wrap_socket(raw_socket, server_hostname=validated.hostname)
+    except Exception:
+        raw_socket.close()
+        raise
+
+    connection = http.client.HTTPConnection(
+        validated.hostname,
+        port=validated.port,
+        timeout=_DOWNLOAD_TIMEOUT_SECONDS,
+    )
+    connection.sock = tls_socket
+    try:
+        connection.putrequest(
+            "GET",
+            _request_target(validated.parsed),
+            skip_host=True,
+            skip_accept_encoding=True,
+        )
+        connection.putheader("Host", _host_header(validated.parsed))
+        connection.putheader("User-Agent", "hephaistos-benchmark/1")
+        connection.putheader("Accept", "*/*")
+        connection.putheader("Accept-Encoding", "identity")
+        connection.putheader("Connection", "close")
+        connection.endheaders()
+        response = connection.getresponse()
+        try:
+            _raise_for_unaccepted_status(
+                response.status,
+                response.reason,
+                response.getheader("Location"),
+                validated.parsed.geturl(),
+            )
+        except ValueError:
+            response.close()
+            raise
+        return _PinnedHttpsResponse(connection=connection, response=response)
+    except Exception:
+        connection.close()
+        raise
+
+
+def _request_target(parsed: urllib.parse.ParseResult) -> str:
+    path = parsed.path or "/"
+    if parsed.params:
+        path = f"{path};{parsed.params}"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return path
+
+
+def _host_header(parsed: urllib.parse.ParseResult) -> str:
+    if not parsed.hostname:
+        raise ValueError("source_url must include a hostname")
+    host = parsed.hostname
+    with contextlib.suppress(ValueError):
+        if isinstance(ipaddress.ip_address(host), ipaddress.IPv6Address):
+            host = f"[{host}]"
+    if parsed.port is not None and parsed.port != 443:
+        return f"{host}:{parsed.port}"
+    return host
+
+
+def _raise_for_unaccepted_status(
+    status: int,
+    reason: str,
+    location: str | None,
+    source_url: str,
+) -> None:
+    if 300 <= status < 400:
+        if location:
+            raise ValueError(f"source_url redirects are not allowed: {location}")
+        raise ValueError("source_url redirects are not allowed")
+    if status >= 400:
+        response_reason = reason or "HTTP error"
+        raise ValueError(f"{source_url} returned HTTP {status}: {response_reason}")
+
+
+def _copy_response_limited(response: _Readable, handle: _Writable, *, max_bytes: int) -> int:
+    total = 0
+    while True:
+        chunk = response.read(_DOWNLOAD_CHUNK_BYTES)
+        if not chunk:
+            return total
+        total += len(chunk)
+        if total > max_bytes:
+            raise ValueError(f"download exceeds maximum size of {max_bytes} bytes")
+        handle.write(chunk)
+
+
+def _max_download_bytes(raw_document: dict[str, object], source: str) -> int:
+    expected_bytes = raw_document.get("bytes")
+    if expected_bytes is None:
+        return _DEFAULT_MAX_DOWNLOAD_BYTES
+    if not isinstance(expected_bytes, int) or expected_bytes <= 0:
+        raise ValueError(f"{source} bytes must be a positive integer")
+    if expected_bytes > _DEFAULT_MAX_DOWNLOAD_BYTES:
+        raise ValueError(
+            f"{source} bytes exceeds maximum supported size: {_DEFAULT_MAX_DOWNLOAD_BYTES}"
+        )
+    return expected_bytes
 
 
 def _verify_expected_file(

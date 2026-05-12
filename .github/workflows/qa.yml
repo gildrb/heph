@@ -49,22 +49,32 @@ jobs:
       - name: Install ImageMagick
         run: sudo apt-get install -y -qq imagemagick
 
-      - name: Install Droid CLI
-        run: curl -fsSL https://app.factory.ai/cli | sh
-
       - name: Create results directory
         run: mkdir -p qa-results
 
       - name: Run QA
         id: qa
-        continue-on-error: true
         timeout-minutes: 20
         env:
           FACTORY_DISABLE_KEYRING: "true"
         run: |
-          droid exec --auto high --skill qa \
-            --prompt "You are running in a non-interactive CI environment. There is NO human available. Do NOT use AskUser, do NOT wait for confirmations, do NOT pause for input. Run the qa skill using keyless or mocked providers only. Analyze the git diff for this PR and run relevant test flows. Write the final report to qa-results/report.md" \
-            2>&1 | tee qa-results/qa-output.txt
+          set +e
+          set -o pipefail
+          {
+            echo "## QA Report"
+            echo ""
+            echo "### Keyless CLI and TUI smoke checks"
+            echo ""
+            echo '```'
+            uv run pytest tests/test_cli_integration.py tests/test_rag_index.py tests/test_app_tui.py -q
+            status=$?
+            echo '```'
+            echo ""
+            echo "status=${status}"
+            exit "$status"
+          } 2>&1 | tee qa-results/qa-output.txt qa-results/report.md
+          status="${PIPESTATUS[0]}"
+          exit "$status"
 
       - name: Upload artifacts
         if: always()
@@ -82,43 +92,23 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Download QA artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: qa-results
-          path: qa-results
-
       - name: Post QA report as PR comment
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          QA_RESULT: ${{ needs.qa.result }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           RUN_NUMBER: ${{ github.run_number }}
           SERVER_URL: ${{ github.server_url }}
         run: |
-          # Build report body
-          if [ -f qa-results/report.md ]; then
-            BODY=$(cat qa-results/report.md)
-          else
-            BODY="## QA Report\n\nQA run completed but no report was generated. Check the workflow logs or downloaded artifacts for details."
-          fi
-
-          # Ensure report starts with heading
-          if ! echo "$BODY" | grep -q "^## QA Report"; then
-            BODY="## QA Report\n\n$BODY"
-          fi
-
-          # Add footer
-          FOOTER="\n\n---\n*QA run [#${RUN_NUMBER}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}) | [Download artifacts](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}#artifacts)*"
-          BODY="${BODY}${FOOTER}"
-
-          # Add hidden marker for comment dedup
           MARKER="<!-- qa-report -->"
-          FULL_BODY="${MARKER}\n${BODY}"
+          FULL_BODY="${MARKER}
+          ## QA Report
+
+          Result: \`${QA_RESULT}\`
+
+          QA run [#${RUN_NUMBER}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}) completed. Download the workflow artifact to inspect the raw report and logs."
 
           # Check for existing QA comment
           EXISTING=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \

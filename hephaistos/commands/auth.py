@@ -21,6 +21,7 @@ class LoginCommand(Command):
     def handle(self, session: object, args: str) -> CommandResult:
         options = [
             MenuOption("OpenAI Codex", "ChatGPT Plus/Pro subscription"),
+            MenuOption("OpenAI API key", "Use OpenAI API billing and models"),
             MenuOption("OpenRouter API key", "Unlock OpenRouter models"),
             MenuOption("Z.AI API key", "Unlock GLM models"),
             MenuOption("Custom endpoint", "OpenAI-compatible base URL, model, and API key"),
@@ -32,8 +33,10 @@ class LoginCommand(Command):
         if selected == 0:
             return self._login_openai_codex(session)
         if selected == 1:
-            return self._login_api_key(session, "openrouter")
+            return self._login_api_key(session, "openai")
         if selected == 2:
+            return self._login_api_key(session, "openrouter")
+        if selected == 3:
             return self._login_api_key(session, "zai")
         return self._login_custom_endpoint(session)
 

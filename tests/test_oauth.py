@@ -7,15 +7,18 @@ import hashlib
 import json
 import ssl
 import time
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from hephaistos.commands import LogoutCommand, get_registry
+from hephaistos.providers import oauth as oauth_mod
 from hephaistos.providers.keyring_store import get_volatile, resolve_key, set_volatile
 from hephaistos.providers.oauth import (
     OAuthCredentials,
+    _CallbackHandler,
     _ssl_context,
     clear_credentials,
     generate_pkce,
@@ -89,6 +92,67 @@ def test_generate_pkce_unique_each_call() -> None:
     assert c1 != c2
 
 
+# --- Callback rendering -----------------------------------------------------
+
+
+class _DummyCallbackHandler(_CallbackHandler):
+    wfile: BytesIO
+
+    def __init__(self) -> None:
+        self.wfile = BytesIO()
+        self.path = "/auth/callback"
+        self.status_code: int | None = None
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        _ = message
+        self.status_code = code
+
+    def send_header(self, keyword: str, value: str) -> None:
+        _ = (keyword, value)
+
+    def end_headers(self) -> None:
+        pass
+
+
+def test_callback_error_response_escapes_html() -> None:
+    handler = _DummyCallbackHandler()
+
+    handler._respond(400, '<script>alert("x")</script>')
+
+    body = handler.wfile.getvalue().decode("utf-8")
+    assert "<script>" not in body
+    assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in body
+
+
+def test_callback_error_requires_matching_state() -> None:
+    oauth_mod._callback_state.clear()
+    oauth_mod._callback_state["expected_state"] = "expected"
+    handler = _DummyCallbackHandler()
+    handler.path = "/auth/callback?error=%1B%5B31mboom"
+
+    handler.do_GET()
+
+    assert handler.status_code == 400
+    assert oauth_mod._callback_state == {"expected_state": "expected"}
+    oauth_mod._callback_state.clear()
+
+
+def test_callback_error_is_sanitized_for_terminal() -> None:
+    oauth_mod._callback_state.clear()
+    oauth_mod._callback_state["expected_state"] = "expected"
+    handler = _DummyCallbackHandler()
+    handler.path = "/auth/callback?state=expected&error=%1B%5B31mboom%1B%5B0m"
+
+    handler.do_GET()
+
+    assert handler.status_code == 400
+    assert oauth_mod._callback_state["error"] == "boom"
+    body = handler.wfile.getvalue().decode("utf-8")
+    assert "\x1b" not in body
+    assert "boom" in body
+    oauth_mod._callback_state.clear()
+
+
 # --- Credential persistence -------------------------------------------------
 
 
@@ -142,6 +206,17 @@ class TestCredentialPersistence:
         assert removed is True
         assert get_volatile("openai-codex") is None
         assert resolve_key("openai-codex", "OPENAI_API_KEY") == ""
+
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_clear_credentials_removes_cache_without_auth_file(self) -> None:
+        creds = self._make_creds()
+        oauth_mod._creds_cache["openai-codex"] = creds
+
+        removed = clear_credentials("openai-codex")
+
+        assert removed is True
+        assert "openai-codex" not in oauth_mod._creds_cache
+        assert load_credentials("openai-codex") is None
 
     @pytest.mark.usefixtures("isolated_auth_dir")
     def test_clear_nonexistent_returns_false(self) -> None:

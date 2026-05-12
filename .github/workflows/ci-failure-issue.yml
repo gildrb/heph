@@ -33,17 +33,22 @@ jobs:
             exit 0
           fi
 
-          SEARCH_TERM="CI failure on main"
+          TRACKING_MARKER="<!-- hephaistos-ci-failure-main -->"
+          TRACKING_LABEL="status/ci-failure"
+          SEARCH_TERM="$TRACKING_MARKER"
+          FIND_MANAGED_ISSUE='map(select(.title | startswith("CI failure on main")) | select(.body | contains("<!-- hephaistos-ci-failure-main -->")) | select(.author.login == "github-actions[bot]") | select(any(.labels[]?; .name == "status/ci-failure"))) | .[0].number // ""'
 
           if [ "$CONCLUSION" = "failure" ]; then
             echo "CI failed on main -- creating/updating issue"
             TITLE="CI failure on main (${SHA:0:7})"
 
-            EXISTING=$(gh issue list --repo "$REPO" --state open --search "$SEARCH_TERM" --json number --jq '.[0].number' 2>/dev/null || echo "")
+            EXISTING=$(gh issue list --repo "$REPO" --state open --search "$SEARCH_TERM" --json number,title,body,author,labels --jq "$FIND_MANAGED_ISSUE" 2>/dev/null || echo "")
 
             FAILED_JOBS=$(gh run view "$RUN_ID" --repo "$REPO" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | "- **" + .name + "**: " + (.steps | map(select(.conclusion == "failure")) | map(.name) | join(", "))' 2>/dev/null || echo "Unable to fetch job details")
 
-            BODY="## CI Failure Report
+            BODY="${TRACKING_MARKER}
+
+          ## CI Failure Report
 
           - **Commit**: \`${SHA:0:7}\`
           - **Branch**: \`${BRANCH}\`
@@ -66,12 +71,14 @@ jobs:
               gh issue create --repo "$REPO" \
                 --title "$TITLE" \
                 --body "$BODY" \
-                --label "bug"
+                --label "type/bug" \
+                --label "area/infra" \
+                --label "$TRACKING_LABEL"
             fi
 
           elif [ "$CONCLUSION" = "success" ]; then
             echo "CI passed on main -- closing any open failure issues"
-            EXISTING=$(gh issue list --repo "$REPO" --state open --search "$SEARCH_TERM" --json number --jq '.[0].number' 2>/dev/null || echo "")
+            EXISTING=$(gh issue list --repo "$REPO" --state open --search "$SEARCH_TERM" --json number,title,body,author,labels --jq "$FIND_MANAGED_ISSUE" 2>/dev/null || echo "")
 
             if [ -n "$EXISTING" ]; then
               echo "Closing issue #$EXISTING -- CI is now passing"

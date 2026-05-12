@@ -197,7 +197,8 @@ The default provider config includes:
 
 - Pollinations AI (free, zero-config default)
 - OpenRouter
-- OpenAI
+- OpenAI API key
+- OpenAI Codex subscription
 - Z.AI
 - Custom OpenAI-compatible endpoint
 

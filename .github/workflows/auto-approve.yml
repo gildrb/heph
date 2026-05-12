@@ -19,6 +19,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RENOVATE_APPROVE_TOKEN || github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          REPO: ${{ github.repository }}
         run: |
           # Skip major updates -- these require manual review
           if echo "$PR_TITLE" | grep -qiE "(major|breaking)"; then
@@ -27,7 +28,10 @@ jobs:
           fi
 
           # Also check labels for major-update
-          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if ! LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '.labels[].name'); then
+            echo "Unable to read Renovate PR labels; refusing auto-approval" >&2
+            exit 1
+          fi
           if echo "$LABELS" | grep -q "major-update"; then
             echo "Major update label found -- skipping auto-approve"
             exit 0
@@ -35,4 +39,4 @@ jobs:
 
           # Auto-approve non-major Renovate PRs
           echo "Auto-approving Renovate PR #$PR_NUMBER"
-          gh pr review "$PR_NUMBER" --approve --body "Auto-approved: minor/patch dependency update. CI checks will gate the merge."
+          gh pr review "$PR_NUMBER" --repo "$REPO" --approve --body "Auto-approved: minor/patch dependency update. CI checks will gate the merge."
