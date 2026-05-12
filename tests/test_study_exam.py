@@ -50,6 +50,44 @@ def test_select_exam_question_can_filter_by_topic() -> None:
     assert "neural" in question.question
 
 
+def test_select_exam_question_includes_parent_stem_for_subquestion() -> None:
+    question = select_exam_question(
+        [
+            _chunk(
+                "materials/past-exam-2025.md",
+                "4. (5+7+2 Punkte) Es sei\n"
+                "f : D -> R, f(x,y) = ln(1 + xy)\n"
+                "für den Definitionsbereich D = { (x,y) in R^2 : xy > -1 }.\n"
+                "(a) Bestimmen Sie alle kritischen Punkte von f auf D.\n"
+                "(b) Entscheiden Sie, ob lokale Extrema vorliegen.\n"
+                "(c) Kann f auf D ein globales Maximum besitzen? Begründen Sie Ihre Antwort!",
+            )
+        ],
+        topic="globales Maximum",
+        rng=random.Random(0),
+    )
+
+    assert question is not None
+    assert "f : D -> R" in question.question
+    assert "f(x,y) = ln(1 + xy)" in question.question
+    assert "xy > -1" in question.question
+    assert "(c) Kann f auf D ein globales Maximum besitzen?" in question.question
+
+
+def test_select_exam_question_does_not_emit_orphaned_context_dependent_subquestion() -> None:
+    question = select_exam_question(
+        [
+            _chunk(
+                "materials/past-exam-2025.md",
+                "(c) Can f have a global maximum on D? Justify your answer.",
+            )
+        ],
+        rng=random.Random(0),
+    )
+
+    assert question is None
+
+
 def test_supporting_source_refs_prefers_overlapping_non_exam_chunks() -> None:
     chunks = [
         _chunk("materials/past-exam-2025.md", "Explain neural network backpropagation."),

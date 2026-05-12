@@ -360,6 +360,12 @@ class TestDoclingIntegration:
         text = "f¨ ur beschr¨ ankt ¨ Ubung Universit¨ at W¨ urzburg"
         assert _normalize_extracted_text(text) == ("für beschränkt Übung Universität Würzburg")
 
+    def test_normalize_extracted_text_repairs_common_latin_ocr_words(self) -> None:
+        text = "Begriinden Sie Ihre Antwort. Die Begrundung ist wichtig."
+        assert _normalize_extracted_text(text) == (
+            "Begründen Sie Ihre Antwort. Die Begründung ist wichtig."
+        )
+
     def test_normalize_extracted_text_removes_extraction_placeholders(self) -> None:
         text = "Definition\nFormula-not-decoded.\nImage not decoded.\nNext fact"
         assert _normalize_extracted_text(text) == "Definition\n\n\nNext fact"

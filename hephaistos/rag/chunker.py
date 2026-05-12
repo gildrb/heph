@@ -132,6 +132,12 @@ _UMLAUTS = {
     "o": "ö",
     "u": "ü",
 }
+_COMMON_LATIN_OCR_REPAIRS = (
+    (re.compile(r"\bBegriinden\b"), "Begründen"),
+    (re.compile(r"\bbegriinden\b"), "begründen"),
+    (re.compile(r"\bBegrundung\b"), "Begründung"),
+    (re.compile(r"\bbegrundung\b"), "begründung"),
+)
 
 
 class _MarkdownExportProtocol(Protocol):
@@ -520,6 +526,8 @@ def _normalize_extracted_text(text: str) -> str:
         lambda match: _UMLAUTS[match.group(1)],
         normalized,
     )
+    for pattern, replacement in _COMMON_LATIN_OCR_REPAIRS:
+        repaired = pattern.sub(replacement, repaired)
     without_placeholders = _EXTRACTION_PLACEHOLDER_RE.sub("", repaired)
     return _HTML_EXTRACTION_COMMENT_RE.sub("", without_placeholders)
 
