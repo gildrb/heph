@@ -14,6 +14,7 @@ from pathlib import Path
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
+    MaterialOperationEvent,
     ToolCallEvent,
     ToolResultEvent,
     TurnCompleteEvent,
@@ -76,6 +77,13 @@ def event_to_json_object(event: TurnEvent) -> dict[str, object]:
             "success": event.success,
             "metadata": event.metadata,
             "error": event.error,
+        }
+    if isinstance(event, MaterialOperationEvent):
+        return {
+            "type": event.kind,
+            "operation": event.operation,
+            "message": event.message,
+            "metadata": event.metadata,
         }
     if isinstance(event, CompactRequestEvent):
         return {

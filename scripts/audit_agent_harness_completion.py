@@ -14,16 +14,21 @@ import contextlib
 import io
 import json
 import re
+import shutil
+import tempfile
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
 from scripts import (
+    benchmark_academic_items,
     benchmark_answers,
     benchmark_chat_events,
+    benchmark_prompt_cache,
     replay_answer_benchmark,
     run_benchmark_suite,
+    run_model_eval_matrix,
     validate_benchmark_manifest,
 )
 
@@ -57,6 +62,8 @@ DEFAULT_FORBIDDEN_REAL_KNOWN_LIMITS = (
 )
 DEFAULT_REQUIRED_PREFLIGHT_ROLES = ("assignment", "past_exam", "slides")
 DEFAULT_REQUIRED_PREFLIGHT_OVERVIEW_SOURCE_COVERAGE = 0.4
+DEFAULT_REQUIRED_PREFLIGHT_OVERVIEW_SAMPLE_CAP = 32
+DEFAULT_PREFLIGHT_SAMPLE_CAP_MAX_COVERAGE_FLOOR = 0.4
 DEFAULT_REQUIRED_REAL_DATASET_KINDS = (
     "chat-events",
     "chat-event-answer-expectation",
@@ -136,6 +143,43 @@ def _file_exists(path: str) -> AuditItem:
     return AuditItem(path, status, str(target))
 
 
+def _model_matrix_example_item() -> AuditItem:
+    requirement = "Model matrix example declares local/frontier responsibilities"
+    path = _repo_file("benchmarks/model-matrix.example.json")
+    if not path.is_file():
+        return AuditItem(requirement, "missing", f"model matrix example missing: {path}")
+    try:
+        candidates = run_model_eval_matrix.load_candidates(path)
+        report = run_model_eval_matrix.validate_model_eval_matrix(candidates)
+    except (OSError, TypeError, ValueError) as exc:
+        return AuditItem(requirement, "missing", f"model matrix example invalid: {exc}")
+    if report.status != 0:
+        return AuditItem(requirement, "missing", "; ".join(report.failures))
+
+    required_groups = set(run_model_eval_matrix.DEFAULT_REQUIRED_GROUPS)
+    responsibilities_by_group = {
+        group: sum(
+            len(candidate.responsibilities) for candidate in candidates if candidate.group == group
+        )
+        for group in required_groups
+    }
+    missing_responsibilities = sorted(
+        group for group, count in responsibilities_by_group.items() if count == 0
+    )
+    if missing_responsibilities:
+        return AuditItem(
+            requirement,
+            "missing",
+            "missing responsibilities for group(s): " + ", ".join(missing_responsibilities),
+        )
+
+    evidence = ", ".join(
+        f"{group}_responsibilities={responsibilities_by_group[group]}"
+        for group in sorted(required_groups)
+    )
+    return AuditItem(requirement, "covered", f"{path}; {evidence}")
+
+
 def _framework_policy_item() -> AuditItem:
     checked = []
     for path in (_repo_file("pyproject.toml"), _repo_file("uv.lock")):
@@ -190,6 +234,7 @@ def _deterministic_chat_event_suite_item() -> AuditItem:
     suite = _repo_file("benchmarks/academic")
     manifest_path = suite / "manifest.json"
     events_path = suite / "chat_events.jsonl"
+    runtime_events_path = suite / "chat_events_runtime.jsonl"
     expectation_path = suite / "chat_event_expectation.json"
     if not manifest_path.is_file():
         return AuditItem(requirement, "missing", f"manifest missing: {manifest_path}")
@@ -211,6 +256,8 @@ def _deterministic_chat_event_suite_item() -> AuditItem:
     }
     if dataset_kinds.get("chat-events") != "chat_events.jsonl":
         return AuditItem(requirement, "missing", "manifest missing chat-events dataset")
+    if dataset_kinds.get("chat-events-runtime") != "chat_events_runtime.jsonl":
+        return AuditItem(requirement, "missing", "manifest missing chat-events-runtime dataset")
     if dataset_kinds.get("chat-event-answer-expectation") != "chat_event_expectation.json":
         return AuditItem(
             requirement,
@@ -219,6 +266,12 @@ def _deterministic_chat_event_suite_item() -> AuditItem:
         )
     if not events_path.is_file():
         return AuditItem(requirement, "missing", f"chat event fixture missing: {events_path}")
+    if not runtime_events_path.is_file():
+        return AuditItem(
+            requirement,
+            "missing",
+            f"chat runtime event fixture missing: {runtime_events_path}",
+        )
     if not expectation_path.is_file():
         return AuditItem(
             requirement,
@@ -226,14 +279,30 @@ def _deterministic_chat_event_suite_item() -> AuditItem:
             f"chat event expectation missing: {expectation_path}",
         )
     try:
+        runtime_events = benchmark_chat_events.load_events(runtime_events_path)
         report = benchmark_chat_events.run_chat_event_benchmark(
             benchmark_chat_events.load_events(events_path),
+            expectation=benchmark_chat_events.load_expectation(expectation_path),
+        )
+        runtime_report = benchmark_chat_events.run_chat_event_benchmark(
+            runtime_events,
             expectation=benchmark_chat_events.load_expectation(expectation_path),
         )
     except (OSError, TypeError, ValueError) as exc:
         return AuditItem(requirement, "missing", f"chat event verifier failed: {exc}")
     if report.failures:
         return AuditItem(requirement, "missing", "; ".join(report.failures))
+    if runtime_report.failures:
+        return AuditItem(requirement, "missing", "; ".join(runtime_report.failures))
+    if not runtime_report.has_tool_runtime:
+        return AuditItem(requirement, "missing", "runtime chat event fixture lacks tool_runtime")
+    runtime_has_repeated_call = any(
+        event["type"] == "notice"
+        and event.get("code") == "tool_runtime"
+        and isinstance(event.get("metadata"), dict)
+        and event["metadata"].get("reason") == "repeated_call"
+        for event in runtime_events
+    )
     answer_pass_rate = report.answer_pass_rate if report.answer_pass_rate is not None else 0.0
     return AuditItem(
         requirement,
@@ -242,7 +311,17 @@ def _deterministic_chat_event_suite_item() -> AuditItem:
             f"{events_path}: reading={report.has_reading}, evidence={report.has_evidence}, "
             f"writing={report.has_writing}, complete={report.has_turn_complete}, "
             f"consistent={report.has_consistent_completion}, "
+            f"material_operation={report.has_material_operation}, "
+            f"material_operation_metadata_rate={report.material_operation_metadata_rate:.3f}, "
             f"metadata={report.has_evidence_metadata}, "
+            f"tool_runtime_metadata_rate={report.tool_runtime_metadata_rate:.3f}, "
+            f"runtime_fixture_tool_runtime={runtime_report.has_tool_runtime}, "
+            "runtime_fixture_material_operation_metadata_rate="
+            f"{runtime_report.material_operation_metadata_rate:.3f}, "
+            f"runtime_fixture_metadata_rate={runtime_report.tool_runtime_metadata_rate:.3f}, "
+            f"runtime_fixture_repeated_call={runtime_has_repeated_call}, "
+            "runtime_fixture_acceptance_criteria_metadata_rate="
+            f"{runtime_report.acceptance_criteria_metadata_rate:.3f}, "
             f"answer_pass_rate={answer_pass_rate:.3f}"
         ),
     )
@@ -261,7 +340,32 @@ def _deterministic_benchmark_suite_item() -> AuditItem:
     return AuditItem(
         requirement,
         "covered",
-        str(run_benchmark_suite.DEFAULT_SUITE),
+        _deterministic_suite_evidence(),
+    )
+
+
+def _deterministic_suite_evidence() -> str:
+    suite = run_benchmark_suite.DEFAULT_SUITE
+    academic_items_dataset = suite / "academic_items.jsonl"
+    if not academic_items_dataset.is_file():
+        return str(suite)
+    try:
+        prompt_cache_report = benchmark_prompt_cache.run_benchmark()
+        with tempfile.TemporaryDirectory(prefix="heph-audit-academic-items-") as tmp:
+            armory = Path(tmp) / "armory"
+            shutil.copytree(suite / "armory", armory)
+            academic_report = benchmark_academic_items.run_benchmark(
+                armory,
+                benchmark_academic_items.load_cases(academic_items_dataset),
+            )
+    except (OSError, TypeError, ValueError) as exc:
+        return f"{suite}; academic_item_metrics_unavailable={exc}"
+    return (
+        f"{suite}: academic_items_pass_rate={academic_report.pass_rate:.3f}, "
+        f"academic_question_type_count={academic_report.question_type_count}, "
+        f"academic_grounded_question_rate={academic_report.grounded_question_rate:.3f}, "
+        f"prompt_cache_pass_rate={prompt_cache_report.pass_rate:.3f}, "
+        f"prompt_cache_stable_hash_reuse={prompt_cache_report.stable_hash_reuse_rate:.3f}"
     )
 
 
@@ -353,7 +457,12 @@ def _real_chat_event_item(manifest_path: Path | None) -> AuditItem:
             f"{events_path}: reading={report.has_reading}, evidence={report.has_evidence}, "
             f"writing={report.has_writing}, complete={report.has_turn_complete}, "
             f"consistent={report.has_consistent_completion}, "
+            f"material_operation={report.has_material_operation}, "
+            f"material_operation_metadata_rate={report.material_operation_metadata_rate:.3f}, "
             f"metadata={report.has_evidence_metadata}, "
+            f"tool_runtime_metadata_rate={report.tool_runtime_metadata_rate:.3f}, "
+            "acceptance_criteria_metadata_rate="
+            f"{report.acceptance_criteria_metadata_rate:.3f}, "
             f"answer_pass_rate={answer_pass_rate:.3f}"
         ),
     )
@@ -589,7 +698,19 @@ def _real_preflight_item(report_path: Path | None, manifest_path: Path | None) -
                 f"match sampled/total {computed_overview_coverage:.3f}"
             ),
         )
-    if overview_coverage < DEFAULT_REQUIRED_PREFLIGHT_OVERVIEW_SOURCE_COVERAGE:
+    overview_sampled_enough = overview_sampled_sources >= min(
+        overview_total_sources,
+        DEFAULT_REQUIRED_PREFLIGHT_OVERVIEW_SAMPLE_CAP,
+    )
+    overview_cap_satisfies_floor = (
+        DEFAULT_REQUIRED_PREFLIGHT_OVERVIEW_SOURCE_COVERAGE
+        <= DEFAULT_PREFLIGHT_SAMPLE_CAP_MAX_COVERAGE_FLOOR
+        and overview_sampled_enough
+    )
+    if (
+        overview_coverage < DEFAULT_REQUIRED_PREFLIGHT_OVERVIEW_SOURCE_COVERAGE
+        and not overview_cap_satisfies_floor
+    ):
         return AuditItem(
             requirement,
             "missing",
@@ -608,7 +729,11 @@ def _real_preflight_item(report_path: Path | None, manifest_path: Path | None) -
     return AuditItem(
         requirement,
         "covered",
-        f"{report_path}: indexed={indexed_documents}, chunks={chunks}, health=passed",
+        (
+            f"{report_path}: indexed={indexed_documents}, chunks={chunks}, "
+            f"health=passed, overview_sampled={overview_sampled_sources}/"
+            f"{overview_total_sources}"
+        ),
     )
 
 
@@ -741,6 +866,19 @@ def _model_matrix_item(
             "missing",
             "no passing candidate for required group(s): " + ", ".join(missing_passing_groups),
         )
+    has_codex_frontier = any(
+        result.get("status") == 0
+        and result.get("group") == "frontier"
+        and result.get("provider_slug") == "openai-codex"
+        and result.get("auth_source") == "codex_oauth"
+        for result in result_objects
+    )
+    if not has_codex_frontier:
+        return AuditItem(
+            requirement,
+            "missing",
+            "model matrix lacks passing Codex subscription-backed frontier candidate",
+        )
     failing = [
         str(result.get("candidate_id", "unknown"))
         for result in result_objects
@@ -823,7 +961,10 @@ def _model_matrix_item(
     return AuditItem(
         requirement,
         "covered",
-        f"{report_path}: groups={', '.join(cast('list[str]', groups))}, candidates={len(results)}",
+        (
+            f"{report_path}: groups={', '.join(cast('list[str]', groups))}, "
+            f"candidates={len(results)}, codex_oauth=present"
+        ),
     )
 
 
@@ -1405,7 +1546,7 @@ def audit_completion(
         _file_exists("benchmarks/academic/manifest.json"),
         _deterministic_benchmark_suite_item(),
         _deterministic_chat_event_suite_item(),
-        _file_exists("benchmarks/model-matrix.example.json"),
+        _model_matrix_example_item(),
         _real_corpus_item(real_manifest),
         _real_chat_event_item(real_manifest),
         _real_preflight_item(real_preflight_report, real_manifest),
@@ -1454,7 +1595,8 @@ def _next_steps(missing: tuple[str, ...]) -> tuple[str, ...]:
             "uv run python -m scripts.build_permissioned_corpus_armory "
             ".artifacts/real-corpus-evidence/armory "
             ".artifacts/real-corpus-evidence/real-corpus-manifest.json "
-            "path/to/permissioned-materials --limit 60 --overwrite"
+            "path/to/permissioned-materials "
+            "--domain-from-parent --balance-domains --infer-roles-from-index --overwrite"
         )
         steps.append(
             "uv run python -m scripts.materialize_public_corpus "

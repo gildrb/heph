@@ -24,13 +24,21 @@ _SLOW_RECALL_SECONDS = 120
 
 class StudyItemPayload(TypedDict, total=False):
     item: str
+    concept: str
     retrieval_query: str
     source_refs: list[str]
     reviews: int
+    failures: int
     difficulty: float
     stability: float
     last_recall_seconds: int
     last_rating: str
+    last_correct: bool
+    last_confidence: float
+    last_retrieval_success: bool
+    last_transfer_success: bool
+    error_type: str
+    exam_importance: float
     last_review: str
     next_review: str
 
@@ -40,13 +48,21 @@ class StudyItemState:
     """Scheduling state for one material-backed study item."""
 
     item: str
+    concept: str = ""
     retrieval_query: str = ""
     source_refs: list[str] | None = None
     reviews: int = 0
+    failures: int = 0
     difficulty: float = _DEFAULT_DIFFICULTY
     stability: float = _DEFAULT_STABILITY
     last_recall_seconds: int | None = None
     last_rating: StudyRecallRating = StudyRecallRating.NONE
+    last_correct: bool = False
+    last_confidence: float | None = None
+    last_retrieval_success: bool = False
+    last_transfer_success: bool = False
+    error_type: str = ""
+    exam_importance: float = 0.0
     last_review: datetime | None = None
     next_review: datetime | None = None
 
@@ -66,15 +82,24 @@ class StudyItemState:
     def to_dict(self) -> StudyItemPayload:
         payload: StudyItemPayload = {
             "item": self.item,
+            "concept": self.concept,
             "retrieval_query": self.retrieval_query,
             "source_refs": list(self.source_refs or []),
             "reviews": self.reviews,
+            "failures": self.failures,
             "difficulty": self.difficulty,
             "stability": self.stability,
             "last_rating": self.last_rating.value,
+            "last_correct": self.last_correct,
+            "last_retrieval_success": self.last_retrieval_success,
+            "last_transfer_success": self.last_transfer_success,
+            "error_type": self.error_type,
+            "exam_importance": self.exam_importance,
         }
         if self.last_recall_seconds is not None:
             payload["last_recall_seconds"] = self.last_recall_seconds
+        if self.last_confidence is not None:
+            payload["last_confidence"] = self.last_confidence
         if self.last_review is not None:
             payload["last_review"] = self.last_review.isoformat()
         if self.next_review is not None:
@@ -95,13 +120,21 @@ class StudyItemState:
         raw_seconds = data.get("last_recall_seconds")
         return cls(
             item=_str_or(data.get("item"), ""),
+            concept=_str_or(data.get("concept"), ""),
             retrieval_query=_str_or(data.get("retrieval_query"), ""),
             source_refs=refs,
             reviews=_int_or(data.get("reviews"), 0),
+            failures=_int_or(data.get("failures"), 0),
             difficulty=_float_or(data.get("difficulty"), _DEFAULT_DIFFICULTY),
             stability=_float_or(data.get("stability"), _DEFAULT_STABILITY),
             last_recall_seconds=raw_seconds if isinstance(raw_seconds, int) else None,
             last_rating=rating,
+            last_correct=_bool_or(data.get("last_correct"), rating is StudyRecallRating.EASY),
+            last_confidence=_optional_bounded_float(data.get("last_confidence"), 0.0, 1.0),
+            last_retrieval_success=_bool_or(data.get("last_retrieval_success"), bool(refs)),
+            last_transfer_success=_bool_or(data.get("last_transfer_success"), False),
+            error_type=_str_or(data.get("error_type"), ""),
+            exam_importance=_bounded_float_or(data.get("exam_importance"), 0.0, 0.0, 1.0),
             last_review=_parse_datetime(data.get("last_review")),
             next_review=_parse_datetime(data.get("next_review")),
         )
@@ -130,7 +163,14 @@ class StudyScheduleStore:
             for item in self.items.values()
             if item.next_review is not None and item.next_review <= current_time
         ]
-        due.sort(key=lambda item: (item.next_review or current_time, -item.difficulty))
+        due.sort(
+            key=lambda item: (
+                item.next_review or current_time,
+                -item.exam_importance,
+                -item.failures,
+                -item.difficulty,
+            )
+        )
         if limit > 0:
             return due[:limit]
         return due
@@ -167,24 +207,53 @@ class StudyScheduleStore:
         self,
         item: str,
         *,
+        concept: str = "",
         retrieval_query: str,
         source_refs: list[str],
         rating: StudyRecallRating,
         elapsed_seconds: int | None,
+        confidence: float | None = None,
+        retrieval_success: bool | None = None,
+        transfer_success: bool | None = None,
+        error_type: str = "",
+        exam_importance: float = 0.0,
         now: datetime | None = None,
     ) -> StudyItemState:
         current_time = now or datetime.now(UTC)
-        state = StudyItemState(item=item, retrieval_query=retrieval_query, source_refs=source_refs)
+        bounded_exam_importance = min(1.0, max(0.0, exam_importance))
+        state = StudyItemState(
+            item=item,
+            concept=concept,
+            retrieval_query=retrieval_query,
+            source_refs=source_refs,
+            error_type=error_type,
+            exam_importance=bounded_exam_importance,
+        )
         existing = self.items.get(state.key)
         if existing is not None:
             state = existing
             state.item = item
+            state.concept = concept or state.concept
             state.retrieval_query = retrieval_query
             state.source_refs = list(source_refs)
+            state.error_type = error_type or state.error_type
+            state.exam_importance = max(state.exam_importance, bounded_exam_importance)
 
         state.reviews += 1
         state.last_rating = rating
+        state.last_correct = rating in {StudyRecallRating.EASY, StudyRecallRating.GOOD}
+        if not state.last_correct:
+            state.failures += 1
         state.last_recall_seconds = elapsed_seconds
+        state.last_confidence = confidence
+        state.last_retrieval_success = (
+            bool(source_refs) if retrieval_success is None else retrieval_success
+        )
+        state.last_transfer_success = (
+            state.last_correct and _looks_like_transfer_item(item)
+            if transfer_success is None
+            else transfer_success
+        )
         state.last_review = current_time
         state.difficulty = _next_difficulty(state.difficulty, rating, elapsed_seconds)
         state.stability = _next_stability(state.stability, rating, elapsed_seconds)
@@ -273,6 +342,22 @@ def _retrievability(stability: float, elapsed_days: float) -> float:
     return max(0.0, min(1.0, 0.9 ** (elapsed_days / stability)))
 
 
+def _looks_like_transfer_item(item: str) -> bool:
+    lowered = item.casefold()
+    return any(
+        marker in lowered
+        for marker in (
+            "apply",
+            "application",
+            "scenario",
+            "compare",
+            "contrast",
+            "why",
+            "explain why",
+        )
+    )
+
+
 def _parse_datetime(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -288,8 +373,23 @@ def _int_or(value: object, default: int) -> int:
     return value if isinstance(value, int) else default
 
 
+def _bool_or(value: object, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
+
+
 def _float_or(value: object, default: float) -> float:
     return float(value) if isinstance(value, int | float) else default
+
+
+def _bounded_float_or(value: object, default: float, minimum: float, maximum: float) -> float:
+    parsed = _float_or(value, default)
+    return min(maximum, max(minimum, parsed))
+
+
+def _optional_bounded_float(value: object, minimum: float, maximum: float) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return min(maximum, max(minimum, float(value)))
 
 
 def _str_or(value: object, default: str) -> str:

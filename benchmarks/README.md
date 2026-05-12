@@ -13,12 +13,13 @@ uv run python -m scripts.run_benchmark_suite \
 
 The suite copies `benchmarks/academic/armory` into a temporary directory before
 building a RAG index, then scores retrieval, material-role inference, priority,
-document-understanding preflight, index integrity, study-state, scheduling, and
-grounded-answer datasets from `benchmarks/academic/`. It also validates the
-model replay prompt dataset so replay cases cannot silently drift away from the
-answer benchmark contract. Answer quality gates include citation validity,
-answer shape, and evidence coverage; `--min-evidence-coverage` fails the suite
-when answer fixtures under-sample required source coverage.
+document-understanding preflight, index integrity, academic-item extraction,
+study-state, scheduling, and grounded-answer datasets from
+`benchmarks/academic/`. It also validates the model replay prompt dataset so
+replay cases cannot silently drift away from the answer benchmark contract.
+Answer quality gates include citation validity, answer shape, and evidence
+coverage; `--min-evidence-coverage` fails the suite when answer fixtures
+under-sample required source coverage.
 
 The suite also validates `benchmarks/academic/manifest.json`, which declares
 the domains, material roles, document types, stressors, datasets, and known
@@ -124,6 +125,28 @@ uv run python -m scripts.materialize_public_corpus \
 This writes only under the declared `materials/...` paths and refuses to
 overwrite existing files unless `--overwrite` is supplied.
 
+For permissioned local folders, copy the documents into a benchmark armory and
+write `file://` provenance in one step:
+
+```bash
+uv run python -m scripts.build_permissioned_corpus_armory \
+  path/to/real-armory \
+  path/to/real-corpus-manifest.json \
+  path/to/permissioned-materials \
+  --domain-from-parent \
+  --balance-domains \
+  --infer-roles-from-index \
+  --overwrite
+```
+
+The generated manifest is still a scaffold until a human reviews domains,
+stressors, roles, document types, and unresolved `known_limits`; after that
+review, rerun with `--reviewed` to omit scaffold known limits. The
+`--domain-from-parent` flag preserves coarse folder-based domains when copying
+multiple course folders, `--balance-domains` keeps any optional `--limit` from
+taking every document from the first large folder, and `--infer-roles-from-index`
+uses copied document text to improve role labels when filenames are generic.
+
 After capturing `heph chat ask --jsonl`, use
 `scripts.extract_chat_event_expectation` to draft the chat-event expectation
 from evidence-notice metadata. The extractor writes `known_limits` deliberately;
@@ -202,7 +225,8 @@ dataset path must be declared by the real-corpus manifest with
 `kind: "model-replay-prompts"`. The real-corpus manifest must also declare
 `kind: "chat-events"` and `kind: "chat-event-answer-expectation"` datasets so
 the proof package includes the public harness stream that shows reading,
-evidence use, writing, and turn completion:
+evidence use, writing, turn completion, and any runtime execution notes emitted
+while tools recover from failures or oversized results:
 
 ```bash
 uv run python -m scripts.run_model_eval_matrix \
@@ -322,7 +346,9 @@ This reports visible materials, indexed documents, inferred visible and indexed
 roles, extraction health, and `overview_source_coverage`. The overview coverage
 metric is deliberately simple: for a broad "what is this material about?"
 request, the harness should sample across indexed sources instead of letting a
-few long chunks from early documents crowd out the rest of the corpus.
+few long chunks from early documents crowd out the rest of the corpus. For very
+large corpora, the smoke check treats reaching the overview sample cap as
+healthy even when the sampled/total percentage is low.
 For large real-corpus proof, `scripts.run_real_corpus_preflight` applies a
 bounded overview-coverage floor by default; raise
 `--min-overview-source-coverage` when validating smaller corpora where full
@@ -428,7 +454,10 @@ contract and any task-specific response shape?"
 ```
 
 For active-recall assessment cases, use `required_label` to enforce the study
-controller contract that feedback starts with exactly one assessment label:
+controller contract that feedback starts with exactly one assessment label. Add
+`required_sections` when the case should also enforce rubric-style feedback
+fields such as score, missing points, misconception correction, and the next
+retrieval prompt:
 
 ```json
 {
@@ -437,6 +466,7 @@ controller contract that feedback starts with exactly one assessment label:
   "answer": "PARTIAL: You recalled the definition but missed why it matters.",
   "require_citations": false,
   "required_label": "PARTIAL",
+  "required_sections": ["Score", "Got", "Missing", "Misconception", "Correction", "Try again"],
   "must_not_include": ["[E1]", "The full answer is"]
 }
 ```
@@ -509,6 +539,9 @@ review schedule item?"
   "domain": "mathematics",
   "expected_final_phase": "presenting",
   "expected_scheduled_reviews": 1,
+  "expected_scheduled_concepts": ["Explain integration by parts"],
+  "expected_schedule_error_types": ["correct"],
+  "expected_schedule_failures": [0],
   "turns": [
     {
       "user": "Explain integration by parts",
@@ -526,12 +559,13 @@ review schedule item?"
       "expected_feedback": "ready"
     },
     {
-      "user": "Integral of u dv equals uv minus integral v du.",
+      "user": "Integral of u dv equals uv minus integral v du. Confidence 4/5.",
       "reply": "CORRECT: Correct.",
       "source_refs": ["materials/calculus.md#chunk=0"],
       "advance_seconds": 18,
       "expected_action": "assess",
       "expected_rating": "easy",
+      "expected_confidence": 0.8,
       "record_schedule": true
     }
   ]
@@ -549,8 +583,45 @@ uv run python -m scripts.benchmark_study_state benchmarks/academic/study_state.j
 ```
 
 The committed suite must include multiple labelled domains and at least one
-scheduling case. This keeps the active-recall harness honest without binding it
-to a specific lecturer, language, or subject.
+scheduling case with concept, error type, failure count, latency, and confidence
+metadata plus retrieval-success and transfer-success signals. The suite report
+exposes `study_state.mastery_metadata_rate`, and the default comparator tracks
+it so scheduled-review metadata regressions are caught without hand-inspecting
+JSON. This keeps the active-recall harness honest without binding it to a
+specific lecturer, language, or subject.
+
+## Academic Item Datasets
+
+Use academic item datasets to answer: "Did deterministic extraction preserve
+traceable concepts, definitions, formulas, figures, tables, exam questions,
+answers, rubric points, and exam-skill cues for later course graph work?"
+
+```json
+{
+  "id": "hamiltonian-definition",
+  "domain": "physics",
+  "source_ref": "materials/physics-lecture.md#chunk=1",
+  "kind": "definition",
+  "concept": "Hamiltonian mechanics",
+  "text": "generalized coordinates, canonical momentum"
+}
+```
+
+Run:
+
+```bash
+uv run python -m scripts.benchmark_academic_items \
+  benchmarks/academic/armory \
+  benchmarks/academic/academic_items.jsonl \
+  --min-pass-rate 1.0 \
+  --min-grounded-question-rate 1.0 \
+  --min-question-types 6
+```
+
+The committed suite should cover at least definitions, formula-like source
+spans, figure/table captions, exam questions, answers, rubric points, and
+exam-skill cues. It should also generate several grounded question styles so
+active recall does not collapse to one prompt template.
 
 ## Replay Datasets
 
@@ -625,6 +696,17 @@ The replay runner can also compare directly against a saved baseline report by
 adding `--compare-to .artifacts/answers.baseline.report.json` to the replay
 command above.
 
+For full-suite reports, the default comparator also tracks public chat-event
+health metrics, including `chat_events.material_operation_metadata_rate`,
+`chat_events.evidence_metadata_rate`,
+`chat_runtime_events.material_operation_metadata_rate`,
+`chat_runtime_events.tool_runtime_metadata_rate`, and
+`chat_runtime_events.acceptance_criteria_metadata_rate`, so visible harness
+metadata regressions are caught without scraping terminal output. The default
+academic suite includes both a normal public chat stream and a small
+runtime-note stream that exercises `acceptance_criteria` and `tool_runtime`
+metadata, including failed-call and repeated-call execution notes.
+
 ## Model Eval Matrix
 
 Use the model eval matrix to answer: "Do the same replay prompts pass on both a
@@ -641,17 +723,24 @@ Create a JSON matrix. A starter file is available at
       "group": "local",
       "model": "llama-3.1-8b",
       "base_url": "http://localhost:11434/v1",
-      "api_key_env": "LOCAL_OPENAI_API_KEY"
+      "api_key_env": "LOCAL_OPENAI_API_KEY",
+      "responsibilities": ["chunk labeling", "question formatting"]
     },
     {
       "id": "frontier-hosted",
       "group": "frontier",
       "model": "gpt-4.1",
-      "api_key_env": "OPENAI_API_KEY"
+      "api_key_env": "OPENAI_API_KEY",
+      "responsibilities": ["complex explanation", "misconception correction"]
     }
   ]
 }
 ```
+
+`responsibilities` is descriptive metadata that travels into matrix result
+reports. Use it to document the intended harness split between smaller local
+models and frontier tutoring/evaluation models; the replay gates still decide
+whether each candidate actually passes.
 
 Then run:
 

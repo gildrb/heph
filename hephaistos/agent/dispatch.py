@@ -12,6 +12,12 @@ from hephaistos.agent.compact import (
     estimate_messages_tokens,
     micro_compact,
 )
+from hephaistos.agent.runtime_notes import (
+    acceptance_criteria_notice,
+    repeated_tool_call_notice,
+    tool_call_fingerprint,
+    tool_runtime_note,
+)
 from hephaistos.agent.steering import Steering
 from hephaistos.agent.tool_execution import (
     ToolCall,
@@ -174,6 +180,7 @@ def iter_agent_events(
     api_messages = list(conversation.to_api_messages())
     loop_timer = Timer()
     budget = ContextBudget(model=config.model, max_tokens=config.max_tokens)
+    tool_call_counts: dict[str, int] = {}
 
     _log.info(
         "agent_loop start",
@@ -256,6 +263,14 @@ def iter_agent_events(
             if tool_stream_disabled:
                 schemas = []
             require_verification_tool = turn_idx == 0 and bool(schemas) and not bool(turn_evidence)
+            if require_verification_tool:
+                criteria_notice = acceptance_criteria_notice()
+                criteria_message: ApiMessage = {
+                    "role": "system",
+                    "content": criteria_notice.message,
+                }
+                llm_messages = [*llm_messages, criteria_message]
+                yield criteria_notice
             for delta in stream_completion(
                 config,
                 llm_messages,
@@ -336,12 +351,19 @@ def iter_agent_events(
                 arguments = parse_tool_arguments(tool_call["function"]["arguments"])
             except json.JSONDecodeError:
                 arguments = {}
+            fingerprint = tool_call_fingerprint(name, arguments)
+            tool_call_counts[fingerprint] = tool_call_counts.get(fingerprint, 0) + 1
+            repeat_count = tool_call_counts[fingerprint]
             yield ToolCallEvent(
                 call_id=tool_call.get("id", ""),
                 name=name,
                 arguments=arguments,
                 display=format_tool_args(name, arguments),
             )
+            if repeat_count > 1:
+                repeat_note = repeated_tool_call_notice(name, arguments, repeat_count)
+                api_messages.append({"role": "system", "content": repeat_note.message})
+                yield repeat_note
             if registry.is_control_tool(name):
                 yield CompactRequestEvent(
                     call_id=tool_call.get("id", ""),
@@ -403,6 +425,10 @@ def iter_agent_events(
                 metadata=tool_result.get("tool_metadata", {}),
                 error=tool_result.get("tool_error"),
             )
+            runtime_note = tool_runtime_note(name, tool_result)
+            if runtime_note is not None:
+                api_messages.append({"role": "system", "content": runtime_note.message})
+                yield runtime_note
 
         yield from _drain_steering_events(
             steering,

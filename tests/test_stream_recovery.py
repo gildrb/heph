@@ -614,7 +614,9 @@ class TestAgentLoopRetry:
         with patch("hephaistos.agent.dispatch.build_client", return_value=mock_client):
             result = list(agent_loop(_config(), _conv(), workspace=_workspace(), retry=retry))
 
-        assert "".join(result) == "Done"
+        rendered = "".join(result)
+        assert "Acceptance criteria: inspect" in rendered
+        assert rendered.endswith("Done")
         assert mock_client.chat.completions.create.call_count == 2
 
     def test_agent_loop_raises_recovery_on_mid_stream_failure(self) -> None:

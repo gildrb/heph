@@ -64,11 +64,13 @@ def _write_matrix(path: Path) -> None:
                         "group": "local",
                         "model": "local-model",
                         "base_url": "http://localhost:11434/v1",
+                        "responsibilities": ["chunk labeling", "question formatting"],
                     },
                     {
                         "id": "frontier-hosted",
                         "group": "frontier",
                         "model": "frontier-model",
+                        "responsibilities": ["essay feedback", "misconception correction"],
                     },
                 ]
             }
@@ -128,6 +130,8 @@ def test_example_model_matrix_loads_and_covers_required_groups() -> None:
 
     assert report.status == 0
     assert report.groups == ("frontier", "local")
+    assert "answer point matching" in candidates[0].responsibilities
+    assert "misconception correction" in candidates[1].responsibilities
     assert "api_key" not in json.dumps(asdict_like(report))
 
 
@@ -160,6 +164,28 @@ def test_load_candidates_uses_env_api_key(tmp_path: Path, monkeypatch) -> None: 
 
     assert candidates[0].candidate_id == "local-small"
     assert candidates[0].api_key == "secret"
+
+
+def test_load_candidates_deduplicates_responsibilities(tmp_path: Path) -> None:
+    matrix = tmp_path / "matrix.json"
+    matrix.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "local",
+                    "group": "local",
+                    "model": "local",
+                    "base_url": "http://localhost:11434/v1",
+                    "responsibilities": ["question formatting", "Question Formatting"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    candidates = run_model_eval_matrix.load_candidates(matrix)
+
+    assert candidates[0].responsibilities == ("question formatting",)
 
 
 def test_load_candidates_reads_candidate_timeout(tmp_path: Path) -> None:
@@ -235,7 +261,18 @@ def test_model_eval_matrix_runs_candidates_and_writes_combined_report(tmp_path: 
         "single-source-fact",
     ]
     assert report["results"][0]["candidate_id"] == "local-small"
+    assert report["results"][0]["auth_source"] == "base_url"
+    assert report["results"][0]["provider_slug"] == ""
     assert report["results"][0]["cases"] == 4
+    assert report["results"][0]["responsibilities"] == [
+        "chunk labeling",
+        "question formatting",
+    ]
+    assert report["results"][1]["responsibilities"] == [
+        "essay feedback",
+        "misconception correction",
+    ]
+    assert report["results"][1]["auth_source"] == "api_key"
     assert report["results"][0]["domains"] == [
         "computer-science",
         "cross-domain",
@@ -247,7 +284,98 @@ def test_model_eval_matrix_runs_candidates_and_writes_combined_report(tmp_path: 
         assert Path(result["output"]).parent == Path(report["output_dir"])
     assert report["results"][0]["pass_rate"] == 1.0
     assert report["results"][0]["evidence_coverage_rate"] == 1.0
-    assert "api_key" not in json.dumps(report)
+    assert "frontier-key" not in json.dumps(report)
+
+
+def test_model_eval_matrix_records_codex_subscription_auth_source(tmp_path: Path) -> None:
+    replay_dataset = tmp_path / "replay.jsonl"
+    report_path = tmp_path / "matrix-report.json"
+    _write_replay_dataset(replay_dataset)
+    candidates = [
+        run_model_eval_matrix.ModelCandidate(
+            candidate_id="local-small",
+            group="local",
+            model="local-model",
+            base_url="http://localhost:11434/v1",
+        ),
+        run_model_eval_matrix.ModelCandidate(
+            candidate_id="frontier-codex",
+            group="frontier",
+            model="gpt-5.4-mini",
+            provider_slug="openai-codex",
+        ),
+    ]
+
+    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+        _write_candidate_report(kwargs["report_path"])
+        return 0
+
+    with (
+        patch("scripts.run_model_eval_matrix.load_credentials", return_value=object()),
+        patch(
+            "scripts.run_model_eval_matrix.run_replay_answer_eval.run_replay_answer_eval",
+            side_effect=fake_eval,
+        ),
+    ):
+        status = run_model_eval_matrix.run_model_eval_matrix(
+            tmp_path / "armory",
+            replay_dataset,
+            tmp_path / "out",
+            candidates,
+            report_path=report_path,
+        )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert status == 0
+    frontier = report["results"][1]
+    assert frontier["provider_slug"] == "openai-codex"
+    assert frontier["auth_source"] == "codex_oauth"
+
+
+def test_model_eval_matrix_requires_codex_oauth_for_codex_candidate(tmp_path: Path) -> None:
+    replay_dataset = tmp_path / "replay.jsonl"
+    report_path = tmp_path / "matrix-report.json"
+    _write_replay_dataset(replay_dataset)
+    candidates = [
+        run_model_eval_matrix.ModelCandidate(
+            candidate_id="local-small",
+            group="local",
+            model="local-model",
+            base_url="http://localhost:11434/v1",
+        ),
+        run_model_eval_matrix.ModelCandidate(
+            candidate_id="frontier-codex",
+            group="frontier",
+            model="gpt-5.4-mini",
+            provider_slug="openai-codex",
+        ),
+    ]
+
+    def fake_eval(*_args, **kwargs) -> int:  # type: ignore[no-untyped-def]
+        _write_candidate_report(kwargs["report_path"])
+        return 0
+
+    with (
+        patch("scripts.run_model_eval_matrix.load_credentials", return_value=None),
+        patch(
+            "scripts.run_model_eval_matrix.run_replay_answer_eval.run_replay_answer_eval",
+            side_effect=fake_eval,
+        ),
+    ):
+        status = run_model_eval_matrix.run_model_eval_matrix(
+            tmp_path / "armory",
+            replay_dataset,
+            tmp_path / "out",
+            candidates,
+            report_path=report_path,
+        )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert status == 1
+    frontier = report["results"][1]
+    assert frontier["status"] == 2
+    assert frontier["auth_source"] == "missing"
+    assert "Codex subscription OAuth" in frontier["error"]
 
 
 def test_model_eval_matrix_requires_local_and_frontier_groups(tmp_path: Path) -> None:

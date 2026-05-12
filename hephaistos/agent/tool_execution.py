@@ -190,13 +190,17 @@ def execute_tool_calls(
                 }
             },
         )
+        metadata = dict(result.metadata)
+        metadata.setdefault("tool", name)
+        metadata["latency_ms"] = round(timer.ms, 1)
+        metadata["result_length"] = len(result.content)
         results.append(
             {
                 "role": "tool",
                 "tool_call_id": call_id,
                 "content": result.content,
                 "tool_success": result.success,
-                "tool_metadata": result.metadata,
+                "tool_metadata": metadata,
                 "tool_error": result.error,
             }
         )

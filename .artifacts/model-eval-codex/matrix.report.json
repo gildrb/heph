@@ -1,0 +1,105 @@
+{
+  "armory": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/armory",
+  "replay_dataset": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/replay.jsonl",
+  "output_dir": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex",
+  "required_groups": [
+    "local",
+    "frontier"
+  ],
+  "status": 0,
+  "candidates": 2,
+  "groups": [
+    "frontier",
+    "local"
+  ],
+  "failures": [],
+  "results": [
+    {
+      "candidate_id": "pollinations-openai-fast",
+      "group": "local",
+      "model": "openai-fast",
+      "base_url": "https://text.pollinations.ai/openai",
+      "provider_slug": "",
+      "auth_source": "base_url",
+      "status": 0,
+      "output": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/pollinations-openai-fast.answers.jsonl",
+      "report_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/pollinations-openai-fast.report.json",
+      "cases": 3,
+      "domains": [
+        "algorithms-ai-data-science",
+        "corpus-orientation",
+        "dynamic-programming"
+      ],
+      "tasks": [
+        "grounded-explanation",
+        "material-overview",
+        "single-source-fact"
+      ],
+      "pass_rate": 1.0,
+      "citation_validity_rate": 1.0,
+      "citation_presence_rate": 1.0,
+      "expected_citation_rate": 1.0,
+      "required_text_rate": 1.0,
+      "forbidden_text_rate": 1.0,
+      "supported_claim_rate": 1.0,
+      "answer_shape_rate": 1.0,
+      "evidence_coverage_rate": 1.0,
+      "required_label_rate": 1.0,
+      "responsibilities": [
+        "small-model retrieval answer sanity",
+        "citation formatting",
+        "short factual answers"
+      ],
+      "error": ""
+    },
+    {
+      "candidate_id": "openai-codex-gpt-5-4-mini",
+      "group": "frontier",
+      "model": "gpt-5.4-mini",
+      "base_url": "",
+      "provider_slug": "openai-codex",
+      "auth_source": "codex_oauth",
+      "status": 0,
+      "output": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/openai-codex-gpt-5-4-mini.answers.jsonl",
+      "report_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/openai-codex-gpt-5-4-mini.report.json",
+      "cases": 3,
+      "domains": [
+        "algorithms-ai-data-science",
+        "corpus-orientation",
+        "dynamic-programming"
+      ],
+      "tasks": [
+        "grounded-explanation",
+        "material-overview",
+        "single-source-fact"
+      ],
+      "pass_rate": 1.0,
+      "citation_validity_rate": 1.0,
+      "citation_presence_rate": 1.0,
+      "expected_citation_rate": 1.0,
+      "required_text_rate": 1.0,
+      "forbidden_text_rate": 1.0,
+      "supported_claim_rate": 1.0,
+      "answer_shape_rate": 1.0,
+      "evidence_coverage_rate": 1.0,
+      "required_label_rate": 1.0,
+      "responsibilities": [
+        "subscription-backed grounded explanation",
+        "misconception-resistant synthesis",
+        "academic tutoring answer quality"
+      ],
+      "error": ""
+    }
+  ],
+  "replay_cases": 3,
+  "replay_domains": [
+    "algorithms-ai-data-science",
+    "corpus-orientation",
+    "dynamic-programming"
+  ],
+  "replay_tasks": [
+    "grounded-explanation",
+    "material-overview",
+    "single-source-fact"
+  ]
+}

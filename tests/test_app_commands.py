@@ -319,6 +319,9 @@ def test_remind_command_reports_due_study_items_without_vocab(
         source_refs=["materials/exam.md#chunk=0"],
         rating=StudyRecallRating.HARD,
         elapsed_seconds=160,
+        concept="Dijkstra shortest paths",
+        error_type="misconception",
+        exam_importance=0.75,
         now=datetime.now(UTC) - timedelta(days=2),
     )
     store.save()
@@ -329,6 +332,10 @@ def test_remind_command_reports_due_study_items_without_vocab(
     assert "study item" in out
     assert "due for active recall" in out
     assert "Explain Dijkstra" in out
+    assert "concept: Dijkstra shortest paths" in out
+    assert "last: misconception" in out
+    assert "failures: 1" in out
+    assert "exam priority: 75%" in out
     assert "/exam" in out
 
 

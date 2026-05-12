@@ -15,6 +15,7 @@ import hephaistos.__main__ as _main_mod
 from hephaistos.chat.compaction import compact_session
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
+    MaterialOperationEvent,
     NoticeEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -182,6 +183,32 @@ class TestRunTuiTurn:
             )
 
         assert replies == []
+
+    def test_material_operation_events_produce_ordered_notices(self, chat_session) -> None:
+        replies: list[str] = []
+        notices: list[str] = []
+
+        def fake_iter(session, user_input, *, abort):
+            yield MaterialOperationEvent(
+                operation="search_index",
+                message="Searching indexed materials for: integration by parts",
+                metadata={"query": "integration by parts"},
+            )
+            yield AssistantDeltaEvent(delta="Grounded answer [E1].")
+
+        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+            run_tui_turn(
+                chat_session,
+                "explain integration by parts",
+                Event(),
+                on_reply=replies.append,
+                on_notice=notices.append,
+                on_error=lambda _: None,
+                on_finish=lambda: None,
+            )
+
+        assert notices == ["Searching indexed materials for: integration by parts"]
+        assert replies == ["Grounded answer [E1]."]
 
     def test_tool_events_produce_notices(self, chat_session) -> None:
         notices: list[str] = []

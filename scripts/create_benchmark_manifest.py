@@ -144,10 +144,21 @@ def _document_entry(
 
 def _document_type(material: MaterialFile, *, role: MaterialRole) -> str:
     suffix = material.path.suffix.lower()
+    rel_lower = material.rel_path.lower()
     if role == "past_exam":
         return "past-exam"
     if role == "assignment":
         return "exercise-sheet"
+    if _has_any(rel_lower, ("solution", "solutions", "lösung", "loesung")):
+        return "solutions"
+    if _has_any(rel_lower, ("scan", "ocr", "fototopdf", "pdf_upload")):
+        return "scanned-pdf"
+    if _has_any(rel_lower, ("cheatsheet", "cheat-sheet", "summary", "zusammenfassung")):
+        return "cheatsheet"
+    if _has_any(rel_lower, ("handout_4x4", "handout-4x4", "_4x4", "-4x4")):
+        return "multi-slide-handout"
+    if _has_any(rel_lower, ("syllabus", "information", "informationsblatt")):
+        return "syllabus"
     if role == "slides":
         return "slide-deck" if suffix in (".ppt", ".pptx") else "lecture-slides"
     if suffix == ".pdf":
@@ -179,6 +190,16 @@ def _stressors(material: MaterialFile, *, role: MaterialRole) -> list[str]:
         stressors.add("exercise-sheet")
     if role in ("lecture", "slides"):
         stressors.add("lecture-material")
+    if _has_any(rel_lower, ("solution", "solutions", "lösung", "loesung")):
+        stressors.add("worked-solution")
+    if _has_any(rel_lower, ("scan", "ocr", "fototopdf", "pdf_upload")):
+        stressors.update(("ocr-noise", "scanned-pdf"))
+    if _has_any(rel_lower, ("cheatsheet", "cheat-sheet", "summary", "zusammenfassung")):
+        stressors.update(("dense-reference", "table-heavy"))
+    if _has_any(rel_lower, ("handout_4x4", "handout-4x4", "_4x4", "-4x4")):
+        stressors.add("multi-column")
+    if _has_any(rel_lower, ("syllabus", "information", "informationsblatt")):
+        stressors.add("syllabus")
     if any(ord(char) > 127 for char in material.rel_path):
         stressors.update(("unicode", "multilingual"))
     if any(token in rel_lower for token in ("scan", "ocr")):
@@ -186,6 +207,10 @@ def _stressors(material: MaterialFile, *, role: MaterialRole) -> list[str]:
     if any(token in rel_lower for token in ("multi-column", "multicolumn", "zweispaltig")):
         stressors.add("multi-column")
     return sorted(stressors)
+
+
+def _has_any(text: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in text for needle in needles)
 
 
 def write_manifest(path: Path, manifest: GeneratedManifest) -> None:

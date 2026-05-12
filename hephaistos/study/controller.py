@@ -19,7 +19,30 @@ from hephaistos.study.state import (
 _log = get_logger("study.controller")
 
 _READY_RE = re.compile(
-    r"^(?:ready|go|start|yes|y|ok|okay|i(?: am|'m)? ready|lets go|let's go)\b",
+    r"^(?:"
+    r"ready|go|go ahead|start|yes|y|ok|okay|"
+    r"i\s*(?:am|'m|m)?\s+ready|"
+    r"lets go|let's go"
+    r")(?:[.!?]|\s+now)?$",
+    re.IGNORECASE,
+)
+_WAITING_PROCEDURE_RE = re.compile(
+    r"^(?:"
+    r"what now|now what|what next|next step|what should i do|what do i do next|"
+    r"not ready|not yet|wait|wait for now|later|hold on|"
+    r"i\s*(?:am|'m|m)?\s+not\s+ready|"
+    r"no"
+    r")[.!?]?$",
+    re.IGNORECASE,
+)
+_RECALL_CLARIFICATION_RE = re.compile(
+    r"\b(?:"
+    r"which (?:answer|question|one)|"
+    r"what (?:answer|question|do you want|should i answer|am i answering)|"
+    r"answer what|"
+    r"repeat (?:the )?(?:question|prompt)|"
+    r"say (?:the )?(?:question|prompt) again"
+    r")\b",
     re.IGNORECASE,
 )
 _INITIAL_CALIBRATION_RE = re.compile(
@@ -74,6 +97,11 @@ _SOURCE_QA_RE = re.compile(
     re.IGNORECASE,
 )
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
+_CONFIDENCE_RE = re.compile(
+    r"\b(?:confidence|confident|sure)\s*(?:is|:|=)?\s*(?P<value>\d+(?:[.]\d+)?)\s*"
+    r"(?P<unit>%|/10|/5)?\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +116,7 @@ class StudyTurnPlan:
     allow_tools: bool = True
     buffer_response: bool = False
     direct_reply: str | None = None
+    stated_confidence: float | None = None
 
 
 def _normalize(text: str) -> str:
@@ -139,11 +168,68 @@ def _is_source_qa_request(text: str) -> bool:
     return bool(_SOURCE_QA_RE.search(_normalize(text)))
 
 
+def _is_ready_signal(text: str) -> bool:
+    return bool(_READY_RE.fullmatch(_normalize(text)))
+
+
+def _is_waiting_procedure_request(text: str) -> bool:
+    return bool(_WAITING_PROCEDURE_RE.fullmatch(_normalize(text)))
+
+
+def _is_recall_clarification_request(text: str) -> bool:
+    return bool(_RECALL_CLARIFICATION_RE.search(_normalize(text)))
+
+
+def _material_request_plan(
+    state: StudyState,
+    user_input: str,
+    *,
+    phase: StudyPhase = StudyPhase.PRESENTING,
+) -> StudyTurnPlan | None:
+    """Return a material-backed plan for explicit new requests.
+
+    This is used when the study loop is waiting for ``ready`` but the student
+    asks a fresh material question instead. Those requests should restart
+    evidence retrieval rather than falling through to the ready reminder.
+    """
+    text = _normalize(user_input)
+    if "priorit" in text.lower():
+        return StudyTurnPlan(
+            action=StudyAction.PRIORITY,
+            phase=phase,
+            prompt=_priority_prompt(),
+            retrieval_query="exam priority topics prerequisites past exams materials overview",
+            allow_tools=False,
+        )
+    query = _derive_presentation_query(user_input, state)
+    if _is_overview_request(query):
+        return StudyTurnPlan(
+            action=StudyAction.PRESENT,
+            phase=StudyPhase.PRESENTING,
+            prompt=_overview_prompt(query),
+            retrieval_query=query,
+            allow_tools=False,
+            buffer_response=True,
+        )
+    if _is_source_qa_request(query):
+        return StudyTurnPlan(
+            action=StudyAction.SOURCE_QA,
+            phase=StudyPhase.PRESENTING,
+            prompt=_source_qa_prompt(query),
+            retrieval_query=query,
+            allow_tools=False,
+            buffer_response=True,
+        )
+    return None
+
+
 def _calibration_prompt() -> str:
     return (
         "Controlled study state machine. Execute CALIBRATE.\n"
         "Rules:\n"
         "- Use the retrieved material to ask exactly one diagnostic recall question.\n"
+        "- The question must be grounded in at least one retrieved source span, "
+        "past-exam pattern, rubric point, or mark-scheme point.\n"
         "- The question must test understanding of a concept, procedure, or "
         "relationship from the material — not surface-level document metadata.\n"
         "- FORBIDDEN question types (these never test knowledge):\n"
@@ -163,6 +249,8 @@ def _calibration_prompt() -> str:
         "- Do not present the solution or method.\n"
         "- Do not include evidence IDs, citations, source labels, or answer-location hints "
         "in the question.\n"
+        "- Internally preserve the source grounding for later assessment; never invent "
+        "unsupported questions from general model knowledge.\n"
         "- End with exactly: Answer from memory, or say easier or review material.\n"
         "- If no retrieved source material is available, ask which material or topic "
         "to start with."
@@ -215,8 +303,6 @@ def _overview_prompt(query: str) -> str:
         "knowledge.\n"
         "- If the retrieved sample is too thin to summarize the whole corpus, say what is "
         "covered by the sample and what remains uncertain.\n"
-        "- Use material tools to inspect indexed sources when retrieval evidence is too thin, "
-        "ambiguous, or contradictory. Do not rely on outside knowledge.\n"
         "- Synthesize the material in your own words. Do not paste long source excerpts; quote "
         "only short exact wording when it materially helps the answer.\n"
         "- Include at least two concise bullet lines, and cite each bullet with evidence IDs.\n"
@@ -245,6 +331,25 @@ def _source_qa_prompt(query: str) -> str:
     )
 
 
+def _source_followup_prompt(item: str, user_input: str) -> str:
+    return (
+        "Controlled study state machine. Execute SOURCE_FOLLOWUP.\n"
+        f"Current material focus: {item}\n"
+        f"Student follow-up: {user_input}\n"
+        "Rules:\n"
+        "- Treat the follow-up as a real source-backed question or reaction, not as a "
+        "readiness signal and not as a recall attempt.\n"
+        "- Use the stored or retrieved material evidence before answering.\n"
+        "- If the follow-up is an acknowledgement such as 'interesting', explain one "
+        "specific source-backed reason the material is interesting or important.\n"
+        "- If the follow-up asks why, answer the why-question directly from the evidence.\n"
+        "- Cite evidence IDs for source-backed claims.\n"
+        "- Do not assess the student.\n"
+        "- Do not ask a recall question.\n"
+        "- Do not end with readiness, drill, or study-loop instructions."
+    )
+
+
 def _waiting_prompt() -> str:
     return (
         "Controlled study state machine. Execute WAITING_FOR_READY.\n"
@@ -263,6 +368,18 @@ def _recall_prompt(item: str) -> str:
         "- Do not answer the item.\n"
         "- Tell the student to reproduce the solution from memory now.\n"
         "- Keep it to one short sentence."
+    )
+
+
+def _recall_clarification_prompt(item: str) -> str:
+    return (
+        "Controlled study state machine. Execute RECALL_CLARIFICATION.\n"
+        f"Current item: {item}\n"
+        "Rules:\n"
+        "- The student is asking what to answer, not attempting the answer.\n"
+        "- Restate what they should recall from memory without revealing the solution.\n"
+        "- Do not assess the student.\n"
+        "- Keep it to one or two short sentences."
     )
 
 
@@ -297,10 +414,13 @@ def _simplify_prompt(item: str) -> str:
         "Rules:\n"
         "- The previous recall item was too hard.\n"
         "- Use only the stored material context for this item.\n"
+        "- Ground the easier question in a retrieved source span, past-exam pattern, "
+        "rubric point, or mark-scheme point.\n"
         "- Ask exactly one easier prerequisite recall question.\n"
         "- The question must test understanding — not document titles, author names, "
         "dates, page numbers, file names, headings, or other surface metadata.\n"
         "- Do not reveal the answer to either question.\n"
+        "- Do not invent prerequisite questions from general model knowledge.\n"
         "- End with exactly: Answer from memory, or say review material.\n"
         "- If no grounded material context is available, say no easier grounded question "
         "is available."
@@ -328,12 +448,28 @@ def _assess_prompt(item: str, attempt_count: int) -> str:
         f"Attempt number: {attempt_count + 1}\n"
         "Rules:\n"
         "- Evaluate the student's attempt against the retrieved material only.\n"
+        "- Treat retrieved material, rubrics, mark schemes, and past-exam patterns as "
+        "the source of truth. General model knowledge may only clarify wording; it "
+        "must not add expected points or override the material.\n"
         "- Start the reply with exactly one label: CORRECT:, PARTIAL:, or WRONG:.\n"
-        "- CORRECT: one short sentence only. Do not restate the solution.\n"
-        "- PARTIAL: state only what is missing in one sentence. "
-        "Do not fill in the missing content.\n"
-        "- WRONG: give only the first-step hint in one sentence. Do not reveal later steps.\n"
-        "- No praise. No encouragement. No extra exposition.\n"
+        "- After the label, use this compact structure when evidence is available:\n"
+        "  Score: <earned>/<available or expected points>.\n"
+        "  Got: <source-backed points the student included>.\n"
+        "  Missing: <rubric/source-backed points still needed>.\n"
+        "  Misconception: <incorrect idea and why the source contradicts it, or none>.\n"
+        "  Correction: <minimal source-backed correction with evidence IDs>.\n"
+        "  Try again: <one next retrieval prompt>.\n"
+        "  Confidence: <whether the student's confidence seems calibrated, if stated>.\n"
+        "- CORRECT: keep the structure brief and do not restate a full solution.\n"
+        "- PARTIAL: identify missing source-backed points without revealing unrelated "
+        "extra material.\n"
+        "- WRONG: correct the misconception or first wrong step immediately, then give "
+        "one focused retrieval prompt. Do not let the student continue with a false idea.\n"
+        "- Cite evidence IDs for rubric points, missing points, misconceptions, and "
+        "corrections whenever IDs are available.\n"
+        "- If the uploaded material does not contain enough evidence to assess "
+        "confidently, say so clearly and default to PARTIAL:.\n"
+        "- Be factual and direct. No praise. No generic encouragement.\n"
         "- If material evidence is missing, default to PARTIAL: "
         "and say grounded assessment is unavailable."
     )
@@ -385,7 +521,7 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
                 phase=StudyPhase.PRESENTING,
                 prompt=_overview_prompt(query),
                 retrieval_query=query,
-                allow_tools=True,
+                allow_tools=False,
                 buffer_response=True,
             )
         if _is_source_qa_request(query):
@@ -402,7 +538,7 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
             phase=StudyPhase.PRESENTING,
             prompt=_overview_prompt(query) if is_overview else _present_prompt(query),
             retrieval_query=query,
-            allow_tools=True,
+            allow_tools=not is_overview,
             buffer_response=is_overview,
         )
 
@@ -414,12 +550,14 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
             phase=StudyPhase.PRESENTING,
             prompt=_overview_prompt(query) if is_overview else _present_prompt(query),
             retrieval_query=query,
-            allow_tools=True,
+            allow_tools=not is_overview,
             buffer_response=is_overview,
         )
 
     if state.phase == StudyPhase.WAITING_FOR_READY:
-        if _READY_RE.search(text):
+        if material_plan := _material_request_plan(state, user_input):
+            return material_plan
+        if _is_ready_signal(text):
             return StudyTurnPlan(
                 action=StudyAction.PROMPT_RECALL,
                 phase=StudyPhase.RECALL,
@@ -431,6 +569,15 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
                 action=StudyAction.REFUSE_REVEAL,
                 phase=StudyPhase.WAITING_FOR_READY,
                 prompt=_refusal_prompt(state.current_item),
+                allow_tools=False,
+            )
+        if not _is_waiting_procedure_request(text):
+            return StudyTurnPlan(
+                action=StudyAction.REVIEW,
+                phase=StudyPhase.PRESENTING,
+                prompt=_source_followup_prompt(state.current_item, user_input),
+                retrieval_query=state.retrieval_query or state.current_item,
+                use_expected_source_refs=True,
                 allow_tools=False,
             )
         return StudyTurnPlan(
@@ -446,6 +593,13 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
                 action=StudyAction.REFUSE_REVEAL,
                 phase=StudyPhase.RECALL,
                 prompt=_refusal_prompt(state.current_item),
+                allow_tools=False,
+            )
+        if _is_recall_clarification_request(text):
+            return StudyTurnPlan(
+                action=StudyAction.PROMPT_RECALL,
+                phase=StudyPhase.RECALL,
+                prompt=_recall_clarification_prompt(state.current_item),
                 allow_tools=False,
             )
         if _REVIEW_MATERIAL_RE.search(text):
@@ -483,6 +637,7 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
             use_expected_source_refs=True,
             allow_tools=False,
             buffer_response=True,
+            stated_confidence=_parse_stated_confidence(text),
         )
 
     query = _derive_presentation_query(user_input, state)
@@ -492,7 +647,7 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
         phase=StudyPhase.PRESENTING,
         prompt=_overview_prompt(query) if is_overview else _present_prompt(query),
         retrieval_query=query,
-        allow_tools=True,
+        allow_tools=not is_overview,
         buffer_response=is_overview,
     )
 
@@ -552,6 +707,29 @@ def _derive_recall_rating(
             return StudyRecallRating.GOOD
         return StudyRecallRating.HARD
     return StudyRecallRating.NONE
+
+
+def _parse_stated_confidence(text: str) -> float | None:
+    match = _CONFIDENCE_RE.search(text)
+    if match is None:
+        return None
+    raw_value = float(match.group("value"))
+    unit = match.group("unit") or ""
+    if unit == "%":
+        confidence = raw_value / 100
+    elif unit == "/10":
+        confidence = raw_value / 10
+    elif unit == "/5":
+        confidence = raw_value / 5
+    elif raw_value <= 1:
+        confidence = raw_value
+    elif raw_value <= 5:
+        confidence = raw_value / 5
+    elif raw_value <= 10:
+        confidence = raw_value / 10
+    else:
+        return None
+    return min(1.0, max(0.0, confidence))
 
 
 def apply_turn_result(
@@ -689,6 +867,7 @@ def apply_turn_result(
         next_state.last_feedback_type = feedback
         next_state.last_recall_seconds = elapsed_seconds
         next_state.last_recall_rating = _derive_recall_rating(feedback, elapsed_seconds)
+        next_state.last_confidence = plan.stated_confidence
         if feedback is StudyFeedbackType.CORRECT:
             next_state.phase = StudyPhase.PRESENTING
             next_state.current_item = ""

@@ -25,6 +25,7 @@ class UsagePayload(TypedDict, total=False):
     prompt_tokens: int | None
     completion_tokens: int | None
     total_tokens: int | None
+    cached_prompt_tokens: int | None
 
 
 class ApiMessage(TypedDict, total=False):

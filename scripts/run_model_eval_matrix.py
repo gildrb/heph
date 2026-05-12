@@ -65,6 +65,7 @@ class RawModelCandidate(TypedDict):
     max_tokens: NotRequired[int]
     rag_context_budget: NotRequired[int]
     timeout_seconds: NotRequired[int]
+    responsibilities: NotRequired[list[str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +80,7 @@ class ModelCandidate:
     max_tokens: int = 4096
     rag_context_budget: int = 2000
     timeout_seconds: int = 0
+    responsibilities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +89,8 @@ class ModelEvalResult:
     group: str
     model: str
     base_url: str
+    provider_slug: str
+    auth_source: str
     status: int
     output: str
     report_path: str
@@ -103,6 +107,7 @@ class ModelEvalResult:
     answer_shape_rate: float | None
     evidence_coverage_rate: float | None
     required_label_rate: float | None
+    responsibilities: tuple[str, ...] = ()
     error: str = ""
 
 
@@ -181,6 +186,26 @@ def _non_negative_int_field(raw: dict[str, object], field: str, default: int) ->
     return value
 
 
+def _responsibilities_field(raw: dict[str, object], candidate_number: int) -> tuple[str, ...]:
+    value = raw.get("responsibilities", [])
+    if not isinstance(value, list):
+        raise TypeError(f"candidate {candidate_number} responsibilities must be a list")
+    responsibilities: list[str] = []
+    seen: set[str] = set()
+    for index, raw_item in enumerate(value, start=1):
+        if not isinstance(raw_item, str) or not raw_item.strip():
+            raise ValueError(
+                f"candidate {candidate_number} responsibility {index} must be a string"
+            )
+        item = raw_item.strip()
+        key = item.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        responsibilities.append(item)
+    return tuple(responsibilities)
+
+
 def _raw_candidates(payload: object) -> list[dict[str, object]]:
     raw_candidates: object
     if isinstance(payload, dict):
@@ -229,6 +254,7 @@ def load_candidates(path: Path) -> list[ModelCandidate]:
                 max_tokens=_positive_int_field(raw, "max_tokens", 4096),
                 rag_context_budget=_positive_int_field(raw, "rag_context_budget", 2000),
                 timeout_seconds=_non_negative_int_field(raw, "timeout_seconds", 0),
+                responsibilities=_responsibilities_field(raw, idx),
             )
         )
     if not candidates:
@@ -400,12 +426,15 @@ def _run_candidate(
 ) -> ModelEvalResult:
     output_path = output_dir / f"{candidate.candidate_id}.answers.jsonl"
     report_path = output_dir / f"{candidate.candidate_id}.report.json"
+    auth_source = _candidate_auth_source(candidate)
     if credential_failure := _candidate_credential_failure(candidate):
         return ModelEvalResult(
             candidate_id=candidate.candidate_id,
             group=candidate.group,
             model=candidate.model,
             base_url=candidate.base_url,
+            provider_slug=candidate.provider_slug,
+            auth_source=auth_source,
             status=2,
             output=str(output_path),
             report_path=str(report_path),
@@ -422,6 +451,7 @@ def _run_candidate(
             answer_shape_rate=None,
             evidence_coverage_rate=None,
             required_label_rate=None,
+            responsibilities=candidate.responsibilities,
             error=credential_failure,
         )
     config = ChatConfig(
@@ -484,6 +514,8 @@ def _run_candidate(
             group=candidate.group,
             model=candidate.model,
             base_url=candidate.base_url,
+            provider_slug=candidate.provider_slug,
+            auth_source=auth_source,
             status=status,
             output=str(output_path),
             report_path=str(report_path),
@@ -500,6 +532,7 @@ def _run_candidate(
             answer_shape_rate=metrics.answer_shape_rate,
             evidence_coverage_rate=metrics.evidence_coverage_rate,
             required_label_rate=metrics.required_label_rate,
+            responsibilities=candidate.responsibilities,
             error=error,
         )
     except (_CandidateTimeoutError, EngineError, OSError, TypeError, ValueError) as exc:
@@ -508,6 +541,8 @@ def _run_candidate(
             group=candidate.group,
             model=candidate.model,
             base_url=candidate.base_url,
+            provider_slug=candidate.provider_slug,
+            auth_source=auth_source,
             status=2,
             output=str(output_path),
             report_path=str(report_path),
@@ -524,6 +559,7 @@ def _run_candidate(
             answer_shape_rate=None,
             evidence_coverage_rate=None,
             required_label_rate=None,
+            responsibilities=candidate.responsibilities,
             error=str(exc),
         )
 
@@ -534,6 +570,18 @@ def _candidate_credential_failures(candidates: Sequence[ModelCandidate]) -> tupl
         for candidate in candidates
         if (failure := _candidate_credential_failure(candidate))
     )
+
+
+def _candidate_auth_source(candidate: ModelCandidate) -> str:
+    if candidate.provider_slug == "openai-codex":
+        return "codex_oauth" if load_credentials("openai-codex") is not None else "missing"
+    if candidate.provider_slug and candidate.provider_env:
+        return "provider_env"
+    if candidate.api_key:
+        return "api_key"
+    if candidate.base_url:
+        return "base_url"
+    return "missing"
 
 
 def _run_replay_eval_with_timeout(
@@ -711,8 +759,13 @@ def _run_replay_eval(
 
 
 def _candidate_credential_failure(candidate: ModelCandidate) -> str:
-    if candidate.provider_slug == "openai-codex" and load_credentials("openai-codex") is not None:
-        return ""
+    if candidate.provider_slug == "openai-codex":
+        if load_credentials("openai-codex") is not None:
+            return ""
+        return (
+            f"candidate {candidate.candidate_id} requires Codex subscription OAuth; "
+            "run `heph login codex` before evaluating this matrix"
+        )
     if candidate.provider_slug and candidate.provider_env:
         return ""
     if candidate.api_key:
@@ -894,7 +947,8 @@ def print_text_report(report: ModelEvalMatrixReport) -> None:
         pass_rate = "n/a" if result.pass_rate is None else f"{result.pass_rate:.3f}"
         print(
             f"{status} {result.candidate_id} "
-            f"[{result.group}] model={result.model} pass_rate={pass_rate}"
+            f"[{result.group}] model={result.model} auth={result.auth_source} "
+            f"pass_rate={pass_rate}"
         )
         if result.error:
             print(f"  error: {result.error}")

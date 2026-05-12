@@ -39,6 +39,16 @@ class ToolResultEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class MaterialOperationEvent:
+    """A user-visible internal material/index/retrieval operation."""
+
+    operation: str
+    message: str
+    metadata: dict[str, object] = field(default_factory=dict)
+    kind: str = field(default="material_operation", init=False)
+
+
+@dataclass(frozen=True, slots=True)
 class CompactRequestEvent:
     """A model-requested conversation compaction control event."""
 
@@ -74,6 +84,7 @@ TurnEvent = (
     AssistantDeltaEvent
     | ToolCallEvent
     | ToolResultEvent
+    | MaterialOperationEvent
     | CompactRequestEvent
     | TurnCompleteEvent
     | NoticeEvent
@@ -88,6 +99,8 @@ def render_turn_event(event: TurnEvent) -> str:
         return f"\n{event.display}\n"
     if isinstance(event, ToolResultEvent):
         return f"{event.summary}\n"
+    if isinstance(event, MaterialOperationEvent):
+        return f"{event.message}\n"
     if isinstance(event, CompactRequestEvent | TurnCompleteEvent):
         return ""
     if event.code == "verification":

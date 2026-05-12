@@ -22,6 +22,8 @@ from hephaistos.chat.engine import (
     stream_reply,
 )
 from hephaistos.chat.session import ChatSession
+from hephaistos.runtime._api_types import ApiMessage
+from hephaistos.runtime.engine import stream_completion as runtime_stream_completion
 
 
 def _make_config() -> ChatConfig:
@@ -50,6 +52,24 @@ def _mock_chunk(
     chunk = MagicMock()
     chunk.choices = [choice]
     chunk.usage = None
+    return chunk
+
+
+def _usage_chunk(*, prompt_tokens: int, completion_tokens: int, cached_tokens: int) -> MagicMock:
+    """Create a usage-only chunk with provider cache details."""
+    details = MagicMock()
+    details.cached_tokens = cached_tokens
+
+    usage = MagicMock()
+    usage.prompt_tokens = prompt_tokens
+    usage.completion_tokens = completion_tokens
+    usage.total_tokens = prompt_tokens + completion_tokens
+    usage.prompt_tokens_details = details
+    usage.input_tokens_details = None
+
+    chunk = MagicMock()
+    chunk.choices = []
+    chunk.usage = usage
     return chunk
 
 
@@ -214,6 +234,47 @@ class TestConversationToPipeline:
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "user"
         assert messages[1]["content"] == "Hi there"
+
+    def test_prompt_cache_split_is_used_for_request_and_usage_metrics(self) -> None:
+        config = _make_config()
+        messages: list[ApiMessage] = [
+            {"role": "system", "content": "Stable persona."},
+            {"role": "user", "content": "First question."},
+            {"role": "system", "content": "[Conversation summary] Earlier thread."},
+            {"role": "tool", "content": "Observed source text."},
+        ]
+        client = _mock_client(
+            _usage_chunk(prompt_tokens=100, completion_tokens=12, cached_tokens=64),
+            _mock_chunk(finish_reason="stop"),
+        )
+
+        with patch("hephaistos.runtime.engine._prompt_cache_metrics") as metrics:
+            result = list(
+                runtime_stream_completion(
+                    config,
+                    messages,
+                    retry=RetryConfig(max_retries=0),
+                    client_factory=_client_factory(client),
+                )
+            )
+
+        call_kwargs = client.chat.completions.create.call_args[1]
+        assert call_kwargs["messages"] == messages
+        request = metrics.record_request.call_args.args[0]
+        assert request.stable_prefix.message_count == 1
+        assert [message["role"] for message in request.dynamic_tail.messages] == [
+            "user",
+            "system",
+            "tool",
+        ]
+        assert result[0].usage == {
+            "prompt_tokens": 100,
+            "completion_tokens": 12,
+            "total_tokens": 112,
+            "cached_prompt_tokens": 64,
+        }
+        metrics.record_usage.assert_called_once()
+        assert metrics.record_usage.call_args.kwargs["cached_prompt_tokens"] == 64
 
 
 class TestChatSessionPipeline:

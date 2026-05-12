@@ -26,6 +26,8 @@ from scripts import benchmark_answers
 class RawEvent(TypedDict):
     type: str
     code: NotRequired[str]
+    operation: NotRequired[str]
+    message: NotRequired[str]
     delta: NotRequired[str]
     full_text: NotRequired[str]
     metadata: NotRequired[dict[str, object]]
@@ -38,10 +40,21 @@ class ChatEventBenchmarkReport:
     has_reading: bool
     has_evidence: bool
     has_writing: bool
+    has_material_operation: bool
+    has_material_operation_metadata: bool
+    has_tool_runtime: bool
+    has_tool_runtime_metadata: bool
+    has_acceptance_criteria: bool
+    has_acceptance_criteria_metadata: bool
     has_assistant_delta: bool
     has_turn_complete: bool
     has_consistent_completion: bool
     has_evidence_metadata: bool
+    material_operation_count: int
+    evidence_metadata_rate: float
+    material_operation_metadata_rate: float
+    tool_runtime_metadata_rate: float
+    acceptance_criteria_metadata_rate: float
     answer_excerpt: str
     answer_pass_rate: float | None
     answer_shape_rate: float | None
@@ -72,6 +85,12 @@ def load_events(path: Path) -> list[RawEvent]:
         code = payload.get("code")
         if isinstance(code, str) and code.strip():
             event["code"] = code.strip()
+        operation = payload.get("operation")
+        if isinstance(operation, str) and operation.strip():
+            event["operation"] = operation.strip()
+        message = payload.get("message")
+        if isinstance(message, str):
+            event["message"] = message
         delta = payload.get("delta")
         if isinstance(delta, str):
             event["delta"] = delta
@@ -160,10 +179,24 @@ def run_chat_event_benchmark(
     has_reading = "reading" in notice_codes
     has_evidence = "evidence" in notice_codes
     has_writing = "writing" in notice_codes
+    material_operation_failures = _material_operation_failures(events)
+    material_operations = [event for event in events if event["type"] == "material_operation"]
+    has_material_operation = bool(material_operations)
+    has_material_operation_metadata = bool(material_operations) and not material_operation_failures
+    has_tool_runtime = "tool_runtime" in notice_codes
+    has_acceptance_criteria = "acceptance_criteria" in notice_codes
     has_assistant_delta = any(event["type"] == "assistant_delta" for event in events)
     has_turn_complete = any(event["type"] == "turn_complete" for event in events)
     metadata_failures = _evidence_metadata_failures(events, expectation)
     has_evidence_metadata = not metadata_failures
+    tool_runtime_failures = _tool_runtime_metadata_failures(events)
+    has_tool_runtime_metadata = not tool_runtime_failures
+    acceptance_criteria_failures = _acceptance_criteria_metadata_failures(events)
+    has_acceptance_criteria_metadata = not acceptance_criteria_failures
+    evidence_metadata_rate = 1.0 if has_evidence_metadata else 0.0
+    tool_runtime_metadata_rate = 1.0 if has_tool_runtime_metadata else 0.0
+    acceptance_criteria_metadata_rate = 1.0 if has_acceptance_criteria_metadata else 0.0
+    material_operation_metadata_rate = 1.0 if has_material_operation_metadata else 0.0
     assistant_text = _assistant_text(events).strip()
     final_answer = _final_answer(events).strip()
     has_consistent_completion = not (assistant_text and final_answer) or (
@@ -176,6 +209,8 @@ def run_chat_event_benchmark(
         failures.append("missing evidence notice")
     if not has_writing:
         failures.append("missing writing notice")
+    if not has_material_operation:
+        failures.append("missing material operation event")
     if not has_assistant_delta:
         failures.append("missing assistant delta")
     if not has_turn_complete:
@@ -183,6 +218,9 @@ def run_chat_event_benchmark(
     if not has_consistent_completion:
         failures.append("assistant delta text does not match turn completion text")
     failures.extend(metadata_failures)
+    failures.extend(material_operation_failures)
+    failures.extend(tool_runtime_failures)
+    failures.extend(acceptance_criteria_failures)
     failures.extend(readability_failures)
 
     known_limit_failures = _expectation_known_limit_failures(expectation)
@@ -209,10 +247,21 @@ def run_chat_event_benchmark(
         has_reading=has_reading,
         has_evidence=has_evidence,
         has_writing=has_writing,
+        has_material_operation=has_material_operation,
+        has_material_operation_metadata=has_material_operation_metadata,
+        has_tool_runtime=has_tool_runtime,
+        has_tool_runtime_metadata=has_tool_runtime_metadata,
+        has_acceptance_criteria=has_acceptance_criteria,
+        has_acceptance_criteria_metadata=has_acceptance_criteria_metadata,
         has_assistant_delta=has_assistant_delta,
         has_turn_complete=has_turn_complete,
         has_consistent_completion=has_consistent_completion,
         has_evidence_metadata=has_evidence_metadata,
+        material_operation_count=len(material_operations),
+        evidence_metadata_rate=evidence_metadata_rate,
+        material_operation_metadata_rate=material_operation_metadata_rate,
+        tool_runtime_metadata_rate=tool_runtime_metadata_rate,
+        acceptance_criteria_metadata_rate=acceptance_criteria_metadata_rate,
         answer_excerpt=answer_excerpt,
         answer_pass_rate=answer_pass_rate,
         answer_shape_rate=answer_shape_rate,
@@ -334,6 +383,110 @@ def _evidence_metadata_failures(
     return tuple(failures)
 
 
+def _material_operation_failures(events: Sequence[RawEvent]) -> tuple[str, ...]:
+    material_events = [event for event in events if event["type"] == "material_operation"]
+    if not material_events:
+        return ()
+    failures: list[str] = []
+    first_answer_index = next(
+        (
+            index
+            for index, event in enumerate(events)
+            if event["type"] in {"assistant_delta", "turn_complete"}
+        ),
+        None,
+    )
+    if first_answer_index is not None:
+        late_material = any(
+            index > first_answer_index
+            for index, event in enumerate(events)
+            if event["type"] == "material_operation"
+        )
+        if late_material:
+            failures.append("material operation appears after assistant answer")
+
+    operations: set[str] = set()
+    for index, event in enumerate(material_events, start=1):
+        operation = event.get("operation")
+        if not isinstance(operation, str) or not operation.strip():
+            failures.append(f"material operation {index} missing operation")
+        else:
+            operations.add(operation.strip())
+        message = event.get("message")
+        if not isinstance(message, str) or not message.strip():
+            failures.append(f"material operation {index} missing message")
+        metadata = event.get("metadata")
+        if not isinstance(metadata, dict) or not metadata:
+            failures.append(f"material operation {index} missing metadata")
+
+    if "index_ready" not in operations:
+        failures.append("material operations missing index_ready")
+    if not operations.intersection({"search_index", "sample_overview", "open_stored_evidence"}):
+        failures.append("material operations missing search or overview operation")
+    if not operations.intersection({"read_excerpt", "search_result"}):
+        failures.append("material operations missing excerpt or search result operation")
+    return tuple(failures)
+
+
+def _tool_runtime_metadata_failures(events: Sequence[RawEvent]) -> tuple[str, ...]:
+    runtime_notices = [
+        event
+        for event in events
+        if event["type"] == "notice" and event.get("code") == "tool_runtime"
+    ]
+    failures: list[str] = []
+    valid_reasons = {"failed", "slow", "large_result", "repeated_call"}
+    for index, event in enumerate(runtime_notices, start=1):
+        metadata = event.get("metadata")
+        if not isinstance(metadata, dict):
+            failures.append(f"tool_runtime notice {index} missing metadata")
+            continue
+        tool = metadata.get("tool")
+        reason = metadata.get("reason")
+        latency_ms = metadata.get("latency_ms")
+        result_length = metadata.get("result_length")
+        if not isinstance(tool, str) or not tool.strip():
+            failures.append(f"tool_runtime notice {index} missing tool")
+        if reason not in valid_reasons:
+            failures.append(f"tool_runtime notice {index} has invalid reason")
+        if latency_ms is not None and not isinstance(latency_ms, int | float):
+            failures.append(f"tool_runtime notice {index} has invalid latency_ms")
+        if result_length is not None and not isinstance(result_length, int):
+            failures.append(f"tool_runtime notice {index} has invalid result_length")
+        if reason == "failed" and not isinstance(metadata.get("error"), str):
+            failures.append(f"tool_runtime notice {index} missing failure error")
+        if reason == "repeated_call":
+            repeat_count = metadata.get("repeat_count")
+            arguments = metadata.get("arguments")
+            if not isinstance(repeat_count, int) or repeat_count < 2:
+                failures.append(f"tool_runtime notice {index} has invalid repeat_count")
+            if not isinstance(arguments, dict):
+                failures.append(f"tool_runtime notice {index} missing repeated arguments")
+    return tuple(failures)
+
+
+def _acceptance_criteria_metadata_failures(events: Sequence[RawEvent]) -> tuple[str, ...]:
+    criteria_notices = [
+        event
+        for event in events
+        if event["type"] == "notice" and event.get("code") == "acceptance_criteria"
+    ]
+    failures: list[str] = []
+    for index, event in enumerate(criteria_notices, start=1):
+        message = event.get("message")
+        if not isinstance(message, str) or "Acceptance criteria:" not in message:
+            failures.append(f"acceptance_criteria notice {index} missing criteria message")
+        metadata = event.get("metadata")
+        if not isinstance(metadata, dict):
+            failures.append(f"acceptance_criteria notice {index} missing metadata")
+            continue
+        if metadata.get("source") != "agent_harness":
+            failures.append(f"acceptance_criteria notice {index} has invalid source")
+        if metadata.get("requires_tools") is not True:
+            failures.append(f"acceptance_criteria notice {index} missing requires_tools=true")
+    return tuple(failures)
+
+
 def _expected_metadata_ids(expectation: Mapping[str, object]) -> set[str]:
     expected_citations = expectation.get("expected_citations")
     if isinstance(expected_citations, list):
@@ -370,10 +523,28 @@ def print_text_report(report: ChatEventBenchmarkReport) -> None:
     print(f"reading={'yes' if report.has_reading else 'no'}")
     print(f"evidence={'yes' if report.has_evidence else 'no'}")
     print(f"writing={'yes' if report.has_writing else 'no'}")
+    print(f"material_operation={'yes' if report.has_material_operation else 'no'}")
+    print(f"material_operation_count={report.material_operation_count}")
+    print(
+        f"material_operation_metadata={'yes' if report.has_material_operation_metadata else 'no'}"
+    )
+    print(f"tool_runtime={'yes' if report.has_tool_runtime else 'no'}")
+    print(f"tool_runtime_metadata={'yes' if report.has_tool_runtime_metadata else 'no'}")
+    print(f"acceptance_criteria={'yes' if report.has_acceptance_criteria else 'no'}")
+    print(
+        "acceptance_criteria_metadata="
+        f"{'yes' if report.has_acceptance_criteria_metadata else 'no'}"
+    )
     print(f"assistant_delta={'yes' if report.has_assistant_delta else 'no'}")
     print(f"turn_complete={'yes' if report.has_turn_complete else 'no'}")
     print(f"consistent_completion={'yes' if report.has_consistent_completion else 'no'}")
     print(f"evidence_metadata={'yes' if report.has_evidence_metadata else 'no'}")
+    print(f"evidence_metadata_rate={report.evidence_metadata_rate * 100:.1f}%")
+    print(f"material_operation_metadata_rate={report.material_operation_metadata_rate * 100:.1f}%")
+    print(f"tool_runtime_metadata_rate={report.tool_runtime_metadata_rate * 100:.1f}%")
+    print(
+        f"acceptance_criteria_metadata_rate={report.acceptance_criteria_metadata_rate * 100:.1f}%"
+    )
     if report.answer_pass_rate is not None:
         print(f"answer_pass_rate={report.answer_pass_rate * 100:.1f}%")
         print(f"answer_shape={report.answer_shape_rate * 100:.1f}%")

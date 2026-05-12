@@ -31,6 +31,7 @@ from hephaistos.chat.engine import ChatConfig, CompletionDelta, Conversation
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
+    NoticeEvent,
     ToolCallEvent,
     ToolResultEvent,
     TurnCompleteEvent,
@@ -558,3 +559,188 @@ class TestIterAgentEvents:
         assert "materials/lecture.md#chunk=0" in tool_results[0].content
         assert isinstance(events[-1], TurnCompleteEvent)
         assert events[-1].full_text == "Chaperones prevent misfolding [M1]."
+
+    def test_tool_failure_injects_runtime_note_for_next_turn(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls = 0
+        observed_system_notes: list[str] = []
+
+        def fake_stream(_config: object, messages: list[ApiMessage], **_kwargs: object):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                yield CompletionDelta(
+                    tool_calls=[
+                        {
+                            "index": 0,
+                            "id": "call_read",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": json.dumps({"path": "missing.md"}),
+                            },
+                        }
+                    ],
+                    finish_reason="tool_calls",
+                )
+                return
+            observed_system_notes.extend(
+                str(message["content"])
+                for message in messages
+                if message["role"] == "system"
+                and "Execution note: tool 'read_file' failed" in str(message["content"])
+            )
+            yield CompletionDelta(content="I will inspect a narrower path.")
+            yield CompletionDelta(finish_reason="stop")
+
+        def fake_execute_tool_calls(*_args: object, **_kwargs: object) -> list[ApiMessage]:
+            return [
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_read",
+                    "content": "Error: file not found",
+                    "tool_success": False,
+                    "tool_metadata": {
+                        "tool": "read_file",
+                        "latency_ms": 3.2,
+                        "result_length": len("Error: file not found"),
+                    },
+                    "tool_error": "file not found",
+                }
+            ]
+
+        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(dispatch_mod, "execute_tool_calls", fake_execute_tool_calls)
+
+        events = list(
+            dispatch_mod.iter_agent_events(
+                ChatConfig(base_url="https://example.invalid", model="test-model"),
+                Conversation(),
+                workspace,
+            )
+        )
+
+        runtime_notices = [
+            event
+            for event in events
+            if isinstance(event, NoticeEvent) and event.code == "tool_runtime"
+        ]
+        assert runtime_notices
+        assert runtime_notices[0].metadata["reason"] == "failed"
+        assert observed_system_notes
+        assert isinstance(events[-1], TurnCompleteEvent)
+        assert events[-1].full_text == "I will inspect a narrower path."
+
+    def test_repeated_tool_call_injects_runtime_note_for_next_turn(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls = 0
+        observed_system_notes: list[str] = []
+
+        def fake_stream(_config: object, messages: list[ApiMessage], **_kwargs: object):
+            nonlocal calls
+            calls += 1
+            if calls in {1, 2}:
+                yield CompletionDelta(
+                    tool_calls=[
+                        {
+                            "index": 0,
+                            "id": f"call_read_{calls}",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": json.dumps({"path": "hello.py"}),
+                            },
+                        }
+                    ],
+                    finish_reason="tool_calls",
+                )
+                return
+            observed_system_notes.extend(
+                str(message["content"])
+                for message in messages
+                if message["role"] == "system"
+                and "was called with the same arguments 2 times" in str(message["content"])
+            )
+            yield CompletionDelta(content="I will change strategy.")
+            yield CompletionDelta(finish_reason="stop")
+
+        def fake_execute_tool_calls(tool_calls: list[ToolCall], *_args: object, **_kwargs: object):
+            return [
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_calls[0]["id"],
+                    "content": 'print("hello")',
+                    "tool_success": True,
+                    "tool_metadata": {
+                        "tool": "read_file",
+                        "latency_ms": 1.0,
+                        "result_length": len('print("hello")'),
+                    },
+                    "tool_error": None,
+                }
+            ]
+
+        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(dispatch_mod, "execute_tool_calls", fake_execute_tool_calls)
+
+        events = list(
+            dispatch_mod.iter_agent_events(
+                ChatConfig(base_url="https://example.invalid", model="test-model"),
+                Conversation(),
+                workspace,
+            )
+        )
+
+        repeat_notices = [
+            event
+            for event in events
+            if isinstance(event, NoticeEvent)
+            and event.code == "tool_runtime"
+            and event.metadata.get("reason") == "repeated_call"
+        ]
+        assert repeat_notices
+        assert repeat_notices[0].metadata["repeat_count"] == 2
+        assert repeat_notices[0].metadata["tool"] == "read_file"
+        assert observed_system_notes
+        assert isinstance(events[-1], TurnCompleteEvent)
+        assert events[-1].full_text == "I will change strategy."
+
+    def test_first_tool_turn_exposes_acceptance_criteria(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        observed_criteria: list[str] = []
+
+        def fake_stream(_config: object, messages: list[ApiMessage], **_kwargs: object):
+            observed_criteria.extend(
+                str(message["content"])
+                for message in messages
+                if message["role"] == "system"
+                and "Acceptance criteria: inspect" in str(message["content"])
+            )
+            yield CompletionDelta(content="Done.")
+            yield CompletionDelta(finish_reason="stop")
+
+        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+
+        events = list(
+            dispatch_mod.iter_agent_events(
+                ChatConfig(base_url="https://example.invalid", model="test-model"),
+                Conversation(),
+                workspace,
+            )
+        )
+
+        criteria_notices = [
+            event
+            for event in events
+            if isinstance(event, NoticeEvent) and event.code == "acceptance_criteria"
+        ]
+        assert criteria_notices
+        assert criteria_notices[0].metadata["requires_tools"] is True
+        assert observed_criteria

@@ -152,7 +152,14 @@ uv run python -m scripts.benchmark_chat_events \
 Real-corpus proof manifests should declare both the captured chat-event stream
 and its single-answer expectation with dataset kinds `chat-events` and
 `chat-event-answer-expectation`. This keeps the visible harness behavior under
-the same audit umbrella as model replay prompts.
+the same audit umbrella as model replay prompts. When the stream contains
+runtime execution notes such as failed, slow, oversized, or repeated tool calls,
+`scripts.benchmark_chat_events` validates that those `tool_runtime` notices
+carry reviewable tool, reason, latency, result-size, error, and repeat metadata.
+For generic tool-enabled agent turns, the dispatch loop also emits an
+`acceptance_criteria` notice and injects the same criteria into model context,
+so the first verification/tool step has visible acceptance criteria instead of
+only an implied tool requirement.
 
 To run the same replay set across local and hosted model candidates:
 

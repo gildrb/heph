@@ -46,6 +46,7 @@ class RawStudyTurn(TypedDict):
     expected_phase: NotRequired[str]
     expected_feedback: NotRequired[str]
     expected_rating: NotRequired[str]
+    expected_confidence: NotRequired[float]
     source_refs: NotRequired[list[str]]
     advance_seconds: NotRequired[int]
     record_schedule: NotRequired[bool]
@@ -58,6 +59,9 @@ class RawStudyStateCase(TypedDict):
     expected_final_phase: NotRequired[str]
     expected_scheduled_reviews: NotRequired[int]
     expected_due_reviews: NotRequired[int]
+    expected_scheduled_concepts: NotRequired[list[str]]
+    expected_schedule_error_types: NotRequired[list[str]]
+    expected_schedule_failures: NotRequired[list[int]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +74,7 @@ class StudyTurnCase:
     expected_phase: str | None = None
     expected_feedback: str | None = None
     expected_rating: str | None = None
+    expected_confidence: float | None = None
     record_schedule: bool = False
 
 
@@ -81,6 +86,9 @@ class StudyStateCase:
     expected_final_phase: str | None = None
     expected_scheduled_reviews: int | None = None
     expected_due_reviews: int | None = None
+    expected_scheduled_concepts: tuple[str, ...] = ()
+    expected_schedule_error_types: tuple[str, ...] = ()
+    expected_schedule_failures: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +99,7 @@ class StudyTurnResult:
     phase: str
     feedback: str
     rating: str
+    confidence: float | None
     passed: bool
     failures: tuple[str, ...]
 
@@ -102,6 +111,12 @@ class StudyStateCaseResult:
     final_phase: str
     scheduled_reviews: int
     due_reviews: int
+    scheduled_concepts: tuple[str, ...]
+    schedule_error_types: tuple[str, ...]
+    schedule_failures: tuple[int, ...]
+    schedule_confidences: tuple[float | None, ...]
+    schedule_retrieval_successes: tuple[bool, ...]
+    schedule_transfer_successes: tuple[bool, ...]
     passed: bool
     failures: tuple[str, ...]
     turns: tuple[StudyTurnResult, ...]
@@ -114,6 +129,7 @@ class StudyStateBenchmarkReport:
     pass_rate: float
     transition_pass_rate: float
     scheduling_pass_rate: float
+    mastery_metadata_rate: float
     failures: tuple[str, ...]
     results: tuple[StudyStateCaseResult, ...]
 
@@ -160,6 +176,9 @@ def _as_raw_cases(payload: object) -> list[RawStudyStateCase]:
             raw_record = raw_turn.get("record_schedule")
             if isinstance(raw_record, bool):
                 turn["record_schedule"] = raw_record
+            raw_confidence = raw_turn.get("expected_confidence")
+            if isinstance(raw_confidence, int | float) and not isinstance(raw_confidence, bool):
+                turn["expected_confidence"] = float(raw_confidence)
             turns.append(turn)
 
         case: RawStudyStateCase = {"turns": turns}
@@ -176,8 +195,48 @@ def _as_raw_cases(payload: object) -> list[RawStudyStateCase]:
             raw_count = raw.get(field)
             if isinstance(raw_count, int):
                 case[field] = raw_count  # type: ignore[literal-required]
+        expected_scheduled_concepts = _as_optional_string_list(
+            raw.get("expected_scheduled_concepts"),
+            f"case {idx} expected_scheduled_concepts",
+        )
+        if expected_scheduled_concepts:
+            case["expected_scheduled_concepts"] = expected_scheduled_concepts
+        expected_schedule_error_types = _as_optional_string_list(
+            raw.get("expected_schedule_error_types"),
+            f"case {idx} expected_schedule_error_types",
+        )
+        if expected_schedule_error_types:
+            case["expected_schedule_error_types"] = expected_schedule_error_types
+        expected_schedule_failures = _as_optional_int_list(
+            raw.get("expected_schedule_failures"),
+            f"case {idx} expected_schedule_failures",
+        )
+        if expected_schedule_failures:
+            case["expected_schedule_failures"] = expected_schedule_failures
         cases.append(case)
     return cases
+
+
+def _as_optional_string_list(value: object, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise TypeError(f"{field_name} must be a list")
+    items = [item for item in value if isinstance(item, str) and item.strip()]
+    if len(items) != len(value):
+        raise ValueError(f"{field_name} must contain strings only")
+    return items
+
+
+def _as_optional_int_list(value: object, field_name: str) -> list[int]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise TypeError(f"{field_name} must be a list")
+    items = [item for item in value if isinstance(item, int) and not isinstance(item, bool)]
+    if len(items) != len(value):
+        raise ValueError(f"{field_name} must contain integers only")
+    return items
 
 
 def _string_tuple(value: object, field_name: str, case_idx: int, turn_idx: int) -> tuple[str, ...]:
@@ -223,6 +282,7 @@ def load_cases(path: Path) -> list[StudyStateCase]:
                 expected_phase=raw_turn.get("expected_phase"),
                 expected_feedback=raw_turn.get("expected_feedback"),
                 expected_rating=raw_turn.get("expected_rating"),
+                expected_confidence=raw_turn.get("expected_confidence"),
                 record_schedule=raw_turn.get("record_schedule", False),
             )
             for turn_idx, raw_turn in enumerate(raw["turns"], start=1)
@@ -235,6 +295,9 @@ def load_cases(path: Path) -> list[StudyStateCase]:
                 expected_final_phase=raw.get("expected_final_phase"),
                 expected_scheduled_reviews=raw.get("expected_scheduled_reviews"),
                 expected_due_reviews=raw.get("expected_due_reviews"),
+                expected_scheduled_concepts=tuple(raw.get("expected_scheduled_concepts", [])),
+                expected_schedule_error_types=tuple(raw.get("expected_schedule_error_types", [])),
+                expected_schedule_failures=tuple(raw.get("expected_schedule_failures", [])),
             )
         )
     return cases
@@ -258,6 +321,7 @@ def run_benchmark(
         for result in scheduling_cases
         if not any("scheduled" in failure or "due" in failure for failure in result.failures)
     )
+    mastery_metadata_rate = _mastery_metadata_rate(results)
     failures = tuple(
         f"{result.case_id}: {failure}" for result in results for failure in result.failures
     )
@@ -269,9 +333,43 @@ def run_benchmark(
         scheduling_pass_rate=(
             scheduling_passes / len(scheduling_cases) if scheduling_cases else 1.0
         ),
+        mastery_metadata_rate=mastery_metadata_rate,
         failures=failures,
         results=tuple(results),
     )
+
+
+def _mastery_metadata_rate(results: Sequence[StudyStateCaseResult]) -> float:
+    scheduled_items = [
+        (
+            concept,
+            error_type,
+            failure_count,
+            confidence,
+            retrieval_success,
+        )
+        for result in results
+        for concept, error_type, failure_count, confidence, retrieval_success in zip(
+            result.scheduled_concepts,
+            result.schedule_error_types,
+            result.schedule_failures,
+            result.schedule_confidences,
+            result.schedule_retrieval_successes,
+            strict=True,
+        )
+    ]
+    if not scheduled_items:
+        return 1.0
+    complete = sum(
+        1
+        for concept, error_type, failure_count, confidence, retrieval_success in scheduled_items
+        if concept
+        and error_type
+        and failure_count >= 0
+        and confidence is not None
+        and retrieval_success
+    )
+    return complete / len(scheduled_items)
 
 
 def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResult:
@@ -295,10 +393,14 @@ def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResul
         if turn.record_schedule:
             store.record_review(
                 state.current_item,
+                concept=state.retrieval_query,
                 retrieval_query=state.retrieval_query,
                 source_refs=list(state.expected_source_refs),
                 rating=next_state.last_recall_rating,
                 elapsed_seconds=next_state.last_recall_seconds,
+                confidence=next_state.last_confidence,
+                error_type=next_state.last_feedback_type.value,
+                exam_importance=1.0 if state.expected_source_refs else 0.0,
                 now=now,
             )
         failures.extend(turn_failures)
@@ -310,6 +412,7 @@ def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResul
                 phase=next_state.phase.value,
                 feedback=next_state.last_feedback_type.value,
                 rating=next_state.last_recall_rating.value,
+                confidence=next_state.last_confidence,
                 passed=not turn_failures,
                 failures=tuple(turn_failures),
             )
@@ -333,6 +436,30 @@ def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResul
         failures.append(
             f"due review count expected {case.expected_due_reviews}, got {due_reviews}"
         )
+    scheduled_concepts = tuple(item.concept for item in store.item_list)
+    schedule_error_types = tuple(item.error_type for item in store.item_list)
+    schedule_failures = tuple(item.failures for item in store.item_list)
+    schedule_confidences = tuple(item.last_confidence for item in store.item_list)
+    schedule_retrieval_successes = tuple(item.last_retrieval_success for item in store.item_list)
+    schedule_transfer_successes = tuple(item.last_transfer_success for item in store.item_list)
+    if case.expected_scheduled_concepts and scheduled_concepts != case.expected_scheduled_concepts:
+        failures.append(
+            "scheduled concepts expected "
+            f"{case.expected_scheduled_concepts!r}, got {scheduled_concepts!r}"
+        )
+    if (
+        case.expected_schedule_error_types
+        and schedule_error_types != case.expected_schedule_error_types
+    ):
+        failures.append(
+            "schedule error types expected "
+            f"{case.expected_schedule_error_types!r}, got {schedule_error_types!r}"
+        )
+    if case.expected_schedule_failures and schedule_failures != case.expected_schedule_failures:
+        failures.append(
+            "schedule failures expected "
+            f"{case.expected_schedule_failures!r}, got {schedule_failures!r}"
+        )
 
     return StudyStateCaseResult(
         case_id=case.case_id,
@@ -340,6 +467,12 @@ def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResul
         final_phase=state.phase.value,
         scheduled_reviews=len(store.item_list),
         due_reviews=due_reviews,
+        scheduled_concepts=scheduled_concepts,
+        schedule_error_types=schedule_error_types,
+        schedule_failures=schedule_failures,
+        schedule_confidences=schedule_confidences,
+        schedule_retrieval_successes=schedule_retrieval_successes,
+        schedule_transfer_successes=schedule_transfer_successes,
         passed=not failures,
         failures=tuple(failures),
         turns=tuple(turn_results),
@@ -375,6 +508,11 @@ def _turn_failures(
             f"turn {turn_idx} rating expected {turn.expected_rating!r}, "
             f"got {state.last_recall_rating.value!r}"
         )
+    if turn.expected_confidence is not None and state.last_confidence != turn.expected_confidence:
+        failures.append(
+            f"turn {turn_idx} confidence expected {turn.expected_confidence!r}, "
+            f"got {state.last_confidence!r}"
+        )
     return failures
 
 
@@ -384,6 +522,7 @@ def print_text_report(report: StudyStateBenchmarkReport) -> None:
     print(f"  pass rate: {report.pass_rate:.2%}")
     print(f"  transition pass rate: {report.transition_pass_rate:.2%}")
     print(f"  scheduling pass rate: {report.scheduling_pass_rate:.2%}")
+    print(f"  mastery metadata rate: {report.mastery_metadata_rate:.2%}")
     if report.failures:
         print("  failures:")
         for failure in report.failures:

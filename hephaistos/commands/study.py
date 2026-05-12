@@ -12,7 +12,7 @@ from hephaistos.rag.index import load_or_build
 from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
 from hephaistos.study.exam import select_exam_question, supporting_source_refs
 from hephaistos.study.priority import PriorityAnalysis, analyze_priority, generate_priority_report
-from hephaistos.study.schedule import load_study_schedule
+from hephaistos.study.schedule import StudyItemState, load_study_schedule
 from hephaistos.terminal import (
     STYLE_PROMPT,
     MenuOption,
@@ -48,6 +48,21 @@ def _format_relative_seconds(seconds: float) -> str:
     if hours < 48:
         return f"{int(hours)}h"
     return f"{int(hours / 24)}d"
+
+
+def _format_study_item_metadata(item: StudyItemState) -> str:
+    details: list[str] = []
+    if item.concept:
+        details.append(f"concept: {item.concept[:40]}")
+    if item.error_type:
+        details.append(f"last: {item.error_type}")
+    if item.failures > 0:
+        details.append(f"failures: {item.failures}")
+    if item.last_confidence is not None:
+        details.append(f"confidence: {item.last_confidence:.0%}")
+    if item.exam_importance > 0:
+        details.append(f"exam priority: {item.exam_importance:.0%}")
+    return ", ".join(details)
 
 
 class TerminalDrillUi:
@@ -213,6 +228,9 @@ class RemindCommand(Command):
             for item in due_study_items[:10]:
                 label = item.item or item.retrieval_query
                 lines.append(f"  {styled(label[:60], STYLE_DIM)}")
+                metadata = _format_study_item_metadata(item)
+                if metadata:
+                    lines.append(f"    {styled(metadata, STYLE_DIM)}")
             if len(due_study_items) > 10:
                 lines.append(f"  ... and {len(due_study_items) - 10} more")
 

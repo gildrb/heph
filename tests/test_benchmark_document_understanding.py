@@ -104,6 +104,29 @@ def test_document_understanding_smoke_fails_low_overview_source_coverage(
     assert "overview source coverage" in report.failures[0]
 
 
+def test_document_understanding_smoke_accepts_overview_sample_cap_for_large_corpus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory = _make_armory(tmp_path)
+    (armory / "materials" / "one.md").write_text("# One\n\nLecture notes.\n", encoding="utf-8")
+    monkeypatch.setattr(
+        benchmark_document_understanding,
+        "_overview_source_coverage",
+        lambda _armory, _index, _visible: (32, 382),
+    )
+
+    report = benchmark_document_understanding.run_benchmark(
+        armory,
+        min_documents=1,
+        min_overview_source_coverage=0.4,
+    )
+
+    assert report.passed
+    assert report.overview_source_coverage_rate < 0.4
+    assert report.overview_sampled_sources == 32
+
+
 def test_document_understanding_required_roles_must_be_indexed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

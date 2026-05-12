@@ -355,6 +355,23 @@ class TraceWriter:
             event["chunks"] = chunks
         self._write(event)
 
+    def record_material_operation(
+        self,
+        *,
+        operation: str,
+        message: str,
+        metadata: Mapping[str, object] | None = None,
+    ) -> None:
+        event: dict[str, object] = {
+            "type": "material_operation",
+            "ts": self._ts(),
+            "operation": operation,
+            "message": message,
+        }
+        if metadata:
+            event["metadata"] = dict(metadata)
+        self._write(event)
+
     def record_session_event(self, event: str, **details: object) -> None:
         entry: dict[str, object] = {
             "type": "session",

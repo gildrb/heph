@@ -38,6 +38,13 @@ from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.oauth import load_credentials
 from hephaistos.providers.registry import get_registry as get_provider_registry
 from hephaistos.runtime._api_types import ApiMessage, ToolCallDelta, UsagePayload
+from hephaistos.runtime.prompt_cache import (
+    MetricsLogger as PromptCacheMetricsLogger,
+)
+from hephaistos.runtime.prompt_cache import (
+    PromptCacheRequest,
+    StablePrefixBuilder,
+)
 from hephaistos.runtime.resilience import CircuitBreaker
 
 if TYPE_CHECKING:
@@ -71,6 +78,8 @@ class _MeterProtocol(Protocol):
 
 
 _log = get_logger("runtime.engine")
+_prompt_cache_builder = StablePrefixBuilder()
+_prompt_cache_metrics = PromptCacheMetricsLogger()
 
 _tracer: _TracerProtocol = get_tracer("runtime.engine")  # type: ignore[reportAssignmentType]  # ty:ignore[invalid-assignment]
 _meter: _MeterProtocol = get_meter("runtime.engine")  # type: ignore[reportAssignmentType]
@@ -441,25 +450,68 @@ def _normalize_tool_calls(tool_calls: list[ChoiceDeltaToolCall]) -> list[ToolCal
     return result
 
 
+def _optional_int_value(value: object) -> int | None:
+    return value if isinstance(value, int) else None
+
+
+def _cached_tokens_from_usage_details(details: object) -> int | None:
+    if is_string_mapping(details):
+        return _optional_int_value(details.get("cached_tokens"))
+    return _optional_int_value(getattr(details, "cached_tokens", None))
+
+
+def _cached_prompt_tokens_from_usage(usage: object) -> int | None:
+    for name in ("prompt_tokens_details", "input_tokens_details"):
+        cached_tokens = _cached_tokens_from_usage_details(getattr(usage, name, None))
+        if cached_tokens is not None:
+            return cached_tokens
+    if is_string_mapping(usage):
+        for name in ("prompt_tokens_details", "input_tokens_details"):
+            cached_tokens = _cached_tokens_from_usage_details(usage.get(name))
+            if cached_tokens is not None:
+                return cached_tokens
+    return None
+
+
 def _extract_usage(chunk: object) -> UsagePayload | None:
     usage = getattr(chunk, "usage", None)
     if not usage:
         return None
-    return {
+    payload: UsagePayload = {
         "prompt_tokens": (getattr(usage, "prompt_tokens", 0) or 0),
         "completion_tokens": (getattr(usage, "completion_tokens", 0) or 0),
         "total_tokens": (getattr(usage, "total_tokens", 0) or 0),
     }
+    cached_prompt_tokens = _cached_prompt_tokens_from_usage(usage)
+    if cached_prompt_tokens is not None:
+        payload["cached_prompt_tokens"] = cached_prompt_tokens
+    return payload
 
 
-def _record_usage(usage: UsagePayload, model: str, span: _SpanProtocol) -> None:
+def _record_usage(
+    usage: UsagePayload,
+    model: str,
+    span: _SpanProtocol,
+    *,
+    prompt_request: PromptCacheRequest | None = None,
+) -> None:
     """Record token usage metrics and span attributes."""
     prompt = usage.get("prompt_tokens", 0) or 0
     completion = usage.get("completion_tokens", 0) or 0
+    cached_prompt_tokens = usage.get("cached_prompt_tokens")
     span.set_attribute("gen_ai.response.prompt_tokens", prompt)
     span.set_attribute("gen_ai.response.completion_tokens", completion)
+    if cached_prompt_tokens is not None:
+        span.set_attribute("gen_ai.response.cached_prompt_tokens", cached_prompt_tokens)
     _llm_token_counter.add(prompt, {"model": model, "type": "prompt"})
     _llm_token_counter.add(completion, {"model": model, "type": "completion"})
+    if cached_prompt_tokens:
+        _llm_token_counter.add(cached_prompt_tokens, {"model": model, "type": "cached_prompt"})
+    _prompt_cache_metrics.record_usage(
+        prompt_request,
+        model=model,
+        cached_prompt_tokens=cached_prompt_tokens,
+    )
 
 
 def _codex_backend_auth(config: ChatConfig) -> tuple[str, str] | None:
@@ -549,11 +601,15 @@ def _codex_usage(payload: dict[str, object]) -> UsagePayload | None:
         return None
     prompt_tokens = _int_value(usage.get("input_tokens"))
     completion_tokens = _int_value(usage.get("output_tokens"))
-    return {
+    result: UsagePayload = {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": _int_value(usage.get("total_tokens")) or prompt_tokens + completion_tokens,
     }
+    cached_prompt_tokens = _cached_prompt_tokens_from_usage(usage)
+    if cached_prompt_tokens is not None:
+        result["cached_prompt_tokens"] = cached_prompt_tokens
+    return result
 
 
 def _codex_failure_detail(payload: dict[str, object]) -> str:
@@ -588,6 +644,7 @@ def _stream_codex_backend_completion(
     *,
     abort: threading.Event | None,
     span: _SpanProtocol,
+    prompt_request: PromptCacheRequest | None = None,
 ) -> Iterator[CompletionDelta]:
     access_token, account_id = auth
     request = urllib.request.Request(
@@ -630,7 +687,12 @@ def _stream_codex_backend_completion(
             elif event_type == "response.completed":
                 usage = _codex_usage(parsed)
                 if usage is not None:
-                    _record_usage(usage, config.model, span)
+                    _record_usage(
+                        usage,
+                        config.model,
+                        span,
+                        prompt_request=prompt_request,
+                    )
                     yield CompletionDelta(finish_reason="stop", usage=usage)
                 return
             elif event_type == "response.failed":
@@ -654,8 +716,25 @@ def stream_completion(
     span.set_attribute("gen_ai.request.max_tokens", config.max_tokens)
     retry = retry or RetryConfig()
     client_factory = client_factory or build_client
-    api_messages = messages.to_api_messages() if isinstance(messages, Conversation) else messages
+    raw_api_messages = (
+        messages.to_api_messages() if isinstance(messages, Conversation) else messages
+    )
+    prompt_request = _prompt_cache_builder.build_request(raw_api_messages)
+    _prompt_cache_metrics.record_request(prompt_request, model=config.model)
+    api_messages = prompt_request.messages
     msg_count = len(api_messages)
+    span.set_attribute(
+        "gen_ai.request.stable_prefix_hash",
+        prompt_request.stable_prefix.fingerprint,
+    )
+    span.set_attribute(
+        "gen_ai.request.stable_prefix_messages",
+        prompt_request.stable_prefix.message_count,
+    )
+    span.set_attribute(
+        "gen_ai.request.dynamic_tail_messages",
+        prompt_request.dynamic_tail.message_count,
+    )
     _log.debug(
         "stream_completion start",
         extra={
@@ -683,6 +762,7 @@ def stream_completion(
                     codex_auth,
                     abort=abort,
                     span=span,
+                    prompt_request=prompt_request,
                 ):
                     yield delta
         except EngineError as exc:
@@ -789,7 +869,12 @@ def stream_completion(
                 usage = _extract_usage(chunk)
                 if not chunk.choices:
                     if usage is not None:
-                        _record_usage(usage, config.model, span)
+                        _record_usage(
+                            usage,
+                            config.model,
+                            span,
+                            prompt_request=prompt_request,
+                        )
                         yield CompletionDelta(usage=usage)
                     continue
 
@@ -802,7 +887,12 @@ def stream_completion(
                     saw_output = True
                 if delta.content or delta.tool_calls or finish_reason or usage is not None:
                     if usage is not None:
-                        _record_usage(usage, config.model, span)
+                        _record_usage(
+                            usage,
+                            config.model,
+                            span,
+                            prompt_request=prompt_request,
+                        )
                     yield CompletionDelta(
                         content=delta.content or None,
                         tool_calls=(

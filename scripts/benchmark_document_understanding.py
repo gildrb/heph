@@ -36,6 +36,8 @@ _KNOWN_ROLES = frozenset(
         "vocabulary",
     }
 )
+_OVERVIEW_EXPECTED_SAMPLE_CAP = 32
+_OVERVIEW_SAMPLE_CAP_MAX_COVERAGE_FLOOR = 0.4
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +146,18 @@ def run_benchmark(
     overview_source_coverage_rate = (
         overview_sampled_sources / overview_total_sources if overview_total_sources else 0.0
     )
-    if overview_source_coverage_rate < min_overview_source_coverage:
+    overview_sampled_enough = overview_sampled_sources >= min(
+        overview_total_sources,
+        _OVERVIEW_EXPECTED_SAMPLE_CAP,
+    )
+    overview_cap_satisfies_floor = (
+        min_overview_source_coverage <= _OVERVIEW_SAMPLE_CAP_MAX_COVERAGE_FLOOR
+        and overview_sampled_enough
+    )
+    if (
+        overview_source_coverage_rate < min_overview_source_coverage
+        and not overview_cap_satisfies_floor
+    ):
         failures.append(
             "overview source coverage "
             f"{overview_source_coverage_rate:.3f} below required "

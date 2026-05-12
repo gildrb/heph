@@ -15,7 +15,12 @@ from hephaistos.chat.engine import (
     EngineError,
     StreamRecoveryError,
 )
-from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnCompleteEvent
+from hephaistos.chat.events import (
+    AssistantDeltaEvent,
+    MaterialOperationEvent,
+    NoticeEvent,
+    TurnCompleteEvent,
+)
 from hephaistos.chat.evidence import (
     ResolvedTurnPlan,
     adaptive_rag_budget,
@@ -43,7 +48,7 @@ from hephaistos.chat.orchestrator import (
 )
 from hephaistos.chat.session import ChatSession
 from hephaistos.rag import ArmoryIndex, ScoredChunk, TurnEvidence
-from hephaistos.rag.chunker import Chunk
+from hephaistos.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.rag.context import EvidenceChunk
 from hephaistos.study import StudyAction, StudyPhase, StudyTurnPlan
 from hephaistos.study.schedule import load_study_schedule
@@ -764,6 +769,147 @@ class TestTurnOrchestratorStudy:
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_study_turn_emits_material_operations_before_answer(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        plan = _make_study_plan(retrieval_query="integration by parts")
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/calculus.md",
+                2,
+                "E1",
+                "Integration by parts transfers a derivative between factors.",
+            )
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("Use product rule [E1].")])
+
+        session = _make_study_session()
+        index = ArmoryIndex(tmp_path)
+        index.documents = [
+            ChunkedDocument(
+                source="materials/calculus.md",
+                chunks=[_make_chunk("materials/calculus.md", 2)],
+            )
+        ]
+        session.rag_index = index
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("Explain integration by parts"))
+
+        operation_events = [event for event in events if isinstance(event, MaterialOperationEvent)]
+        assert [event.operation for event in operation_events] == [
+            "index_ready",
+            "search_index",
+            "read_excerpt",
+        ]
+        assert operation_events[0].metadata == {
+            "indexed_sources": 1,
+            "indexed_chunks": 1,
+        }
+        assert operation_events[2].metadata["ref"] == "materials/calculus.md#chunk=2"
+        first_answer_index = next(
+            position
+            for position, event in enumerate(events)
+            if isinstance(event, AssistantDeltaEvent)
+        )
+        assert all(events.index(event) < first_answer_index for event in operation_events)
+        trace = cast("MagicMock", session.trace)
+        assert trace.record_material_operation.call_count == 3
+        assert trace.record_material_operation.call_args_list[1].kwargs["operation"] == (
+            "search_index"
+        )
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_waiting_followup_opens_stored_evidence_before_answer(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/lecture.md",
+                0,
+                "E1",
+                "Markov chains explain sampling from complex state spaces.",
+            )
+        )
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("It is interesting because Markov chains support sampling [E1].")]
+        )
+
+        session = _make_study_session()
+        session.study_state = StudyState(
+            phase=StudyPhase.WAITING_FOR_READY,
+            current_item="what is the material about",
+            retrieval_query="what is the material about",
+            expected_source_refs=["materials/lecture.md#chunk=0"],
+        )
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("interesting"))
+
+        operation_events = [event for event in events if isinstance(event, MaterialOperationEvent)]
+        assert [event.operation for event in operation_events] == [
+            "open_stored_evidence",
+            "read_excerpt",
+        ]
+        assert operation_events[0].metadata["refs"] == ["materials/lecture.md#chunk=0"]
+        assert mock_iter_agent.call_args.kwargs["tool_schemas"] == []
+        first_answer_index = next(
+            position
+            for position, event in enumerate(events)
+            if isinstance(event, AssistantDeltaEvent)
+        )
+        assert all(events.index(event) < first_answer_index for event in operation_events)
+        assert session.study_state.phase is StudyPhase.WAITING_FOR_READY
+        assert session.study_state.current_item == "what is the material about"
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_read_all_request_discloses_sample_scope(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(retrieval_query="read through all the files", buffer_response=True)
+        evidence = TurnEvidence(
+            items=(
+                _make_evidence_chunk("materials/lecture-a.md", 0, "E1"),
+                _make_evidence_chunk("materials/lecture-b.md", 0, "E2"),
+            ),
+            sampled_source_count=2,
+            total_source_count=5,
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("Here is a synthesis [E1][E2].")])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("Can you read through all the files?"))
+
+        operations = [event for event in events if isinstance(event, MaterialOperationEvent)]
+        assert operations[-1].operation == "read_all_scope"
+        assert operations[-1].metadata["command"] == "heph index <armory>"
+        reply = "".join(event.delta for event in events if isinstance(event, AssistantDeltaEvent))
+        assert "I did not read every file end to end" in reply
+        assert "heph index <armory>" in reply
+        assert session.conversation.messages[-1].content == reply
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
     def test_overview_turn_shows_corpus_overview_notices(
         self,
         mock_plan_turn: MagicMock,
@@ -855,7 +1001,7 @@ class TestTurnOrchestratorStudy:
     @patch("hephaistos.chat.orchestrator._build_overview_context")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_overview_turn_uses_deterministic_fallback_without_model_call(
+    def test_overview_turn_calls_model_before_considering_fallback(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
@@ -869,18 +1015,31 @@ class TestTurnOrchestratorStudy:
         )
         mock_plan_turn.return_value = plan
         mock_resolve_evidence.return_value = _make_turn_evidence(
-            _make_evidence_chunk("materials/overview.md", 0, "E1")
+            _make_evidence_chunk("materials/overview.md", 0, "E1"),
+            _make_evidence_chunk("materials/problems.md", 0, "E2"),
         )
         mock_overview_context.return_value = "Deterministic local corpus overview."
-        mock_iter_agent.return_value = iter([AssistantDeltaEvent("It covers graphs [E1].")])
+        model_reply = (
+            "Sampled orientation from the retrieved evidence.\n"
+            "- Lecture evidence introduces graph concepts, definitions, and worked "
+            "examples [E1].\n"
+            "- Practice material asks students to solve related problems from the same "
+            "topic [E2].\n"
+            "- The useful next step is a targeted graph question grounded in these "
+            "excerpts [E1] [E2]."
+        )
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
 
         session = _make_study_session()
         orch = TurnOrchestrator(session)
         list(orch.iter_events("what is the material about"))
 
-        mock_iter_agent.assert_not_called()
-        mock_overview_context.assert_not_called()
-        assert "Sampled orientation" in orch.last_reply
+        mock_iter_agent.assert_called_once()
+        mock_overview_context.assert_called_once()
+        assert orch.last_reply == model_reply
+        assert mock_iter_agent.call_args.kwargs["extra_system_prompt"].endswith(
+            "Deterministic local corpus overview."
+        )
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -1034,12 +1193,12 @@ class TestTurnOrchestratorStudy:
         assert "Sampled orientation" in deltas[0]
         assert completions[0].full_text == deltas[0]
         assert "The files cover" not in completions[0].full_text
-        assert completions[0].turn_index == 1
+        assert completions[0].turn_index == 3
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_overview_turn_uses_local_fallback_before_material_tools(
+    def test_overview_turn_calls_model_with_material_tools_enabled(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
@@ -1069,9 +1228,11 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.return_value = iter(
             [
                 AssistantDeltaEvent(
-                    "The indexed material combines lecture notes [E1] and exam prompts [E2].\n"
+                    "Sampled orientation from the retrieved evidence.\n"
                     "- Lecture material introduces definitions and examples [E1].\n"
-                    "- Exam material asks method questions with points [E2]."
+                    "- Exam material asks method questions with points [E2].\n"
+                    "- Together, the excerpts support targeted review of definitions and "
+                    "exam-style methods [E1] [E2]."
                 )
             ]
         )
@@ -1079,7 +1240,8 @@ class TestTurnOrchestratorStudy:
         session = _make_study_session()
         list(TurnOrchestrator(session).iter_events("what is the material about"))
 
-        mock_iter_agent.assert_not_called()
+        mock_iter_agent.assert_called_once()
+        assert mock_iter_agent.call_args.kwargs["tool_schemas"] is None
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -1394,6 +1556,8 @@ class TestTurnOrchestratorStudy:
         store = load_study_schedule(session.armory_path)
         assert len(store.item_list) == 1
         assert store.item_list[0].item == "Q1"
+        assert store.item_list[0].concept == "Q1"
+        assert store.item_list[0].error_type == "correct"
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -1989,6 +2153,7 @@ class TestHelperFunctions:
 
     def test_is_overview_query_matches_material_overview(self) -> None:
         assert is_overview_query("what is the material about")
+        assert is_overview_query("Can you read through all the files")
         assert not is_overview_query("explain Dijkstra")
 
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")

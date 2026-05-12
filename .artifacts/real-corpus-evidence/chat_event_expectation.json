@@ -1,0 +1,225 @@
+[
+  {
+    "id": "real-corpus-material-overview",
+    "domain": "review-required",
+    "task": "material-overview",
+    "must_not_include": [
+      "the files cover",
+      "say ready when you want recall",
+      "no evidence citations",
+      "Visible topics: definition",
+      "heute sprechen",
+      "letztes mal",
+      "mal haben"
+    ],
+    "expected_citations": [
+      "E1",
+      "E2",
+      "E3",
+      "E4",
+      "E13",
+      "E12",
+      "E14",
+      "E18"
+    ],
+    "min_words": 24,
+    "min_citation_count": 2,
+    "min_distinct_sources": 2,
+    "min_bullet_count": 2,
+    "min_cited_bullet_count": 2,
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "materials/AI Math-AI Math Canon.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Mathematics](https://en.wikipedia.org/wiki/Mathematics) > License: Wikipedia content is available under CC BY-SA 4.0."
+      },
+      {
+        "id": "E2",
+        "source": "materials/AI Math-Calculus and Analysis for AI.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Calculus](https://en.wikipedia.org/wiki/Calculus) > License: Wikipedia content is available under CC BY-SA 4.0."
+      },
+      {
+        "id": "E3",
+        "source": "materials/AI Math-Geometry and Manifolds for AI.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Differential geometry](https://en.wikipedia.org/wiki/Differential_geometry) > License: Wikipedia content is available under CC BY-SA 4.0. ![[media/358af60d76c6874a5705cdcfc5872c50ee889324.png]] A triangle immers…"
+      },
+      {
+        "id": "E4",
+        "source": "materials/AI Math-Information Theory for AI.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Information theory](https://en.wikipedia.org/wiki/Information_theory) > License: Wikipedia content is available under CC BY-SA 4.0."
+      },
+      {
+        "id": "E5",
+        "source": "materials/AI Math-Learning Theory for AI.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [[Statistical Learning Theory]] > License: Wikipedia content is available under CC BY-SA 4.0."
+      },
+      {
+        "id": "E6",
+        "source": "materials/AI Math-Linear Algebra for AI.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Linear algebra](https://en.wikipedia.org/wiki/Linear_algebra) > License: Wikipedia content is available under CC BY-SA 4.0. **Linear algebra** is the branch of [mathematics](https://en.wikipedia.org/wiki/Mathema…"
+      },
+      {
+        "id": "E7",
+        "source": "materials/AI Math-Numerical Methods for AI.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Numerical analysis](https://en.wikipedia.org/wiki/Numerical_analysis) > License: Wikipedia content is available under CC BY-SA 4.0."
+      },
+      {
+        "id": "E8",
+        "source": "materials/AI Math-Optimization for AI.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Mathematical optimization](https://en.wikipedia.org/wiki/Mathematical_optimization) > License: Wikipedia content is available under CC BY-SA 4.0. ![[media/4ca55d4e34104612c298ce3f310d1af9c04bc227.png]] Graph of…"
+      },
+      {
+        "id": "E9",
+        "source": "materials/AI Math-Probability and Statistics for AI.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Probability theory](https://en.wikipedia.org/wiki/Probability_theory) > License: Wikipedia content is available under CC BY-SA 4.0."
+      },
+      {
+        "id": "E10",
+        "source": "materials/AI Math-Stochastic Processes for AI.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Stochastic process](https://en.wikipedia.org/wiki/Stochastic_process) > License: Wikipedia content is available under CC BY-SA 4.0. ![[media/b034dd3bfa6b240b882a895a010f5707c1ee67cc.jpg]] A computer-simulated re…"
+      },
+      {
+        "id": "E11",
+        "source": "materials/AI Math-ai-math.md",
+        "chunk": 0,
+        "text": "[[ai-math.base]] > Source: [Mathematics](https://en.wikipedia.org/wiki/Mathematics) > License: Wikipedia content is available under CC BY-SA 4.0."
+      },
+      {
+        "id": "E12",
+        "source": "materials/AI Math-wiki-import-report.md",
+        "chunk": 0,
+        "text": "# Wiki Import Report - Image URLs found: 11833 - Images downloaded locally: 11833 - Images failed: 0 - Markdown files updated with local image paths: 156"
+      },
+      {
+        "id": "E13",
+        "source": "materials/Algorithmen, KI und Data Science 1-AKIDS1_Probeklausur.pdf",
+        "chunk": 0,
+        "text": "Algorithmen, KI und Data Science 1 (10-I-AKIDS-1) Probeklausur, WiSe 2023/2024 8.2.2024 • The exam and all papers on which you wrote during the exam must be returned; • Use only the provided paper for solutions. You may also use the backsi…"
+      },
+      {
+        "id": "E14",
+        "source": "materials/Algorithmen, KI und Data Science 1-L10_Graphs.pdf",
+        "chunk": 0,
+        "text": "WüNLP ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Graphs Prof. Dr. Goran Glavaš 28.11.2024 Content • ADS: Graph • Graph traversals • Breadth-First-Search • Depth-First-Search • Topologic sorting From Sets to Sets with Relations Image from:…"
+      },
+      {
+        "id": "E15",
+        "source": "materials/Algorithmen, KI und Data Science 1-L11_GraphAlgos.pdf",
+        "chunk": 0,
+        "text": "WüNLP ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Graph Algorithms Prof. Dr. Goran Glavaš 02.12.2024 Content"
+      },
+      {
+        "id": "E16",
+        "source": "materials/Algorithmen, KI und Data Science 1-L12_DP.pdf",
+        "chunk": 0,
+        "text": "WüNLP ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Dynamic Programming Prof. Dr. Goran Glavaš 5.12.2024 Content • Divide-and-Conquer • Dynamic Programming • Recursive DP • Iterative (Bottom-Up) DP What are algorithms built from?"
+      },
+      {
+        "id": "E17",
+        "source": "materials/Algorithmen, KI und Data Science 1-L13_DP_Problems.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Dynamic Programming: Some Problems Prof. Dr. Goran Glavaš 9.12.2024 Content • DP Recap • Knapsack Problem • Minimal Edit Distance Dynamic Programming • Dynamic programming solves problems with fo…"
+      },
+      {
+        "id": "E18",
+        "source": "materials/Algorithmen, KI und Data Science 1-L14_StateSpaceSearch.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) State Space Search Prof. Dr. Goran Glavaš 12.12.2024 Content • State Space Search: Fundamental AI Problem • Uninformed Search • Example: missionaries & cannibals Based on the materials from Prof.…"
+      },
+      {
+        "id": "E19",
+        "source": "materials/Algorithmen, KI und Data Science 1-L15_HeuristicSearch.pdf",
+        "chunk": 0,
+        "text": "WüNLP ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Heuristic Search Prof. Dr. Goran Glavaš 16.12.2024 Content • Heuristics • Greedy Best-First & Hill-Climbing Search • A* Algorithm • Heuristics Revisited • Example: Path Finding on Terrain M…"
+      },
+      {
+        "id": "E20",
+        "source": "materials/Algorithmen, KI und Data Science 1-L16_AdversarialSearch.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Adversarial Search (aka Game Playing) Prof. Dr. Goran Glavaš 19.12.2024 Content • Introduction • Minimax • Heuristic Minimax • Alpha-Beta Pruning Based on the materials from Prof. Dr. Jan Šnajder…"
+      },
+      {
+        "id": "E21",
+        "source": "materials/Algorithmen, KI und Data Science 1-L17_MetaheuristicSearch.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Metaheuristic Search Prof. Dr. Goran Glavaš 9.1.2025 Content • Constrained Discrete Optimization & Metaheuristics • Single Point Search Algorithms • Population-Based Algorithms • Genetic algorith…"
+      },
+      {
+        "id": "E22",
+        "source": "materials/Algorithmen, KI und Data Science 1-L18_ConstrainedSearch_Backtracking.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Constraint Satisfaction Prof. Dr. Goran Glavaš 13.1.2025 Content • Constraint Satisfaction Problems • Backtracking Algorithm • Example Problems Recap: State Space Search"
+      },
+      {
+        "id": "E23",
+        "source": "materials/Algorithmen, KI und Data Science 1-L19_ExpertSystems.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Knowledge-Based AI: Expert Systems Prof. Dr. Goran Glavaš 16.1.2025 Content • Knowledge-Based AI • Expert Systems • Inference Based on the materials from Prof. Dr. Jan Šnajder: https://www.fer.un…"
+      },
+      {
+        "id": "E24",
+        "source": "materials/Algorithmen, KI und Data Science 1-L1_Introduction.pdf",
+        "chunk": 0,
+        "text": "WüNLP ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Course Introduction Prof. Dr. Goran Glavaš 21.10.2024 Course title • Algorithms? • Artificial Intelligence? • Data Science? Algorithm: Definitions A process or set of rules to be followed i…"
+      },
+      {
+        "id": "E25",
+        "source": "materials/Algorithmen, KI und Data Science 1-L20_Optimization.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Numerical Optimization Prof. Dr. Goran Glavaš 20.1.2025 Content • Calculus Basics • Gradient-Based Optimization • Newton Method • Gradient Descent • Search-Based Optimization • Genetic Algorithm…"
+      },
+      {
+        "id": "E26",
+        "source": "materials/Algorithmen, KI und Data Science 1-L21_Intro2ML.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Intro to Machine Learning Prof. Dr. Goran Glavaš 27.1.2025 Content • Intro to ML • Supervised ML • Linear Regression What is Machine Learning? Image from: https://becominghuman.ai/how-to-make-mac…"
+      },
+      {
+        "id": "E27",
+        "source": "materials/Algorithmen, KI und Data Science 1-L22_ML-Parametric.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Parametric Classification Prof. Dr. Goran Glavaš 30.1.2025 Content • Supervised ML: Categorization • (Some) Parametric Models • Naive Bayes • Logistic Regression Supervised ML • Two important dim…"
+      },
+      {
+        "id": "E28",
+        "source": "materials/Algorithmen, KI und Data Science 1-L23_ML-NonParametric.pdf",
+        "chunk": 0,
+        "text": "ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Non-Parametric Classification Prof. Dr. Goran Glavaš 3.2.2025 Content • Non-Parametric Models • Decision Trees • K-Nearest Neighbours Supervised ML • Two important dimensions of division in super…"
+      },
+      {
+        "id": "E29",
+        "source": "materials/Algorithmen, KI und Data Science 1-L2_Algorithms.pdf",
+        "chunk": 0,
+        "text": "WüNLP ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Algorithms: fundamentals Prof. Dr. Goran Glavaš 24.10.2024 Content • Building blocks of algorithms • Algorithmic/programming paradigms • Determinism in algorithms Algorithm: Definitions A p…"
+      },
+      {
+        "id": "E30",
+        "source": "materials/Algorithmen, KI und Data Science 1-L3_DataStructures.pdf",
+        "chunk": 0,
+        "text": "WüNLP ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Basic Data Structures Prof. Dr. Goran Glavaš 28.10.2024 Content • Primitive Data Types • Abstract Data Types • List • Stack • Queue Primitive Data Types: Integer • Several universal primiti…"
+      },
+      {
+        "id": "E31",
+        "source": "materials/Algorithmen, KI und Data Science 1-L4_Complexity.pdf",
+        "chunk": 0,
+        "text": "WüNLP ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Algorithm Complexity Prof. Dr. Goran Glavaš 31.10.2024 Content • Analyzing algorithms • Complexity abstractions • Rate/order of growth • Big-O notation In the beginning, there were only pro…"
+      },
+      {
+        "id": "E32",
+        "source": "materials/Algorithmen, KI und Data Science 1-L5_Sorting.pdf",
+        "chunk": 0,
+        "text": "WüNLP ALGORITHMS IN AI & DATA SCIENCE 1 (AKIDS 1) Sorting Prof. Dr. Goran Glavaš 4.11.2024 Content • Sorting • Merge Sort • Quick Sort Sorting problem • How do we measure time complexity? • In terms of number of elementary operations execu…"
+      }
+    ]
+  }
+]

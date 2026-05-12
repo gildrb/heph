@@ -1,0 +1,112 @@
+\documentclass[a4paper,abstract,german]{scrreprt}
+
+%
+% Packages
+%
+\usepackage[german]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage{amsmath}
+\usepackage{amsfonts} 
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{tikz}
+\usepackage[left=2.5cm,right=2.5cm,top=3cm,bottom=2cm,includeheadfoot]{geometry}
+
+\setlength{\parindent}{0pt} 
+
+
+
+%
+% Eigene Macros
+%
+\newcommand{\N}{\mathbb{N}} 
+\newcommand{\Z}{\mathbb{Z}} 
+\newcommand{\Q}{\mathbb{Q}} 
+\newcommand{\R}{\mathbb{R}} 
+\newcommand{\C}{\mathbb{C}} 
+
+%
+% Beginn des eigentlichen Dokuments
+%
+\begin{document}
+
+
+\noindent
+{\begin{flushright}
+%
+% Hier die Namen einfüllen
+%	
+1. NAME \\
+2. NAME \\
+3. NAME
+\end{flushright}}
+\begin{center}
+	{\textbf  {Mathematik für Informatiker 1}} \\
+	{\textbf {Abgabe NUMMER. Übungsblatt}}
+\end{center}\vspace{0.3cm}
+
+%
+% Aufzählung der Aufgaben
+%
+\begin{enumerate}
+	
+	
+	\item[\textbf {H1.1}]
+	%
+	% Hier ist Platz für die Lösung einer Aufgabe
+	%
+	Formeln im Fließtext müssen mit \verb|$| oder \verb|\(| und \verb|\)|
+	umschlossen werden, also zum Beispiel:
+	$a^2 + b^2 = c^2$.
+	Abgesetzte Formeln können mithilfe von 
+	\verb|\[ Formel \]| oder mit \\
+	\verb|\begin{align*} Formel \end{align*}|
+	gesetzt werden, zum
+	Beispiel:
+	\begin{align*}
+		\sum_{k=1}^{n} k = \frac{n(n+1)}{2}
+	\end{align*}
+	Längere abgesetzte Formeln lassen sich mit der align-Umbegung %\verb|\begin{align*} Formel \end{align*}|
+	strukturieren:
+	\begin{align*}
+		(A \cdot B)_{ij}
+		&= \sum_{k=1}^{n} A_{ik} \cdot B_{kj} \\
+		&= \ldots
+	\end{align*}
+	Der \LaTeX -Code wäre in dem Fall:\\
+	\verb|\begin{align*}|\\
+	\verb|(A \cdot B)_{ij}| \\
+	\verb|&= \sum_{k=1}^{n} A_{ik} \cdot B_{kj} \\| \\
+	\verb|&= \ldots| \\
+	\verb|\end{align*}| \\
+	Falls Sie Formeln nummerieren wollen können sie dies indem Sie die Sterne in den obigen Formel weglassen also \verb|\begin{align} \label{SuperFormel} Formel mit nummer \end{align}|. Sie können dann die Formel mit \verb| \eqref{SuperFormel} | referenzieren.
+	
+	\item[\textbf {H1.2}]
+	
+	%
+	% Hier ist Platz für die Lösung einer Aufgabe
+	%
+	Ein paar wichtige Symbole: $\in$, $\Rightarrow$, $\Leftarrow$, $\Leftrightarrow$, $\leq$, $\geq$, $\cup$, $\cap$, $\neq$, $\subseteq$, $\supseteq$ $\subsetneq$, $\Q$, $\R$, $\C$, $\lim\limits_{n \to \infty}$, $\int_{a}^{b}$.
+	
+	Mehr findet man z.B. unter:
+	
+	\verb|https://de.wikipedia.org/wiki/Hilfe:TeX|
+	und in dem Dokument darüber wie man Formel in Wuecampus setzt.
+	
+	\item[\textbf {H1.3}]
+	Weitere Lösung\\
+	
+	%
+	% Hier ist Platz für die Lösung einer Aufgabe
+	%
+	AUFGABE
+	
+\end{enumerate}
+
+\end{document}

@@ -12,7 +12,13 @@ from typing import TYPE_CHECKING
 
 from hephaistos.agent.citation import verify_citations, verify_response
 from hephaistos.agent.dispatch import iter_agent_events
-from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnCompleteEvent, TurnEvent
+from hephaistos.chat.events import (
+    AssistantDeltaEvent,
+    MaterialOperationEvent,
+    NoticeEvent,
+    TurnCompleteEvent,
+    TurnEvent,
+)
 from hephaistos.chat.evidence import (
     ResolvedTurnPlan,
 )
@@ -94,6 +100,15 @@ _OVERVIEW_CITATION_RANGE_RE = re.compile(
     r"\[(?:e|E)\d+\]\s*(?:-|\u2013)\s*(?:\[(?:e|E)\d+\]|(?:e|E)?\d+)"
 )
 _OVERVIEW_CITATION_ID_RE = re.compile(r"\[(?:e|E)(?P<id>\d+)\]")
+_READ_ALL_FILES_RE = re.compile(
+    r"\b(?:"
+    r"(?:read|scan|look|go|walk)\s+(?:through|over)?\s*(?:all|every)\s+"
+    r"(?:the\s+)?(?:files|documents|pdfs|materials)|"
+    r"(?:read|scan)\s+(?:the\s+)?(?:whole|entire|complete)\s+"
+    r"(?:corpus|set|folder|armory)"
+    r")\b",
+    re.IGNORECASE,
+)
 _OVERVIEW_MIN_WORDS = 24
 _OVERVIEW_MIN_CITATIONS = 2
 _OVERVIEW_MIN_DISTINCT_SOURCES = 2
@@ -389,6 +404,148 @@ def _evidence_notice_metadata(resolved: ResolvedTurnPlan) -> dict[str, object]:
     }
 
 
+def _material_operation_event(
+    operation: str,
+    message: str,
+    **metadata: object,
+) -> MaterialOperationEvent:
+    return MaterialOperationEvent(
+        operation=operation,
+        message=message,
+        metadata={key: value for key, value in metadata.items() if value not in ("", None)},
+    )
+
+
+def _index_counts(session: ChatSession) -> tuple[int, int]:
+    index = session.rag_index
+    if index is None:
+        return 0, 0
+    enabled_documents = [
+        document
+        for document in index.documents
+        if document.source not in session.disabled_source_files and document.chunks
+    ]
+    return len(enabled_documents), sum(len(document.chunks) for document in enabled_documents)
+
+
+def _read_all_files_requested(query: str | None) -> bool:
+    return bool(query and _READ_ALL_FILES_RE.search(query))
+
+
+def _material_operation_events(
+    session: ChatSession,
+    plan: StudyTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> list[MaterialOperationEvent]:
+    if plan.direct_reply is not None or plan.action is StudyAction.CALIBRATE:
+        return []
+    if not (plan.retrieval_query or plan.use_expected_source_refs or resolved.turn_evidence):
+        return []
+
+    events: list[MaterialOperationEvent] = []
+    indexed_sources, indexed_chunks = _index_counts(session)
+    if indexed_sources or indexed_chunks:
+        events.append(
+            _material_operation_event(
+                "index_ready",
+                (
+                    f"Material index ready: {indexed_sources} enabled source"
+                    f"{'' if indexed_sources == 1 else 's'}, {indexed_chunks} chunk"
+                    f"{'' if indexed_chunks == 1 else 's'}."
+                ),
+                indexed_sources=indexed_sources,
+                indexed_chunks=indexed_chunks,
+            )
+        )
+
+    evidence = _visible_turn_evidence(resolved)
+    if _overview_turn(plan):
+        sampled_sources = evidence.sampled_source_count if evidence else 0
+        total_sources = evidence.total_source_count if evidence else indexed_sources
+        evidence_blocks = len(evidence.items) if evidence else 0
+        events.append(
+            _material_operation_event(
+                "sample_overview",
+                (
+                    f"Sampling corpus overview: {evidence_blocks} excerpt"
+                    f"{'' if evidence_blocks == 1 else 's'} from {sampled_sources} of "
+                    f"{total_sources} indexed source{'' if total_sources == 1 else 's'}."
+                ),
+                query=plan.retrieval_query,
+                evidence_blocks=evidence_blocks,
+                sampled_sources=sampled_sources,
+                total_sources=total_sources,
+                read_all_requested=_read_all_files_requested(plan.retrieval_query),
+            )
+        )
+    elif plan.use_expected_source_refs and session.study_state.expected_source_refs:
+        events.append(
+            _material_operation_event(
+                "open_stored_evidence",
+                (
+                    "Opening stored material evidence from the current recall item: "
+                    + ", ".join(session.study_state.expected_source_refs[:3])
+                ),
+                refs=list(session.study_state.expected_source_refs),
+            )
+        )
+    elif plan.retrieval_query:
+        events.append(
+            _material_operation_event(
+                "search_index",
+                f"Searching indexed materials for: {plan.retrieval_query}",
+                query=plan.retrieval_query,
+                indexed_sources=indexed_sources,
+                indexed_chunks=indexed_chunks,
+            )
+        )
+
+    if evidence is not None and evidence.items:
+        for item in evidence.items[:3]:
+            ref = f"{item.source}#chunk={item.chunk_index}"
+            events.append(
+                _material_operation_event(
+                    "read_excerpt",
+                    (f"Opened {ref}: {_trace_excerpt(item.content, limit=180)}"),
+                    evidence_id=item.evidence_id,
+                    ref=ref,
+                    source=item.source,
+                    chunk=item.chunk_index,
+                    score=round(item.score, 4),
+                    text_excerpt=_trace_excerpt(item.content, limit=240),
+                )
+            )
+    elif plan.retrieval_query:
+        events.append(
+            _material_operation_event(
+                "search_result",
+                "Material search returned no matching indexed evidence.",
+                query=plan.retrieval_query,
+                indexed_sources=indexed_sources,
+                indexed_chunks=indexed_chunks,
+            )
+        )
+
+    if _read_all_files_requested(plan.retrieval_query):
+        sampled_sources = evidence.sampled_source_count if evidence else 0
+        total_sources = evidence.total_source_count if evidence else indexed_sources
+        events.append(
+            _material_operation_event(
+                "read_all_scope",
+                (
+                    "Read-all scope: this turn samples indexed evidence; it did not read every "
+                    "file end to end. Run `heph index <armory>` for a full index rebuild, then "
+                    "ask a narrower source-backed question."
+                ),
+                query=plan.retrieval_query,
+                sampled_sources=sampled_sources,
+                total_sources=total_sources,
+                command="heph index <armory>",
+            )
+        )
+    return events
+
+
 def _reading_notice(plan: StudyTurnPlan) -> str:
     if plan.direct_reply is not None or plan.action is StudyAction.CALIBRATE:
         return ""
@@ -413,6 +570,32 @@ def _student_visible_reply(plan: StudyTurnPlan, reply: str) -> str:
     if plan.action is StudyAction.CALIBRATE:
         return _EVIDENCE_CITATION_TEXT_RE.sub("", reply).strip()
     return reply
+
+
+def _append_read_all_scope_disclosure(
+    plan: StudyTurnPlan,
+    reply: str,
+    evidence: TurnEvidence | None,
+) -> str:
+    if not reply.strip() or not _read_all_files_requested(plan.retrieval_query):
+        return reply
+    normalized = reply.casefold()
+    if "did not read every file" in normalized or "heph index <armory>" in normalized:
+        return reply
+    sampled_sources = evidence.sampled_source_count if evidence else 0
+    total_sources = evidence.total_source_count if evidence else sampled_sources
+    if total_sources > sampled_sources:
+        sample_text = f"{sampled_sources} of {total_sources} indexed sources"
+    elif sampled_sources:
+        sample_text = f"{sampled_sources} indexed source{'' if sampled_sources == 1 else 's'}"
+    else:
+        sample_text = "the available indexed evidence"
+    return (
+        f"{reply.rstrip()}\n\n"
+        f"Read-all scope: I sampled {sample_text}; I did not read every file end to end in "
+        "this turn. Run `heph index <armory>` to rebuild the full materials index, then ask "
+        "a narrower source-backed question."
+    )
 
 
 def _trace_excerpt(text: str, *, limit: int = 500) -> str:
@@ -527,7 +710,7 @@ def _overview_fallback_reply(plan: StudyTurnPlan, evidence: TurnEvidence | None)
     lines.append(
         "- Best next use: ask for a specific concept, exercise, exam problem, or lecture title."
     )
-    return "\n".join(lines)
+    return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
 
 
 def _overview_source_role_sentence(evidence: TurnEvidence) -> str:
@@ -896,6 +1079,7 @@ class TurnOrchestrator:
                     if notice := _reading_notice(study_plan):
                         yield NoticeEvent(notice, code="reading")
                     resolved = self._resolve_timed_turn_plan(study_plan)
+                    yield from self._iter_material_operation_events(study_plan, resolved)
                     if notice := _evidence_notice(resolved):
                         yield NoticeEvent(
                             notice,
@@ -1065,32 +1249,6 @@ class TurnOrchestrator:
         if notice := _writing_notice(plan):
             yield NoticeEvent(notice, code="writing")
 
-        if _overview_turn(plan):
-            fallback_reply = _overview_fallback_reply(plan, resolved.turn_evidence)
-            if fallback_reply:
-                session.study_state, final_reply = apply_turn_result(
-                    original_study_state,
-                    plan,
-                    fallback_reply,
-                    _evidence_refs(resolved.turn_evidence),
-                )
-                self.last_reply = final_reply
-                if final_reply and (
-                    not session.conversation.messages
-                    or session.conversation.messages[-1].role != "assistant"
-                ):
-                    session.conversation.add("assistant", final_reply)
-                if final_reply:
-                    yield AssistantDeltaEvent(final_reply)
-                    yield TurnCompleteEvent(
-                        full_text=final_reply,
-                        turn_index=len(session.conversation.messages) - 1,
-                        latency_ms=0.0,
-                        finish_reason="fallback",
-                        tokens_remaining=0,
-                    )
-                return
-
         extra_system_prompt = plan.prompt
         if plan.action is StudyAction.PRIORITY:
             priority_context = _build_priority_context(session)
@@ -1179,6 +1337,11 @@ class TurnOrchestrator:
             visible_reply,
             resolved.turn_evidence,
         )
+        visible_reply = _append_read_all_scope_disclosure(
+            plan,
+            visible_reply,
+            resolved.turn_evidence,
+        )
 
         if raw_reply:
             session.study_state, final_reply = apply_turn_result(
@@ -1227,10 +1390,14 @@ class TurnOrchestrator:
         store = load_study_schedule(session.armory_path)
         store.record_review(
             original_study_state.current_item,
+            concept=original_study_state.retrieval_query,
             retrieval_query=original_study_state.retrieval_query,
             source_refs=source_refs or original_study_state.expected_source_refs,
             rating=session.study_state.last_recall_rating,
             elapsed_seconds=session.study_state.last_recall_seconds,
+            confidence=session.study_state.last_confidence,
+            error_type=session.study_state.last_feedback_type.value,
+            exam_importance=1.0 if original_study_state.expected_source_refs else 0.0,
         )
         save_study_schedule(store)
 
@@ -1253,6 +1420,19 @@ class TurnOrchestrator:
             study_plan=plan,
             turn_evidence=_resolve_turn_evidence(self.session, plan),
         )
+
+    def _iter_material_operation_events(
+        self,
+        plan: StudyTurnPlan,
+        resolved: ResolvedTurnPlan,
+    ) -> Iterator[MaterialOperationEvent]:
+        for event in _material_operation_events(self.session, plan, resolved):
+            self.session.trace.record_material_operation(
+                operation=event.operation,
+                message=event.message,
+                metadata=event.metadata,
+            )
+            yield event
 
     def _rollback_turn(
         self,

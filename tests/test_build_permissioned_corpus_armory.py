@@ -71,6 +71,95 @@ def test_build_corpus_limit_selects_prefix(tmp_path: Path) -> None:
     assert report.copied_documents == 1
 
 
+def test_build_corpus_can_balance_limited_selection_by_parent_domain(tmp_path: Path) -> None:
+    math_dir = tmp_path / "Mathematics"
+    ai_dir = tmp_path / "Artificial Intelligence"
+    math_dir.mkdir()
+    ai_dir.mkdir()
+    for index in range(4):
+        (math_dir / f"math-{index}.pdf").write_text("math", encoding="utf-8")
+    for index in range(2):
+        (ai_dir / f"ai-{index}.pdf").write_text("ai", encoding="utf-8")
+    manifest = tmp_path / "suite" / "manifest.json"
+
+    report = build_permissioned_corpus_armory.build_corpus(
+        (math_dir, ai_dir),
+        tmp_path / "armory",
+        manifest,
+        limit=3,
+        domain_from_parent=True,
+        balance_domains=True,
+    )
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    domains = [document["domain"] for document in payload["documents"]]
+    assert report.status == 0
+    assert report.copied_documents == 3
+    assert set(domains) == {"Artificial Intelligence", "Mathematics"}
+
+
+def test_build_corpus_can_infer_roles_from_copied_content(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "generic.md").write_text(
+        "Question 1. Exercise 2. Problem 3. Due date Friday.",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "suite" / "manifest.json"
+
+    report = build_permissioned_corpus_armory.build_corpus(
+        (source_dir,),
+        tmp_path / "armory",
+        manifest,
+        infer_roles_from_index=True,
+    )
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert report.status == 0
+    assert payload["documents"][0]["role"] == "assignment"
+    assert payload["documents"][0]["document_type"] == "exercise-sheet"
+
+
+def test_build_corpus_can_use_parent_folder_as_domain(tmp_path: Path) -> None:
+    math_dir = tmp_path / "Mathematics"
+    ai_dir = tmp_path / "Artificial Intelligence"
+    math_dir.mkdir()
+    ai_dir.mkdir()
+    (math_dir / "lecture.pdf").write_text("math lecture", encoding="utf-8")
+    (ai_dir / "exam.pdf").write_text("ai exam", encoding="utf-8")
+    manifest = tmp_path / "suite" / "manifest.json"
+
+    report = build_permissioned_corpus_armory.build_corpus(
+        (math_dir, ai_dir),
+        tmp_path / "armory",
+        manifest,
+        domain_from_parent=True,
+    )
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    domains = {document["domain"] for document in payload["documents"]}
+    assert report.status == 0
+    assert domains == {"Artificial Intelligence", "Mathematics"}
+
+
+def test_build_corpus_reviewed_omits_scaffold_known_limits(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "lecture.pdf").write_text("lecture", encoding="utf-8")
+    manifest = tmp_path / "suite" / "manifest.json"
+
+    report = build_permissioned_corpus_armory.build_corpus(
+        (source_dir,),
+        tmp_path / "armory",
+        manifest,
+        reviewed=True,
+    )
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert report.status == 0
+    assert payload["known_limits"] == []
+
+
 def test_build_corpus_cli_writes_json_report(tmp_path: Path) -> None:
     source_dir = tmp_path / "source"
     source_dir.mkdir()
@@ -90,3 +179,103 @@ def test_build_corpus_cli_writes_json_report(tmp_path: Path) -> None:
     payload = json.loads(json_report.read_text(encoding="utf-8"))
     assert status == 0
     assert payload["copied_documents"] == 1
+
+
+def test_build_corpus_cli_can_infer_roles_from_index(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "generic.md").write_text(
+        "Question 1. Exercise 2. Problem 3. Due date Friday.",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "manifest.json"
+
+    status = build_permissioned_corpus_armory.main(
+        [
+            str(tmp_path / "armory"),
+            str(manifest),
+            str(source_dir),
+            "--infer-roles-from-index",
+        ]
+    )
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert status == 0
+    assert payload["documents"][0]["role"] == "assignment"
+
+
+def test_build_corpus_cli_can_use_parent_folder_as_domain(tmp_path: Path) -> None:
+    math_dir = tmp_path / "Mathematics"
+    ai_dir = tmp_path / "Artificial Intelligence"
+    math_dir.mkdir()
+    ai_dir.mkdir()
+    (math_dir / "lecture.pdf").write_text("math lecture", encoding="utf-8")
+    (ai_dir / "exam.pdf").write_text("ai exam", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+
+    status = build_permissioned_corpus_armory.main(
+        [
+            str(tmp_path / "armory"),
+            str(manifest),
+            str(math_dir),
+            str(ai_dir),
+            "--domain-from-parent",
+        ]
+    )
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    domains = {document["domain"] for document in payload["documents"]}
+    assert status == 0
+    assert domains == {"Artificial Intelligence", "Mathematics"}
+
+
+def test_build_corpus_cli_reviewed_omits_scaffold_known_limits(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "lecture.pdf").write_text("lecture", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+
+    status = build_permissioned_corpus_armory.main(
+        [
+            str(tmp_path / "armory"),
+            str(manifest),
+            str(source_dir),
+            "--reviewed",
+        ]
+    )
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert status == 0
+    assert payload["known_limits"] == []
+
+
+def test_build_corpus_cli_can_balance_limited_selection_by_parent_domain(
+    tmp_path: Path,
+) -> None:
+    math_dir = tmp_path / "Mathematics"
+    ai_dir = tmp_path / "Artificial Intelligence"
+    math_dir.mkdir()
+    ai_dir.mkdir()
+    for index in range(4):
+        (math_dir / f"math-{index}.pdf").write_text("math", encoding="utf-8")
+    for index in range(2):
+        (ai_dir / f"ai-{index}.pdf").write_text("ai", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+
+    status = build_permissioned_corpus_armory.main(
+        [
+            str(tmp_path / "armory"),
+            str(manifest),
+            str(math_dir),
+            str(ai_dir),
+            "--limit",
+            "3",
+            "--domain-from-parent",
+            "--balance-domains",
+        ]
+    )
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    domains = [document["domain"] for document in payload["documents"]]
+    assert status == 0
+    assert set(domains) == {"Artificial Intelligence", "Mathematics"}

@@ -352,7 +352,12 @@ class TestDispatchWithRegistry:
         results = execute_tool_calls(tool_calls, tmp_path, registry=reg)
         assert message_text(results[0]) == "temporary failure"
         assert results[0].get("tool_success") is False
-        assert results[0].get("tool_metadata") == {"retryable": True}
+        metadata = results[0].get("tool_metadata")
+        assert isinstance(metadata, dict)
+        assert metadata["retryable"] is True
+        assert metadata["tool"] == "structured"
+        assert isinstance(metadata["latency_ms"], float)
+        assert metadata["result_length"] == len("temporary failure")
         assert results[0].get("tool_error") == "timeout"
 
     def test_execute_unknown_tool_with_custom_registry(self, tmp_path: Path) -> None:

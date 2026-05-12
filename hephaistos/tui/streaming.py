@@ -11,7 +11,13 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 from hephaistos.chat.automation import iter_chat_events
-from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, ToolCallEvent, ToolResultEvent
+from hephaistos.chat.events import (
+    AssistantDeltaEvent,
+    MaterialOperationEvent,
+    NoticeEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+)
 from hephaistos.runtime import (
     EngineError,
     StreamRecoveryError,
@@ -43,7 +49,7 @@ def run_tui_turn(
                 on_notice(event.display)
             elif isinstance(event, ToolResultEvent):
                 on_notice(event.summary)
-            elif isinstance(event, NoticeEvent):
+            elif isinstance(event, MaterialOperationEvent | NoticeEvent):
                 on_notice(event.message)
         reply = "".join(parts).strip()
         if reply:

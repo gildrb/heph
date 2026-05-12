@@ -1,0 +1,9 @@
+{"id":"biochem-enzyme-definition","domain":"biochemistry","source_ref":"materials/biochem-lecture.md#chunk=1","kind":"definition","concept":"Enzyme kinetics","text":"reaction velocity, active sites, substrate concentration"}
+{"id":"physics-hamiltonian-definition","domain":"physics","source_ref":"materials/physics-lecture.md#chunk=1","kind":"definition","concept":"Hamiltonian mechanics","text":"generalized coordinates, canonical momentum"}
+{"id":"structured-exam-formula","domain":"mathematics","source_ref":"materials/structured-exam-parts.md#chunk=0","kind":"formula","text":"D = {(x, y) in R2 : xy > -1}"}
+{"id":"structured-exam-skill","domain":"mathematics","source_ref":"materials/structured-exam-parts.md#chunk=0","kind":"exam_skill","text":"local minima, local maxima, or saddle points"}
+{"id":"biochem-exam-question","domain":"biochemistry","source_ref":"materials/biochem-midterm.md#chunk=0","kind":"exam_question","text":"Explain enzyme kinetics and Michaelis Menten saturation"}
+{"id":"biochem-answer","domain":"biochemistry","source_ref":"materials/biochem-midterm.md#chunk=0","kind":"answer","text":"reaction velocity rises with substrate concentration"}
+{"id":"biochem-rubric-point","domain":"biochemistry","source_ref":"materials/biochem-midterm.md#chunk=0","kind":"rubric_point","text":"define Vmax, Km, active-site saturation"}
+{"id":"biochem-figure","domain":"biochemistry","source_ref":"materials/biochem-midterm.md#chunk=0","kind":"figure","text":"Michaelis Menten curve approaching Vmax"}
+{"id":"biochem-table","domain":"biochemistry","source_ref":"materials/biochem-midterm.md#chunk=0","kind":"table","text":"substrate concentration, reaction velocity"}

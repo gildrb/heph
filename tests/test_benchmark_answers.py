@@ -325,6 +325,25 @@ def test_answer_shape_constraints_can_require_cited_bullets() -> None:
     assert report.results[1].cited_bullet_count == 2
 
 
+def test_answer_shape_constraints_can_require_named_sections() -> None:
+    case = benchmark_answers.AnswerCase(
+        case_id="assessment-shape",
+        answer=(
+            "PARTIAL: Score: 1/2.\n"
+            "Got: active recall uses memory.\n"
+            "Missing: why unsupported recall matters."
+        ),
+        evidence=None,
+        require_citations=False,
+        required_sections=("Score", "Got", "Missing", "Misconception"),
+    )
+
+    result = benchmark_answers.evaluate_case(case)
+
+    assert result.passed is False
+    assert result.shape_failures == ("missing sections: Misconception",)
+
+
 def test_material_overview_rejects_boilerplate_topic_phrases() -> None:
     case = benchmark_answers.AnswerCase(
         case_id="overview-boilerplate-topics",

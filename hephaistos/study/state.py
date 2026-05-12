@@ -75,6 +75,7 @@ class StudyState:
     recall_started_at: datetime | None = None
     last_recall_seconds: int | None = None
     last_recall_rating: StudyRecallRating = StudyRecallRating.NONE
+    last_confidence: float | None = None
 
     def clone(self) -> StudyState:
         """Return a deep-enough copy for rollback and persistence."""
@@ -94,6 +95,7 @@ class StudyState:
             ),
             "last_recall_seconds": self.last_recall_seconds,
             "last_recall_rating": self.last_recall_rating.value,
+            "last_confidence": self.last_confidence,
         }
 
     @classmethod
@@ -149,6 +151,15 @@ class StudyState:
             except ValueError:
                 recall_rating = StudyRecallRating.NONE
 
+        raw_confidence = data.get("last_confidence")
+        last_confidence = (
+            float(raw_confidence)
+            if isinstance(raw_confidence, int | float)
+            and not isinstance(raw_confidence, bool)
+            and 0 <= raw_confidence <= 1
+            else None
+        )
+
         return cls(
             phase=phase,
             current_item=current_item,
@@ -159,6 +170,7 @@ class StudyState:
             recall_started_at=recall_started_at,
             last_recall_seconds=last_recall_seconds,
             last_recall_rating=recall_rating,
+            last_confidence=last_confidence,
         )
 
 

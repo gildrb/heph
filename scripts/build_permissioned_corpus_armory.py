@@ -53,6 +53,10 @@ def build_corpus(
     domain: str = "unlabelled",
     limit: int = 0,
     overwrite: bool = False,
+    infer_roles_from_index: bool = False,
+    domain_from_parent: bool = False,
+    balance_domains: bool = False,
+    reviewed: bool = False,
 ) -> BuiltPermissionedCorpus:
     """Copy local documents into an armory and write a manifest scaffold."""
     armory_path = armory_path.expanduser().resolve()
@@ -69,7 +73,11 @@ def build_corpus(
             failures=failures,
         )
     storage.initialize(armory_path)
-    selected, skipped = _select_documents(inputs, limit=limit)
+    selected, skipped = _select_documents(
+        inputs,
+        limit=limit,
+        balance_domains=balance_domains,
+    )
     if not selected:
         return BuiltPermissionedCorpus(
             status=2,
@@ -80,6 +88,7 @@ def build_corpus(
             failures=("no supported documents found",),
         )
     provenance: dict[str, str] = {}
+    domains: dict[str, str] = {}
     copied = 0
     for source in selected:
         destination = _destination_for(source, armory_path / storage.MATERIALS_DIR)
@@ -96,6 +105,8 @@ def build_corpus(
         shutil.copy2(source, destination)
         rel = destination.relative_to(armory_path).as_posix()
         provenance[rel] = source.as_uri()
+        if domain_from_parent:
+            domains[rel] = _domain_from_parent(source)
         copied += 1
 
     manifest = create_benchmark_manifest.create_manifest(
@@ -104,10 +115,12 @@ def build_corpus(
         description=description,
         corpus_kind=corpus_kind,
         domain=domain,
-        infer_roles_from_index=False,
+        infer_roles_from_index=infer_roles_from_index,
+        reviewed=reviewed,
     )
     for document in manifest["documents"]:
         document["source_url"] = provenance.get(document["source"], "")
+        document["domain"] = domains.get(document["source"], document["domain"])
         if document["source_url"]:
             document["permission_note"] = "Local permissioned material copied from this machine."
     create_benchmark_manifest.write_manifest(manifest_path, manifest)
@@ -130,7 +143,12 @@ def _input_failures(inputs: tuple[Path, ...]) -> tuple[str, ...]:
     return tuple(failures)
 
 
-def _select_documents(inputs: tuple[Path, ...], *, limit: int) -> tuple[tuple[Path, ...], int]:
+def _select_documents(
+    inputs: tuple[Path, ...],
+    *,
+    limit: int,
+    balance_domains: bool = False,
+) -> tuple[tuple[Path, ...], int]:
     candidates: list[Path] = []
     skipped = 0
     for input_path in inputs:
@@ -145,9 +163,31 @@ def _select_documents(inputs: tuple[Path, ...], *, limit: int) -> tuple[tuple[Pa
                 skipped += 1
                 continue
             candidates.append(path)
-            if limit > 0 and len(candidates) >= limit:
+            if not balance_domains and limit > 0 and len(candidates) >= limit:
                 return tuple(candidates), skipped
+    if balance_domains:
+        candidates = _balanced_by_parent(candidates)
+    if limit > 0:
+        candidates = candidates[:limit]
     return tuple(candidates), skipped
+
+
+def _balanced_by_parent(candidates: list[Path]) -> list[Path]:
+    grouped: dict[str, list[Path]] = {}
+    for candidate in candidates:
+        grouped.setdefault(_domain_from_parent(candidate), []).append(candidate)
+    balanced: list[Path] = []
+    groups = [grouped[key] for key in sorted(grouped)]
+    index = 0
+    while True:
+        added = False
+        for group in groups:
+            if index < len(group):
+                balanced.append(group[index])
+                added = True
+        if not added:
+            return balanced
+        index += 1
 
 
 def _destination_for(source: Path, materials_dir: Path) -> Path:
@@ -161,6 +201,11 @@ def _stable_filename(source: Path) -> str:
     if prefix:
         stem = f"{prefix}-{stem}"
     return f"{stem}{source.suffix.lower()}"
+
+
+def _domain_from_parent(source: Path) -> str:
+    domain = source.parent.name.strip()
+    return domain or "unlabelled"
 
 
 def _write_placeholder_datasets(
@@ -204,8 +249,28 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--description", default="Permissioned local academic benchmark corpus.")
     parser.add_argument("--corpus-kind", default="permissioned-materials")
     parser.add_argument("--domain", default="unlabelled")
+    parser.add_argument(
+        "--domain-from-parent",
+        action="store_true",
+        help="Use each source file's parent folder name as its manifest domain.",
+    )
+    parser.add_argument(
+        "--balance-domains",
+        action="store_true",
+        help="Round-robin selected documents by parent-folder domain before applying --limit.",
+    )
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--infer-roles-from-index",
+        action="store_true",
+        help="Build an index and infer material roles from copied document text.",
+    )
+    parser.add_argument(
+        "--reviewed",
+        action="store_true",
+        help="Omit scaffold known_limits after the copied corpus manifest has been reviewed.",
+    )
     parser.add_argument("--json-report", type=Path)
     return parser
 
@@ -226,6 +291,10 @@ def main(argv: list[str] | None = None) -> int:
         domain=cast("str", args.domain),
         limit=limit,
         overwrite=cast("bool", args.overwrite),
+        infer_roles_from_index=cast("bool", args.infer_roles_from_index),
+        domain_from_parent=cast("bool", args.domain_from_parent),
+        balance_domains=cast("bool", args.balance_domains),
+        reviewed=cast("bool", args.reviewed),
     )
     print_text_report(report)
     json_report = cast("Path | None", args.json_report)

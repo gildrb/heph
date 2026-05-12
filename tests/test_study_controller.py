@@ -28,19 +28,27 @@ def test_first_turn_plans_presentation() -> None:
     assert plan.allow_tools is True
 
 
-def test_first_turn_material_overview_allows_index_tools() -> None:
+def test_study_state_round_trips_confidence() -> None:
+    state = StudyState(last_confidence=0.6)
+
+    loaded = StudyState.from_dict(state.to_dict())
+
+    assert loaded.last_confidence == 0.6
+
+
+def test_first_turn_material_overview_uses_internal_evidence_without_llm_tools() -> None:
     state = StudyState()
 
     plan = plan_turn(state, "what is the material about")
 
     assert plan.action is StudyAction.PRESENT
     assert plan.retrieval_query == "what is the material about"
-    assert plan.allow_tools is True
+    assert plan.allow_tools is False
     assert plan.buffer_response is True
     assert "Execute MATERIAL_OVERVIEW" in plan.prompt
     assert "not as the entire corpus" in plan.prompt
     assert "Do not infer from filenames" in plan.prompt
-    assert "Use material tools to inspect indexed sources" in plan.prompt
+    assert "Use material tools to inspect indexed sources" not in plan.prompt
     assert "Do not paste long source excerpts" in plan.prompt
 
 
@@ -53,6 +61,7 @@ def test_source_worded_material_overview_still_uses_overview_plan() -> None:
     )
 
     assert plan.action is StudyAction.PRESENT
+    assert plan.allow_tools is False
     assert plan.buffer_response is True
     assert "Execute MATERIAL_OVERVIEW" in plan.prompt
 
@@ -64,9 +73,38 @@ def test_first_turn_explain_material_simply_uses_overview() -> None:
 
     assert plan.action is StudyAction.PRESENT
     assert plan.retrieval_query == "explain the material simply"
-    assert plan.allow_tools is True
+    assert plan.allow_tools is False
     assert plan.buffer_response is True
     assert "document types" in plan.prompt
+
+
+def test_read_through_all_files_uses_overview() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "Can you read through all the files")
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.retrieval_query == "Can you read through all the files"
+    assert plan.allow_tools is False
+    assert plan.buffer_response is True
+    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
+
+
+def test_read_through_files_interrupts_ready_wait_with_overview() -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="what are the materials about",
+        retrieval_query="what are the materials about",
+        expected_source_refs=["materials/a.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, "Can you read through all the files")
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.buffer_response is True
+    assert plan.allow_tools is False
+    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
 
 
 def test_explicit_source_question_answers_without_entering_recall_loop() -> None:
@@ -272,7 +310,7 @@ def test_assess_correct_resets_for_next_item() -> None:
         recall_started_at=started,
     )
 
-    plan = plan_turn(state, "It equals 4 because ...")
+    plan = plan_turn(state, "It equals 4 because ... confidence 4/5")
     next_state, cleaned = apply_turn_result(
         state,
         plan,
@@ -290,6 +328,7 @@ def test_assess_correct_resets_for_next_item() -> None:
     assert next_state.last_feedback_type is StudyFeedbackType.CORRECT
     assert next_state.last_recall_seconds == 18
     assert next_state.last_recall_rating is StudyRecallRating.EASY
+    assert next_state.last_confidence == 0.8
     assert next_state.recall_started_at is None
 
 
@@ -375,6 +414,40 @@ def test_waiting_for_ready_reminder_keeps_waiting_state() -> None:
     assert next_state.last_feedback_type is StudyFeedbackType.WAITING
 
 
+@pytest.mark.parametrize("followup", ["interesting", "why", "ok why"])
+def test_waiting_for_ready_followups_use_stored_evidence(followup: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="what is the material about",
+        retrieval_query="what is the material about",
+        expected_source_refs=["materials/lecture.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, followup)
+
+    assert plan.action is StudyAction.REVIEW
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.use_expected_source_refs is True
+    assert plan.retrieval_query == "what is the material about"
+    assert plan.allow_tools is False
+    assert "SOURCE_FOLLOWUP" in plan.prompt
+    assert "not as a readiness signal" in plan.prompt
+
+
+def test_im_ready_moves_waiting_state_to_recall() -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, "im ready")
+
+    assert plan.action is StudyAction.PROMPT_RECALL
+    assert plan.phase is StudyPhase.RECALL
+    assert "Execute RECALL" in plan.prompt
+
+
 def test_recall_phase_refuses_reveal_requests() -> None:
     state = StudyState(
         phase=StudyPhase.RECALL,
@@ -390,6 +463,20 @@ def test_recall_phase_refuses_reveal_requests() -> None:
     assert cleaned == "No. Attempt recall first."
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.last_feedback_type is StudyFeedbackType.REFUSED
+
+
+def test_recall_clarification_is_not_assessed_as_attempt() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, "which answer")
+
+    assert plan.action is StudyAction.PROMPT_RECALL
+    assert plan.phase is StudyPhase.RECALL
+    assert "RECALL_CLARIFICATION" in plan.prompt
 
 
 def test_recall_attempt_that_mentions_answer_is_assessed() -> None:
@@ -444,6 +531,40 @@ def test_simplify_prompt_forbids_metadata_questions() -> None:
 
     assert "not document titles" in plan.prompt
     assert "surface metadata" in plan.prompt
+    assert "retrieved source span" in plan.prompt
+    assert "Do not invent prerequisite questions" in plan.prompt
+
+
+def test_calibration_prompt_requires_grounded_questions() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "quiz me")
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert "retrieved source span" in plan.prompt
+    assert "past-exam pattern" in plan.prompt
+    assert "never invent unsupported questions" in plan.prompt
+
+
+def test_assessment_prompt_requires_source_backed_feedback_shape() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Explain the mechanism.",
+        retrieval_query="Explain the mechanism.",
+        expected_source_refs=["source/exam.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, "It works because the receptor opens.")
+
+    assert plan.action is StudyAction.ASSESS
+    assert "retrieved material only" in plan.prompt
+    assert "source of truth" in plan.prompt
+    assert "Score:" in plan.prompt
+    assert "Missing:" in plan.prompt
+    assert "Misconception:" in plan.prompt
+    assert "Correction:" in plan.prompt
+    assert "Confidence:" in plan.prompt
+    assert "default to PARTIAL:" in plan.prompt
 
 
 def test_recall_phase_can_review_material_when_student_requests_it() -> None:

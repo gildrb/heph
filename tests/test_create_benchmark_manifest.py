@@ -94,6 +94,38 @@ def test_create_manifest_can_infer_roles_from_indexed_content(tmp_path: Path) ->
     assert by_source["materials/document-b.md"]["document_type"] == "lecture-slides"
 
 
+def test_create_manifest_scaffolds_academic_file_shape_hints(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    filenames = [
+        "Lecture_02_solutions_handout_1x1.pdf",
+        "Lecture_03_handout_4x4.pdf",
+        "Machine Learning cheatsheet.pdf",
+        "FotoToPDF.pdf",
+        "Informationsblatt.pdf",
+    ]
+    for filename in filenames:
+        (armory / "materials" / filename).write_text("pdf", encoding="utf-8")
+
+    manifest = create_benchmark_manifest.create_manifest(armory)
+
+    by_source = {document["source"]: document for document in manifest["documents"]}
+    solution = by_source["materials/Lecture_02_solutions_handout_1x1.pdf"]
+    handout = by_source["materials/Lecture_03_handout_4x4.pdf"]
+    cheatsheet = by_source["materials/Machine Learning cheatsheet.pdf"]
+    scan = by_source["materials/FotoToPDF.pdf"]
+    info = by_source["materials/Informationsblatt.pdf"]
+    assert solution["document_type"] == "solutions"
+    assert "worked-solution" in solution["stressors"]
+    assert handout["document_type"] == "multi-slide-handout"
+    assert "multi-column" in handout["stressors"]
+    assert cheatsheet["document_type"] == "cheatsheet"
+    assert "table-heavy" in cheatsheet["stressors"]
+    assert scan["document_type"] == "scanned-pdf"
+    assert "ocr-noise" in scan["stressors"]
+    assert info["document_type"] == "syllabus"
+    assert "syllabus" in info["stressors"]
+
+
 def test_create_manifest_rejects_empty_armory(tmp_path: Path) -> None:
     armory = _make_armory(tmp_path)
 

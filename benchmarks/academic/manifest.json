@@ -108,10 +108,12 @@
     {"path": "priority.jsonl", "kind": "priority"},
     {"path": "answers.jsonl", "kind": "grounded-answers"},
     {"path": "chat_events.jsonl", "kind": "chat-events"},
+    {"path": "chat_events_runtime.jsonl", "kind": "chat-events-runtime"},
     {"path": "chat_event_expectation.json", "kind": "chat-event-answer-expectation"},
     {"path": "replay.jsonl", "kind": "model-replay-prompts"},
     {"path": "study_state.jsonl", "kind": "study-state"},
-    {"path": "index_integrity.jsonl", "kind": "index-integrity"}
+    {"path": "index_integrity.jsonl", "kind": "index-integrity"},
+    {"path": "academic_items.jsonl", "kind": "academic-items"}
   ],
   "known_limits": [
     "Synthetic snippets, not a large public corpus.",

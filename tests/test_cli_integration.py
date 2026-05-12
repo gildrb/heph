@@ -15,7 +15,12 @@ from hephaistos.armory.search import add_known_armory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat import cli as chat_cli
 from hephaistos.chat.engine import ChatConfig
-from hephaistos.chat.events import AssistantDeltaEvent, NoticeEvent, TurnCompleteEvent
+from hephaistos.chat.events import (
+    AssistantDeltaEvent,
+    MaterialOperationEvent,
+    NoticeEvent,
+    TurnCompleteEvent,
+)
 from hephaistos.chat.session import create_session
 from hephaistos.cli.main import _inject_default_subcommand, build_parser, run_argv
 from hephaistos.cli.main import main as cli_main
@@ -447,6 +452,15 @@ def test_chat_ask_jsonl_emits_structured_turn_events(
     def fake_events(_session: object, prompt: str):  # type: ignore[no-untyped-def]
         assert prompt == "what is the material about"
         yield NoticeEvent("Reading enabled indexed materials.", code="reading")
+        yield MaterialOperationEvent(
+            "sample_overview",
+            "Sampling corpus overview: 2 excerpts from 2 of 2 indexed sources.",
+            metadata={
+                "evidence_blocks": 2,
+                "sampled_sources": 2,
+                "total_sources": 2,
+            },
+        )
         yield NoticeEvent(
             "Using 2 overview evidence excerpts.",
             code="evidence",
@@ -503,16 +517,23 @@ def test_chat_ask_jsonl_emits_structured_turn_events(
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert [event["type"] for event in events] == [
         "notice",
+        "material_operation",
         "notice",
         "notice",
         "assistant_delta",
         "turn_complete",
     ]
-    assert [event["code"] for event in events[:3]] == ["reading", "evidence", "writing"]
-    assert events[1]["metadata"]["coverage"]["evidence_blocks"] == 2
-    assert events[1]["metadata"]["items"][0]["evidence_id"] == "E1"
-    assert events[3]["delta"].startswith("Retrieved overview sample")
-    assert events[4]["full_text"].startswith("Retrieved overview sample")
+    assert events[1]["operation"] == "sample_overview"
+    assert events[1]["metadata"]["evidence_blocks"] == 2
+    assert [events[index]["code"] for index in (0, 2, 3)] == [
+        "reading",
+        "evidence",
+        "writing",
+    ]
+    assert events[2]["metadata"]["coverage"]["evidence_blocks"] == 2
+    assert events[2]["metadata"]["items"][0]["evidence_id"] == "E1"
+    assert events[4]["delta"].startswith("Retrieved overview sample")
+    assert events[5]["full_text"].startswith("Retrieved overview sample")
 
 
 def test_tui_command_reports_missing_dependency(

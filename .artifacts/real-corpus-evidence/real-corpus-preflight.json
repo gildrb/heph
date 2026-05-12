@@ -1,0 +1,3182 @@
+{
+  "status": 0,
+  "armory_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/armory",
+  "manifest_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/real-corpus-manifest.json",
+  "failures": [],
+  "manifest": {
+    "manifest": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/real-corpus-manifest.json",
+    "suite": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence",
+    "corpus_kind": "permissioned-materials",
+    "documents": 382,
+    "datasets": 8,
+    "domains": [
+      "AI Math",
+      "Algorithmen, KI und Data Science 1",
+      "Algorithmen, KI und Data Science 2",
+      "Automata theory",
+      "Calculus and Analysis",
+      "Complexity theory",
+      "Computer Architecture",
+      "DSML_Resources",
+      "Data Structures",
+      "Data cleaning",
+      "Data visualization",
+      "Datenbanken",
+      "Deep learning",
+      "Geometry and Manifolds",
+      "Git",
+      "Grundlagen der Programmierung",
+      "Information Theory",
+      "Introduction to AI",
+      "Learning Theory",
+      "Linear Algebra",
+      "Machine learning",
+      "Mathematical logic",
+      "Mathematics",
+      "Mathematik 1 Hilfestellungen",
+      "Mathematik für Künstliche Intelligenz und Data Science 1",
+      "Metrics to evaluate machine learning algorithms",
+      "Numerical Methods",
+      "Optimization",
+      "Probability and Statistics",
+      "Python",
+      "Reinforcement learning",
+      "SQL",
+      "Stochastic Processes",
+      "Time series",
+      "University"
+    ],
+    "roles": [
+      "assignment",
+      "lecture",
+      "past_exam",
+      "reference",
+      "slides",
+      "vocabulary"
+    ],
+    "document_types": [
+      "cheatsheet",
+      "exercise-sheet",
+      "lecture-slides",
+      "multi-slide-handout",
+      "notes",
+      "past-exam",
+      "pdf",
+      "scanned-pdf",
+      "solutions",
+      "syllabus"
+    ],
+    "stressors": [
+      "assignment",
+      "dense-reference",
+      "exam-format",
+      "exercise-sheet",
+      "formula-language",
+      "lecture",
+      "lecture-material",
+      "multi-column",
+      "multilingual",
+      "ocr-noise",
+      "past_exam",
+      "real-pdf",
+      "reference",
+      "scanned-pdf",
+      "slides",
+      "syllabus",
+      "table-heavy",
+      "unicode",
+      "vocabulary",
+      "worked-solution"
+    ],
+    "known_limits": []
+  },
+  "document_understanding": {
+    "armory_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/armory",
+    "visible_materials": 382,
+    "indexed_documents": 382,
+    "chunks": 21408,
+    "role_counts": {
+      "assignment": 17,
+      "lecture": 76,
+      "past_exam": 62,
+      "reference": 199,
+      "slides": 27,
+      "vocabulary": 1
+    },
+    "indexed_role_counts": {
+      "assignment": 17,
+      "lecture": 76,
+      "past_exam": 62,
+      "reference": 199,
+      "slides": 27,
+      "vocabulary": 1
+    },
+    "unindexed_materials": [],
+    "unindexable_files": {},
+    "extraction_health_passed": true,
+    "extraction_health_pass_rate": 1.0,
+    "extraction_health_failures": [],
+    "overview_sampled_sources": 32,
+    "overview_total_sources": 382,
+    "overview_source_coverage_rate": 0.08376963350785341,
+    "failures": [],
+    "results": [
+      {
+        "source": "materials/AI Math-AI Math Canon.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 150,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-Calculus and Analysis for AI.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 93,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-Geometry and Manifolds for AI.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 73,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-Information Theory for AI.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 108,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-Learning Theory for AI.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 26,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-Linear Algebra for AI.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 136,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-Numerical Methods for AI.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 73,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-Optimization for AI.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 100,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-Probability and Statistics for AI.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 67,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-Stochastic Processes for AI.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 182,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-ai-math.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 150,
+        "indexed": true
+      },
+      {
+        "source": "materials/AI Math-wiki-import-report.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 2,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-AKIDS1_Probeklausur.pdf",
+        "role": "past_exam",
+        "confidence": 0.9,
+        "reason": "path suggests an exam or past paper",
+        "chunks": 30,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L10_Graphs.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 54,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L11_GraphAlgos.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L12_DP.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L13_DP_Problems.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 60,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L14_StateSpaceSearch.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 42,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L15_HeuristicSearch.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 43,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L16_AdversarialSearch.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 20,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L17_MetaheuristicSearch.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 48,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L18_ConstrainedSearch_Backtracking.pdf",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 47,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L19_ExpertSystems.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 42,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L1_Introduction.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 55,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L20_Optimization.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 45,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L21_Intro2ML.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 56,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L22_ML-Parametric.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 36,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L23_ML-NonParametric.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 34,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L2_Algorithms.pdf",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 69,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L3_DataStructures.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 56,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L4_Complexity.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 52,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L5_Sorting.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 43,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L6_Heap.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 57,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L7_Hash.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 40,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L8_BinaryTree.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 62,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 1-L9_BalancedTrees.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 51,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_01_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 110,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_01_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 83,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_02_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 34,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_02_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 26,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_02_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 40,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_02_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 25,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_03_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 36,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_03_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 26,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_03_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_03_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 24,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_04_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 37,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_04_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 31,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_04_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 41,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_04_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 31,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_05_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 57,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_05_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 45,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_05_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 61,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_05_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 40,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_06_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 25,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_06_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 25,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_06_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 35,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_06_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 24,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_07_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 44,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_07_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 33,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_07_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 50,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_07_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 32,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_08_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 65,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_08_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 47,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_08_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 68,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_08_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 45,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_09_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 49,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_09_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 53,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_09_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 52,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_09_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 51,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_10_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 61,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_10_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 61,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_10_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 64,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_10_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 61,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_11_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 54,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_11_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 47,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_11_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 58,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_11_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 45,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_12_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 112,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_12_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 89,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_12_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 117,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_12_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 86,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_13_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 81,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_13_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 62,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_13_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 81,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_13_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 61,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_14_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 51,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_14_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 37,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_14_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 50,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_14_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 36,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_15_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 59,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_15_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 43,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_15_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 61,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_15_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 42,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_16_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 49,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_16_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 28,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_16_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 54,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_16_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 28,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_17_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 59,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_17_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 55,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_17_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 66,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_17_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 53,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_18_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 71,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_18_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 55,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_19_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 79,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_19_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 49,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_20_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 64,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_20_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 54,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_20_solutions_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 80,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_20_solutions_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 67,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_21_handout_1x1.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 43,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-Lecture_21_handout_4x4.pdf",
+        "role": "lecture",
+        "confidence": 0.8,
+        "reason": "path suggests lecture material",
+        "chunks": 37,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex01.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 6,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex02.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 6,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex03.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 8,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex04.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 5,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex05.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 4,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex06.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 8,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex07.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 17,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex08.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 7,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex09.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 4,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex10.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Algorithmen, KI und Data Science 2-ex10_solution.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 12,
+        "indexed": true
+      },
+      {
+        "source": "materials/Automata theory-1- Languages and Automata cheathseet.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 10,
+        "indexed": true
+      },
+      {
+        "source": "materials/Automata theory-2- Automata cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 6,
+        "indexed": true
+      },
+      {
+        "source": "materials/Automata theory-3- Context-Free Grammar cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 9,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Chain Rule.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 88,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Convex Sets and Convex Functions.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 64,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Derivatives.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 9,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Gradient and Directional Derivatives.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 78,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Hessian Matrix.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 49,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Implicit Function Theorem.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 54,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Integral and Change of Variables.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 41,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Jacobian Matrix.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 62,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Limits and Continuity.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 58,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Lipschitz Continuity and Smoothness.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 36,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Multivariable Calculus.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 58,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Norms and Metrics.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 89,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Partial Derivatives.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 65,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Real Analysis Basics.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 19,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Sequences and Series.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 105,
+        "indexed": true
+      },
+      {
+        "source": "materials/Calculus and Analysis-Taylor Series.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 90,
+        "indexed": true
+      },
+      {
+        "source": "materials/Complexity theory-Complexity Theory Cheat Sheet.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Complexity theory-Computability Theory Cheat Sheet.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Computer Architecture-Computer organisation cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 5,
+        "indexed": true
+      },
+      {
+        "source": "materials/DSML_Resources-resources.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data Structures-Resources.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data cleaning-Data-cleaning-checklist.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 24,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data cleaning-Data-cleaning-guide.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data cleaning-Data-preparation-cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 12,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data cleaning-Feature engineering.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 20,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data cleaning-Hypothesis-testing-cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 12,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data visualization-1- Core principles of Data Visualization.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 16,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data visualization-2- Visual Vocabulary.pdf",
+        "role": "vocabulary",
+        "confidence": 0.85,
+        "reason": "path suggests vocabulary practice",
+        "chunks": 12,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data visualization-3- Data visualization cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 15,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data visualization-4- The chart chooser.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 19,
+        "indexed": true
+      },
+      {
+        "source": "materials/Data visualization-5- From Data to Visualization.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Datenbanken-DB_and_AI.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 48,
+        "indexed": true
+      },
+      {
+        "source": "materials/Datenbanken-Datenbanken.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 1189,
+        "indexed": true
+      },
+      {
+        "source": "materials/Deep learning-1- super-cheatsheet-deep-learning.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 92,
+        "indexed": true
+      },
+      {
+        "source": "materials/Deep learning-2- Large Language Models cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 27,
+        "indexed": true
+      },
+      {
+        "source": "materials/Deep learning-3- main types of neural networks.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Differential Geometry Basics.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 73,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Geodesics.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 83,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Geometric Intuition in ML.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Kernel PCA.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 23,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Laplacian Matrix.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 93,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Manifold Optimization.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 100,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Manifold.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 161,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Principal Component Analysis.md",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 191,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Riemannian Geometry.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 34,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Spectral Graph Theory.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 36,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-Tangent Space.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 47,
+        "indexed": true
+      },
+      {
+        "source": "materials/Geometry and Manifolds-t-SNE and UMAP Geometry.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 25,
+        "indexed": true
+      },
+      {
+        "source": "materials/Git-Git-cheat-sheet 2.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Git-Git-cheat-sheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 20,
+        "indexed": true
+      },
+      {
+        "source": "materials/Grundlagen der Programmierung-Untitled.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Coding Theory Basics.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 60,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Cross-Entropy.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 43,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Entropy.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 163,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Fisher Information.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 102,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Information Bottleneck.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 43,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Jensen-Shannon Divergence.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 23,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Kullback-Leibler Divergence.md",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 163,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Maximum Entropy Principle.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 67,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Mutual Information.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 97,
+        "indexed": true
+      },
+      {
+        "source": "materials/Information Theory-Rate Distortion Theory.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Introduction to AI-cheatsheet-states-models.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 57,
+        "indexed": true
+      },
+      {
+        "source": "materials/Introduction to AI-cheatsheet-variables-models.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 35,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Bias-Variance Decomposition.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 57,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Calibration of Probabilities.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 17,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Empirical Risk Minimization.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 29,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Generalization Error.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 23,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Minimum Description Length.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 41,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-No Free Lunch Theorem.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 27,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Out-of-Distribution Generalization.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 22,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Probably Approximately Correct Learning.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 17,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Rademacher Complexity.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 46,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Statistical Learning Theory.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 26,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-Structural Risk Minimization.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 9,
+        "indexed": true
+      },
+      {
+        "source": "materials/Learning Theory-VC Dimension.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Basis and Dimension.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 26,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Determinant.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 198,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Eigendecomposition.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 93,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Eigenvalues and Eigenvectors.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 194,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Inverse Matrix.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 112,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Kronecker Product.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 75,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Linear Independence.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 60,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Linear Transformation.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 85,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Matrix Calculus.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 190,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Matrix Multiplication.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 98,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Matrix Operations.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 206,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Moore-Penrose Pseudoinverse.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 102,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Orthogonality and Projections.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 84,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Positive-Definite Matrix.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 109,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Quadratic Forms.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 74,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Rank and Nullity.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 43,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Singular Value Decomposition.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 177,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Spectral Theorem.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 63,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Trace and Frobenius Norm.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 74,
+        "indexed": true
+      },
+      {
+        "source": "materials/Linear Algebra-Vector Space.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 146,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-0- Machine learning process.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-3- How to choose a ML algorithm 2.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 5,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-3- Time complexity of ML algorithms.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-4- Comparison of ML algorithms 1.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 20,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-4- Comparison of ML algorithms 2.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 30,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-4- Comparison of ML algorithms 3.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 10,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-5- super-cheatsheet-machine-learning.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 114,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-6- Machine learning cheatsheets.pdf",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 101,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-7- Machine learning explainability.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Machine learning-8- Machine learning operations MLOps.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 2,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematical logic-cheatsheet-logic-models.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 17,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematics-1- Calculus cheat sheet all reduced.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 56,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematics-2- Calculus cheat sheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 12,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematics-3- Linear Algebra in 4 pages.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 12,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematics-4- Probability cheat sheet.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 45,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematics-4- Probability distribution cheat sheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 66,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematics-5- Statistics cheat sheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 5,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematics-6- Super-cheatsheet-mathematics.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 32,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematics-7- Summary statistics.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik 1 Hilfestellungen-AlgebraStrukt_VektorR.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 37,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik 1 Hilfestellungen-Darstellungsmatrix_Basiswechsel.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 30,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik 1 Hilfestellungen-Determinante und Regel von Sarrus.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 17,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik 1 Hilfestellungen-Eigenwertproblem.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik 1 Hilfestellungen-EuklidAlgo.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 16,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik 1 Hilfestellungen-Kombinatorik.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik 1 Hilfestellungen-LinAbb_Dimf.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 32,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik 1 Hilfestellungen-Linearfaktoren.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 28,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_10_14.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 23,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_10_16.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 24,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_10_21.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 32,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_10_23.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 27,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_10_28.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 28,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_10_30.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 23,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_11_04.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 23,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_11_06.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 13,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_11_11.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 22,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_11_13.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 20,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_11_18.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 22,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_11_25.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 23,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_11_27.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 21,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_12_09.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 26,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_12_11.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_12_16.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 32,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2024_12_18.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 25,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2025_01_08.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 22,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2025_01_13.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 38,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2025_01_15.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 26,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2025_01_20.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 38,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2025_01_22.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 32,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2025_01_27.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 29,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2025_01_29.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2025_02_03.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 37,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Folien_2025_10_13.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 23,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-FotoToPDF.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 2,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Informationsblatt.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-LatexAnleitung.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 13,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-Übungsblatt 1.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-alle_Folien_2023_24.pdf",
+        "role": "slides",
+        "confidence": 0.9,
+        "reason": "path suggests lecture slides",
+        "chunks": 721,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-extra1.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 31,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-extra2.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 24,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-hausaufgaben_template.tex",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 8,
+        "indexed": true
+      },
+      {
+        "source": "materials/Mathematik für Künstliche Intelligenz und Data Science 1-pdf_Upload.pdf",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 6,
+        "indexed": true
+      },
+      {
+        "source": "materials/Metrics to evaluate machine learning algorithms-Metrics-machine-learning.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 7,
+        "indexed": true
+      },
+      {
+        "source": "materials/Metrics to evaluate machine learning algorithms-Performance-measure-machine-learning.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 6,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Automatic Differentiation.md",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 84,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Cholesky Decomposition.md",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 115,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Condition Number.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 41,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Conjugate Gradient Method.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 119,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Convergence Criteria.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 40,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Error Propagation.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 55,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Finite Differences.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 96,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Floating-Point Arithmetic.md",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 171,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Iterative Linear Solvers.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 33,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-LU Decomposition.md",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 119,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Numerical Stability.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 29,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Power Iteration.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 29,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-QR Decomposition.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 73,
+        "indexed": true
+      },
+      {
+        "source": "materials/Numerical Methods-Randomized Numerical Linear Algebra.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Adaptive Optimization Methods.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 86,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Constrained Optimization.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Convex Optimization.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 57,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Coordinate Descent.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 20,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Duality in Optimization.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 47,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Gradient Descent.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 72,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-KKT Conditions.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 52,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Lagrange Multipliers.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 110,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Learning Rate Schedules.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 20,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Line Search.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 22,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Momentum and Nesterov Acceleration.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 86,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Newton Method.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 152,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Optimization Objective Design.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 47,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Proximal Gradient Methods.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 15,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Quasi Newton Methods.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 38,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Regularization.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Saddle Points and Curvature.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 29,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Second-Order Approximation.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 90,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Stochastic Gradient Descent.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 86,
+        "indexed": true
+      },
+      {
+        "source": "materials/Optimization-Unconstrained Optimization.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 38,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Bayes Theorem.md",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 93,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Bias Variance Tradeoff.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 57,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Bootstrap Method.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 126,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Central Limit Theorem.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 131,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Characteristic Function.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Concentration Inequalities.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 42,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Conditional Independence.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 53,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Confidence Intervals.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 58,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Cumulative Distribution Function.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 69,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Expectation.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 7,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Exponential Family.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 191,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Gaussian Distribution.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 266,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Hypothesis Testing.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 109,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Joint Marginal and Conditional Distributions.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 52,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Law of Large Numbers.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 90,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Law of Total Probability.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 19,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Markov Inequality and Chebyshev.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 99,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Maximum A Posteriori Estimation.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 27,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Maximum Likelihood Estimation.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 136,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Measure and Probability Measure.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 18,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Moment Generating Function.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 54,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Multivariate Normal Distribution.md",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 141,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Probability Axioms.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 26,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Probability Density Function.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 80,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Probability Distributions.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 119,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Random Variables.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 96,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Sigma Algebra.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 103,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Sufficient Statistics.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 84,
+        "indexed": true
+      },
+      {
+        "source": "materials/Probability and Statistics-Variance and Covariance.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 91,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-1- Python for Beginners.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 6,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-2- Python Reference Cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 6,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-3- Python cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 4,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-4- Python for Data Science cheatsheet.pdf",
+        "role": "assignment",
+        "confidence": 0.8,
+        "reason": "content suggests exercises or assigned problems",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-5- Numpy cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 4,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-6- Pandas cheatsheet 1.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-6- Pandas cheatsheet 2.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 13,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-7- Matplotlib cheatsheet 1.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 11,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-7- Matplotlib cheatsheet 2.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 39,
+        "indexed": true
+      },
+      {
+        "source": "materials/Python-8- Scikit-Learn cheatsheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/Reinforcement learning-Reinforcement learning cheatsheet 1.pdf",
+        "role": "past_exam",
+        "confidence": 0.82,
+        "reason": "content contains exam questions or marks",
+        "chunks": 2,
+        "indexed": true
+      },
+      {
+        "source": "materials/Reinforcement learning-Reinforcement learning cheatsheet 2.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 2,
+        "indexed": true
+      },
+      {
+        "source": "materials/SQL-0- SQL-quick-guide.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 28,
+        "indexed": true
+      },
+      {
+        "source": "materials/SQL-1- SQL operations.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 8,
+        "indexed": true
+      },
+      {
+        "source": "materials/SQL-1- SQL query execution order.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      },
+      {
+        "source": "materials/SQL-2- SQL commands.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 9,
+        "indexed": true
+      },
+      {
+        "source": "materials/SQL-3- SQL-basics-cheat-sheet-a4.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/SQL-4- SQL joins-cheat-sheet-a4.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 5,
+        "indexed": true
+      },
+      {
+        "source": "materials/SQL-5- Study-guide-data-retrieval-with-SQL.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 26,
+        "indexed": true
+      },
+      {
+        "source": "materials/SQL-6- SQL Roadmap.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 12,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Brownian Motion.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 91,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Gibbs Sampling.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 72,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Hidden Markov Model.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 79,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Markov Chain Monte Carlo.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 99,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Markov Chain.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 159,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Martingale.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 3,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Metropolis Hastings Algorithm.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 48,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Monte Carlo Method.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 114,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Poisson Process.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 192,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Stationary Distribution.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 5,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Stochastic Differential Equations.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 62,
+        "indexed": true
+      },
+      {
+        "source": "materials/Stochastic Processes-Stochastic Process Fundamentals.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 182,
+        "indexed": true
+      },
+      {
+        "source": "materials/Time series-Time-series-cheat-sheet.pdf",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 32,
+        "indexed": true
+      },
+      {
+        "source": "materials/University-university.md",
+        "role": "reference",
+        "confidence": 0.5,
+        "reason": "default material role",
+        "chunks": 1,
+        "indexed": true
+      }
+    ]
+  }
+}

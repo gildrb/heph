@@ -62,6 +62,82 @@ def test_compare_reports_fails_on_overview_source_coverage_regression(
     assert report.regressions == ("document_understanding.overview_source_coverage_rate",)
 
 
+def test_compare_reports_fails_on_chat_event_metadata_regression(
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    _write_json(
+        baseline,
+        {"chat_runtime_events": {"tool_runtime_metadata_rate": 1.0}},
+    )
+    _write_json(
+        current,
+        {"chat_runtime_events": {"tool_runtime_metadata_rate": 0.0}},
+    )
+
+    report = compare_benchmark_reports.compare_reports(baseline, current)
+
+    assert report.regressions == ("chat_runtime_events.tool_runtime_metadata_rate",)
+
+
+def test_compare_reports_fails_on_acceptance_criteria_metadata_regression(
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    _write_json(
+        baseline,
+        {"chat_runtime_events": {"acceptance_criteria_metadata_rate": 1.0}},
+    )
+    _write_json(
+        current,
+        {"chat_runtime_events": {"acceptance_criteria_metadata_rate": 0.0}},
+    )
+
+    report = compare_benchmark_reports.compare_reports(baseline, current)
+
+    assert report.regressions == ("chat_runtime_events.acceptance_criteria_metadata_rate",)
+
+
+def test_compare_reports_fails_on_academic_question_type_regression(
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    _write_json(
+        baseline,
+        {"academic_items": {"question_type_count": 3}},
+    )
+    _write_json(
+        current,
+        {"academic_items": {"question_type_count": 1}},
+    )
+
+    report = compare_benchmark_reports.compare_reports(baseline, current)
+
+    assert report.regressions == ("academic_items.question_type_count",)
+
+
+def test_compare_reports_fails_on_study_mastery_metadata_regression(
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    _write_json(
+        baseline,
+        {"study_state": {"mastery_metadata_rate": 1.0}},
+    )
+    _write_json(
+        current,
+        {"study_state": {"mastery_metadata_rate": 0.0}},
+    )
+
+    report = compare_benchmark_reports.compare_reports(baseline, current)
+
+    assert report.regressions == ("study_state.mastery_metadata_rate",)
+
+
 def test_compare_reports_fails_on_regression(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
     baseline = tmp_path / "baseline.json"
     current = tmp_path / "current.json"

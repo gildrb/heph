@@ -19,7 +19,7 @@ def test_default_manifest_passes() -> None:
     assert "near-miss-negative" in report.stressors
     assert "misleading-overlap" in report.stressors
     assert report.documents == 14
-    assert report.datasets == 9
+    assert report.datasets == 11
 
 
 def test_manifest_rejects_missing_document(tmp_path: Path) -> None:

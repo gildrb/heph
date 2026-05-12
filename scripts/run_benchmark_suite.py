@@ -18,12 +18,14 @@ from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
 from scripts import (
+    benchmark_academic_items,
     benchmark_answers,
     benchmark_chat_events,
     benchmark_document_understanding,
     benchmark_index_integrity,
     benchmark_material_roles,
     benchmark_priority,
+    benchmark_prompt_cache,
     benchmark_rag,
     benchmark_study_state,
     compare_benchmark_reports,
@@ -75,6 +77,7 @@ DEFAULT_STUDY_STATE_TRANSITION_PASS_RATE = 1.0
 DEFAULT_STUDY_STATE_SCHEDULING_PASS_RATE = 1.0
 DEFAULT_MIN_STUDY_STATE_DOMAINS = 2
 DEFAULT_MIN_STUDY_STATE_SCHEDULE_CASES = 1
+DEFAULT_MIN_ACADEMIC_QUESTION_TYPES = 6
 DEFAULT_DOCUMENT_UNDERSTANDING_MIN_DOCUMENTS = 10
 DEFAULT_DOCUMENT_UNDERSTANDING_REQUIRED_ROLES = ("assignment", "lecture", "past_exam")
 DEFAULT_DOCUMENT_UNDERSTANDING_OVERVIEW_COVERAGE = 1.0
@@ -95,10 +98,13 @@ class BenchmarkSuiteSummary(TypedDict):
     document_understanding: dict[str, object]
     index_integrity: dict[str, object]
     priority: dict[str, object]
+    prompt_cache: dict[str, object]
     replay: dict[str, object]
     chat_events: dict[str, object]
+    chat_runtime_events: dict[str, object]
     answers: dict[str, object]
     study_state: dict[str, object]
+    academic_items: dict[str, object]
     manifest: dict[str, object]
     report_path: NotRequired[str]
 
@@ -385,8 +391,10 @@ def run_suite(
     priority_dataset = suite_path / "priority.jsonl"
     replay_dataset = suite_path / "replay.jsonl"
     chat_events_dataset = suite_path / "chat_events.jsonl"
+    chat_runtime_events_dataset = suite_path / "chat_events_runtime.jsonl"
     chat_event_expectation = suite_path / "chat_event_expectation.json"
     study_state_dataset = suite_path / "study_state.jsonl"
+    academic_items_dataset = suite_path / "academic_items.jsonl"
     manifest_path = suite_path / "manifest.json"
     if not rag_dataset.is_file():
         raise ValueError(f"benchmark suite is missing retrieval dataset: {rag_dataset}")
@@ -406,12 +414,20 @@ def run_suite(
         raise ValueError(f"benchmark suite is missing replay dataset: {replay_dataset}")
     if not chat_events_dataset.is_file():
         raise ValueError(f"benchmark suite is missing chat event dataset: {chat_events_dataset}")
+    if not chat_runtime_events_dataset.is_file():
+        raise ValueError(
+            f"benchmark suite is missing chat runtime event dataset: {chat_runtime_events_dataset}"
+        )
     if not chat_event_expectation.is_file():
         raise ValueError(
             f"benchmark suite is missing chat event expectation: {chat_event_expectation}"
         )
     if not study_state_dataset.is_file():
         raise ValueError(f"benchmark suite is missing study-state dataset: {study_state_dataset}")
+    if not academic_items_dataset.is_file():
+        raise ValueError(
+            f"benchmark suite is missing academic-item dataset: {academic_items_dataset}"
+        )
     if not manifest_path.is_file():
         raise ValueError(f"benchmark suite is missing manifest: {manifest_path}")
 
@@ -461,6 +477,9 @@ def run_suite(
         _validate_priority_suite_integrity(priority_report)
         benchmark_priority.print_text_report(priority_report)
         print()
+        prompt_cache_report = benchmark_prompt_cache.run_benchmark()
+        benchmark_prompt_cache.print_text_report(prompt_cache_report)
+        print()
         replay_cases = replay_answer_benchmark.load_cases(replay_dataset)
         _validate_replay_suite_integrity(replay_cases)
         print(f"Replay dataset: {len(replay_cases)} case(s) valid")
@@ -478,12 +497,24 @@ def run_suite(
         )
         benchmark_chat_events.print_text_report(chat_events_report)
         print()
+        chat_runtime_events_report = benchmark_chat_events.run_chat_event_benchmark(
+            benchmark_chat_events.load_events(chat_runtime_events_dataset),
+            expectation=chat_event_expectation_case,
+        )
+        benchmark_chat_events.print_text_report(chat_runtime_events_report)
+        print()
         study_state_report = benchmark_study_state.run_benchmark(
             benchmark_study_state.load_cases(study_state_dataset),
             armory_path=armory,
         )
         _validate_study_state_suite_integrity(study_state_report)
         benchmark_study_state.print_text_report(study_state_report)
+        print()
+        academic_items_report = benchmark_academic_items.run_benchmark(
+            armory,
+            benchmark_academic_items.load_cases(academic_items_dataset),
+        )
+        benchmark_academic_items.print_text_report(academic_items_report)
         print()
 
     answer_cases = benchmark_answers.load_cases(answer_dataset)
@@ -519,10 +550,17 @@ def run_suite(
         or priority_report.topic_recall < priority_topic_recall
         or priority_report.forbidden_topic_avoidance < priority_forbidden_avoidance
         or priority_report.past_exam_source_recall < priority_past_exam_recall
+        or bool(prompt_cache_report.failures)
         or bool(chat_events_report.failures)
+        or bool(chat_runtime_events_report.failures)
+        or not chat_runtime_events_report.has_tool_runtime
         or study_state_report.pass_rate < study_state_pass_rate
         or study_state_report.transition_pass_rate < study_state_transition_pass_rate
         or study_state_report.scheduling_pass_rate < study_state_scheduling_pass_rate
+        or study_state_report.mastery_metadata_rate < 1.0
+        or academic_items_report.pass_rate < 1.0
+        or academic_items_report.grounded_question_rate < 1.0
+        or len(academic_items_report.question_types) < DEFAULT_MIN_ACADEMIC_QUESTION_TYPES
     )
     status = 1 if failed_threshold else 0
     if report_path is not None:
@@ -567,11 +605,14 @@ def run_suite(
                 document_understanding_report=document_understanding_report,
                 index_integrity_report=index_integrity_report,
                 priority_report=priority_report,
+                prompt_cache_report=prompt_cache_report,
                 replay_case_count=len(replay_cases),
                 replay_tasks=tuple(sorted({case.task for case in replay_cases if case.task})),
                 chat_events_report=chat_events_report,
+                chat_runtime_events_report=chat_runtime_events_report,
                 answer_report=answer_report,
                 study_state_report=study_state_report,
+                academic_items_report=academic_items_report,
                 manifest_report=manifest_report,
                 report_path=report_path,
             ),
@@ -631,11 +672,14 @@ def _summary(
     document_understanding_report: (benchmark_document_understanding.DocumentUnderstandingReport),
     index_integrity_report: benchmark_index_integrity.IndexIntegrityReport,
     priority_report: benchmark_priority.PriorityBenchmarkReport,
+    prompt_cache_report: benchmark_prompt_cache.PromptCacheBenchmarkReport,
     replay_case_count: int,
     replay_tasks: tuple[str, ...],
     chat_events_report: benchmark_chat_events.ChatEventBenchmarkReport,
+    chat_runtime_events_report: benchmark_chat_events.ChatEventBenchmarkReport,
     answer_report: benchmark_answers.AnswerBenchmarkReport,
     study_state_report: benchmark_study_state.StudyStateBenchmarkReport,
+    academic_items_report: benchmark_academic_items.AcademicItemBenchmarkReport,
     manifest_report: validate_benchmark_manifest.ManifestReport,
     report_path: Path | None = None,
 ) -> BenchmarkSuiteSummary:
@@ -678,13 +722,16 @@ def _summary(
         "document_understanding": cast("dict[str, object]", asdict(document_understanding_report)),
         "index_integrity": cast("dict[str, object]", asdict(index_integrity_report)),
         "priority": cast("dict[str, object]", asdict(priority_report)),
+        "prompt_cache": cast("dict[str, object]", asdict(prompt_cache_report)),
         "replay": {
             "cases": replay_case_count,
             "tasks": list(replay_tasks),
         },
         "chat_events": cast("dict[str, object]", asdict(chat_events_report)),
+        "chat_runtime_events": cast("dict[str, object]", asdict(chat_runtime_events_report)),
         "answers": cast("dict[str, object]", asdict(answer_report)),
         "study_state": cast("dict[str, object]", asdict(study_state_report)),
+        "academic_items": cast("dict[str, object]", asdict(academic_items_report)),
         "manifest": cast("dict[str, object]", asdict(manifest_report)),
     }
     if report_path is not None:

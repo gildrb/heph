@@ -214,6 +214,8 @@ def _write_model_matrix_report(path: Path) -> None:
                         "group": "local",
                         "model": "local-small",
                         "base_url": "",
+                        "provider_slug": "",
+                        "auth_source": "base_url",
                         "status": 0,
                         "output": str(local_output),
                         "report_path": str(local_report),
@@ -224,6 +226,8 @@ def _write_model_matrix_report(path: Path) -> None:
                         "group": "frontier",
                         "model": "frontier-hosted",
                         "base_url": "",
+                        "provider_slug": "openai-codex",
+                        "auth_source": "codex_oauth",
                         "status": 0,
                         "output": str(frontier_output),
                         "report_path": str(frontier_report),
@@ -401,6 +405,9 @@ def test_completion_audit_is_incomplete_without_external_proof() -> None:
     )
     assert any("--min-roles 3" in command for command in report.next_steps)
     assert any("build_permissioned_corpus_armory" in command for command in report.next_steps)
+    assert any("--domain-from-parent" in command for command in report.next_steps)
+    assert any("--balance-domains" in command for command in report.next_steps)
+    assert any("--infer-roles-from-index" in command for command in report.next_steps)
     assert any("benchmark_chat_events" in command for command in report.next_steps)
 
 
@@ -409,6 +416,9 @@ def test_completion_audit_runs_default_deterministic_suite() -> None:
 
     assert item.status == "covered"
     assert str(run_benchmark_suite.DEFAULT_SUITE) in item.evidence
+    assert "academic_items_pass_rate=1.000" in item.evidence
+    assert "academic_question_type_count=6" in item.evidence
+    assert "academic_grounded_question_rate=1.000" in item.evidence
 
 
 def test_completion_audit_rejects_failing_deterministic_suite(
@@ -428,6 +438,11 @@ def test_completion_audit_verifies_default_chat_event_suite() -> None:
     assert item.status == "covered"
     assert "consistent=True" in item.evidence
     assert "metadata=True" in item.evidence
+    assert "tool_runtime_metadata_rate=1.000" in item.evidence
+    assert "runtime_fixture_tool_runtime=True" in item.evidence
+    assert "runtime_fixture_metadata_rate=1.000" in item.evidence
+    assert "runtime_fixture_repeated_call=True" in item.evidence
+    assert "runtime_fixture_acceptance_criteria_metadata_rate=1.000" in item.evidence
     assert "answer_pass_rate=1.000" in item.evidence
 
 
@@ -474,7 +489,9 @@ def test_completion_audit_rejects_manifest_without_chat_event_dataset(
         (run_benchmark_suite.DEFAULT_SUITE / "manifest.json").read_text(encoding="utf-8")
     )
     manifest["datasets"] = [
-        dataset for dataset in manifest["datasets"] if dataset["kind"] != "chat-events"
+        dataset
+        for dataset in manifest["datasets"]
+        if dataset["kind"] not in {"chat-events", "chat-events-runtime"}
     ]
     (suite / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     monkeypatch.setattr(audit_agent_harness_completion, "REPO_ROOT", tmp_path)
@@ -515,6 +532,47 @@ def test_completion_audit_rejects_fixture_terms_in_harness_scripts(
     assert "Jesse".casefold() in item.evidence.casefold()
 
 
+def test_completion_audit_verifies_model_matrix_example_responsibilities() -> None:
+    item = audit_agent_harness_completion._model_matrix_example_item()
+
+    assert item.status == "covered"
+    assert "local_responsibilities=" in item.evidence
+    assert "frontier_responsibilities=" in item.evidence
+
+
+def test_completion_audit_rejects_model_matrix_example_without_responsibilities(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    benchmark_dir = tmp_path / "benchmarks"
+    benchmark_dir.mkdir()
+    (benchmark_dir / "model-matrix.example.json").write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "id": "local-small",
+                        "group": "local",
+                        "model": "local-small",
+                    },
+                    {
+                        "id": "frontier-hosted",
+                        "group": "frontier",
+                        "model": "frontier-hosted",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(audit_agent_harness_completion, "REPO_ROOT", tmp_path)
+
+    item = audit_agent_harness_completion._model_matrix_example_item()
+
+    assert item.status == "missing"
+    assert "missing responsibilities" in item.evidence
+
+
 def test_completion_audit_allows_fixture_terms_inside_audit_policy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -549,6 +607,13 @@ def test_completion_audit_can_pass_with_real_manifest_and_model_report(tmp_path:
 
     assert report.status == "complete"
     assert report.missing == ()
+    real_chat_item = next(
+        item
+        for item in report.items
+        if item.requirement == "Real corpus public chat JSONL harness events pass"
+    )
+    assert "tool_runtime_metadata_rate=1.000" in real_chat_item.evidence
+    assert "acceptance_criteria_metadata_rate=1.000" in real_chat_item.evidence
 
 
 def test_completion_audit_rejects_inconsistent_real_chat_event_completion(
@@ -896,6 +961,39 @@ def test_completion_audit_rejects_preflight_with_low_overview_source_coverage(
     assert "overview source coverage" in item.evidence
 
 
+def test_completion_audit_accepts_preflight_overview_sample_cap_for_large_corpus(
+    tmp_path: Path,
+) -> None:
+    manifest = _write_real_manifest(tmp_path)
+    preflight_report = tmp_path / "preflight-report.json"
+    _write_real_preflight_report(preflight_report, manifest)
+    payload = json.loads(preflight_report.read_text(encoding="utf-8"))
+    payload["manifest"]["documents"] = 382
+    payload["document_understanding"]["indexed_documents"] = 382
+    payload["document_understanding"]["visible_materials"] = 382
+    payload["document_understanding"]["overview_sampled_sources"] = 32
+    payload["document_understanding"]["overview_total_sources"] = 382
+    payload["document_understanding"]["overview_source_coverage_rate"] = 32 / 382
+    payload["document_understanding"]["role_counts"] = {
+        "assignment": 17,
+        "past_exam": 62,
+        "slides": 27,
+        "reference": 276,
+    }
+    payload["document_understanding"]["indexed_role_counts"] = {
+        "assignment": 17,
+        "past_exam": 62,
+        "slides": 27,
+        "reference": 276,
+    }
+    preflight_report.write_text(json.dumps(payload), encoding="utf-8")
+
+    item = audit_agent_harness_completion._real_preflight_item(preflight_report, manifest)
+
+    assert item.status == "covered"
+    assert "overview_sampled=32/382" in item.evidence
+
+
 def test_completion_audit_rejects_preflight_with_mismatched_overview_total(
     tmp_path: Path,
 ) -> None:
@@ -1017,7 +1115,13 @@ def test_completion_audit_rejects_model_report_without_metrics(tmp_path: Path) -
                 "groups": ["frontier", "local"],
                 "results": [
                     {"candidate_id": "local-small", "group": "local", "status": 0},
-                    {"candidate_id": "frontier-hosted", "group": "frontier", "status": 0},
+                    {
+                        "candidate_id": "frontier-hosted",
+                        "group": "frontier",
+                        "provider_slug": "openai-codex",
+                        "auth_source": "codex_oauth",
+                        "status": 0,
+                    },
                 ],
             }
         ),
@@ -1066,6 +1170,8 @@ def test_completion_audit_rejects_model_report_without_candidate_report_path(
                         "group": "frontier",
                         "model": "frontier-hosted",
                         "base_url": "",
+                        "provider_slug": "openai-codex",
+                        "auth_source": "codex_oauth",
                         "status": 0,
                         **_PASSING_MODEL_METRICS,
                     },
@@ -1079,6 +1185,22 @@ def test_completion_audit_rejects_model_report_without_candidate_report_path(
 
     assert item.status == "missing"
     assert "report_path missing" in item.evidence
+
+
+def test_completion_audit_requires_codex_oauth_frontier_candidate(tmp_path: Path) -> None:
+    model_report = tmp_path / "model-report.json"
+    _write_model_matrix_report(model_report)
+    payload = json.loads(model_report.read_text(encoding="utf-8"))
+    for result in payload["results"]:
+        if result["group"] == "frontier":
+            result["provider_slug"] = ""
+            result["auth_source"] = "api_key"
+    model_report.write_text(json.dumps(payload), encoding="utf-8")
+
+    item = audit_agent_harness_completion._model_matrix_item(model_report)
+
+    assert item.status == "missing"
+    assert "Codex subscription-backed frontier" in item.evidence
 
 
 def test_completion_audit_rejects_model_report_without_output_dir(

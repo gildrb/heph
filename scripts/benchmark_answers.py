@@ -72,6 +72,7 @@ class RawAnswerCase(TypedDict):
     min_sampled_sources: NotRequired[int]
     min_bullet_count: NotRequired[int]
     min_cited_bullet_count: NotRequired[int]
+    required_sections: NotRequired[list[str]]
     evidence_coverage: NotRequired[dict[str, int]]
     supported_claims: NotRequired[list[RawSupportedClaim]]
 
@@ -103,6 +104,7 @@ class AnswerCase:
     min_sampled_sources: int = 0
     min_bullet_count: int = 0
     min_cited_bullet_count: int = 0
+    required_sections: tuple[str, ...] = ()
     evidence_coverage: dict[str, int] | None = None
     supported_claims: tuple[SupportedClaim, ...] = ()
 
@@ -306,6 +308,9 @@ def _as_raw_cases(payload: object) -> list[RawAnswerCase]:
         )
         if min_cited_bullet_count:
             raw_case["min_cited_bullet_count"] = min_cited_bullet_count
+        required_sections = _as_string_list(raw.get("required_sections"), "required_sections", idx)
+        if required_sections:
+            raw_case["required_sections"] = required_sections
         supported_claims = _parse_supported_claims(raw.get("supported_claims"), idx)
         if supported_claims:
             raw_case["supported_claims"] = supported_claims
@@ -425,6 +430,7 @@ def load_cases_from_payload(payload: object) -> list[AnswerCase]:
                 min_sampled_sources=raw.get("min_sampled_sources", 0),
                 min_bullet_count=raw.get("min_bullet_count", 0),
                 min_cited_bullet_count=raw.get("min_cited_bullet_count", 0),
+                required_sections=tuple(raw.get("required_sections", [])),
                 evidence_coverage=raw.get("evidence_coverage"),
                 supported_claims=_supported_claims_from_raw(raw.get("supported_claims", [])),
             )
@@ -548,6 +554,27 @@ def _cited_bullet_count(text: str) -> int:
     )
 
 
+def _has_required_section(answer: str, section: str) -> bool:
+    normalized_section = section.strip().rstrip(":").casefold()
+    if not normalized_section:
+        return True
+    for line in answer.splitlines():
+        normalized_line = line.strip().casefold()
+        for label in ("correct:", "partial:", "wrong:"):
+            if normalized_line.startswith(label):
+                normalized_line = normalized_line.removeprefix(label).lstrip()
+                break
+        if normalized_line.startswith(
+            (
+                f"{normalized_section}:",
+                f"{normalized_section} -",
+                f"{normalized_section}-",
+            )
+        ):
+            return True
+    return False
+
+
 def _distinct_verified_evidence_sources(
     turn_evidence: TurnEvidence | None,
     verified_citations: Sequence[str],
@@ -581,6 +608,13 @@ def _shape_failures(
     cited_bullet_count = _cited_bullet_count(case.answer)
     if case.min_cited_bullet_count and cited_bullet_count < case.min_cited_bullet_count:
         failures.append(f"cited bullets {cited_bullet_count} below {case.min_cited_bullet_count}")
+    missing_sections = [
+        section
+        for section in case.required_sections
+        if not _has_required_section(case.answer, section)
+    ]
+    if missing_sections:
+        failures.append("missing sections: " + ", ".join(missing_sections))
     return tuple(failures)
 
 

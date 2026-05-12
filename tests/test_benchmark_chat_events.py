@@ -58,6 +58,48 @@ def _write_overview_expectation(path: Path) -> None:
     )
 
 
+def _material_operation_rows() -> list[dict[str, object]]:
+    return [
+        {
+            "type": "material_operation",
+            "operation": "index_ready",
+            "message": "Material index ready: 2 enabled sources, 2 chunks.",
+            "metadata": {"indexed_sources": 2, "indexed_chunks": 2},
+        },
+        {
+            "type": "material_operation",
+            "operation": "sample_overview",
+            "message": "Sampling corpus overview: 2 excerpts from 2 of 2 indexed sources.",
+            "metadata": {
+                "query": "what is the material about",
+                "evidence_blocks": 2,
+                "sampled_sources": 2,
+                "total_sources": 2,
+            },
+        },
+        {
+            "type": "material_operation",
+            "operation": "read_excerpt",
+            "message": "Opened materials/lecture.md#chunk=0: Lecture notes.",
+            "metadata": {
+                "evidence_id": "E1",
+                "ref": "materials/lecture.md#chunk=0",
+                "text_excerpt": "Lecture notes. Definitions, theorems, and examples.",
+            },
+        },
+        {
+            "type": "material_operation",
+            "operation": "read_excerpt",
+            "message": "Opened materials/exam.md#chunk=0: Past exam.",
+            "metadata": {
+                "evidence_id": "E2",
+                "ref": "materials/exam.md#chunk=0",
+                "text_excerpt": "Past exam. Question 1 asks for a proof.",
+            },
+        },
+    ]
+
+
 def test_chat_event_benchmark_passes_structured_overview_stream(tmp_path: Path) -> None:
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
@@ -71,6 +113,7 @@ def test_chat_event_benchmark_passes_structured_overview_stream(tmp_path: Path) 
         events_path,
         [
             {"type": "notice", "code": "reading", "message": "Reading."},
+            *_material_operation_rows(),
             {
                 "type": "notice",
                 "code": "evidence",
@@ -109,8 +152,313 @@ def test_chat_event_benchmark_passes_structured_overview_stream(tmp_path: Path) 
     )
 
     assert report.has_consistent_completion
+    assert report.has_material_operation
+    assert report.has_material_operation_metadata
+    assert report.material_operation_count == 4
     assert report.has_evidence_metadata
+    assert report.has_tool_runtime_metadata
     assert report.failures == ()
+
+
+def test_chat_event_benchmark_validates_tool_runtime_notice_metadata(
+    tmp_path: Path,
+) -> None:
+    events_path = tmp_path / "events.jsonl"
+    expectation_path = tmp_path / "expectation.json"
+    answer = (
+        "These materials contain indexed study sources with grounded excerpts [E1] [E2].\n"
+        "- Document signals: @lecture.md looks like lecture notes [E1].\n"
+        "- Evidence roles: @exam.md looks like past exam material [E2].\n"
+        "- Best next use: ask about a topic or exam problem and I will use the index [E1]."
+    )
+    _write_jsonl(
+        events_path,
+        [
+            {"type": "notice", "code": "reading", "message": "Reading."},
+            *_material_operation_rows(),
+            {
+                "type": "notice",
+                "code": "acceptance_criteria",
+                "message": "Acceptance criteria: inspect sources with tools.",
+                "metadata": {"source": "agent_harness", "requires_tools": True},
+            },
+            {
+                "type": "notice",
+                "code": "tool_runtime",
+                "message": "Execution note: tool 'read_file' failed.",
+                "metadata": {
+                    "tool": "read_file",
+                    "reason": "failed",
+                    "latency_ms": 4.2,
+                    "result_length": 21,
+                    "error": "file not found",
+                },
+            },
+            {
+                "type": "notice",
+                "code": "tool_runtime",
+                "message": "Execution note: repeated call.",
+                "metadata": {
+                    "tool": "read_file",
+                    "reason": "repeated_call",
+                    "repeat_count": 2,
+                    "arguments": {"path": "missing.md"},
+                },
+            },
+            {
+                "type": "notice",
+                "code": "evidence",
+                "message": "Using evidence.",
+                "metadata": {
+                    "refs": ["materials/lecture.md#chunk=0", "materials/exam.md#chunk=0"],
+                    "coverage": {
+                        "evidence_blocks": 2,
+                        "sampled_sources": 2,
+                        "total_sources": 2,
+                    },
+                    "items": [
+                        {
+                            "evidence_id": "E1",
+                            "ref": "materials/lecture.md#chunk=0",
+                            "text_excerpt": "Lecture notes. Definitions, theorems, and examples.",
+                        },
+                        {
+                            "evidence_id": "E2",
+                            "ref": "materials/exam.md#chunk=0",
+                            "text_excerpt": "Past exam. Question 1 asks for a proof.",
+                        },
+                    ],
+                },
+            },
+            {"type": "notice", "code": "writing", "message": "Writing."},
+            {"type": "assistant_delta", "delta": answer},
+            {"type": "turn_complete", "full_text": answer, "turn_index": 1},
+        ],
+    )
+    _write_overview_expectation(expectation_path)
+
+    report = benchmark_chat_events.run_chat_event_benchmark(
+        benchmark_chat_events.load_events(events_path),
+        expectation=benchmark_chat_events.load_expectation(expectation_path),
+    )
+
+    assert report.has_tool_runtime
+    assert report.has_tool_runtime_metadata
+    assert report.has_acceptance_criteria
+    assert report.has_acceptance_criteria_metadata
+    assert report.failures == ()
+
+
+def test_chat_event_benchmark_fails_malformed_acceptance_criteria_notice(
+    tmp_path: Path,
+) -> None:
+    events_path = tmp_path / "events.jsonl"
+    expectation_path = tmp_path / "expectation.json"
+    answer = (
+        "These materials contain indexed study sources with grounded excerpts [E1] [E2].\n"
+        "- Document signals: @lecture.md looks like lecture notes [E1].\n"
+        "- Evidence roles: @exam.md looks like past exam material [E2].\n"
+        "- Best next use: ask about a topic or exam problem and I will use the index [E1]."
+    )
+    _write_jsonl(
+        events_path,
+        [
+            {"type": "notice", "code": "reading", "message": "Reading."},
+            {
+                "type": "notice",
+                "code": "acceptance_criteria",
+                "message": "Criteria hidden.",
+                "metadata": {"source": "other", "requires_tools": False},
+            },
+            {
+                "type": "notice",
+                "code": "evidence",
+                "message": "Using evidence.",
+                "metadata": {
+                    "refs": ["materials/lecture.md#chunk=0", "materials/exam.md#chunk=0"],
+                    "coverage": {
+                        "evidence_blocks": 2,
+                        "sampled_sources": 2,
+                        "total_sources": 2,
+                    },
+                    "items": [
+                        {
+                            "evidence_id": "E1",
+                            "ref": "materials/lecture.md#chunk=0",
+                            "text_excerpt": "Lecture notes. Definitions, theorems, and examples.",
+                        },
+                        {
+                            "evidence_id": "E2",
+                            "ref": "materials/exam.md#chunk=0",
+                            "text_excerpt": "Past exam. Question 1 asks for a proof.",
+                        },
+                    ],
+                },
+            },
+            {"type": "notice", "code": "writing", "message": "Writing."},
+            {"type": "assistant_delta", "delta": answer},
+            {"type": "turn_complete", "full_text": answer, "turn_index": 1},
+        ],
+    )
+    _write_overview_expectation(expectation_path)
+
+    report = benchmark_chat_events.run_chat_event_benchmark(
+        benchmark_chat_events.load_events(events_path),
+        expectation=benchmark_chat_events.load_expectation(expectation_path),
+    )
+
+    assert report.has_acceptance_criteria
+    assert not report.has_acceptance_criteria_metadata
+    assert any("missing criteria message" in failure for failure in report.failures)
+    assert any("invalid source" in failure for failure in report.failures)
+    assert any("requires_tools" in failure for failure in report.failures)
+
+
+def test_chat_event_benchmark_fails_malformed_tool_runtime_notice(
+    tmp_path: Path,
+) -> None:
+    events_path = tmp_path / "events.jsonl"
+    expectation_path = tmp_path / "expectation.json"
+    answer = (
+        "These materials contain indexed study sources with grounded excerpts [E1] [E2].\n"
+        "- Document signals: @lecture.md looks like lecture notes [E1].\n"
+        "- Evidence roles: @exam.md looks like past exam material [E2].\n"
+        "- Best next use: ask about a topic or exam problem and I will use the index [E1]."
+    )
+    _write_jsonl(
+        events_path,
+        [
+            {"type": "notice", "code": "reading", "message": "Reading."},
+            {
+                "type": "notice",
+                "code": "tool_runtime",
+                "message": "Execution note: tool failed.",
+                "metadata": {"reason": "mystery", "latency_ms": "slow"},
+            },
+            {
+                "type": "notice",
+                "code": "tool_runtime",
+                "message": "Execution note: repeated call.",
+                "metadata": {
+                    "tool": "read_file",
+                    "reason": "repeated_call",
+                    "repeat_count": 1,
+                },
+            },
+            {
+                "type": "notice",
+                "code": "evidence",
+                "message": "Using evidence.",
+                "metadata": {
+                    "refs": ["materials/lecture.md#chunk=0", "materials/exam.md#chunk=0"],
+                    "coverage": {
+                        "evidence_blocks": 2,
+                        "sampled_sources": 2,
+                        "total_sources": 2,
+                    },
+                    "items": [
+                        {
+                            "evidence_id": "E1",
+                            "ref": "materials/lecture.md#chunk=0",
+                            "text_excerpt": "Lecture notes. Definitions, theorems, and examples.",
+                        },
+                        {
+                            "evidence_id": "E2",
+                            "ref": "materials/exam.md#chunk=0",
+                            "text_excerpt": "Past exam. Question 1 asks for a proof.",
+                        },
+                    ],
+                },
+            },
+            {"type": "notice", "code": "writing", "message": "Writing."},
+            {"type": "assistant_delta", "delta": answer},
+            {"type": "turn_complete", "full_text": answer, "turn_index": 1},
+        ],
+    )
+    _write_overview_expectation(expectation_path)
+
+    report = benchmark_chat_events.run_chat_event_benchmark(
+        benchmark_chat_events.load_events(events_path),
+        expectation=benchmark_chat_events.load_expectation(expectation_path),
+    )
+
+    assert report.has_tool_runtime
+    assert not report.has_tool_runtime_metadata
+    assert any("missing tool" in failure for failure in report.failures)
+    assert any("invalid reason" in failure for failure in report.failures)
+    assert any("invalid latency_ms" in failure for failure in report.failures)
+    assert any("invalid repeat_count" in failure for failure in report.failures)
+    assert any("missing repeated arguments" in failure for failure in report.failures)
+
+
+def test_chat_event_benchmark_fails_malformed_material_operations(
+    tmp_path: Path,
+) -> None:
+    events_path = tmp_path / "events.jsonl"
+    expectation_path = tmp_path / "expectation.json"
+    answer = (
+        "These materials contain indexed study sources with grounded excerpts [E1] [E2].\n"
+        "- Document signals: @lecture.md looks like lecture notes [E1].\n"
+        "- Evidence roles: @exam.md looks like past exam material [E2].\n"
+        "- Best next use: ask about a topic or exam problem and I will use the index [E1]."
+    )
+    _write_jsonl(
+        events_path,
+        [
+            {"type": "notice", "code": "reading", "message": "Reading."},
+            {
+                "type": "material_operation",
+                "operation": "search_index",
+                "message": "Searching indexed materials.",
+            },
+            {
+                "type": "notice",
+                "code": "evidence",
+                "message": "Using evidence.",
+                "metadata": {
+                    "refs": ["materials/lecture.md#chunk=0", "materials/exam.md#chunk=0"],
+                    "coverage": {
+                        "evidence_blocks": 2,
+                        "sampled_sources": 2,
+                        "total_sources": 2,
+                    },
+                    "items": [
+                        {
+                            "evidence_id": "E1",
+                            "ref": "materials/lecture.md#chunk=0",
+                            "text_excerpt": "Lecture notes. Definitions, theorems, and examples.",
+                        },
+                        {
+                            "evidence_id": "E2",
+                            "ref": "materials/exam.md#chunk=0",
+                            "text_excerpt": "Past exam. Question 1 asks for a proof.",
+                        },
+                    ],
+                },
+            },
+            {"type": "notice", "code": "writing", "message": "Writing."},
+            {"type": "assistant_delta", "delta": answer},
+            {
+                "type": "material_operation",
+                "operation": "read_excerpt",
+                "message": "Opened materials/lecture.md#chunk=0.",
+                "metadata": {"ref": "materials/lecture.md#chunk=0"},
+            },
+            {"type": "turn_complete", "full_text": answer, "turn_index": 1},
+        ],
+    )
+    _write_overview_expectation(expectation_path)
+
+    report = benchmark_chat_events.run_chat_event_benchmark(
+        benchmark_chat_events.load_events(events_path),
+        expectation=benchmark_chat_events.load_expectation(expectation_path),
+    )
+
+    assert report.has_material_operation
+    assert not report.has_material_operation_metadata
+    assert any("appears after assistant answer" in failure for failure in report.failures)
+    assert any("missing metadata" in failure for failure in report.failures)
+    assert any("missing index_ready" in failure for failure in report.failures)
 
 
 def test_chat_event_benchmark_fails_missing_stage_and_bad_overview_shape(

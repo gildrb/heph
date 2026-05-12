@@ -1,0 +1,87 @@
+[[optimization.base]]
+
+> Source: [[Coordinate Descent]]
+> License: Wikipedia content is available under CC BY-SA 4.0.
+
+**Coordinate descent** is an [optimization algorithm](https://en.wikipedia.org/wiki/Optimization_algorithm) that successively minimizes along coordinate directions to find the minimum of a [function](https://en.wikipedia.org/wiki/Function_(mathematics) "Function (mathematics)"). At each iteration, the algorithm determines a [coordinate](https://en.wikipedia.org/wiki/Coordinate_system) or coordinate block via a coordinate selection rule, then exactly or inexactly minimizes over the corresponding coordinate hyperplane while fixing all other coordinates or coordinate blocks. A [[Line Search]] along the coordinate direction can be performed at the current iterate to determine the appropriate step size. Coordinate descent is applicable in both differentiable and derivative-free contexts.
+
+## Description
+
+Coordinate descent is based on the idea that the minimization of a multivariable function $F(\mathbf {x} )$ can be achieved by minimizing it along one direction at a time, i.e., solving univariate (or at least much simpler) optimization problems in a loop. In the simplest case of *cyclic coordinate descent*, one cyclically iterates through the directions, one at a time, minimizing the objective function with respect to each coordinate direction at a time. That is, starting with initial variable values
+
+$\mathbf {x} ^{0}=(x_{1}^{0},\ldots ,x_{n}^{0})$,
+
+round $k+1$ defines $\mathbf {x} ^{k+1}$ from $\mathbf {x} ^{k}$ by iteratively solving the single variable optimization problems
+
+$x_{i}^{k+1}={\underset {y\in \mathbb {R} }{\operatorname {arg\,min} }}\;f(x_{1}^{k+1},\dots ,x_{i-1}^{k+1},y,x_{i+1}^{k},\dots ,x_{n}^{k})$
+
+for each variable $x_{i}$ of $\mathbf {x}$, for $i$ from 1 to $n$.
+
+Thus, one begins with an initial guess $\mathbf {x} ^{0}$ for a [local minimum](https://en.wikipedia.org/wiki/Local_minimum) of $F$, and gets a sequence $\mathbf {x} ^{0},\mathbf {x} ^{1},\mathbf {x} ^{2},\dots$ iteratively.
+
+By doing [[Line Search]] in each iteration, one automatically has
+
+$F(\mathbf {x} ^{0})\geq F(\mathbf {x} ^{1})\geq F(\mathbf {x} ^{2})\geq \dots .$
+
+It can be shown that this sequence has similar convergence properties as steepest descent. No improvement after one cycle of [[Line Search]] along coordinate directions implies a stationary point is reached.
+
+This process is illustrated below.
+
+![[media/4e6ee7ddddb48a73910111275753ba508195334d.png]]
+
+### Differentiable case
+
+In the case of a [continuously differentiable](https://en.wikipedia.org/wiki/Continuously_differentiable) function F, a coordinate descent algorithm can be [sketched](https://en.wikipedia.org/wiki/Pseudocode) as:
+
+- Choose an initial parameter vector **x**.
+- Until convergence is reached, or for some fixed number of iterations:
+  - Choose an index i from 1 to n.
+  - Choose a step size α.
+  - Update x<sub>i</sub> to *x<sub>i</sub>* − α∂*F*/∂*x<sub>i</sub>*(**x**).
+
+The step size can be chosen in various ways, e.g., by solving for the exact minimizer of *f*(*x<sub>i</sub>*) = *F*(**x**) (i.e., F with all variables but x<sub>i</sub> fixed), or by traditional line search criteria.
+
+## Limitations
+
+Coordinate descent has two problems. One of them is the case of a non-[smooth](https://en.wikipedia.org/wiki/Smoothness) objective function. The following picture shows that coordinate descent iteration may get stuck at a non-[stationary point](https://en.wikipedia.org/wiki/Stationary_point) if the level curves of the function are not smooth. Suppose that the algorithm is at the point (−2, −2); then there are two axis-aligned directions it can consider for taking a step, indicated by the red arrows. However, every step along these two directions will increase the objective function's value (assuming a minimization problem), so the algorithm will not take any step, even though both steps together would bring the algorithm closer to the optimum. While this example shows that coordinate descent does not necessarily converge to the optimum, it is possible to show formal convergence under reasonable conditions.
+
+![[media/c278b332443fb41856ca4ef63de9d5a34e29a52f.png]]
+
+The other problem is difficulty in parallelism. Since the nature of coordinate descent is to cycle through the directions and minimize the objective function with respect to each coordinate direction, coordinate descent is not an obvious candidate for massive parallelism. Recent research works have shown that massive parallelism is applicable to coordinate descent by relaxing the change of the objective function with respect to each coordinate direction.
+
+## Applications
+
+Coordinate descent algorithms are popular with practitioners owing to their simplicity, but the same property has led optimization researchers to largely ignore them in favor of more interesting (complicated) methods. An early application of coordinate descent optimization was in the area of computed tomography where it has been found to have rapid convergence and was subsequently used for clinical multi-slice helical scan CT reconstruction. A cyclic coordinate descent algorithm (CCD) has been applied in protein structure prediction. Moreover, there has been increased interest in the use of coordinate descent with the advent of large-scale problems in [machine learning](https://en.wikipedia.org/wiki/Machine_learning), where coordinate descent has been shown competitive to other methods when applied to such problems as training linear [support vector machines](https://en.wikipedia.org/wiki/Support_vector_machine) (see [LIBLINEAR](https://en.wikipedia.org/wiki/LIBLINEAR)) and [non-negative matrix factorization](https://en.wikipedia.org/wiki/Non-negative_matrix_factorization). They are attractive for problems where computing gradients is infeasible, perhaps because the data required to do so are distributed across computer networks.
+
+## See also
+
+- [Adaptive coordinate descent](https://en.wikipedia.org/wiki/Adaptive_coordinate_descent) – Improvement of the coordinate descent algorithm
+- [Conjugate gradient](https://en.wikipedia.org/wiki/Conjugate_gradient) – Mathematical optimization algorithmPages displaying short descriptions of redirect targets
+- [[Gradient Descent]] – Optimization algorithm
+- [[Line Search]] – Optimization algorithm
+- [Mathematical optimization](https://en.wikipedia.org/wiki/Mathematical_optimization) – Study of mathematical algorithms for optimization problems
+- [Newton's method](https://en.wikipedia.org/wiki/Newton%27s_method_in_optimization) – Method for finding stationary points of a function
+- [[Stochastic Gradient Descent]] – Optimization algorithm – uses one example at a time, rather than one coordinate
+
+## References
+
+1.  ^     Wright, Stephen J. (2015). "Coordinate descent algorithms". *Mathematical Programming*. **151** (1): 3–34. [arXiv](https://en.wikipedia.org/wiki/ArXiv_(identifier)):[1502.04759](https://arxiv.org/abs/1502.04759). [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1007/s10107-015-0892-3](https://doi.org/10.1007%2Fs10107-015-0892-3). [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [15284973](https://api.semanticscholar.org/CorpusID:15284973).
+2.  Gordon, Geoff; Tibshirani, Ryan (Fall 2012). ["Coordinate descent"](https://www.cs.cmu.edu/~ggordon/10725-F12/slides/25-coord-desc.pdf) (PDF). *Optimization 10-725 / 36-725*. Carnegie Mellon University.
+3.  Spall, J. C. (2012). "Cyclic Seesaw Process for Optimization and Identification". *Journal of Optimization Theory and Applications*. **154** (1): 187–208. [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1007/s10957-012-0001-1](https://doi.org/10.1007%2Fs10957-012-0001-1). [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [7795605](https://api.semanticscholar.org/CorpusID:7795605).
+4.  Zheng, J.; Saquib, S. S.; Sauer, K.; Bouman, C. A. (2000-10-01). "Parallelizable Bayesian tomography algorithms with rapid, guaranteed convergence". *IEEE Transactions on Image Processing*. **9** (10): 1745–1759. [Bibcode](https://en.wikipedia.org/wiki/Bibcode_(identifier)):[2000ITIP....9.1745Z](https://ui.adsabs.harvard.edu/abs/2000ITIP....9.1745Z). [CiteSeerX](https://en.wikipedia.org/wiki/CiteSeerX_(identifier)) [10.1.1.34.4282](https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.34.4282). [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1109/83.869186](https://doi.org/10.1109%2F83.869186). [ISSN](https://en.wikipedia.org/wiki/ISSN_(identifier)) [1057-7149](https://search.worldcat.org/issn/1057-7149). [PMID](https://en.wikipedia.org/wiki/PMID_(identifier)) [18262913](https://pubmed.ncbi.nlm.nih.gov/18262913).
+5.  Fessler, J. A.; Ficaro, E. P.; Clinthorne, N. H.; Lange, K. (1997-04-01). "Grouped-coordinate ascent algorithms for penalized-likelihood transmission image reconstruction". *IEEE Transactions on Medical Imaging*. **16** (2): 166–175. [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1109/42.563662](https://doi.org/10.1109%2F42.563662). [hdl](https://en.wikipedia.org/wiki/Hdl_(identifier)):[2027.42/86021](https://hdl.handle.net/2027.42%2F86021). [ISSN](https://en.wikipedia.org/wiki/ISSN_(identifier)) [0278-0062](https://search.worldcat.org/issn/0278-0062). [PMID](https://en.wikipedia.org/wiki/PMID_(identifier)) [9101326](https://pubmed.ncbi.nlm.nih.gov/9101326). [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [1523517](https://api.semanticscholar.org/CorpusID:1523517).
+6.  Wang, Xiao; Sabne, Amit; Kisner, Sherman; Raghunathan, Anand; Bouman, Charles; Midkiff, Samuel (2016-01-01). "High performance model based image reconstruction". [Proceedings of the 21st ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming](https://zenodo.org/record/895136). PPoPP '16. New York, NY, USA: ACM. pp. 2:1–2:12. [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1145/2851141.2851163](https://doi.org/10.1145%2F2851141.2851163). [ISBN](https://en.wikipedia.org/wiki/ISBN_(identifier)) [9781450340922](https://en.wikipedia.org/wiki/Special:BookSources/9781450340922). [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [16569156](https://api.semanticscholar.org/CorpusID:16569156).
+7.  Sauer, Ken; Bouman, Charles (February 1993). ["A Local Update Strategy for Iterative Reconstruction from Projections"](https://engineering.purdue.edu/~bouman/publications/orig-pdf/sp2.pdf) (PDF). *IEEE Transactions on Signal Processing*. **41** (2): 534–548. [Bibcode](https://en.wikipedia.org/wiki/Bibcode_(identifier)):[1993ITSP...41..534S](https://ui.adsabs.harvard.edu/abs/1993ITSP...41..534S). [CiteSeerX](https://en.wikipedia.org/wiki/CiteSeerX_(identifier)) [10.1.1.135.6045](https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.135.6045). [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1109/78.193196](https://doi.org/10.1109%2F78.193196).
+8.  Yu, Zhou; Thibault, Jean-Baptiste; Bouman, Charles; Sauer, Ken; Hsieh, Jiang (January 2011). ["Fast Model-Based X-ray CT Reconstruction Using Spatially Non-Homogeneous ICD Optimization"](https://engineering.purdue.edu/~bouman/publications/orig-pdf/tip28.pdf) (PDF). *IEEE Transactions on Image Processing*. **20** (1): 161–175. [Bibcode](https://en.wikipedia.org/wiki/Bibcode_(identifier)):[2011ITIP...20..161Y](https://ui.adsabs.harvard.edu/abs/2011ITIP...20..161Y). [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1109/TIP.2010.2058811](https://doi.org/10.1109%2FTIP.2010.2058811). [PMID](https://en.wikipedia.org/wiki/PMID_(identifier)) [20643609](https://pubmed.ncbi.nlm.nih.gov/20643609). [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [9315957](https://api.semanticscholar.org/CorpusID:9315957).
+9.  Thibault, Jean-Baptiste; Sauer, Ken; Bouman, Charles; Hsieh, Jiang (November 2007). ["A Three-Dimensional Statistical Approach to Improved Image Quality for Multi-Slice Helical CT"](https://engineering.purdue.edu/~bouman/publications/orig-pdf/medphys1.pdf) (PDF). *Medical Physics*. **34** (11): 4526–4544. [Bibcode](https://en.wikipedia.org/wiki/Bibcode_(identifier)):[2007MedPh..34.4526T](https://ui.adsabs.harvard.edu/abs/2007MedPh..34.4526T). [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1118/1.2789499](https://doi.org/10.1118%2F1.2789499). [PMID](https://en.wikipedia.org/wiki/PMID_(identifier)) [18072519](https://pubmed.ncbi.nlm.nih.gov/18072519).
+10. Canutescu, AA; Dunbrack, RL (2003). ["Cyclic coordinate descent: A robotics algorithm for protein loop closure"](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2323867). *Protein Science*. **12** (5): 963–72. [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1110/ps.0242703](https://doi.org/10.1110%2Fps.0242703). [PMC](https://en.wikipedia.org/wiki/PMC_(identifier)) [2323867](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2323867). [PMID](https://en.wikipedia.org/wiki/PMID_(identifier)) [12717019](https://pubmed.ncbi.nlm.nih.gov/12717019).
+11. Hsieh, C. J.; Chang, K. W.; Lin, C. J.; Keerthi, S. S.; Sundararajan, S. (2008). ["A dual coordinate descent method for large-scale linear SVM"](http://ntu.csie.org/~cjlin/papers/cddual.pdf) (PDF). *Proceedings of the 25th international conference on Machine learning - ICML '08*. p. 408. [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1145/1390156.1390208](https://doi.org/10.1145%2F1390156.1390208). [ISBN](https://en.wikipedia.org/wiki/ISBN_(identifier)) [9781605582054](https://en.wikipedia.org/wiki/Special:BookSources/9781605582054). [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [7880266](https://api.semanticscholar.org/CorpusID:7880266).
+12. Hsieh, C. J.; Dhillon, I. S. (2011). [Fast coordinate descent methods with variable selection for non-negative matrix factorization](http://www.cs.utexas.edu/~cjhsieh/nmf_kdd11.pdf) (PDF). Proceedings of the 17th ACM SIGKDD international conference on Knowledge discovery and data mining - KDD '11. p. 1064. [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1145/2020408.2020577](https://doi.org/10.1145%2F2020408.2020577). [ISBN](https://en.wikipedia.org/wiki/ISBN_(identifier)) [9781450308137](https://en.wikipedia.org/wiki/Special:BookSources/9781450308137).
+13. [Nesterov, Yurii](https://en.wikipedia.org/wiki/Yurii_Nesterov) (2012). ["Efficiency of coordinate descent methods on huge-scale optimization problems"](http://www.ulouvain.be/cps/ucl/doc/core/documents/coredp2010_2web.pdf) (PDF). *SIAM J. Optim*. **22** (2): 341–362. [CiteSeerX](https://en.wikipedia.org/wiki/CiteSeerX_(identifier)) [10.1.1.332.3336](https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.332.3336). [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1137/100802001](https://doi.org/10.1137%2F100802001).
+
+- Bezdek, J. C.; Hathaway, R. J.; Howard, R. E.; Wilson, C. A.; Windham, M. P. (1987), "Local convergence analysis of a grouped variable version of coordinate descent", *Journal of Optimization Theory and Applications*, vol. 54, no. 3, Kluwer Academic/Plenum Publishers, pp. 471–477, [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1007/BF00940196](https://doi.org/10.1007%2FBF00940196), [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [120052975](https://api.semanticscholar.org/CorpusID:120052975)
+- Bertsekas, Dimitri P. (1999). *Nonlinear Programming, Second Edition* Athena Scientific, Belmont, Massachusetts. [ISBN](https://en.wikipedia.org/wiki/ISBN_(identifier)) [1-886529-00-0](https://en.wikipedia.org/wiki/Special:BookSources/1-886529-00-0).
+- Luo, Zhiquan; Tseng, P. (1992), "On the convergence of the coordinate descent method for convex differentiable minimization", *Journal of Optimization Theory and Applications*, vol. 72, no. 1, Kluwer Academic/Plenum Publishers, pp. 7–35, [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1007/BF00939948](https://doi.org/10.1007%2FBF00939948), [hdl](https://en.wikipedia.org/wiki/Hdl_(identifier)):[1721.1/3164](https://hdl.handle.net/1721.1%2F3164), [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [121091844](https://api.semanticscholar.org/CorpusID:121091844).
+- Wu, TongTong; Lange, Kenneth (2008), "Coordinate descent algorithms for Lasso penalized regression", *The Annals of Applied Statistics*, vol. 2, no. 1, Institute of Mathematical Statistics, pp. 224–244, [arXiv](https://en.wikipedia.org/wiki/ArXiv_(identifier)):[0803.3876](https://arxiv.org/abs/0803.3876), [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1214/07-AOAS147](https://doi.org/10.1214%2F07-AOAS147), [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [16350311](https://api.semanticscholar.org/CorpusID:16350311).
+- Richtarik, Peter; Takac, Martin (April 2011), "Iteration complexity of randomized block-coordinate descent methods for minimizing a composite function", *Mathematical Programming*, vol. 144, no. 1–2, Springer, pp. 1–38, [arXiv](https://en.wikipedia.org/wiki/ArXiv_(identifier)):[1107.2848](https://arxiv.org/abs/1107.2848), [doi](https://en.wikipedia.org/wiki/Doi_(identifier)):[10.1007/s10107-012-0614-z](https://doi.org/10.1007%2Fs10107-012-0614-z), [S2CID](https://en.wikipedia.org/wiki/S2CID_(identifier)) [16816638](https://api.semanticscholar.org/CorpusID:16816638).
+- Richtarik, Peter; Takac, Martin (December 2012), "Parallel coordinate descent methods for big data optimization", *ArXiv:1212.0873*, [arXiv](https://en.wikipedia.org/wiki/ArXiv_(identifier)):[1212.0873](https://arxiv.org/abs/1212.0873).

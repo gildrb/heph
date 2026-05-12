@@ -60,19 +60,37 @@ def test_suite_writes_machine_readable_report(tmp_path: Path) -> None:
     assert report["index_integrity"]["forbidden_text_rate"] == 1.0
     assert report["index_integrity"]["corpus_forbidden_text_rate"] == 1.0
     assert report["priority"]["pass_rate"] == 1.0
+    assert report["prompt_cache"]["pass_rate"] == 1.0
+    assert report["prompt_cache"]["stable_hash_reuse_rate"] == 1.0
+    assert report["prompt_cache"]["dynamic_tail_preservation_rate"] == 1.0
     assert report["replay"]["cases"] == 7
     assert report["chat_events"]["has_reading"] is True
     assert report["chat_events"]["has_evidence"] is True
     assert report["chat_events"]["has_writing"] is True
+    assert report["chat_events"]["has_material_operation"] is True
+    assert report["chat_events"]["material_operation_metadata_rate"] == 1.0
     assert report["chat_events"]["has_turn_complete"] is True
     assert report["chat_events"]["has_consistent_completion"] is True
     assert report["chat_events"]["has_evidence_metadata"] is True
+    assert report["chat_events"]["evidence_metadata_rate"] == 1.0
+    assert report["chat_events"]["tool_runtime_metadata_rate"] == 1.0
     assert report["chat_events"]["answer_pass_rate"] == 1.0
+    assert report["chat_runtime_events"]["has_tool_runtime"] is True
+    assert report["chat_runtime_events"]["has_material_operation"] is True
+    assert report["chat_runtime_events"]["material_operation_metadata_rate"] == 1.0
+    assert report["chat_runtime_events"]["tool_runtime_metadata_rate"] == 1.0
+    assert report["chat_runtime_events"]["has_acceptance_criteria"] is True
+    assert report["chat_runtime_events"]["acceptance_criteria_metadata_rate"] == 1.0
+    assert report["chat_runtime_events"]["answer_pass_rate"] == 1.0
     assert report["answers"]["pass_rate"] == 1.0
     assert report["answers"]["answer_shape_rate"] == 1.0
     assert report["answers"]["evidence_coverage_rate"] == 1.0
     assert report["study_state"]["pass_rate"] == 1.0
     assert report["study_state"]["scheduling_pass_rate"] == 1.0
+    assert report["study_state"]["mastery_metadata_rate"] == 1.0
+    assert report["academic_items"]["pass_rate"] == 1.0
+    assert report["academic_items"]["question_type_count"] >= 3
+    assert report["academic_items"]["grounded_question_rate"] == 1.0
     assert report["report_path"] == str(report_path)
 
 
