@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from hephaistos.terminal import current_palette
-from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENABLED_COLOR
 
 
 def _tui_css() -> str:
@@ -97,7 +96,7 @@ RichLog {{
 }}
 #armory-header {{
     height: 1;
-    color: {p.ember};
+    color: {p.emphasis};
     background: {bg};
     text-style: bold;
 }}
@@ -156,8 +155,8 @@ RichLog {{
     scrollbar-size: 0 0;
 }}
 #armory-current-inline > .option-list--option-highlighted {{
-    background: {p.ember};
-    color: {p.panel};
+    background: {p.selection_background};
+    color: {p.selection_text};
 }}
 #armory-preview-inline {{
     width: 40;
@@ -199,13 +198,13 @@ RichLog {{
 }}
 #materials-list.material-enabled > .option-list--option-highlighted,
 #materials-list.material-enabled:focus > .option-list--option-highlighted {{
-    background: {MATERIAL_ENABLED_COLOR};
-    color: #000000;
+    background: {p.material_enabled};
+    color: {p.selection_text};
 }}
 #materials-list.material-disabled > .option-list--option-highlighted,
 #materials-list.material-disabled:focus > .option-list--option-highlighted {{
-    background: {MATERIAL_DISABLED_COLOR};
-    color: #000000;
+    background: {p.material_disabled};
+    color: {p.selection_text};
 }}
 #materials-footer {{
     height: 1;
@@ -283,8 +282,8 @@ RichLog {{
 }}
 #suggestions > .option-list--option-highlighted,
 #suggestions:focus > .option-list--option-highlighted {{
-    background: {p.ember};
-    color: #000000;
+    background: {bg};
+    color: {p.text};
 }}
 .hidden {{
     visibility: hidden;
@@ -302,13 +301,13 @@ OptionList > .option-list--option {{
     padding: 0 2;
 }}
 OptionList > .option-list--option-highlighted {{
-    background: {p.ember};
-    color: {p.panel};
+    background: {p.selection_background};
+    color: {p.selection_text};
     padding: 0 2;
 }}
 OptionList:focus > .option-list--option-highlighted {{
-    background: {p.ember};
-    color: {p.panel};
+    background: {p.selection_background};
+    color: {p.selection_text};
     padding: 0 2;
 }}
 #composer {{

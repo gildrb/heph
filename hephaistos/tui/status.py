@@ -29,16 +29,18 @@ def status_lines(session: ChatSession, state: str = "ready") -> str:
     else:
         api = "missing"
     mem_status = "on" if supermemory_configured() else "/memory"
+    study_mode = session.study_state.autonomy_mode.value
     sources = session.source_file_count or 0
-    source_str = str(sources) if sources else "none"
+    source_str = str(sources)
     state_tag = f" [{state}]" if state != "ready" else ""
     return (
         f"Hephaistos v{__version__}{state_tag}"
-        f"  armory {armory}"
-        f"  model {model}"
-        f"  api {api}"
-        f"  memory {mem_status}"
-        f"  materials {source_str}"
+        f" armory {armory}"
+        f" model {model}"
+        f" mode {study_mode}"
+        f" api {api}"
+        f" memory {mem_status}"
+        f" materials {source_str}"
     )
 
 

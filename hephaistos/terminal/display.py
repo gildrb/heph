@@ -7,8 +7,8 @@ from hephaistos.terminal import (  # re-export shared terminal primitives
     STYLE_ACCENT,
     STYLE_ASSISTANT,
     STYLE_DIM,
-    STYLE_EMBER,
     STYLE_ERROR,
+    STYLE_SHORTCUT,
     STYLE_SUCCESS,
     STYLE_WARNING,
     direct_input,
@@ -51,10 +51,12 @@ def _progressive_hints(session_count: int) -> list[str]:
     Tier 2 (5+):      + ! shell, \\ continuation
     Always:           /help
     """
-    parts: list[str] = [f"{styled('enter', STYLE_DIM)} send  {styled('tab', STYLE_DIM)} complete"]
+    parts: list[str] = [
+        f"{styled('enter', STYLE_SHORTCUT)} send  {styled('tab', STYLE_SHORTCUT)} complete"
+    ]
     essentials = (
-        f"{styled('ctrl+c', STYLE_DIM)} interrupt"
-        f"  {styled('ctrl+d', STYLE_DIM)} exit"
+        f"{styled('ctrl+c', STYLE_SHORTCUT)} interrupt"
+        f"  {styled('ctrl+d', STYLE_SHORTCUT)} exit"
         f"  {styled('/help', STYLE_ACCENT)} commands"
     )
     parts.append(essentials)
@@ -66,7 +68,7 @@ def _progressive_hints(session_count: int) -> list[str]:
         )
         parts.append(tier1)
     if session_count >= 5:
-        tier2 = f"{styled('!', STYLE_ACCENT)} shell  {styled('\\', STYLE_DIM)} continuation"
+        tier2 = f"{styled('!', STYLE_ACCENT)} shell  {styled('\\', STYLE_SHORTCUT)} continuation"
         parts.append(tier2)
     return parts
 
@@ -93,9 +95,9 @@ def print_shell_intro(
         if source_file_count
         else styled("none", STYLE_DIM)
     )
-    armory_style = STYLE_DIM if armory_path != "none" else STYLE_EMBER
+    armory_style = STYLE_DIM if armory_path != "none" else STYLE_WARNING
     model_text = model or "none"
-    model_style = STYLE_SUCCESS if model else STYLE_EMBER
+    model_style = STYLE_SUCCESS if model else STYLE_WARNING
 
     settings = load_app_settings()
     hints = _progressive_hints(settings.session_count)
@@ -145,10 +147,10 @@ def format_shell_header(
         api_status = "missing"
         api_style = "class:header.error"
     model_text = model or "none"
-    model_style = "class:header.configured" if model else "class:header.ember"
+    model_style = "class:header.configured" if model else "class:header.warning"
     source_text = _format_source_summary(source_file_count, source_files)
-    source_style = "class:header.dim" if source_file_count else "class:header.ember"
-    armory_style = "class:header.dim" if armory_path != "none" else "class:header.ember"
+    source_style = "class:header.dim" if source_file_count else "class:header.warning"
+    armory_style = "class:header.dim" if armory_path != "none" else "class:header.warning"
 
     fragments: list[tuple[str, str]] = [
         ("class:header.title", "\u2301 Hephaistos"),

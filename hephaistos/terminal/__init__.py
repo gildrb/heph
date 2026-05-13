@@ -10,12 +10,70 @@ from __future__ import annotations
 import builtins
 import re
 import sys
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol, runtime_checkable
 
 from hephaistos.parameters.settings import DEFAULT_THEME
-from hephaistos.terminal.palette import BOLD, DIM, RESET, ansi_fg
+from hephaistos.terminal.palette import (
+    BOLD,
+    DIM,
+    FORGE_ACCENT,
+    FORGE_BRAND,
+    FORGE_CONFIGURED,
+    FORGE_DIM,
+    FORGE_EMBER,
+    FORGE_EMPHASIS,
+    FORGE_ERROR,
+    FORGE_HIGHLIGHT,
+    FORGE_MATERIAL_DISABLED,
+    FORGE_MATERIAL_ENABLED,
+    FORGE_PANEL,
+    FORGE_SELECTION_BACKGROUND,
+    FORGE_SELECTION_TEXT,
+    FORGE_SHORTCUT,
+    FORGE_STONE,
+    FORGE_SUCCESS,
+    FORGE_TEXT,
+    HIGH_CONTRAST_ACCENT,
+    HIGH_CONTRAST_BRAND,
+    HIGH_CONTRAST_CONFIGURED,
+    HIGH_CONTRAST_DIM,
+    HIGH_CONTRAST_EMBER,
+    HIGH_CONTRAST_EMPHASIS,
+    HIGH_CONTRAST_ERROR,
+    HIGH_CONTRAST_HIGHLIGHT,
+    HIGH_CONTRAST_MATERIAL_DISABLED,
+    HIGH_CONTRAST_MATERIAL_ENABLED,
+    HIGH_CONTRAST_PANEL,
+    HIGH_CONTRAST_SELECTION_BACKGROUND,
+    HIGH_CONTRAST_SELECTION_TEXT,
+    HIGH_CONTRAST_SHORTCUT,
+    HIGH_CONTRAST_STONE,
+    HIGH_CONTRAST_SUCCESS,
+    HIGH_CONTRAST_TEXT,
+    LIGHT_ACCENT,
+    LIGHT_BRAND,
+    LIGHT_CONFIGURED,
+    LIGHT_DIM,
+    LIGHT_EMBER,
+    LIGHT_EMPHASIS,
+    LIGHT_ERROR,
+    LIGHT_HIGHLIGHT,
+    LIGHT_MATERIAL_DISABLED,
+    LIGHT_MATERIAL_ENABLED,
+    LIGHT_PANEL,
+    LIGHT_SELECTION_BACKGROUND,
+    LIGHT_SELECTION_TEXT,
+    LIGHT_SHORTCUT,
+    LIGHT_STONE,
+    LIGHT_SUCCESS,
+    LIGHT_TEXT,
+    RESET,
+    TRANSPARENT,
+    ansi_fg,
+)
 
 __all__ = [
     "BOLD",
@@ -23,10 +81,13 @@ __all__ = [
     "RESET",
     "STYLE_ACCENT",
     "STYLE_ASSISTANT",
+    "STYLE_BRAND",
     "STYLE_DIM",
     "STYLE_EMBER",
+    "STYLE_EMPHASIS",
     "STYLE_ERROR",
     "STYLE_PROMPT",
+    "STYLE_SHORTCUT",
     "STYLE_SUCCESS",
     "STYLE_WARNING",
     "MenuOption",
@@ -53,65 +114,93 @@ __all__ = [
 @dataclass(frozen=True)
 class ThemePalette:
     name: str
+    brand: str
     panel: str
     stone: str
     text: str
     dim: str
     accent: str
+    emphasis: str
+    shortcut: str
     ember: str
     configured: str
     error: str
     success: str
     highlight: str
+    selection_background: str
+    selection_text: str
+    material_enabled: str
+    material_disabled: str
     is_transparent: bool = True
-    background: str = "transparent"
+    background: str = TRANSPARENT
 
 
 _PALETTES: Final[dict[str, ThemePalette]] = {
     "forge": ThemePalette(
         name="forge",
-        panel="#1C1C1C",
-        stone="#555555",
-        text="#E0E0E0",
-        dim="#808080",
-        accent="#C8C8C8",
-        ember="#9B4A2E",
-        configured="#7F9A6A",
-        error="#CC3333",
-        success="#66BB6A",
-        highlight="#333333",
+        brand=FORGE_BRAND,
+        panel=FORGE_PANEL,
+        stone=FORGE_STONE,
+        text=FORGE_TEXT,
+        dim=FORGE_DIM,
+        accent=FORGE_ACCENT,
+        emphasis=FORGE_EMPHASIS,
+        shortcut=FORGE_SHORTCUT,
+        ember=FORGE_EMBER,
+        configured=FORGE_CONFIGURED,
+        error=FORGE_ERROR,
+        success=FORGE_SUCCESS,
+        highlight=FORGE_HIGHLIGHT,
+        selection_background=FORGE_SELECTION_BACKGROUND,
+        selection_text=FORGE_SELECTION_TEXT,
+        material_enabled=FORGE_MATERIAL_ENABLED,
+        material_disabled=FORGE_MATERIAL_DISABLED,
         is_transparent=True,
-        background="transparent",
+        background=TRANSPARENT,
     ),
     "light": ThemePalette(
         name="light",
-        panel="#EDE8DC",
-        stone="#C4B8A6",
-        text="#2C241B",
-        dim="#7A7068",
-        accent="#8A5A2B",
-        ember="#8E4A32",
-        configured="#687A4B",
-        error="#B03A2E",
-        success="#2E8B57",
-        highlight="#D4C9B8",
+        brand=LIGHT_BRAND,
+        panel=LIGHT_PANEL,
+        stone=LIGHT_STONE,
+        text=LIGHT_TEXT,
+        dim=LIGHT_DIM,
+        accent=LIGHT_ACCENT,
+        emphasis=LIGHT_EMPHASIS,
+        shortcut=LIGHT_SHORTCUT,
+        ember=LIGHT_EMBER,
+        configured=LIGHT_CONFIGURED,
+        error=LIGHT_ERROR,
+        success=LIGHT_SUCCESS,
+        highlight=LIGHT_HIGHLIGHT,
+        selection_background=LIGHT_SELECTION_BACKGROUND,
+        selection_text=LIGHT_SELECTION_TEXT,
+        material_enabled=LIGHT_MATERIAL_ENABLED,
+        material_disabled=LIGHT_MATERIAL_DISABLED,
         is_transparent=True,
-        background="transparent",
+        background=TRANSPARENT,
     ),
     "high_contrast": ThemePalette(
         name="high_contrast",
-        panel="#1A1A1A",
-        stone="#2E2E2E",
-        text="#FFFFFF",
-        dim="#C0C0C0",
-        accent="#FFD400",
-        ember="#E08050",
-        configured="#A9C97A",
-        error="#FF4D4D",
-        success="#00FF88",
-        highlight="#404040",
+        brand=HIGH_CONTRAST_BRAND,
+        panel=HIGH_CONTRAST_PANEL,
+        stone=HIGH_CONTRAST_STONE,
+        text=HIGH_CONTRAST_TEXT,
+        dim=HIGH_CONTRAST_DIM,
+        accent=HIGH_CONTRAST_ACCENT,
+        emphasis=HIGH_CONTRAST_EMPHASIS,
+        shortcut=HIGH_CONTRAST_SHORTCUT,
+        ember=HIGH_CONTRAST_EMBER,
+        configured=HIGH_CONTRAST_CONFIGURED,
+        error=HIGH_CONTRAST_ERROR,
+        success=HIGH_CONTRAST_SUCCESS,
+        highlight=HIGH_CONTRAST_HIGHLIGHT,
+        selection_background=HIGH_CONTRAST_SELECTION_BACKGROUND,
+        selection_text=HIGH_CONTRAST_SELECTION_TEXT,
+        material_enabled=HIGH_CONTRAST_MATERIAL_ENABLED,
+        material_disabled=HIGH_CONTRAST_MATERIAL_DISABLED,
         is_transparent=True,
-        background="transparent",
+        background=TRANSPARENT,
     ),
 }
 
@@ -138,10 +227,14 @@ def current_palette() -> ThemePalette:
 
 def style_code(style_name: str) -> str:
     palette = current_palette()
-    if style_name in {"prompt", "accent", "warning", "assistant"}:
+    if style_name in {"accent", "warning"}:
         return f"{BOLD}{ansi_fg(palette.accent)}"
-    if style_name == "ember":
-        return f"{BOLD}{ansi_fg(palette.ember)}"
+    if style_name in {"prompt", "assistant", "emphasis"}:
+        return f"{BOLD}{ansi_fg(palette.emphasis)}"
+    if style_name in {"brand", "ember"}:
+        return f"{BOLD}{ansi_fg(palette.brand)}"
+    if style_name == "shortcut":
+        return f"{DIM}{ansi_fg(palette.shortcut)}"
     if style_name == "dim":
         return f"{DIM}{ansi_fg(palette.dim)}"
     if style_name == "error":
@@ -165,9 +258,12 @@ class _StyleToken:
 
 
 STYLE_PROMPT = _StyleToken("prompt")
+STYLE_BRAND = _StyleToken("brand")
 STYLE_ACCENT = _StyleToken("accent")
+STYLE_SHORTCUT = _StyleToken("shortcut")
 STYLE_DIM = _StyleToken("dim")
 STYLE_EMBER = _StyleToken("ember")
+STYLE_EMPHASIS = _StyleToken("emphasis")
 STYLE_ERROR = _StyleToken("error")
 STYLE_SUCCESS = _StyleToken("success")
 STYLE_WARNING = _StyleToken("warning")
@@ -203,9 +299,9 @@ class _StdoutProxy(Protocol):
 
 @runtime_checkable
 class _TextOutput(Protocol):
-    def write(self, text: str, /) -> object: ...
+    def write(self, text: str, /) -> int: ...
 
-    def flush(self) -> object: ...
+    def flush(self) -> None: ...
 
 
 def _real_stdout() -> _TextOutput:
@@ -227,12 +323,8 @@ def direct_print(text: str, end: str = "\n") -> None:
 
 def direct_input(prompt: str = "") -> str:
     """Read a line from stdin, bypassing any ``patch_stdout`` proxy."""
-    original = sys.stdout
-    sys.stdout = _real_stdout()
-    try:
+    with redirect_stdout(_real_stdout()):
         return builtins.input(prompt)
-    finally:
-        sys.stdout = original
 
 
 # ---------------------------------------------------------------------------

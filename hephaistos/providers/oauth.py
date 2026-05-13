@@ -405,11 +405,9 @@ def save_credentials(creds: OAuthCredentials) -> None:
     }
     raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
     fd = os.open(str(_AUTH_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.write(fd, raw)
-    finally:
-        os.close(fd)
-    _creds_cache[creds.provider] = creds
+
+    with os.fdopen(fd, "wb") as f:
+        f.write(raw)
 
 
 # --- In-process credentials cache -------------------------------------------
@@ -482,11 +480,16 @@ def clear_credentials(provider: str) -> bool:
     _AUTH_DIR.mkdir(parents=True, exist_ok=True)
     _AUTH_DIR.chmod(0o700)
     raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
-    fd = os.open(str(_AUTH_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.write(fd, raw)
-    finally:
-        os.close(fd)
+
+    fd = os.open(
+        str(_AUTH_FILE),
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+        0o600,
+    )
+
+    with os.fdopen(fd, "wb") as f:
+        f.write(raw)
+
     return True
 
 

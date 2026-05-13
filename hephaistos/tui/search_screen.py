@@ -109,7 +109,7 @@ class SearchScreen(ModalScreen[SearchResult | None]):
 
     def compose(self) -> ComposeResult:
         p = current_palette()
-        title = f"[bold {p.ember}]\u2301 Search[/bold {p.ember}]"
+        title = f"[bold {p.emphasis}]\u2301 Search[/bold {p.emphasis}]"
         with Vertical(id="search-dialog"):
             yield Static(title, id="search-title", markup=True)
             yield Input(placeholder="Search across armories...", id="search-input")
@@ -167,14 +167,14 @@ class SearchScreen(ModalScreen[SearchResult | None]):
             return
         result = self._results[idx]
         lines = [
-            f"[bold {p.ember}]Source:[/bold {p.ember}] {result.source_rel}",
-            f"[bold {p.ember}]Armory:[/bold {p.ember}] {result.armory_name}",
+            f"[bold {p.emphasis}]Source:[/bold {p.emphasis}] {result.source_rel}",
+            f"[bold {p.emphasis}]Armory:[/bold {p.emphasis}] {result.armory_name}",
             "",
             result.chunk_text[:300],
         ]
         if result.source_path.suffix.lower() == ".pdf":
             lines.append("")
-            lines.append(f"[bold {p.ember}]Press 'o' to open PDF[/bold {p.ember}]")
+            lines.append(f"[bold {p.emphasis}]Press 'o' to open PDF[/bold {p.emphasis}]")
         preview.update("\n".join(lines))
 
     def _open_selected_source(self) -> None:

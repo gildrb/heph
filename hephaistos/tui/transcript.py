@@ -285,7 +285,7 @@ class TuiTranscriptMixin:
 
     def _write_user_transcript_lines(self: _TranscriptHost, log: RichLog, text: str) -> None:
         p = current_palette()
-        style = _RichStyle(color=p.ember, bgcolor=p.panel, bold=True)
+        style = _RichStyle(color=p.text, bgcolor=p.panel, bold=True)
         if _RichText is None or log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
             self._write_transcript_lines(log, text, style=style)
             return
@@ -323,7 +323,7 @@ class TuiTranscriptMixin:
                 self._write_transcript_lines(log, entry.content)
                 return
             self._write_transcript_lines(log, entry.content, ansi=True)
-        elif entry.kind == "notice":
+        elif entry.kind in {"notice", "activity"}:
             if _RichText is None:
                 self._write_transcript_lines(log, entry.content)
                 return
@@ -332,17 +332,6 @@ class TuiTranscriptMixin:
                 log,
                 entry.content,
                 style=_RichStyle(color=p.dim),
-                ansi=True,
-            )
-        elif entry.kind == "activity":
-            if _RichText is None:
-                self._write_transcript_lines(log, entry.content)
-                return
-            p = current_palette()
-            self._write_transcript_lines(
-                log,
-                entry.content,
-                style=_RichStyle.parse(f"dim {p.stone}"),
                 ansi=True,
             )
         else:
@@ -388,7 +377,7 @@ class TuiTranscriptMixin:
 
     def _append_error(self: _TranscriptHost, text: str) -> None:
         p = current_palette()
-        self._append_entry(f"[bold {p.error}]error:[/bold {p.error}] {text}")
+        self._append_entry(f"[bold {p.error}]error:[/bold {p.error}] {text}", "error")
 
     def _finish_turn(self: _TranscriptHost) -> None:
         self.busy = False
@@ -425,14 +414,7 @@ class TuiTranscriptMixin:
 
     def _focus_message(self: _TranscriptHost, direction: int) -> None:
         """Navigate transcript focus for the info panel. direction: -1=up, +1=down."""
-        entries = [
-            e
-            for e in self.state.transcript
-            if e.kind in ("user", "markdown", "plain")
-            and not e.content.startswith("[dim")
-            and not e.content.startswith("[#808080]")
-            and not e.content.startswith("[bold #CC3333]")
-        ]
+        entries = [e for e in self.state.transcript if e.kind in ("user", "markdown", "plain")]
         if not entries:
             return
         if self._focused_msg_index is None:
@@ -453,14 +435,7 @@ class TuiTranscriptMixin:
         except NoMatches:
             return
         if self._focused_msg_index is not None:
-            entries = [
-                e
-                for e in self.state.transcript
-                if e.kind in ("user", "markdown", "plain")
-                and not e.content.startswith("[dim")
-                and not e.content.startswith("[#808080]")
-                and not e.content.startswith("[bold #CC3333]")
-            ]
+            entries = [e for e in self.state.transcript if e.kind in ("user", "markdown", "plain")]
             if self._focused_msg_index < len(entries):
                 panel.update(
                     sys.modules["hephaistos.tui"]._info_panel_message_text(

@@ -11,7 +11,6 @@ from hephaistos.runtime import has_configured_access
 from hephaistos.terminal import current_palette
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
 from hephaistos.tui.keymap import armory_shortcut_key
-from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENABLED_COLOR
 from hephaistos.tui.rich_transcript import evidence_summary_text
 from hephaistos.tui.session_state import TuiTranscriptEntry
 from hephaistos.tui.status import status_lines
@@ -31,6 +30,15 @@ def require_rich_text() -> type[Text]:
     if _RichText is None:
         raise TuiDependencyError(tui_dependency_message())
     return _RichText
+
+
+def _study_mode_style(mode: str) -> str:
+    palette = current_palette()
+    if mode == "manual":
+        return palette.dim
+    if mode == "guided":
+        return palette.emphasis
+    return f"bold {palette.error}"
 
 
 def status_text(session: ChatSession, state: str = "ready") -> Text:
@@ -56,11 +64,15 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
     text = text_cls(plain, style=palette.dim)
 
     hep_idx = plain.index("Hephaistos")
-    text.stylize(f"bold {palette.ember}", hep_idx, hep_idx + len("Hephaistos"))
+    text.stylize(f"bold {palette.brand}", hep_idx, hep_idx + len("Hephaistos"))
 
-    for label in ("armory", "model", "api", "memory", "materials"):
-        start = plain.index(label)
+    for label in ("armory", "model", "mode", "api", "memory", "materials"):
+        start = plain.index(f" {label} ") + 1
         text.stylize(f"dim {palette.dim}", start, start + len(label))
+
+    mode = session.study_state.autonomy_mode.value
+    mode_start = plain.index(mode, plain.index("mode "))
+    text.stylize(_study_mode_style(mode), mode_start, mode_start + len(mode))
 
     api_start = plain.index(api, plain.index("api "))
     text.stylize(api_style, api_start, api_start + len(api))
@@ -73,6 +85,8 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
 def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False) -> Text:
     """Build footer hints for inline armory mode."""
     palette = current_palette()
+    footer_style = f"dim {palette.dim}"
+    shortcut_style = f"dim {palette.shortcut}"
     if creating:
         parts = ["armory", "enter create", "esc cancel"]
     elif filtering:
@@ -80,14 +94,14 @@ def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False)
     else:
         parts = ["armory", "type filter", "enter open", "n new", "esc close"]
     plain = "  ".join(parts)
-    text = require_rich_text()(plain, style=palette.dim)
+    text = require_rich_text()(plain, style=footer_style)
     for label in ("armory", "enter", "esc", "arrows", "type", "n"):
         start = 0
         while True:
             idx = plain.find(label, start)
             if idx == -1:
                 break
-            style = f"bold {palette.ember}" if label == "armory" else palette.dim
+            style = f"bold {palette.emphasis}" if label == "armory" else shortcut_style
             text.stylize(style, idx, idx + len(label))
             start = idx + len(label)
     return text
@@ -100,13 +114,15 @@ def footer_hints_text(
 ) -> Text:
     """Build contextual footer hints that change based on current state."""
     palette = current_palette()
+    footer_style = f"dim {palette.dim}"
+    shortcut_style = f"dim {palette.shortcut}"
 
     if busy:
         plain = "esc stop  ctrl+c cancel"
-        text = require_rich_text()(plain, style=palette.dim)
+        text = require_rich_text()(plain, style=footer_style)
         for label in ("esc", "ctrl+c"):
             start = plain.index(label)
-            text.stylize(f"dim {palette.dim}", start, start + len(label))
+            text.stylize(shortcut_style, start, start + len(label))
         return text
 
     key_ok = has_configured_access(session.config, refresh_oauth=False)
@@ -121,18 +137,13 @@ def footer_hints_text(
     if not key_ok:
         parts.append("api missing")
     plain = "  ".join(parts)
-    text = require_rich_text()(plain, style=palette.dim)
+    text = require_rich_text()(plain, style=footer_style)
     for label in ("enter", "tab", "ctrl+p", shortcut, "ctrl+c", "ctrl+d"):
         try:
             start = plain.index(label)
         except ValueError:
             continue
-        text.stylize(f"dim {palette.dim}", start, start + len(label))
-    try:
-        start = plain.index("ctrl+p")
-        text.stylize(f"bold {palette.ember}", start, start + len("ctrl+p"))
-    except ValueError:
-        pass
+        text.stylize(shortcut_style, start, start + len(label))
     if "api missing" in plain:
         api_start = plain.index("api missing")
         text.stylize(palette.error, api_start, api_start + len("api missing"))
@@ -170,6 +181,7 @@ def _indent_info_panel_lines(lines: list[str]) -> list[str]:
 
 def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
     """Build the default info panel content showing session length and material names."""
+    palette = current_palette()
     title = session.title or "Study session"
 
     lines: list[str] = [
@@ -186,16 +198,16 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
     ]
     lines = _indent_info_panel_lines(lines)
     plain = "\n".join(lines)
-    text = require_rich_text()(plain, style="#808080")
+    text = require_rich_text()(plain, style=palette.dim)
     title_start = plain.index(title)
-    text.stylize("bold #9B4A2E", title_start, title_start + len(title))
+    text.stylize(f"bold {palette.emphasis}", title_start, title_start + len(title))
     for label in ("time", "materials", "next"):
         start = 0
         while True:
             idx = plain.find(label, start)
             if idx == -1:
                 break
-            text.stylize("dim #808080", idx, idx + len(label))
+            text.stylize(f"dim {palette.dim}", idx, idx + len(label))
             start = idx + len(label)
     for name in session.source_files:
         display_name = name.removeprefix("materials/")
@@ -204,9 +216,9 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
         if idx == -1:
             continue
         style = (
-            MATERIAL_DISABLED_COLOR
+            palette.material_disabled
             if name in session.disabled_source_files
-            else MATERIAL_ENABLED_COLOR
+            else palette.material_enabled
         )
         text.stylize(style, idx, idx + len(token))
     return text
@@ -240,6 +252,7 @@ def armory_home_text() -> str:
 
 def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> Text:
     """Build info panel content for a focused transcript message."""
+    palette = current_palette()
     is_user = entry.kind == "user"
     is_assistant = entry.kind == "markdown"
 
@@ -267,14 +280,14 @@ def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> 
 
     lines = _indent_info_panel_lines(lines)
     plain = "\n".join(lines)
-    text = require_rich_text()(plain, style="#808080")
+    text = require_rich_text()(plain, style=palette.dim)
     first_line = lines[0].strip()
     title_start = plain.index(first_line)
-    text.stylize("bold #9B4A2E", title_start, title_start + len(first_line))
+    text.stylize(f"bold {palette.emphasis}", title_start, title_start + len(first_line))
     for label in ("model", "tokens", "cost", "evidence"):
         try:
             start = plain.index(label)
-            text.stylize("dim #808080", start, start + len(label))
+            text.stylize(f"dim {palette.dim}", start, start + len(label))
         except ValueError:
             pass
     return text

@@ -44,7 +44,6 @@ from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.history import TuiHistoryMixin
 from hephaistos.tui.inline_flows import TuiInlineFlowMixin
 from hephaistos.tui.keymap import armory_binding_keys
-from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENABLED_COLOR
 from hephaistos.tui.no_armory import record_no_armory_turn
 from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
@@ -661,10 +660,11 @@ class HephaistosTui(
         return "Use /materials to include or exclude retrieval sources."
 
     def _format_material_option(self, file: str, *, selected: bool) -> str | Text:
+        palette = current_palette()
         enabled_file = file not in self.session.disabled_source_files
         label = f"@{file.removeprefix('materials/')}"
-        state_color = MATERIAL_ENABLED_COLOR if enabled_file else MATERIAL_DISABLED_COLOR
-        style = f"black on {state_color}" if selected else state_color
+        state_color = palette.material_enabled if enabled_file else palette.material_disabled
+        style = f"{palette.selection_text} on {state_color}" if selected else state_color
         return _RichText.styled(label, style) if _RichText is not None else label
 
     def _refresh_materials_highlight_class(self) -> None:
@@ -895,12 +895,7 @@ class HephaistosTui(
             suggestions.remove_class("visible")
             self._refresh_footer_hints()
             return
-        suggestions.set_options(
-            [
-                self._format_completion_candidate(candidate)
-                for candidate in self.completion_candidates
-            ]
-        )
+        self._set_completion_options(highlighted=0)
         suggestions.add_class("visible")
         suggestions.highlighted = 0
         suggestions.scroll_y = 0
@@ -923,6 +918,8 @@ class HephaistosTui(
         if current is None:
             current = 0
         highlighted = (current + offset) % option_count
+        if self.completion_candidates:
+            self._set_completion_options(highlighted=highlighted)
         suggestions.highlighted = highlighted
         suggestions.scroll_y = _completion_menu_scroll_y(
             highlighted,
@@ -946,7 +943,21 @@ class HephaistosTui(
         composer.focus()
         self._refresh_completions()
 
-    def _format_completion_candidate(self, candidate: CompletionCandidate) -> str:
+    def _set_completion_options(self, *, highlighted: int | None) -> None:
+        suggestions = self.query_one("#suggestions", OptionList)
+        suggestions.set_options(
+            [
+                self._format_completion_candidate(candidate, selected=index == highlighted)
+                for index, candidate in enumerate(self.completion_candidates)
+            ]
+        )
+
+    def _format_completion_candidate(
+        self,
+        candidate: CompletionCandidate,
+        *,
+        selected: bool = False,
+    ) -> str | Text:
         if candidate.display_provider:
             return (
                 f"{candidate.display_provider:<14} "
@@ -955,9 +966,19 @@ class HephaistosTui(
                 f"{candidate.display_tags}  "
             )
         value = self._completion_preview(candidate).strip()
+        if _RichText is None:
+            if candidate.description:
+                return f"{value:<22} {candidate.description}  "
+            return f"{value}  "
+        palette = current_palette()
+        command_style = f"bold {palette.brand}" if selected else palette.text
+        text = _RichText()
         if candidate.description:
-            return f"{value:<22} {candidate.description}  "
-        return f"{value}  "
+            text.append(f"{value:<22} ", style=command_style)
+            text.append(f"{candidate.description}  ", style=palette.dim)
+            return text
+        text.append(f"{value}  ", style=command_style)
+        return text
 
     def _completion_preview(self, candidate: CompletionCandidate) -> str:
         composer = self.query_one("#composer", Input)

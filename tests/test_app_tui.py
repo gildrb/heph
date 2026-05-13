@@ -19,6 +19,7 @@ from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
 from hephaistos.parameters import settings as settings_store
 from hephaistos.providers.config import ProviderConfig, default_config
+from hephaistos.study import StudyAutonomyMode
 from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
@@ -91,6 +92,7 @@ def test_session_status_for_plain_session() -> None:
 
     assert "test-model" in status
     assert "armory" in status
+    assert "mode guided" in status
     assert "enter" not in status
     assert "/help" not in status
 
@@ -164,6 +166,73 @@ def test_footer_hints_show_api_missing_when_unconfigured() -> None:
     plain = hints.plain
 
     assert "api missing" in plain
+
+
+def test_footer_command_shortcuts_share_neutral_shortcut_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
+
+    hints = tui._footer_hints_text(_plain_session())
+    palette = tui.current_palette()
+    dim_label_style = f"dim {palette.dim}"
+    shortcut_style = f"dim {palette.shortcut}"
+    labels = ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+d")
+    shortcut_styles: dict[str, list[str]] = {}
+    for label in labels:
+        start = hints.plain.index(label)
+        end = start + len(label)
+        shortcut_styles[label] = [
+            str(span.style) for span in hints.spans if span.start <= start and span.end >= end
+        ]
+
+    assert str(hints.style) == dim_label_style
+    for styles in shortcut_styles.values():
+        assert styles == [shortcut_style]
+        assert not any(palette.brand in style for style in styles)
+        assert not any(palette.emphasis in style for style in styles)
+        assert not any("bold" in style.lower() for style in styles)
+
+
+def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
+    set_theme("high_contrast")
+    try:
+        session = _plain_session()
+        status = tui._status_text(session)
+        hints = tui._footer_hints_text(session)
+        panel = tui._info_panel_default_text(session)
+        palette = tui.current_palette()
+
+        assert palette.emphasis != palette.accent
+
+        mode_start = status.plain.index("guided")
+        mode_styles = [
+            str(span.style)
+            for span in status.spans
+            if span.start <= mode_start and span.end >= mode_start + len("guided")
+        ]
+        shortcut_start = hints.plain.index("ctrl+p")
+        shortcut_styles = [
+            str(span.style)
+            for span in hints.spans
+            if span.start <= shortcut_start and span.end >= shortcut_start + len("ctrl+p")
+        ]
+        title_start = panel.plain.index("Study session")
+        title_styles = [
+            str(span.style)
+            for span in panel.spans
+            if span.start <= title_start and span.end >= title_start + len("Study session")
+        ]
+
+        for styles in (mode_styles, title_styles):
+            assert any(palette.emphasis in style for style in styles)
+            assert not any(palette.accent in style for style in styles)
+        assert str(hints.style) == f"dim {palette.dim}"
+        assert shortcut_styles == [f"dim {palette.shortcut}"]
+        assert not any(palette.emphasis in style for style in shortcut_styles)
+        assert not any(palette.accent in style for style in shortcut_styles)
+    finally:
+        set_theme("forge")
 
 
 def test_tui_config_error_allows_pollinations_without_api_key() -> None:
@@ -367,16 +436,23 @@ def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
 
     palette = tui.ThemePalette(
         name="opaque-test",
+        brand="#ff6600",
         panel="#000000",
         stone="#111111",
         text="#ffffff",
         dim="#999999",
         accent="#ffffff",
+        emphasis="#ffffff",
+        shortcut="#999999",
         ember="#ff6600",
         configured="#00ff00",
         error="#ff0000",
         success="#00ff00",
         highlight="#222222",
+        selection_background="#bbbbbb",
+        selection_text="#000000",
+        material_enabled="#00ff00",
+        material_disabled="#ff6600",
         is_transparent=False,
         background="#000000",
     )
@@ -506,7 +582,7 @@ def test_transcript_pads_assistant_replies_but_not_system_messages() -> None:
     asyncio.run(check_transcript_padding())
 
 
-def test_activity_trace_lines_are_dimmer_than_notices() -> None:
+def test_activity_trace_lines_are_muted_but_readable() -> None:
     if tui.RichLog is None:
         pytest.skip("Textual is not installed")
 
@@ -541,7 +617,7 @@ def test_activity_trace_lines_are_dimmer_than_notices() -> None:
 
             assert activity_styles
             assert notice_styles
-            assert any(palette.stone.lower() in style for style in activity_styles)
+            assert any(palette.dim.lower() in style for style in activity_styles)
             assert any(palette.dim.lower() in style for style in notice_styles)
 
     asyncio.run(check_activity_style())
@@ -579,12 +655,46 @@ def test_tui_css_suggestion_scrollbar_is_hidden() -> None:
 
 def test_tui_css_materials_highlight_uses_state_colours() -> None:
     css = tui._tui_css()
+    palette = tui.current_palette()
 
     assert "#materials-list > .option-list--option-highlighted" not in css
     assert "#materials-list.material-enabled > .option-list--option-highlighted" in css
-    assert "background: #7F9A6A;" in css
+    assert f"background: {palette.material_enabled};" in css
     assert "#materials-list.material-disabled > .option-list--option-highlighted" in css
-    assert "background: #9B4A2E;" in css
+    assert f"background: {palette.material_disabled};" in css
+    disabled_start = css.index(
+        "#materials-list.material-disabled > .option-list--option-highlighted"
+    )
+    disabled_end = css.index("}", disabled_start)
+    disabled_block = css[disabled_start:disabled_end]
+    assert f"color: {palette.selection_text};" in disabled_block
+
+
+def test_tui_css_completion_highlight_avoids_brand_strip() -> None:
+    css = tui._tui_css()
+    palette = tui.current_palette()
+    block_start = css.index("#suggestions > .option-list--option-highlighted")
+    block_end = css.index("}", block_start)
+    block = css[block_start:block_end]
+
+    assert "background: transparent;" in block
+    assert f"color: {palette.text};" in block
+    assert f"background: {palette.selection_background};" not in block
+    assert f"color: {palette.selection_text};" not in block
+
+
+def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
+    css = tui._tui_css()
+    palette = tui.current_palette()
+    for selector in (
+        "OptionList > .option-list--option-highlighted",
+        "OptionList:focus > .option-list--option-highlighted",
+    ):
+        block_start = css.index(selector)
+        block_end = css.index("}", block_start)
+        block = css[block_start:block_end]
+        assert f"background: {palette.selection_background};" in block
+        assert f"color: {palette.selection_text};" in block
 
 
 def test_info_panel_material_colours_match_materials_picker() -> None:
@@ -594,11 +704,16 @@ def test_info_panel_material_colours_match_materials_picker() -> None:
 
     panel = tui._info_panel_default_text(session)
     spans = {(span.start, span.end, str(span.style)) for span in panel.spans}
+    palette = tui.current_palette()
 
     enabled_start = panel.plain.index("@enabled.pdf")
     disabled_start = panel.plain.index("@disabled.pdf")
-    assert (enabled_start, enabled_start + len("@enabled.pdf"), "#7F9A6A") in spans
-    assert (disabled_start, disabled_start + len("@disabled.pdf"), "#9B4A2E") in spans
+    assert (enabled_start, enabled_start + len("@enabled.pdf"), palette.material_enabled) in spans
+    assert (
+        disabled_start,
+        disabled_start + len("@disabled.pdf"),
+        palette.material_disabled,
+    ) in spans
 
 
 def test_tui_css_prevents_full_width_status_and_footer_bars() -> None:
@@ -1250,6 +1365,43 @@ def test_status_lines_shows_none_when_no_armory() -> None:
     status = tui._status_lines(session)
 
     assert "armory none" in status
+
+
+def test_status_lines_shows_active_study_mode() -> None:
+    session = _plain_session()
+    session.study_state.autonomy_mode = StudyAutonomyMode.AUTOPILOT
+
+    status = tui._status_lines(session)
+
+    assert "mode autopilot" in status
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_color", "expected_weight"),
+    [
+        (StudyAutonomyMode.MANUAL, "#808080", ""),
+        (StudyAutonomyMode.GUIDED, "#C8C8C8", ""),
+        (StudyAutonomyMode.AUTOPILOT, "#CC3333", "bold"),
+    ],
+)
+def test_status_text_colours_active_study_mode(
+    mode: StudyAutonomyMode,
+    expected_color: str,
+    expected_weight: str,
+) -> None:
+    session = _plain_session()
+    session.study_state.autonomy_mode = mode
+
+    status = tui._status_text(session)
+    start = status.plain.index(mode.value, status.plain.index("mode "))
+    end = start + len(mode.value)
+    mode_styles = [
+        str(span.style).lower() for span in status.spans if span.start <= start and span.end >= end
+    ]
+
+    assert any(expected_color.lower() in style for style in mode_styles)
+    if expected_weight:
+        assert any(expected_weight in style for style in mode_styles)
 
 
 def test_run_tui_for_path_none_delegates_to_run_tui(
@@ -3275,6 +3427,7 @@ def test_models_completion_menu_uses_readable_columns() -> None:
                 )
             )
 
+            assert isinstance(first, str)
             assert first.startswith("OpenAI         openai")
             assert "Pollinations" in first
             assert "free current" in first
@@ -3315,6 +3468,47 @@ def test_models_command_shows_plain_suggestion() -> None:
             assert str(footer.render()).startswith("enter send")
 
     asyncio.run(check_models_suggestion())
+
+
+def test_command_completion_selected_text_uses_brand_without_recoloring_description() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_completion_styles() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/"
+            composer.cursor_position = len("/")
+            candidate = tui.CompletionCandidate(
+                text="help ",
+                description="Show available commands",
+                start_position=0,
+            )
+
+            selected = app._format_completion_candidate(candidate, selected=True)
+            unselected = app._format_completion_candidate(candidate, selected=False)
+            palette = tui.current_palette()
+
+            assert not isinstance(selected, str)
+            assert not isinstance(unselected, str)
+            assert selected.plain.startswith("/help")
+            assert "Show available commands" in selected.plain
+
+            selected_styles = [str(span.style) for span in selected.spans]
+            unselected_styles = [str(span.style) for span in unselected.spans]
+            assert any(palette.brand in style and "bold" in style for style in selected_styles)
+            assert any(palette.dim in style for style in selected_styles)
+            assert any(palette.text in style for style in unselected_styles)
+            assert not any(palette.brand in style for style in unselected_styles)
+
+    asyncio.run(check_completion_styles())
 
 
 def test_busy_footer_keeps_cancel_hint_with_completion_menu_visible() -> None:

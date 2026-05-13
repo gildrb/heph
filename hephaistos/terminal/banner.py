@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hephaistos.terminal import RESET, STYLE_DIM, STYLE_EMBER, ansi_fg, current_palette
+from hephaistos.terminal import RESET, STYLE_BRAND, STYLE_DIM, ansi_fg, current_palette
 
 _ASCII_LOGO = (
     "@@@@@@@@@@@@@@@@@@@@     @@@@@@@@@@@\n"
@@ -22,7 +22,7 @@ def ascii_logo(*, color: bool = True) -> str:
     logo = _ASCII_LOGO
     if not color:
         return logo
-    return f"{STYLE_EMBER}{logo}{RESET}"
+    return f"{STYLE_BRAND}{logo}{RESET}"
 
 
 def wordmark(*, color: bool = True) -> str:
@@ -32,9 +32,9 @@ def wordmark(*, color: bool = True) -> str:
     """
     spark = "\u2301"
     if color:
-        ember = current_palette().ember
+        brand = current_palette().brand
         dim = current_palette().dim
-        return f"{ansi_fg(ember)}{spark} Hephaistos{ansi_fg(dim)}"
+        return f"{ansi_fg(brand)}{spark} Hephaistos{ansi_fg(dim)}"
     return f"{spark} Hephaistos"
 
 

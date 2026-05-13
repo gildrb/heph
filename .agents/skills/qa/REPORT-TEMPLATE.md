@@ -5,7 +5,7 @@
 
 {{TEST_ROWS}}
 
-Result values: :white_check_mark: PASS, :x: FAIL, :no_entry: BLOCKED, :warning: FLAKY, :grey_question: INCONCLUSIVE
+Result values: :white_check_mark: PASS, :x: FAIL, :no_en:: BLOCKED, :warning: FLAKY, :grey_question: INCONCLUSIVE
 
 {{#if ACTIONABLE_ITEMS}}
 

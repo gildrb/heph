@@ -519,7 +519,7 @@ def _armory_browser_css(p: ThemePalette) -> str:
     border_color = "transparent"
     text_color = p.text
     dim_color = p.dim
-    ember_color = p.ember
+    emphasis_color = p.emphasis
     highlight_color = p.highlight
 
     return f"""
@@ -541,7 +541,7 @@ ArmoryBrowserScreen {{
 }}
 #armory-title {{
     text-style: bold;
-    color: {ember_color};
+    color: {emphasis_color};
     width: 100%;
     margin-bottom: 0;
 }}
@@ -687,7 +687,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def compose(self) -> ComposeResult:
         p = current_palette()
-        title = f"[bold {p.ember}]{self._title}[/bold {p.ember}]"
+        title = f"[bold {p.emphasis}]{self._title}[/bold {p.emphasis}]"
         with Vertical(id="armory-dialog"):
             yield Static(title, id="armory-title", markup=True)
             yield Static("", id="armory-path")
