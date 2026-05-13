@@ -66,6 +66,8 @@ from hephaistos.tui.session_state import TuiCaptureWriter, TuiRuntimeState, TuiT
 from hephaistos.tui.shell import (
     command_output_text,
     filter_command_activity_details,
+    format_command_activity_details,
+    format_command_activity_line,
     run_shell_escape_captured,
 )
 from hephaistos.tui.slash_command import (
@@ -186,6 +188,8 @@ _TuiInputRoute = TuiInputRoute
 _command_output_text = command_output_text
 _run_shell_escape_captured = run_shell_escape_captured
 _filter_command_activity_details = filter_command_activity_details
+_format_command_activity_details = format_command_activity_details
+_format_command_activity_line = format_command_activity_line
 _RESEND_PREFIX = "__RESEND__:"
 _TUI_MANAGED_RESEND_COMMANDS = {"autopilot", "exam", "mode"}
 
@@ -791,7 +795,7 @@ class HephaistosTui(
         def stream_notice(line: str) -> None:
             nonlocal streamed_line
             streamed_line = True
-            self.call_from_thread(self._append_notice, line)
+            self.call_from_thread(self._append_notice, _format_command_activity_line(line))
 
         line_callback = stream_notice if stream_activity else None
         stdout = _TuiCaptureWriter(on_line=line_callback)
@@ -809,6 +813,8 @@ class HephaistosTui(
                 ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
             }:
                 output = _filter_command_activity_details(output)
+            else:
+                output = _format_command_activity_details(output)
         self.call_from_thread(
             self._finish_external_command, new_session, history.entries, output, should_continue
         )
@@ -839,6 +845,8 @@ class HephaistosTui(
             ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
         }:
             output = _filter_command_activity_details(output)
+        else:
+            output = _format_command_activity_details(output)
 
         resend_input = ""
         if result.output:

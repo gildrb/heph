@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 _MAX_PROGRESS_TEXT = 64
 _MAX_SUMMARY_TEXT = 160
 _MAX_ACTIVITY_TEXT = 180
+_ACTIVITY_TRACE_INDENT = "    "
 
 
 def _clean_text(text: str) -> str:
@@ -109,20 +110,23 @@ def _activity_line(
     event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
 ) -> str | None:
     if isinstance(event, ToolCallEvent):
-        return f"- Ran {_compact_tool_call(event)}"
+        return f"{_ACTIVITY_TRACE_INDENT}Ran {_compact_tool_call(event)}"
     if isinstance(event, ToolResultEvent):
         latency = _metadata_number(event.metadata, "latency_ms")
         elapsed = f" in {latency:.0f}ms" if latency is not None else ""
         if not event.success:
             error = event.error or event.summary or "tool failed"
-            return f"  ! {event.name} failed{elapsed}: {_truncate(error, _MAX_ACTIVITY_TEXT)}"
+            return (
+                f"{_ACTIVITY_TRACE_INDENT}! {event.name} failed{elapsed}: "
+                f"{_truncate(error, _MAX_ACTIVITY_TEXT)}"
+            )
         summary = _clean_text(event.summary) or _clean_text(event.content)
         if summary:
             prefix = f"{event.name} finished{elapsed}: " if latency is not None else ""
-            return f"  -> {prefix}{_truncate(summary, _MAX_ACTIVITY_TEXT)}"
-        return f"  -> {event.name} finished{elapsed}"
+            return f"{_ACTIVITY_TRACE_INDENT}-> {prefix}{_truncate(summary, _MAX_ACTIVITY_TEXT)}"
+        return f"{_ACTIVITY_TRACE_INDENT}-> {event.name} finished{elapsed}"
     if isinstance(event, MaterialOperationEvent):
-        return f"- {_truncate(event.message, _MAX_ACTIVITY_TEXT)}"
+        return f"{_ACTIVITY_TRACE_INDENT}{_truncate(event.message, _MAX_ACTIVITY_TEXT)}"
     if event.code in {
         "reading",
         "writing",
@@ -138,7 +142,7 @@ def _activity_line(
         "max_turns",
         "dry_run",
     }:
-        return f"- {_truncate(event.message, _MAX_ACTIVITY_TEXT)}"
+        return f"{_ACTIVITY_TRACE_INDENT}{_truncate(event.message, _MAX_ACTIVITY_TEXT)}"
     return None
 
 

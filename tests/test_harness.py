@@ -578,7 +578,7 @@ class TestIterAgentEvents:
         tool_calls = [event for event in events if isinstance(event, ToolCallEvent)]
         tool_results = [event for event in events if isinstance(event, ToolResultEvent)]
         assert tool_calls
-        assert tool_calls[0].display == "  Searching materials: chaperone proteins"
+        assert tool_calls[0].display == "    Searching materials: chaperone proteins"
         assert tool_results
         assert tool_results[0].success is True
         assert "materials/lecture.md#chunk=0" in tool_results[0].content

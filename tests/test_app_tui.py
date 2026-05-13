@@ -597,7 +597,7 @@ def test_activity_trace_lines_are_muted_but_readable() -> None:
 
     async def check_activity_style() -> None:
         async with typed_app.run_test(size=(50, 16)) as pilot:
-            app._append_activity("- Ran search_materials `sequence`")
+            app._append_activity("    Ran search_materials `sequence`")
             app._append_notice("System notice")
             await pilot.pause()
 
@@ -3821,6 +3821,43 @@ def test_external_command_streams_notice_lines_live(monkeypatch: pytest.MonkeyPa
     finish = [args for name, args in calls if name == "_finish_external_command"]
     assert finish
     assert finish[0][2] == ""
+
+
+def test_external_command_indents_streamed_activity_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    calls: list[tuple[str, tuple[object, ...]]] = []
+
+    def fake_call_from_thread(fn: object, *args: object) -> None:
+        name = getattr(fn, "__name__", fn.__class__.__name__)
+        calls.append((name, args))
+
+    def fake_handle_input(session: ChatSession, _value: str, _history: object):
+        print("info: Ran model request gpt-5.4-mini (turn 1, 4 message(s)).")
+        print(
+            "info: Read complete model response from gpt-5.4-mini: "
+            "142 character(s), 0 tool call(s) in 3.3s."
+        )
+        return session, True
+
+    monkeypatch.setattr(app, "call_from_thread", fake_call_from_thread)
+    monkeypatch.setattr("hephaistos.terminal.input.handle_input", fake_handle_input)
+
+    app._run_external_command("/priority")
+
+    streamed = [args[0] for name, args in calls if name == "_append_notice"]
+    assert streamed == [
+        "    Ran model request gpt-5.4-mini (turn 1, 4 message(s)).",
+        (
+            "    Read complete model response from gpt-5.4-mini: "
+            "142 character(s), 0 tool call(s) in 3.3s."
+        ),
+    ]
 
 
 def test_autopilot_command_resend_renders_reply_as_assistant(

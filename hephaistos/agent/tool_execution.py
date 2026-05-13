@@ -16,6 +16,7 @@ _log = get_logger("agent.tool_execution")
 
 _MAX_RESULT_DISPLAY = 200
 _MAX_TOOL_CALLS_PER_TURN = 5
+_TOOL_DISPLAY_INDENT = "    "
 
 
 class ToolCallFunction(TypedDict):
@@ -258,36 +259,36 @@ def _summarise_args(name: str, args: dict[str, object]) -> dict[str, object]:
 def format_tool_args(name: str, args: dict[str, object]) -> str:
     """Format tool call for display."""
     if name == "bash":
-        return f"  Running: {_string_arg(args, 'command')}"
+        return f"{_TOOL_DISPLAY_INDENT}Running: {_string_arg(args, 'command')}"
     if name == "read_file":
-        return f"  Reading: {_string_arg(args, 'path')}"
+        return f"{_TOOL_DISPLAY_INDENT}Reading: {_string_arg(args, 'path')}"
     if name == "write_file":
         path = _string_arg(args, "path")
         size = len(_string_arg(args, "content"))
-        return f"  Writing: {path} ({size} chars)"
+        return f"{_TOOL_DISPLAY_INDENT}Writing: {path} ({size} chars)"
     if name == "edit_file":
-        return f"  Editing: {_string_arg(args, 'path')}"
+        return f"{_TOOL_DISPLAY_INDENT}Editing: {_string_arg(args, 'path')}"
     if name == "list_files":
         path = _string_arg(args, "path") or "."
-        return f"  Listing: {path}"
+        return f"{_TOOL_DISPLAY_INDENT}Listing: {path}"
     if name == "search_materials":
         query = _string_arg(args, "query")
-        return f"  Searching materials: {query}"
+        return f"{_TOOL_DISPLAY_INDENT}Searching materials: {query}"
     if name == "open_material":
         source = _string_arg(args, "source")
         chunk = args.get("chunk")
         if isinstance(chunk, int):
-            return f"  Opening material: {source}#chunk={chunk}"
-        return f"  Opening material: {source}"
+            return f"{_TOOL_DISPLAY_INDENT}Opening material: {source}#chunk={chunk}"
+        return f"{_TOOL_DISPLAY_INDENT}Opening material: {source}"
     if name == "compact":
-        return "  Compacting conversation"
-    return f"  [{name}] {args}"
+        return f"{_TOOL_DISPLAY_INDENT}Compacting conversation"
+    return f"{_TOOL_DISPLAY_INDENT}[{name}] {args}"
 
 
 def summarize_result(content: str) -> str:
     """Brief summary of tool result for display."""
     lines = content.splitlines()
     if len(content) <= _MAX_RESULT_DISPLAY:
-        return f"  -> {content}"
+        return f"{_TOOL_DISPLAY_INDENT}-> {content}"
     first_line = lines[0] if lines else content[:80]
-    return f"  -> {first_line} ... ({len(lines)} lines)"
+    return f"{_TOOL_DISPLAY_INDENT}-> {first_line} ... ({len(lines)} lines)"

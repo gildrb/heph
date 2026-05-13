@@ -25,6 +25,7 @@ _COMMAND_ACTIVITY_PREFIXES = (
     "waiting on ",
     "wrote ",
 )
+_ACTIVITY_TRACE_INDENT = "    "
 
 
 def command_output_text(stdout: StringIO, stderr: StringIO) -> str:
@@ -37,12 +38,30 @@ def filter_command_activity_details(text: str) -> str:
     return "\n".join(kept).strip()
 
 
+def format_command_activity_details(text: str) -> str:
+    lines = [format_command_activity_line(line) for line in text.splitlines()]
+    return "\n".join(lines).strip()
+
+
+def format_command_activity_line(line: str) -> str:
+    detail = _command_activity_detail(line)
+    if detail is None:
+        return line
+    return f"{_ACTIVITY_TRACE_INDENT}{detail}"
+
+
 def _is_command_activity_detail(line: str) -> bool:
-    clean = _ANSI_ESCAPE_RE.sub("", line).strip().casefold()
-    if not clean.startswith("info:"):
-        return False
-    detail = clean.removeprefix("info:").strip()
-    return detail.startswith(_COMMAND_ACTIVITY_PREFIXES)
+    return _command_activity_detail(line) is not None
+
+
+def _command_activity_detail(line: str) -> str | None:
+    clean = _ANSI_ESCAPE_RE.sub("", line).strip()
+    if not clean.casefold().startswith("info:"):
+        return None
+    detail = clean[len("info:") :].strip()
+    if detail.casefold().startswith(_COMMAND_ACTIVITY_PREFIXES):
+        return detail
+    return None
 
 
 def run_shell_escape_captured(command: str) -> str:

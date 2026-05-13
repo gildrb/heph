@@ -294,11 +294,18 @@ class TestRunTuiTurn:
                 message="Searching indexed materials for: integration by parts",
                 metadata={"query": "integration by parts"},
             )
+            yield NoticeEvent(
+                message=(
+                    "Read complete model response from gpt-5.4-mini: "
+                    "172 character(s), 1 tool call(s) in 1.4s."
+                ),
+                code="model_complete",
+            )
             yield ToolCallEvent(
                 call_id="call_1",
                 name="bash",
                 arguments={"command": "rtk rg -n integration materials"},
-                display="  Running: rtk rg -n integration materials",
+                display="    Running: rtk rg -n integration materials",
             )
             yield ToolResultEvent(
                 call_id="call_1",
@@ -321,9 +328,13 @@ class TestRunTuiTurn:
             )
 
         assert activity_lines == [
-            "- Searching indexed materials for: integration by parts",
-            "- Ran bash `rtk rg -n integration materials`",
-            "  -> materials/week-3.md:42:integration by parts",
+            "    Searching indexed materials for: integration by parts",
+            (
+                "    Read complete model response from gpt-5.4-mini: "
+                "172 character(s), 1 tool call(s) in 1.4s."
+            ),
+            "    Ran bash `rtk rg -n integration materials`",
+            "    -> materials/week-3.md:42:integration by parts",
         ]
 
     def test_hidden_activity_trace_suppresses_progress_and_summary(self, chat_session) -> None:
