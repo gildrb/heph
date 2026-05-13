@@ -164,7 +164,7 @@ def test_manual_mode_does_not_escalate_study_language_to_guided() -> None:
 
 
 @pytest.mark.parametrize("message", ["hey", "hello!", "thanks", "What can I use this for?"])
-def test_manual_mode_light_chat_goes_to_model(message: str) -> None:
+def test_manual_mode_light_chat_goes_to_model_without_tools(message: str) -> None:
     state = StudyState(autonomy_mode=StudyAutonomyMode.MANUAL)
 
     plan = plan_turn(state, message)
@@ -173,12 +173,13 @@ def test_manual_mode_light_chat_goes_to_model(message: str) -> None:
     assert plan.autonomy_mode is StudyAutonomyMode.MANUAL
     assert plan.direct_reply is None
     assert plan.retrieval_query is None
-    assert plan.allow_tools is True
+    assert plan.allow_tools is False
     assert "HEPH chat mode" in plan.prompt
+    assert "available tools" not in plan.prompt
 
 
 @pytest.mark.parametrize("message", ["hey", "hello!", "thanks", "What can I use this for?"])
-def test_armory_harness_light_chat_can_disable_canned_replies(message: str) -> None:
+def test_armory_harness_light_chat_disables_tools_with_canned_replies(message: str) -> None:
     state = StudyState()
 
     plan = plan_turn(state, message, allow_direct_chat=False)
@@ -186,8 +187,9 @@ def test_armory_harness_light_chat_can_disable_canned_replies(message: str) -> N
     assert plan.action is StudyAction.CHAT
     assert plan.direct_reply is None
     assert plan.retrieval_query is None
-    assert plan.allow_tools is True
+    assert plan.allow_tools is False
     assert "HEPH chat mode" in plan.prompt
+    assert "available tools" not in plan.prompt
 
 
 def test_manual_mode_does_not_resume_prior_ready_loop() -> None:
