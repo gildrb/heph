@@ -122,6 +122,8 @@ def test_footer_hints_show_cancel_when_busy() -> None:
     hints = tui._footer_hints_text(_plain_session(), busy=True)
     plain = hints.plain
 
+    assert "esc" in plain
+    assert "stop" in plain
     assert "ctrl+c" in plain
     assert "cancel" in plain
     assert "enter" not in plain
@@ -2065,6 +2067,39 @@ def test_command_input_executes_without_user_transcript(
     asyncio.run(check_command_input())
 
 
+def test_inline_command_output_has_command_boundary() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_command_boundary() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._append_notice("Previous action finished.")
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/settings"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            previous_index = next(
+                index
+                for index, entry in enumerate(app.state.transcript)
+                if entry.content == "Previous action finished."
+            )
+            command_entry = app.state.transcript[previous_index + 1]
+
+            assert command_entry.kind == "user"
+            assert command_entry.content == "/settings"
+            assert app._inline_flow.active is True
+
+    asyncio.run(check_command_boundary())
+
+
 def test_materials_inline_toggles_rag_sources() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
@@ -3265,10 +3300,33 @@ def test_busy_footer_keeps_cancel_hint_with_completion_menu_visible() -> None:
 
             footer = app.query_one("#footer-hints", tui.Static)
             position = app.query_one("#completion-position", tui.Static)
-            assert str(footer.render()) == "ctrl+c cancel"
+            assert str(footer.render()) == "esc stop  ctrl+c cancel"
             assert str(position.render()) == f"  (1/{len(app.completion_candidates)})"
 
     asyncio.run(check_busy_footer())
+
+
+def test_escape_cancels_busy_turn() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_escape_cancel() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app.busy = True
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert app.abort_event.is_set()
+            assert any("Interrupt requested." in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_escape_cancel())
 
 
 def test_slash_on_empty_composer_preserves_cursor_after_focus_swap() -> None:

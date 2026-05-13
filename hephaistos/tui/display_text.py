@@ -102,10 +102,11 @@ def footer_hints_text(
     palette = current_palette()
 
     if busy:
-        plain = "ctrl+c cancel"
+        plain = "esc stop  ctrl+c cancel"
         text = require_rich_text()(plain, style=palette.dim)
-        start = plain.index("ctrl+c")
-        text.stylize(f"dim {palette.dim}", start, start + len("ctrl+c"))
+        for label in ("esc", "ctrl+c"):
+            start = plain.index(label)
+            text.stylize(f"dim {palette.dim}", start, start + len(label))
         return text
 
     key_ok = has_configured_access(session.config, refresh_oauth=False)

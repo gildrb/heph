@@ -390,6 +390,11 @@ class HephaistosTui(
             return
         if self._materials_inline_active and self._handle_materials_key(event):
             return
+        if event.key == "escape" and self.busy:
+            self.action_cancel_turn()
+            event.prevent_default()
+            event.stop()
+            return
         if event.key == "ctrl+up":
             self._focus_message(-1)
             event.prevent_default()
@@ -518,6 +523,7 @@ class HephaistosTui(
             return
         if route is _TuiInputRoute.SESSIONS:
             self._record_history(value)
+            self._append_user(value, mark_working=False)
             self._handle_sessions_command(value)
             return
         if route is _TuiInputRoute.NEW:
@@ -530,6 +536,7 @@ class HephaistosTui(
             return
         if value in {"/login", "/logout", "/settings", "/models"}:
             self._record_history(value)
+            self._append_user(value, mark_working=False)
             self._handle_inline_command(value)
             return
         if route is _TuiInputRoute.EXTERNAL:
