@@ -506,6 +506,47 @@ def test_transcript_pads_assistant_replies_but_not_system_messages() -> None:
     asyncio.run(check_transcript_padding())
 
 
+def test_activity_trace_lines_are_dimmer_than_notices() -> None:
+    if tui.RichLog is None:
+        pytest.skip("Textual is not installed")
+
+    state = tui._TuiRuntimeState(armory_home_shown=True)
+    app = tui.HephaistosTui(
+        _plain_session(),
+        state,
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_activity_style() -> None:
+        async with typed_app.run_test(size=(50, 16)) as pilot:
+            app._append_activity("- Ran search_materials `sequence`")
+            app._append_notice("System notice")
+            await pilot.pause()
+
+            transcript = app.query_one("#transcript", tui.RichLog)
+            activity_styles = [
+                str(segment.style).lower()
+                for line in transcript.lines
+                for segment in line
+                if "search_materials" in segment.text
+            ]
+            notice_styles = [
+                str(segment.style).lower()
+                for line in transcript.lines
+                for segment in line
+                if "System notice" in segment.text
+            ]
+            palette = tui.current_palette()
+
+            assert activity_styles
+            assert notice_styles
+            assert any(palette.stone.lower() in style for style in activity_styles)
+            assert any(palette.dim.lower() in style for style in notice_styles)
+
+    asyncio.run(check_activity_style())
+
+
 def _strip_is_panel_filled(strip: Strip, panel: str) -> bool:
     segments: list[Segment] = list(strip)
     return all(
@@ -1683,8 +1724,8 @@ def test_armory_home_text_includes_recent_armories(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     known = [tmp_path / "linear-algebra", tmp_path / "algorithms"]
-    monkeypatch.setattr(tui, "load_known_armories", lambda: known)
-    monkeypatch.setattr(tui, "armory_shortcut_key", lambda: "ctrl+a")
+    monkeypatch.setattr("hephaistos.tui.display_text.load_known_armories", lambda: known)
+    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     text = tui._armory_home_text()
 
@@ -1701,7 +1742,6 @@ def test_armory_home_text_includes_recent_armories(
 def test_plain_tui_shows_armory_home_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
-    monkeypatch.setattr(tui, "armory_shortcut_key", lambda: "ctrl+a")
     monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 
     app = tui.HephaistosTui(

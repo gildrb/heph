@@ -103,6 +103,8 @@ class _TranscriptHost(Protocol):
 
     def _append_entry(self, content: str, kind: str = "plain") -> None: ...
 
+    def _append_activity(self, text: str) -> None: ...
+
     def _start_thinking_animation(self) -> None: ...
 
     def _stop_thinking_animation(self) -> None: ...
@@ -332,6 +334,17 @@ class TuiTranscriptMixin:
                 style=_RichStyle(color=p.dim),
                 ansi=True,
             )
+        elif entry.kind == "activity":
+            if _RichText is None:
+                self._write_transcript_lines(log, entry.content)
+                return
+            p = current_palette()
+            self._write_transcript_lines(
+                log,
+                entry.content,
+                style=_RichStyle.parse(f"dim {p.stone}"),
+                ansi=True,
+            )
         else:
             self._write_transcript_lines(log, entry.content)
 
@@ -369,6 +382,9 @@ class TuiTranscriptMixin:
 
     def _append_notice(self: _TranscriptHost, text: str) -> None:
         self._append_entry(text, "notice")
+
+    def _append_activity(self: _TranscriptHost, text: str) -> None:
+        self._append_entry(text, "activity")
 
     def _append_error(self: _TranscriptHost, text: str) -> None:
         p = current_palette()

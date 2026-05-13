@@ -13,7 +13,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from hephaistos.armory.search import SearchResult, load_known_armories
+from hephaistos.armory.search import SearchResult
 from hephaistos.parameters.cli import load_config
 from hephaistos.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
@@ -32,16 +32,18 @@ from hephaistos.tui.armory_browser import _DirEntry
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
 from hephaistos.tui.display_text import (
     armory_footer_hints_text,
-    armory_home_text,
     footer_hints_text,
     info_panel_default_text,
     info_panel_message_text,
     status_text,
 )
+from hephaistos.tui.display_text import (
+    armory_home_text as _armory_home_text,
+)
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.history import TuiHistoryMixin
 from hephaistos.tui.inline_flows import TuiInlineFlowMixin
-from hephaistos.tui.keymap import armory_binding_keys, armory_shortcut_key
+from hephaistos.tui.keymap import armory_binding_keys
 from hephaistos.tui.materials_view import MATERIAL_DISABLED_COLOR, MATERIAL_ENABLED_COLOR
 from hephaistos.tui.no_armory import record_no_armory_turn
 from hephaistos.tui.routing import (
@@ -129,24 +131,6 @@ _status_text = status_text
 _armory_footer_hints_text = armory_footer_hints_text
 _footer_hints_text = footer_hints_text
 _info_panel_default_text = info_panel_default_text
-
-
-def _armory_home_text() -> str:
-    recent = load_known_armories()[:5]
-    if not recent:
-        return armory_home_text()
-    lines = [
-        "No armory attached.",
-        "",
-        "Existing armories found.",
-        f"Press {armory_shortcut_key()} to choose an armory or create a new one.",
-        "Armories are saved locally in ~/.armories/",
-        "Add your study materials to ~/.armories/<module>/materials/",
-        "",
-        "Recent armories:",
-    ]
-    lines.extend(f"  {path.name}  {path}" for path in recent)
-    return "\n".join(lines)
 
 
 _info_panel_message_text = info_panel_message_text
@@ -872,7 +856,7 @@ class HephaistosTui(
             if line == last_activity_line:
                 return
             last_activity_line = line
-            self.call_from_thread(self._append_notice, line)
+            self.call_from_thread(self._append_activity, line)
 
         def on_error(error: str) -> None:
             self.call_from_thread(self._append_error, error)

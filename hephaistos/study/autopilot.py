@@ -232,6 +232,10 @@ _CHOICE_WEAKNESS_RE = re.compile(
     r"\b(?:weakest|weakness|weak point|struggle|confus(?:e|ed|ing)|unsure)\b",
     re.IGNORECASE,
 )
+_RATIONALE_RE = re.compile(
+    r"\b(?:because|reason|helps?|beneficial|benefit|so that|so you|useful)\b",
+    re.IGNORECASE,
+)
 
 
 class StudyAutopilot:
@@ -254,6 +258,8 @@ def infer_turn_mode(state: StudyState, user_message: str) -> StudyAutonomyMode:
         return StudyAutonomyMode.MANUAL
     if _AUTOPILOT_RE.search(text):
         return StudyAutonomyMode.AUTOPILOT
+    if state.autonomy_mode is StudyAutonomyMode.MANUAL:
+        return StudyAutonomyMode.MANUAL
     if _STUDY_RE.search(text) and state.autonomy_mode is not StudyAutonomyMode.AUTOPILOT:
         return StudyAutonomyMode.GUIDED
     return state.autonomy_mode
@@ -342,6 +348,13 @@ def validate_pedagogy(reply: str, move: StudyMove, mode: StudyAutonomyMode) -> P
         issues.append("possible answer leakage during recall")
     if mode is not StudyAutonomyMode.MANUAL and not _has_next_action(reply, move):
         issues.append("missing explicit next action")
+    if (
+        mode is StudyAutonomyMode.GUIDED
+        and move.expected_output_shape is not None
+        and "recommend" in move.expected_output_shape.casefold()
+        and not _has_recommendation_rationale(reply)
+    ):
+        issues.append("missing recommendation rationale")
     if not issues:
         return PedagogyValidation(True, (), None, None)
     return PedagogyValidation(
@@ -394,7 +407,7 @@ def append_policy_prompt(
     action: StudyAction,
 ) -> str:
     """Append concise mode and next-action instructions to a model prompt."""
-    if not prompt or mode is StudyAutonomyMode.MANUAL:
+    if not prompt or mode is StudyAutonomyMode.MANUAL or action is StudyAction.CHAT:
         return prompt
 
     lines = [
@@ -404,6 +417,32 @@ def append_policy_prompt(
         f"- Selected study move: {move.kind}.",
         f"- Reason: {move.reason}",
     ]
+    if mode is StudyAutonomyMode.GUIDED:
+        lines.extend(
+            [
+                "- Guided mode should leave the learner in control while recommending "
+                "the next useful study step.",
+                "- Include a short reason why the recommendation is beneficial.",
+                "- Do not require extra commands when one clear recommendation is enough.",
+            ]
+        )
+    if mode is StudyAutonomyMode.AUTOPILOT:
+        lines.extend(
+            [
+                "- You are HEPH AUTOPILOT: drive the study workflow while the learner "
+                "does the thinking.",
+                "- Choose the next best academic action yourself unless one concise "
+                "clarification is essential.",
+                "- Prefer active recall, prediction, comparison, or application before "
+                "passive explanation.",
+                "- Retrieve and verify source-dependent claims; never fabricate citations.",
+                "- Track correctness, confidence, misconceptions, weak topics, and due review.",
+                "- Schedule or mark review after mistakes, low confidence, fragile success, "
+                "or exam-relevant learning.",
+                "- Use exactly one primary pedagogical move in the response.",
+                "- End with the next concrete learner action, not a vague offer.",
+            ]
+        )
     if move.requires_user_commitment:
         lines.append("- Require the learner to commit and include confidence from 0-100%.")
     if move.expected_output_shape:
@@ -421,6 +460,13 @@ def append_policy_prompt(
         lines.append("- Source-only answer: do not add a study-choice block after the answer.")
     if action is StudyAction.CALIBRATE:
         lines.append("- The whole response is the recall task; do not reveal the answer.")
+        if mode is StudyAutonomyMode.AUTOPILOT:
+            lines.extend(
+                [
+                    "- First response structure: inferred goal, first move, then the task.",
+                    "- Ask for the smallest necessary user input and begin immediately.",
+                ]
+            )
     if action is StudyAction.ASSESS and _high_confidence_gap_from_move(move):
         lines.append("- Prefer a contrastive correction before another explanation.")
     return f"{prompt}\n" + "\n".join(lines)
@@ -682,7 +728,9 @@ def _guided_move(input_data: AutopilotInput) -> StudyMove:
         "answer",
         "guided mode should answer and then recommend the next study action",
         requires_evidence=True,
-        expected_output_shape="Answer from evidence, then add one recommended next step.",
+        expected_output_shape=(
+            "Answer from evidence, then add one recommended next step and why it helps."
+        ),
     )
 
 
@@ -799,7 +847,7 @@ def _move_from_action(action: StudyAction, input_data: AutopilotInput) -> StudyM
             "priority analysis should reduce command burden and choose the next topic",
             requires_evidence=True,
             requires_user_commitment=False,
-            expected_output_shape="Recommend the next study action and explain why.",
+            expected_output_shape="Recommend the next study action and explain why it helps.",
         )
     if action is StudyAction.ASSESS:
         return _guided_move(input_data)
@@ -825,6 +873,10 @@ def _move_from_action(action: StudyAction, input_data: AutopilotInput) -> StudyM
             expected_output_shape="Answer directly from evidence without extra tutoring.",
         )
     if action is StudyAction.PRESENT:
+        if input_data.mode is StudyAutonomyMode.AUTOPILOT:
+            return _autopilot_move(input_data)
+        if input_data.mode is StudyAutonomyMode.MANUAL:
+            return _manual_move(input_data)
         return _guided_move(input_data)
     return None
 
@@ -951,6 +1003,10 @@ def _has_next_action(reply: str, move: StudyMove) -> bool:
         or "try this" in normalized
         or "answer from memory" in normalized
     )
+
+
+def _has_recommendation_rationale(reply: str) -> bool:
+    return bool(_RATIONALE_RE.search(reply))
 
 
 def _rewrite_instruction(move: StudyMove) -> str:

@@ -67,6 +67,25 @@ def test_study_state_round_trips_autonomy_session() -> None:
     assert loaded.hint_level == 2
 
 
+def test_autopilot_start_turn_disables_agent_tools() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        session_goal="exam preparation",
+        autopilot_session_type="exam",
+        autopilot_started_at=datetime.now(UTC),
+    )
+
+    plan = plan_turn(
+        state,
+        "Autopilot exam mode. Set a bounded study objective and decide the next action.",
+    )
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is False
+    assert plan.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+
+
 def test_autopilot_time_budget_returns_completion_reply() -> None:
     state = StudyState(
         autonomy_mode=StudyAutonomyMode.AUTOPILOT,
@@ -118,6 +137,127 @@ def test_guided_plan_attaches_study_move_policy() -> None:
     assert plan.study_move.kind == "ask_recall"
     assert "Autonomous study policy" in plan.prompt
     assert "confidence from 0-100%" in plan.prompt
+    assert "why the recommendation is beneficial" in plan.prompt
+
+
+def test_manual_mode_answers_direct_requests_without_study_loop() -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.MANUAL)
+
+    plan = plan_turn(state, "Explain Bayes theorem")
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.autonomy_mode is StudyAutonomyMode.MANUAL
+    assert plan.retrieval_query == "Explain Bayes theorem"
+    assert "normal conversational assistant" in plan.prompt
+    assert "Do not force a ready/recall loop" in plan.prompt
+    assert "Say ready when you want recall" not in plan.prompt
+    assert "Autonomous study policy" not in plan.prompt
+
+
+def test_manual_mode_does_not_escalate_study_language_to_guided() -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.MANUAL)
+
+    plan = plan_turn(state, "help me study Bayes theorem")
+
+    assert plan.autonomy_mode is StudyAutonomyMode.MANUAL
+    assert plan.action is StudyAction.CHAT
+
+
+@pytest.mark.parametrize("message", ["hey", "hello!", "thanks", "What can I use this for?"])
+def test_manual_mode_light_chat_goes_to_model(message: str) -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.MANUAL)
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.autonomy_mode is StudyAutonomyMode.MANUAL
+    assert plan.direct_reply is None
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is True
+    assert "HEPH chat mode" in plan.prompt
+
+
+@pytest.mark.parametrize("message", ["hey", "hello!", "thanks", "What can I use this for?"])
+def test_armory_harness_light_chat_can_disable_canned_replies(message: str) -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, message, allow_direct_chat=False)
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.direct_reply is None
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is True
+    assert "HEPH chat mode" in plan.prompt
+
+
+def test_manual_mode_does_not_resume_prior_ready_loop() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.MANUAL,
+        phase=StudyPhase.RECALL,
+        current_item="Define conditional probability.",
+        retrieval_query="conditional probability",
+        expected_source_refs=["source/notes.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, "what is the answer?")
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.phase is StudyPhase.PRESENTING
+    assert "Do not force a ready/recall loop" in plan.prompt
+
+
+def test_guided_recommendations_require_a_reason() -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.GUIDED)
+    plan = plan_turn(state, "Explain Bayes theorem")
+    assert plan.study_move is not None
+
+    validation = validate_pedagogy(
+        "Here is the source-backed answer. Next action: review one similar example.",
+        plan.study_move,
+        plan.autonomy_mode,
+    )
+
+    assert validation.valid is False
+    assert "missing recommendation rationale" in validation.issues
+
+
+def test_autopilot_first_turn_drives_a_diagnostic() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        session_goal="exam preparation",
+        autopilot_session_type="exam",
+    )
+
+    plan = plan_turn(state, "Explain Bayes theorem")
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+    assert plan.retrieval_query == "Explain Bayes theorem"
+    assert plan.study_move is not None
+    assert plan.study_move.kind == "ask_recall"
+    assert "HEPH AUTOPILOT first move" in plan.prompt
+    assert "drive the study workflow" in plan.prompt
+    assert "First response structure" in plan.prompt
+    assert "do not reveal the answer" in plan.prompt.lower()
+    assert "confidence from 0-100%" in plan.prompt
+
+
+def test_autopilot_command_bootstrap_uses_corpus_diagnostic() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        session_goal="autonomous study",
+        autopilot_session_type="general",
+    )
+
+    plan = plan_turn(
+        state,
+        "Autopilot general mode. Goal: autonomous study. First move: choose the best "
+        "diagnostic or review action from my materials.",
+    )
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.retrieval_query is None
+    assert "Use the retrieved source material to ask exactly one diagnostic" in plan.prompt
 
 
 def test_just_answer_temporarily_uses_manual_mode() -> None:
@@ -356,8 +496,8 @@ def test_explicit_source_question_answers_without_entering_recall_loop() -> None
         (
             "What can I use this for?",
             "Use Hephaistos to study your own materials: ask a source-backed question, run "
-            "/exam for active recall, run /priority for a plan, or /autopilot on to start a "
-            "bounded guided session.",
+            "/exam for active recall, run /priority for a plan, or /autopilot on to let Heph "
+            "drive the session.",
         ),
         ("thanks", "You're welcome."),
         ("thank you", "You're welcome."),
@@ -738,6 +878,25 @@ def test_recall_phase_can_request_easier_question_when_too_hard() -> None:
     assert next_state.current_item == "What is the first definition used in Q1?"
     assert next_state.attempt_count == 0
     assert next_state.last_feedback_type is StudyFeedbackType.EASIER
+
+
+def test_autopilot_not_sure_scaffolds_instead_of_grading() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        phase=StudyPhase.RECALL,
+        current_item="Define a sequence with domain and nth-term notation.",
+        retrieval_query="sequence definition",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, "not sure")
+
+    assert plan.action is StudyAction.SIMPLIFY
+    assert plan.phase is StudyPhase.RECALL
+    assert plan.use_expected_source_refs is True
+    assert "Do not grade the learner" in plan.prompt
+    assert "fill-the-gaps" in plan.prompt
+    assert "confidence from 0-100%" in plan.prompt
 
 
 def test_simplify_prompt_forbids_metadata_questions() -> None:

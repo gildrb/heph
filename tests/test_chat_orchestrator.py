@@ -182,6 +182,17 @@ def test_bounded_internal_repair_loop_caps_passes_and_repairs_shape() -> None:
     assert "Next action:" in repaired
 
 
+def test_repair_pedagogy_shape_adds_guided_recommendation_reason() -> None:
+    plan = plan_turn(StudyState(autonomy_mode=StudyAutonomyMode.GUIDED), "Explain compactness")
+
+    repaired = _repair_pedagogy_shape(
+        plan,
+        "Compactness is source-backed. Next action: try one similar recall prompt.",
+    )
+
+    assert "Why this helps:" in repaired
+
+
 def test_student_visible_reply_strips_inline_tool_call_markup() -> None:
     plan = _make_study_plan(action=StudyAction.PRESENT)
     raw = (
@@ -1730,19 +1741,42 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.assert_not_called()
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
-    def test_simple_greeting_is_direct_and_ungrounded(self, mock_iter_agent: MagicMock) -> None:
+    def test_simple_greeting_goes_to_model_when_armory_is_attached(
+        self, mock_iter_agent: MagicMock
+    ) -> None:
         session = _make_study_session()
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("Hey! What can I help with?")])
         orch = TurnOrchestrator(session)
 
         events = list(orch.iter_events("hey"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert len(deltas) == 1
-        assert "material-backed study" in deltas[0]
-        assert "/autopilot on" in deltas[0]
+        assert deltas == ["Hey! What can I help with?"]
         assert session.last_turn_evidence is None
         assert session.study_state.current_item == ""
-        mock_iter_agent.assert_not_called()
+        mock_iter_agent.assert_called_once()
+        call_kwargs = mock_iter_agent.call_args.kwargs
+        assert call_kwargs["turn_evidence"] is None
+        assert "HEPH chat mode" in call_kwargs["extra_system_prompt"]
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    def test_manual_greeting_goes_to_model(self, mock_iter_agent: MagicMock) -> None:
+        session = _make_study_session()
+        session.study_state.autonomy_mode = StudyAutonomyMode.MANUAL
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("Hey! What can I help with?")])
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("hey"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == ["Hey! What can I help with?"]
+        mock_iter_agent.assert_called_once()
+        call_kwargs = mock_iter_agent.call_args.kwargs
+        assert call_kwargs["turn_evidence"] is None
+        assert call_kwargs["tool_schemas"] is None
+        assert "HEPH chat mode" in call_kwargs["extra_system_prompt"]
+        assert "User request: hey" in call_kwargs["extra_system_prompt"]
+        assert session.study_state.current_item == ""
 
     @patch("hephaistos.chat.orchestrator.verify_response")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
