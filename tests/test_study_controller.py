@@ -67,6 +67,25 @@ def test_study_state_round_trips_autonomy_session() -> None:
     assert loaded.hint_level == 2
 
 
+def test_autopilot_start_turn_disables_agent_tools() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        session_goal="exam preparation",
+        autopilot_session_type="exam",
+        autopilot_started_at=datetime.now(UTC),
+    )
+
+    plan = plan_turn(
+        state,
+        "Autopilot exam mode. Set a bounded study objective and decide the next action.",
+    )
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.retrieval_query is not None
+    assert plan.allow_tools is False
+    assert plan.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+
+
 def test_autopilot_time_budget_returns_completion_reply() -> None:
     state = StudyState(
         autonomy_mode=StudyAutonomyMode.AUTOPILOT,
