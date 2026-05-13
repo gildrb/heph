@@ -22,6 +22,12 @@ def _chunk(source: str, text: str, index: int = 0, heading: str = "") -> Chunk:
     )
 
 
+class _FakePdfCompiler:
+    def compile(self, tex_path: Path, pdf_path: Path) -> None:
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_bytes(b"%PDF-1.4\n% hephaistos fake test pdf\n")
+
+
 def test_priority_analysis_weights_past_exam_occurrence(tmp_path: Path) -> None:
     index = ArmoryIndex(tmp_path)
     exam_chunk = _chunk(
@@ -52,7 +58,7 @@ def test_priority_analysis_weights_past_exam_occurrence(tmp_path: Path) -> None:
     assert analysis.topics[0].exam_hits == 1
     assert analysis.topics[0].exam_marks == 0
     assert analysis.topics[0].material_hits == 1
-    assert analysis.topics[0].score == 4.0
+    assert analysis.topics[0].score > 10.0
 
 
 def test_priority_analysis_uses_extracted_text_to_classify_generic_sources(
@@ -114,6 +120,38 @@ def test_priority_analysis_render_includes_exam_and_material_sources(tmp_path: P
     assert "dynamic" in rendered
 
 
+def test_priority_analysis_reports_source_progress(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/past-exams/2024.md",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/past-exams/2024.md",
+                    "Question: Explain graph shortest paths.",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/lecture-graphs.md",
+            content_hash="notes",
+            chunks=[_chunk("materials/lecture-graphs.md", "Graph shortest paths use Dijkstra.")],
+        ),
+    ]
+    messages: list[str] = []
+
+    analyze_priority(index.all_chunks, progress=messages.append)
+
+    assert messages[0] == "Ran priority.scan --sources 2 --chunks 2."
+    assert "Read source 1/2: @past-exams/2024.md (1 chunk(s))." in messages
+    assert "Read source 2/2: @lecture-graphs.md (1 chunk(s))." in messages
+    assert any(message.startswith("Read @past-exams/2024.md chunk 1/1") for message in messages)
+    assert any(message.startswith("Read @lecture-graphs.md chunk 1/1") for message in messages)
+    assert "Scoring topic recurrence from exams and support files..." in messages
+    assert any(message.startswith("Ranked ") and message.endswith(".") for message in messages)
+
+
 def test_priority_analysis_surfaces_prerequisite_candidates(tmp_path: Path) -> None:
     index = ArmoryIndex(tmp_path)
     index.documents = [
@@ -166,7 +204,9 @@ def test_priority_analysis_weights_exam_marks(tmp_path: Path) -> None:
     assert heaps.exam_marks == 4
     assert graph.score > heaps.score
     assert topics[0].topic == "graph shortest"
-    assert "exam marks 12" in analyze_priority(index.all_chunks).render_for_prompt()
+    rendered = analyze_priority(index.all_chunks).render_for_prompt()
+    assert "12 visible mark" in rendered
+    assert "exam marks" not in rendered
 
 
 def test_priority_analysis_keeps_inline_question_marks_with_matching_topics(
@@ -190,9 +230,9 @@ def test_priority_analysis_keeps_inline_question_marks_with_matching_topics(
 
     topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
 
-    assert topics["shortest paths"].exam_marks == 12
+    assert topics["dijkstra shortest"].exam_marks == 12
     assert topics["heaps priority"].exam_marks == 4
-    assert topics["heaps priority"].score < topics["shortest paths"].score
+    assert topics["heaps priority"].score < topics["dijkstra shortest"].score
     assert "ocr noise" not in topics
 
 
@@ -237,7 +277,7 @@ def test_priority_analysis_filters_exam_boilerplate_and_uses_explicit_prerequisi
     assert topics["neural network"].prerequisites[:3] == ("calculus", "derivatives", "matrix")
 
 
-def test_priority_report_writes_printable_html_from_local_evidence(tmp_path: Path) -> None:
+def test_priority_report_writes_printable_pdf_latex_from_local_evidence(tmp_path: Path) -> None:
     index = ArmoryIndex(tmp_path)
     index.documents = [
         ChunkedDocument(
@@ -263,27 +303,82 @@ def test_priority_report_writes_printable_html_from_local_evidence(tmp_path: Pat
         ),
     ]
 
-    report = generate_priority_report(analyze_priority(index.all_chunks), tmp_path / "Downloads")
-    html = report.path.read_text(encoding="utf-8")
+    report = generate_priority_report(
+        analyze_priority(index.all_chunks),
+        tmp_path / "Downloads",
+        compiler=_FakePdfCompiler(),
+        keep_tex=True,
+    )
+    assert report.tex_path is not None
+    tex = report.tex_path.read_text(encoding="utf-8")
 
     assert report.path.parent == tmp_path / "Downloads"
-    assert report.path.suffix == ".html"
+    assert report.path.suffix == ".pdf"
+    assert report.path.is_file()
     assert report.used_model is False
-    assert "background: #fff" in html
-    assert "color: #111" in html
-    assert "box-shadow" not in html
-    assert 'class="topic-list"' in html
-    assert 'class="card"' not in html
-    assert 'class="grid"' not in html
-    assert "dynamic programming" in html
-    assert "materials/past-exam-2026.md" in html
-    assert "10 marks" in html
-    assert "recursion" in html
-    assert "Write a one-page answer" in html
-    assert "Answer every cited past-exam prompt" in html
-    assert "Factual study map" in html
-    assert "Exam questions and points" in html
-    assert "Explain dynamic programming recurrence tables" in html
+    assert report.verification is not None
+    assert report.verification.passed
+    assert report.sidecar_path is not None
+    assert report.sidecar_path.is_file()
+    assert r"\documentclass[10pt,a4paper,landscape]{article}" in tex
+    assert r"\geometry{margin=8mm}" in tex
+    assert r"\begin{multicols*}{2}" in tex
+    assert "lmodern" in tex
+    assert "dynamic programming" in tex
+    assert "materials/past-exam-2026.md" in tex
+    assert "10 visible points" in tex
+    assert "recursion" in tex
+    assert "Past-exam pattern table" in tex
+    assert "Explain dynamic programming recurrence tables" in tex
+    assert "HEPHAISTOS PRIORITY" not in tex
+    assert "Score " not in tex
+    assert "exam hits" not in tex
+
+
+def test_priority_report_emits_stage_progress(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/past-exam-2026.md",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/past-exam-2026.md",
+                    "Question [6 marks]: Explain recursion.",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/lecture-recursion.md",
+            content_hash="notes",
+            chunks=[
+                _chunk(
+                    "materials/lecture-recursion.md",
+                    "Recursion uses base cases and an inductive step.",
+                )
+            ],
+        ),
+    ]
+    progress_lines: list[str] = []
+
+    generate_priority_report(
+        analyze_priority(index.all_chunks),
+        tmp_path / "Downloads",
+        compiler=_FakePdfCompiler(),
+        progress=progress_lines.append,
+    )
+
+    assert any(line.startswith("Ran priority.report --topics") for line in progress_lines)
+    assert "Building report sections from indexed evidence..." in progress_lines
+    assert "Using deterministic local output (no model configured)." in progress_lines
+    assert any(line.startswith("Rendered LaTeX priority sheet") for line in progress_lines)
+    assert any(line.startswith("Wrote temporary LaTeX") for line in progress_lines)
+    assert any(line.startswith("Ran _FakePdfCompiler.compile") for line in progress_lines)
+    assert any(line.startswith("PDF compile finished") for line in progress_lines)
+    assert any(line.startswith("Wrote PDF") for line in progress_lines)
+    assert any(line.startswith("Ran priority verification checks") for line in progress_lines)
+    assert any(line.startswith("Wrote verification sidecar") for line in progress_lines)
+    assert progress_lines[-1].startswith("Priority report verified in")
 
 
 def test_priority_analysis_prefers_meaningful_phrases_over_artifacts(tmp_path: Path) -> None:
@@ -428,11 +523,17 @@ def test_priority_report_cleans_repeated_headings_in_evidence(tmp_path: Path) ->
         ),
     ]
 
-    report = generate_priority_report(analyze_priority(index.all_chunks), tmp_path / "Downloads")
-    html = report.path.read_text(encoding="utf-8")
+    report = generate_priority_report(
+        analyze_priority(index.all_chunks),
+        tmp_path / "Downloads",
+        compiler=_FakePdfCompiler(),
+        keep_tex=True,
+    )
+    assert report.tex_path is not None
+    tex = report.tex_path.read_text(encoding="utf-8")
 
-    assert "Graph Algorithms Dijkstra" not in html
-    assert "Dijkstra shortest paths use graph relaxation" in html
+    assert "Graph Algorithms Dijkstra" not in tex
+    assert "Dijkstra shortest paths use graph relaxation" in tex
 
 
 def test_priority_report_does_not_expand_beyond_requested_analysis(tmp_path: Path) -> None:
@@ -452,11 +553,17 @@ def test_priority_report_does_not_expand_beyond_requested_analysis(tmp_path: Pat
     ]
 
     analysis = analyze_priority(index.all_chunks, limit=2)
-    report = generate_priority_report(analysis, tmp_path / "Downloads")
+    report = generate_priority_report(
+        analysis,
+        tmp_path / "Downloads",
+        compiler=_FakePdfCompiler(),
+        keep_tex=True,
+    )
 
-    html = report.path.read_text(encoding="utf-8")
+    assert report.tex_path is not None
+    tex = report.tex_path.read_text(encoding="utf-8")
     assert report.topic_count == 2
-    assert html.count('class="topic"') == 2
+    assert "extra topic 2" not in tex.lower()
 
 
 def test_priority_analysis_deduplicates_identical_evidence(tmp_path: Path) -> None:
@@ -506,10 +613,15 @@ def test_priority_analysis_can_add_web_backed_prerequisite_hints(tmp_path: Path)
 
     analysis = analyze_priority(index.all_chunks, web_searcher=web_searcher)
     topic = next(topic for topic in analysis.topics if topic.topic == "graph")
-    report = generate_priority_report(analysis, tmp_path / "Downloads")
-    html = report.path.read_text(encoding="utf-8")
+    report = generate_priority_report(
+        analysis,
+        tmp_path / "Downloads",
+        compiler=_FakePdfCompiler(),
+        keep_tex=True,
+    )
+    assert report.tex_path is not None
+    tex = report.tex_path.read_text(encoding="utf-8")
 
     assert topic.web_prerequisites[0].term == "set notation"
     assert "web-backed prerequisite hints" in analysis.render_for_prompt()
-    assert "web prerequisite hint" in html
-    assert "https://example.test/graph" in html
+    assert "external prerequisite hint" in tex

@@ -9,6 +9,10 @@ from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.commands.auth import LoginCommand, LogoutCommand
 from hephaistos.commands.memory import MemoryCommand
 from hephaistos.parameters.settings import (
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+    ACTIVITY_TRACE_MODES,
+    ACTIVITY_TRACE_TOOL_CALLS,
     THEME_PRESETS,
     clear_setting,
     load_app_settings,
@@ -31,6 +35,17 @@ from hephaistos.terminal import (
     set_theme,
 )
 from hephaistos.terminal.display import STYLE_DIM, print_error, print_info, print_success, styled
+
+_ACTIVITY_TRACE_LABELS = {
+    ACTIVITY_TRACE_TOOL_CALLS: "Tool calls",
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "Minimal tool calls",
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "Hidden tool calls",
+}
+_ACTIVITY_TRACE_DESCRIPTIONS = {
+    ACTIVITY_TRACE_TOOL_CALLS: "Show live reads, commands, model calls, tool results",
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "Show compact status and final activity summary",
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "Hide internal activity trace lines",
+}
 
 
 class SettingsCommand(Command):
@@ -57,6 +72,10 @@ class SettingsCommand(Command):
                     f"Theme: {settings.theme}",
                 ),
                 MenuOption(
+                    "Activity trace",
+                    self._activity_trace_summary(settings.activity_trace_mode),
+                ),
+                MenuOption(
                     "Startup",
                     f"Default armory: {default_armory}",
                 ),
@@ -79,8 +98,10 @@ class SettingsCommand(Command):
             elif selected == 2:
                 self._appearance_menu()
             elif selected == 3:
-                self._startup_menu()
+                self._activity_trace_menu()
             elif selected == 4:
+                self._startup_menu()
+            elif selected == 5:
                 MemoryCommand().handle(s, "status")
             else:
                 self._provider_credentials_menu(s)
@@ -171,6 +192,28 @@ class SettingsCommand(Command):
                 continue
             save_setting("theme", theme)
             set_theme(theme)
+
+    @staticmethod
+    def _activity_trace_summary(mode: str) -> str:
+        return _ACTIVITY_TRACE_LABELS.get(mode, _ACTIVITY_TRACE_LABELS[ACTIVITY_TRACE_TOOL_CALLS])
+
+    def _activity_trace_menu(self) -> None:
+        while True:
+            current = load_app_settings().activity_trace_mode
+            options = [
+                MenuOption(
+                    _ACTIVITY_TRACE_LABELS[mode],
+                    _ACTIVITY_TRACE_DESCRIPTIONS[mode],
+                    is_current=(mode == current),
+                )
+                for mode in ACTIVITY_TRACE_MODES
+            ]
+            selected = select_option("Activity Trace", options)
+            if selected is None:
+                return
+            mode = ACTIVITY_TRACE_MODES[selected]
+            save_setting("activity_trace_mode", mode)
+            print_success(f"Activity trace: {_ACTIVITY_TRACE_LABELS[mode]}")
 
     def _startup_menu(self) -> None:
         while True:

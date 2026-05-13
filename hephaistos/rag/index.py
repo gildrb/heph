@@ -715,10 +715,14 @@ def load_or_build(
     armory_path: Path,
     *,
     strategy: ChunkStrategy = ChunkStrategy.AUTO,
+    progress: IndexProgress | None = None,
 ) -> ArmoryIndex:
     """Load existing index if fresh, otherwise rebuild."""
     index = ArmoryIndex(armory_path, strategy=strategy)
     if index.load() and not index.is_stale():
+        if progress is not None:
+            index_path = armory_path / ".hephaistos" / _INDEX_FILE
+            progress("loaded", f"{index_path} ({index.chunk_count} chunks)")
         _log.info(
             "index loaded from cache",
             extra={
@@ -737,4 +741,4 @@ def load_or_build(
             }
         },
     )
-    return build_index(armory_path, strategy=strategy)
+    return build_index(armory_path, strategy=strategy, progress=progress)

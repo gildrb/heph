@@ -52,7 +52,7 @@ new docs.
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
 | /stats | Show session, armory, and study progress stats |
-| /priority | Find priority topics and prerequisites |
+| /priority | Generate a printable priority PDF cheat sheet |
 | /mode | Set study autonomy mode |
 | /autopilot | Run a bounded autonomous study session |
 | /exam | Start an active-recall exam question |

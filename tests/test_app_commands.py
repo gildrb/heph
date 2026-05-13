@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -22,9 +23,16 @@ from hephaistos.providers.registry import ModelInfo
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import EvidenceChunk, TurnEvidence
 from hephaistos.study import StudyAutonomyMode, StudyFeedbackType, StudyPhase, StudyRecallRating
+from hephaistos.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
 from hephaistos.study.schedule import load_study_schedule
 from hephaistos.terminal import MenuOption
 from hephaistos.terminal.source_open import SourceOpenResult
+
+
+class _FakePriorityPdfCompiler:
+    def compile(self, tex_path: Path, pdf_path: Path) -> None:
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_bytes(b"%PDF-1.4\n% hephaistos fake test pdf\n")
 
 
 def test_command_registry_has_unique_names_and_aliases() -> None:
@@ -210,6 +218,33 @@ def test_priority_command_prints_local_priority_scan(
         encoding="utf-8",
     )
     monkeypatch.setattr(_commands_study, "_priority_output_dir", lambda: tmp_path / "Downloads")
+    original_generate_priority_report = _commands_study.generate_priority_report
+
+    def generate_test_priority_report(
+        analysis: PriorityAnalysis,
+        output_dir: Path,
+        *,
+        config: ChatConfig | None = None,
+        focus: str = "",
+        compiler: PriorityPdfCompiler | None = None,
+        keep_tex: bool = False,
+        progress: Callable[[str], None] | None = None,
+    ) -> PriorityReport:
+        return original_generate_priority_report(
+            analysis,
+            output_dir,
+            config=config,
+            focus=focus,
+            compiler=compiler or _FakePriorityPdfCompiler(),
+            keep_tex=keep_tex,
+            progress=progress,
+        )
+
+    monkeypatch.setattr(
+        _commands_study,
+        "generate_priority_report",
+        generate_test_priority_report,
+    )
     session = ChatSession(
         config=ChatConfig(api_key="test-key"),
         conversation=Conversation(),
@@ -221,12 +256,30 @@ def test_priority_command_prints_local_priority_scan(
     out = capsys.readouterr().out
 
     assert result.output is None
+    assert "Preparing indexed materials for priority analysis" in out
+    assert "Read material source @past-exams/2024.md." in out
+    assert "Indexed @past-exams/2024.md (1 chunks)." in out
+    assert "Wrote index cache" in out
+    assert "Indexed 1 enabled source(s) across 1 chunk(s)." in out
+    assert "Analyzing recurring topics from enabled materials" in out
+    assert "Ran priority.scan --sources 1 --chunks 1." in out
+    assert "Read source 1/1: @past-exams/2024.md (1 chunk(s))." in out
+    assert "Read @past-exams/2024.md chunk 1/1" in out
+    assert "Generating printable priority sheet" in out
+    assert "Ran priority.report --topics" in out
+    assert "Using deterministic local output (no model configured)." in out
+    assert "Wrote temporary LaTeX" in out
+    assert "Ran _FakePriorityPdfCompiler.compile" in out
+    assert "Wrote PDF" in out
+    assert "Wrote verification sidecar" in out
+    assert "Priority report verified in" in out
     assert "Local priority scan" in out
     assert "graphs" in out
-    assert "exam marks 10" in out
-    assert "Priority report saved" in out
+    assert "High-yield" in out
+    assert "exam marks" not in out
+    assert "Priority sheet saved" in out
     assert "Downloads" in out
-    assert list((tmp_path / "Downloads").glob("hephaistos-priority-*.html"))
+    assert list((tmp_path / "Downloads").glob("hephaistos-priority-*.pdf"))
 
 
 def test_command_registry_includes_memory_and_recommend() -> None:

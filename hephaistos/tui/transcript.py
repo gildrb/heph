@@ -15,6 +15,7 @@ from hephaistos.tui.session_state import TuiRuntimeState, TuiTranscriptEntry
 
 try:
     from rich.markdown import Markdown
+    from rich.padding import Padding
     from rich.segment import Segment
     from rich.style import Style as _RichStyle
     from rich.text import Text as _RichText
@@ -22,6 +23,7 @@ try:
     from textual.widgets import OptionList, RichLog, Static
 except ImportError:
     Markdown = None  # ty:ignore[invalid-assignment]
+    Padding = None  # ty:ignore[invalid-assignment]
     Segment = None  # ty:ignore[invalid-assignment]
     _RichStyle = None  # ty:ignore[invalid-assignment]
     _RichText = None  # ty:ignore[invalid-assignment]
@@ -31,12 +33,14 @@ except ImportError:
     Static = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
-    from rich.console import Console, ConsoleOptions, RenderResult
+    from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 
     from hephaistos.chat.session import ChatSession
 
 _TRANSCRIPT_ENTRY_GAP = ""
 _TRANSCRIPT_HORIZONTAL_PADDING = 0
+_TRANSCRIPT_TAIL_TOLERANCE = 1
+_REPLY_TRANSCRIPT_HORIZONTAL_PADDING = 2
 _USER_TRANSCRIPT_HORIZONTAL_PADDING = 2
 _USER_TRANSCRIPT_VERTICAL_PADDING = 1
 
@@ -49,6 +53,7 @@ class _Clearable(Protocol):
 
 class _TranscriptHost(Protocol):
     busy: bool
+    _thinking_label: str
     console: Console
     session: ChatSession
     state: TuiRuntimeState
@@ -82,6 +87,8 @@ class _TranscriptHost(Protocol):
     def _write_transcript_renderable(self, log: RichLog, renderable: object) -> None: ...
 
     def _scroll_transcript_to_end(self, log: RichLog) -> None: ...
+
+    def _transcript_should_follow_tail(self, log: RichLog) -> bool: ...
 
     def _write_transcript_lines(
         self,
@@ -169,10 +176,17 @@ def _evidence_metadata_style() -> _RichStyle:
     return _RichStyle.parse(f"dim {current_palette().dim}")
 
 
-def _markdown_renderable(entry: TuiTranscriptEntry) -> object:
+def _markdown_renderable(entry: TuiTranscriptEntry) -> RenderableType:
     if entry.evidence and entry.evidence.items:
         return _EvidenceMarkdown(entry.content, _evidence_metadata_style())
     return Markdown(entry.content)
+
+
+def _reply_renderable(entry: TuiTranscriptEntry) -> RenderableType:
+    renderable = _markdown_renderable(entry)
+    if Padding is None:
+        return renderable
+    return Padding(renderable, (0, _REPLY_TRANSCRIPT_HORIZONTAL_PADDING))
 
 
 class TuiTranscriptMixin:
@@ -217,13 +231,27 @@ class TuiTranscriptMixin:
     def _write_transcript_renderable(
         self: _TranscriptHost, log: RichLog, renderable: object
     ) -> None:
-        if log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
-            log.write(renderable)
+        follow_tail = self._transcript_should_follow_tail(log)
+        previous_scroll_y = log.scroll_y
+        previous_auto_scroll = log.auto_scroll
+        if not follow_tail:
+            log.auto_scroll = False
+        try:
+            if log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
+                log.write(renderable)
+            else:
+                width = max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING)
+                log.write(renderable, width=width)
+        finally:
+            if not follow_tail:
+                log.auto_scroll = previous_auto_scroll
+                log.scroll_y = previous_scroll_y
+        if follow_tail:
             self._scroll_transcript_to_end(log)
-            return
-        width = max(1, log.size.width - _TRANSCRIPT_HORIZONTAL_PADDING)
-        log.write(renderable, width=width)
-        self._scroll_transcript_to_end(log)
+
+    @staticmethod
+    def _transcript_should_follow_tail(log: RichLog) -> bool:
+        return log.scroll_y >= log.max_scroll_y - _TRANSCRIPT_TAIL_TOLERANCE
 
     @staticmethod
     def _scroll_transcript_to_end(log: RichLog) -> None:
@@ -285,7 +313,7 @@ class TuiTranscriptMixin:
     def _write_transcript_entry(self: _TranscriptHost, entry: TuiTranscriptEntry) -> None:
         log = self.query_one("#transcript", RichLog)
         if entry.kind == "markdown":
-            self._write_transcript_renderable(log, _markdown_renderable(entry))
+            self._write_transcript_renderable(log, _reply_renderable(entry))
         elif entry.kind == "user":
             self._write_user_transcript_lines(log, entry.content)
         elif entry.kind == "ansi":
@@ -349,6 +377,7 @@ class TuiTranscriptMixin:
     def _finish_turn(self: _TranscriptHost) -> None:
         self.busy = False
         self.abort_event.clear()
+        self._thinking_label = "thinking"
         self._stop_thinking_animation()
         self._refresh_status("ready")
         self._refresh_footer_hints()

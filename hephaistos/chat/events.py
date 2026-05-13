@@ -103,6 +103,8 @@ def render_turn_event(event: TurnEvent) -> str:
         return f"{event.message}\n"
     if isinstance(event, CompactRequestEvent | TurnCompleteEvent):
         return ""
+    if event.code in {"model_request", "model_delta", "model_complete"}:
+        return ""
     if event.code == "verification":
         return f"\n{event.message}\n"
     return f"\n[{event.message}]\n"

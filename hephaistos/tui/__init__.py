@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, ClassVar
 
 from hephaistos.armory.search import SearchResult, load_known_armories
 from hephaistos.parameters.cli import load_config
-from hephaistos.parameters.settings import load_app_settings
+from hephaistos.parameters.settings import (
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+    ACTIVITY_TRACE_TOOL_CALLS,
+    load_app_settings,
+)
 from hephaistos.providers.catalog import prefetch_provider_model_catalogs
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.terminal import ThemePalette, current_palette, set_theme
@@ -47,8 +52,21 @@ from hephaistos.tui.routing import (
     tui_input_route,
 )
 from hephaistos.tui.search_screen import SearchScreen
+from hephaistos.tui.session_actions import (
+    create_startup_session,
+    get_history_path,
+    resolve_armory_session,
+    save_on_exit,
+)
+from hephaistos.tui.session_actions import (
+    start_fresh_session as start_fresh_session,
+)
 from hephaistos.tui.session_state import TuiCaptureWriter, TuiRuntimeState, TuiTranscriptEntry
-from hephaistos.tui.shell import command_output_text, run_shell_escape_captured
+from hephaistos.tui.shell import (
+    command_output_text,
+    filter_command_activity_details,
+    run_shell_escape_captured,
+)
 from hephaistos.tui.slash_command import (
     command_help,
     slash_suggestion,
@@ -65,7 +83,6 @@ if TYPE_CHECKING:
 
     from hephaistos.chat.session import ChatSession
     from hephaistos.commands import CommandRegistry
-    from hephaistos.runtime import ChatConfig
 
 try:
     from rich.markdown import Markdown
@@ -104,44 +121,6 @@ def get_registry() -> CommandRegistry:
     from hephaistos.commands import get_registry as commands_get_registry
 
     return commands_get_registry()
-
-
-def start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatSession:
-    from hephaistos.shell.armory_actions import (
-        start_fresh_session as shell_start_fresh_session,
-    )
-
-    return shell_start_fresh_session(session, armory_path)
-
-
-def create_startup_session(config: ChatConfig) -> ChatSession:
-    from hephaistos.shell.lifecycle import (
-        create_startup_session as shell_create_startup_session,
-    )
-
-    return shell_create_startup_session(config)
-
-
-def get_history_path(session: ChatSession) -> Path:
-    from hephaistos.shell.lifecycle import (
-        get_history_path as shell_get_history_path,
-    )
-
-    return shell_get_history_path(session)
-
-
-def save_on_exit(session: ChatSession) -> None:
-    from hephaistos.shell.lifecycle import save_on_exit as shell_save_on_exit
-
-    shell_save_on_exit(session)
-
-
-def resolve_armory_session(path: str) -> ChatSession:
-    from hephaistos.chat.cli import (
-        resolve_armory_session as chat_resolve_armory_session,
-    )
-
-    return chat_resolve_armory_session(path)
 
 
 _tui_dependency_message = tui_dependency_message
@@ -192,6 +171,8 @@ _slash_suggestion = slash_suggestion
 
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
 _SIDEBAR_MIN_WINDOW_WIDTH = 120
+# Let the terminal own click-drag selection so the whole TUI is copyable.
+_TUI_ENABLE_MOUSE = False
 
 
 def _completion_menu_scroll_y(
@@ -221,6 +202,7 @@ _TuiInputRoute = TuiInputRoute
 
 _command_output_text = command_output_text
 _run_shell_escape_captured = run_shell_escape_captured
+_filter_command_activity_details = filter_command_activity_details
 
 
 class SlashSuggester(Suggester):
@@ -270,6 +252,7 @@ class HephaistosTui(
         self.completion_candidates: list[CompletionCandidate] = []
         self._thinking_timer: object = None
         self._thinking_start: float = 0.0
+        self._thinking_label = "thinking"
         self._focused_msg_index: int | None = None
         self._armory_inline_active = False
         self._armory_current = active_session.armory_path or Path.home()
@@ -314,7 +297,8 @@ class HephaistosTui(
                     yield w.option_list(id="materials-list")
                     yield w.static("", id="materials-footer")
                 yield w.static("", id="thinking-indicator")
-                with w.vertical(id="composer-frame"):
+                with w.horizontal(id="composer-frame"):
+                    yield w.static("▸", id="composer-prompt")
                     yield w.input(
                         placeholder='Ask anything... "What do I need to study next?"',
                         id="composer",
@@ -783,6 +767,7 @@ class HephaistosTui(
             self.exit()
             return
 
+        self._thinking_label = "working"
         self._append_user(value)
         self.busy = True
         self.abort_event.clear()
@@ -793,11 +778,31 @@ class HephaistosTui(
         from hephaistos.terminal.input import handle_input
 
         history = InputHistory(self.state.history)
-        stdout = _TuiCaptureWriter()
-        stderr = _TuiCaptureWriter()
+        streamed_line = False
+        activity_trace_mode = load_app_settings().activity_trace_mode
+        stream_activity = activity_trace_mode == ACTIVITY_TRACE_TOOL_CALLS
+
+        def stream_notice(line: str) -> None:
+            nonlocal streamed_line
+            streamed_line = True
+            self.call_from_thread(self._append_notice, line)
+
+        line_callback = stream_notice if stream_activity else None
+        stdout = _TuiCaptureWriter(on_line=line_callback)
+        stderr = _TuiCaptureWriter(on_line=line_callback)
         with redirect_stdout(stdout), redirect_stderr(stderr):
             new_session, should_continue = handle_input(self.session, value, history)
-        output = _command_output_text(stdout, stderr)
+        stdout.flush_pending()
+        stderr.flush_pending()
+        if streamed_line:
+            output = ""
+        else:
+            output = _command_output_text(stdout, stderr)
+            if activity_trace_mode in {
+                ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+                ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+            }:
+                output = _filter_command_activity_details(output)
         self.call_from_thread(
             self._finish_external_command, new_session, history.entries, output, should_continue
         )
@@ -844,6 +849,8 @@ class HephaistosTui(
         self._handle_external_input("/evidence")
 
     def _run_turn(self, user_input: str) -> None:
+        last_activity_line = ""
+
         def on_reply(reply: str) -> None:
             self.call_from_thread(self._append_assistant_reply, reply)
 
@@ -852,6 +859,13 @@ class HephaistosTui(
 
         def on_progress(progress: str) -> None:
             self.call_from_thread(self._refresh_status, f"assistant {progress}")
+
+        def on_activity(line: str) -> None:
+            nonlocal last_activity_line
+            if line == last_activity_line:
+                return
+            last_activity_line = line
+            self.call_from_thread(self._append_notice, line)
 
         def on_error(error: str) -> None:
             self.call_from_thread(self._append_error, error)
@@ -868,6 +882,7 @@ class HephaistosTui(
             on_error=on_error,
             on_finish=on_finish,
             on_progress=on_progress,
+            on_activity=on_activity,
         )
 
     def _completion_menu_visible(self) -> bool:
@@ -962,7 +977,7 @@ class HephaistosTui(
     def _start_thinking_animation(self) -> None:
         self._thinking_start = time.monotonic()
         indicator = self.query_one("#thinking-indicator", Static)
-        indicator.update(f"[dim]{_THINKING_FRAMES[0]} thinking...[/dim]")
+        indicator.update(f"[dim]{_THINKING_FRAMES[0]} {self._thinking_label}...[/dim]")
         indicator.remove_class("hidden")
         indicator.add_class("active")
         self._refresh_footer_hints()
@@ -975,7 +990,7 @@ class HephaistosTui(
         elapsed = time.monotonic() - self._thinking_start
         frame_idx = int(elapsed / 0.12) % len(_THINKING_FRAMES)
         indicator = self.query_one("#thinking-indicator", Static)
-        indicator.update(f"[dim]{_THINKING_FRAMES[frame_idx]} thinking...[/dim]")
+        indicator.update(f"[dim]{_THINKING_FRAMES[frame_idx]} {self._thinking_label}...[/dim]")
 
     def _stop_thinking_animation(self) -> None:
         if self._thinking_timer is not None:
@@ -1021,7 +1036,7 @@ def run_tui(session: ChatSession | None = None) -> None:
     try:
         while True:
             palette = current_palette()
-            HephaistosTui(session_ref[0], state, palette).run()
+            HephaistosTui(session_ref[0], state, palette).run(mouse=_TUI_ENABLE_MOUSE)
 
             pending_input = state.pending_input
             state.pending_input = None

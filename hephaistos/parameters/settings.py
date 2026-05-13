@@ -18,6 +18,15 @@ DEFAULT_THEME: Final[str] = "forge"
 THEME_PRESETS: Final[tuple[str, ...]] = ("forge", "light", "high_contrast")
 INTERFACE_MODES: Final[tuple[str, ...]] = ("tui",)
 DEFAULT_INTERFACE_MODE: Final[str] = "tui"
+ACTIVITY_TRACE_TOOL_CALLS: Final[str] = "tool_calls"
+ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: Final[str] = "minimal_tool_calls"
+ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: Final[str] = "hidden_tool_calls"
+ACTIVITY_TRACE_MODES: Final[tuple[str, ...]] = (
+    ACTIVITY_TRACE_TOOL_CALLS,
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+)
+DEFAULT_ACTIVITY_TRACE_MODE: Final[str] = ACTIVITY_TRACE_TOOL_CALLS
 BOOL_KEYS: Final[frozenset[str]] = frozenset(
     {
         "analytics_enabled",
@@ -37,6 +46,7 @@ STRING_KEYS: Final[frozenset[str]] = frozenset(
         "default_armory_path",
         "last_armory_path",
         "interface_mode",
+        "activity_trace_mode",
     }
 )
 INT_KEYS: Final[frozenset[str]] = frozenset({"max_tokens", "rag_context_budget", "session_count"})
@@ -50,6 +60,7 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "theme",
     "default_armory_path",
     "interface_mode",
+    "activity_trace_mode",
     "analytics_enabled",
     "crash_reports_enabled",
     "supermemory_enabled",
@@ -86,6 +97,7 @@ class AppSettings:
     default_armory_path: str = ""
     last_armory_path: str = ""
     interface_mode: str = DEFAULT_INTERFACE_MODE
+    activity_trace_mode: str = DEFAULT_ACTIVITY_TRACE_MODE
     analytics_enabled: bool = False
     crash_reports_enabled: bool = False
     supermemory_enabled: bool = False
@@ -175,6 +187,13 @@ def normalize_setting_value(key: str, value: object) -> object:
         mode = str(value).strip().lower()
         if mode not in INTERFACE_MODES:
             raise ValueError(f"interface_mode must be one of: {', '.join(INTERFACE_MODES)}")
+        return mode
+    if key == "activity_trace_mode":
+        mode = str(value).strip().lower()
+        if mode not in ACTIVITY_TRACE_MODES:
+            raise ValueError(
+                f"activity_trace_mode must be one of: {', '.join(ACTIVITY_TRACE_MODES)}"
+            )
         return mode
     if key == "default_armory_path":
         raw = str(value).strip()
@@ -266,11 +285,17 @@ def load_app_settings() -> AppSettings:
     interface_mode = str(raw.get("interface_mode", DEFAULT_INTERFACE_MODE)).strip().lower()
     if interface_mode not in INTERFACE_MODES:
         interface_mode = DEFAULT_INTERFACE_MODE
+    activity_trace_mode = (
+        str(raw.get("activity_trace_mode", DEFAULT_ACTIVITY_TRACE_MODE)).strip().lower()
+    )
+    if activity_trace_mode not in ACTIVITY_TRACE_MODES:
+        activity_trace_mode = DEFAULT_ACTIVITY_TRACE_MODE
     return AppSettings(
         theme=theme,
         default_armory_path=default_armory,
         last_armory_path=last_armory,
         interface_mode=interface_mode,
+        activity_trace_mode=activity_trace_mode,
         analytics_enabled=_coerce_bool(raw.get("analytics_enabled"), default=False),
         crash_reports_enabled=_coerce_bool(raw.get("crash_reports_enabled"), default=False),
         supermemory_enabled=_coerce_bool(raw.get("supermemory_enabled"), default=False),

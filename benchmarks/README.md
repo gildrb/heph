@@ -410,11 +410,17 @@ rank real academic topics and reject boilerplate/OCR noise?"
   "id": "mfi-priority",
   "domain": "mathematics",
   "expected_topics": ["geometrische reihe"],
+  "expected_ordered_topics": ["geometrische reihe", "ableitung funktionen"],
+  "expected_mark_totals": {"geometrische reihe": 8},
+  "expected_tiers": {"geometrische reihe": "High-yield"},
   "forbidden_topics": ["jesse ratzkin", "universität würzburg"],
   "expected_past_exam_sources": ["materials/mfi-past-exam.md"],
   "limit": 6
 }
 ```
+
+Use `expected_ordered_topics`, `expected_mark_totals`, and `expected_tiers`
+when a case needs to prove exam weighting rather than only topic presence.
 
 Run:
 

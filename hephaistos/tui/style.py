@@ -49,7 +49,7 @@ RichLog {{
     color: {p.text};
 }}
 #transcript-spacer {{
-    height: 0;
+    height: 1;
     background: {bg};
     color: transparent;
 }}
@@ -232,12 +232,25 @@ RichLog {{
     display: block;
 }}
 #composer-frame {{
+    layout: horizontal;
     height: 3;
     min-height: 3;
     max-height: 3;
     width: 100%;
     max-width: 100%;
+    margin-top: 1;
     padding: 1 0;
+    background: {user_bg};
+    color: {p.text};
+}}
+#composer-prompt {{
+    height: 1;
+    min-height: 1;
+    max-height: 1;
+    width: 2;
+    min-width: 2;
+    max-width: 2;
+    padding: 0 0;
     background: {user_bg};
     color: {p.text};
 }}
@@ -304,7 +317,7 @@ OptionList:focus > .option-list--option-highlighted {{
     max-height: 1;
     width: 100%;
     max-width: 100%;
-    padding: 0 1;
+    padding: 0 0;
     background: {user_bg};
     color: {p.text};
 }}
@@ -341,7 +354,7 @@ Input {{
     min-height: 1;
     max-height: 1;
     border: none;
-    padding: 0 1;
+    padding: 0 0;
     background: {user_bg};
     background-tint: {bt};
     color: {p.text};

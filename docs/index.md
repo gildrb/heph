@@ -32,6 +32,21 @@ heph
 heph --version
 ```
 
+Optional (needed for `/priority` PDF generation):
+
+```bash
+# macOS
+brew install --cask mactex-no-gui
+
+# Debian / Ubuntu
+sudo apt install texlive-latex-extra latexmk
+
+# Windows
+winget install MiKTeX.MiKTeX
+```
+
+Without LaTeX, `/priority` saves a `.tex` draft and prints install guidance.
+
 > **Zero-config**: Hephaistos uses Pollinations AI by default -- no API key
 > or account needed. Just run `heph` and start studying.
 
@@ -244,7 +259,7 @@ Useful shell commands:
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
 | /stats | Show session, armory, and study progress stats |
-| /priority | Find priority topics and prerequisites |
+| /priority | Generate a printable priority PDF cheat sheet |
 | /mode | Set study autonomy mode |
 | /autopilot | Run a bounded autonomous study session |
 | /exam | Start an active-recall exam question |

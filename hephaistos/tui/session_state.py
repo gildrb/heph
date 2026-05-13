@@ -8,7 +8,9 @@ workspace services.
 from __future__ import annotations
 
 import sys
+import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import StringIO
 from typing import TYPE_CHECKING
@@ -43,12 +45,47 @@ class TuiCaptureWriter(StringIO):
 
     encoding = "utf-8"
 
-    def __init__(self) -> None:
+    def __init__(self, on_line: Callable[[str], None] | None = None) -> None:
         super().__init__()
         self.original_stdout = sys.stdout
+        self._on_line = on_line
+        self._line_buffer = ""
+        self._lock = threading.Lock()
+        self.emitted_line = False
 
     def isatty(self) -> bool:
         return True
 
     def fileno(self) -> int:
         return self.original_stdout.fileno()
+
+    def write(self, s: str) -> int:
+        with self._lock:
+            written = super().write(s)
+            if self._on_line is None or not s:
+                return written
+            self._line_buffer += s
+            self._drain_complete_lines()
+            return written
+
+    def flush_pending(self) -> None:
+        with self._lock:
+            if self._on_line is None:
+                return
+            pending = self._line_buffer.strip()
+            self._line_buffer = ""
+            if pending:
+                self.emitted_line = True
+                self._on_line(pending)
+
+    def _drain_complete_lines(self) -> None:
+        callback = self._on_line
+        if callback is None:
+            return
+        while "\n" in self._line_buffer:
+            line, self._line_buffer = self._line_buffer.split("\n", 1)
+            clean = line.strip()
+            if not clean:
+                continue
+            self.emitted_line = True
+            callback(clean)

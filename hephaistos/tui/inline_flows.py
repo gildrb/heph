@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import inspect
+import os
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
 
 from hephaistos.chat import storage as chat_storage
@@ -11,7 +13,15 @@ from hephaistos.chat.provider_selection import activate_provider_for_session
 from hephaistos.chat.session import list_armory_sessions, resume_session, save_session
 from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.matching import ranked_matches
-from hephaistos.parameters.settings import THEME_PRESETS, load_app_settings, save_setting
+from hephaistos.parameters.settings import (
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+    ACTIVITY_TRACE_MODES,
+    ACTIVITY_TRACE_TOOL_CALLS,
+    THEME_PRESETS,
+    load_app_settings,
+    save_setting,
+)
 from hephaistos.privacy.consent import (
     analytics_backend_available,
     analytics_enabled,
@@ -23,9 +33,10 @@ from hephaistos.privacy.consent import (
 from hephaistos.providers import oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import (
+    GLOBAL_API_KEY_ENV,
     clear_key,
     get_volatile,
-    resolve_key,
+    retrieve_key,
     set_volatile,
     store_key,
 )
@@ -50,6 +61,26 @@ if TYPE_CHECKING:
 
 _P = ParamSpec("_P")
 _WidgetT = TypeVar("_WidgetT")
+
+_ACTIVITY_TRACE_LABELS = {
+    ACTIVITY_TRACE_TOOL_CALLS: "Tool calls",
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "Minimal tool calls",
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "Hidden tool calls",
+}
+_ACTIVITY_TRACE_DESCRIPTIONS = {
+    ACTIVITY_TRACE_TOOL_CALLS: "live reads, commands, model calls, results",
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "compact status and final summary",
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "hide internal activity lines",
+}
+_ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in _ACTIVITY_TRACE_LABELS.items()}
+
+
+@dataclass(frozen=True)
+class _LogoutTarget:
+    slug: str
+    kind: str
+    label: str
+    description: str
 
 
 class _StyleObject(Protocol):
@@ -146,6 +177,8 @@ class _InlineFlowHost(Protocol):
 
     def _privacy_settings_summary(self) -> str: ...
 
+    def _activity_trace_summary(self) -> str: ...
+
     def _privacy_option_description(
         self,
         *,
@@ -157,6 +190,8 @@ class _InlineFlowHost(Protocol):
     def _open_privacy_flow(self) -> None: ...
 
     def _open_appearance_flow(self) -> None: ...
+
+    def _open_activity_trace_flow(self) -> None: ...
 
     def _model_flow_options(
         self,
@@ -171,7 +206,9 @@ class _InlineFlowHost(Protocol):
         choices: list[tuple[str, str, str, bool]],
     ) -> None: ...
 
-    def _logout_targets(self) -> list[tuple[str, str, str]]: ...
+    def _logout_targets(self) -> list[_LogoutTarget]: ...
+
+    def _environment_logout_credentials(self) -> list[str]: ...
 
     def _format_sessions_listing(self, sessions: list[chat_storage.SessionRecord]) -> str: ...
 
@@ -186,6 +223,8 @@ class _InlineFlowHost(Protocol):
     def _handle_privacy_choice(self, label: str) -> None: ...
 
     def _handle_appearance_choice(self, label: str) -> None: ...
+
+    def _handle_activity_trace_choice(self, label: str) -> None: ...
 
     def _refresh_tui_css(self) -> None: ...
 
@@ -291,6 +330,7 @@ class TuiInlineFlowMixin:
             options=[
                 ("Privacy & Diagnostics", self._privacy_settings_summary()),
                 ("Appearance", f"theme: {settings.theme}"),
+                ("Activity trace", self._activity_trace_summary()),
                 ("Login", f"model source: {current}"),
                 ("Logout", "clear stored credentials"),
             ],
@@ -300,6 +340,10 @@ class TuiInlineFlowMixin:
         analytics = "analytics on" if analytics_enabled() else "analytics off"
         crashes = "crash reports on" if crash_reports_enabled() else "crash reports off"
         return f"{analytics}, {crashes}"
+
+    def _activity_trace_summary(self: _InlineFlowHost) -> str:
+        mode = load_app_settings().activity_trace_mode
+        return _ACTIVITY_TRACE_LABELS.get(mode, _ACTIVITY_TRACE_LABELS[ACTIVITY_TRACE_TOOL_CALLS])
 
     def _privacy_option_description(
         self: _InlineFlowHost,
@@ -350,6 +394,25 @@ class TuiInlineFlowMixin:
                     "current theme" if theme == current else "theme preset",
                 )
                 for theme in THEME_PRESETS
+            ],
+        )
+
+    def _open_activity_trace_flow(self: _InlineFlowHost) -> None:
+        current = load_app_settings().activity_trace_mode
+        self._open_inline_menu(
+            name="settings",
+            step="activity_trace",
+            title="Settings  Activity trace",
+            options=[
+                (
+                    _ACTIVITY_TRACE_LABELS[mode],
+                    (
+                        f"{_ACTIVITY_TRACE_DESCRIPTIONS[mode]}  current"
+                        if mode == current
+                        else _ACTIVITY_TRACE_DESCRIPTIONS[mode]
+                    ),
+                )
+                for mode in ACTIVITY_TRACE_MODES
             ],
         )
 
@@ -419,17 +482,30 @@ class TuiInlineFlowMixin:
 
     def _open_logout_flow(self: _InlineFlowHost) -> None:
         targets = self._logout_targets()
+        environment_credentials = self._environment_logout_credentials()
         if not targets:
+            if environment_credentials:
+                self._append_notice(
+                    "No stored credentials found. Environment credentials cannot be cleared "
+                    f"inside Hephaistos: {', '.join(environment_credentials)}."
+                )
+                return
             self._append_notice(
                 "No stored credentials found. Env keys must be unset outside Hephaistos."
             )
             return
-        options = [(slug, description) for slug, _kind, description in targets]
-        options.append(("All", "Clear every stored subscription and API key"))
+        options = [(target.label, target.description) for target in targets]
+        if environment_credentials:
+            self._append_notice(
+                "Environment credentials stay outside Hephaistos: "
+                f"{', '.join(environment_credentials)}."
+            )
+        options.append(("All", "clear shown"))
+        title = "Logout  choose stored credentials to clear"
         self._open_inline_menu(
             name="logout",
             step="menu",
-            title="Logout  choose credentials to clear",
+            title=title,
             options=options,
         )
 
@@ -488,16 +564,45 @@ class TuiInlineFlowMixin:
             ],
         )
 
-    def _logout_targets(self: _InlineFlowHost) -> list[tuple[str, str, str]]:
+    def _logout_targets(self: _InlineFlowHost) -> list[_LogoutTarget]:
         pc = ProviderConfig.load()
-        targets: list[tuple[str, str, str]] = []
+        targets: list[_LogoutTarget] = []
         for slug in sorted(oauth.list_providers()):
             display = pc.providers[slug].display_name if slug in pc.providers else slug
-            targets.append((slug, "oauth", f"{display} subscription"))
+            targets.append(
+                _LogoutTarget(
+                    slug=slug,
+                    kind="oauth",
+                    label=_oauth_logout_label(slug, display),
+                    description="configured",
+                )
+            )
         for slug, provider in pc.providers.items():
-            if resolve_key(slug, provider.api_key_env) or get_volatile(slug):
-                targets.append((slug, "api_key", f"{provider.display_name} API key"))
+            has_keychain_key = retrieve_key(slug) is not None
+            has_volatile_key = get_volatile(slug) is not None
+            if not has_keychain_key and not has_volatile_key:
+                continue
+            targets.append(
+                _LogoutTarget(
+                    slug=slug,
+                    kind="api_key",
+                    label=_api_key_logout_label(provider.display_name),
+                    description="configured",
+                )
+            )
         return targets
+
+    def _environment_logout_credentials(self: _InlineFlowHost) -> list[str]:
+        pc = ProviderConfig.load()
+        credentials: list[str] = []
+        if os.environ.get(GLOBAL_API_KEY_ENV, "").strip():
+            credentials.append(f"{GLOBAL_API_KEY_ENV} global override")
+        for provider in pc.providers.values():
+            if not provider.api_key_env:
+                continue
+            if os.environ.get(provider.api_key_env, "").strip():
+                credentials.append(f"{provider.display_name} ({provider.api_key_env})")
+        return credentials
 
     def _handle_inline_flow_key(self: _InlineFlowHost, event: events.Key) -> bool:
         composer = self.query_one("#composer", Input)
@@ -563,6 +668,8 @@ class TuiInlineFlowMixin:
                     self._open_privacy_flow()
                 elif label == "Appearance":
                     self._open_appearance_flow()
+                elif label == "Activity trace":
+                    self._open_activity_trace_flow()
                 elif label == "Login":
                     self._open_login_flow()
                 elif label == "Logout":
@@ -573,6 +680,9 @@ class TuiInlineFlowMixin:
                 return
             if self._inline_flow.step == "appearance":
                 self._handle_appearance_choice(label)
+                return
+            if self._inline_flow.step == "activity_trace":
+                self._handle_activity_trace_choice(label)
                 return
             return
         if self._inline_flow.name == "models":
@@ -616,6 +726,14 @@ class TuiInlineFlowMixin:
         self._refresh_tui_css()
         self._append_notice(f"theme: {label}")
         self._open_appearance_flow()
+
+    def _handle_activity_trace_choice(self: _InlineFlowHost, label: str) -> None:
+        mode = _ACTIVITY_TRACE_MODE_BY_LABEL.get(label)
+        if mode is None:
+            return
+        save_setting("activity_trace_mode", mode)
+        self._append_notice(f"activity trace: {_ACTIVITY_TRACE_LABELS[mode]}")
+        self._open_activity_trace_flow()
 
     def _refresh_tui_css(self: _InlineFlowHost) -> None:
         self.CSS = _tui_css()
@@ -731,20 +849,20 @@ class TuiInlineFlowMixin:
     def _perform_logout(self: _InlineFlowHost, label: str) -> None:
         targets = self._logout_targets()
         if label == "All":
-            for slug, kind, _description in targets:
-                if kind == "oauth":
-                    oauth.clear_credentials(slug)
+            for target in targets:
+                if target.kind == "oauth":
+                    oauth.clear_credentials(target.slug)
                 else:
-                    clear_key(slug)
+                    clear_key(target.slug)
             self._close_inline_flow("logged out: all providers")
             return
-        for slug, kind, _description in targets:
-            if slug == label:
-                if kind == "oauth":
-                    oauth.clear_credentials(slug)
+        for target in targets:
+            if target.label == label:
+                if target.kind == "oauth":
+                    oauth.clear_credentials(target.slug)
                 else:
-                    clear_key(slug)
-                self._close_inline_flow(f"logged out: {slug}")
+                    clear_key(target.slug)
+                self._close_inline_flow(f"logged out: {target.label}")
                 return
 
     def _perform_model_switch(self: _InlineFlowHost, model: str) -> None:
@@ -814,6 +932,24 @@ def _dedupe_inline_options(options: list[tuple[str, str]]) -> list[tuple[str, st
         seen.add(key)
         deduped.append((label, description))
     return deduped
+
+
+def _api_key_logout_label(display_name: str) -> str:
+    if display_name == "Pollinations AI (free)":
+        return "Pollinations"
+    if display_name == "Z.AI / GLM":
+        return "Z.AI"
+    if display_name.casefold().endswith(" api"):
+        return display_name
+    if display_name.casefold().endswith(" api key"):
+        return display_name
+    return f"{display_name} API key"
+
+
+def _oauth_logout_label(slug: str, display_name: str) -> str:
+    if slug == "openai-codex":
+        return "ChatGPT Plus/Pro"
+    return display_name
 
 
 def _inline_option_label(

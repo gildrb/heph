@@ -18,11 +18,12 @@ import json
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
 from hephaistos.rag import load_or_build
-from hephaistos.study.priority import analyze_priority
+from hephaistos.study.priority import analyze_priority, priority_tier
 
 _DEFAULT_LIMIT = 8
 
@@ -32,6 +33,9 @@ class RawPriorityCase(TypedDict):
     domain: NotRequired[str]
     forbidden_topics: NotRequired[list[str]]
     expected_past_exam_sources: NotRequired[list[str]]
+    expected_ordered_topics: NotRequired[list[str]]
+    expected_mark_totals: NotRequired[dict[str, int]]
+    expected_tiers: NotRequired[dict[str, str]]
     id: NotRequired[str]
     limit: NotRequired[int]
 
@@ -43,6 +47,9 @@ class PriorityBenchmarkCase:
     domain: str | None = None
     forbidden_topics: tuple[str, ...] = ()
     expected_past_exam_sources: tuple[str, ...] = ()
+    expected_ordered_topics: tuple[str, ...] = ()
+    expected_mark_totals: dict[str, int] | None = None
+    expected_tiers: dict[str, str] | None = None
     limit: int | None = None
 
 
@@ -54,9 +61,14 @@ class PriorityCaseResult:
     expected_past_exam_sources: tuple[str, ...]
     actual_topics: tuple[str, ...]
     actual_past_exam_sources: tuple[str, ...]
+    actual_mark_totals: dict[str, int]
+    actual_tiers: dict[str, str]
     missing_topics: tuple[str, ...]
     forbidden_hits: tuple[str, ...]
     missing_past_exam_sources: tuple[str, ...]
+    order_mismatches: tuple[str, ...]
+    mark_total_mismatches: tuple[str, ...]
+    tier_mismatches: tuple[str, ...]
     passed: bool
 
 
@@ -69,6 +81,9 @@ class PriorityBenchmarkReport:
     topic_recall: float
     forbidden_topic_avoidance: float
     past_exam_source_recall: float
+    ordered_topic_accuracy: float
+    mark_total_accuracy: float
+    tier_accuracy: float
     failures: tuple[str, ...]
     results: tuple[PriorityCaseResult, ...]
 
@@ -109,11 +124,58 @@ def _as_raw_cases(payload: object) -> list[RawPriorityCase]:
         raw_sources = raw.get("expected_past_exam_sources")
         if isinstance(raw_sources, list):
             case["expected_past_exam_sources"] = list(raw_sources)
+        raw_ordered = raw.get("expected_ordered_topics")
+        if isinstance(raw_ordered, list):
+            case["expected_ordered_topics"] = list(raw_ordered)
+        raw_marks = raw.get("expected_mark_totals")
+        if isinstance(raw_marks, dict) and all(
+            isinstance(key, str) and isinstance(value, int) for key, value in raw_marks.items()
+        ):
+            case["expected_mark_totals"] = dict(raw_marks)
+        raw_tiers = raw.get("expected_tiers")
+        if isinstance(raw_tiers, dict) and all(
+            isinstance(key, str) and isinstance(value, str) for key, value in raw_tiers.items()
+        ):
+            case["expected_tiers"] = dict(raw_tiers)
         raw_limit = raw.get("limit")
         if isinstance(raw_limit, int):
             case["limit"] = raw_limit
         cases.append(case)
     return cases
+
+
+def _as_string_int_dict(
+    value: object,
+    label: str,
+    case_number: int,
+) -> dict[str, int] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise TypeError(f"case {case_number} {label} must be an object")
+    result: dict[str, int] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip() or not isinstance(item, int):
+            raise ValueError(f"case {case_number} {label} entries must map strings to integers")
+        result[key.strip().lower()] = item
+    return result
+
+
+def _as_string_string_dict(
+    value: object,
+    label: str,
+    case_number: int,
+) -> dict[str, str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise TypeError(f"case {case_number} {label} must be an object")
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip() or not isinstance(item, str) or not item:
+            raise ValueError(f"case {case_number} {label} entries must map strings to strings")
+        result[key.strip().lower()] = item.strip()
+    return result
 
 
 def load_cases(path: Path) -> list[PriorityBenchmarkCase]:
@@ -152,6 +214,15 @@ def load_cases(path: Path) -> list[PriorityBenchmarkCase]:
                     "expected_past_exam_sources",
                     idx,
                 ),
+                expected_ordered_topics=_as_string_tuple(
+                    raw.get("expected_ordered_topics"), "expected_ordered_topics", idx
+                ),
+                expected_mark_totals=_as_string_int_dict(
+                    raw.get("expected_mark_totals"), "expected_mark_totals", idx
+                ),
+                expected_tiers=_as_string_string_dict(
+                    raw.get("expected_tiers"), "expected_tiers", idx
+                ),
                 limit=raw.get("limit"),
             )
         )
@@ -175,6 +246,8 @@ def run_benchmark(
         analysis = analyze_priority(index.all_chunks, limit=case_limit)
         actual_topics = tuple(topic.topic.lower() for topic in analysis.topics)
         actual_sources = tuple(source.lower() for source in analysis.past_exam_sources)
+        actual_mark_totals = {topic.topic.lower(): topic.exam_marks for topic in analysis.topics}
+        actual_tiers = {topic.topic.lower(): priority_tier(topic) for topic in analysis.topics}
         missing_topics = tuple(
             topic for topic in case.expected_topics if topic not in actual_topics
         )
@@ -182,7 +255,20 @@ def run_benchmark(
         missing_sources = tuple(
             source for source in case.expected_past_exam_sources if source not in actual_sources
         )
-        passed = not missing_topics and not forbidden_hits and not missing_sources
+        order_mismatches = _ordered_topic_mismatches(case.expected_ordered_topics, actual_topics)
+        mark_total_mismatches = _mark_total_mismatches(
+            case.expected_mark_totals,
+            actual_mark_totals,
+        )
+        tier_mismatches = _tier_mismatches(case.expected_tiers, actual_tiers)
+        passed = not (
+            missing_topics
+            or forbidden_hits
+            or missing_sources
+            or order_mismatches
+            or mark_total_mismatches
+            or tier_mismatches
+        )
         results.append(
             PriorityCaseResult(
                 case_id=case.case_id,
@@ -191,9 +277,14 @@ def run_benchmark(
                 expected_past_exam_sources=case.expected_past_exam_sources,
                 actual_topics=actual_topics,
                 actual_past_exam_sources=actual_sources,
+                actual_mark_totals=actual_mark_totals,
+                actual_tiers=actual_tiers,
                 missing_topics=missing_topics,
                 forbidden_hits=forbidden_hits,
                 missing_past_exam_sources=missing_sources,
+                order_mismatches=order_mismatches,
+                mark_total_mismatches=mark_total_mismatches,
+                tier_mismatches=tier_mismatches,
                 passed=passed,
             )
         )
@@ -205,6 +296,12 @@ def run_benchmark(
     forbidden_hit_count = sum(len(result.forbidden_hits) for result in results)
     expected_source_count = sum(len(result.expected_past_exam_sources) for result in results)
     missed_source_count = sum(len(result.missing_past_exam_sources) for result in results)
+    order_check_count = sum(len(case.expected_ordered_topics) > 1 for case in cases)
+    order_failure_count = sum(1 for result in results if result.order_mismatches)
+    mark_check_count = sum(len(case.expected_mark_totals or {}) for case in cases)
+    mark_failure_count = sum(len(result.mark_total_mismatches) for result in results)
+    tier_check_count = sum(len(case.expected_tiers or {}) for case in cases)
+    tier_failure_count = sum(len(result.tier_mismatches) for result in results)
     return PriorityBenchmarkReport(
         armory_path=str(armory_path),
         cases=total,
@@ -221,9 +318,68 @@ def run_benchmark(
             if expected_source_count == 0
             else (expected_source_count - missed_source_count) / expected_source_count
         ),
+        ordered_topic_accuracy=(
+            1.0
+            if order_check_count == 0
+            else (order_check_count - order_failure_count) / order_check_count
+        ),
+        mark_total_accuracy=(
+            1.0
+            if mark_check_count == 0
+            else (mark_check_count - mark_failure_count) / mark_check_count
+        ),
+        tier_accuracy=(
+            1.0
+            if tier_check_count == 0
+            else (tier_check_count - tier_failure_count) / tier_check_count
+        ),
         failures=tuple(result.case_id for result in results if not result.passed),
         results=tuple(results),
     )
+
+
+def _ordered_topic_mismatches(
+    expected_ordered_topics: tuple[str, ...],
+    actual_topics: tuple[str, ...],
+) -> tuple[str, ...]:
+    if len(expected_ordered_topics) < 2:
+        return ()
+    positions = {topic: index for index, topic in enumerate(actual_topics)}
+    mismatches: list[str] = []
+    for earlier, later in pairwise(expected_ordered_topics):
+        if earlier not in positions or later not in positions:
+            continue
+        if positions[earlier] > positions[later]:
+            mismatches.append(f"{earlier} should rank before {later}")
+    return tuple(mismatches)
+
+
+def _mark_total_mismatches(
+    expected_mark_totals: dict[str, int] | None,
+    actual_mark_totals: dict[str, int],
+) -> tuple[str, ...]:
+    if not expected_mark_totals:
+        return ()
+    mismatches = []
+    for topic, expected_marks in expected_mark_totals.items():
+        actual_marks = actual_mark_totals.get(topic)
+        if actual_marks != expected_marks:
+            mismatches.append(f"{topic}: expected {expected_marks}, got {actual_marks}")
+    return tuple(mismatches)
+
+
+def _tier_mismatches(
+    expected_tiers: dict[str, str] | None,
+    actual_tiers: dict[str, str],
+) -> tuple[str, ...]:
+    if not expected_tiers:
+        return ()
+    mismatches = []
+    for topic, expected_tier in expected_tiers.items():
+        actual_tier = actual_tiers.get(topic)
+        if actual_tier != expected_tier:
+            mismatches.append(f"{topic}: expected {expected_tier}, got {actual_tier}")
+    return tuple(mismatches)
 
 
 def _format_percent(value: float) -> str:
@@ -239,6 +395,9 @@ def print_text_report(report: PriorityBenchmarkReport) -> None:
     print(f"topic_recall={_format_percent(report.topic_recall)}")
     print(f"forbidden_topic_avoidance={_format_percent(report.forbidden_topic_avoidance)}")
     print(f"past_exam_source_recall={_format_percent(report.past_exam_source_recall)}")
+    print(f"ordered_topic_accuracy={_format_percent(report.ordered_topic_accuracy)}")
+    print(f"mark_total_accuracy={_format_percent(report.mark_total_accuracy)}")
+    print(f"tier_accuracy={_format_percent(report.tier_accuracy)}")
     if report.failures:
         print(f"failures={', '.join(report.failures)}")
 

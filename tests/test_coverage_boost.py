@@ -25,6 +25,7 @@ from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.titles import derive_title
 from hephaistos.materials.cli import register_source_alias
 from hephaistos.memory.workflow import schedule_memory_extraction
+from hephaistos.parameters import settings as settings_store
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.runtime import Conversation, EngineError
 from hephaistos.source.cli import register as register_source_cli
@@ -283,6 +284,123 @@ class TestRunTuiTurn:
             )
 
         assert notices == ["tool: bash; results summarized."]
+
+    def test_activity_callback_streams_live_tool_and_material_lines(self, chat_session) -> None:
+        activity_lines: list[str] = []
+
+        def fake_iter(session, user_input, *, abort):
+            yield MaterialOperationEvent(
+                operation="search_index",
+                message="Searching indexed materials for: integration by parts",
+                metadata={"query": "integration by parts"},
+            )
+            yield ToolCallEvent(
+                call_id="call_1",
+                name="bash",
+                arguments={"command": "rtk rg -n integration materials"},
+                display="  Running: rtk rg -n integration materials",
+            )
+            yield ToolResultEvent(
+                call_id="call_1",
+                name="bash",
+                content="materials/week-3.md:42:integration by parts",
+                summary="materials/week-3.md:42:integration by parts",
+            )
+            yield AssistantDeltaEvent(delta="Grounded answer [E1].")
+
+        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+            run_tui_turn(
+                chat_session,
+                "explain integration by parts",
+                Event(),
+                on_reply=lambda _: None,
+                on_notice=lambda _: None,
+                on_error=lambda _: None,
+                on_finish=lambda: None,
+                on_activity=activity_lines.append,
+            )
+
+        assert activity_lines == [
+            "- Searching indexed materials for: integration by parts",
+            "- Ran bash `rtk rg -n integration materials`",
+            "  -> materials/week-3.md:42:integration by parts",
+        ]
+
+    def test_hidden_activity_trace_suppresses_progress_and_summary(self, chat_session) -> None:
+        notices: list[str] = []
+        progress: list[str] = []
+        activity_lines: list[str] = []
+
+        def fake_iter(session, user_input, *, abort):
+            yield MaterialOperationEvent(
+                operation="search_index",
+                message="Searching indexed materials for: integration by parts",
+                metadata={"query": "integration by parts"},
+            )
+            yield AssistantDeltaEvent(delta="Grounded answer [E1].")
+
+        with (
+            patch("hephaistos.tui.streaming.iter_chat_events", fake_iter),
+            patch(
+                "hephaistos.tui.streaming.load_app_settings",
+                lambda: settings_store.AppSettings(
+                    activity_trace_mode=settings_store.ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
+                ),
+            ),
+        ):
+            run_tui_turn(
+                chat_session,
+                "explain integration by parts",
+                Event(),
+                on_reply=lambda _: None,
+                on_notice=notices.append,
+                on_error=lambda _: None,
+                on_finish=lambda: None,
+                on_progress=progress.append,
+                on_activity=activity_lines.append,
+            )
+
+        assert notices == []
+        assert progress == []
+        assert activity_lines == []
+
+    def test_minimal_activity_trace_reports_summary_without_live_lines(self, chat_session) -> None:
+        notices: list[str] = []
+        progress: list[str] = []
+        activity_lines: list[str] = []
+
+        def fake_iter(session, user_input, *, abort):
+            yield MaterialOperationEvent(
+                operation="search_index",
+                message="Searching indexed materials for: integration by parts",
+                metadata={"query": "integration by parts"},
+            )
+            yield AssistantDeltaEvent(delta="Grounded answer [E1].")
+
+        with (
+            patch("hephaistos.tui.streaming.iter_chat_events", fake_iter),
+            patch(
+                "hephaistos.tui.streaming.load_app_settings",
+                lambda: settings_store.AppSettings(
+                    activity_trace_mode=settings_store.ACTIVITY_TRACE_MINIMAL_TOOL_CALLS
+                ),
+            ),
+        ):
+            run_tui_turn(
+                chat_session,
+                "explain integration by parts",
+                Event(),
+                on_reply=lambda _: None,
+                on_notice=notices.append,
+                on_error=lambda _: None,
+                on_finish=lambda: None,
+                on_progress=progress.append,
+                on_activity=activity_lines.append,
+            )
+
+        assert notices == ["materials: searched `integration by parts`."]
+        assert progress == ["searching materials"]
+        assert activity_lines == []
 
     def test_engine_error_reports_error(self, chat_session) -> None:
         errors: list[str] = []

@@ -2,13 +2,47 @@
 
 from __future__ import annotations
 
+import re
 import subprocess  # nosec B404
 from io import StringIO
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_COMMAND_ACTIVITY_PREFIXES = (
+    "built ",
+    "checking web-backed ",
+    "indexed @",
+    "loaded ",
+    "model synthesis ",
+    "parsed ",
+    "pdf compile ",
+    "priority report verified ",
+    "ran ",
+    "ranked ",
+    "read ",
+    "rendered ",
+    "requesting model ",
+    "scoring ",
+    "waiting on ",
+    "wrote ",
+)
 
 
 def command_output_text(stdout: StringIO, stderr: StringIO) -> str:
     parts = (stdout.getvalue().strip(), stderr.getvalue().strip())
     return "\n".join(part for part in parts if part)
+
+
+def filter_command_activity_details(text: str) -> str:
+    kept = [line for line in text.splitlines() if not _is_command_activity_detail(line)]
+    return "\n".join(kept).strip()
+
+
+def _is_command_activity_detail(line: str) -> bool:
+    clean = _ANSI_ESCAPE_RE.sub("", line).strip().casefold()
+    if not clean.startswith("info:"):
+        return False
+    detail = clean.removeprefix("info:").strip()
+    return detail.startswith(_COMMAND_ACTIVITY_PREFIXES)
 
 
 def run_shell_escape_captured(command: str) -> str:

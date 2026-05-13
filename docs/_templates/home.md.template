@@ -28,6 +28,21 @@ Install the public CLI globally with `uv`:
 
 [[INSTALL_BLOCK]]
 
+Optional (needed for `/priority` PDF generation):
+
+```bash
+# macOS
+brew install --cask mactex-no-gui
+
+# Debian / Ubuntu
+sudo apt install texlive-latex-extra latexmk
+
+# Windows
+winget install MiKTeX.MiKTeX
+```
+
+Without LaTeX, `/priority` saves a `.tex` draft and prints install guidance.
+
 > **Zero-config**: Hephaistos uses Pollinations AI by default -- no API key
 > or account needed. Just run `heph` and start studying.
 

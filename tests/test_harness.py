@@ -434,6 +434,31 @@ class TestIterAgentEvents:
         assert complete.full_text == "hello"
         assert complete.finish_reason == "stop"
 
+    def test_model_stream_emits_activity_notices(
+        self,
+        workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def fake_stream(*_args: object, **_kwargs: object):
+            yield CompletionDelta(content="hello")
+            yield CompletionDelta(content=" world")
+            yield CompletionDelta(finish_reason="stop")
+
+        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+
+        events = list(
+            dispatch_mod.iter_agent_events(
+                ChatConfig(base_url="https://example.invalid", model="test-model"),
+                Conversation(),
+                workspace,
+            )
+        )
+
+        notices = [event for event in events if isinstance(event, NoticeEvent)]
+        assert any(event.code == "model_request" for event in notices)
+        assert any(event.code == "model_delta" for event in notices)
+        assert any(event.code == "model_complete" for event in notices)
+
     def test_first_turn_without_evidence_requires_tool_choice(
         self,
         workspace: Path,

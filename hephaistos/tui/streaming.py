@@ -20,6 +20,12 @@ from hephaistos.chat.events import (
     ToolResultEvent,
     TurnCompleteEvent,
 )
+from hephaistos.parameters.settings import (
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+    ACTIVITY_TRACE_TOOL_CALLS,
+    load_app_settings,
+)
 from hephaistos.runtime import (
     EngineError,
     StreamRecoveryError,
@@ -32,6 +38,7 @@ if TYPE_CHECKING:
 
 _MAX_PROGRESS_TEXT = 64
 _MAX_SUMMARY_TEXT = 160
+_MAX_ACTIVITY_TEXT = 180
 
 
 def _clean_text(text: str) -> str:
@@ -49,6 +56,13 @@ def _metadata_int(metadata: Mapping[str, object], key: str) -> int | None:
     value = metadata.get(key)
     if isinstance(value, int):
         return value
+    return None
+
+
+def _metadata_number(metadata: Mapping[str, object], key: str) -> float | None:
+    value = metadata.get(key)
+    if isinstance(value, int | float):
+        return float(value)
     return None
 
 
@@ -89,6 +103,43 @@ def _compact_tool_call(event: ToolCallEvent) -> str:
         if source:
             return f"open_material {_truncate(source, 72)}"
     return event.name
+
+
+def _activity_line(
+    event: ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
+) -> str | None:
+    if isinstance(event, ToolCallEvent):
+        return f"- Ran {_compact_tool_call(event)}"
+    if isinstance(event, ToolResultEvent):
+        latency = _metadata_number(event.metadata, "latency_ms")
+        elapsed = f" in {latency:.0f}ms" if latency is not None else ""
+        if not event.success:
+            error = event.error or event.summary or "tool failed"
+            return f"  ! {event.name} failed{elapsed}: {_truncate(error, _MAX_ACTIVITY_TEXT)}"
+        summary = _clean_text(event.summary) or _clean_text(event.content)
+        if summary:
+            prefix = f"{event.name} finished{elapsed}: " if latency is not None else ""
+            return f"  -> {prefix}{_truncate(summary, _MAX_ACTIVITY_TEXT)}"
+        return f"  -> {event.name} finished{elapsed}"
+    if isinstance(event, MaterialOperationEvent):
+        return f"- {_truncate(event.message, _MAX_ACTIVITY_TEXT)}"
+    if event.code in {
+        "reading",
+        "writing",
+        "evidence",
+        "model_request",
+        "model_delta",
+        "model_complete",
+        "verification",
+        "context_warning",
+        "tool_runtime",
+        "auto_compact",
+        "manual_compact",
+        "max_turns",
+        "dry_run",
+    }:
+        return f"- {_truncate(event.message, _MAX_ACTIVITY_TEXT)}"
+    return None
 
 
 def _progress_text(
@@ -299,13 +350,22 @@ def run_tui_turn(
     on_error: Callable[[str], None],
     on_finish: Callable[[], None],
     on_progress: Callable[[str], None] | None = None,
+    on_activity: Callable[[str], None] | None = None,
 ) -> None:
     """Run one chat turn and report UI-ready events through callbacks."""
     parts: list[str] = []
     completed_reply: str | None = None
     activity = _TurnActivitySummary()
+    activity_trace_mode = load_app_settings().activity_trace_mode
+    show_full_activity = activity_trace_mode == ACTIVITY_TRACE_TOOL_CALLS
+    show_minimal_activity = activity_trace_mode == ACTIVITY_TRACE_MINIMAL_TOOL_CALLS
+    show_activity = activity_trace_mode != ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
 
     def report_activity() -> None:
+        if not show_activity:
+            return
+        if not show_minimal_activity and on_activity is not None:
+            return
         if summary_lines := activity.lines():
             on_notice("\n".join(summary_lines))
 
@@ -319,9 +379,14 @@ def run_tui_turn(
                 event,
                 ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
             ):
-                activity.record(event)
-                if on_progress is not None:
+                if show_activity:
+                    activity.record(event)
+                if show_activity and on_progress is not None:
                     on_progress(_truncate(_progress_text(event), _MAX_PROGRESS_TEXT))
+                if show_full_activity and on_activity is not None:
+                    line = _activity_line(event)
+                    if line:
+                        on_activity(line)
         report_activity()
         reply = (completed_reply if completed_reply is not None else "".join(parts)).strip()
         if not reply and parts:

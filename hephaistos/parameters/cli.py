@@ -125,6 +125,7 @@ _CONFIG_KEY_TO_ENV = {
     "theme": "",
     "default_armory_path": "",
     "interface_mode": "",
+    "activity_trace_mode": "",
     "analytics_enabled": "HEPHAISTOS_ANALYTICS_ENABLED",
     "crash_reports_enabled": "HEPHAISTOS_CRASH_REPORTS_ENABLED",
     "supermemory_enabled": "",
@@ -141,6 +142,7 @@ _SETTING_DESCRIPTIONS = {
     "theme": "TUI theme preset",
     "default_armory_path": "Startup armory fallback path",
     "interface_mode": "Interface mode",
+    "activity_trace_mode": "Live activity trace verbosity",
     "analytics_enabled": "Anonymous usage analytics opt-in",
     "crash_reports_enabled": "Redacted crash reporting opt-in",
     "supermemory_enabled": "Supermemory sync opt-in",
@@ -158,6 +160,8 @@ def _effective_setting_value(key: str) -> str:
         return app_settings.default_armory_path or "(not set)"
     if key == "interface_mode":
         return app_settings.interface_mode
+    if key == "activity_trace_mode":
+        return app_settings.activity_trace_mode
     if key == "analytics_enabled":
         suffix = " (env override)" if privacy.analytics_env_override() else ""
         availability = "available" if privacy.analytics_backend_available() else "unavailable"
@@ -192,6 +196,7 @@ def _cmd_config_show(_args: argparse.Namespace) -> None:
     print(f"  theme: {_display_setting_value('theme')}")
     print(f"  default_armory_path: {_display_setting_value('default_armory_path')}")
     print(f"  interface_mode: {_display_setting_value('interface_mode')}")
+    print(f"  activity_trace_mode: {_display_setting_value('activity_trace_mode')}")
     print(f"  analytics_enabled: {_display_setting_value('analytics_enabled')}")
     print(f"  crash_reports_enabled: {_display_setting_value('crash_reports_enabled')}")
     print(f"  supermemory_enabled: {_display_setting_value('supermemory_enabled')}")

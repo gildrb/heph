@@ -18,6 +18,7 @@ from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
 from hephaistos.parameters import settings as settings_store
+from hephaistos.providers.config import ProviderConfig, default_config
 from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
@@ -72,6 +73,17 @@ def _keyless_session() -> ChatSession:
         conversation=conversation,
         session_id="session-test",
     )
+
+
+def _clear_credential_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "HEPHAISTOS_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "ZAI_API_KEY",
+        "CUSTOM_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_session_status_for_plain_session() -> None:
@@ -208,6 +220,7 @@ def test_tui_css_keeps_surface_transparent() -> None:
     assert "#status {\n    height: auto;\n    max-height: 2;\n    width: auto;" in css
     assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
     assert "#completion-stack {\n    height: 9;" in css
+    assert "#transcript-spacer {\n    height: 1;" in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
     suggestions_start = css.index("#suggestions {")
@@ -226,8 +239,12 @@ def test_tui_css_keeps_surface_transparent() -> None:
     composer_frame_start = css.index("#composer-frame {")
     composer_frame_end = css.index("}", composer_frame_start)
     composer_frame_block = css[composer_frame_start:composer_frame_end]
+    prompt_start = css.index("#composer-prompt {")
+    prompt_end = css.index("}", prompt_start)
+    prompt_block = css[prompt_start:prompt_end]
     assert "background: transparent;" in transcript_block
     assert f"background: {tui.current_palette().panel};" in composer_frame_block
+    assert f"background: {tui.current_palette().panel};" in prompt_block
     assert f"background: {tui.current_palette().panel};" in composer_block
     assert "scrollbar-size: 0 0;" in suggestions_block
     assert "scrollbar-size-vertical" not in suggestions_block
@@ -411,7 +428,7 @@ def test_transcript_panel_background_only_paints_user_entries() -> None:
     typed_app = cast("TextualApp[None]", app)
 
     async def check_transcript_backgrounds() -> None:
-        async with typed_app.run_test(size=(100, 16)) as pilot:
+        async with typed_app.run_test(size=(100, 18)) as pilot:
             app._append_user("User prompt", mark_working=False)
             app._append_assistant_reply("Assistant reply")
             await pilot.pause()
@@ -451,6 +468,40 @@ def test_transcript_panel_background_only_paints_user_entries() -> None:
             assert _strip_is_panel_filled(transcript.render_line(panel_line_index + 1), panel)
 
     asyncio.run(check_transcript_backgrounds())
+
+
+def test_transcript_pads_assistant_replies_but_not_system_messages() -> None:
+    if tui.RichLog is None:
+        pytest.skip("Textual is not installed")
+
+    state = tui._TuiRuntimeState(armory_home_shown=True)
+    app = tui.HephaistosTui(
+        _plain_session(),
+        state,
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_transcript_padding() -> None:
+        async with typed_app.run_test(size=(40, 16)) as pilot:
+            app._append_assistant_reply("Assistant reply " * 12)
+            app._append_notice("System notice")
+            await pilot.pause()
+
+            transcript = app.query_one("#transcript", tui.RichLog)
+            rendered = [
+                "".join(segment.text for segment in line).rstrip() for line in transcript.lines
+            ]
+            system_index, system_line = next(
+                (index, line) for index, line in enumerate(rendered) if "System notice" in line
+            )
+            reply_lines = [line for line in rendered[:system_index] if line.strip()]
+
+            assert len(reply_lines) > 1
+            assert all(line.startswith("  ") for line in reply_lines)
+            assert system_line.startswith("System notice")
+
+    asyncio.run(check_transcript_padding())
 
 
 def _strip_is_panel_filled(strip: Strip, panel: str) -> bool:
@@ -526,6 +577,9 @@ def test_tui_css_pads_composer_as_full_width_user_block() -> None:
     frame_start = css.index("#composer-frame {")
     frame_end = css.index("}", frame_start)
     frame_block = css[frame_start:frame_end]
+    prompt_start = css.index("#composer-prompt {")
+    prompt_end = css.index("}", prompt_start)
+    prompt_block = css[prompt_start:prompt_end]
     composer_start = css.index("#composer {")
     composer_end = css.index("}", composer_start)
     composer_block = css[composer_start:composer_end]
@@ -535,11 +589,43 @@ def test_tui_css_pads_composer_as_full_width_user_block() -> None:
 
     assert "height: 3;" in frame_block
     assert "width: 100%;" in frame_block
+    assert "layout: horizontal;" in frame_block
     assert "padding: 1 0;" in frame_block
     assert f"background: {panel};" in frame_block
+    assert "width: 2;" in prompt_block
+    assert "padding: 0 0;" in prompt_block
+    assert f"background: {panel};" in prompt_block
     assert "width: 100%;" in composer_block
-    assert "padding: 0 1;" in composer_block
-    assert "padding: 0 1;" in input_block
+    assert "padding: 0 0;" in composer_block
+    assert "padding: 0 0;" in input_block
+
+
+def test_composer_text_is_inset_inside_full_width_chatbox() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_composer_inset() -> None:
+        async with typed_app.run_test(size=(80, 16)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            frame = app.query_one("#composer-frame")
+            prompt = app.query_one("#composer-prompt", tui.Static)
+            composer.value = "eyf"
+            await pilot.pause()
+
+            assert frame.region.x == 0
+            assert frame.region.width == 80
+            assert prompt.region.x == frame.region.x
+            assert str(prompt.render()) == "▸"
+            assert composer.region.x == frame.region.x + 2
+
+    asyncio.run(check_composer_inset())
 
 
 def test_tui_css_reserves_inline_completion_stack_below_composer() -> None:
@@ -561,7 +647,7 @@ def test_tui_css_reserves_inline_completion_stack_below_composer() -> None:
     footer_end = css.index("}", footer_start)
     footer_block = css[footer_start:footer_end]
 
-    assert "margin-top: 1;" not in composer_block
+    assert "margin-top: 1;" in composer_block
     assert "height: 9;" in stack_block
     assert "min-height: 9;" in stack_block
     assert "max-height: 9;" in stack_block
@@ -611,7 +697,7 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             footer = app.query_one("#footer-hints", tui.Static)
             assert frame.region.y == frame_y
             assert stack.region.y == stack_y
-            assert frame.size.width == stack.size.width
+            assert frame.region.width == stack.region.width
             assert str(position.render()) == f"  (1/{suggestions.option_count})"
             assert str(footer.render()).startswith("enter send")
             assert suggestions.size.width == stack.size.width
@@ -991,8 +1077,9 @@ def test_run_tui_appends_pending_command_output_to_transcript(
             nonlocal captured_state
             captured_state = state
 
-        def run(self) -> None:
+        def run(self, *, mouse: bool = True) -> None:
             nonlocal run_count
+            assert mouse is False
             run_count += 1
             assert captured_state is not None
             if run_count == 1:
@@ -1028,8 +1115,8 @@ def test_run_tui_applies_saved_theme_on_startup(monkeypatch: pytest.MonkeyPatch)
             nonlocal captured_palette
             captured_palette = palette
 
-        def run(self) -> None:
-            return
+        def run(self, *, mouse: bool = True) -> None:
+            assert mouse is False
 
     def fake_save_on_exit(_session: ChatSession) -> None:
         return
@@ -1306,6 +1393,7 @@ def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
             assert app._inline_flow.step == "menu"
             assert "Privacy & Diagnostics" in labels
             assert "Appearance" in labels
+            assert "Activity trace" in labels
             assert "Login" in labels
             assert "Logout" in labels
 
@@ -1343,6 +1431,15 @@ def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
             assert "light" in appearance_labels
             assert "high_contrast" in appearance_labels
             assert "Back" not in appearance_labels
+
+            app._open_settings_flow()
+            app._handle_inline_menu_choice("Activity trace")
+            activity_labels = [label for label, _description in app._inline_flow.options]
+
+            assert app._inline_flow.step == "activity_trace"
+            assert "Tool calls" in activity_labels
+            assert "Minimal tool calls" in activity_labels
+            assert "Hidden tool calls" in activity_labels
 
     asyncio.run(check_settings_submenus())
 
@@ -1411,11 +1508,172 @@ def test_settings_inline_toggles_privacy_and_theme(
             assert settings_store.load_app_settings().theme == "light"
             assert "#2C241B" in app.CSS
 
+            app._open_settings_flow()
+            app._submit_inline_flow("Activity trace")
+            app._submit_inline_flow("Hidden tool calls")
+
+            assert settings_store.load_app_settings().activity_trace_mode == (
+                settings_store.ACTIVITY_TRACE_HIDDEN_TOOL_CALLS
+            )
+
     try:
         asyncio.run(check_settings_changes())
     finally:
         set_theme("forge")
         settings_store.invalidate_settings_cache()
+
+
+def test_logout_inline_menu_lists_only_clearable_stored_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    _clear_credential_env(monkeypatch)
+    monkeypatch.setenv("HEPHAISTOS_API_KEY", "sk-global")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env")
+    monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
+    monkeypatch.setattr(
+        "hephaistos.tui.inline_flows.oauth.list_providers",
+        lambda: ["openai-codex"],
+    )
+
+    def fake_retrieve_key(slug: str) -> str | None:
+        return "sk-keychain" if slug == "openai" else None
+
+    def fake_get_volatile(slug: str) -> str | None:
+        return "sk-session" if slug == "zai" else None
+
+    monkeypatch.setattr("hephaistos.tui.inline_flows.retrieve_key", fake_retrieve_key)
+    monkeypatch.setattr("hephaistos.tui.inline_flows.get_volatile", fake_get_volatile)
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_logout_menu() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_logout_flow()
+
+            labels = [label for label, _description in app._inline_flow.options]
+            descriptions = dict(app._inline_flow.options)
+
+            assert labels == [
+                "ChatGPT Plus/Pro",
+                "OpenAI API",
+                "Z.AI",
+                "All",
+            ]
+            assert descriptions["ChatGPT Plus/Pro"] == "configured"
+            assert descriptions["OpenAI API"] == "configured"
+            assert descriptions["Z.AI"] == "configured"
+            assert descriptions["All"] == "clear shown"
+            assert "Pollinations" not in " ".join(labels)
+            assert all(len(label) <= 22 for label in labels)
+            rendered_rows = [
+                f"{label:<22} {description}" for label, description in app._inline_flow.options
+            ]
+            configured_columns = [
+                row.index("configured") for row in rendered_rows if "configured" in row
+            ]
+            assert len(set(configured_columns)) == 1
+            assert any(
+                "HEPHAISTOS_API_KEY global override" in entry.content
+                for entry in app.state.transcript
+            )
+            assert any(
+                "OpenRouter (OPENROUTER_API_KEY)" in entry.content
+                for entry in app.state.transcript
+            )
+
+    asyncio.run(check_logout_menu())
+
+
+def test_logout_inline_names_environment_credentials_when_none_clearable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    _clear_credential_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+    monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
+    monkeypatch.setattr("hephaistos.tui.inline_flows.oauth.list_providers", list)
+    monkeypatch.setattr("hephaistos.tui.inline_flows.retrieve_key", lambda _slug: None)
+    monkeypatch.setattr("hephaistos.tui.inline_flows.get_volatile", lambda _slug: None)
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_logout_notice() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_logout_flow()
+
+            assert app._inline_flow.active is False
+            assert any(
+                "Environment credentials cannot be cleared inside Hephaistos" in entry.content
+                for entry in app.state.transcript
+            )
+            assert any(
+                "OpenAI API (OPENAI_API_KEY)" in entry.content for entry in app.state.transcript
+            )
+
+    asyncio.run(check_logout_notice())
+
+
+def test_logout_inline_clears_selected_credential_kind_for_duplicate_slug(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    _clear_credential_env(monkeypatch)
+    monkeypatch.setattr(ProviderConfig, "load", classmethod(lambda _cls: default_config()))
+    monkeypatch.setattr(
+        "hephaistos.tui.inline_flows.oauth.list_providers",
+        lambda: ["openai-codex"],
+    )
+    monkeypatch.setattr(
+        "hephaistos.tui.inline_flows.retrieve_key",
+        lambda slug: "sk-keychain" if slug == "openai-codex" else None,
+    )
+    monkeypatch.setattr("hephaistos.tui.inline_flows.get_volatile", lambda _slug: None)
+    cleared_oauth: list[str] = []
+    cleared_keys: list[str] = []
+    monkeypatch.setattr(
+        "hephaistos.tui.inline_flows.oauth.clear_credentials",
+        cleared_oauth.append,
+    )
+    monkeypatch.setattr("hephaistos.tui.inline_flows.clear_key", cleared_keys.append)
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_selected_kind() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            app._open_logout_flow()
+
+            labels = [label for label, _description in app._inline_flow.options]
+            assert "ChatGPT Plus/Pro" in labels
+            assert "OpenAI Codex API key" in labels
+
+            app._submit_inline_flow("OpenAI Codex API key")
+
+            assert cleared_keys == ["openai-codex"]
+            assert cleared_oauth == []
+
+    asyncio.run(check_selected_kind())
 
 
 def test_armory_home_text_includes_recent_armories(
@@ -1912,6 +2170,38 @@ def test_transcript_scrolls_to_latest_entry_after_long_output() -> None:
             log = app.query_one("#transcript", tui.RichLog)
             assert log.scroll_y > 0
             assert "latest exam question line" in str(log.lines[-1])
+
+    asyncio.run(check_scroll())
+
+
+def test_transcript_does_not_follow_new_activity_while_reviewing_history() -> None:
+    if tui.Input is None or tui.RichLog is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_scroll() -> None:
+        async with typed_app.run_test(size=(80, 16)) as pilot:
+            await pilot.pause()
+            app._append_plain("\n".join(f"old line {i}" for i in range(60)))
+            await pilot.pause()
+
+            log = app.query_one("#transcript", tui.RichLog)
+            assert log.max_scroll_y > 0
+            log.scroll_y = 0
+            await pilot.pause()
+
+            app._append_notice("info: background tool call completed")
+            await pilot.pause()
+
+            assert log.scroll_y == 0
+            assert "background tool call completed" in str(log.lines[-1])
 
     asyncio.run(check_scroll())
 
@@ -3207,4 +3497,34 @@ def test_tui_runs_external_commands_in_worker(monkeypatch: pytest.MonkeyPatch) -
     app._handle_external_input("/priority")
 
     assert app.busy is True
+    assert app._thinking_label == "working"
     assert calls == ["user:/priority:True", "status:command working", "worker:True"]
+
+
+def test_external_command_streams_notice_lines_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    calls: list[tuple[str, tuple[object, ...]]] = []
+
+    def fake_call_from_thread(fn: object, *args: object) -> None:
+        name = getattr(fn, "__name__", fn.__class__.__name__)
+        calls.append((name, args))
+
+    def fake_handle_input(session: ChatSession, _value: str, _history: object):
+        print("phase 1")
+        print("phase 2", end="")
+        return session, True
+
+    monkeypatch.setattr(app, "call_from_thread", fake_call_from_thread)
+    monkeypatch.setattr("hephaistos.terminal.input.handle_input", fake_handle_input)
+
+    app._run_external_command("/priority")
+
+    streamed = [args[0] for name, args in calls if name == "_append_notice"]
+    assert streamed == ["phase 1", "phase 2"]
+    finish = [args for name, args in calls if name == "_finish_external_command"]
+    assert finish
+    assert finish[0][2] == ""

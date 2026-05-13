@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -57,6 +58,7 @@ from hephaistos.runtime import (
 _log = get_logger("agent.dispatch")
 
 _MAX_TURNS = 20
+_MODEL_STREAM_PROGRESS_SECONDS = 8.0
 _ToolCallFunction = ToolCallFunction
 SteeringQueue = Steering
 
@@ -135,6 +137,16 @@ def _record_usage(
         return
     prompt_chars = sum(len(_content_to_text(message["content"])) for message in api_messages)
     usage.estimate_from_chars(prompt_chars, len(text), model)
+
+
+def _format_duration_ms(milliseconds: float) -> str:
+    if milliseconds < 1000:
+        return f"{milliseconds:.0f}ms"
+    return f"{milliseconds / 1000:.1f}s"
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return (time.perf_counter() - started_at) * 1000
 
 
 def _drain_steering_events(
@@ -271,6 +283,27 @@ def iter_agent_events(
                 }
                 llm_messages = [*llm_messages, criteria_message]
                 yield criteria_notice
+            model_name = config.model or "configured model"
+            schema_count = len(schemas or [])
+            yield NoticeEvent(
+                (
+                    f"Ran model request {model_name} "
+                    f"(turn {turn_idx + 1}, {len(llm_messages)} message(s), "
+                    f"{schema_count} tool schema(s))."
+                ),
+                code="model_request",
+                metadata={
+                    "model": model_name,
+                    "turn": turn_idx + 1,
+                    "message_count": len(llm_messages),
+                    "tool_schema_count": schema_count,
+                },
+            )
+            stream_started_at = time.perf_counter()
+            last_progress_at = stream_started_at
+            content_delta_count = 0
+            content_char_count = 0
+            tool_delta_count = 0
             for delta in stream_completion(
                 config,
                 llm_messages,
@@ -282,15 +315,67 @@ def iter_agent_events(
             ):
                 if delta.content:
                     collected_parts.append(delta.content)
+                    content_delta_count += 1
+                    content_char_count += len(delta.content)
+                    now = time.perf_counter()
+                    if content_delta_count == 1:
+                        yield NoticeEvent(
+                            (
+                                f"Read first model delta from {model_name} "
+                                f"in {_format_duration_ms(_elapsed_ms(stream_started_at))}."
+                            ),
+                            code="model_delta",
+                            metadata={
+                                "model": model_name,
+                                "delta_count": content_delta_count,
+                                "character_count": content_char_count,
+                                "elapsed_ms": round(_elapsed_ms(stream_started_at), 1),
+                            },
+                        )
+                        last_progress_at = now
+                    elif now - last_progress_at >= _MODEL_STREAM_PROGRESS_SECONDS:
+                        yield NoticeEvent(
+                            (
+                                f"Read {content_char_count} model character(s) from "
+                                f"{model_name} across {content_delta_count} delta(s) in "
+                                f"{_format_duration_ms(_elapsed_ms(stream_started_at))}."
+                            ),
+                            code="model_delta",
+                            metadata={
+                                "model": model_name,
+                                "delta_count": content_delta_count,
+                                "character_count": content_char_count,
+                                "elapsed_ms": round(_elapsed_ms(stream_started_at), 1),
+                            },
+                        )
+                        last_progress_at = now
                     yield AssistantDeltaEvent(delta.content)
                 if delta.tool_calls:
                     merge_tool_call_deltas(collected_tool_calls, delta.tool_calls)
+                    tool_delta_count += len(delta.tool_calls)
                 if delta.finish_reason:
                     finish_reason = delta.finish_reason
                 if delta.usage:
                     stream_usage = delta.usage
 
         collected_text = "".join(collected_parts)
+        yield NoticeEvent(
+            (
+                f"Read complete model response from {model_name}: "
+                f"{content_char_count} character(s), {len(collected_tool_calls)} tool call(s) "
+                f"in {_format_duration_ms(_elapsed_ms(stream_started_at))}."
+            ),
+            code="model_complete",
+            metadata={
+                "model": model_name,
+                "delta_count": content_delta_count,
+                "character_count": content_char_count,
+                "tool_delta_count": tool_delta_count,
+                "tool_call_count": len(collected_tool_calls),
+                "elapsed_ms": round(_elapsed_ms(stream_started_at), 1),
+                "finish_reason": finish_reason,
+            },
+        )
 
         if not collected_tool_calls:
             _record_usage(usage, stream_usage, api_messages, collected_text, config.model)

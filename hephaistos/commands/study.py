@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,7 +20,15 @@ from hephaistos.study import (
     session_type_from_text,
 )
 from hephaistos.study.exam import select_exam_question, supporting_source_refs
-from hephaistos.study.priority import PriorityAnalysis, analyze_priority, generate_priority_report
+from hephaistos.study.priority import (
+    PriorityAnalysis,
+    PriorityChunk,
+    PriorityPdfError,
+    PriorityTopic,
+    analyze_priority,
+    generate_priority_report,
+    priority_tier,
+)
 from hephaistos.study.schedule import StudyItemState, load_study_schedule
 from hephaistos.terminal import (
     STYLE_PROMPT,
@@ -393,7 +402,7 @@ class ExamCommand(Command):
 
 class PriorityCommand(Command):
     name = "priority"
-    description = "Find priority topics and prerequisites"
+    description = "Generate a printable priority PDF cheat sheet"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -401,22 +410,43 @@ class PriorityCommand(Command):
             print_error("No armory attached. Use /armory to open one first.")
             return CommandResult()
         focus = args.strip()
-        index = load_or_build(s.armory_path)
+
+        def report_priority_progress(message: str) -> None:
+            print_info(message)
+
+        def report_index_progress(state: str, detail: str) -> None:
+            print_info(_priority_index_progress_line(state, detail))
+
+        print_info("Preparing indexed materials for priority analysis...")
+        index = load_or_build(s.armory_path, progress=report_index_progress)
         enabled_chunks = [
             chunk for chunk in index.all_chunks if chunk.source not in s.disabled_source_files
         ]
-        analysis = analyze_priority(enabled_chunks, limit=12)
-        report = generate_priority_report(
-            analysis,
-            _priority_output_dir(),
-            config=s.config,
-            focus=focus,
+        enabled_sources = _priority_enabled_sources(enabled_chunks)
+        print_info(
+            "Indexed "
+            f"{len(enabled_sources)} enabled source(s) across {len(enabled_chunks)} chunk(s)."
         )
+
+        print_info("Analyzing recurring topics from enabled materials...")
+        analysis = analyze_priority(enabled_chunks, limit=12, progress=report_priority_progress)
+        print_info("Generating printable priority sheet...")
+        try:
+            report = generate_priority_report(
+                analysis,
+                _priority_output_dir(),
+                config=s.config,
+                focus=focus,
+                progress=report_priority_progress,
+            )
+        except PriorityPdfError as exc:
+            print_error(str(exc))
+            return CommandResult()
         print_info(_priority_terminal_summary(analysis))
         if focus:
             print_info(f"Focus requested: {focus}")
         print_success(
-            f"Priority report saved to {report.path} "
+            f"Priority sheet saved to {report.path} "
             f"({report.topic_count} topics, {report.source_count} sources)."
         )
         return CommandResult()
@@ -424,6 +454,31 @@ class PriorityCommand(Command):
 
 def _priority_output_dir() -> Path:
     return Path.home() / "Downloads"
+
+
+def _priority_enabled_sources(chunks: Sequence[PriorityChunk]) -> list[str]:
+    seen_sources: set[str] = set()
+    ordered_sources: list[str] = []
+    for chunk in chunks:
+        if chunk.source in seen_sources:
+            continue
+        seen_sources.add(chunk.source)
+        ordered_sources.append(chunk.source)
+    return ordered_sources
+
+
+def _priority_index_progress_line(state: str, detail: str) -> str:
+    if state == "loaded":
+        return f"Read index cache {detail}."
+    if state == "reading":
+        return f"Read material source @{detail.removeprefix('materials/')}."
+    if state == "indexed":
+        return f"Indexed @{detail.removeprefix('materials/')}."
+    if state == "writing":
+        return f"Wrote index cache {detail}."
+    if state == "skipped":
+        return f"Skipped material source {detail}."
+    return f"{state}: {detail}"
 
 
 def _set_study_mode(session: ChatSession, mode: StudyAutonomyMode) -> None:
@@ -522,6 +577,7 @@ def _priority_terminal_summary(analysis: PriorityAnalysis, *, limit: int = 5) ->
 
     past_exam_count = len(analysis.past_exam_sources)
     support_count = len(analysis.material_sources)
+    top_priorities = ", ".join(topic.topic for topic in analysis.topics[:3])
     lines = [
         (
             "Local priority scan: "
@@ -530,15 +586,16 @@ def _priority_terminal_summary(analysis: PriorityAnalysis, *, limit: int = 5) ->
             f"{support_count} supporting source(s)."
         )
     ]
-    lines.append("Top candidates:")
+    lines.append(f"Top priorities: {top_priorities}.")
+    lines.append("Priority tiers:")
     lines.extend(
-        (
-            f"  - {topic.topic}: score {topic.score:.1f}, "
-            f"exam hits {topic.exam_hits}, exam marks {topic.exam_marks}, "
-            f"material hits {topic.material_hits}"
-        )
+        (f"  - {topic.topic}: {_terminal_priority_tier(topic)}")
         for topic in analysis.topics[:limit]
     )
     if len(analysis.topics) > limit:
-        lines.append(f"  - ... {len(analysis.topics) - limit} more in the HTML report")
+        lines.append(f"  - ... {len(analysis.topics) - limit} more in the PDF")
     return "\n".join(lines)
+
+
+def _terminal_priority_tier(topic: PriorityTopic) -> str:
+    return priority_tier(topic)
