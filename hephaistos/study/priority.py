@@ -102,6 +102,106 @@ _FORBIDDEN_REPORT_RE = re.compile(
     re.IGNORECASE,
 )
 _LATEX_ENGINE_NAMES = ("latexmk", "lualatex", "xelatex", "pdflatex", "tectonic")
+_LATEX_COMPILE_TIMEOUT_SECONDS = 30
+_LATEX_MATH_COMMAND_RE = re.compile(r"\\([A-Za-z]+|.)")
+_LATEX_MATH_UNSAFE_CHAR_RE = re.compile(r"[%#&~]")
+_ALLOWED_LATEX_MATH_COMMANDS = frozenset(
+    {
+        "alpha",
+        "beta",
+        "gamma",
+        "delta",
+        "epsilon",
+        "varepsilon",
+        "zeta",
+        "eta",
+        "theta",
+        "vartheta",
+        "iota",
+        "kappa",
+        "lambda",
+        "mu",
+        "nu",
+        "xi",
+        "pi",
+        "rho",
+        "sigma",
+        "tau",
+        "upsilon",
+        "phi",
+        "varphi",
+        "chi",
+        "psi",
+        "omega",
+        "Gamma",
+        "Delta",
+        "Theta",
+        "Lambda",
+        "Xi",
+        "Pi",
+        "Sigma",
+        "Upsilon",
+        "Phi",
+        "Psi",
+        "Omega",
+        "cdot",
+        "times",
+        "div",
+        "pm",
+        "mp",
+        "le",
+        "leq",
+        "ge",
+        "geq",
+        "neq",
+        "approx",
+        "sim",
+        "equiv",
+        "propto",
+        "to",
+        "rightarrow",
+        "leftarrow",
+        "Rightarrow",
+        "Leftarrow",
+        "leftrightarrow",
+        "in",
+        "notin",
+        "subset",
+        "subseteq",
+        "supset",
+        "supseteq",
+        "cup",
+        "cap",
+        "emptyset",
+        "forall",
+        "exists",
+        "nabla",
+        "partial",
+        "infty",
+        "sum",
+        "prod",
+        "int",
+        "lim",
+        "log",
+        "ln",
+        "exp",
+        "sin",
+        "cos",
+        "tan",
+        "min",
+        "max",
+        "arg",
+        "sqrt",
+        "frac",
+        "left",
+        "right",
+        "cdots",
+        "ldots",
+        "dots",
+        "text",
+    }
+)
+_ALLOWED_LATEX_MATH_SYMBOL_COMMANDS = frozenset({",", ";", ":", "!", " ", "_"})
 _NO_PREREQUISITE_TEXT = "No explicit prerequisite found in indexed materials."
 _WEB_PREREQ_ENV = "HEPHAISTOS_PRIORITY_WEB_PREREQS"
 _WEB_PREREQ_TIMEOUT = 8
@@ -1672,7 +1772,19 @@ class ExternalLatexCompiler:
         compile_started_at = time.perf_counter()
         for run_index in range(runs):
             run_started_at = time.perf_counter()
-            subprocess.run(command, cwd=work_dir, check=True, capture_output=True, text=True)
+            try:
+                subprocess.run(
+                    command,
+                    cwd=work_dir,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=_LATEX_COMPILE_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise PriorityPdfError(
+                    "LaTeX engine timed out while compiling the priority report."
+                ) from exc
             _emit_progress(
                 progress,
                 f"Ran LaTeX pass {run_index + 1}/{runs} in "
@@ -2141,7 +2253,7 @@ def _latex_mixed_text(value: str) -> str:
     for part in parts:
         if not part:
             continue
-        if _looks_like_latex_math(part):
+        if _is_safe_latex_math(part):
             rendered.append(part)
         else:
             rendered.append(_latex_text(part))
@@ -2154,6 +2266,33 @@ def _looks_like_latex_math(value: str) -> bool:
         or (value.startswith(r"\(") and value.endswith(r"\)"))
         or (value.startswith(r"\[") and value.endswith(r"\]"))
     )
+
+
+def _is_safe_latex_math(value: str) -> bool:
+    """Return whether a math span is safe to preserve as executable LaTeX."""
+    if not _looks_like_latex_math(value):
+        return False
+    content = _latex_math_content(value)
+    if not content or _LATEX_MATH_UNSAFE_CHAR_RE.search(content):
+        return False
+    for match in _LATEX_MATH_COMMAND_RE.finditer(content):
+        command = match.group(1)
+        if command.isalpha():
+            if command not in _ALLOWED_LATEX_MATH_COMMANDS:
+                return False
+        elif command not in _ALLOWED_LATEX_MATH_SYMBOL_COMMANDS:
+            return False
+    return True
+
+
+def _latex_math_content(value: str) -> str:
+    if value.startswith("$") and value.endswith("$"):
+        return value[1:-1]
+    if value.startswith(r"\(") and value.endswith(r"\)"):
+        return value[2:-2]
+    if value.startswith(r"\[") and value.endswith(r"\]"):
+        return value[2:-2]
+    return value
 
 
 def _verify_priority_order(analysis: PriorityAnalysis) -> bool:
