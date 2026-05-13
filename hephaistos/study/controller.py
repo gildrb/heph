@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 
 from hephaistos.logging import get_logger
+from hephaistos.study.autopilot import (
+    MemoryState,
+    ReviewItem,
+    StudyMove,
+    append_policy_prompt,
+    infer_turn_mode,
+    move_for_plan,
+    normalize_confidence_value,
+)
 from hephaistos.study.overview import OVERVIEW_REQUEST_RE
 from hephaistos.study.state import (
     StudyAction,
+    StudyAutonomyMode,
     StudyFeedbackType,
     StudyPhase,
     StudyRecallRating,
@@ -56,6 +66,15 @@ _INITIAL_CALIBRATION_RE = re.compile(
 )
 _GREETING_RE = re.compile(r"^(?:hi|hey|hello|yo|sup)\.?!?$", re.IGNORECASE)
 _THANKS_RE = re.compile(r"^(?:thanks|thank you|thx)\.?!?$", re.IGNORECASE)
+_PRODUCT_HELP_RE = re.compile(
+    r"\b(?:"
+    r"what can i use (?:this|hephaistos) for|"
+    r"what can you do|"
+    r"how can you help|"
+    r"what do you do"
+    r")\b",
+    re.IGNORECASE,
+)
 _EXAM_DRILL_RE = re.compile(r"\b(?:exam|past exam|past paper|exam-style|timed)\b", re.IGNORECASE)
 _SKIP_RE = re.compile(
     r"\b(?:skip|pass|next|move on|different question|another question|new question)\b",
@@ -98,10 +117,12 @@ _SOURCE_QA_RE = re.compile(
 )
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
 _CONFIDENCE_RE = re.compile(
-    r"\b(?:confidence|confident|sure)\s*(?:is|:|=)?\s*(?P<value>\d+(?:[.]\d+)?)\s*"
-    r"(?P<unit>%|/10|/5)?\b",
+    r"\b(?:confidence|confident|sure)(?:\s+is)?\s*[:=]?\s*"
+    r"(?P<value>\d+(?:[.]\d+)?)\s*"
+    r"(?P<unit>%|/10|/5)?(?=\s|[.,;:!?]|$)",
     re.IGNORECASE,
 )
+_MAX_AUTOPILOT_TURNS = 24
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +138,8 @@ class StudyTurnPlan:
     buffer_response: bool = False
     direct_reply: str | None = None
     stated_confidence: float | None = None
+    autonomy_mode: StudyAutonomyMode = StudyAutonomyMode.GUIDED
+    study_move: StudyMove | None = None
 
 
 def _normalize(text: str) -> str:
@@ -150,7 +173,13 @@ def _is_simple_greeting(user_input: str) -> bool:
 def _direct_chat_reply(user_input: str) -> str | None:
     text = _normalize(user_input)
     if _GREETING_RE.fullmatch(text):
-        return "Hey."
+        return "Hey. I can run material-backed study with /exam, /priority, or /autopilot on."
+    if _PRODUCT_HELP_RE.search(text):
+        return (
+            "Use Hephaistos to study your own materials: ask a source-backed question, "
+            "run /exam for active recall, run /priority for a plan, or /autopilot on "
+            "to start a bounded guided session."
+        )
     if _THANKS_RE.fullmatch(text):
         return "You're welcome."
     return None
@@ -394,14 +423,28 @@ def _refusal_prompt(item: str) -> str:
     )
 
 
-def _hint_prompt(item: str) -> str:
+def _hint_prompt(item: str, hint_level: int) -> str:
+    bounded_level = min(5, max(1, hint_level))
+    level_instruction = {
+        1: "- Give exactly one orienting hint.",
+        2: "- Give exactly one relevant definition or formula hint.",
+        3: "- Give exactly one next-step procedural hint.",
+        4: "- Give exactly one partial worked step.",
+        5: "- Give the full solution with explanation.",
+    }[bounded_level]
+    leakage_rule = (
+        "- Do not reveal later steps or the full answer."
+        if bounded_level < 5
+        else "- This is the final ladder level; include the complete method."
+    )
     return (
         "Controlled study state machine. Execute HINT.\n"
         f"Current item: {item}\n"
+        f"Hint level: {bounded_level}\n"
         "Rules:\n"
         "- Use only the stored material context for this item.\n"
-        "- Give exactly one first-step hint.\n"
-        "- Do not reveal later steps or the full answer.\n"
+        f"{level_instruction}\n"
+        f"{leakage_rule}\n"
         "- If no grounded material context is available, say no grounded hint is available.\n"
         "- Keep it to one short sentence."
     )
@@ -475,7 +518,136 @@ def _assess_prompt(item: str, attempt_count: int) -> str:
     )
 
 
-def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
+def plan_turn(
+    state: StudyState,
+    user_input: str,
+    *,
+    due_reviews: tuple[ReviewItem, ...] = (),
+    memory_state: MemoryState | None = None,
+) -> StudyTurnPlan:
+    """Return the deterministic handling plan plus autonomy policy metadata."""
+    effective_memory = memory_state if memory_state is not None else MemoryState()
+    bounded_plan = _autopilot_stop_plan(
+        state,
+        due_reviews=due_reviews,
+        memory_state=effective_memory,
+    )
+    if bounded_plan is not None:
+        return bounded_plan
+    plan = _plan_turn_base(state, user_input)
+    mode = infer_turn_mode(state, user_input)
+    move = move_for_plan(
+        plan.action,
+        state,
+        user_input,
+        due_reviews=due_reviews,
+        memory_state=effective_memory,
+    )
+    prompt = append_policy_prompt(
+        plan.prompt,
+        mode=mode,
+        move=move,
+        action=plan.action,
+    )
+    return replace(plan, prompt=prompt, autonomy_mode=mode, study_move=move)
+
+
+def _autopilot_stop_plan(
+    state: StudyState,
+    *,
+    due_reviews: tuple[ReviewItem, ...],
+    memory_state: MemoryState,
+) -> StudyTurnPlan | None:
+    if state.autonomy_mode is not StudyAutonomyMode.AUTOPILOT:
+        return None
+    reason = _autopilot_stop_reason(
+        state,
+        due_reviews=due_reviews,
+        memory_state=memory_state,
+    )
+    if not reason:
+        return None
+    reply = (
+        f"Autopilot session complete: {reason}. "
+        "Next useful step: review the scheduled weak items or start a new bounded session."
+    )
+    return StudyTurnPlan(
+        action=StudyAction.CHAT,
+        phase=state.phase,
+        prompt="",
+        allow_tools=False,
+        direct_reply=reply,
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+    )
+
+
+def _autopilot_stop_reason(
+    state: StudyState,
+    *,
+    due_reviews: tuple[ReviewItem, ...],
+    memory_state: MemoryState,
+    now: datetime | None = None,
+) -> str:
+    if state.autopilot_turns >= _MAX_AUTOPILOT_TURNS:
+        return "maximum turn budget reached"
+    if state.autopilot_stop_reason:
+        return state.autopilot_stop_reason
+    if state.time_budget_minutes is None or state.autopilot_started_at is None:
+        session_type = state.autopilot_session_type.casefold()
+        if session_type == "review" and state.autopilot_turns > 0 and not due_reviews:
+            return "due cards completed"
+        if (
+            session_type in {"exam", "cram"}
+            and state.autopilot_turns >= 6
+            and not due_reviews
+            and not memory_state.weak_topics
+        ):
+            return "exam plan completed"
+        if (
+            state.autopilot_turns >= 4
+            and not due_reviews
+            and not memory_state.weak_topics
+            and not memory_state.misconceptions
+        ):
+            return "mastery target reached"
+        if (
+            state.last_feedback_type in {StudyFeedbackType.WRONG, StudyFeedbackType.PARTIAL}
+            and state.hint_level >= 4
+        ):
+            return "learner fatigue or frustration detected"
+        return ""
+    current_time = now or datetime.now(UTC)
+    started = state.autopilot_started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    if current_time - started >= timedelta(minutes=state.time_budget_minutes):
+        return "time budget reached"
+    session_type = state.autopilot_session_type.casefold()
+    if session_type == "review" and state.autopilot_turns > 0 and not due_reviews:
+        return "due cards completed"
+    if (
+        session_type in {"exam", "cram"}
+        and state.autopilot_turns >= 6
+        and not due_reviews
+        and not memory_state.weak_topics
+    ):
+        return "exam plan completed"
+    if (
+        state.autopilot_turns >= 4
+        and not due_reviews
+        and not memory_state.weak_topics
+        and not memory_state.misconceptions
+    ):
+        return "mastery target reached"
+    if (
+        state.last_feedback_type in {StudyFeedbackType.WRONG, StudyFeedbackType.PARTIAL}
+        and state.hint_level >= 4
+    ):
+        return "learner fatigue or frustration detected"
+    return ""
+
+
+def _plan_turn_base(state: StudyState, user_input: str) -> StudyTurnPlan:
     """Return the deterministic handling plan for one user turn."""
     text = _normalize(user_input)
 
@@ -624,7 +796,7 @@ def plan_turn(state: StudyState, user_input: str) -> StudyTurnPlan:
             return StudyTurnPlan(
                 action=StudyAction.HINT,
                 phase=StudyPhase.ASSESS,
-                prompt=_hint_prompt(state.current_item),
+                prompt=_hint_prompt(state.current_item, state.hint_level + 1),
                 retrieval_query=state.retrieval_query or state.current_item,
                 use_expected_source_refs=True,
                 allow_tools=False,
@@ -715,21 +887,7 @@ def _parse_stated_confidence(text: str) -> float | None:
         return None
     raw_value = float(match.group("value"))
     unit = match.group("unit") or ""
-    if unit == "%":
-        confidence = raw_value / 100
-    elif unit == "/10":
-        confidence = raw_value / 10
-    elif unit == "/5":
-        confidence = raw_value / 5
-    elif raw_value <= 1:
-        confidence = raw_value
-    elif raw_value <= 5:
-        confidence = raw_value / 5
-    elif raw_value <= 10:
-        confidence = raw_value / 10
-    else:
-        return None
-    return min(1.0, max(0.0, confidence))
+    return normalize_confidence_value(raw_value, unit)
 
 
 def apply_turn_result(
@@ -743,6 +901,8 @@ def apply_turn_result(
     """Advance the state machine after a successful model reply."""
     current_time = now or datetime.now(UTC)
     next_state = state.clone()
+    if state.autonomy_mode is StudyAutonomyMode.AUTOPILOT and plan.action is not StudyAction.CHAT:
+        next_state.autopilot_turns = state.autopilot_turns + 1
 
     if plan.action is StudyAction.CHAT:
         next_state.last_feedback_type = StudyFeedbackType.NONE
@@ -774,6 +934,7 @@ def apply_turn_result(
             next_state.recall_started_at = current_time
             next_state.last_recall_seconds = None
             next_state.last_recall_rating = StudyRecallRating.NONE
+            next_state.hint_level = 0
         else:
             next_state.phase = StudyPhase.PRESENTING
             next_state.current_item = ""
@@ -782,6 +943,8 @@ def apply_turn_result(
             next_state.attempt_count = 0
             next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
             next_state.recall_started_at = None
+            next_state.hint_level = 0
+            _set_autopilot_stop_reason(next_state, "evidence is insufficient")
         return next_state, reply
 
     if plan.action is StudyAction.PRESENT:
@@ -793,6 +956,7 @@ def apply_turn_result(
             next_state.attempt_count = 0
             next_state.last_feedback_type = StudyFeedbackType.PRESENTED
             next_state.recall_started_at = None
+            next_state.hint_level = 0
         else:
             next_state.phase = StudyPhase.PRESENTING
             next_state.current_item = ""
@@ -801,6 +965,8 @@ def apply_turn_result(
             next_state.attempt_count = 0
             next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
             next_state.recall_started_at = None
+            next_state.hint_level = 0
+            _set_autopilot_stop_reason(next_state, "evidence is insufficient")
         return next_state, reply
 
     if plan.action is StudyAction.PROMPT_RECALL:
@@ -809,6 +975,7 @@ def apply_turn_result(
         next_state.recall_started_at = current_time
         next_state.last_recall_seconds = None
         next_state.last_recall_rating = StudyRecallRating.NONE
+        next_state.hint_level = 0
         return next_state, reply
 
     if plan.action is StudyAction.WAIT_READY_REMINDER:
@@ -824,6 +991,7 @@ def apply_turn_result(
     if plan.action is StudyAction.HINT:
         next_state.phase = StudyPhase.RECALL
         next_state.last_feedback_type = StudyFeedbackType.HINT
+        next_state.hint_level = min(5, state.hint_level + 1)
         if source_refs:
             next_state.expected_source_refs = list(source_refs)
         return next_state, reply
@@ -839,9 +1007,11 @@ def apply_turn_result(
             next_state.recall_started_at = current_time
             next_state.last_recall_seconds = None
             next_state.last_recall_rating = StudyRecallRating.NONE
+            next_state.hint_level = min(5, state.hint_level + 1)
         else:
             next_state.phase = StudyPhase.RECALL
             next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
+            _set_autopilot_stop_reason(next_state, "evidence is insufficient")
         return next_state, reply
 
     if plan.action is StudyAction.REVIEW:
@@ -856,6 +1026,7 @@ def apply_turn_result(
         else:
             next_state.phase = StudyPhase.RECALL
             next_state.last_feedback_type = StudyFeedbackType.NO_SOURCE
+            _set_autopilot_stop_reason(next_state, "evidence is insufficient")
         return next_state, reply
 
     if plan.action is StudyAction.ASSESS:
@@ -874,9 +1045,26 @@ def apply_turn_result(
             next_state.retrieval_query = ""
             next_state.expected_source_refs = []
             next_state.recall_started_at = None
+            next_state.hint_level = 0
         else:
             next_state.phase = StudyPhase.RECALL
             next_state.recall_started_at = current_time
+            if (
+                feedback is StudyFeedbackType.WRONG
+                and state.hint_level >= 4
+                and state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+            ):
+                _set_autopilot_stop_reason(next_state, "learner fatigue or frustration detected")
+        if not source_refs:
+            _set_autopilot_stop_reason(next_state, "evidence is insufficient")
         return next_state, cleaned_reply
 
     return next_state, reply
+
+
+def _set_autopilot_stop_reason(state: StudyState, reason: str) -> None:
+    if state.autonomy_mode is not StudyAutonomyMode.AUTOPILOT:
+        return
+    if state.autopilot_stop_reason:
+        return
+    state.autopilot_stop_reason = reason

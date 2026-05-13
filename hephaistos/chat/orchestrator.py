@@ -23,10 +23,16 @@ from hephaistos.chat.evidence import (
     ResolvedTurnPlan,
 )
 from hephaistos.chat.evidence import (
+    assess_turn_evidence as _assess_turn_evidence,
+)
+from hephaistos.chat.evidence import (
     build_overview_context as _build_overview_context,
 )
 from hephaistos.chat.evidence import (
     build_priority_context as _build_priority_context,
+)
+from hephaistos.chat.evidence import (
+    evidence_assessment_trace as _evidence_assessment_trace,
 )
 from hephaistos.chat.evidence import (
     evidence_refs as _evidence_refs,
@@ -61,9 +67,21 @@ from hephaistos.runtime import (
     build_client,
     stream_completion,
 )
-from hephaistos.study import StudyAction, StudyState, StudyTurnPlan, apply_turn_result, plan_turn
+from hephaistos.study import (
+    MemoryState,
+    PolicyOutcome,
+    ReviewItem,
+    StudyAction,
+    StudyFeedbackType,
+    StudyState,
+    StudyTurnPlan,
+    apply_turn_result,
+    learner_assessment_from_state,
+    plan_turn,
+    validate_pedagogy,
+)
 from hephaistos.study.priority import analyze_priority
-from hephaistos.study.schedule import load_study_schedule, save_study_schedule
+from hephaistos.study.schedule import StudyItemState, load_study_schedule, save_study_schedule
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -100,6 +118,9 @@ _OVERVIEW_CITATION_RANGE_RE = re.compile(
     r"\[(?:e|E)\d+\]\s*(?:-|\u2013)\s*(?:\[(?:e|E)\d+\]|(?:e|E)?\d+)"
 )
 _OVERVIEW_CITATION_ID_RE = re.compile(r"\[(?:e|E)(?P<id>\d+)\]")
+_TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call\b[^>]*>.*?</tool_call>", re.IGNORECASE | re.DOTALL)
+_TOOL_CALL_OPEN_RE = re.compile(r"<tool_call\b[^>]*>", re.IGNORECASE)
+_TOOL_CALL_CLOSE_RE = re.compile(r"</tool_call>", re.IGNORECASE)
 _READ_ALL_FILES_RE = re.compile(
     r"\b(?:"
     r"(?:read|scan|look|go|walk)\s+(?:through|over)?\s*(?:all|every)\s+"
@@ -114,6 +135,7 @@ _OVERVIEW_MIN_CITATIONS = 2
 _OVERVIEW_MIN_DISTINCT_SOURCES = 2
 _OVERVIEW_MIN_BULLETS = 3
 _OVERVIEW_MIN_CITED_BULLETS = 2
+_MAX_INTERNAL_PASSES = 3
 _OVERVIEW_REQUIRED_SHAPE: tuple[str, ...] = ()
 _OVERVIEW_FORBIDDEN_SHAPE = (
     "no evidence citations",
@@ -297,6 +319,9 @@ def _needs_source_only_no_evidence_fallback(
     plan: StudyTurnPlan,
     resolved: ResolvedTurnPlan,
 ) -> bool:
+    assessment = resolved.evidence_assessment
+    if assessment is not None and assessment.recommended_action == "abstain":
+        return True
     if resolved.turn_evidence is not None:
         return False
     if _overview_turn(plan):
@@ -377,17 +402,27 @@ def _evidence_notice(resolved: ResolvedTurnPlan) -> str:
         total_sources = visible_evidence.total_source_count or sampled_sources
         source_plural = "s" if total_sources != 1 else ""
         excerpt_plural = "s" if len(visible_evidence.items) != 1 else ""
-        return (
+        notice = (
             f"Using {len(visible_evidence.items)} overview evidence excerpt{excerpt_plural} "
             f"from {sampled_sources} of {total_sources} indexed source{source_plural}: "
             f"{labels}{suffix}"
         )
+        return _append_evidence_assessment_notice(notice, resolved)
     refs = _evidence_refs(visible_evidence)
     shown = ", ".join(refs[:3])
     remaining = len(refs) - 3
     suffix = f", and {remaining} more" if remaining > 0 else ""
     plural = "s" if len(refs) != 1 else ""
-    return f"Using {len(refs)} retrieved evidence excerpt{plural}: {shown}{suffix}"
+    notice = f"Using {len(refs)} retrieved evidence excerpt{plural}: {shown}{suffix}"
+    return _append_evidence_assessment_notice(notice, resolved)
+
+
+def _append_evidence_assessment_notice(notice: str, resolved: ResolvedTurnPlan) -> str:
+    assessment = resolved.evidence_assessment
+    if assessment is None or assessment.sufficient:
+        return notice
+    action = assessment.recommended_action.replace("_", " ")
+    return f"{notice}. Evidence sufficiency: {action} ({assessment.confidence:.0%})."
 
 
 def _evidence_notice_metadata(resolved: ResolvedTurnPlan) -> dict[str, object]:
@@ -401,6 +436,7 @@ def _evidence_notice_metadata(resolved: ResolvedTurnPlan) -> dict[str, object]:
         "refs": _evidence_refs(visible_evidence),
         "coverage": _evidence_trace_coverage(visible_evidence),
         "items": _evidence_trace_items(visible_evidence),
+        "assessment": _evidence_assessment_trace(resolved.evidence_assessment),
     }
 
 
@@ -567,9 +603,18 @@ def _writing_notice(plan: StudyTurnPlan) -> str:
 
 
 def _student_visible_reply(plan: StudyTurnPlan, reply: str) -> str:
+    cleaned = _strip_tool_call_markup(reply).strip()
     if plan.action is StudyAction.CALIBRATE:
-        return _EVIDENCE_CITATION_TEXT_RE.sub("", reply).strip()
-    return reply
+        return _EVIDENCE_CITATION_TEXT_RE.sub("", cleaned).strip()
+    return cleaned
+
+
+def _strip_tool_call_markup(reply: str) -> str:
+    cleaned = _TOOL_CALL_BLOCK_RE.sub("", reply)
+    cleaned = _TOOL_CALL_OPEN_RE.sub("", cleaned)
+    cleaned = _TOOL_CALL_CLOSE_RE.sub("", cleaned)
+    kept_lines = [line for line in cleaned.splitlines() if "<tool_call" not in line.casefold()]
+    return "\n".join(kept_lines)
 
 
 def _append_read_all_scope_disclosure(
@@ -598,6 +643,135 @@ def _append_read_all_scope_disclosure(
     )
 
 
+def _insufficient_evidence_reply(
+    plan: StudyTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> str:
+    assessment = resolved.evidence_assessment
+    if assessment is None or assessment.sufficient:
+        return ""
+    if plan.action is StudyAction.CALIBRATE:
+        return ""
+    missing = ", ".join(assessment.missing_information) or "supporting source evidence"
+    action = assessment.recommended_action
+    if action == "abstain":
+        return _source_qa_fallback_reply(plan, resolved.turn_evidence) or (
+            "I do not have enough source evidence to answer that reliably. "
+            f"Missing: {missing}. Please narrow the source-backed target."
+        )
+    if (
+        action == "retrieve_more"
+        and resolved.turn_evidence is None
+        and plan.action is StudyAction.SOURCE_QA
+    ):
+        return (
+            "I do not have enough indexed evidence for a reliable answer yet. "
+            f"Missing: {missing}. "
+            "Please narrow the question to one concept, theorem, or exercise so I can retrieve "
+            "a tighter evidence set."
+        )
+    if action == "ask_clarifying_question":
+        return (
+            "Before I answer from sources, I need one clarification: "
+            f"which exact concept or item should I target? Missing: {missing}."
+        )
+    if action == "quiz_first":
+        return (
+            "Evidence is thin for a direct answer, so I will test your current understanding "
+            "first: answer one focused recall question from memory and include confidence 0-100%."
+        )
+    return ""
+
+
+def _apply_grounding_repairs(
+    plan: StudyTurnPlan,
+    reply: str,
+    evidence: TurnEvidence | None,
+) -> str:
+    repaired = _repair_missing_evidence_citations(plan, reply, evidence)
+    repaired = _append_key_evidence_for_source_qa(plan, repaired, evidence)
+    return _append_read_all_scope_disclosure(plan, repaired, evidence)
+
+
+def _run_bounded_internal_repairs(
+    plan: StudyTurnPlan,
+    reply: str,
+    evidence: TurnEvidence | None,
+) -> tuple[str, int]:
+    """Run a bounded generate->grounding->pedagogy repair loop."""
+    repaired = reply
+    passes = 1  # pass 1 = initial model generation
+    for _ in range(_MAX_INTERNAL_PASSES - 1):
+        previous = repaired
+        repaired = _apply_grounding_repairs(plan, repaired, evidence)
+        repaired = _repair_pedagogy_shape(plan, repaired)
+        passes += 1
+        if repaired == previous:
+            break
+    return repaired, passes
+
+
+def _repair_pedagogy_shape(plan: StudyTurnPlan, reply: str) -> str:
+    move = plan.study_move
+    if not reply.strip() or move is None or plan.action is StudyAction.CALIBRATE:
+        return reply
+    validation = validate_pedagogy(reply, move, plan.autonomy_mode)
+    if validation.valid:
+        return reply
+    additions: list[str] = []
+    issues = set(validation.issues)
+    if "possible answer leakage during recall" in issues:
+        additions.append(
+            "Pause before using the solution: answer the active-recall task from memory first."
+        )
+    if "missing confidence request" in issues:
+        additions.append("Include your confidence from 0-100%.")
+    if "missing explicit next action" in issues:
+        next_action = validation.suggested_next_action or move.expected_output_shape
+        if next_action:
+            additions.append(f"Next action: {next_action}")
+    if not additions:
+        return reply
+    return f"{reply.rstrip()}\n\n" + "\n".join(dict.fromkeys(additions))
+
+
+def _learner_assessment_trace(plan: StudyTurnPlan | None, state: StudyState) -> dict[str, object]:
+    if plan is None:
+        return {}
+    assessment = learner_assessment_from_state(
+        state,
+        topic=state.retrieval_query or state.current_item,
+        hint_level_used=state.hint_level if state.hint_level > 0 else None,
+    )
+    confidence = round(assessment.confidence, 3) if assessment.confidence is not None else None
+    calibration_gap = (
+        round(assessment.calibration_gap, 3) if assessment.calibration_gap is not None else None
+    )
+    return {
+        "topic": assessment.topic,
+        "correctness": round(assessment.correctness, 3),
+        "reasoning_quality": round(assessment.reasoning_quality, 3),
+        "confidence": confidence,
+        "calibration_gap": calibration_gap,
+        "misconception_tags": list(assessment.misconception_tags),
+        "hint_level_used": assessment.hint_level_used,
+        "next_action": assessment.next_action,
+    }
+
+
+def _pedagogy_validation_trace(plan: StudyTurnPlan | None, reply: str) -> dict[str, object]:
+    if plan is None or plan.study_move is None:
+        return {}
+    validation = validate_pedagogy(reply, plan.study_move, plan.autonomy_mode)
+    return {
+        "valid": validation.valid,
+        "issues": list(validation.issues),
+        "rewrite_instruction": validation.rewrite_instruction or "",
+        "suggested_next_action": validation.suggested_next_action or "",
+        "move": plan.study_move.kind,
+    }
+
+
 def _trace_excerpt(text: str, *, limit: int = 500) -> str:
     normalized = " ".join(text.split())
     if len(normalized) <= limit:
@@ -621,6 +795,73 @@ def _trace_task(plan: StudyTurnPlan | None) -> str:
     if plan.action is StudyAction.HINT:
         return "hint"
     return plan.action.value
+
+
+def _study_autopilot_context(session: ChatSession) -> tuple[tuple[ReviewItem, ...], MemoryState]:
+    if session.armory_path is None:
+        return (), MemoryState()
+    store = load_study_schedule(session.armory_path)
+    due_reviews = tuple(
+        ReviewItem(
+            item=item.item,
+            concept=item.concept,
+            failures=item.failures,
+            last_confidence=item.last_confidence,
+        )
+        for item in store.due_items(limit=5)
+    )
+    weak_items = sorted(
+        (
+            item
+            for item in store.item_list
+            if item.failures > 0
+            or item.mastery < 0.55
+            or item.next_best_action
+            in {"contrastive_question", "give_hint", "prerequisite_repair"}
+        ),
+        key=lambda item: (-item.failures, item.mastery, -item.exam_importance),
+    )
+    weak_topics = tuple(
+        dict.fromkeys(item.concept or item.retrieval_query or item.item for item in weak_items)
+    )
+    misconception_items = [
+        item
+        for item in weak_items
+        if item.next_best_action == "contrastive_question" or item.common_errors
+    ]
+    misconceptions = tuple(
+        dict.fromkeys(
+            item.concept or item.retrieval_query or item.item for item in misconception_items
+        )
+    )
+    successful_interventions: list[str] = []
+    failed_interventions: list[str] = []
+    for item in store.item_list:
+        successful_interventions.extend(item.successful_interventions or [])
+        failed_interventions.extend(item.failed_interventions or [])
+    for move_type, stats in store.policy_stats.items():
+        if stats.success_rate >= 0.6 and stats.uses >= 2:
+            successful_interventions.append(move_type)
+        elif stats.uses >= 2:
+            failed_interventions.append(move_type)
+    return due_reviews, MemoryState(
+        weak_topics=weak_topics[:5],
+        misconceptions=misconceptions[:5],
+        successful_interventions=tuple(dict.fromkeys(successful_interventions)),
+        failed_interventions=tuple(dict.fromkeys(failed_interventions)),
+    )
+
+
+def _matching_study_item(
+    items: list[StudyItemState],
+    *,
+    item: str,
+    retrieval_query: str,
+) -> StudyItemState | None:
+    for candidate in items:
+        if candidate.item == item and candidate.retrieval_query == retrieval_query:
+            return candidate
+    return None
 
 
 def _source_qa_fallback_reply(plan: StudyTurnPlan, evidence: TurnEvidence | None) -> str:
@@ -655,6 +896,32 @@ def _source_qa_fallback_reply(plan: StudyTurnPlan, evidence: TurnEvidence | None
         excerpt = _trace_excerpt(item.content, limit=700)
         bullets.append(f"- {source}: {excerpt} [{item.evidence_id}]")
     return "The indexed sources provide this directly:\n" + "\n".join(bullets)
+
+
+def _append_evidence_assessment_prompt(
+    prompt: str,
+    resolved: ResolvedTurnPlan,
+) -> str:
+    """Inject weak-evidence routing instructions into the model turn prompt."""
+    plan = resolved.study_plan
+    assessment = resolved.evidence_assessment
+    if not prompt or plan is None or assessment is None:
+        return prompt
+    if plan.action is StudyAction.CALIBRATE or assessment.sufficient:
+        return prompt
+    missing = ", ".join(assessment.missing_information) or "missing supporting evidence"
+    refs = ", ".join(assessment.supporting_refs) or "none"
+    action = assessment.recommended_action.replace("_", " ")
+    return (
+        f"{prompt}\n\n"
+        "Evidence sufficiency gate:\n"
+        f"- Verdict: insufficient or partial evidence; confidence {assessment.confidence:.0%}.\n"
+        f"- Recommended action: {action}.\n"
+        f"- Supporting refs: {refs}.\n"
+        f"- Missing information: {missing}.\n"
+        "- Do not fill gaps from outside knowledge. If you answer, scope the answer to "
+        "the cited evidence and state what remains unsupported."
+    )
 
 
 def _overview_turn(plan: StudyTurnPlan) -> bool:
@@ -1044,6 +1311,7 @@ class TurnOrchestrator:
     session: ChatSession
     retry: RetryConfig | None = None
     last_reply: str = field(default="", init=False)
+    last_internal_passes: int = field(default=1, init=False)
 
     def iter_events(
         self,
@@ -1056,6 +1324,7 @@ class TurnOrchestrator:
         original_study_state = session.study_state.clone()
         timer = Timer()
         self.last_reply = ""
+        self.last_internal_passes = 1
 
         session.conversation.add("user", user_input)
         session.trace.record_user_message(user_input)
@@ -1075,7 +1344,13 @@ class TurnOrchestrator:
         try:
             with timer:
                 if session.armory_path is not None:
-                    study_plan = plan_turn(original_study_state, user_input)
+                    due_reviews, memory_state = _study_autopilot_context(session)
+                    study_plan = plan_turn(
+                        original_study_state,
+                        user_input,
+                        due_reviews=due_reviews,
+                        memory_state=memory_state,
+                    )
                     if notice := _reading_notice(study_plan):
                         yield NoticeEvent(notice, code="reading")
                     resolved = self._resolve_timed_turn_plan(study_plan)
@@ -1181,6 +1456,7 @@ class TurnOrchestrator:
             or session.conversation.messages[-1].role != "assistant"
         ):
             session.conversation.add("assistant", self.last_reply)
+        self.last_internal_passes = 1
 
     def _iter_study_events(
         self,
@@ -1246,6 +1522,24 @@ class TurnOrchestrator:
                 yield AssistantDeltaEvent(final_reply)
             return
 
+        if evidence_reply := _insufficient_evidence_reply(plan, resolved):
+            session.study_state, final_reply = apply_turn_result(
+                original_study_state,
+                plan,
+                evidence_reply,
+                _evidence_refs(resolved.turn_evidence),
+            )
+            self.last_reply = final_reply
+            self.last_internal_passes = 1
+            if final_reply and (
+                not session.conversation.messages
+                or session.conversation.messages[-1].role != "assistant"
+            ):
+                session.conversation.add("assistant", final_reply)
+            if final_reply:
+                yield AssistantDeltaEvent(final_reply)
+            return
+
         if notice := _writing_notice(plan):
             yield NoticeEvent(notice, code="writing")
 
@@ -1262,6 +1556,7 @@ class TurnOrchestrator:
             overview_context = _build_overview_context(session)
             if overview_context:
                 extra_system_prompt = f"{plan.prompt}\n\n{overview_context}"
+        extra_system_prompt = _append_evidence_assessment_prompt(extra_system_prompt, resolved)
 
         raw_parts: list[str] = []
         last_reply_parts: list[str] = []
@@ -1327,21 +1622,12 @@ class TurnOrchestrator:
                 raw_reply = fallback_reply
                 visible_reply = fallback_reply
 
-        visible_reply = _repair_missing_evidence_citations(
+        visible_reply, pass_count = _run_bounded_internal_repairs(
             plan,
             visible_reply,
             resolved.turn_evidence,
         )
-        visible_reply = _append_key_evidence_for_source_qa(
-            plan,
-            visible_reply,
-            resolved.turn_evidence,
-        )
-        visible_reply = _append_read_all_scope_disclosure(
-            plan,
-            visible_reply,
-            resolved.turn_evidence,
-        )
+        self.last_internal_passes = pass_count
 
         if raw_reply:
             session.study_state, final_reply = apply_turn_result(
@@ -1388,7 +1674,16 @@ class TurnOrchestrator:
         if session.study_state.last_recall_rating.value == "none":
             return
         store = load_study_schedule(session.armory_path)
-        store.record_review(
+        previous = _matching_study_item(
+            store.item_list,
+            item=original_study_state.current_item,
+            retrieval_query=original_study_state.retrieval_query,
+        )
+        previous_mastery = previous.mastery if previous is not None else 0.0
+        previous_confidence = previous.last_confidence if previous is not None else None
+        previous_correctness = 1.0 if previous is not None and previous.last_correct else 0.0
+        intervention = plan.study_move.kind if plan.study_move is not None else plan.action.value
+        state = store.record_review(
             original_study_state.current_item,
             concept=original_study_state.retrieval_query,
             retrieval_query=original_study_state.retrieval_query,
@@ -1396,8 +1691,50 @@ class TurnOrchestrator:
             rating=session.study_state.last_recall_rating,
             elapsed_seconds=session.study_state.last_recall_seconds,
             confidence=session.study_state.last_confidence,
+            hint_level_needed=(
+                original_study_state.hint_level if original_study_state.hint_level > 0 else None
+            ),
             error_type=session.study_state.last_feedback_type.value,
+            intervention=intervention,
             exam_importance=1.0 if original_study_state.expected_source_refs else 0.0,
+        )
+        confidence_delta = 0.0
+        if state.last_confidence is not None and previous_confidence is not None:
+            confidence_delta = state.last_confidence - previous_confidence
+        current_correctness = 1.0 if state.last_correct else 0.0
+        correctness_delta = current_correctness - previous_correctness
+        if previous is None and not state.last_correct:
+            correctness_delta = -1.0
+        outcome = PolicyOutcome(
+            move_type=intervention,
+            topic=original_study_state.retrieval_query or original_study_state.current_item,
+            correctness_delta=correctness_delta,
+            confidence_delta=confidence_delta,
+            mastery_delta=state.mastery - previous_mastery,
+            time_cost_seconds=state.last_recall_seconds or 0,
+            frustration_signal=(
+                session.study_state.last_feedback_type is StudyFeedbackType.WRONG
+                and original_study_state.hint_level >= 3
+            ),
+        )
+        store.record_policy_outcome(
+            intervention,
+            success=state.last_correct,
+            mastery_delta=outcome.mastery_delta,
+            confidence_delta=outcome.confidence_delta,
+            time_cost_seconds=outcome.time_cost_seconds,
+            frustration_signal=outcome.frustration_signal,
+        )
+        session.trace.record_session_event(
+            "policy_outcome",
+            move_type=outcome.move_type,
+            topic=outcome.topic,
+            correctness_delta=round(outcome.correctness_delta, 3),
+            confidence_delta=round(outcome.confidence_delta, 3),
+            mastery_delta=round(outcome.mastery_delta, 3),
+            time_cost_seconds=outcome.time_cost_seconds,
+            frustration_signal=outcome.frustration_signal,
+            score=round(outcome.score, 3),
         )
         save_study_schedule(store)
 
@@ -1416,9 +1753,11 @@ class TurnOrchestrator:
         return resolved
 
     def _resolve_turn_plan(self, plan: StudyTurnPlan) -> ResolvedTurnPlan:
+        turn_evidence = _resolve_turn_evidence(self.session, plan)
         return ResolvedTurnPlan(
             study_plan=plan,
-            turn_evidence=_resolve_turn_evidence(self.session, plan),
+            turn_evidence=turn_evidence,
+            evidence_assessment=_assess_turn_evidence(plan, turn_evidence),
         )
 
     def _iter_material_operation_events(
@@ -1487,6 +1826,11 @@ class TurnOrchestrator:
             evidence_refs=_evidence_refs(visible_evidence),
             evidence_coverage=_evidence_trace_coverage(visible_evidence),
             evidence_items=_evidence_trace_items(visible_evidence),
+            evidence_assessment=_evidence_assessment_trace(resolved.evidence_assessment),
+            pedagogy_validation=_pedagogy_validation_trace(resolved.study_plan, self.last_reply),
+            learner_assessment=_learner_assessment_trace(resolved.study_plan, session.study_state),
+            internal_passes=self.last_internal_passes,
+            internal_pass_max=_MAX_INTERNAL_PASSES,
             verification_notice=notice,
         )
 

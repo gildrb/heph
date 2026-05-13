@@ -19,6 +19,7 @@ from hephaistos.chat.events import (
     NoticeEvent,
     ToolCallEvent,
     ToolResultEvent,
+    TurnCompleteEvent,
 )
 from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.titles import derive_title
@@ -183,6 +184,46 @@ class TestRunTuiTurn:
             )
 
         assert replies == []
+
+    def test_turn_complete_reply_overrides_streamed_raw_deltas(self, chat_session) -> None:
+        replies: list[str] = []
+
+        def fake_iter(session, user_input, *, abort):
+            yield AssistantDeltaEvent(
+                delta=(
+                    '<tool_call name="search_materials">{"query":"what can i use this for"}'
+                    "</tool_call>"
+                )
+            )
+            yield AssistantDeltaEvent(delta="No searchable armory evidence was found.")
+            yield TurnCompleteEvent(
+                full_text=(
+                    "No searchable armory evidence was found for this item. "
+                    "Ask a more specific material-backed prompt."
+                ),
+                turn_index=0,
+                latency_ms=0.0,
+                finish_reason="stop",
+                tokens_remaining=0,
+            )
+
+        with patch("hephaistos.tui.streaming.iter_chat_events", fake_iter):
+            run_tui_turn(
+                chat_session,
+                "what can i use this for",
+                Event(),
+                on_reply=replies.append,
+                on_notice=lambda _: None,
+                on_error=lambda _: None,
+                on_finish=lambda: None,
+            )
+
+        assert replies == [
+            (
+                "No searchable armory evidence was found for this item. "
+                "Ask a more specific material-backed prompt."
+            )
+        ]
 
     def test_material_operation_events_produce_ordered_notices(self, chat_session) -> None:
         replies: list[str] = []

@@ -28,7 +28,7 @@ from hephaistos.runtime import (
     build_client,
     to_chat_completion_messages,
 )
-from hephaistos.study import StudyAction, StudyTurnPlan
+from hephaistos.study import EvidenceAssessment, StudyAction, StudyTurnPlan, assess_evidence
 from hephaistos.study.overview import OVERVIEW_REQUEST_RE
 from hephaistos.study.priority import analyze_priority
 
@@ -74,6 +74,10 @@ _DOCUMENT_SURVEY_QUERY_RE = re.compile(
     r"assessment material)\b",
     re.IGNORECASE,
 )
+_BROAD_STUDY_QUERY_RE = re.compile(
+    r"\b(?:material|materials|overview|about|where should i start|what should i study)\b",
+    re.IGNORECASE,
+)
 _ASSESSMENT_CHUNK_RE = re.compile(
     r"(?:^|\n)\s*(?:question|aufgabe)?\s*\d+[.)]?\s*(?:\(\d+\s*(?:points?|punkte)\)|"
     r".{0,80}\b(?:points?|punkte)\b)|\b(?:question|aufgabe)\s+\d+\b",
@@ -87,6 +91,7 @@ class ResolvedTurnPlan:
 
     study_plan: StudyTurnPlan | None = None
     turn_evidence: TurnEvidence | None = None
+    evidence_assessment: EvidenceAssessment | None = None
     priority_context: str = ""
 
 
@@ -136,6 +141,54 @@ def evidence_trace_coverage(turn_evidence: TurnEvidence | None) -> dict[str, int
         "evidence_blocks": len(turn_evidence.items),
         "sampled_sources": sampled_sources,
         "total_sources": total_sources,
+    }
+
+
+def assess_turn_evidence(
+    plan: StudyTurnPlan,
+    turn_evidence: TurnEvidence | None,
+) -> EvidenceAssessment:
+    """Assess whether the resolved evidence is enough for this turn."""
+    query = plan.retrieval_query or ""
+    source_only = plan.action is StudyAction.SOURCE_QA or query_demands_source_only_answer(query)
+    if plan.action is StudyAction.PRIORITY:
+        missing_hint = "recurring topics, exam weighting, or prerequisite evidence"
+    elif source_only:
+        missing_hint = "source span that directly answers the source-only question"
+    elif plan.action is StudyAction.ASSESS:
+        missing_hint = "rubric, mark scheme, or source span for grounded assessment"
+    else:
+        missing_hint = "source span that supports the requested study response"
+    assessment = assess_evidence(
+        tuple(evidence_refs(turn_evidence)),
+        source_only=source_only,
+        missing_hint=missing_hint,
+    )
+    if assessment.sufficient or assessment.recommended_action != "retrieve_more":
+        return assessment
+    if plan.action is StudyAction.ASSESS and not assessment.supporting_refs:
+        return replace(assessment, recommended_action="quiz_first")
+    if plan.action in {StudyAction.PRESENT, StudyAction.PRIORITY} and _needs_clarifying_query(
+        query
+    ):
+        return replace(assessment, recommended_action="ask_clarifying_question")
+    return assessment
+
+
+def evidence_assessment_trace(
+    assessment: EvidenceAssessment | None,
+) -> dict[str, object]:
+    """Return JSON-friendly evidence sufficiency metadata."""
+    if assessment is None:
+        return {}
+    return {
+        "sufficient": assessment.sufficient,
+        "confidence": round(assessment.confidence, 3),
+        "supporting_refs": list(assessment.supporting_refs),
+        "missing_information": list(assessment.missing_information),
+        "conflicts": list(assessment.conflicts),
+        "source_diversity_score": round(assessment.source_diversity_score, 3),
+        "recommended_action": assessment.recommended_action,
     }
 
 
@@ -206,6 +259,15 @@ def _enabled_scored_chunks(
 
 def query_demands_source_only_answer(query: str) -> bool:
     return bool(_SOURCE_ONLY_QUERY_RE.search(query))
+
+
+def _needs_clarifying_query(query: str) -> bool:
+    normalized = " ".join(query.split())
+    if not normalized:
+        return False
+    if len(normalized) <= 18:
+        return True
+    return bool(_BROAD_STUDY_QUERY_RE.search(normalized))
 
 
 def _filter_weak_source_only_evidence(
@@ -663,6 +725,7 @@ def resolve_turn_evidence(session: ChatSession, plan: StudyTurnPlan) -> TurnEvid
 __all__ = [
     "ResolvedTurnPlan",
     "adaptive_rag_budget",
+    "assess_turn_evidence",
     "build_overview_context",
     "build_priority_context",
     "build_priority_turn_evidence",
@@ -671,6 +734,7 @@ __all__ = [
     "build_turn_evidence_from_query",
     "build_turn_evidence_from_refs",
     "ensure_rag_index",
+    "evidence_assessment_trace",
     "evidence_refs",
     "evidence_trace_coverage",
     "evidence_trace_items",

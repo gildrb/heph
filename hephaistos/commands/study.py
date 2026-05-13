@@ -9,7 +9,15 @@ from hephaistos.chat.session import ChatSession
 from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.rag.index import load_or_build
-from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
+from hephaistos.study import (
+    AutopilotSessionType,
+    StudyAutonomyMode,
+    StudyFeedbackType,
+    StudyPhase,
+    StudyRecallRating,
+    parse_time_budget_minutes,
+    session_type_from_text,
+)
 from hephaistos.study.exam import select_exam_question, supporting_source_refs
 from hephaistos.study.priority import PriorityAnalysis, analyze_priority, generate_priority_report
 from hephaistos.study.schedule import StudyItemState, load_study_schedule
@@ -39,6 +47,13 @@ _HARD_OPTION = MenuOption("Hard", "had to think about it")
 _GOOD_OPTION = MenuOption("Good", "knew it")
 _EASY_OPTION = MenuOption("Easy", "instant recall")
 _RATING_OPTIONS = [_HARD_OPTION, _GOOD_OPTION, _EASY_OPTION]
+_MODE_ALIASES = {
+    "manual": StudyAutonomyMode.MANUAL,
+    "off": StudyAutonomyMode.MANUAL,
+    "guided": StudyAutonomyMode.GUIDED,
+    "on": StudyAutonomyMode.AUTOPILOT,
+    "autopilot": StudyAutonomyMode.AUTOPILOT,
+}
 
 
 def _format_relative_seconds(seconds: float) -> str:
@@ -265,6 +280,58 @@ class RemindCommand(Command):
         return CommandResult()
 
 
+class ModeCommand(Command):
+    name = "mode"
+    description = "Set study autonomy mode"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = ensure_session(session)
+        requested = args.strip().lower()
+        if not requested:
+            _print_mode_status(s)
+            return CommandResult()
+        mode = _MODE_ALIASES.get(requested)
+        if mode is None:
+            print_error("Usage: /mode manual, /mode guided, or /mode autopilot")
+            return CommandResult()
+        _set_study_mode(s, mode)
+        print_success(f"Study mode set to {mode.value}.")
+        return CommandResult()
+
+
+class AutopilotCommand(Command):
+    name = "autopilot"
+    description = "Run a bounded autonomous study session"
+
+    def handle(self, session: object, args: str) -> CommandResult:
+        s = ensure_session(session)
+        requested = args.strip()
+        normalized = requested.lower()
+        if normalized == "status":
+            _print_mode_status(s)
+            return CommandResult()
+        if not requested:
+            requested = "on"
+            normalized = "on"
+        if normalized in {"off", "manual"}:
+            _set_study_mode(s, StudyAutonomyMode.MANUAL)
+            _clear_autopilot_session(s)
+            print_success("Autopilot off. Manual study mode is active.")
+            return CommandResult()
+        if normalized == "guided":
+            _set_study_mode(s, StudyAutonomyMode.GUIDED)
+            _clear_autopilot_session(s)
+            print_success("Guided study mode is active.")
+            return CommandResult()
+
+        session_type = session_type_from_text(requested)
+        time_budget = parse_time_budget_minutes(requested)
+        _start_autopilot_session(s, session_type, time_budget, requested)
+        print_success(_autopilot_status_line(session_type, time_budget))
+        prompt = _autopilot_start_prompt(session_type, time_budget)
+        return CommandResult(output=f"__RESEND__:{prompt}")
+
+
 class ExamCommand(Command):
     name = "exam"
     description = "Start an active-recall exam question"
@@ -357,6 +424,95 @@ class PriorityCommand(Command):
 
 def _priority_output_dir() -> Path:
     return Path.home() / "Downloads"
+
+
+def _set_study_mode(session: ChatSession, mode: StudyAutonomyMode) -> None:
+    session.study_state.autonomy_mode = mode
+    if mode is not StudyAutonomyMode.AUTOPILOT:
+        session.study_state.autopilot_started_at = None
+    session.dirty = True
+
+
+def _clear_autopilot_session(session: ChatSession) -> None:
+    session.study_state.session_goal = ""
+    session.study_state.time_budget_minutes = None
+    session.study_state.autopilot_session_type = ""
+    session.study_state.autopilot_started_at = None
+    session.study_state.autopilot_turns = 0
+    session.study_state.autopilot_stop_reason = ""
+    session.dirty = True
+
+
+def _start_autopilot_session(
+    session: ChatSession,
+    session_type: AutopilotSessionType,
+    time_budget_minutes: int | None,
+    raw_request: str,
+) -> None:
+    session.study_state.autonomy_mode = StudyAutonomyMode.AUTOPILOT
+    session.study_state.session_goal = _autopilot_goal(session_type, raw_request)
+    session.study_state.time_budget_minutes = time_budget_minutes
+    session.study_state.autopilot_session_type = session_type.value
+    session.study_state.autopilot_started_at = datetime.now(UTC)
+    session.study_state.autopilot_turns = 0
+    session.study_state.autopilot_stop_reason = ""
+    session.dirty = True
+
+
+def _autopilot_goal(session_type: AutopilotSessionType, raw_request: str) -> str:
+    if session_type is AutopilotSessionType.EXAM:
+        return "exam preparation"
+    if session_type is AutopilotSessionType.WEAK_TOPICS:
+        return "weak-topic repair"
+    if session_type is AutopilotSessionType.REVIEW:
+        return "due review"
+    if session_type is AutopilotSessionType.SOCRATIC:
+        return "Socratic study"
+    if session_type is AutopilotSessionType.CRAM:
+        return "cram session"
+    if session_type is AutopilotSessionType.DEEP:
+        return "deep understanding"
+    normalized = raw_request.strip().casefold()
+    if normalized in {"", "on", "autopilot"}:
+        return "autonomous guided study"
+    return raw_request or "autonomous guided study"
+
+
+def _autopilot_status_line(
+    session_type: AutopilotSessionType,
+    time_budget_minutes: int | None,
+) -> str:
+    suffix = f" for {time_budget_minutes} minute(s)" if time_budget_minutes is not None else ""
+    return f"Autopilot {session_type.value} session started{suffix}."
+
+
+def _autopilot_start_prompt(
+    session_type: AutopilotSessionType,
+    time_budget_minutes: int | None,
+) -> str:
+    budget = f"I have {time_budget_minutes} minutes. " if time_budget_minutes is not None else ""
+    return (
+        f"Autopilot {session_type.value} mode. {budget}"
+        "Set a bounded study objective, decide the next best action from my materials, "
+        "start with active recall when appropriate, require my confidence from 0-100%, "
+        "and do not reveal answers before I attempt them."
+    )
+
+
+def _print_mode_status(session: ChatSession) -> None:
+    study = session.study_state
+    lines: list[str] = [f"Study mode: {study.autonomy_mode.value}"]
+    if study.autopilot_session_type:
+        lines.append(f"Autopilot type: {study.autopilot_session_type}")
+    if study.session_goal:
+        lines.append(f"Goal: {study.session_goal}")
+    if study.time_budget_minutes is not None:
+        lines.append(f"Budget: {study.time_budget_minutes} minute(s)")
+    if study.autopilot_turns:
+        lines.append(f"Autopilot turns: {study.autopilot_turns}")
+    if study.autopilot_stop_reason:
+        lines.append(f"Stop reason: {study.autopilot_stop_reason}")
+    print_info("\n".join(lines))
 
 
 def _priority_terminal_summary(analysis: PriorityAnalysis, *, limit: int = 5) -> str:

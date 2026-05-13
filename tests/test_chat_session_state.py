@@ -11,7 +11,12 @@ from hephaistos.armory.storage import initialize
 from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import SessionError, create_session, resume_session, save_session
 from hephaistos.rag.health import ExtractionHealthIssue
-from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
+from hephaistos.study import (
+    StudyAutonomyMode,
+    StudyFeedbackType,
+    StudyPhase,
+    StudyRecallRating,
+)
 
 
 def _make_armory(tmp_path: Path) -> Path:
@@ -37,6 +42,10 @@ def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     session.study_state.recall_started_at = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     session.study_state.last_recall_seconds = 75
     session.study_state.last_recall_rating = StudyRecallRating.HARD
+    session.study_state.autonomy_mode = StudyAutonomyMode.AUTOPILOT
+    session.study_state.session_goal = "exam preparation"
+    session.study_state.time_budget_minutes = 45
+    session.study_state.autopilot_session_type = "exam"
 
     save_session(session)
 
@@ -50,6 +59,10 @@ def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     assert resumed.study_state.recall_started_at == datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     assert resumed.study_state.last_recall_seconds == 75
     assert resumed.study_state.last_recall_rating is StudyRecallRating.HARD
+    assert resumed.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+    assert resumed.study_state.session_goal == "exam preparation"
+    assert resumed.study_state.time_budget_minutes == 45
+    assert resumed.study_state.autopilot_session_type == "exam"
 
 
 def test_resume_preserves_only_existing_disabled_sources(tmp_path: Path) -> None:

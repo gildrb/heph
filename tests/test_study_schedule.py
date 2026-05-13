@@ -38,6 +38,9 @@ def test_study_schedule_records_fast_easy_review(tmp_path) -> None:
     assert state.next_review is not None
     assert state.next_review > now
     assert state.retrievability(now=now) == 1.0
+    assert state.mastery == 1.0
+    assert state.calibration_gap == 0.2
+    assert state.next_best_action == "move_to_harder_question"
 
 
 def test_study_schedule_persists_reviews(tmp_path) -> None:
@@ -49,10 +52,20 @@ def test_study_schedule_persists_reviews(tmp_path) -> None:
         source_refs=["materials/exam.md#chunk=1"],
         rating=StudyRecallRating.HARD,
         elapsed_seconds=180,
-        confidence=0.2,
+        confidence=0.9,
+        hint_level_needed=3,
         error_type="wrong",
+        intervention="give_hint",
         exam_importance=2.0,
         now=datetime(2026, 5, 9, 12, 0, tzinfo=UTC),
+    )
+    store.record_policy_outcome(
+        "give_hint",
+        success=False,
+        mastery_delta=-0.1,
+        confidence_delta=0.0,
+        time_cost_seconds=180,
+        frustration_signal=True,
     )
     store.save()
 
@@ -70,7 +83,15 @@ def test_study_schedule_persists_reviews(tmp_path) -> None:
     assert item.last_transfer_success is False
     assert item.failures == 1
     assert item.last_recall_seconds == 180
-    assert item.last_confidence == 0.2
+    assert item.last_confidence == 0.9
+    assert item.hint_level_needed == 3
+    assert item.solved_after_hint is False
+    assert item.common_errors == ["wrong"]
+    assert item.failed_interventions == ["give_hint"]
+    assert item.mastery < 0.1
+    assert item.next_best_action == "contrastive_question"
+    assert loaded.policy_stats["give_hint"].uses == 1
+    assert loaded.policy_stats["give_hint"].frustration_count == 1
 
 
 def test_study_schedule_loads_legacy_reviews_without_mastery_fields(tmp_path) -> None:
@@ -107,6 +128,10 @@ def test_study_schedule_loads_legacy_reviews_without_mastery_fields(tmp_path) ->
     assert item.last_correct is False
     assert item.last_retrieval_success is True
     assert item.last_transfer_success is False
+    assert item.mastery == 0.0
+    assert item.common_errors == []
+    assert item.successful_interventions == []
+    assert item.failed_interventions == []
 
 
 def test_study_schedule_tracks_transfer_success_for_application_items(tmp_path) -> None:

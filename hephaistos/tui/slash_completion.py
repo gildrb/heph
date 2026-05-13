@@ -224,6 +224,13 @@ class SlashCompletionEngine:
                 ("resume", "Resume the latest saved session"),
             ]
 
+        if cmd_name == "mode":
+            return [
+                ("manual", "Set manual study mode"),
+                ("guided", "Set guided study mode"),
+                ("autopilot", "Set bounded autopilot study mode"),
+            ]
+
         if cmd_name == "persona":
             return self._persona_suggestions(arg_parts)
 

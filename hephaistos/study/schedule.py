@@ -10,7 +10,7 @@ from math import log
 from pathlib import Path
 from typing import TypedDict
 
-from hephaistos._types import is_string_mapping
+from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.study.state import StudyRecallRating
 
 _SCHEDULE_FILE = "study_schedule.json"
@@ -38,9 +38,26 @@ class StudyItemPayload(TypedDict, total=False):
     last_retrieval_success: bool
     last_transfer_success: bool
     error_type: str
+    mastery: float
+    calibration_gap: float
+    hint_level_needed: int
+    solved_after_hint: bool
+    common_errors: list[str]
+    successful_interventions: list[str]
+    failed_interventions: list[str]
+    next_best_action: str
     exam_importance: float
     last_review: str
     next_review: str
+
+
+class PolicyMoveStatsPayload(TypedDict):
+    uses: int
+    successes: int
+    total_mastery_delta: float
+    total_confidence_delta: float
+    total_time_seconds: int
+    frustration_count: int
 
 
 @dataclass(slots=True)
@@ -62,6 +79,14 @@ class StudyItemState:
     last_retrieval_success: bool = False
     last_transfer_success: bool = False
     error_type: str = ""
+    mastery: float = 0.0
+    calibration_gap: float | None = None
+    hint_level_needed: int | None = None
+    solved_after_hint: bool = False
+    common_errors: list[str] | None = None
+    successful_interventions: list[str] | None = None
+    failed_interventions: list[str] | None = None
+    next_best_action: str = ""
     exam_importance: float = 0.0
     last_review: datetime | None = None
     next_review: datetime | None = None
@@ -94,12 +119,22 @@ class StudyItemState:
             "last_retrieval_success": self.last_retrieval_success,
             "last_transfer_success": self.last_transfer_success,
             "error_type": self.error_type,
+            "mastery": self.mastery,
+            "solved_after_hint": self.solved_after_hint,
+            "common_errors": list(self.common_errors or []),
+            "successful_interventions": list(self.successful_interventions or []),
+            "failed_interventions": list(self.failed_interventions or []),
+            "next_best_action": self.next_best_action,
             "exam_importance": self.exam_importance,
         }
         if self.last_recall_seconds is not None:
             payload["last_recall_seconds"] = self.last_recall_seconds
         if self.last_confidence is not None:
             payload["last_confidence"] = self.last_confidence
+        if self.calibration_gap is not None:
+            payload["calibration_gap"] = self.calibration_gap
+        if self.hint_level_needed is not None:
+            payload["hint_level_needed"] = self.hint_level_needed
         if self.last_review is not None:
             payload["last_review"] = self.last_review.isoformat()
         if self.next_review is not None:
@@ -134,9 +169,62 @@ class StudyItemState:
             last_retrieval_success=_bool_or(data.get("last_retrieval_success"), bool(refs)),
             last_transfer_success=_bool_or(data.get("last_transfer_success"), False),
             error_type=_str_or(data.get("error_type"), ""),
+            mastery=_bounded_float_or(data.get("mastery"), 0.0, 0.0, 1.0),
+            calibration_gap=_optional_bounded_float(data.get("calibration_gap"), 0.0, 1.0),
+            hint_level_needed=_optional_int(data.get("hint_level_needed"), 0),
+            solved_after_hint=_bool_or(data.get("solved_after_hint"), False),
+            common_errors=_string_list(data.get("common_errors")),
+            successful_interventions=_string_list(data.get("successful_interventions")),
+            failed_interventions=_string_list(data.get("failed_interventions")),
+            next_best_action=_str_or(data.get("next_best_action"), ""),
             exam_importance=_bounded_float_or(data.get("exam_importance"), 0.0, 0.0, 1.0),
             last_review=_parse_datetime(data.get("last_review")),
             next_review=_parse_datetime(data.get("next_review")),
+        )
+
+
+@dataclass(slots=True)
+class PolicyMoveStats:
+    """Aggregate local outcome stats for one teaching move."""
+
+    uses: int = 0
+    successes: int = 0
+    total_mastery_delta: float = 0.0
+    total_confidence_delta: float = 0.0
+    total_time_seconds: int = 0
+    frustration_count: int = 0
+
+    @property
+    def success_rate(self) -> float:
+        if self.uses <= 0:
+            return 0.0
+        return self.successes / self.uses
+
+    @property
+    def avg_mastery_delta(self) -> float:
+        if self.uses <= 0:
+            return 0.0
+        return self.total_mastery_delta / self.uses
+
+    def to_dict(self) -> PolicyMoveStatsPayload:
+        return {
+            "uses": self.uses,
+            "successes": self.successes,
+            "total_mastery_delta": round(self.total_mastery_delta, 4),
+            "total_confidence_delta": round(self.total_confidence_delta, 4),
+            "total_time_seconds": self.total_time_seconds,
+            "frustration_count": self.frustration_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> PolicyMoveStats:
+        return cls(
+            uses=_int_or(data.get("uses"), 0),
+            successes=_int_or(data.get("successes"), 0),
+            total_mastery_delta=_float_or(data.get("total_mastery_delta"), 0.0),
+            total_confidence_delta=_float_or(data.get("total_confidence_delta"), 0.0),
+            total_time_seconds=_int_or(data.get("total_time_seconds"), 0),
+            frustration_count=_int_or(data.get("frustration_count"), 0),
         )
 
 
@@ -146,6 +234,7 @@ class StudyScheduleStore:
     def __init__(self, armory_path: Path) -> None:
         self.armory_path = armory_path
         self.items: dict[str, StudyItemState] = {}
+        self.policy_stats: dict[str, PolicyMoveStats] = {}
         self._dirty = False
 
     @property
@@ -189,15 +278,25 @@ class StudyScheduleStore:
                     for key, value in raw_items.items()
                     if is_string_mapping(value)
                 }
-                return True
+            raw_policy_stats = raw.get("policy_stats", {})
+            if is_string_mapping(raw_policy_stats):
+                self.policy_stats = {
+                    key: PolicyMoveStats.from_dict(value)
+                    for key, value in raw_policy_stats.items()
+                    if isinstance(key, str) and is_string_mapping(value)
+                }
+            return True
         return False
 
     def save(self) -> Path:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "version": 1,
+            "version": 2,
             "updated_at": datetime.now(UTC).isoformat(),
             "items": {key: item.to_dict() for key, item in sorted(self.items.items())},
+            "policy_stats": {
+                key: stats.to_dict() for key, stats in sorted(self.policy_stats.items())
+            },
         }
         self._path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         self._dirty = False
@@ -213,9 +312,11 @@ class StudyScheduleStore:
         rating: StudyRecallRating,
         elapsed_seconds: int | None,
         confidence: float | None = None,
+        hint_level_needed: int | None = None,
         retrieval_success: bool | None = None,
         transfer_success: bool | None = None,
         error_type: str = "",
+        intervention: str = "",
         exam_importance: float = 0.0,
         now: datetime | None = None,
     ) -> StudyItemState:
@@ -254,6 +355,31 @@ class StudyScheduleStore:
             if transfer_success is None
             else transfer_success
         )
+        state.hint_level_needed = hint_level_needed
+        state.solved_after_hint = state.last_correct and hint_level_needed is not None
+        if state.common_errors is None:
+            state.common_errors = []
+        if state.successful_interventions is None:
+            state.successful_interventions = []
+        if state.failed_interventions is None:
+            state.failed_interventions = []
+        if error_type and error_type not in {"", "none", "correct"} and not state.last_correct:
+            _append_unique(state.common_errors, error_type)
+        if intervention:
+            if state.last_correct:
+                _append_unique(state.successful_interventions, intervention)
+            else:
+                _append_unique(state.failed_interventions, intervention)
+        state.mastery = _next_mastery(state.mastery, rating, hint_level_needed)
+        state.calibration_gap = (
+            round(abs(confidence - state.mastery), 4) if confidence is not None else None
+        )
+        state.next_best_action = _next_best_action(
+            rating,
+            mastery=state.mastery,
+            confidence=confidence,
+            hint_level_needed=hint_level_needed,
+        )
         state.last_review = current_time
         state.difficulty = _next_difficulty(state.difficulty, rating, elapsed_seconds)
         state.stability = _next_stability(state.stability, rating, elapsed_seconds)
@@ -261,6 +387,34 @@ class StudyScheduleStore:
         self.items[state.key] = state
         self._dirty = True
         return state
+
+    def record_policy_outcome(
+        self,
+        move_type: str,
+        *,
+        success: bool,
+        mastery_delta: float,
+        confidence_delta: float,
+        time_cost_seconds: int,
+        frustration_signal: bool = False,
+    ) -> PolicyMoveStats:
+        """Record whether a teaching move helped this learner locally."""
+        if not move_type:
+            move_type = "unknown"
+        stats = self.policy_stats.get(move_type)
+        if stats is None:
+            stats = PolicyMoveStats()
+            self.policy_stats[move_type] = stats
+        stats.uses += 1
+        if success:
+            stats.successes += 1
+        stats.total_mastery_delta += mastery_delta
+        stats.total_confidence_delta += confidence_delta
+        stats.total_time_seconds += max(0, time_cost_seconds)
+        if frustration_signal:
+            stats.frustration_count += 1
+        self._dirty = True
+        return stats
 
 
 def load_study_schedule(armory_path: Path) -> StudyScheduleStore:
@@ -309,6 +463,47 @@ def _review_interval(stability: float, rating: StudyRecallRating) -> timedelta:
     if rating is StudyRecallRating.NONE:
         return timedelta(0)
     return timedelta(days=_interval_days_for_retention(stability, _DESIRED_RETENTION))
+
+
+def _next_mastery(
+    current: float,
+    rating: StudyRecallRating,
+    hint_level_needed: int | None,
+) -> float:
+    correctness = {
+        StudyRecallRating.EASY: 1.0,
+        StudyRecallRating.GOOD: 0.82,
+        StudyRecallRating.HARD: 0.22,
+        StudyRecallRating.NONE: 0.0,
+    }[rating]
+    if hint_level_needed is not None:
+        correctness = max(0.0, correctness - min(0.35, hint_level_needed * 0.07))
+    if current <= 0:
+        return round(correctness, 4)
+    return round((current * 0.65) + (correctness * 0.35), 4)
+
+
+def _next_best_action(
+    rating: StudyRecallRating,
+    *,
+    mastery: float,
+    confidence: float | None,
+    hint_level_needed: int | None,
+) -> str:
+    high_confidence_gap = confidence is not None and confidence >= 0.75 and mastery < 0.55
+    if high_confidence_gap:
+        return "contrastive_question"
+    if rating is StudyRecallRating.HARD and hint_level_needed is None:
+        return "give_hint"
+    if rating is StudyRecallRating.HARD:
+        return "prerequisite_repair"
+    if rating is StudyRecallRating.GOOD and mastery < 0.75:
+        return "ask_recall"
+    if rating is StudyRecallRating.EASY and confidence is not None and confidence >= 0.75:
+        return "move_to_harder_question"
+    if rating is StudyRecallRating.EASY:
+        return "interleave_related_topic"
+    return "ask_recall"
 
 
 def _difficulty_delta(rating: StudyRecallRating) -> float:
@@ -378,7 +573,15 @@ def _bool_or(value: object, default: bool) -> bool:
 
 
 def _float_or(value: object, default: float) -> float:
-    return float(value) if isinstance(value, int | float) else default
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    return float(value)
+
+
+def _optional_int(value: object, minimum: int) -> int | None:
+    if isinstance(value, int) and value >= minimum:
+        return value
+    return None
 
 
 def _bounded_float_or(value: object, default: float, minimum: float, maximum: float) -> float:
@@ -390,6 +593,17 @@ def _optional_bounded_float(value: object, minimum: float, maximum: float) -> fl
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return min(maximum, max(minimum, float(value)))
+
+
+def _string_list(value: object) -> list[str]:
+    if not is_object_list(value):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _append_unique(items: list[str], value: str) -> None:
+    if value and value not in items:
+        items.append(value)
 
 
 def _str_or(value: object, default: str) -> str:

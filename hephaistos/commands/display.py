@@ -317,12 +317,21 @@ class StatsCommand(Command):
         lines = [
             "",
             "Study mode:",
+            f"  Mode:      {study.autonomy_mode.value}",
             f"  Phase:     {study.phase.value}",
         ]
+        if study.autopilot_session_type:
+            lines.append(f"  Session:   {study.autopilot_session_type}")
+        if study.time_budget_minutes is not None:
+            lines.append(f"  Budget:    {study.time_budget_minutes}m")
+        if study.autopilot_turns:
+            lines.append(f"  Turns:     {study.autopilot_turns}")
         if study.current_item:
             lines.append(f"  Item:      {study.current_item[:60]}")
         if study.attempt_count > 0:
             lines.append(f"  Attempts:  {study.attempt_count}")
+        if study.hint_level > 0:
+            lines.append(f"  Hint lvl:  {study.hint_level}")
         if study.last_recall_seconds is not None:
             lines.append(f"  Recall:    {format_duration(study.last_recall_seconds)}")
         if study.last_recall_rating.value != "none":
@@ -338,6 +347,12 @@ class StatsCommand(Command):
                     if item.next_review is not None and item.next_review <= now
                 )
                 lines.append(f"  Scheduled: {len(store.item_list)} item(s), {due} due")
+                if store.policy_stats:
+                    best_move, stats = max(
+                        store.policy_stats.items(),
+                        key=lambda item: (item[1].success_rate, item[1].avg_mastery_delta),
+                    )
+                    lines.append(f"  Best move: {best_move} ({stats.success_rate:.0%} success)")
         return lines
 
 

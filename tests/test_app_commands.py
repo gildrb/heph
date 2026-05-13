@@ -21,7 +21,7 @@ from hephaistos.providers.config import default_config
 from hephaistos.providers.registry import ModelInfo
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import EvidenceChunk, TurnEvidence
-from hephaistos.study import StudyFeedbackType, StudyPhase, StudyRecallRating
+from hephaistos.study import StudyAutonomyMode, StudyFeedbackType, StudyPhase, StudyRecallRating
 from hephaistos.study.schedule import load_study_schedule
 from hephaistos.terminal import MenuOption
 from hephaistos.terminal.source_open import SourceOpenResult
@@ -77,8 +77,73 @@ def test_command_registry_includes_exam_and_priority() -> None:
 
     assert registry.find("exam") is not None
     assert registry.find("priority") is not None
+    assert registry.find("mode") is not None
+    assert registry.find("autopilot") is not None
     assert "exam" in names
     assert "priority" in names
+    assert "mode" in names
+    assert "autopilot" in names
+
+
+def test_mode_command_updates_study_autonomy(capsys: pytest.CaptureFixture[str]) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    result = commands.ModeCommand().handle(session, "manual")
+
+    out = capsys.readouterr().out
+    assert result.output is None
+    assert session.study_state.autonomy_mode is StudyAutonomyMode.MANUAL
+    assert session.dirty is True
+    assert "manual" in out
+
+
+def test_autopilot_exam_command_sets_bounded_session(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    result = commands.AutopilotCommand().handle(session, "exam 45m")
+
+    out = capsys.readouterr().out
+    assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+    assert session.study_state.autopilot_session_type == "exam"
+    assert session.study_state.time_budget_minutes == 45
+    assert session.study_state.session_goal == "exam preparation"
+    assert result.output is not None
+    assert result.output.startswith("__RESEND__:Autopilot exam mode.")
+    assert "confidence from 0-100%" in result.output
+    assert "45 minute" in out
+
+
+def test_autopilot_without_args_starts_general_session(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    result = commands.AutopilotCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+    assert session.study_state.autopilot_session_type == "general"
+    assert session.study_state.session_goal == "autonomous guided study"
+    assert result.output is not None
+    assert result.output.startswith("__RESEND__:Autopilot general mode.")
+    assert "confidence from 0-100%" in result.output
+    assert "Autopilot general session started" in out
+
+
+def test_autopilot_off_returns_to_manual(capsys: pytest.CaptureFixture[str]) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+    commands.AutopilotCommand().handle(session, "exam 30m")
+
+    result = commands.AutopilotCommand().handle(session, "off")
+
+    out = capsys.readouterr().out
+    assert result.output is None
+    assert session.study_state.autonomy_mode is StudyAutonomyMode.MANUAL
+    assert session.study_state.autopilot_session_type == ""
+    assert session.study_state.time_budget_minutes is None
+    assert "Autopilot off" in out
 
 
 def test_import_command_refreshes_running_session_sources(tmp_path: Path) -> None:

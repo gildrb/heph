@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -24,6 +25,7 @@ from hephaistos.chat.events import (
 from hephaistos.chat.evidence import (
     ResolvedTurnPlan,
     adaptive_rag_budget,
+    assess_turn_evidence,
     build_overview_context,
     build_priority_context,
     build_priority_turn_evidence,
@@ -31,6 +33,7 @@ from hephaistos.chat.evidence import (
     build_turn_evidence_from_query,
     build_turn_evidence_from_refs,
     ensure_rag_index,
+    evidence_assessment_trace,
     evidence_refs,
     is_overview_query,
     parse_source_ref,
@@ -45,14 +48,25 @@ from hephaistos.chat.orchestrator import (
     _overview_fallback_reply,
     _overview_topic_is_useful,
     _overview_topic_looks_like_metadata,
+    _repair_pedagogy_shape,
+    _run_bounded_internal_repairs,
+    _student_visible_reply,
+    _study_autopilot_context,
 )
 from hephaistos.chat.session import ChatSession
 from hephaistos.rag import ArmoryIndex, ScoredChunk, TurnEvidence
 from hephaistos.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.rag.context import EvidenceChunk
-from hephaistos.study import StudyAction, StudyPhase, StudyTurnPlan
+from hephaistos.study import (
+    StudyAction,
+    StudyAutonomyMode,
+    StudyPhase,
+    StudyRecallRating,
+    StudyState,
+    StudyTurnPlan,
+    plan_turn,
+)
 from hephaistos.study.schedule import load_study_schedule
-from hephaistos.study.state import StudyState
 from scripts import benchmark_answers
 
 # ---------------------------------------------------------------------------
@@ -132,6 +146,84 @@ def _make_study_plan(
     )
 
 
+def test_repair_pedagogy_shape_adds_missing_confidence_request() -> None:
+    plan = plan_turn(
+        StudyState(
+            autonomy_mode=StudyAutonomyMode.GUIDED,
+            phase=StudyPhase.WAITING_FOR_READY,
+            current_item="compactness",
+        ),
+        "ready",
+    )
+
+    repaired = _repair_pedagogy_shape(plan, "Define compactness from memory.")
+
+    assert "Include your confidence from 0-100%." in repaired
+
+
+def test_bounded_internal_repair_loop_caps_passes_and_repairs_shape() -> None:
+    plan = plan_turn(
+        StudyState(
+            autonomy_mode=StudyAutonomyMode.GUIDED,
+            phase=StudyPhase.WAITING_FOR_READY,
+            current_item="compactness",
+        ),
+        "ready",
+    )
+
+    repaired, passes = _run_bounded_internal_repairs(
+        plan,
+        "Define compactness from memory.",
+        None,
+    )
+
+    assert passes <= 3
+    assert "Include your confidence from 0-100%." in repaired
+    assert "Next action:" in repaired
+
+
+def test_student_visible_reply_strips_inline_tool_call_markup() -> None:
+    plan = _make_study_plan(action=StudyAction.PRESENT)
+    raw = (
+        '<tool_call name="search_materials">{"query":"what can i use this for","top_k":5}'
+        "</tool_call>No searchable armory evidence was found."
+    )
+
+    cleaned = _student_visible_reply(plan, raw)
+
+    assert cleaned == "No searchable armory evidence was found."
+
+
+def test_study_autopilot_context_reads_schedule_learner_state(tmp_path: Path) -> None:
+    session = ChatSession(
+        config=ChatConfig(),
+        conversation=Conversation(),
+        session_id="autopilot-context",
+        armory_path=tmp_path,
+    )
+    store = load_study_schedule(tmp_path)
+    store.record_review(
+        "Contrast injective and surjective maps",
+        concept="injective vs surjective",
+        retrieval_query="functions",
+        source_refs=["materials/lecture.md#chunk=3"],
+        rating=StudyRecallRating.HARD,
+        elapsed_seconds=90,
+        confidence=0.9,
+        error_type="wrong",
+        intervention="contrastive_question",
+        now=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+    store.save()
+
+    due_reviews, memory_state = _study_autopilot_context(session)
+
+    assert due_reviews[0].concept == "injective vs surjective"
+    assert memory_state.weak_topics == ("injective vs surjective",)
+    assert memory_state.misconceptions == ("injective vs surjective",)
+    assert memory_state.failed_interventions == ("contrastive_question",)
+
+
 def test_build_turn_evidence_from_query_excludes_disabled_materials() -> None:
     enabled = ScoredChunk(chunk=_make_chunk("materials/enabled.md"), score=0.9)
     disabled = ScoredChunk(chunk=_make_chunk("materials/disabled.md"), score=0.8)
@@ -168,8 +260,16 @@ def test_evidence_notice_metadata_exposes_reviewable_evidence() -> None:
         _make_evidence_chunk("materials/a.md", 0, "E1", "First reviewed excerpt."),
         _make_evidence_chunk("materials/b.md", 2, "E2", "Second reviewed excerpt."),
     )
+    plan = _make_study_plan(action=StudyAction.SOURCE_QA)
+    assessment = assess_turn_evidence(plan, evidence)
 
-    metadata = _evidence_notice_metadata(ResolvedTurnPlan(turn_evidence=evidence))
+    metadata = _evidence_notice_metadata(
+        ResolvedTurnPlan(
+            study_plan=plan,
+            turn_evidence=evidence,
+            evidence_assessment=assessment,
+        )
+    )
 
     assert metadata["refs"] == ["materials/a.md#chunk=0", "materials/b.md#chunk=2"]
     assert metadata["coverage"] == {
@@ -191,6 +291,32 @@ def test_evidence_notice_metadata_exposes_reviewable_evidence() -> None:
             "text_excerpt": "Second reviewed excerpt.",
         },
     ]
+    assert metadata["assessment"] == {
+        "sufficient": True,
+        "confidence": 0.887,
+        "supporting_refs": ["materials/a.md#chunk=0", "materials/b.md#chunk=2"],
+        "missing_information": [],
+        "conflicts": [],
+        "source_diversity_score": 0.667,
+        "recommended_action": "answer",
+    }
+
+
+def test_evidence_notice_discloses_partial_source_only_support() -> None:
+    evidence = _make_turn_evidence(_make_evidence_chunk("materials/a.md", 0, "E1"))
+    plan = _make_study_plan(action=StudyAction.SOURCE_QA, retrieval_query="using only sources")
+    assessment = assess_turn_evidence(plan, evidence)
+
+    notice = _evidence_notice(
+        ResolvedTurnPlan(
+            study_plan=plan,
+            turn_evidence=evidence,
+            evidence_assessment=assessment,
+        )
+    )
+
+    assert "Using 1 retrieved evidence excerpt: materials/a.md#chunk=0" in notice
+    assert "Evidence sufficiency: give partial answer (48%)." in notice
 
 
 def test_evidence_notice_summarizes_overview_sources() -> None:
@@ -466,18 +592,81 @@ class TestResolvedTurnPlan:
         plan = ResolvedTurnPlan()
         assert plan.study_plan is None
         assert plan.turn_evidence is None
+        assert plan.evidence_assessment is None
 
     def test_with_values(self) -> None:
         study_plan = _make_study_plan()
         evidence = _make_turn_evidence(_make_evidence_chunk())
-        plan = ResolvedTurnPlan(study_plan=study_plan, turn_evidence=evidence)
+        assessment = assess_turn_evidence(study_plan, evidence)
+        plan = ResolvedTurnPlan(
+            study_plan=study_plan,
+            turn_evidence=evidence,
+            evidence_assessment=assessment,
+        )
         assert plan.study_plan is study_plan
         assert plan.turn_evidence is evidence
+        assert plan.evidence_assessment is assessment
 
     def test_frozen(self) -> None:
         plan = ResolvedTurnPlan()
         with pytest.raises(AttributeError):
             plan.study_plan = _make_study_plan()  # ty:ignore[invalid-assignment]
+
+
+def test_assess_turn_evidence_flags_weak_source_only_support() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.SOURCE_QA,
+        retrieval_query="Using only the indexed sources, what is the phrase?",
+    )
+    evidence = _make_turn_evidence(_make_evidence_chunk("materials/a.md", 0, "E1"))
+
+    assessment = assess_turn_evidence(plan, evidence)
+
+    assert assessment.sufficient is False
+    assert assessment.recommended_action == "give_partial_answer"
+    assert assessment.supporting_refs == ("materials/a.md#chunk=0",)
+    assert "corroborating source span" in assessment.missing_information
+
+
+def test_assess_turn_evidence_routes_broad_present_query_to_clarifying() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.PRESENT,
+        retrieval_query="what is this material about overall",
+    )
+
+    assessment = assess_turn_evidence(plan, None)
+
+    assert assessment.sufficient is False
+    assert assessment.recommended_action == "ask_clarifying_question"
+
+
+def test_assess_turn_evidence_routes_assess_without_evidence_to_quiz_first() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.ASSESS,
+        retrieval_query="grade this recall answer against the source",
+    )
+
+    assessment = assess_turn_evidence(plan, None)
+
+    assert assessment.sufficient is False
+    assert assessment.recommended_action == "quiz_first"
+
+
+def test_evidence_assessment_trace_is_json_friendly() -> None:
+    plan = _make_study_plan(action=StudyAction.SOURCE_QA)
+    assessment = assess_turn_evidence(plan, None)
+
+    trace = evidence_assessment_trace(assessment)
+
+    assert trace == {
+        "sufficient": False,
+        "confidence": 0.0,
+        "supporting_refs": [],
+        "missing_information": ["source span that directly answers the source-only question"],
+        "conflicts": [],
+        "source_diversity_score": 0.0,
+        "recommended_action": "abstain",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +730,9 @@ class TestTurnOrchestratorPlain:
         events = list(orch.iter_events("hey"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert deltas == ["Hey."]
+        assert len(deltas) == 1
+        assert "material-backed study" in deltas[0]
+        assert "/autopilot on" in deltas[0]
         assert session.last_turn_evidence is None
         mock_stream.assert_not_called()
 
@@ -671,6 +862,9 @@ class TestTurnOrchestratorStudy:
         reply_trace = trace.record_session_event.call_args
         assert reply_trace.args == ("reply",)
         assert reply_trace.kwargs["reply_excerpt"].startswith("chunk1chunk2 Evidence checked:")
+        assert reply_trace.kwargs["internal_passes"] >= 1
+        assert reply_trace.kwargs["internal_pass_max"] == 3
+        assert "learner_assessment" in reply_trace.kwargs
         assert reply_trace.kwargs["evidence_refs"] == ["materials/notes.md#chunk=0"]
         assert reply_trace.kwargs["evidence_coverage"] == {
             "evidence_blocks": 1,
@@ -1461,6 +1655,81 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.assert_not_called()
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_source_only_partial_evidence_injects_sufficiency_gate(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.SOURCE_QA,
+            retrieval_query="Using only the indexed sources, what is the sentinel phrase?",
+        )
+        evidence = _make_turn_evidence(_make_evidence_chunk("materials/a.md", 0, "E1"))
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("The source says X [E1].")])
+
+        session = _make_study_session()
+        list(TurnOrchestrator(session).iter_events("Using only the indexed sources, what is X?"))
+
+        prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        assert "Evidence sufficiency gate:" in prompt
+        assert "Recommended action: give partial answer." in prompt
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_broad_present_query_routes_to_clarifying_question_before_generation(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is this material about overall",
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("unused")])
+
+        session = _make_study_session()
+        events = list(TurnOrchestrator(session).iter_events("what is this material about overall"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert "need one clarification" in deltas[0]
+        mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_assess_without_evidence_routes_to_quiz_first_before_generation(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.ASSESS,
+            retrieval_query="grade this recall answer against the source",
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("unused")])
+
+        session = _make_study_session()
+        events = list(TurnOrchestrator(session).iter_events("answer"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert "test your current understanding first" in deltas[0]
+        mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
     def test_simple_greeting_is_direct_and_ungrounded(self, mock_iter_agent: MagicMock) -> None:
         session = _make_study_session()
         orch = TurnOrchestrator(session)
@@ -1468,7 +1737,9 @@ class TestTurnOrchestratorStudy:
         events = list(orch.iter_events("hey"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert deltas == ["Hey."]
+        assert len(deltas) == 1
+        assert "material-backed study" in deltas[0]
+        assert "/autopilot on" in deltas[0]
         assert session.last_turn_evidence is None
         assert session.study_state.current_item == ""
         mock_iter_agent.assert_not_called()

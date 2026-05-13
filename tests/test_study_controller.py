@@ -7,13 +7,19 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from hephaistos.study import (
+    MemoryState,
     StudyAction,
+    StudyAutonomyMode,
     StudyFeedbackType,
     StudyPhase,
     StudyRecallRating,
     StudyState,
     apply_turn_result,
+    assess_choice_response,
+    assess_evidence,
+    choice_prompt,
     plan_turn,
+    validate_pedagogy,
 )
 
 
@@ -34,6 +40,210 @@ def test_study_state_round_trips_confidence() -> None:
     loaded = StudyState.from_dict(state.to_dict())
 
     assert loaded.last_confidence == 0.6
+
+
+def test_study_state_round_trips_autonomy_session() -> None:
+    started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        session_goal="exam preparation",
+        time_budget_minutes=45,
+        autopilot_session_type="exam",
+        autopilot_started_at=started,
+        autopilot_turns=3,
+        autopilot_stop_reason="mastery target reached",
+        hint_level=2,
+    )
+
+    loaded = StudyState.from_dict(state.to_dict())
+
+    assert loaded.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+    assert loaded.session_goal == "exam preparation"
+    assert loaded.time_budget_minutes == 45
+    assert loaded.autopilot_session_type == "exam"
+    assert loaded.autopilot_started_at == started
+    assert loaded.autopilot_turns == 3
+    assert loaded.autopilot_stop_reason == "mastery target reached"
+    assert loaded.hint_level == 2
+
+
+def test_autopilot_time_budget_returns_completion_reply() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        time_budget_minutes=10,
+        autopilot_started_at=datetime.now(UTC) - timedelta(minutes=11),
+    )
+
+    plan = plan_turn(state, "next")
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.direct_reply is not None
+    assert "time budget reached" in plan.direct_reply
+
+
+def test_autopilot_review_stops_when_due_cards_complete() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        autopilot_session_type="review",
+        autopilot_turns=2,
+    )
+
+    plan = plan_turn(state, "next", due_reviews=(), memory_state=MemoryState())
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.direct_reply is not None
+    assert "due cards completed" in plan.direct_reply
+
+
+def test_autopilot_stops_when_mastery_target_reached() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        autopilot_turns=4,
+    )
+
+    plan = plan_turn(state, "next", due_reviews=(), memory_state=MemoryState())
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.direct_reply is not None
+    assert "mastery target reached" in plan.direct_reply
+
+
+def test_guided_plan_attaches_study_move_policy() -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.GUIDED)
+
+    plan = plan_turn(state, "help me study Bayes theorem")
+
+    assert plan.autonomy_mode is StudyAutonomyMode.GUIDED
+    assert plan.study_move is not None
+    assert plan.study_move.kind == "ask_recall"
+    assert "Autonomous study policy" in plan.prompt
+    assert "confidence from 0-100%" in plan.prompt
+
+
+def test_just_answer_temporarily_uses_manual_mode() -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.GUIDED)
+
+    plan = plan_turn(state, "just answer this from the source")
+
+    assert plan.autonomy_mode is StudyAutonomyMode.MANUAL
+    assert "Autonomous study policy" not in plan.prompt
+
+
+def test_evidence_assessment_abstains_for_source_only_without_refs() -> None:
+    assessment = assess_evidence((), source_only=True)
+
+    assert assessment.sufficient is False
+    assert assessment.recommended_action == "abstain"
+    assert assessment.missing_information
+
+
+def test_pedagogy_validation_flags_missing_confidence_for_recall() -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.GUIDED)
+    plan = plan_turn(state, "quiz me")
+    assert plan.study_move is not None
+
+    validation = validate_pedagogy(
+        "Try defining the theorem from memory.",
+        plan.study_move,
+        plan.autonomy_mode,
+    )
+
+    assert validation.valid is False
+    assert "missing confidence request" in validation.issues
+
+
+def test_choice_prompt_requires_reason_confidence_and_weakness() -> None:
+    prompt = choice_prompt(
+        "There is a real study fork.",
+        ("Active recall question", "Worked example", "Prerequisite repair"),
+    )
+
+    assert "Choose one path, but include your reasoning" in prompt
+    assert "A. Active recall question" in prompt
+    assert "confidence from 0-100%" in prompt
+    assert "weakest point" in prompt
+
+
+def test_choice_assessment_accepts_metacognitive_choice() -> None:
+    assessment = assess_choice_response(
+        "Option B because examples expose my weak point. Confidence: 70%. "
+        "My weakest point is setup.",
+        recommended_option="B",
+    )
+
+    assert assessment.valid is True
+    assert assessment.selected_option == "B"
+    assert assessment.confidence == 0.7
+    assert assessment.has_reason is True
+    assert assessment.should_override is False
+
+
+def test_choice_assessment_recommends_overriding_weak_choice() -> None:
+    assessment = assess_choice_response("A", recommended_option="C")
+
+    assert assessment.valid is False
+    assert assessment.selected_option == "A"
+    assert assessment.recommendation == "C"
+    assert assessment.should_override is True
+    assert "missing reason" in assessment.issues
+    assert "weak justification for non-recommended option" in assessment.issues
+
+
+def test_choice_policy_prompt_overrides_passive_options() -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.GUIDED)
+
+    plan = plan_turn(state, "Which option should I choose next?")
+
+    assert plan.study_move is not None
+    assert plan.study_move.kind == "offer_choices"
+    assert "Require: option, reason, confidence from 0-100%, and weakest point." in plan.prompt
+    assert "Override a weak choice" in plan.prompt
+
+
+def test_choice_reply_selects_worked_example_when_justified() -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.GUIDED)
+
+    plan = plan_turn(
+        state,
+        "Option B because I need one concrete example first. Confidence: 72%. "
+        "My weakest point is applying the setup.",
+    )
+
+    assert plan.study_move is not None
+    assert plan.study_move.kind == "worked_example"
+    assert (
+        "guided mode follows the learner's justified study-path choice" in plan.study_move.reason
+    )
+
+
+def test_choice_reply_overrides_weak_non_recommended_path() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.GUIDED,
+        last_feedback_type=StudyFeedbackType.WRONG,
+    )
+
+    plan = plan_turn(state, "Option A")
+
+    assert plan.study_move is not None
+    assert plan.study_move.kind == "contrastive_question"
+    assert "overrides to the stronger pedagogical option" in plan.study_move.reason
+
+
+def test_policy_uses_local_intervention_outcomes_for_next_move() -> None:
+    plan = plan_turn(
+        StudyState(autonomy_mode=StudyAutonomyMode.GUIDED),
+        "help me study",
+        memory_state=MemoryState(
+            misconceptions=("Bayes theorem",),
+            successful_interventions=("give_hint",),
+            failed_interventions=("contrastive_question",),
+        ),
+    )
+
+    assert plan.study_move is not None
+    assert plan.study_move.kind == "give_hint"
+    assert plan.study_move.target_topic == "Bayes theorem"
+    assert "local policy outcomes" in plan.study_move.reason
 
 
 def test_first_turn_material_overview_uses_internal_evidence_without_llm_tools() -> None:
@@ -135,8 +345,20 @@ def test_explicit_source_question_answers_without_entering_recall_loop() -> None
 @pytest.mark.parametrize(
     ("message", "reply"),
     [
-        ("hey", "Hey."),
-        ("hello!", "Hey."),
+        (
+            "hey",
+            "Hey. I can run material-backed study with /exam, /priority, or /autopilot on.",
+        ),
+        (
+            "hello!",
+            "Hey. I can run material-backed study with /exam, /priority, or /autopilot on.",
+        ),
+        (
+            "What can I use this for?",
+            "Use Hephaistos to study your own materials: ask a source-backed question, run "
+            "/exam for active recall, run /priority for a plan, or /autopilot on to start a "
+            "bounded guided session.",
+        ),
         ("thanks", "You're welcome."),
         ("thank you", "You're welcome."),
     ],
@@ -310,7 +532,7 @@ def test_assess_correct_resets_for_next_item() -> None:
         recall_started_at=started,
     )
 
-    plan = plan_turn(state, "It equals 4 because ... confidence 4/5")
+    plan = plan_turn(state, "It equals 4 because ... Confidence: 80%.")
     next_state, cleaned = apply_turn_result(
         state,
         plan,
@@ -624,6 +846,55 @@ def test_hint_requests_after_an_attempt_return_hint_plan() -> None:
     assert plan.allow_tools is False
 
 
+def test_hint_prompt_uses_ladder_level_one_for_first_hint() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        attempt_count=1,
+        hint_level=0,
+    )
+
+    plan = plan_turn(state, "hint please")
+
+    assert plan.action is StudyAction.HINT
+    assert "Hint level: 1" in plan.prompt
+    assert "orienting hint" in plan.prompt
+    assert "Do not reveal later steps" in plan.prompt
+
+
+def test_hint_prompt_uses_ladder_level_four_for_deeper_scaffold() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        attempt_count=1,
+        hint_level=3,
+    )
+
+    plan = plan_turn(state, "hint please")
+
+    assert plan.action is StudyAction.HINT
+    assert "Hint level: 4" in plan.prompt
+    assert "partial worked step" in plan.prompt
+
+
+def test_hint_prompt_uses_ladder_level_five_for_full_solution() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        attempt_count=1,
+        hint_level=4,
+    )
+
+    plan = plan_turn(state, "hint please")
+
+    assert plan.action is StudyAction.HINT
+    assert "Hint level: 5" in plan.prompt
+    assert "full solution with explanation" in plan.prompt
+
+
 def test_present_result_without_source_refs_resets_current_item() -> None:
     state = StudyState()
     plan = plan_turn(state, "Explain question 1")
@@ -636,6 +907,15 @@ def test_present_result_without_source_refs_resets_current_item() -> None:
     assert next_state.retrieval_query == ""
     assert next_state.expected_source_refs == []
     assert next_state.last_feedback_type is StudyFeedbackType.NO_SOURCE
+
+
+def test_autopilot_no_source_marks_stop_reason() -> None:
+    state = StudyState(autonomy_mode=StudyAutonomyMode.AUTOPILOT)
+    plan = plan_turn(state, "Explain question 1")
+
+    next_state, _cleaned = apply_turn_result(state, plan, "No grounded source found.", [])
+
+    assert next_state.autopilot_stop_reason == "evidence is insufficient"
 
 
 def test_hint_result_updates_expected_source_refs_when_present() -> None:
@@ -659,6 +939,29 @@ def test_hint_result_updates_expected_source_refs_when_present() -> None:
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.expected_source_refs == ["source/exam.md#chunk=1"]
     assert next_state.last_feedback_type is StudyFeedbackType.HINT
+    assert next_state.hint_level == 1
+
+
+def test_hint_level_resets_after_correct_assessment() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        hint_level=2,
+        recall_started_at=datetime(2026, 5, 9, 12, 0, tzinfo=UTC),
+    )
+    plan = plan_turn(state, "answer confidence 80%")
+
+    next_state, _cleaned = apply_turn_result(
+        state,
+        plan,
+        "CORRECT: Good.",
+        ["source/exam.md#chunk=1"],
+        now=datetime(2026, 5, 9, 12, 0, 20, tzinfo=UTC),
+    )
+
+    assert next_state.hint_level == 0
+    assert next_state.last_recall_rating is StudyRecallRating.EASY
 
 
 def test_empty_assessment_body_uses_feedback_fallback_message() -> None:
@@ -675,3 +978,23 @@ def test_empty_assessment_body_uses_feedback_fallback_message() -> None:
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.last_feedback_type is StudyFeedbackType.WRONG
     assert next_state.attempt_count == 1
+
+
+def test_autopilot_wrong_after_many_hints_marks_frustration_stop_reason() -> None:
+    state = StudyState(
+        autonomy_mode=StudyAutonomyMode.AUTOPILOT,
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+        hint_level=4,
+    )
+    plan = plan_turn(state, "attempt")
+
+    next_state, _cleaned = apply_turn_result(
+        state,
+        plan,
+        "WRONG: Start over from first principles.",
+        ["source/exam.md#chunk=0"],
+    )
+
+    assert next_state.autopilot_stop_reason == "learner fatigue or frustration detected"

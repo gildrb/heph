@@ -2976,7 +2976,7 @@ def test_busy_footer_keeps_cancel_hint_with_completion_menu_visible() -> None:
             footer = app.query_one("#footer-hints", tui.Static)
             position = app.query_one("#completion-position", tui.Static)
             assert str(footer.render()) == "ctrl+c cancel"
-            assert str(position.render()) == "  (1/28)"
+            assert str(position.render()) == f"  (1/{len(app.completion_candidates)})"
 
     asyncio.run(check_busy_footer())
 

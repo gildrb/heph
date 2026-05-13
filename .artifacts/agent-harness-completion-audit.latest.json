@@ -1,0 +1,112 @@
+{
+  "status": "complete",
+  "items": [
+    {
+      "requirement": "No LangChain/LangGraph/LlamaIndex dependencies",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/pyproject.toml, /Users/gilrodrigues/Code/Hephaistos/uv.lock"
+    },
+    {
+      "requirement": "No fixture-specific course terms in runtime harness code",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/hephaistos"
+    },
+    {
+      "requirement": "No fixture-specific course terms in non-fixture harness scripts",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts"
+    },
+    {
+      "requirement": "scripts/run_benchmark_suite.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/run_benchmark_suite.py"
+    },
+    {
+      "requirement": "scripts/benchmark_document_understanding.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/benchmark_document_understanding.py"
+    },
+    {
+      "requirement": "scripts/discover_real_corpus_candidates.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/discover_real_corpus_candidates.py"
+    },
+    {
+      "requirement": "scripts/build_permissioned_corpus_armory.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/build_permissioned_corpus_armory.py"
+    },
+    {
+      "requirement": "scripts/prepare_real_corpus_evidence.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/prepare_real_corpus_evidence.py"
+    },
+    {
+      "requirement": "scripts/replay_answer_benchmark.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/replay_answer_benchmark.py"
+    },
+    {
+      "requirement": "scripts/benchmark_chat_events.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/benchmark_chat_events.py"
+    },
+    {
+      "requirement": "scripts/extract_chat_event_expectation.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/extract_chat_event_expectation.py"
+    },
+    {
+      "requirement": "scripts/materialize_public_corpus.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/materialize_public_corpus.py"
+    },
+    {
+      "requirement": "scripts/run_model_eval_matrix.py",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/scripts/run_model_eval_matrix.py"
+    },
+    {
+      "requirement": "benchmarks/academic/manifest.json",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/benchmarks/academic/manifest.json"
+    },
+    {
+      "requirement": "Deterministic academic benchmark suite passes",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/benchmarks/academic: academic_items_pass_rate=1.000, academic_question_type_count=6, academic_grounded_question_rate=1.000, prompt_cache_pass_rate=1.000, prompt_cache_stable_hash_reuse=1.000"
+    },
+    {
+      "requirement": "Deterministic suite verifies public chat JSONL harness events",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/benchmarks/academic/chat_events.jsonl: reading=True, evidence=True, writing=True, complete=True, consistent=True, material_operation=True, material_operation_metadata_rate=1.000, metadata=True, tool_runtime_metadata_rate=1.000, runtime_fixture_tool_runtime=True, runtime_fixture_material_operation_metadata_rate=1.000, runtime_fixture_metadata_rate=1.000, runtime_fixture_repeated_call=True, runtime_fixture_acceptance_criteria_metadata_rate=1.000, answer_pass_rate=1.000"
+    },
+    {
+      "requirement": "Model matrix example declares local/frontier responsibilities",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/benchmarks/model-matrix.example.json; frontier_responsibilities=4, local_responsibilities=4"
+    },
+    {
+      "requirement": "Large real/public or permissioned academic corpus",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/real-corpus-manifest.json: documents=382, domains=35, document_types=10, stressors=20"
+    },
+    {
+      "requirement": "Real corpus public chat JSONL harness events pass",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/chat_events.jsonl: reading=True, evidence=True, writing=True, complete=True, consistent=True, material_operation=True, material_operation_metadata_rate=1.000, metadata=True, tool_runtime_metadata_rate=1.000, acceptance_criteria_metadata_rate=1.000, answer_pass_rate=1.000"
+    },
+    {
+      "requirement": "Real corpus preflight passes extraction, indexing, and role smoke checks",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/real-corpus-preflight.json: indexed=382, chunks=21408, health=passed, overview_sampled=32/382"
+    },
+    {
+      "requirement": "Model-backed replay eval passes local and frontier groups",
+      "status": "covered",
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/matrix.report.json: groups=frontier, local, candidates=2, codex_oauth=present"
+    }
+  ],
+  "missing": [],
+  "next_steps": []
+}

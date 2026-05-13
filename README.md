@@ -245,6 +245,8 @@ Useful shell commands:
 | /cost | Show or hide live cost estimates |
 | /stats | Show session, armory, and study progress stats |
 | /priority | Find priority topics and prerequisites |
+| /mode | Set study autonomy mode |
+| /autopilot | Run a bounded autonomous study session |
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |

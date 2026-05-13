@@ -18,6 +18,7 @@ from hephaistos.chat.events import (
     NoticeEvent,
     ToolCallEvent,
     ToolResultEvent,
+    TurnCompleteEvent,
 )
 from hephaistos.runtime import (
     EngineError,
@@ -301,6 +302,7 @@ def run_tui_turn(
 ) -> None:
     """Run one chat turn and report UI-ready events through callbacks."""
     parts: list[str] = []
+    completed_reply: str | None = None
     activity = _TurnActivitySummary()
 
     def report_activity() -> None:
@@ -311,6 +313,8 @@ def run_tui_turn(
         for event in iter_chat_events(session, user_input, abort=abort_event):
             if isinstance(event, AssistantDeltaEvent):
                 parts.append(event.delta)
+            elif isinstance(event, TurnCompleteEvent):
+                completed_reply = event.full_text
             elif isinstance(
                 event,
                 ToolCallEvent | ToolResultEvent | MaterialOperationEvent | NoticeEvent,
@@ -319,7 +323,9 @@ def run_tui_turn(
                 if on_progress is not None:
                     on_progress(_truncate(_progress_text(event), _MAX_PROGRESS_TEXT))
         report_activity()
-        reply = "".join(parts).strip()
+        reply = (completed_reply if completed_reply is not None else "".join(parts)).strip()
+        if not reply and parts:
+            reply = "".join(parts).strip()
         if reply:
             on_reply(reply)
     except (StreamRecoveryError, EngineError) as exc:
