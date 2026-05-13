@@ -291,7 +291,7 @@ class RemindCommand(Command):
 
 class ModeCommand(Command):
     name = "mode"
-    description = "Set study autonomy mode"
+    description = "Set manual, guided, or autopilot study mode"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -303,6 +303,12 @@ class ModeCommand(Command):
         if mode is None:
             print_error("Usage: /mode manual, /mode guided, or /mode autopilot")
             return CommandResult()
+        if mode is StudyAutonomyMode.AUTOPILOT:
+            session_type = AutopilotSessionType.GENERAL
+            _start_autopilot_session(s, session_type, None, requested)
+            print_success(f"Study mode set to {mode.value}.")
+            prompt = _autopilot_start_prompt(session_type, None)
+            return CommandResult(output=f"__RESEND__:{prompt}")
         _set_study_mode(s, mode)
         print_success(f"Study mode set to {mode.value}.")
         return CommandResult()
@@ -310,7 +316,7 @@ class ModeCommand(Command):
 
 class AutopilotCommand(Command):
     name = "autopilot"
-    description = "Run a bounded autonomous study session"
+    description = "Let Heph drive a bounded autonomous study session"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -529,8 +535,8 @@ def _autopilot_goal(session_type: AutopilotSessionType, raw_request: str) -> str
         return "deep understanding"
     normalized = raw_request.strip().casefold()
     if normalized in {"", "on", "autopilot"}:
-        return "autonomous guided study"
-    return raw_request or "autonomous guided study"
+        return "autonomous study"
+    return raw_request or "autonomous study"
 
 
 def _autopilot_status_line(
@@ -546,11 +552,13 @@ def _autopilot_start_prompt(
     time_budget_minutes: int | None,
 ) -> str:
     budget = f"I have {time_budget_minutes} minutes. " if time_budget_minutes is not None else ""
+    goal = _autopilot_goal(session_type, "")
     return (
         f"Autopilot {session_type.value} mode. {budget}"
-        "Set a bounded study objective, decide the next best action from my materials, "
-        "start with active recall when appropriate, require my confidence from 0-100%, "
-        "and do not reveal answers before I attempt them."
+        f"Goal: {goal}. "
+        "First move: choose the best diagnostic or review action from my materials. "
+        "Drive the session yourself, start with active recall when appropriate, require "
+        "my confidence from 0-100%, and do not reveal answers before I attempt them."
     )
 
 

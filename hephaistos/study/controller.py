@@ -93,8 +93,8 @@ _REVEAL_RE = re.compile(
 _SHORT_REVEAL_RE = re.compile(r"^(?:answer|solution)\s*(?:please|\?)?$", re.IGNORECASE)
 _HINT_RE = re.compile(r"\b(?:hint|nudge|clue)\b", re.IGNORECASE)
 _TOO_HARD_RE = re.compile(
-    r"\b(?:too hard|too difficult|easier|simpler|i don'?t know|dunno|"
-    r"no idea|lost|stuck|can'?t answer|cannot answer)\b",
+    r"\b(?:too hard|too difficult|easier|simpler|not sure|unsure|not prepared|"
+    r"i don'?t know|dunno|no idea|lost|stuck|can'?t answer|cannot answer)\b",
     re.IGNORECASE,
 )
 _REVIEW_MATERIAL_RE = re.compile(
@@ -170,6 +170,13 @@ def _is_simple_greeting(user_input: str) -> bool:
     return bool(_GREETING_RE.fullmatch(_normalize(user_input)))
 
 
+def _is_light_chat_request(user_input: str) -> bool:
+    text = _normalize(user_input)
+    return bool(
+        _GREETING_RE.fullmatch(text) or _THANKS_RE.fullmatch(text) or _PRODUCT_HELP_RE.search(text)
+    )
+
+
 def _direct_chat_reply(user_input: str) -> str | None:
     text = _normalize(user_input)
     if _GREETING_RE.fullmatch(text):
@@ -178,7 +185,7 @@ def _direct_chat_reply(user_input: str) -> str | None:
         return (
             "Use Hephaistos to study your own materials: ask a source-backed question, "
             "run /exam for active recall, run /priority for a plan, or /autopilot on "
-            "to start a bounded guided session."
+            "to let Heph drive the session."
         )
     if _THANKS_RE.fullmatch(text):
         return "You're welcome."
@@ -360,6 +367,48 @@ def _source_qa_prompt(query: str) -> str:
     )
 
 
+def _manual_chat_prompt(query: str) -> str:
+    return (
+        "HEPH chat mode.\n"
+        f"User request: {query}\n"
+        "Rules:\n"
+        "- Behave like a normal conversational assistant with access to the current "
+        "armory's memory, materials, and available tools.\n"
+        "- Use retrieved armory evidence when it is relevant, and cite evidence IDs for "
+        "claims based on the armory.\n"
+        "- You may supplement with general knowledge when the user is not asking for a "
+        "source-only or armory-only answer; clearly separate general knowledge from "
+        "armory-backed claims.\n"
+        "- Do not force a ready/recall loop, require confidence, or turn the exchange "
+        "into a quiz unless the user explicitly asks.\n"
+        "- If the user asks for study help, answer helpfully and let the user choose "
+        "whether to drill, review, or continue chatting."
+    )
+
+
+def _autopilot_calibration_prompt(query: str, state: StudyState) -> str:
+    goal = state.session_goal or "autonomous study"
+    session_type = state.autopilot_session_type or "general"
+    return (
+        "HEPH AUTOPILOT first move.\n"
+        f"Session type: {session_type}\n"
+        f"Inferred goal: {goal}\n"
+        f"User request: {query}\n"
+        "Rules:\n"
+        "- Do not explain Autopilot at length.\n"
+        "- State the inferred goal in one short line.\n"
+        "- State the first move in one short line.\n"
+        "- Use the retrieved source material to ask exactly one diagnostic recall, "
+        "prediction, application, or comparison question.\n"
+        "- The question must test understanding, not document metadata.\n"
+        "- Do not reveal the answer, method, answer key, source IDs, or citations.\n"
+        "- Require the learner to answer from memory and include confidence from 0-100%.\n"
+        "- If source material is unavailable or too thin, ask the smallest necessary "
+        "clarifying question instead of inventing a task.\n"
+        "- End with exactly: Your turn: answer from memory and give confidence from 0-100%."
+    )
+
+
 def _source_followup_prompt(item: str, user_input: str) -> str:
     return (
         "Controlled study state machine. Execute SOURCE_FOLLOWUP.\n"
@@ -470,6 +519,28 @@ def _simplify_prompt(item: str) -> str:
     )
 
 
+def _autopilot_scaffold_prompt(item: str) -> str:
+    return (
+        "HEPH AUTOPILOT scaffold step.\n"
+        f"Previous item: {item}\n"
+        "Rules:\n"
+        "- The learner signaled that they are not ready or not sure.\n"
+        "- Do not grade the learner and do not mark the attempt wrong.\n"
+        "- Use only the stored material context for this item.\n"
+        "- Give the smallest useful scaffold: a sentence starter, one partial setup, "
+        "or a 1-3 blank fill-the-gaps prompt.\n"
+        "- Keep the full answer hidden; reveal only enough structure for the learner "
+        "to make a real next attempt.\n"
+        "- Ground the scaffold in a retrieved source span, past-exam pattern, rubric "
+        "point, or mark-scheme point.\n"
+        "- Ask exactly one easier action the learner can complete now.\n"
+        "- End with exactly: Fill the gap or continue the starter, then give confidence "
+        "from 0-100%.\n"
+        "- If no grounded material context is available, say no grounded scaffold is "
+        "available and ask which subtopic to review first."
+    )
+
+
 def _review_prompt(item: str) -> str:
     return (
         "Controlled study state machine. Execute REVIEW.\n"
@@ -524,6 +595,7 @@ def plan_turn(
     *,
     due_reviews: tuple[ReviewItem, ...] = (),
     memory_state: MemoryState | None = None,
+    allow_direct_chat: bool = True,
 ) -> StudyTurnPlan:
     """Return the deterministic handling plan plus autonomy policy metadata."""
     effective_memory = memory_state if memory_state is not None else MemoryState()
@@ -534,7 +606,7 @@ def plan_turn(
     )
     if bounded_plan is not None:
         return bounded_plan
-    plan = _plan_turn_base(state, user_input)
+    plan = _plan_turn_mode_aware(state, user_input, allow_direct_chat=allow_direct_chat)
     mode = infer_turn_mode(state, user_input)
     move = move_for_plan(
         plan.action,
@@ -561,6 +633,20 @@ def plan_turn(
         autonomy_mode=mode,
         study_move=move,
     )
+
+
+def _plan_turn_mode_aware(
+    state: StudyState,
+    user_input: str,
+    *,
+    allow_direct_chat: bool,
+) -> StudyTurnPlan:
+    mode = infer_turn_mode(state, user_input)
+    if mode is StudyAutonomyMode.MANUAL:
+        return _plan_turn_manual(state, user_input)
+    if mode is StudyAutonomyMode.AUTOPILOT:
+        return _plan_turn_autopilot(state, user_input, allow_direct_chat=allow_direct_chat)
+    return _plan_turn_base(state, user_input, allow_direct_chat=allow_direct_chat)
 
 
 def _autopilot_stop_plan(
@@ -658,12 +744,150 @@ def _autopilot_stop_reason(
     return ""
 
 
-def _plan_turn_base(state: StudyState, user_input: str) -> StudyTurnPlan:
+def _plan_turn_manual(state: StudyState, user_input: str) -> StudyTurnPlan:
+    """Manual mode answers direct requests without enrolling the user in a loop."""
+    text = _normalize(user_input)
+    if "priorit" in text.lower():
+        return StudyTurnPlan(
+            action=StudyAction.PRIORITY,
+            phase=state.phase,
+            prompt=_priority_prompt(),
+            retrieval_query="exam priority topics prerequisites past exams materials overview",
+            allow_tools=False,
+        )
+    if _needs_initial_calibration(user_input):
+        return StudyTurnPlan(
+            action=StudyAction.CALIBRATE,
+            phase=StudyPhase.RECALL,
+            prompt=_calibration_prompt(),
+            allow_tools=False,
+            buffer_response=True,
+        )
+
+    if _is_light_chat_request(user_input):
+        return StudyTurnPlan(
+            action=StudyAction.CHAT,
+            phase=StudyPhase.PRESENTING,
+            prompt=_manual_chat_prompt(text),
+            allow_tools=True,
+        )
+
+    query = _derive_presentation_query(user_input, state)
+    if _is_source_qa_request(query):
+        return StudyTurnPlan(
+            action=StudyAction.SOURCE_QA,
+            phase=StudyPhase.PRESENTING,
+            prompt=_source_qa_prompt(query),
+            retrieval_query=query,
+            allow_tools=False,
+            buffer_response=True,
+        )
+    return StudyTurnPlan(
+        action=StudyAction.CHAT,
+        phase=StudyPhase.PRESENTING,
+        prompt=_manual_chat_prompt(query),
+        retrieval_query=query,
+        allow_tools=True,
+    )
+
+
+def _plan_turn_autopilot(
+    state: StudyState,
+    user_input: str,
+    *,
+    allow_direct_chat: bool,
+) -> StudyTurnPlan:
+    """Autopilot chooses the next learning action instead of presenting passively."""
+    if state.current_item:
+        return _plan_turn_base(state, user_input, allow_direct_chat=allow_direct_chat)
+
+    text = _normalize(user_input)
+    direct_reply = _direct_chat_reply(user_input) if allow_direct_chat else None
+    if (
+        direct_reply is None
+        and not allow_direct_chat
+        and _is_light_chat_request(user_input)
+        and not _is_simple_greeting(user_input)
+    ):
+        return StudyTurnPlan(
+            action=StudyAction.CHAT,
+            phase=StudyPhase.PRESENTING,
+            prompt=_manual_chat_prompt(text),
+            allow_tools=True,
+        )
+    if direct_reply is not None and not _is_simple_greeting(user_input):
+        return StudyTurnPlan(
+            action=StudyAction.CHAT,
+            phase=state.phase,
+            prompt="",
+            allow_tools=False,
+            direct_reply=direct_reply,
+        )
+    if "priorit" in text.lower():
+        return StudyTurnPlan(
+            action=StudyAction.PRIORITY,
+            phase=state.phase,
+            prompt=_priority_prompt(),
+            retrieval_query="exam priority topics prerequisites past exams materials overview",
+            allow_tools=False,
+        )
+
+    query = _derive_presentation_query(user_input, state)
+    if _is_overview_request(query):
+        return StudyTurnPlan(
+            action=StudyAction.PRESENT,
+            phase=StudyPhase.PRESENTING,
+            prompt=_overview_prompt(query),
+            retrieval_query=query,
+            allow_tools=False,
+            buffer_response=True,
+        )
+    if _is_source_qa_request(query):
+        return StudyTurnPlan(
+            action=StudyAction.SOURCE_QA,
+            phase=StudyPhase.PRESENTING,
+            prompt=_source_qa_prompt(query),
+            retrieval_query=query,
+            allow_tools=False,
+            buffer_response=True,
+        )
+
+    retrieval_query = (
+        None if _is_autopilot_bootstrap(query) or _needs_initial_calibration(query) else query
+    )
+    return StudyTurnPlan(
+        action=StudyAction.CALIBRATE,
+        phase=StudyPhase.RECALL,
+        prompt=_autopilot_calibration_prompt(query, state),
+        retrieval_query=retrieval_query,
+        allow_tools=False,
+        buffer_response=True,
+    )
+
+
+def _is_autopilot_bootstrap(text: str) -> bool:
+    normalized = _normalize(text).casefold()
+    return normalized.startswith("autopilot ") and "mode." in normalized
+
+
+def _plan_turn_base(
+    state: StudyState,
+    user_input: str,
+    *,
+    allow_direct_chat: bool = True,
+) -> StudyTurnPlan:
     """Return the deterministic handling plan for one user turn."""
     text = _normalize(user_input)
 
     if not state.current_item:
-        direct_reply = _direct_chat_reply(user_input)
+        if not allow_direct_chat and _is_light_chat_request(user_input):
+            return StudyTurnPlan(
+                action=StudyAction.CHAT,
+                phase=StudyPhase.PRESENTING,
+                prompt=_manual_chat_prompt(text),
+                allow_tools=True,
+            )
+        direct_reply = _direct_chat_reply(user_input) if allow_direct_chat else None
         if direct_reply is not None:
             return StudyTurnPlan(
                 action=StudyAction.CHAT,
@@ -795,10 +1019,15 @@ def _plan_turn_base(state: StudyState, user_input: str) -> StudyTurnPlan:
                 allow_tools=False,
             )
         if _TOO_HARD_RE.search(text):
+            prompt = (
+                _autopilot_scaffold_prompt(state.current_item)
+                if state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+                else _simplify_prompt(state.current_item)
+            )
             return StudyTurnPlan(
                 action=StudyAction.SIMPLIFY,
                 phase=StudyPhase.RECALL,
-                prompt=_simplify_prompt(state.current_item),
+                prompt=prompt,
                 retrieval_query=state.retrieval_query or state.current_item,
                 use_expected_source_refs=True,
                 allow_tools=False,

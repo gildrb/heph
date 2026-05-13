@@ -105,6 +105,22 @@ def test_mode_command_updates_study_autonomy(capsys: pytest.CaptureFixture[str])
     assert "manual" in out
 
 
+def test_mode_autopilot_starts_immediate_session(capsys: pytest.CaptureFixture[str]) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    result = commands.ModeCommand().handle(session, "autopilot")
+
+    out = capsys.readouterr().out
+    assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+    assert session.study_state.autopilot_session_type == "general"
+    assert session.study_state.session_goal == "autonomous study"
+    assert session.study_state.autopilot_started_at is not None
+    assert result.output is not None
+    assert result.output.startswith("__RESEND__:Autopilot general mode.")
+    assert "First move: choose the best diagnostic" in result.output
+    assert "autopilot" in out
+
+
 def test_autopilot_exam_command_sets_bounded_session(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -133,10 +149,11 @@ def test_autopilot_without_args_starts_general_session(
     out = capsys.readouterr().out
     assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
     assert session.study_state.autopilot_session_type == "general"
-    assert session.study_state.session_goal == "autonomous guided study"
+    assert session.study_state.session_goal == "autonomous study"
     assert result.output is not None
     assert result.output.startswith("__RESEND__:Autopilot general mode.")
     assert "confidence from 0-100%" in result.output
+    assert "Drive the session yourself" in result.output
     assert "Autopilot general session started" in out
 
 

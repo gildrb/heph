@@ -713,7 +713,11 @@ def _run_bounded_internal_repairs(
 
 def _repair_pedagogy_shape(plan: StudyTurnPlan, reply: str) -> str:
     move = plan.study_move
-    if not reply.strip() or move is None or plan.action is StudyAction.CALIBRATE:
+    if (
+        not reply.strip()
+        or move is None
+        or plan.action in {StudyAction.CALIBRATE, StudyAction.CHAT}
+    ):
         return reply
     validation = validate_pedagogy(reply, move, plan.autonomy_mode)
     if validation.valid:
@@ -730,6 +734,8 @@ def _repair_pedagogy_shape(plan: StudyTurnPlan, reply: str) -> str:
         next_action = validation.suggested_next_action or move.expected_output_shape
         if next_action:
             additions.append(f"Next action: {next_action}")
+    if "missing recommendation rationale" in issues:
+        additions.append(f"Why this helps: {move.reason}.")
     if not additions:
         return reply
     return f"{reply.rstrip()}\n\n" + "\n".join(dict.fromkeys(additions))
@@ -906,6 +912,8 @@ def _append_evidence_assessment_prompt(
     plan = resolved.study_plan
     assessment = resolved.evidence_assessment
     if not prompt or plan is None or assessment is None:
+        return prompt
+    if plan.action is StudyAction.CHAT:
         return prompt
     if plan.action is StudyAction.CALIBRATE or assessment.sufficient:
         return prompt
@@ -1350,6 +1358,7 @@ class TurnOrchestrator:
                         user_input,
                         due_reviews=due_reviews,
                         memory_state=memory_state,
+                        allow_direct_chat=False,
                     )
                     if notice := _reading_notice(study_plan):
                         yield NoticeEvent(notice, code="reading")
@@ -1548,11 +1557,7 @@ class TurnOrchestrator:
             priority_context = _build_priority_context(session)
             if priority_context:
                 extra_system_prompt = f"{plan.prompt}\n\n{priority_context}"
-        elif (
-            plan.action is StudyAction.PRESENT
-            and plan.retrieval_query is not None
-            and _is_overview_query(plan.retrieval_query)
-        ):
+        elif plan.retrieval_query is not None and _is_overview_query(plan.retrieval_query):
             overview_context = _build_overview_context(session)
             if overview_context:
                 extra_system_prompt = f"{plan.prompt}\n\n{overview_context}"

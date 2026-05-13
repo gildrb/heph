@@ -705,6 +705,10 @@ def build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> Turn
 def resolve_turn_evidence(session: ChatSession, plan: StudyTurnPlan) -> TurnEvidence | None:
     """Resolve the best evidence for a study turn plan."""
     if plan.action is StudyAction.CALIBRATE:
+        if plan.retrieval_query:
+            return build_turn_evidence_from_query(session, plan.retrieval_query) or (
+                build_turn_evidence_from_overview(session)
+            )
         return build_turn_evidence_from_overview(session)
     if plan.action is StudyAction.PRIORITY:
         return build_priority_turn_evidence(session)

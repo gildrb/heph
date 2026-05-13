@@ -260,8 +260,8 @@ Useful shell commands:
 | /cost | Show or hide live cost estimates |
 | /stats | Show session, armory, and study progress stats |
 | /priority | Generate a printable priority PDF cheat sheet |
-| /mode | Set study autonomy mode |
-| /autopilot | Run a bounded autonomous study session |
+| /mode | Set manual, guided, or autopilot study mode |
+| /autopilot | Let Heph drive a bounded autonomous study session |
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |
