@@ -335,6 +335,48 @@ def test_priority_report_writes_printable_pdf_latex_from_local_evidence(tmp_path
     assert "exam hits" not in tex
 
 
+def test_priority_report_escapes_unsafe_latex_math_from_materials(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/past-exam-2026.md",
+            content_hash="exam",
+            chunks=[
+                _chunk(
+                    "materials/past-exam-2026.md",
+                    r"Question [10 marks]: Compute $\input{/etc/passwd}$ for graph recurrence.",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/lecture-graphs.md",
+            content_hash="notes",
+            chunks=[
+                _chunk(
+                    "materials/lecture-graphs.md",
+                    r"Graph recurrence has safe formula $f(n)=\frac{n}{2}$ and "
+                    r"unsafe formula $\immediate\openout15=/tmp/heph_marker$.",
+                )
+            ],
+        ),
+    ]
+
+    report = generate_priority_report(
+        analyze_priority(index.all_chunks),
+        tmp_path / "Downloads",
+        compiler=_FakePdfCompiler(),
+        keep_tex=True,
+    )
+    assert report.tex_path is not None
+    tex = report.tex_path.read_text(encoding="utf-8")
+
+    assert r"$f(n)=\frac{n}{2}$" in tex
+    assert r"$\input{/etc/passwd}$" not in tex
+    assert r"$\immediate\openout15=/tmp/heph_marker$" not in tex
+    assert r"\textbackslash{}input" in tex
+    assert r"\textbackslash{}immediate" in tex
+
+
 def test_priority_report_emits_stage_progress(tmp_path: Path) -> None:
     index = ArmoryIndex(tmp_path)
     index.documents = [
