@@ -186,6 +186,8 @@ _TuiInputRoute = TuiInputRoute
 _command_output_text = command_output_text
 _run_shell_escape_captured = run_shell_escape_captured
 _filter_command_activity_details = filter_command_activity_details
+_RESEND_PREFIX = "__RESEND__:"
+_TUI_MANAGED_RESEND_COMMANDS = {"autopilot", "exam", "mode"}
 
 
 class SlashSuggester(Suggester):
@@ -198,6 +200,13 @@ class SlashSuggester(Suggester):
 
 
 _InlineFlow = InlineFlow
+
+
+def _slash_command_name(value: str) -> str:
+    stripped = value.strip()
+    if not stripped.startswith("/"):
+        return ""
+    return stripped[1:].partition(" ")[0].lower()
 
 
 class HephaistosTui(
@@ -769,8 +778,14 @@ class HephaistosTui(
         from hephaistos.terminal.input import handle_input
 
         history = InputHistory(self.state.history)
-        streamed_line = False
         activity_trace_mode = load_app_settings().activity_trace_mode
+        command_name = _slash_command_name(value)
+        if command_name in _TUI_MANAGED_RESEND_COMMANDS:
+            handled = self._run_tui_managed_resend_command(value, history, activity_trace_mode)
+            if handled:
+                return
+
+        streamed_line = False
         stream_activity = activity_trace_mode == ACTIVITY_TRACE_TOOL_CALLS
 
         def stream_notice(line: str) -> None:
@@ -797,6 +812,121 @@ class HephaistosTui(
         self.call_from_thread(
             self._finish_external_command, new_session, history.entries, output, should_continue
         )
+
+    def _run_tui_managed_resend_command(
+        self,
+        value: str,
+        history: InputHistory,
+        activity_trace_mode: str,
+    ) -> bool:
+        from hephaistos.commands.harness import dispatch_slash_command
+
+        history.add(value)
+        stdout = _TuiCaptureWriter()
+        stderr = _TuiCaptureWriter()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            dispatch = dispatch_slash_command(self.session, value)
+        if not dispatch.found or dispatch.result is None:
+            return False
+
+        result = dispatch.result
+        if result.new_session is not None:
+            self.session = result.new_session
+
+        output = _command_output_text(stdout, stderr)
+        if activity_trace_mode in {
+            ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+            ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+        }:
+            output = _filter_command_activity_details(output)
+
+        resend_input = ""
+        if result.output:
+            if result.output.startswith(_RESEND_PREFIX):
+                resend_input = result.output[len(_RESEND_PREFIX) :]
+            else:
+                output = "\n".join(part for part in (output, result.output) if part)
+
+        self.state.history = history.entries
+        if output:
+            self.call_from_thread(self._append_notice, output)
+
+        if result.should_exit:
+            self.call_from_thread(
+                self._finish_external_command,
+                self.session,
+                history.entries,
+                "",
+                False,
+            )
+            return True
+
+        if not resend_input:
+            self.call_from_thread(
+                self._finish_external_command,
+                self.session,
+                history.entries,
+                "",
+                True,
+            )
+            return True
+
+        history.add(resend_input)
+        self.state.history = history.entries
+        if self.session.armory_path is None:
+            reply = record_no_armory_turn(self.session, resend_input)
+            self.call_from_thread(self._append_assistant_reply, reply)
+            self.call_from_thread(
+                self._finish_external_command,
+                self.session,
+                history.entries,
+                "",
+                True,
+            )
+            return True
+
+        config_error = _config_error(self.session)
+        if config_error is not None:
+            self.call_from_thread(self._append_error, config_error)
+            self.call_from_thread(
+                self._finish_external_command,
+                self.session,
+                history.entries,
+                "",
+                True,
+            )
+            return True
+
+        def on_reply(reply: str) -> None:
+            self.call_from_thread(self._append_assistant_reply, reply)
+
+        def on_notice(notice: str) -> None:
+            self.call_from_thread(self._append_notice, notice)
+
+        def on_progress(progress: str) -> None:
+            self.call_from_thread(self._refresh_status, f"assistant {progress}")
+
+        def on_activity(line: str) -> None:
+            self.call_from_thread(self._append_activity, line)
+
+        def on_error(error: str) -> None:
+            self.call_from_thread(self._append_error, error)
+
+        def on_finish() -> None:
+            self.call_from_thread(self._finish_turn)
+
+        run_tui_turn(
+            self.session,
+            resend_input,
+            self.abort_event,
+            on_reply=on_reply,
+            on_notice=on_notice,
+            on_error=on_error,
+            on_finish=on_finish,
+            on_progress=on_progress,
+            on_activity=on_activity,
+        )
+        return True
 
     def _finish_external_command(
         self,

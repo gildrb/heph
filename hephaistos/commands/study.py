@@ -554,11 +554,12 @@ def _autopilot_start_prompt(
     budget = f"I have {time_budget_minutes} minutes. " if time_budget_minutes is not None else ""
     goal = _autopilot_goal(session_type, "")
     return (
-        f"Autopilot {session_type.value} mode. {budget}"
-        f"Goal: {goal}. "
-        "First move: choose the best diagnostic or review action from my materials. "
-        "Drive the session yourself, start with active recall when appropriate, require "
-        "my confidence from 0-100%, and do not reveal answers before I attempt them."
+        f"Start an autopilot study session from my materials using the "
+        f"{session_type.value} profile. {budget}"
+        f"Use {goal} as the session goal. "
+        "Drive the session yourself, start with active recall when appropriate, ask one "
+        "diagnostic or review question, require my confidence from 0-100%, and do not "
+        "reveal answers before I attempt them."
     )
 
 

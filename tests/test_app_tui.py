@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -3820,3 +3821,53 @@ def test_external_command_streams_notice_lines_live(monkeypatch: pytest.MonkeyPa
     finish = [args for name, args in calls if name == "_finish_external_command"]
     assert finish
     assert finish[0][2] == ""
+
+
+def test_autopilot_command_resend_renders_reply_as_assistant(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory = tmp_path / "study"
+    initialize(armory)
+    session = _configured_status_session()
+    session.armory_path = armory
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(history=["/autopilot"]),
+        tui.current_palette(),
+    )
+    calls: list[tuple[str, tuple[object, ...]]] = []
+    seen: dict[str, str] = {}
+
+    def fake_call_from_thread(fn: object, *args: object) -> None:
+        name = getattr(fn, "__name__", fn.__class__.__name__)
+        calls.append((name, args))
+
+    def fake_run_tui_turn(
+        _session: ChatSession,
+        user_input: str,
+        _abort_event: object,
+        *,
+        on_reply: Callable[[str], None],
+        on_notice: Callable[[str], None],
+        on_error: Callable[[str], None],
+        on_finish: Callable[[], None],
+        on_progress: Callable[[str], None] | None = None,
+        on_activity: Callable[[str], None] | None = None,
+    ) -> None:
+        del on_notice, on_error, on_progress, on_activity
+        seen["user_input"] = user_input
+        on_reply("State the definition of a sequence.")
+        on_finish()
+
+    monkeypatch.setattr(app, "call_from_thread", fake_call_from_thread)
+    monkeypatch.setattr(tui, "run_tui_turn", fake_run_tui_turn)
+
+    app._run_external_command("/autopilot")
+
+    notices = [args[0] for name, args in calls if name == "_append_notice"]
+    replies = [args[0] for name, args in calls if name == "_append_assistant_reply"]
+    assert any("Autopilot general session started" in str(notice) for notice in notices)
+    assert replies == ["State the definition of a sequence."]
+    assert seen["user_input"].startswith("Start an autopilot study session")
+    assert all("Hephaistos:" not in str(args) for _, args in calls)

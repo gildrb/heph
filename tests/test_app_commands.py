@@ -116,8 +116,8 @@ def test_mode_autopilot_starts_immediate_session(capsys: pytest.CaptureFixture[s
     assert session.study_state.session_goal == "autonomous study"
     assert session.study_state.autopilot_started_at is not None
     assert result.output is not None
-    assert result.output.startswith("__RESEND__:Autopilot general mode.")
-    assert "First move: choose the best diagnostic" in result.output
+    assert result.output.startswith("__RESEND__:Start an autopilot study session")
+    assert "internal planning labels" not in result.output
     assert "autopilot" in out
 
 
@@ -134,7 +134,7 @@ def test_autopilot_exam_command_sets_bounded_session(
     assert session.study_state.time_budget_minutes == 45
     assert session.study_state.session_goal == "exam preparation"
     assert result.output is not None
-    assert result.output.startswith("__RESEND__:Autopilot exam mode.")
+    assert result.output.startswith("__RESEND__:Start an autopilot study session")
     assert "confidence from 0-100%" in result.output
     assert "45 minute" in out
 
@@ -151,7 +151,7 @@ def test_autopilot_without_args_starts_general_session(
     assert session.study_state.autopilot_session_type == "general"
     assert session.study_state.session_goal == "autonomous study"
     assert result.output is not None
-    assert result.output.startswith("__RESEND__:Autopilot general mode.")
+    assert result.output.startswith("__RESEND__:Start an autopilot study session")
     assert "confidence from 0-100%" in result.output
     assert "Drive the session yourself" in result.output
     assert "Autopilot general session started" in out

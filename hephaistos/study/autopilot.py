@@ -463,7 +463,7 @@ def append_policy_prompt(
         if mode is StudyAutonomyMode.AUTOPILOT:
             lines.extend(
                 [
-                    "- First response structure: inferred goal, first move, then the task.",
+                    "- Start directly with the recall task; do not include internal labels.",
                     "- Ask for the smallest necessary user input and begin immediately.",
                 ]
             )

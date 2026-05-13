@@ -224,14 +224,14 @@ def _send_message(session: ChatSession, user_input: str) -> ChatSession:
         reply = no_armory_guidance_reply()
         session.conversation.add("user", user_input)
         session.conversation.add("assistant", reply)
-        print(f"{styled('Hephaistos:', STYLE_ASSISTANT)} {reply}")
+        print(styled(reply, STYLE_ASSISTANT))
         return session
     config_error = None if can_reply_without_model else _preflight_config_check(session)
     if config_error:
         print_error(config_error)
         return session
     abort = threading.Event()
-    reply_prefix = f"\r{styled('Hephaistos:', STYLE_ASSISTANT)} "
+    reply_prefix = ""
     try:
         send_user_message(session, user_input, abort=abort, reply_prefix=reply_prefix)
     except (StreamRecoveryError, EngineError) as exc:

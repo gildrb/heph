@@ -77,7 +77,8 @@ def test_autopilot_start_turn_disables_agent_tools() -> None:
 
     plan = plan_turn(
         state,
-        "Autopilot exam mode. Set a bounded study objective and decide the next action.",
+        "Start an autopilot study session from my materials using the exam profile. "
+        "Use exam preparation as the session goal.",
     )
 
     assert plan.action is StudyAction.CALIBRATE
@@ -237,9 +238,9 @@ def test_autopilot_first_turn_drives_a_diagnostic() -> None:
     assert plan.retrieval_query == "Explain Bayes theorem"
     assert plan.study_move is not None
     assert plan.study_move.kind == "ask_recall"
-    assert "HEPH AUTOPILOT first move" in plan.prompt
+    assert "HEPH AUTOPILOT calibration" in plan.prompt
     assert "drive the study workflow" in plan.prompt
-    assert "First response structure" in plan.prompt
+    assert "Start directly with the recall task" in plan.prompt
     assert "do not reveal the answer" in plan.prompt.lower()
     assert "confidence from 0-100%" in plan.prompt
 
@@ -253,8 +254,8 @@ def test_autopilot_command_bootstrap_uses_corpus_diagnostic() -> None:
 
     plan = plan_turn(
         state,
-        "Autopilot general mode. Goal: autonomous study. First move: choose the best "
-        "diagnostic or review action from my materials.",
+        "Start an autopilot study session from my materials using the general profile. "
+        "Use autonomous study as the session goal.",
     )
 
     assert plan.action is StudyAction.CALIBRATE

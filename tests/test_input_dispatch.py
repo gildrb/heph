@@ -45,4 +45,5 @@ def test_dispatch_no_armory_question_uses_local_guardrail(
     assert result.should_continue is True
     assert "No armory is attached" in out
     assert "/armory" in out
+    assert "Hephaistos:" not in out
     assert session.conversation.messages[-1].role == "assistant"

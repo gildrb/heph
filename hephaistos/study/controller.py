@@ -390,14 +390,13 @@ def _autopilot_calibration_prompt(query: str, state: StudyState) -> str:
     goal = state.session_goal or "autonomous study"
     session_type = state.autopilot_session_type or "general"
     return (
-        "HEPH AUTOPILOT first move.\n"
-        f"Session type: {session_type}\n"
-        f"Inferred goal: {goal}\n"
+        "HEPH AUTOPILOT calibration.\n"
+        f"Session type (internal): {session_type}\n"
+        f"Session goal (internal, do not restate): {goal}\n"
         f"User request: {query}\n"
         "Rules:\n"
-        "- Do not explain Autopilot at length.\n"
-        "- State the inferred goal in one short line.\n"
-        "- State the first move in one short line.\n"
+        "- Do not explain Autopilot or print internal planning labels.\n"
+        "- Start directly with the learner-facing task.\n"
         "- Use the retrieved source material to ask exactly one diagnostic recall, "
         "prediction, application, or comparison question.\n"
         "- The question must test understanding, not document metadata.\n"
@@ -867,7 +866,7 @@ def _plan_turn_autopilot(
 
 def _is_autopilot_bootstrap(text: str) -> bool:
     normalized = _normalize(text).casefold()
-    return normalized.startswith("autopilot ") and "mode." in normalized
+    return normalized.startswith("start ") and " autopilot study session" in normalized
 
 
 def _plan_turn_base(
