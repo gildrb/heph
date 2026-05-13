@@ -549,7 +549,18 @@ def plan_turn(
         move=move,
         action=plan.action,
     )
-    return replace(plan, prompt=prompt, autonomy_mode=mode, study_move=move)
+    allow_tools = (
+        plan.allow_tools
+        and state.autonomy_mode is not StudyAutonomyMode.AUTOPILOT
+        and mode is not StudyAutonomyMode.AUTOPILOT
+    )
+    return replace(
+        plan,
+        prompt=prompt,
+        allow_tools=allow_tools,
+        autonomy_mode=mode,
+        study_move=move,
+    )
 
 
 def _autopilot_stop_plan(
