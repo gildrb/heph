@@ -373,7 +373,7 @@ def _manual_chat_prompt(query: str) -> str:
         f"User request: {query}\n"
         "Rules:\n"
         "- Behave like a normal conversational assistant with access to the current "
-        "armory's memory, materials, and available tools.\n"
+        "armory's memory and materials.\n"
         "- Use retrieved armory evidence when it is relevant, and cite evidence IDs for "
         "claims based on the armory.\n"
         "- You may supplement with general knowledge when the user is not asking for a "
@@ -769,7 +769,7 @@ def _plan_turn_manual(state: StudyState, user_input: str) -> StudyTurnPlan:
             action=StudyAction.CHAT,
             phase=StudyPhase.PRESENTING,
             prompt=_manual_chat_prompt(text),
-            allow_tools=True,
+            allow_tools=False,
         )
 
     query = _derive_presentation_query(user_input, state)
@@ -813,7 +813,7 @@ def _plan_turn_autopilot(
             action=StudyAction.CHAT,
             phase=StudyPhase.PRESENTING,
             prompt=_manual_chat_prompt(text),
-            allow_tools=True,
+            allow_tools=False,
         )
     if direct_reply is not None and not _is_simple_greeting(user_input):
         return StudyTurnPlan(
@@ -885,7 +885,7 @@ def _plan_turn_base(
                 action=StudyAction.CHAT,
                 phase=StudyPhase.PRESENTING,
                 prompt=_manual_chat_prompt(text),
-                allow_tools=True,
+                allow_tools=False,
             )
         direct_reply = _direct_chat_reply(user_input) if allow_direct_chat else None
         if direct_reply is not None:

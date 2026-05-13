@@ -1757,10 +1757,12 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.assert_called_once()
         call_kwargs = mock_iter_agent.call_args.kwargs
         assert call_kwargs["turn_evidence"] is None
+        assert call_kwargs["tool_schemas"] == []
         assert "HEPH chat mode" in call_kwargs["extra_system_prompt"]
+        assert "available tools" not in call_kwargs["extra_system_prompt"]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
-    def test_manual_greeting_goes_to_model(self, mock_iter_agent: MagicMock) -> None:
+    def test_manual_greeting_goes_to_model_without_tools(self, mock_iter_agent: MagicMock) -> None:
         session = _make_study_session()
         session.study_state.autonomy_mode = StudyAutonomyMode.MANUAL
         mock_iter_agent.return_value = iter([AssistantDeltaEvent("Hey! What can I help with?")])
@@ -1773,8 +1775,9 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.assert_called_once()
         call_kwargs = mock_iter_agent.call_args.kwargs
         assert call_kwargs["turn_evidence"] is None
-        assert call_kwargs["tool_schemas"] is None
+        assert call_kwargs["tool_schemas"] == []
         assert "HEPH chat mode" in call_kwargs["extra_system_prompt"]
+        assert "available tools" not in call_kwargs["extra_system_prompt"]
         assert "User request: hey" in call_kwargs["extra_system_prompt"]
         assert session.study_state.current_item == ""
 
