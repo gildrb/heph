@@ -81,6 +81,20 @@ _OVERVIEW_TOPIC_SECTION_HEADING = "These are the study topics I found in the mat
 _OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
 _OVERVIEW_TOPIC_PROMPT = "Choose a topic to study next. In the shell, use ↑/↓"
 _OVERVIEW_RECOMMENDATION_LINE_RE = re.compile(r"^- (?P<label>.+?)\.?$")
+_OVERVIEW_RECOMMENDATION_HEADING_RE = re.compile(
+    r"^Recommended options:?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_OVERVIEW_STANDALONE_RECOMMENDATION_RE = re.compile(
+    r"^Recommendation:\s*(?P<label>.+?)\.?$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_OVERVIEW_MENU_HINT_RE = re.compile(
+    r"\b(?:(?:choose|pick|select)\b.{0,100}\b(?:menu|enter|arrows?|↑/↓)|"
+    r"(?:menu|enter|arrows?|↑/↓)\b.{0,100}\b(?:choose|pick|select))\b",
+    re.IGNORECASE,
+)
+_OVERVIEW_QUOTED_QUESTION_RE = re.compile(r"[\"“](?P<question>[^\"”]{8,180}\?)[\"”]")
 _OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 _OVERVIEW_CITATION_RE = re.compile(r"\s+\[(?:e|E)\d+\]")
 _INLINE_MENU_LABEL_WIDTH = 22
@@ -1044,7 +1058,7 @@ def _study_topic_action_prompt(action: str, topic: str) -> str:
 
 
 def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
-    if _OVERVIEW_TOPIC_PROMPT not in reply:
+    if not _overview_reply_has_menu_context(reply):
         return None
     topics: list[tuple[str, str]] = []
     recommendation_options: list[tuple[str, str]] = []
@@ -1057,9 +1071,16 @@ def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
             in_topics = True
             in_recommendations = False
             continue
-        if stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
+        if _OVERVIEW_RECOMMENDATION_HEADING_RE.match(stripped):
             in_topics = False
             in_recommendations = True
+            continue
+        standalone_recommendation = _overview_standalone_recommendation_option(stripped)
+        if standalone_recommendation is not None:
+            option, prompt = standalone_recommendation
+            recommendation_options.append(option)
+            prompts[option[0]] = prompt
+            in_topics = False
             continue
         if not stripped:
             if in_topics and topics:
@@ -1093,6 +1114,15 @@ def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
     return OverviewTopicMenu(options=options[:7], prompts=prompts)
 
 
+def _overview_reply_has_menu_context(reply: str) -> bool:
+    if _OVERVIEW_TOPIC_PROMPT in reply:
+        return True
+    if _OVERVIEW_RECOMMENDATION_HEADING_RE.search(reply):
+        return True
+    topic_heading = _OVERVIEW_TOPIC_SECTION_HEADING.removesuffix(":").casefold()
+    return topic_heading in reply.casefold() and _OVERVIEW_MENU_HINT_RE.search(reply) is not None
+
+
 def overview_topic_options(reply: str) -> list[tuple[str, str]]:
     menu = overview_topic_menu(reply)
     return menu.options if menu is not None else []
@@ -1107,7 +1137,32 @@ def _overview_recommendation_option(
     recommendation = match.group("label").strip()
     if not recommendation:
         return None
-    return (_overview_recommendation_label(recommendation), "recommended"), f"{recommendation}."
+    return (
+        (_overview_recommendation_label(recommendation), "recommended"),
+        _overview_recommendation_prompt(recommendation),
+    )
+
+
+def _overview_standalone_recommendation_option(
+    line: str,
+) -> tuple[tuple[str, str], str] | None:
+    match = _OVERVIEW_STANDALONE_RECOMMENDATION_RE.match(line)
+    if match is None:
+        return None
+    recommendation = match.group("label").strip()
+    if not recommendation:
+        return None
+    return (
+        (_overview_recommendation_label(recommendation), "recommended"),
+        _overview_recommendation_prompt(recommendation),
+    )
+
+
+def _overview_recommendation_prompt(recommendation: str) -> str:
+    question = _OVERVIEW_QUOTED_QUESTION_RE.search(recommendation)
+    if question is not None:
+        return question.group("question").strip()
+    return f"{recommendation}."
 
 
 def _overview_recommendation_label(recommendation: str) -> str:
@@ -1127,6 +1182,8 @@ def _overview_recommendation_label(recommendation: str) -> str:
     )
     if compare is not None:
         return f"Compare {compare.group('left')} and {compare.group('right')}"
+    if "contrastive question" in clean.casefold():
+        return "Ask a contrastive question"
     if clean.startswith("Make a short study order"):
         return "Make a study order"
     return _trim_inline_option_label(clean)

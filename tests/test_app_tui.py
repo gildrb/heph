@@ -1766,6 +1766,42 @@ def test_overview_topic_options_parse_only_actual_topic_section() -> None:
     ]
 
 
+def test_overview_topic_options_accepts_shell_menu_hint() -> None:
+    reply = (
+        "These are the study topics I found in the material [E1][E2].\n"
+        "- Ableitungen [E1].\n"
+        "- Taylor's theorem [E2].\n"
+        "Use the shell menu to choose one cited topic for guided study next."
+    )
+
+    assert overview_topic_options(reply) == [
+        ("Ableitungen", "study this topic"),
+        ("Taylor's theorem", "study this topic"),
+    ]
+
+
+def test_overview_topic_menu_converts_recommendation_to_direct_prompt() -> None:
+    reply = (
+        "Recommendation: ask a contrastive question next, such as "
+        '"Which topic is different between sequences and series?" This is beneficial '
+        "because it separates closely related ideas.\n\n"
+        "These are the study topics I found in the material:\n"
+        "- Sequences [E1]\n\n"
+        "Choose a topic to study next. In the shell, use ↑/↓ and press Enter."
+    )
+
+    menu = overview_topic_menu(reply)
+
+    assert menu is not None
+    assert menu.options == [
+        ("Sequences", "study this topic"),
+        ("Ask a contrastive question", "recommended"),
+    ]
+    assert menu.prompts == {
+        "Ask a contrastive question": "Which topic is different between sequences and series?"
+    }
+
+
 def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> None:
     reply = (
         "These are the study topics I found in the material:\n"

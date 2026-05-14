@@ -1452,6 +1452,68 @@ class TestTurnOrchestratorStudy:
             "Deterministic local corpus overview."
         )
 
+    @patch("hephaistos.chat.orchestrator._build_overview_context")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_guided_overview_preserves_summary_and_appends_choice_menu(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_overview_context: MagicMock,
+    ) -> None:
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/lecture-1.pdf",
+                0,
+                "E1",
+                "## Ableitungen\nCourse slides on derivatives and higher-order derivatives.",
+            ),
+            _make_evidence_chunk(
+                "materials/lecture-2.pdf",
+                0,
+                "E2",
+                "## Taylor's theorem with remainder\nNotes on Taylor approximation.",
+            ),
+            _make_evidence_chunk(
+                "materials/lecture-3.pdf",
+                0,
+                "E3",
+                "## Folgen und Reihen\nSequences, series, partial sums, and convergence.",
+            ),
+        )
+        mock_resolve_evidence.return_value = evidence
+        mock_overview_context.return_value = ""
+        model_reply = (
+            'The indexed materials are course slides and notes for "Mathematik für '
+            'Informatiker 2" in Sommersemester 2026 [E1][E2]. The visible content covers '
+            "derivatives and higher-order derivatives, Taylor's theorem with remainder, "
+            "and sequences and series, including partial sums and convergence [E1][E2][E3].\n\n"
+            "Recommendation: ask a contrastive question next, such as "
+            '"Which topic is different between sequences and series?" This is beneficial '
+            "because it separates closely related ideas."
+        )
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("what are the materials about"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        final_reply = deltas[0]
+        assert final_reply.startswith("The indexed materials are course slides and notes")
+        assert "Recommendation: ask a contrastive question next" in final_reply
+        assert "These are the study topics I found in the material:" in final_reply
+        assert (
+            "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in final_reply
+        )
+        assert "Recommended options:" in final_reply
+        assert "Ableitungen [E1]" in final_reply
+        assert "Taylor's theorem with remainder [E2]" in final_reply
+        assert "Folgen und Reihen [E3]" in final_reply
+        assert "I could not identify precise study topics" not in final_reply
+        assert orch.last_reply == final_reply
+
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
@@ -2704,6 +2766,7 @@ class TestHelperFunctions:
 
     def test_is_overview_query_matches_material_overview(self) -> None:
         assert is_overview_query("what is the material about")
+        assert is_overview_query("what are the materials about")
         assert is_overview_query("Can you read through all the files")
         assert not is_overview_query("explain Dijkstra")
 

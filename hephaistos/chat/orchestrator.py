@@ -74,6 +74,7 @@ from hephaistos.study import (
     PolicyOutcome,
     ReviewItem,
     StudyAction,
+    StudyAutonomyMode,
     StudyFeedbackType,
     StudyPhase,
     StudyState,
@@ -142,7 +143,13 @@ _OVERVIEW_TOPIC_LIMIT = 7
 _OVERVIEW_WEB_TOPIC_SEARCH_LIMIT = 10
 _OVERVIEW_TOPIC_SECTION_HEADING = "These are the study topics I found in the material:"
 _OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
+_OVERVIEW_TOPIC_MENU_PROMPT = (
+    "Choose a topic to study next. In the shell, use ↑/↓ and press Enter."
+)
 _OVERVIEW_REPLY_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
+_GUIDED_RECOMMENDATION_LABEL_RE = re.compile(
+    r"^\s*Recommendation\s*:", re.IGNORECASE | re.MULTILINE
+)
 _MAX_INTERNAL_PASSES = 3
 _OVERVIEW_REQUIRED_SHAPE: tuple[str, ...] = ()
 _OVERVIEW_FORBIDDEN_SHAPE = (
@@ -1082,12 +1089,56 @@ def _overview_fallback_reply(
     lines = [_OVERVIEW_TOPIC_SECTION_HEADING]
     lines.extend(f"- {topic}" for topic in topic_items[:_OVERVIEW_TOPIC_LIMIT])
     lines.append("")
-    lines.append("Choose a topic to study next. In the shell, use ↑/↓ and press Enter.")
+    lines.append(_OVERVIEW_TOPIC_MENU_PROMPT)
     if recommendations:
         lines.append("")
         lines.append(_OVERVIEW_RECOMMENDATIONS_HEADING)
         lines.extend(f"- {recommendation}" for recommendation in recommendations)
     return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
+
+
+def _append_guided_choice_menu(
+    plan: StudyTurnPlan,
+    reply: str,
+    evidence: TurnEvidence | None,
+) -> str:
+    """Append selectable study options while preserving a good model-written summary."""
+    if (
+        plan.autonomy_mode is not StudyAutonomyMode.GUIDED
+        or plan.action is not StudyAction.PRESENT
+        or evidence is None
+        or not evidence.items
+        or not reply.strip()
+        or _reply_has_selectable_study_menu(reply)
+    ):
+        return reply
+    if not _overview_turn(plan) and _GUIDED_RECOMMENDATION_LABEL_RE.search(reply) is None:
+        return reply
+
+    topic_items = _overview_topic_items(evidence, web_searcher=None)
+    if not topic_items:
+        return reply
+
+    recommendations = _overview_recommendation_items(evidence, topic_items)
+    lines = ["", _OVERVIEW_TOPIC_SECTION_HEADING]
+    lines.extend(f"- {topic}" for topic in topic_items[:_OVERVIEW_TOPIC_LIMIT])
+    lines.append("")
+    lines.append(_OVERVIEW_TOPIC_MENU_PROMPT)
+    if recommendations:
+        lines.append("")
+        lines.append(_OVERVIEW_RECOMMENDATIONS_HEADING)
+        lines.extend(f"- {recommendation}" for recommendation in recommendations)
+    return f"{reply.rstrip()}\n" + "\n".join(lines)
+
+
+def _reply_has_selectable_study_menu(reply: str) -> bool:
+    normalized = reply.casefold()
+    topic_heading = _OVERVIEW_TOPIC_SECTION_HEADING.removesuffix(":").casefold()
+    if _OVERVIEW_TOPIC_MENU_PROMPT in reply:
+        return True
+    return topic_heading in normalized and (
+        _OVERVIEW_RECOMMENDATIONS_HEADING.casefold() in normalized or "menu" in normalized
+    )
 
 
 def _overview_source_role_sentence(evidence: TurnEvidence) -> str:
@@ -1918,6 +1969,11 @@ class TurnOrchestrator:
             if final_reply:
                 yield AssistantDeltaEvent(final_reply)
             return
+
+        guided_menu_reply = _append_guided_choice_menu(plan, visible_reply, resolved.turn_evidence)
+        if guided_menu_reply != visible_reply:
+            visible_reply = guided_menu_reply
+            raw_reply = guided_menu_reply
 
         if _needs_overview_fallback(plan, raw_reply, resolved.turn_evidence):
             fallback_reply = _overview_fallback_reply(
