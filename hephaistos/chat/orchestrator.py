@@ -1970,11 +1970,7 @@ class TurnOrchestrator:
                 yield AssistantDeltaEvent(final_reply)
             return
 
-        guided_menu_reply = _append_guided_choice_menu(plan, visible_reply, resolved.turn_evidence)
-        if guided_menu_reply != visible_reply:
-            visible_reply = guided_menu_reply
-            raw_reply = guided_menu_reply
-
+        used_overview_fallback = False
         if _needs_overview_fallback(plan, raw_reply, resolved.turn_evidence):
             fallback_reply = _overview_fallback_reply(
                 plan,
@@ -1984,6 +1980,15 @@ class TurnOrchestrator:
             if fallback_reply:
                 raw_reply = fallback_reply
                 visible_reply = fallback_reply
+                used_overview_fallback = True
+
+        if not used_overview_fallback:
+            guided_menu_reply = _append_guided_choice_menu(
+                plan, visible_reply, resolved.turn_evidence
+            )
+            if guided_menu_reply != visible_reply:
+                visible_reply = guided_menu_reply
+                raw_reply = guided_menu_reply
 
         visible_reply, pass_count = _run_bounded_internal_repairs(
             plan,

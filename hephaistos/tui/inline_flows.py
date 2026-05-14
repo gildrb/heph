@@ -1117,10 +1117,13 @@ def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
 def _overview_reply_has_menu_context(reply: str) -> bool:
     if _OVERVIEW_TOPIC_PROMPT in reply:
         return True
-    if _OVERVIEW_RECOMMENDATION_HEADING_RE.search(reply):
-        return True
     topic_heading = _OVERVIEW_TOPIC_SECTION_HEADING.removesuffix(":").casefold()
-    return topic_heading in reply.casefold() and _OVERVIEW_MENU_HINT_RE.search(reply) is not None
+    if topic_heading not in reply.casefold():
+        return False
+    return (
+        _OVERVIEW_MENU_HINT_RE.search(reply) is not None
+        or _OVERVIEW_RECOMMENDATION_HEADING_RE.search(reply) is not None
+    )
 
 
 def overview_topic_options(reply: str) -> list[tuple[str, str]]:

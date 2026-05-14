@@ -1780,6 +1780,36 @@ def test_overview_topic_options_accepts_shell_menu_hint() -> None:
     ]
 
 
+def test_overview_topic_menu_ignores_recommendations_without_overview_context() -> None:
+    reply = (
+        "Recommended options:\n"
+        "- Use /login to connect an account\n"
+        "- Run /settings to adjust the app"
+    )
+
+    assert overview_topic_menu(reply) is None
+    assert overview_topic_options(reply) == []
+
+
+def test_overview_topic_menu_accepts_recommendations_with_topic_heading() -> None:
+    reply = (
+        "These are the study topics I found in the material [E1][E2].\n"
+        "- Graph algorithms [E1].\n"
+        "- Recurrence relations [E2].\n\n"
+        "Recommended options:\n"
+        "- Start with a guided explanation of Graph algorithms [E1]."
+    )
+
+    menu = overview_topic_menu(reply)
+
+    assert menu is not None
+    assert menu.options == [
+        ("Graph algorithms", "study this topic"),
+        ("Recurrence relations", "study this topic"),
+        ("Explain Graph algorithms", "recommended"),
+    ]
+
+
 def test_overview_topic_menu_converts_recommendation_to_direct_prompt() -> None:
     reply = (
         "Recommendation: ask a contrastive question next, such as "

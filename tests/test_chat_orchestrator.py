@@ -1485,9 +1485,10 @@ class TestTurnOrchestratorStudy:
         mock_overview_context.return_value = ""
         model_reply = (
             'The indexed materials are course slides and notes for "Mathematik für '
-            'Informatiker 2" in Sommersemester 2026 [E1][E2]. The visible content covers '
-            "derivatives and higher-order derivatives, Taylor's theorem with remainder, "
-            "and sequences and series, including partial sums and convergence [E1][E2][E3].\n\n"
+            'Informatiker 2" in Sommersemester 2026 [E1][E2].\n'
+            "- Derivatives and higher-order derivatives are a major topic [E1].\n"
+            "- Taylor's theorem with remainder is covered in the notes [E2].\n"
+            "- Sequences and series appear through partial sums and convergence [E3].\n\n"
             "Recommendation: ask a contrastive question next, such as "
             '"Which topic is different between sequences and series?" This is beneficial '
             "because it separates closely related ideas."
@@ -1512,6 +1513,97 @@ class TestTurnOrchestratorStudy:
         assert "Taylor's theorem with remainder [E2]" in final_reply
         assert "Folgen und Reihen [E3]" in final_reply
         assert "I could not identify precise study topics" not in final_reply
+        assert orch.last_reply == final_reply
+
+    @patch("hephaistos.chat.orchestrator._build_overview_context")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_guided_overview_validates_summary_before_appending_choice_menu(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_overview_context: MagicMock,
+    ) -> None:
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/lecture-1.pdf",
+                0,
+                "E1",
+                "## Ableitungen\nCourse slides on derivatives and higher-order derivatives.",
+            ),
+            _make_evidence_chunk(
+                "materials/lecture-2.pdf",
+                0,
+                "E2",
+                "## Taylor's theorem with remainder\nNotes on Taylor approximation.",
+            ),
+        )
+        mock_resolve_evidence.return_value = evidence
+        mock_overview_context.return_value = ""
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("The materials cover core math topics [E1][E2].")]
+        )
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
+            events = list(orch.iter_events("what are the materials about"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        final_reply = deltas[0]
+        assert "The materials cover core math topics" not in final_reply
+        assert "These are the study topics I found in the material:" in final_reply
+        assert (
+            "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in final_reply
+        )
+        assert "Ableitungen [E1]" in final_reply
+        assert "Taylor's theorem with remainder [E2]" in final_reply
+        assert orch.last_reply == final_reply
+
+    @patch("hephaistos.chat.orchestrator._build_overview_context")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_guided_overview_no_topic_fallback_does_not_append_unvalidated_menu(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_overview_context: MagicMock,
+    ) -> None:
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/lecture.pdf",
+                0,
+                "E1",
+                "Lecture notes. Zephyrology concepts and fluxions are discussed.",
+            )
+        )
+        mock_resolve_evidence.return_value = evidence
+        mock_overview_context.return_value = ""
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("The files cover vague material [E1]. Say ready.")]
+        )
+        unrelated_result = PriorityWebSearchResult(
+            title="unrelated cooking",
+            url="https://example.test",
+            snippet="recipe ingredients kitchen",
+        )
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        with patch(
+            "hephaistos.chat.orchestrator.duckduckgo_search",
+            return_value=(unrelated_result,),
+        ):
+            events = list(orch.iter_events("what are the materials about"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        final_reply = deltas[0]
+        assert "I could not identify precise study topics" in final_reply
+        assert "What the sample does show:" in final_reply
+        assert "These are the study topics I found in the material:" not in final_reply
+        assert "Choose a topic to study next" not in final_reply
         assert orch.last_reply == final_reply
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
