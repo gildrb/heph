@@ -1596,6 +1596,70 @@ def test_settings_inline_menu_exposes_privacy_and_appearance() -> None:
     asyncio.run(check_settings_menu())
 
 
+def test_overview_topic_reply_opens_arrow_key_study_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    submitted: list[str] = []
+
+    async def check_topic_flow() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._append_assistant_reply(
+                "These are the study topics I found in the material:\n"
+                "- Enzyme Kinetics [E1]\n"
+                "- Protein Folding [E2]\n\n"
+                "Choose a topic to study next. In the shell, use ↑/↓ and press Enter.\n\n"
+                "Recommended options:\n"
+                "- Start with a guided explanation of Enzyme Kinetics [E1].\n"
+                "- Practice one exam-style or exercise question on Protein Folding [E2].\n"
+                "- Turn the selected topic into a quick recall drill."
+            )
+            app._open_study_topic_flow(
+                [
+                    ("Enzyme Kinetics", "study this topic"),
+                    ("Protein Folding", "study this topic"),
+                ]
+            )
+            await pilot.pause()
+
+            assert app._inline_flow.name == "study_topic"
+            assert app._inline_flow.step == "topic"
+            suggestions = cast(
+                "TextualOptionList",
+                app.query_one("#suggestions", tui.OptionList),
+            )  # ty:ignore[redundant-cast]
+            assert suggestions.has_class("visible")
+
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app._inline_flow.step == "action"
+            assert app._inline_flow.slug == "Protein Folding"
+            action_labels = [label for label, _description in app._inline_flow.options]
+            assert action_labels == ["Explain it", "Practice it", "Recall drill"]
+
+            monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert submitted == [
+                "Give me one source-grounded practice question about Protein Folding."
+            ]
+            assert app._inline_flow.active is False
+
+    asyncio.run(check_topic_flow())
+
+
 def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")

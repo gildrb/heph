@@ -138,11 +138,17 @@ _OVERVIEW_MIN_CITED_BULLETS = 2
 _MAX_INTERNAL_PASSES = 3
 _OVERVIEW_REQUIRED_SHAPE: tuple[str, ...] = ()
 _OVERVIEW_FORBIDDEN_SHAPE = (
+    "corpus-level claim",
+    "document signal",
+    "indexed source",
     "no evidence citations",
     "not an exhaustive summary",
     "retrieved overview sample",
     "say ready when you want recall",
+    "sampled mix",
+    "sampled orientation",
     "the files cover",
+    "visible topics",
 )
 _OVERVIEW_METADATA_LINE_RE = re.compile(
     r"\b(?:university|universität|institute|department|faculty|semester|professor|lecturer|"
@@ -945,46 +951,31 @@ def _overview_fallback_reply(plan: StudyTurnPlan, evidence: TurnEvidence | None)
     if not _overview_turn(plan) or evidence is None or not evidence.items:
         return ""
 
-    sources: dict[str, str] = {}
-    for item in evidence.items:
-        sources.setdefault(item.source, item.evidence_id)
-    cited_sources = list(sources.items())
-    source_citations = " ".join(f"[{evidence_id}]" for _source, evidence_id in cited_sources[:4])
-    sampled_sources = evidence.sampled_source_count or len(cited_sources)
-    total_sources = evidence.total_source_count or sampled_sources
-    if total_sources > sampled_sources:
-        source_summary = f"{sampled_sources} of {total_sources} indexed sources were sampled"
-    else:
-        source_summary = "1 indexed source was sampled"
-        if sampled_sources != 1:
-            source_summary = f"{sampled_sources} indexed sources were sampled"
+    topic_items = _overview_topic_items(evidence)
+    if not topic_items:
+        topic_items = _overview_content_topic_items(evidence)
+    elif len(topic_items) < 2:
+        seen_topics = {
+            _normalize_overview_topic(topic.rsplit(" [", maxsplit=1)[0]) for topic in topic_items
+        }
+        for topic in _overview_content_topic_items(evidence):
+            normalized_topic = _normalize_overview_topic(topic.rsplit(" [", maxsplit=1)[0])
+            if normalized_topic in seen_topics:
+                continue
+            seen_topics.add(normalized_topic)
+            topic_items.append(topic)
+            if len(topic_items) >= 8:
+                break
+    recommendations = _overview_recommendation_items(evidence, topic_items)
 
-    role_sentence = _overview_role_sentence(evidence)
-    source_role_sentence = _overview_source_role_sentence(evidence)
-    topic_sentence = _overview_topic_sentence(evidence)
-    content_clues = _overview_content_clues(evidence)
-    lines = [
-        (
-            f"Sampled orientation: {source_summary}; this is not a complete corpus-level "
-            f"claim {source_citations}."
-        )
-    ]
-    if source_role_sentence:
-        first_signal = next(
-            (signal for signal in source_role_sentence.split("; ") if signal),
-            "",
-        )
-        if first_signal:
-            lines.append(f"- Document signal: {first_signal}")
-    if role_sentence:
-        lines.append(f"- Sampled mix: {role_sentence}")
-    if content_clues:
-        lines.append(f"- Example evidence: {content_clues[0]}")
-    if topic_sentence:
-        lines.append(f"- Visible topics: {topic_sentence}")
-    lines.append(
-        "- Best next use: ask for a specific concept, exercise, exam problem, or lecture title."
-    )
+    lines = ["These are the study topics I found in the material:"]
+    lines.extend(f"- {topic}" for topic in topic_items[:8])
+    lines.append("")
+    lines.append("Choose a topic to study next. In the shell, use ↑/↓ and press Enter.")
+    if recommendations:
+        lines.append("")
+        lines.append("Recommended options:")
+        lines.extend(f"- {recommendation}" for recommendation in recommendations)
     return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
 
 
@@ -1141,7 +1132,7 @@ def _trim_overview_cue(line: str, *, limit: int = 120) -> str:
     return line[: limit - 1].rstrip(" ,;:.") + "…"
 
 
-def _overview_topic_sentence(evidence: TurnEvidence) -> str:
+def _overview_topic_items(evidence: TurnEvidence) -> list[str]:
     topic_clues = _overview_heading_topics(evidence)
     seen = {_normalize_overview_topic(topic.rsplit(" [", maxsplit=1)[0]) for topic in topic_clues}
 
@@ -1166,9 +1157,100 @@ def _overview_topic_sentence(evidence: TurnEvidence) -> str:
         topic_clues.append(f"{topic.topic} [{evidence_id}]")
         if len(topic_clues) >= 8:
             break
+    return topic_clues
+
+
+def _overview_topic_sentence(evidence: TurnEvidence) -> str:
+    topic_clues = _overview_topic_items(evidence)
     if not topic_clues:
         return ""
     return ", ".join(topic_clues)
+
+
+def _overview_content_topic_items(evidence: TurnEvidence, *, limit: int = 8) -> list[str]:
+    topics: list[str] = []
+    seen: set[str] = set()
+    for clue in _overview_content_clues(evidence, limit=limit):
+        label, citation = _split_overview_citation(clue)
+        if ": " in label:
+            label = label.split(": ", maxsplit=1)[1]
+        label = _trim_overview_cue(label)
+        normalized = _normalize_overview_topic(label)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        topics.append(f"{label} {citation}".strip())
+        if len(topics) >= limit:
+            break
+    return topics
+
+
+def _overview_recommendation_items(
+    evidence: TurnEvidence,
+    topic_items: list[str],
+) -> list[str]:
+    clean_topics = [_split_overview_citation(topic)[0] for topic in topic_items]
+    cited_topics = topic_items[:3]
+    recommendations: list[str] = []
+    if cited_topics:
+        recommendations.append(f"Start with a guided explanation of {cited_topics[0]}.")
+    if _overview_has_role(evidence, {"past_exam", "assignment"}):
+        target = ""
+        if len(cited_topics) > 1:
+            target = cited_topics[1]
+        elif cited_topics:
+            target = cited_topics[0]
+        if target:
+            recommendations.append(f"Practice one exam-style or exercise question on {target}.")
+        else:
+            recommendations.append(
+                "Practice one exam-style or exercise question from the material."
+            )
+    if len(cited_topics) >= 2:
+        topic_pair = " and ".join(clean_topics[:2])
+        citation = _overview_first_citation(cited_topics[1])
+        recommendations.append(f"Compare {topic_pair} so you can separate the ideas {citation}.")
+    if len(clean_topics) >= 3:
+        citation = _overview_first_citation(cited_topics[2])
+        recommendations.append(
+            f"Make a short study order for {', '.join(clean_topics[:3])} {citation}."
+        )
+    recommendations.append("Turn the selected topic into a quick recall drill.")
+    return _dedupe_overview_recommendations(recommendations)[:3]
+
+
+def _overview_has_role(evidence: TurnEvidence, roles: set[str]) -> bool:
+    for item in evidence.items:
+        role, confidence, _reason = infer_material_role_from_text(item.source, item.content)
+        if confidence >= 0.6 and role in roles:
+            return True
+    return False
+
+
+def _dedupe_overview_recommendations(recommendations: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for recommendation in recommendations:
+        normalized = _normalize_overview_topic(recommendation)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(recommendation)
+    return deduped
+
+
+def _split_overview_citation(text: str) -> tuple[str, str]:
+    match = _OVERVIEW_CITATION_ID_RE.search(text)
+    if match is None:
+        return text.strip(), ""
+    citation = match.group(0)
+    label = text[: match.start()].strip()
+    return label, citation
+
+
+def _overview_first_citation(text: str) -> str:
+    _label, citation = _split_overview_citation(text)
+    return citation
 
 
 def _overview_heading_topics(evidence: TurnEvidence, *, limit: int = 8) -> list[str]:

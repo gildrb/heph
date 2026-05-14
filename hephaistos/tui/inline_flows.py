@@ -162,6 +162,10 @@ class _InlineFlowHost(Protocol):
 
     def _handle_sessions_command(self, value: str) -> None: ...
 
+    def _submit_inline_chat_value(self, value: str) -> None: ...
+
+    def _handle_study_topic_choice(self, label: str) -> None: ...
+
     def _open_inline_menu(
         self,
         *,
@@ -662,6 +666,9 @@ class TuiInlineFlowMixin:
         composer.value = ""
 
     def _handle_inline_menu_choice(self: _InlineFlowHost, label: str) -> None:
+        if self._inline_flow.name == "study_topic":
+            self._handle_study_topic_choice(label)
+            return
         if self._inline_flow.name == "settings":
             if self._inline_flow.step == "menu":
                 if label == "Privacy & Diagnostics":
@@ -705,6 +712,38 @@ class TuiInlineFlowMixin:
             self._prompt_inline_text("login", "zai_key", "Z.AI API key")
         elif label == "Custom endpoint":
             self._prompt_inline_text("login", "custom_endpoint", "OpenAI-compatible base URL")
+
+    def _open_study_topic_flow(
+        self: _InlineFlowHost,
+        options: list[tuple[str, str]],
+    ) -> None:
+        self._open_inline_menu(
+            name="study_topic",
+            step="topic",
+            title="Choose a topic to study",
+            options=options,
+        )
+
+    def _handle_study_topic_choice(self: _InlineFlowHost, label: str) -> None:
+        if self._inline_flow.step == "topic":
+            self._open_inline_menu(
+                name="study_topic",
+                step="action",
+                title=f"Study {label}",
+                options=[
+                    ("Explain it", "build intuition from the selected topic"),
+                    ("Practice it", "try one source-grounded exercise"),
+                    ("Recall drill", "answer from memory, then get feedback"),
+                ],
+            )
+            self._inline_flow.slug = label
+            return
+        if self._inline_flow.step != "action":
+            return
+        topic = self._inline_flow.slug
+        prompt = _study_topic_action_prompt(label, topic)
+        self._close_inline_flow(f"selected: {topic}")
+        self._submit_inline_chat_value(prompt)
 
     def _handle_privacy_choice(self: _InlineFlowHost, label: str) -> None:
         settings = load_app_settings()
@@ -932,6 +971,14 @@ def _dedupe_inline_options(options: list[tuple[str, str]]) -> list[tuple[str, st
         seen.add(key)
         deduped.append((label, description))
     return deduped
+
+
+def _study_topic_action_prompt(action: str, topic: str) -> str:
+    if action == "Explain it":
+        return f"Explain {topic} from the material in simple terms."
+    if action == "Practice it":
+        return f"Give me one source-grounded practice question about {topic}."
+    return f"Start a quick recall drill about {topic}."
 
 
 def _api_key_logout_label(display_name: str) -> str:
