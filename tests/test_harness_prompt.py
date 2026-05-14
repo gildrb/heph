@@ -116,6 +116,7 @@ def test_build_system_prompt_sections_render_matches_string_builder(armory: Path
     )
     assert sections.tool_docs.startswith("## Tools")
     assert "### read_file" in sections.tool_docs
+    assert "### bash" not in sections.tool_docs
     assert "materials/" in sections.hephaistos_operations
 
 

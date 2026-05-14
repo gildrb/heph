@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import urllib.error
+from email.message import Message
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -294,6 +295,18 @@ class TestWebFetch:
         result = run_web_fetch("example.com")
         assert "Error" in result
 
+    def test_rejects_url_credentials(self):
+        with patch("hephaistos.agent.web_tools._open_without_redirect") as open_url:
+            result = run_web_fetch("https://user:pass@example.com/test")
+
+        assert "must not include credentials" in result
+        open_url.assert_not_called()
+
+    def test_rejects_invalid_port(self):
+        result = run_web_fetch("https://example.com:99999/test")
+
+        assert "invalid port" in result
+
     def test_fetch_includes_source_attribution(self):
         mock_response = MagicMock()
         mock_response.read.return_value = b"<html><body>Test content</body></html>"
@@ -302,7 +315,7 @@ class TestWebFetch:
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch(
-            "hephaistos.agent.web_tools.urllib.request.urlopen",
+            "hephaistos.agent.web_tools._open_without_redirect",
             return_value=mock_response,
         ):
             result = run_web_fetch("https://example.com/test")
@@ -313,7 +326,7 @@ class TestWebFetch:
 
     def test_fetch_http_error(self):
         with patch(
-            "hephaistos.agent.web_tools.urllib.request.urlopen",
+            "hephaistos.agent.web_tools._open_without_redirect",
             side_effect=urllib.error.HTTPError(
                 "url",
                 404,
@@ -332,11 +345,57 @@ class TestWebFetch:
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch(
-            "hephaistos.agent.web_tools.urllib.request.urlopen",
+            "hephaistos.agent.web_tools._open_without_redirect",
             return_value=mock_response,
         ):
             result = run_web_fetch("https://example.com/image.png")
             assert "non-text content" in result
+
+    def test_fetch_blocks_private_redirect_target(self):
+        headers = Message()
+        headers["Location"] = "http://127.0.0.1/secret"
+        redirect = urllib.error.HTTPError("url", 302, "Found", headers, None)
+
+        def resolve(hostname: str) -> list[str]:
+            if hostname == "example.com":
+                return ["93.184.216.34"]
+            if hostname == "127.0.0.1":
+                return ["127.0.0.1"]
+            return []
+
+        with (
+            patch("hephaistos.agent.web_tools._resolve_hostname_ips", side_effect=resolve),
+            patch("hephaistos.agent.web_tools._open_without_redirect", side_effect=redirect),
+        ):
+            result = run_web_fetch("https://example.com/start")
+
+        assert "blocked private/internal host" in result
+
+    def test_fetch_follows_safe_redirect(self):
+        headers = Message()
+        headers["Location"] = "https://example.org/final"
+        redirect = urllib.error.HTTPError("url", 302, "Found", headers, None)
+        mock_response = MagicMock()
+        mock_response.read.return_value = b"Redirected content"
+        mock_response.headers.get.return_value = "text/plain"
+        mock_response.__enter__ = lambda s: s
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch(
+                "hephaistos.agent.web_tools._resolve_hostname_ips",
+                return_value=["93.184.216.34"],
+            ),
+            patch(
+                "hephaistos.agent.web_tools._open_without_redirect",
+                side_effect=[redirect, mock_response],
+            ),
+        ):
+            result = run_web_fetch("https://example.com/start")
+
+        assert "Source: https://example.com/start" in result
+        assert "Final URL: https://example.org/final" in result
+        assert "Redirected content" in result
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +407,10 @@ class TestToolSchemas:
     def test_web_fetch_schema_exists(self):
         names = [s["function"]["name"] for s in TOOL_SCHEMAS]
         assert "web_fetch" in names
+
+    def test_bash_schema_is_not_registered_by_default(self):
+        names = [s["function"]["name"] for s in TOOL_SCHEMAS]
+        assert "bash" not in names
 
     def test_armory_tool_schemas_exist(self):
         names = [s["function"]["name"] for s in TOOL_SCHEMAS]

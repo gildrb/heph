@@ -36,7 +36,7 @@ class TestToolSpec:
 class TestToolRegistry:
     def test_default_registry_has_builtins(self) -> None:
         assert len(default_registry.schemas) >= 8
-        assert "bash" in default_registry.tool_names
+        assert "bash" not in default_registry.tool_names
         assert "read_file" in default_registry.tool_names
 
     def test_register_and_get(self) -> None:
@@ -145,7 +145,8 @@ class TestChildRegistry:
     def test_default_registry_child_inherits_builtins(self) -> None:
         child = default_registry.child()
         assert len(child.schemas) >= 8
-        assert child.get_handler("bash") is not None
+        assert child.get_handler("read_file") is not None
+        assert child.get_handler("bash") is None
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +252,8 @@ class TestPluginLoading:
         child = default_registry.child()
         child.load_plugins(tools_dir)
         # Built-ins inherited, plugin added
-        assert "bash" in child.tool_names
+        assert "read_file" in child.tool_names
+        assert "bash" not in child.tool_names
         assert "calc" in child.tool_names
         # Parent unaffected
         assert "calc" not in default_registry.tool_names
@@ -271,7 +273,8 @@ class TestBackwardCompat:
             assert s["function"]["name"] in by_name
 
     def test_get_handler_delegates_to_registry(self) -> None:
-        assert get_handler("bash") is default_registry.get_handler("bash")
+        assert get_handler("read_file") is default_registry.get_handler("read_file")
+        assert get_handler("bash") is None
         assert get_handler("nonexistent") is None
 
 

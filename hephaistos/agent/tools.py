@@ -6,12 +6,12 @@ handler function.  Handlers receive the workspace root for path sandboxing.
 **Registry protocol** — ``ToolRegistry`` is the single source of truth.
 A global ``default_registry`` is pre-loaded with all built-in tools.
 Armories can contribute extra tools by dropping ``*.py`` files into
-``.hephaistos/tools/``.  Each plugin module must expose a top-level
-``register(registry: ToolRegistry) -> None`` function that calls
-``registry.register(...)`` for every tool it wants to add.
+``.hephaistos/tools/`` only after the armory has been explicitly trusted.
+Each plugin module must expose a top-level ``register(registry: ToolRegistry)
+-> None`` function that calls ``registry.register(...)`` for every tool it
+wants to add.
 Tool philosophy for a study RAG agent:
 - Read/write tools are primary — the agent works with documents.
-- Bash is available but strictly limited (timeout, structured output).
 - Web fetch fills knowledge gaps, but with strict source attribution.
 - The agent should NEVER guess. If information is not in the documents
   and cannot be fetched, it must say so.
@@ -242,15 +242,6 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
             "Use when you notice the conversation is getting long or "
             "you are running low on context."
         ),
-    ),
-    _tool(
-        "bash",
-        "Run a shell command and return structured output with exit code.",
-        {
-            "command": _string("The shell command to run."),
-            "timeout": _integer("Timeout in seconds (default: 30)."),
-        },
-        required=("command",),
     ),
     _tool(
         "read_file",

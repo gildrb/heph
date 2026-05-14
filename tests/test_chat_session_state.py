@@ -174,3 +174,70 @@ def test_ignored_sources_do_not_make_armory_startable(tmp_path: Path) -> None:
     assert "has no study materials" in message
     assert f"Add files to: {armory / 'materials'}" in message
     assert f"heph {armory.name}" in message
+
+
+def test_create_session_does_not_auto_execute_armory_plugins(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HEPHAISTOS_TRUST_ARMORY_PLUGINS", raising=False)
+    armory = _make_armory(tmp_path)
+    marker = armory / "plugin_executed"
+    plugin = armory / ".hephaistos" / "tools" / "probe.py"
+    plugin.write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('executed')\n"
+        "def register(registry):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+
+    assert not marker.exists()
+    assert session.tool_registry.get_handler("probe") is None
+
+
+def test_create_session_loads_armory_plugins_after_explicit_trust(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HEPHAISTOS_TRUST_ARMORY_PLUGINS", "1")
+    armory = _make_armory(tmp_path)
+    marker = armory / "plugin_executed"
+    plugin = armory / ".hephaistos" / "tools" / "probe.py"
+    plugin.write_text(
+        "from pathlib import Path\n"
+        "from hephaistos.agent.tools import ToolSpec\n"
+        f"Path({str(marker)!r}).write_text('executed')\n"
+        "def register(registry):\n"
+        "    registry.register(ToolSpec(\n"
+        "        schema={\n"
+        "            'type': 'function',\n"
+        "            'function': {\n"
+        "                'name': 'probe',\n"
+        "                'description': 'Probe tool',\n"
+        "                'parameters': {\n"
+        "                    'type': 'object',\n"
+        "                    'properties': {},\n"
+        "                    'required': [],\n"
+        "                },\n"
+        "            },\n"
+        "        },\n"
+        "        handler=lambda **kw: 'ok',\n"
+        "    ))\n",
+        encoding="utf-8",
+    )
+
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+
+    assert marker.read_text(encoding="utf-8") == "executed"
+    handler = session.tool_registry.get_handler("probe")
+    assert handler is not None
+    assert handler() == "ok"

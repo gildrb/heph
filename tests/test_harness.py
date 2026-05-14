@@ -190,7 +190,6 @@ class TestToolSchemas:
         names = {schema["function"]["name"] for schema in TOOL_SCHEMAS}
 
         assert names == {
-            "bash",
             "compact",
             "create_armory",
             "edit_file",
@@ -332,7 +331,7 @@ class TestSummarizeResult:
 
 
 class TestExecuteToolCalls:
-    def test_execute_bash(self, workspace: Path) -> None:
+    def test_default_registry_rejects_bash(self, workspace: Path) -> None:
         tool_calls: list[ToolCall] = [
             {
                 "id": "call_1",
@@ -347,7 +346,8 @@ class TestExecuteToolCalls:
         assert len(results) == 1
         assert results[0]["role"] == "tool"
         assert results[0].get("tool_call_id") == "call_1"
-        assert "hello" in message_text(results[0])
+        assert "Unknown tool: bash" in message_text(results[0])
+        assert results[0].get("tool_success") is False
 
     def test_execute_unknown_tool(self, workspace: Path) -> None:
         tool_calls: list[ToolCall] = [

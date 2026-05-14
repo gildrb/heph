@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, cast
 
+from hephaistos.chat.session import ARMORY_PLUGINS_TRUST_ENV
 from hephaistos.cli.main import build_parser
 from hephaistos.commands import get_registry
 from hephaistos.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
@@ -103,6 +104,9 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HEPHAISTOS_API_KEY": "Global API key override that applies to any provider.",
     "HEPHAISTOS_ARMORY_HOME": (
         "Default parent folder for named armories (`~/Armories` by default)."
+    ),
+    "HEPHAISTOS_TRUST_ARMORY_PLUGINS": (
+        "Allow trusted armories to load `.hephaistos/tools/*.py` plugins."
     ),
     "HEPHAISTOS_CRASH_REPORTS_ENABLED": "Override the saved crash-report opt-in (`true`/`false`).",
     "HEPHAISTOS_EMBED_MODEL": "Override the embedding model used by retrieval.",
@@ -376,6 +380,7 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             _RERANK_MODEL_ENV,
             SUPERMEMORY_API_KEY_ENV,
             SUPERMEMORY_URL_ENV,
+            ARMORY_PLUGINS_TRUST_ENV,
             *provider_envs,
         }
     )

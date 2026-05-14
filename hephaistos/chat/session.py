@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import os
 import sys
 import threading
 from collections.abc import Callable
@@ -119,6 +120,9 @@ _PLAIN_CHAT_CONTEXT = (
     "add study materials to begin studying. Be terse."
 )
 
+ARMORY_PLUGINS_TRUST_ENV = "HEPHAISTOS_TRUST_ARMORY_PLUGINS"
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on", "enabled"})
+
 
 def no_armory_guidance_reply() -> str:
     """Return the local guardrail reply for study prompts without an armory."""
@@ -203,10 +207,30 @@ def refresh_armory_sources(session: ChatSession) -> None:
     _replace_system_prompt(session)
 
 
+def _armory_plugins_enabled() -> bool:
+    raw = os.environ.get(ARMORY_PLUGINS_TRUST_ENV, "")
+    return raw.strip().lower() in _TRUTHY_ENV_VALUES
+
+
 def _load_armory_tools(armory_path: Path) -> ToolRegistry:
-    """Create a child registry and load any armory tool plugins."""
+    """Create a child registry and load explicitly trusted armory tool plugins."""
     registry = default_registry.child()
     tools_dir = armory_path / ".hephaistos" / "tools"
+    if not _armory_plugins_enabled():
+        if tools_dir.is_dir() and any(
+            path.is_file() and not path.name.startswith("_") for path in tools_dir.glob("*.py")
+        ):
+            _log.warning(
+                "armory tools skipped; explicit trust not enabled",
+                extra={
+                    "fields": {
+                        "armory": str(armory_path),
+                        "env": ARMORY_PLUGINS_TRUST_ENV,
+                    }
+                },
+            )
+        return registry
+
     loaded = registry.load_plugins(tools_dir)
     if loaded:
         _log.info(

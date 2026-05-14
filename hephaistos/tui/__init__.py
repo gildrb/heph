@@ -132,10 +132,7 @@ _status_text = status_text
 _armory_footer_hints_text = armory_footer_hints_text
 _footer_hints_text = footer_hints_text
 _info_panel_default_text = info_panel_default_text
-
-
 _info_panel_message_text = info_panel_message_text
-
 _config_error = config_error
 
 _armory_command_mode = _tui_armory._armory_command_mode
