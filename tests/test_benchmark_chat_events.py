@@ -23,8 +23,8 @@ def _write_overview_expectation(path: Path) -> None:
                     "id": "overview",
                     "task": "material-overview",
                     "must_include": [
-                        "These materials contain",
-                        "Best next use",
+                        "These are the study topics",
+                        "Choose a topic",
                     ],
                     "must_not_include": [
                         "the files cover",
@@ -104,10 +104,10 @@ def test_chat_event_benchmark_passes_structured_overview_stream(tmp_path: Path) 
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
     answer = (
-        "These materials contain indexed study sources with grounded excerpts [E1] [E2].\n"
-        "- Document signals: @lecture.md looks like lecture notes [E1].\n"
-        "- Evidence roles: @exam.md looks like past exam material [E2].\n"
-        "- Best next use: ask about a topic or exam problem and I will use the index [E1]."
+        "These are the study topics I found in the material [E1] [E2].\n"
+        "- Definitions, theorems, and examples [E1].\n"
+        "- Past exam proof practice [E2].\n"
+        "- Choose a topic to study next with the menu [E1]."
     )
     _write_jsonl(
         events_path,
@@ -166,10 +166,10 @@ def test_chat_event_benchmark_validates_tool_runtime_notice_metadata(
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
     answer = (
-        "These materials contain indexed study sources with grounded excerpts [E1] [E2].\n"
-        "- Document signals: @lecture.md looks like lecture notes [E1].\n"
-        "- Evidence roles: @exam.md looks like past exam material [E2].\n"
-        "- Best next use: ask about a topic or exam problem and I will use the index [E1]."
+        "These are the study topics I found in the material [E1] [E2].\n"
+        "- Definitions, theorems, and examples [E1].\n"
+        "- Past exam proof practice [E2].\n"
+        "- Choose a topic to study next with the menu [E1]."
     )
     _write_jsonl(
         events_path,
@@ -255,10 +255,10 @@ def test_chat_event_benchmark_fails_malformed_acceptance_criteria_notice(
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
     answer = (
-        "These materials contain indexed study sources with grounded excerpts [E1] [E2].\n"
-        "- Document signals: @lecture.md looks like lecture notes [E1].\n"
-        "- Evidence roles: @exam.md looks like past exam material [E2].\n"
-        "- Best next use: ask about a topic or exam problem and I will use the index [E1]."
+        "These are the study topics I found in the material [E1] [E2].\n"
+        "- Definitions, theorems, and examples [E1].\n"
+        "- Past exam proof practice [E2].\n"
+        "- Choose a topic to study next with the menu [E1]."
     )
     _write_jsonl(
         events_path,
@@ -320,10 +320,10 @@ def test_chat_event_benchmark_fails_malformed_tool_runtime_notice(
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
     answer = (
-        "These materials contain indexed study sources with grounded excerpts [E1] [E2].\n"
-        "- Document signals: @lecture.md looks like lecture notes [E1].\n"
-        "- Evidence roles: @exam.md looks like past exam material [E2].\n"
-        "- Best next use: ask about a topic or exam problem and I will use the index [E1]."
+        "These are the study topics I found in the material [E1] [E2].\n"
+        "- Definitions, theorems, and examples [E1].\n"
+        "- Past exam proof practice [E2].\n"
+        "- Choose a topic to study next with the menu [E1]."
     )
     _write_jsonl(
         events_path,
@@ -397,10 +397,10 @@ def test_chat_event_benchmark_fails_malformed_material_operations(
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
     answer = (
-        "These materials contain indexed study sources with grounded excerpts [E1] [E2].\n"
-        "- Document signals: @lecture.md looks like lecture notes [E1].\n"
-        "- Evidence roles: @exam.md looks like past exam material [E2].\n"
-        "- Best next use: ask about a topic or exam problem and I will use the index [E1]."
+        "These are the study topics I found in the material [E1] [E2].\n"
+        "- Definitions, theorems, and examples [E1].\n"
+        "- Past exam proof practice [E2].\n"
+        "- Choose a topic to study next with the menu [E1]."
     )
     _write_jsonl(
         events_path,

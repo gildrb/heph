@@ -82,7 +82,9 @@ DEFAULT_DOCUMENT_UNDERSTANDING_MIN_DOCUMENTS = 10
 DEFAULT_DOCUMENT_UNDERSTANDING_REQUIRED_ROLES = ("assignment", "lecture", "past_exam")
 DEFAULT_DOCUMENT_UNDERSTANDING_OVERVIEW_COVERAGE = 1.0
 DEFAULT_OVERVIEW_FORBIDDEN_PHRASES = (
-    "Visible topics: definition",
+    "Document signals",
+    "Sampled orientation",
+    "Visible topics",
     "heute sprechen",
     "letztes mal",
     "mal haben",

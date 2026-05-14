@@ -388,19 +388,17 @@ def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
 
     reply = _overview_fallback_reply(plan, evidence)
 
-    assert "Sampled orientation: 2 of 9 indexed sources" in reply
+    assert "These are the study topics I found in the material:" in reply
     assert "Retrieved overview sample" not in reply
     assert "not an exhaustive summary" not in reply
-    assert "\n- Document signal:" in reply
-    assert "\n- Sampled mix:" in reply
-    assert "\n- Example evidence:" in reply
-    assert "\n- Visible topics:" in reply
-    assert "\n- Best next use:" in reply
-    assert "@lecture.pdf: lecture or slide material [E1]" in reply
-    assert "lecture or slide material [E1]" in reply
+    assert "indexed sources" not in reply
+    assert "corpus-level claim" not in reply
+    assert "document signal" not in reply.casefold()
+    assert "sampled" not in reply.casefold()
+    assert "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in reply
+    assert "Recommended options:" in reply
+    assert "graph recurrence [E1]" in reply
     assert "[E2]" in reply
-    assert "@lecture.pdf: Vorlesung. Table of contents." in reply
-    assert "@lecture.pdf: Vorlesung. Table of contents." in reply
     assert "[E1]" in reply
 
 
@@ -455,8 +453,8 @@ def test_overview_fallback_satisfies_answer_shape_contract() -> None:
         answer=reply,
         evidence=evidence,
         expected_citations=("E1", "E2"),
-        must_include=("Sampled orientation", "Best next use"),
-        must_not_include=("the files cover", "no evidence citations"),
+        must_include=("study topics", "Choose a topic"),
+        must_not_include=("the files cover", "no evidence citations", "sampled orientation"),
         min_words=24,
         max_words=190,
         min_citation_count=2,
@@ -499,10 +497,10 @@ def test_overview_fallback_needed_for_vague_or_range_cited_answer() -> None:
     assert not _needs_overview_fallback(
         plan,
         (
-            "Sampled orientation two indexed sources for study [E1][E2].\n"
-            "- Document signals: the material includes a lecture overview [E1].\n"
-            "- Assessment signals: the material includes a final exam question [E2].\n"
-            "- Best next use: ask about a topic or problem and I will use the index [E1]."
+            "These are the study topics I found in the material [E1][E2].\n"
+            "- Lecture overview and table of contents [E1].\n"
+            "- Final exam question practice [E2].\n"
+            "- Choose a topic to study next [E1]."
         ),
         evidence,
     )
@@ -515,21 +513,21 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
     )
 
     assert _overview_answer_has_bad_shape(
-        "Sampled orientation math [E1].",
+        "These are the study topics I found in the material [E1].",
         evidence,
     )
     assert _overview_answer_has_bad_shape(
-        "Sampled orientation two sources [E1][E2].\n"
-        "- Document signals: lecture material appears in the material.\n"
-        "- Assessment signals: exam material appears in the material.\n"
-        "- Best next use: ask about a topic.",
+        "These are the study topics I found in the material [E1][E2].\n"
+        "- Lecture material appears in the material.\n"
+        "- Exam material appears in the material.\n"
+        "- Choose a topic to study next.",
         evidence,
     )
     assert not _overview_answer_has_bad_shape(
-        "Sampled orientation two indexed sources for study [E1][E2].\n"
-        "- Document signals: lecture material appears in the material [E1].\n"
-        "- Assessment signals: exam material appears in the material [E2].\n"
-        "- Best next use: ask about a topic and I will use the indexed evidence [E1].",
+        "These are the study topics I found in the material [E1][E2].\n"
+        "- Lecture material appears in the material [E1].\n"
+        "- Exam material appears in the material [E2].\n"
+        "- Choose a topic to study next using the menu [E1].",
         evidence,
     )
 
@@ -586,9 +584,9 @@ def test_overview_fallback_unescapes_content_and_filters_exam_noise_topics() -> 
 
     reply = _overview_fallback_reply(plan, evidence)
 
-    assert "| q | < 1" in reply
+    assert "geometric series [E1]" in reply
     assert "&lt;" not in reply
-    assert "past exam or exam-style material" in reply
+    assert "Practice one exam-style or exercise question" in reply
     assert "critical points" not in reply.casefold()
     assert "joshua example" not in reply.casefold()
 
@@ -1225,13 +1223,10 @@ class TestTurnOrchestratorStudy:
         )
         mock_overview_context.return_value = "Deterministic local corpus overview."
         model_reply = (
-            "Sampled orientation from the retrieved evidence.\n"
-            "- Lecture evidence introduces graph concepts, definitions, and worked "
-            "examples [E1].\n"
-            "- Practice material asks students to solve related problems from the same "
-            "topic [E2].\n"
-            "- The useful next step is a targeted graph question grounded in these "
-            "excerpts [E1] [E2]."
+            "These are the study topics I found in the material [E1] [E2].\n"
+            "- Graph concepts, definitions, and worked examples [E1].\n"
+            "- Related practice problems from the same topic [E2].\n"
+            "- Choose a topic to study next with the menu [E1]."
         )
         mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
 
@@ -1282,7 +1277,7 @@ class TestTurnOrchestratorStudy:
         assert len(deltas) == 1
         assert deltas[0] != "The course is about computer science."
         assert orch.last_reply == deltas[0]
-        assert "Sampled orientation" in orch.last_reply
+        assert "These are the study topics I found" in orch.last_reply
         assert "[E1]" in orch.last_reply
         assert session.conversation.messages[-1].content == orch.last_reply
         trace = cast("MagicMock", session.trace)
@@ -1338,7 +1333,7 @@ class TestTurnOrchestratorStudy:
         assert len(deltas) == 1
         assert "The files cover" not in deltas[0]
         assert "Say ready when you want recall" not in deltas[0]
-        assert "Sampled orientation" in deltas[0]
+        assert "These are the study topics I found" in deltas[0]
         assert "not an exhaustive summary" not in deltas[0]
         assert "[E1]" in deltas[0]
         assert "[E2]" in deltas[0]
@@ -1395,7 +1390,7 @@ class TestTurnOrchestratorStudy:
         completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
         assert len(deltas) == 1
         assert len(completions) == 1
-        assert "Sampled orientation" in deltas[0]
+        assert "These are the study topics I found" in deltas[0]
         assert completions[0].full_text == deltas[0]
         assert "The files cover" not in completions[0].full_text
         assert completions[0].turn_index == 3
@@ -1433,11 +1428,10 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.return_value = iter(
             [
                 AssistantDeltaEvent(
-                    "Sampled orientation from the retrieved evidence.\n"
-                    "- Lecture material introduces definitions and examples [E1].\n"
-                    "- Exam material asks method questions with points [E2].\n"
-                    "- Together, the excerpts support targeted review of definitions and "
-                    "exam-style methods [E1] [E2]."
+                    "These are the study topics I found in the material [E1] [E2].\n"
+                    "- Definitions and examples [E1].\n"
+                    "- Exam-style method questions [E2].\n"
+                    "- Choose a topic to study next with the menu [E1]."
                 )
             ]
         )
@@ -1478,8 +1472,8 @@ class TestTurnOrchestratorStudy:
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
-        assert "Sampled orientation" in deltas[0]
-        assert "past exam or exam-style material [E1]" in deltas[0]
+        assert "These are the study topics I found" in deltas[0]
+        assert "exam-style questions or structured assessment prompts [E1]" in deltas[0]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")

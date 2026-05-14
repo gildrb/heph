@@ -444,9 +444,7 @@ def test_suite_rejects_overview_answers_without_boilerplate_forbidden_terms(
         if "material-overview-grounded-sample" in line:
             payload = json.loads(line)
             payload["must_not_include"] = [
-                phrase
-                for phrase in payload["must_not_include"]
-                if phrase != "Visible topics: definition"
+                phrase for phrase in payload["must_not_include"] if phrase != "Document signals"
             ]
             lines.append(json.dumps(payload))
             continue
@@ -458,7 +456,7 @@ def test_suite_rejects_overview_answers_without_boilerplate_forbidden_terms(
     captured = capsys.readouterr()
     assert status == 2
     assert "answer material-overview case must forbid" in captured.err
-    assert "Visible topics: definition" in captured.err
+    assert "Document signals" in captured.err
 
 
 def test_suite_rejects_chat_expectation_without_boilerplate_forbidden_terms(
