@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, Self, TypeGuard
 
+from hephaistos._types import parse_json_object_fragment
 from hephaistos.materials import infer_material_role_from_text
 from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.runtime import (
@@ -33,20 +34,21 @@ from hephaistos.runtime import (
     stream_completion,
 )
 
-_LETTER = r"A-Za-zÀ-ÖØ-öø-ÿ"
-_TOKEN_RE = re.compile(rf"[{_LETTER}][{_LETTER}0-9_+-]{{2,}}")
+_LETTER_RE = r"[^\W\d_]"
+_WORD_BODY_RE = r"[\w+-]"
+_TOKEN_RE = re.compile(rf"{_LETTER_RE}{_WORD_BODY_RE}{{2,}}")
 _SENTENCE_RE = re.compile(r"[^.!?\n]+")
 _TOPIC_PHRASE_RE = re.compile(
-    rf"\b[{_LETTER}][{_LETTER}0-9_+-]*(?:\s+[{_LETTER}][{_LETTER}0-9_+-]*){{1,5}}\b"
+    rf"\b{_LETTER_RE}{_WORD_BODY_RE}*(?:\s+{_LETTER_RE}{_WORD_BODY_RE}*){{1,5}}\b"
 )
 _QUESTION_START_RE = re.compile(
-    rf"\b(?:aufgabe|question|problem|q)\s*\.?\s*\d+[{_LETTER}]?\b",
+    rf"\b(?:aufgabe|question|problem|q)\s*\.?\s*\d+{_LETTER_RE}?\b",
     re.IGNORECASE,
 )
 _SUBQUESTION_START_RE = re.compile(
-    rf"(?:(?<=\n)\s*(?:\([{_LETTER}]\)|[{_LETTER}]\))|"
-    rf"(?<![{_LETTER}])(?:\([{_LETTER}]\))\s+|"
-    rf"(?<=\n)\s*teilaufgabe\s+[{_LETTER}]\b)",
+    rf"(?:(?<=\n)\s*(?:\({_LETTER_RE}\)|{_LETTER_RE}\))|"
+    rf"(?<!{_LETTER_RE})(?:\({_LETTER_RE}\))\s+|"
+    rf"(?<=\n)\s*teilaufgabe\s+{_LETTER_RE}\b)",
     re.IGNORECASE,
 )
 _PROMPT_TOPIC_RE = re.compile(
@@ -59,7 +61,7 @@ _PROMPT_TOPIC_RE = re.compile(
 _PROMPT_TOPIC_SPLIT_RE = re.compile(r"\s+(?:and|und|or|oder)\s+|[,;]")
 _HEADING_PREFIX_RE = re.compile(r"^(?:#+\s*|\d+(?:\.\d+)*[.)]?\s*|[-*]\s*)")
 _WHITESPACE_RE = re.compile(r"\s+")
-_WORD_SPLIT_RE = re.compile(rf"[{_LETTER}][{_LETTER}0-9_+-]*")
+_WORD_SPLIT_RE = re.compile(rf"{_LETTER_RE}{_WORD_BODY_RE}*")
 _BOILERPLATE_LINE_RE = re.compile(
     r"\b(?:"
     r"all\s+rights\s+reserved|candidate\s+number|copyright|course|department|"
@@ -92,17 +94,22 @@ _TOPIC_INTRO_RE = re.compile(
 )
 _DEFINITION_SUBJECT_RE = re.compile(
     rf"\b(?P<term>(?:the|a|an|der|die|das|den|dem|ein|eine|einen|einer)?\s*"
-    rf"[{_LETTER}][{_LETTER}0-9_+-]{{2,}}"
-    rf"(?:\s+[{_LETTER}][{_LETTER}0-9_+-]{{2,}}){{0,4}})"
+    rf"{_LETTER_RE}{_WORD_BODY_RE}{{2,}}"
+    rf"(?:\s+{_LETTER_RE}{_WORD_BODY_RE}{{2,}}){{0,4}})"
     r"\s+(?:is|are|ist|sind|means|denotes|bezeichnet|heisst|heißt|nennt|"
     r"refers\s+to)\b",
     re.IGNORECASE,
 )
 _DEFINED_OBJECT_RE = re.compile(
     rf"\b(?:the|a|an|der|die|das|den|dem|ein|eine|einen|einer)\s+"
-    rf"(?P<term>[{_LETTER}][{_LETTER}0-9_+-]{{2,}}"
-    rf"(?:\s+[{_LETTER}][{_LETTER}0-9_+-]{{2,}}){{0,4}})"
+    rf"(?P<term>{_LETTER_RE}{_WORD_BODY_RE}{{2,}}"
+    rf"(?:\s+{_LETTER_RE}{_WORD_BODY_RE}{{2,}}){{0,4}})"
     r"\b[^.?!]{0,80}\b(?:defined|definiert|definition)\b",
+    re.IGNORECASE,
+)
+_DEFINITION_VERB_RE = re.compile(
+    r"\b(?:is|are|ist|sind|means|denotes|bezeichnet|heisst|heißt|nennt|"
+    r"refers\s+to|defined|definiert)\b",
     re.IGNORECASE,
 )
 _DEFINITION_TERM_STOPWORDS = frozenset(
@@ -321,7 +328,6 @@ _STOPWORDS = frozenset(
         "exam",
         "examination",
         "es",
-        "erfolg",
         "erste",
         "erwartungsgemäß",
         "euro",
@@ -337,8 +343,6 @@ _STOPWORDS = frozenset(
         "give",
         "given",
         "gilt",
-        "gewinnt",
-        "folgenglied",
         "called",
         "denotes",
         "handschriftlich",
@@ -395,7 +399,6 @@ _STOPWORDS = frozenset(
         "where",
         "which",
         "with",
-        "wahrscheinlichkeit",
         "your",
         "zur",
         "zugelassen",
@@ -422,10 +425,8 @@ _STOPWORDS = frozenset(
         "dezember",
         "formula",
         "ihnen",
-        "informatiker",
         "jeweils",
         "klausur",
-        "mathematik",
         "not",
         "decoded",
         "image",
@@ -437,30 +438,23 @@ _STOPWORDS = frozenset(
         "punkt",
         "sei",
         "seien",
-        "spieler",
         "sommersemester",
         "sie",
         "sind",
         "die",
         "ist",
         "und",
-        "universit",
         "universität",
-        "urzburg",
         "viel",
         "w",
         "wintersemester",
         "wir",
         "wunschen",
         "wünschen",
-        "wurzburg",
-        "würzburg",
         "x0",
         "wenn",
-        "verliert",
         "verfasste",
         "viele",
-        "wettet",
         "wie",
         "matrikelnummer",
         "nachname",
@@ -495,48 +489,25 @@ _BOILERPLATE_TOPIC_PHRASES = frozenset(
         "concept",
         "concepts",
         "definitions",
+        "administrative block",
+        "administrative header",
+        "administrative header sommersemester",
+        "administrative line",
+        "administrative title sommersemester",
+        "administrative unit",
         "exercises",
         "problems",
         "proof",
         "proofs",
-        "reihe folge",
         "theorem",
         "theorems",
         "topics",
         "ohne beweis",
     }
 )
-_CANONICAL_CONCEPT_TERMS = {
-    "ableitung": "ableitungen",
-    "ableitungen": "ableitungen",
-    "derivative": "derivatives",
-    "derivatives": "derivatives",
-    "differenzierbarkeit": "differenzierbarkeit",
-    "folge": "folgen",
-    "folgen": "folgen",
-    "sequence": "sequences",
-    "sequences": "sequences",
-    "grenzwert": "grenzwerte",
-    "grenzwerte": "grenzwerte",
-    "limit": "limits",
-    "limits": "limits",
-    "konvergenz": "konvergenz",
-    "convergence": "convergence",
-    "partialsumme": "partialsummen",
-    "partialsummen": "partialsummen",
-    "reihe": "reihen",
-    "reihen": "reihen",
-    "series": "series",
-    "stetig": "stetigkeit",
-    "stetigkeit": "stetigkeit",
-    "continuity": "continuity",
-    "integral": "integrale",
-    "integrale": "integrale",
-    "taylorreihe": "taylorreihen",
-    "taylorreihen": "taylorreihen",
-    "kurvendiskussion": "kurvendiskussion",
-}
-_SYMBOLIC_TOPIC_TOKEN_RE = re.compile(r"^[a-zäöüß]{1,2}\d*$|^\d+$|^[a-zäöüß]-[a-zäöüß]$")
+_SYMBOLIC_TOPIC_TOKEN_RE = re.compile(
+    rf"^(?:{_LETTER_RE}{{1,2}}\d*|\d+|{_LETTER_RE}-{_LETTER_RE})$"
+)
 
 
 class PriorityChunk(Protocol):
@@ -1026,7 +997,8 @@ def _topic_terms(heading: str, text: str) -> list[str]:
     raw = f"{heading}\n{text}"
     seen: set[str] = set()
     terms: list[str] = []
-    for candidate in _candidate_topic_phrases(raw):
+    candidates = [*_heading_candidates(heading), *_candidate_topic_phrases(raw)]
+    for candidate in candidates:
         canonical = _canonical_topic_term(candidate)
         if _valid_topic(canonical) and canonical not in seen:
             terms.append(canonical)
@@ -1035,10 +1007,7 @@ def _topic_terms(heading: str, text: str) -> list[str]:
 
 
 def _canonical_topic_term(candidate: str) -> str:
-    normalized = " ".join(candidate.casefold().split())
-    if " " not in normalized:
-        return _CANONICAL_CONCEPT_TERMS.get(normalized, normalized)
-    return normalized
+    return " ".join(candidate.casefold().split())
 
 
 def _topic_confidence(
@@ -1150,7 +1119,6 @@ def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Itera
 def _candidate_topic_phrases(raw: str) -> Iterator[str]:
     topic_text = _topic_candidate_text(raw)
     yield from _definition_head_candidates(topic_text)
-    yield from _canonical_concept_candidates(topic_text)
     yield from _heading_candidates(topic_text)
     yield from _prompt_topic_candidates(topic_text)
     for phrase_match in _TOPIC_PHRASE_RE.finditer(topic_text):
@@ -1235,13 +1203,21 @@ def _definition_head_candidates(text: str) -> Iterator[str]:
     for line in text.splitlines():
         if not line.strip():
             continue
-        for pattern in (_DEFINITION_SUBJECT_RE, _DEFINED_OBJECT_RE):
-            for match in pattern.finditer(line):
-                term = _definition_term_candidate(match.group("term"))
-                if not term or term in seen:
-                    continue
-                seen.add(term)
-                yield term
+        for term in _definition_terms_from_line(line):
+            if not term or term in seen:
+                continue
+            seen.add(term)
+            yield term
+
+
+def _definition_terms_from_line(line: str) -> Iterator[str]:
+    for match in _DEFINITION_VERB_RE.finditer(line):
+        prefix = line[: match.start()].strip(" .:-;")
+        if prefix:
+            yield _definition_term_candidate(prefix)
+    for pattern in (_DEFINITION_SUBJECT_RE, _DEFINED_OBJECT_RE):
+        for match in pattern.finditer(line):
+            yield _definition_term_candidate(match.group("term"))
 
 
 def _definition_term_candidate(raw: str) -> str:
@@ -1260,34 +1236,6 @@ def _definition_term_candidate(raw: str) -> str:
         if len(kept) >= 3:
             break
     return " ".join(kept)
-
-
-def _canonical_concept_candidates(text: str) -> Iterator[str]:
-    """Recover named concepts from definition-heavy lecture prose."""
-    seen: set[str] = set()
-    for raw_line in text.splitlines():
-        if not raw_line.strip():
-            continue
-        line = raw_line.casefold()
-        for token_match in _WORD_SPLIT_RE.finditer(line):
-            term = _CANONICAL_CONCEPT_TERMS.get(token_match.group(0))
-            if term is None:
-                continue
-            if not _line_supports_concept_topic(line, token_match.start()):
-                continue
-            if term in seen:
-                continue
-            seen.add(term)
-            yield term
-
-
-def _line_supports_concept_topic(line: str, token_start: int) -> bool:
-    if _TOPIC_INTRO_RE.search(line):
-        return True
-    window_start = max(0, token_start - 48)
-    window_end = min(len(line), token_start + 80)
-    window = line[window_start:window_end]
-    return bool(re.search(r"[:=→↦∑∫]|\\(?:lim|sum|int|frac)\b", window))
 
 
 def _topic_candidate_text(raw: str) -> str:
@@ -1323,7 +1271,7 @@ def _is_boilerplate_line(line: str) -> bool:
 def _looks_like_person_name_sentence(text: str) -> bool:
     if not text.endswith("."):
         return False
-    tokens = re.findall(rf"[{_LETTER}][{_LETTER}'-]*", text[:-1])
+    tokens = re.findall(rf"{_LETTER_RE}(?:{_WORD_BODY_RE}|')*", text[:-1])
     if not 2 <= len(tokens) <= 5:
         return False
     return all(token[:1].isupper() and token.lower() not in _STOPWORDS for token in tokens)
@@ -1846,7 +1794,7 @@ def _model_priority_payload(
         f"Read complete model response from {model_name}: {len(raw_payload)} character(s) "
         f"across {chunk_count} delta(s) in {_format_elapsed_since(started_at)}.",
     )
-    parsed = _parse_json_object(raw_payload)
+    parsed = parse_json_object_fragment(raw_payload)
     if parsed is None:
         _emit_progress(
             progress,
@@ -1938,23 +1886,6 @@ def _compact_evidence_text(text: str, *, max_chars: int = 900) -> str:
     if len(compact) <= max_chars:
         return compact
     return f"{compact[: max_chars - 1]}…"
-
-
-def _parse_json_object(text: str) -> dict[str, object] | None:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.strip("`")
-        if stripped.lower().startswith("json"):
-            stripped = stripped[4:].strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start < 0 or end <= start:
-        return None
-    try:
-        parsed = json.loads(stripped[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
 
 
 class ExternalLatexCompiler:

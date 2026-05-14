@@ -185,6 +185,8 @@ def _chat_event_expectation_scaffold() -> list[dict[str, object]]:
             "min_distinct_sources": 2,
             "min_bullet_count": 2,
             "min_cited_bullet_count": 2,
+            "required_material_operations": ["sample_overview"],
+            "forbidden_material_operations": ["search_index"],
             "evidence": [],
         }
     ]

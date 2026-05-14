@@ -6,11 +6,12 @@ import contextlib
 import re
 import threading
 import urllib.error
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from html import unescape
 from typing import TYPE_CHECKING
 
+from hephaistos._types import is_string_mapping, parse_json_object_fragment
 from hephaistos.agent.citation import verify_citations, verify_response
 from hephaistos.agent.dispatch import iter_agent_events
 from hephaistos.chat.events import (
@@ -59,8 +60,9 @@ from hephaistos.diagnostics.crashes import get_meter, get_tracer
 from hephaistos.logging import Timer, get_logger
 from hephaistos.materials import infer_material_role_from_text
 from hephaistos.memory.workflow import schedule_memory_extraction
-from hephaistos.rag import TurnEvidence
+from hephaistos.rag import EvidenceChunk, TurnEvidence
 from hephaistos.runtime import (
+    ChatConfig,
     Conversation,
     EngineError,
     Message,
@@ -81,6 +83,10 @@ from hephaistos.study import (
     StudyTurnPlan,
     apply_turn_result,
     learner_assessment_from_state,
+    material_overview_plan,
+    material_source_qa_plan,
+    material_topic_drill_plan,
+    material_topic_presentation_plan,
     plan_turn,
     validate_pedagogy,
 )
@@ -146,9 +152,42 @@ _OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 _OVERVIEW_TOPIC_MENU_PROMPT = (
     "Choose a topic to study next. In the shell, use ↑/↓ and press Enter."
 )
+_ENGLISH_GUIDED_MENU_CUE_WORDS = frozenset(
+    {
+        "can",
+        "could",
+        "create",
+        "give",
+        "go",
+        "help",
+        "how",
+        "look",
+        "overview",
+        "please",
+        "provide",
+        "read",
+        "scan",
+        "study",
+        "summarise",
+        "summarize",
+        "through",
+        "topics",
+        "walk",
+        "what",
+        "which",
+        "why",
+        "write",
+    }
+)
 _OVERVIEW_REPLY_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
 _GUIDED_RECOMMENDATION_LABEL_RE = re.compile(
     r"^\s*Recommendation\s*:", re.IGNORECASE | re.MULTILINE
+)
+_ENGLISH_TOPIC_PRESENTATION_START_RE = re.compile(
+    r"^\s*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"
+    r"(?:explain|teach|review|study|go\s+over|walk\s+me\s+through|tell\s+me\s+about|"
+    r"help\s+me\s+(?:study|understand))\b",
+    re.IGNORECASE,
 )
 _MAX_INTERNAL_PASSES = 3
 _OVERVIEW_REQUIRED_SHAPE: tuple[str, ...] = ()
@@ -156,18 +195,29 @@ _OVERVIEW_FORBIDDEN_SHAPE = (
     "corpus-level claim",
     "document signal",
     "indexed source",
+    "next action",
     "no evidence citations",
     "not an exhaustive summary",
+    "ask for recall",
+    "answer from memory",
     "retrieved overview sample",
+    "source-backed",
+    "source backed",
     "say ready when you want recall",
     "sampled mix",
     "sampled orientation",
     "the files cover",
     "visible topics",
 )
+_OVERVIEW_STUDY_LOOP_LINE_RE = re.compile(
+    r"\b(?:next\s+action|say\s+ready|source[-\s]?backed|ask\s+for\s+recall|"
+    r"want\s+recall|answer\s+from\s+memory|from\s+memory|recall\s+drill)\b|"
+    r"^\s*(?:am\s+sinnvollsten\s+ist\s+jetzt|danach\s+recall)\b",
+    re.IGNORECASE,
+)
 _OVERVIEW_METADATA_LINE_RE = re.compile(
     r"\b(?:university|universität|institute|department|faculty|semester|professor|lecturer|"
-    r"instructor|dozent|dozentin|author|email|opencourseware)\b",
+    r"instructor|dozent|dozentin|author|email|opencourseware|administrative)\b",
     re.IGNORECASE,
 )
 _OVERVIEW_DATE_LINE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-zÄÖÜäöüß]+\s+\d{4}\b|\b\d{4}\b")
@@ -198,7 +248,6 @@ _OVERVIEW_TOPIC_STOPWORDS = frozenset(
         "letztes",
         "lecture",
         "mal",
-        "mathematik",
         "material",
         "materials",
         "module",
@@ -231,7 +280,6 @@ _OVERVIEW_TOPIC_STOPWORDS = frozenset(
         "vorlesung",
         "welcome",
         "willkommen",
-        "informatiker",
     }
 )
 _OVERVIEW_GENERIC_TOPIC_LABELS = frozenset(
@@ -261,10 +309,8 @@ _OVERVIEW_GENERIC_TOPIC_LABELS = frozenset(
 )
 _OVERVIEW_COURSE_TITLE_RE = re.compile(
     r"\b(?:"
-    r"(?:mathematik|math(?:ematics)?|informatik|computer\s+science|biochemistry|biology|"
-    r"chemistry|physics|calculus|analysis|algebra)\s+"
-    r"(?:für|fuer|for|[ivx]{1,4}|\d)|"
-    r"(?:module|modul|course|vorlesung)\s*[:#]?\s*\d*"
+    r"(?:module|modul|course|cours|curso|vorlesung|lecture)\s*[:#]?\s*[\w.-]*|"
+    r"(?:[\w+-]+\s+){1,5}(?:[ivx]{1,4}|\d{1,4})"
     r")\b",
     re.IGNORECASE,
 )
@@ -293,6 +339,50 @@ _OVERVIEW_WEB_EDUCATION_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+_OVERVIEW_TOPIC_NORMALIZATION_SCHEMA = """
+{
+  "topics": [
+    {
+      "canonical_english": "concise English study concept",
+      "display_label": "label to show the user, matching the user's language when clear",
+      "evidence_id": "E1",
+      "evidence_quote": "exact phrase copied from that evidence excerpt"
+    }
+  ]
+}
+""".strip()
+_OVERVIEW_TOPIC_NORMALIZATION_SYSTEM_PROMPT = """
+You normalize study-topic menus from cited material excerpts. Use only the supplied evidence.
+First infer canonical topic names in English. Then choose a concise display label in the language
+of the user's request; if the request language is unclear, use the canonical English topic. Return
+actual concepts a student can study, not filenames, document roles, metadata, table-of-contents
+labels, administrative text, or generic labels such as definitions, examples, exercises, or proofs.
+Every topic must cite exactly one supplied evidence_id and include an exact evidence_quote copied
+from that excerpt. Return JSON only, matching this schema:
+""".strip()
+_STUDY_INTENT_NORMALIZATION_SCHEMA = """
+{
+  "intent": "material_overview | source_qa | topic_presentation | topic_drill | chat",
+  "canonical_english_request": "concise English request preserving the user's intent",
+  "confidence": 0.0
+}
+""".strip()
+_STUDY_INTENT_NORMALIZATION_SYSTEM_PROMPT = """
+Classify a user's study intent for a local source-grounded study assistant. Interpret the request
+in whatever language the user wrote, but return an English-first control signal. Do not answer the
+request. Use material_overview only when the user asks for the broad picture of the enabled,
+uploaded, indexed, or provided materials as a corpus. Use source_qa for a specific fact or quote
+from the materials, topic_presentation for explaining a named concept, topic_drill for quiz or
+practice requests, and chat when the intent is unclear or not material-specific. Return JSON only,
+matching this schema:
+""".strip()
+_OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT = """
+Write a student-facing corpus overview from cited material excerpts. Use only the supplied
+evidence. Answer in the same language as the user's request. Give the big picture first and avoid
+organizing primarily by dates, filenames, authors, institutions, or individual chunks. Include at
+least two concise bullet lines with evidence IDs such as [E1]. Do not ask a recall question, do not
+say "Say ready", and do not include an English study menu unless the user wrote in English.
+""".strip()
 _OVERVIEW_ROLE_LABELS = {
     "assignment": "assignment or exercise sheet",
     "codebase": "source code",
@@ -303,24 +393,13 @@ _OVERVIEW_ROLE_LABELS = {
     "textbook": "textbook or chapter material",
     "vocabulary": "vocabulary practice material",
 }
-_OVERVIEW_CANONICAL_LABELS = {
-    "ableitungen": "Ableitungen",
-    "derivatives": "Derivatives",
-    "differenzierbarkeit": "Differenzierbarkeit",
-    "folgen": "Folgen",
-    "sequences": "Sequences",
-    "grenzwerte": "Grenzwerte",
-    "limits": "Limits",
-    "konvergenz": "Konvergenz",
-    "partialsummen": "Partialsummen",
-    "reihen": "Reihen",
-    "series": "Series",
-    "stetigkeit": "Stetigkeit",
-    "continuity": "Continuity",
-    "integrale": "Integrale",
-    "taylorreihen": "Taylorreihen",
-    "kurvendiskussion": "Kurvendiskussion",
-}
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedStudyIntent:
+    intent: str
+    canonical_english_request: str
+    confidence: float
 
 
 def _material_label(source: str) -> str:
@@ -703,9 +782,27 @@ def _writing_notice(plan: StudyTurnPlan) -> str:
 
 def _student_visible_reply(plan: StudyTurnPlan, reply: str) -> str:
     cleaned = _strip_tool_call_markup(reply).strip()
+    if _overview_turn(plan):
+        cleaned = _strip_overview_study_loop_boilerplate(plan, cleaned)
     if plan.action is StudyAction.CALIBRATE:
         return _EVIDENCE_CITATION_TEXT_RE.sub("", cleaned).strip()
     return cleaned
+
+
+def _strip_overview_study_loop_boilerplate(plan: StudyTurnPlan, reply: str) -> str:
+    if not _overview_turn(plan) or not reply.strip():
+        return reply
+    lines = reply.splitlines()
+    seen_content = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if seen_content and _OVERVIEW_STUDY_LOOP_LINE_RE.search(stripped):
+            return "\n".join(lines[:index]).rstrip()
+        if _OVERVIEW_CITATION_ID_RE.search(stripped) or len(re.findall(r"\b\w+\b", stripped)) >= 4:
+            seen_content = True
+    return reply.strip()
 
 
 def _strip_tool_call_markup(reply: str) -> str:
@@ -836,6 +933,8 @@ def _isolated_recall_conversation(
 
 
 def _repair_pedagogy_shape(plan: StudyTurnPlan, reply: str) -> str:
+    if _overview_turn(plan):
+        return reply
     move = plan.study_move
     if (
         not reply.strip()
@@ -1068,14 +1167,43 @@ def _overview_fallback_reply(
     plan: StudyTurnPlan,
     evidence: TurnEvidence | None,
     *,
+    user_input: str = "",
+    config: ChatConfig | None = None,
     web_searcher: PriorityWebSearcher | None = None,
 ) -> str:
     """Return a conservative local overview when model grounding is unusable."""
     if not _overview_turn(plan) or evidence is None or not evidence.items:
         return ""
 
-    topic_items = _overview_topic_items(evidence, web_searcher=web_searcher)
+    use_english_ui = _should_append_english_guided_menu(user_input)
+    if not use_english_ui:
+        localized_reply = _overview_model_fallback_reply(
+            plan,
+            evidence,
+            user_input=user_input,
+            config=config,
+        )
+        if localized_reply:
+            return localized_reply
+
+    topic_items = _overview_model_topic_items(
+        evidence,
+        user_input=user_input,
+        config=config,
+    ) or _overview_topic_items(
+        evidence,
+        web_searcher=None if not use_english_ui else web_searcher,
+    )
     if not topic_items:
+        if not use_english_ui:
+            content_clues = _overview_content_clues(evidence, limit=3)
+            if content_clues:
+                return _append_read_all_scope_disclosure(
+                    plan,
+                    "\n".join(f"- {clue}" for clue in content_clues),
+                    evidence,
+                )
+            return ""
         lines = ["I could not identify precise study topics from the sampled material yet."]
         content_clues = _overview_content_clues(evidence, limit=3)
         if content_clues:
@@ -1085,6 +1213,13 @@ def _overview_fallback_reply(
         return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
 
     recommendations = _overview_recommendation_items(evidence, topic_items)
+
+    if not use_english_ui:
+        return _append_read_all_scope_disclosure(
+            plan,
+            "\n".join(f"- {topic}" for topic in topic_items[:_OVERVIEW_TOPIC_LIMIT]),
+            evidence,
+        )
 
     lines = [_OVERVIEW_TOPIC_SECTION_HEADING]
     lines.extend(f"- {topic}" for topic in topic_items[:_OVERVIEW_TOPIC_LIMIT])
@@ -1101,6 +1236,9 @@ def _append_guided_choice_menu(
     plan: StudyTurnPlan,
     reply: str,
     evidence: TurnEvidence | None,
+    *,
+    user_input: str = "",
+    config: ChatConfig | None = None,
 ) -> str:
     """Append selectable study options while preserving a good model-written summary."""
     if (
@@ -1110,12 +1248,17 @@ def _append_guided_choice_menu(
         or not evidence.items
         or not reply.strip()
         or _reply_has_selectable_study_menu(reply)
+        or not _should_append_english_guided_menu(user_input)
     ):
         return reply
     if not _overview_turn(plan) and _GUIDED_RECOMMENDATION_LABEL_RE.search(reply) is None:
         return reply
 
-    topic_items = _overview_topic_items(evidence, web_searcher=None)
+    topic_items = _overview_model_topic_items(
+        evidence,
+        user_input=user_input,
+        config=config,
+    ) or _overview_topic_items(evidence, web_searcher=None)
     if not topic_items:
         return reply
 
@@ -1129,6 +1272,13 @@ def _append_guided_choice_menu(
         lines.append(_OVERVIEW_RECOMMENDATIONS_HEADING)
         lines.extend(f"- {recommendation}" for recommendation in recommendations)
     return f"{reply.rstrip()}\n" + "\n".join(lines)
+
+
+def _should_append_english_guided_menu(user_input: str) -> bool:
+    words = re.findall(r"[a-z]+", user_input.casefold())
+    if not words:
+        return True
+    return any(word in _ENGLISH_GUIDED_MENU_CUE_WORDS for word in words)
 
 
 def _reply_has_selectable_study_menu(reply: str) -> bool:
@@ -1294,6 +1444,286 @@ def _trim_overview_cue(line: str, *, limit: int = 120) -> str:
     return line[: limit - 1].rstrip(" ,;:.") + "…"
 
 
+def _overview_model_topic_items(
+    evidence: TurnEvidence,
+    *,
+    user_input: str,
+    config: ChatConfig | None,
+) -> list[str]:
+    if config is None or not config.base_url or not config.model:
+        return []
+    conversation = Conversation()
+    conversation.add(
+        "system",
+        f"{_OVERVIEW_TOPIC_NORMALIZATION_SYSTEM_PROMPT}\n{_OVERVIEW_TOPIC_NORMALIZATION_SCHEMA}",
+    )
+    conversation.add("user", _overview_topic_normalization_context(evidence, user_input))
+    parts: list[str] = []
+    try:
+        parts.extend(
+            delta.content
+            for delta in stream_completion(
+                config,
+                conversation,
+                retry=RetryConfig(max_retries=1),
+                client_factory=build_client,
+            )
+            if delta.content
+        )
+    except EngineError:
+        return []
+    payload = parse_json_object_fragment("".join(parts))
+    if payload is None:
+        return []
+    return _overview_topic_items_from_model_payload(payload, evidence)
+
+
+def _overview_model_fallback_reply(
+    plan: StudyTurnPlan,
+    evidence: TurnEvidence,
+    *,
+    user_input: str,
+    config: ChatConfig | None,
+) -> str:
+    if config is None or not config.base_url or not config.model:
+        return ""
+    conversation = Conversation()
+    conversation.add("system", _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT)
+    conversation.add("user", _overview_topic_normalization_context(evidence, user_input))
+    parts: list[str] = []
+    try:
+        parts.extend(
+            delta.content
+            for delta in stream_completion(
+                config,
+                conversation,
+                retry=RetryConfig(max_retries=1),
+                client_factory=build_client,
+            )
+            if delta.content
+        )
+    except EngineError:
+        return ""
+    reply = _strip_tool_call_markup("".join(parts)).strip()
+    reply = _strip_overview_study_loop_boilerplate(plan, reply)
+    if not reply:
+        return ""
+    verification = verify_citations(reply, evidence)
+    if not verification.has_citations or not verification.all_verified:
+        return ""
+    if _overview_answer_has_bad_shape(reply, evidence):
+        return ""
+    return _append_read_all_scope_disclosure(plan, reply, evidence)
+
+
+def _overview_topic_normalization_context(evidence: TurnEvidence, user_input: str) -> str:
+    lines = [
+        f"User request: {user_input.strip() or '(none)'}",
+        "Evidence excerpts:",
+    ]
+    for item in evidence.items[:12]:
+        role, _confidence, _reason = infer_material_role_from_text(item.source, item.content)
+        heading = item.chunk.heading or "none"
+        lines.extend(
+            (
+                "",
+                f"Evidence {item.evidence_id}",
+                f"Source: {item.source}",
+                f"Role: {role}",
+                f"Heading: {heading}",
+                f"Text: {_compact_overview_evidence_text(item.content)}",
+            )
+        )
+    return "\n".join(lines)
+
+
+def _compact_overview_evidence_text(text: str, *, max_chars: int = 700) -> str:
+    compact = " ".join(unescape(text).split())
+    if len(compact) <= max_chars:
+        return compact
+    return f"{compact[: max_chars - 1]}…"
+
+
+def _should_model_normalize_study_intent(
+    plan: StudyTurnPlan,
+    state: StudyState,
+    user_input: str,
+    config: ChatConfig | None,
+) -> bool:
+    if config is None or not config.base_url or not config.model:
+        return False
+    if plan.direct_reply is not None:
+        return False
+    if not user_input.strip():
+        return False
+    if _overview_turn(plan) or _ENGLISH_TOPIC_PRESENTATION_START_RE.search(user_input):
+        return False
+    if state.current_item:
+        return state.phase is StudyPhase.WAITING_FOR_READY and plan.action is StudyAction.REVIEW
+    return plan.action is StudyAction.PRESENT and plan.allow_tools
+
+
+def _model_normalized_study_intent(
+    user_input: str,
+    *,
+    config: ChatConfig | None,
+) -> _NormalizedStudyIntent | None:
+    if config is None or not config.base_url or not config.model:
+        return None
+    conversation = Conversation()
+    conversation.add(
+        "system",
+        f"{_STUDY_INTENT_NORMALIZATION_SYSTEM_PROMPT}\n{_STUDY_INTENT_NORMALIZATION_SCHEMA}",
+    )
+    conversation.add("user", f"User request:\n{user_input.strip()}")
+    parts: list[str] = []
+    try:
+        parts.extend(
+            delta.content
+            for delta in stream_completion(
+                config,
+                conversation,
+                retry=RetryConfig(max_retries=1),
+                client_factory=build_client,
+            )
+            if delta.content
+        )
+    except EngineError:
+        return None
+    payload = parse_json_object_fragment("".join(parts))
+    if payload is None:
+        return None
+    return _normalized_study_intent_from_payload(payload)
+
+
+def _normalized_study_intent_from_payload(
+    payload: Mapping[str, object],
+) -> _NormalizedStudyIntent | None:
+    raw_intent = payload.get("intent")
+    if not isinstance(raw_intent, str):
+        return None
+    intent = raw_intent.strip().casefold().replace("-", "_")
+    supported_intents = {
+        "material_overview",
+        "source_qa",
+        "topic_presentation",
+        "topic_drill",
+        "chat",
+    }
+    if intent not in supported_intents:
+        return None
+    raw_request = payload.get("canonical_english_request")
+    canonical_request = raw_request.strip() if isinstance(raw_request, str) else ""
+    confidence = _normalized_confidence(payload.get("confidence"))
+    return _NormalizedStudyIntent(
+        intent=intent,
+        canonical_english_request=canonical_request,
+        confidence=confidence,
+    )
+
+
+def _normalized_confidence(value: object) -> float:
+    if isinstance(value, (int, float)):
+        confidence = float(value)
+    elif isinstance(value, str):
+        try:
+            confidence = float(value.strip().rstrip("%"))
+        except ValueError:
+            return 0.0
+    else:
+        return 0.0
+    if confidence > 1.0:
+        confidence /= 100.0
+    return min(1.0, max(0.0, confidence))
+
+
+def _model_normalized_study_plan(
+    plan: StudyTurnPlan,
+    state: StudyState,
+    user_input: str,
+    config: ChatConfig | None,
+) -> StudyTurnPlan:
+    if not _should_model_normalize_study_intent(plan, state, user_input, config):
+        return plan
+    normalized = _model_normalized_study_intent(user_input, config=config)
+    if normalized is not None and normalized.confidence >= 0.75:
+        canonical_query = normalized.canonical_english_request or user_input
+        if normalized.intent == "source_qa":
+            return material_source_qa_plan(user_input, retrieval_query=canonical_query)
+        if normalized.intent == "topic_presentation":
+            return material_topic_presentation_plan(user_input, retrieval_query=canonical_query)
+        if normalized.intent == "topic_drill":
+            return material_topic_drill_plan(user_input, retrieval_query=canonical_query)
+        if normalized.intent != "material_overview":
+            return plan
+        canonical_query = canonical_query or "what is the material about"
+        if not _is_overview_query(canonical_query):
+            canonical_query = "what is the material about"
+        return material_overview_plan(user_input, retrieval_query=canonical_query)
+    return plan
+
+
+def _overview_topic_items_from_model_payload(
+    payload: dict[str, object],
+    evidence: TurnEvidence,
+) -> list[str]:
+    raw_topics = payload.get("topics")
+    if not isinstance(raw_topics, list):
+        return []
+    evidence_by_id = {item.evidence_id: item for item in evidence.items}
+    topic_items: list[str] = []
+    seen: set[str] = set()
+    for raw_topic in raw_topics:
+        if not is_string_mapping(raw_topic):
+            continue
+        evidence_id = _overview_payload_string(raw_topic, "evidence_id").upper()
+        evidence_item = evidence_by_id.get(evidence_id)
+        if evidence_item is None:
+            continue
+        evidence_quote = _overview_payload_string(raw_topic, "evidence_quote")
+        if not _overview_model_quote_is_supported(evidence_quote, evidence_item):
+            continue
+        canonical = _clean_overview_model_label(
+            _overview_payload_string(raw_topic, "canonical_english")
+        )
+        label = _clean_overview_model_label(_overview_payload_string(raw_topic, "display_label"))
+        if not label:
+            label = canonical
+        normalized_topic = _normalize_overview_topic(label)
+        if not canonical or not normalized_topic or normalized_topic in seen:
+            continue
+        if not _overview_topic_is_useful(canonical) or not _overview_topic_is_useful(label):
+            continue
+        if _overview_topic_looks_like_metadata(label, evidence):
+            continue
+        seen.add(normalized_topic)
+        topic_items.append(f"{label} [{evidence_id}]")
+        if len(topic_items) >= _OVERVIEW_TOPIC_LIMIT:
+            break
+    return topic_items
+
+
+def _overview_model_quote_is_supported(quote: str, item: EvidenceChunk) -> bool:
+    normalized_quote = _normalize_overview_quote(quote)
+    if len(normalized_quote) < 4:
+        return False
+    haystack = _normalize_overview_quote(f"{item.chunk.heading}\n{item.content}")
+    return normalized_quote in haystack
+
+
+def _normalize_overview_quote(text: str) -> str:
+    return " ".join(unescape(text).casefold().split())
+
+
+def _overview_payload_string(payload: Mapping[str, object], key: str) -> str:
+    value = payload.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _clean_overview_model_label(label: str) -> str:
+    return _clean_overview_line(label).strip(".")
+
+
 def _overview_topic_items(
     evidence: TurnEvidence,
     *,
@@ -1362,8 +1792,10 @@ def _overview_subject_hint(evidence: TurnEvidence) -> str:
 
 
 def _overview_display_topic(topic: str) -> str:
-    normalized = _normalize_overview_topic(topic)
-    return _OVERVIEW_CANONICAL_LABELS.get(normalized, topic)
+    topic = " ".join(topic.split())
+    if not topic or any(char.isupper() for char in topic):
+        return topic
+    return f"{topic[0].upper()}{topic[1:]}"
 
 
 def _overview_topic_web_supported(
@@ -1379,9 +1811,7 @@ def _overview_topic_web_supported(
     if not results:
         return True
 
-    topic_words = [
-        word for word in re.findall(r"[\wÄÖÜäöüß+-]+", topic.casefold()) if len(word) > 2
-    ]
+    topic_words = [word for word in re.findall(r"[\w+-]+", topic.casefold()) if len(word) > 2]
     if not topic_words:
         return False
     for result in results[:3]:
@@ -1699,6 +2129,12 @@ class TurnOrchestrator:
                         memory_state=memory_state,
                         allow_direct_chat=False,
                     )
+                    study_plan = _model_normalized_study_plan(
+                        study_plan,
+                        original_study_state,
+                        user_input,
+                        session.config,
+                    )
                     if notice := _reading_notice(study_plan):
                         yield NoticeEvent(notice, code="reading")
                     resolved = self._resolve_timed_turn_plan(study_plan)
@@ -1937,6 +2373,8 @@ class TurnOrchestrator:
         raw_reply = "".join(raw_parts)
         streamed_reply = raw_reply
         visible_reply = _student_visible_reply(plan, raw_reply)
+        if _overview_turn(plan):
+            raw_reply = visible_reply
         if last_reply_parts:
             self.last_reply = "".join(last_reply_parts)
 
@@ -1946,6 +2384,8 @@ class TurnOrchestrator:
                 fallback_reply = _overview_fallback_reply(
                     plan,
                     resolved.turn_evidence,
+                    user_input=user_input,
+                    config=session.config,
                     web_searcher=_overview_default_web_searcher(resolved.turn_evidence),
                 )
             if not fallback_reply:
@@ -1975,6 +2415,8 @@ class TurnOrchestrator:
             fallback_reply = _overview_fallback_reply(
                 plan,
                 resolved.turn_evidence,
+                user_input=user_input,
+                config=session.config,
                 web_searcher=_overview_default_web_searcher(resolved.turn_evidence),
             )
             if fallback_reply:
@@ -1984,7 +2426,11 @@ class TurnOrchestrator:
 
         if not used_overview_fallback:
             guided_menu_reply = _append_guided_choice_menu(
-                plan, visible_reply, resolved.turn_evidence
+                plan,
+                visible_reply,
+                resolved.turn_evidence,
+                user_input=user_input,
+                config=session.config,
             )
             if guided_menu_reply != visible_reply:
                 visible_reply = guided_menu_reply

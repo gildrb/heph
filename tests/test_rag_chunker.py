@@ -338,12 +338,12 @@ class TestDoclingIntegration:
         self,
         tmp_path: Path,
     ) -> None:
-        pdf = tmp_path / "mfi.pdf"
+        pdf = tmp_path / "math-benchmark.pdf"
         pdf.write_bytes(b"%PDF-1.4\x00fake pdf")
 
         mock_result = MagicMock()
         mock_result.document.export_to_markdown.return_value = (
-            "Mathematik f¨ ur Informatiker\nUniversit¨ at W¨ urzburg\n¨ Ubungstermine"
+            "Administrative Header\nAdministrative header\n¨ Ubungstermine"
         )
         mock_converter = MagicMock()
         mock_converter.convert.return_value = mock_result
@@ -354,11 +354,11 @@ class TestDoclingIntegration:
         ):
             md = _convert_to_markdown(pdf)
 
-        assert md == "Mathematik für Informatiker\nUniversität Würzburg\nÜbungstermine"
+        assert md == "Administrative Header\nAdministrative header\nÜbungstermine"
 
     def test_normalize_extracted_text_repairs_misplaced_umlauts(self) -> None:
-        text = "f¨ ur beschr¨ ankt ¨ Ubung Universit¨ at W¨ urzburg"
-        assert _normalize_extracted_text(text) == ("für beschränkt Übung Universität Würzburg")
+        text = "f¨ ur beschr¨ ankt ¨ Ubung Administrative header"
+        assert _normalize_extracted_text(text) == ("für beschränkt Übung Administrative header")
 
     def test_normalize_extracted_text_repairs_common_latin_ocr_words(self) -> None:
         text = "Begriinden Sie Ihre Antwort. Die Begrundung ist wichtig fiir die Bewertung."

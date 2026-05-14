@@ -479,13 +479,14 @@ class HephaistosTui(
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         composer = self.query_one("#composer", Input)
-        if self._completion_menu_visible() and self.completion_candidates:
-            self._apply_highlighted_completion()
         value = composer.value.strip()
         if self._inline_flow.active:
             event.stop()
             self._submit_inline_flow(value)
             return
+        if self._completion_menu_visible() and self.completion_candidates:
+            self._apply_highlighted_completion()
+            value = composer.value.strip()
         if self._armory_inline_active:
             event.stop()
             if self._armory_creating:
@@ -582,6 +583,8 @@ class HephaistosTui(
         self._handle_armory_browser("/armory")
 
     def action_complete(self) -> None:
+        if self._inline_flow.active:
+            return
         if not self.completion_candidates:
             self._refresh_completions()
         if not self.completion_candidates:
@@ -1052,21 +1055,19 @@ class HephaistosTui(
 
     def _move_completion(self, offset: int) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
-        option_count = len(self.completion_candidates) or len(self._inline_flow.options)
-        if option_count == 0:
+        flow = self._inline_flow
+        options = flow.options if flow.active else self.completion_candidates
+        if not options:
             return
-        current = suggestions.highlighted
-        if current is None:
-            current = 0
-        highlighted = (current + offset) % option_count
-        if self.completion_candidates:
+        highlighted = ((suggestions.highlighted or 0) + offset) % len(options)
+        if flow.active:
+            self._render_inline_menu_options(flow.options, highlighted=highlighted)
+        elif self.completion_candidates:
             self._set_completion_options(highlighted=highlighted)
-        elif self._inline_flow.active:
-            self._render_inline_menu_options(self._inline_flow.options, highlighted=highlighted)
         suggestions.highlighted = highlighted
         suggestions.scroll_y = _completion_menu_scroll_y(
             highlighted,
-            option_count,
+            len(options),
             suggestions.size.height,
             _COMPLETION_MENU_MAX_VISIBLE_ROWS,
         )

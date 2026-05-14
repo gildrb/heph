@@ -1,6 +1,6 @@
 # Modern History Survey
 
-Lecturer: Priya Shah. Western Valley University. Faculty of Arts.
+Administrative line. Administrative block.
 
 ## Primary Sources
 

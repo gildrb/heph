@@ -1,10 +1,10 @@
-# Klausur Mathematik für Informatiker 2
+# Klausur Administrative header 2
 
 Aufgabennummer. Nachname. Vorname. Matrikelnummer.
 
 Als Hilfsmittel sind handschriftlich verfasste Notizen zugelassen. Nicht
 zugelassen sind Cheat-Sheets, Taschenrechner sowie elektronische Dokumente.
 
-Aufgabe 1 [8 Punkte]: Untersuchen Sie eine geometrische Reihe auf Konvergenz.
+Question 1 [8 points]: Explain matrix multiplication.
 
-Aufgabe 2 [6 Punkte]: Berechnen Sie jeweils die erste Ableitung der Funktionen.
+Question 2 [6 points]: Explain eigenvalues.

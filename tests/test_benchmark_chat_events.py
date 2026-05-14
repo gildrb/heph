@@ -37,6 +37,8 @@ def _write_overview_expectation(path: Path) -> None:
                     "min_distinct_sources": 2,
                     "min_bullet_count": 2,
                     "min_cited_bullet_count": 2,
+                    "required_material_operations": ["sample_overview"],
+                    "forbidden_material_operations": ["search_index"],
                     "evidence": [
                         {
                             "id": "E1",
@@ -459,6 +461,74 @@ def test_chat_event_benchmark_fails_malformed_material_operations(
     assert any("appears after assistant answer" in failure for failure in report.failures)
     assert any("missing metadata" in failure for failure in report.failures)
     assert any("missing index_ready" in failure for failure in report.failures)
+    assert any("missing required operation" in failure for failure in report.failures)
+    assert any("forbidden operation" in failure for failure in report.failures)
+
+
+def test_chat_event_benchmark_enforces_expected_material_operations(
+    tmp_path: Path,
+) -> None:
+    events_path = tmp_path / "events.jsonl"
+    expectation_path = tmp_path / "expectation.json"
+    answer = (
+        "These are the study topics I found in the material [E1] [E2].\n"
+        "- Definitions, theorems, and examples [E1].\n"
+        "- Past exam proof practice [E2].\n"
+        "- Choose a topic to study next with the menu [E1]."
+    )
+    rows = _material_operation_rows()
+    rows[1] = {
+        "type": "material_operation",
+        "operation": "search_index",
+        "message": "Searching indexed materials for: what is the material about",
+        "metadata": {"query": "what is the material about", "top_k": 12},
+    }
+    _write_jsonl(
+        events_path,
+        [
+            {"type": "notice", "code": "reading", "message": "Reading."},
+            *rows,
+            {
+                "type": "notice",
+                "code": "evidence",
+                "message": "Using evidence.",
+                "metadata": {
+                    "refs": ["materials/lecture.md#chunk=0", "materials/exam.md#chunk=0"],
+                    "coverage": {
+                        "evidence_blocks": 2,
+                        "sampled_sources": 2,
+                        "total_sources": 2,
+                    },
+                    "items": [
+                        {
+                            "evidence_id": "E1",
+                            "ref": "materials/lecture.md#chunk=0",
+                            "text_excerpt": "Lecture notes. Definitions, theorems, and examples.",
+                        },
+                        {
+                            "evidence_id": "E2",
+                            "ref": "materials/exam.md#chunk=0",
+                            "text_excerpt": "Past exam. Question 1 asks for a proof.",
+                        },
+                    ],
+                },
+            },
+            {"type": "notice", "code": "writing", "message": "Writing."},
+            {"type": "assistant_delta", "delta": answer},
+            {"type": "turn_complete", "full_text": answer, "turn_index": 1},
+        ],
+    )
+    _write_overview_expectation(expectation_path)
+
+    report = benchmark_chat_events.run_chat_event_benchmark(
+        benchmark_chat_events.load_events(events_path),
+        expectation=benchmark_chat_events.load_expectation(expectation_path),
+    )
+
+    assert any(
+        "missing required operation(s): sample_overview" in failure for failure in report.failures
+    )
+    assert any("forbidden operation(s): search_index" in failure for failure in report.failures)
 
 
 def test_chat_event_benchmark_fails_missing_stage_and_bad_overview_shape(

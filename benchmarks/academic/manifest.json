@@ -32,14 +32,14 @@
       "stressors": ["abstention-policy", "study-pedagogy", "active-recall-assessment", "hint-without-reveal"]
     },
     {
-      "source": "materials/mfi-lecture.md",
+      "source": "materials/lecture-a.md",
       "domain": "mathematics",
       "role": "lecture",
       "document_type": "lecture-notes",
       "stressors": ["german-text", "unicode", "ocr-noise", "boilerplate"]
     },
     {
-      "source": "materials/mfi-past-exam.md",
+      "source": "materials/past-exam-a.md",
       "domain": "mathematics",
       "role": "past_exam",
       "document_type": "past-exam",
@@ -50,7 +50,7 @@
       "domain": "biochemistry",
       "role": "lecture",
       "document_type": "lecture-notes",
-      "stressors": ["non-math-domain", "lecturer-boilerplate"]
+      "stressors": ["non-math-domain", "administrative-boilerplate"]
     },
     {
       "source": "materials/biochem-midterm.md",
@@ -64,7 +64,7 @@
       "domain": "physics",
       "role": "lecture",
       "document_type": "lecture-notes",
-      "stressors": ["formula-language", "lecturer-boilerplate", "multi-source-synthesis"]
+      "stressors": ["formula-language", "administrative-boilerplate", "multi-source-synthesis"]
     },
     {
       "source": "materials/physics-final.md",
@@ -78,7 +78,7 @@
       "domain": "history",
       "role": "lecture",
       "document_type": "lecture-notes",
-      "stressors": ["humanities-domain", "lecturer-boilerplate"]
+      "stressors": ["humanities-domain", "administrative-boilerplate"]
     },
     {
       "source": "materials/history-exam.md",

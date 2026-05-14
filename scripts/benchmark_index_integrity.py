@@ -4,9 +4,9 @@ Dataset format:
 
 JSONL:
     {
-      "id": "unicode-german",
+      "id": "required-topic-text",
       "source": "materials/lecture-notes.md",
-      "must_include": ["Universität", "geometrische Reihe"],
+      "must_include": ["Administrative header", "Matrix multiplication"],
       "must_not_include": ["Formula-not-decoded"]
     }
 

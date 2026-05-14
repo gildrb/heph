@@ -129,6 +129,26 @@ def test_extract_academic_items_respects_limit_per_chunk() -> None:
     ]
 
 
+def test_extract_academic_items_strips_lecture_prefix_from_heading_concepts() -> None:
+    chunks = [
+        Chunk(
+            source="materials/softwaretechnik.md",
+            index=0,
+            text=(
+                "# Lecture 3 - Requirements Engineering\n"
+                "Requirements Engineering is systematic handling of requirements.\n"
+            ),
+        )
+    ]
+
+    items = extract_academic_items(chunks)
+
+    assert items[0].kind is AcademicItemKind.CONCEPT
+    assert items[0].text == "Requirements Engineering"
+    assert items[0].concept == "Requirements Engineering"
+    assert items[1].concept == "Requirements Engineering"
+
+
 def test_build_course_knowledge_graph_groups_items_by_concept() -> None:
     items = [
         AcademicItem(
@@ -216,6 +236,12 @@ def test_generate_grounded_study_questions_preserves_grounding() -> None:
                 concept="Long-term potentiation",
             ),
             AcademicItem(
+                kind=AcademicItemKind.EXAMPLE,
+                text="high-frequency stimulation increases later response",
+                source_ref="materials/lecture.md#chunk=2",
+                concept="Long-term potentiation",
+            ),
+            AcademicItem(
                 kind=AcademicItemKind.COMMON_MISCONCEPTION,
                 text="LTP is only a structural change",
                 source_ref="materials/lecture.md#chunk=2",
@@ -234,12 +260,13 @@ def test_generate_grounded_study_questions_preserves_grounding() -> None:
         ]
     )
 
-    questions = generate_grounded_study_questions(graph, limit_per_concept=8)
+    questions = generate_grounded_study_questions(graph, limit_per_concept=9)
 
     assert [question.question_type for question in questions] == [
         "free_recall",
         "cloze_deletion",
         "short_answer",
+        "application_scenario",
         "data_interpretation",
         "error_correction",
         "multiple_choice",
@@ -252,6 +279,55 @@ def test_generate_grounded_study_questions_preserves_grounding() -> None:
         "materials/exam.md#chunk=0",
     )
     assert any("LTP is only a structural change" in question.question for question in questions)
+    assert not any("and explain why it fits" in question.question for question in questions)
+    assert any(
+        question.question == "Why does this example fit Long-term potentiation: "
+        "high-frequency stimulation increases later response?"
+        for question in questions
+    )
+    assert any(
+        question.question == "What key pattern does the table show for Long-term potentiation?"
+        for question in questions
+    )
+    assert not any("source-backed" in question.question for question in questions)
+    assert not any("source question" in question.question for question in questions)
+
+
+def test_generate_grounded_study_questions_skips_metadata_trivia_nodes() -> None:
+    graph = build_course_knowledge_graph(
+        [
+            AcademicItem(
+                kind=AcademicItemKind.CONCEPT,
+                text="Professor Example",
+                source_ref="materials/lecture.md#chunk=0",
+                concept="Professor Example",
+            ),
+            AcademicItem(
+                kind=AcademicItemKind.DEFINITION,
+                text="Professor Example: course instructor",
+                source_ref="materials/lecture.md#chunk=0",
+                concept="Professor Example",
+            ),
+            AcademicItem(
+                kind=AcademicItemKind.CONCEPT,
+                text="Requirements Engineering",
+                source_ref="materials/lecture.md#chunk=1",
+                concept="Requirements Engineering",
+            ),
+            AcademicItem(
+                kind=AcademicItemKind.DEFINITION,
+                text="Requirements Engineering: systematic handling of requirements",
+                source_ref="materials/lecture.md#chunk=1",
+                concept="Requirements Engineering",
+            ),
+        ]
+    )
+
+    questions = generate_grounded_study_questions(graph)
+
+    assert questions
+    assert all("Professor Example" not in question.question for question in questions)
+    assert any("Requirements Engineering" in question.question for question in questions)
 
 
 def test_generate_grounded_study_questions_skips_ungrounded_nodes() -> None:

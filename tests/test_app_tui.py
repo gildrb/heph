@@ -702,8 +702,8 @@ def test_tui_css_inline_menu_highlight_has_no_brand_stripe() -> None:
 
 
 def test_inline_menu_selected_label_uses_brand_without_recoloring_description() -> None:
-    selected = _inline_menu_option_text("Folgen", "study this topic", selected=True)
-    unselected = _inline_menu_option_text("Folgen", "study this topic", selected=False)
+    selected = _inline_menu_option_text("Signal Entropy", "study this topic", selected=True)
+    unselected = _inline_menu_option_text("Signal Entropy", "study this topic", selected=False)
     palette = tui.current_palette()
 
     assert not isinstance(selected, str)
@@ -1726,12 +1726,13 @@ def test_overview_recommended_option_submits_direct_prompt(
             monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
             app._open_study_topic_flow(
                 [
-                    ("Folgen", "study this topic"),
-                    ("Compare Folgen and Grenzwerte", "recommended"),
+                    ("Signal Entropy", "study this topic"),
+                    ("Compare Signal Entropy and Carrier Waves", "recommended"),
                 ],
                 {
-                    "Compare Folgen and Grenzwerte": (
-                        "Compare Folgen and Grenzwerte so you can separate the ideas [E13]."
+                    "Compare Signal Entropy and Carrier Waves": (
+                        "Compare Signal Entropy and Carrier Waves, "
+                        "grounded in the evidence for these topics."
                     )
                 },
             )
@@ -1742,41 +1743,89 @@ def test_overview_recommended_option_submits_direct_prompt(
             await pilot.pause()
 
             assert submitted == [
-                "Compare Folgen and Grenzwerte so you can separate the ideas [E13]."
+                "Compare Signal Entropy and Carrier Waves, "
+                "grounded in the evidence for these topics."
             ]
             assert app._inline_flow.active is False
 
     asyncio.run(check_recommendation_flow())
 
 
+def test_inline_study_menu_ignores_stale_completion_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    submitted: list[str] = []
+
+    async def check_stale_completion_state() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
+            app._open_study_topic_flow(
+                [
+                    ("Enzyme Kinetics", "study this topic"),
+                    ("Protein Folding", "study this topic"),
+                ]
+            )
+            app.completion_candidates = [
+                tui.CompletionCandidate("models ", "stale slash completion", 0)
+            ]
+            await pilot.pause()
+
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app._inline_flow.step == "action"
+            assert app._inline_flow.slug == "Protein Folding"
+
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert submitted == [
+                "Give me one source-grounded practice question about Protein Folding."
+            ]
+            assert app._inline_flow.active is False
+
+    asyncio.run(check_stale_completion_state())
+
+
 def test_overview_topic_options_parse_only_actual_topic_section() -> None:
     reply = (
         "These are the study topics I found in the material [E1][E2].\n"
-        "- Ableitungen [E1].\n"
-        "- Grenzwerte [E2].\n\n"
+        "- Matrix multiplication [E1].\n"
+        "- Eigenvalues [E2].\n\n"
         "Choose a topic to study next. In the shell, use ↑/↓ and press Enter.\n\n"
         "Recommended options:\n"
-        "- Start with a guided explanation of Ableitungen [E1]."
+        "- Start with a guided explanation of Matrix multiplication [E1]."
     )
 
     assert overview_topic_options(reply) == [
-        ("Ableitungen", "study this topic"),
-        ("Grenzwerte", "study this topic"),
-        ("Explain Ableitungen", "recommended"),
+        ("Matrix multiplication", "study this topic"),
+        ("Eigenvalues", "study this topic"),
+        ("Explain Matrix multiplication", "recommended"),
     ]
 
 
 def test_overview_topic_options_accepts_shell_menu_hint() -> None:
     reply = (
         "These are the study topics I found in the material [E1][E2].\n"
-        "- Ableitungen [E1].\n"
-        "- Taylor's theorem [E2].\n"
+        "- Signal entropy [E1].\n"
+        "- Carrier waves [E2].\n"
         "Use the shell menu to choose one cited topic for guided study next."
     )
 
     assert overview_topic_options(reply) == [
-        ("Ableitungen", "study this topic"),
-        ("Taylor's theorem", "study this topic"),
+        ("Signal entropy", "study this topic"),
+        ("Carrier waves", "study this topic"),
     ]
 
 
@@ -1835,27 +1884,33 @@ def test_overview_topic_menu_converts_recommendation_to_direct_prompt() -> None:
 def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> None:
     reply = (
         "These are the study topics I found in the material:\n"
-        "- Folgen [E11]\n"
-        "- Grenzwerte [E13]\n\n"
+        "- Signal Entropy [E11]\n"
+        "- Carrier Waves [E13]\n\n"
         "Choose a topic to study next. In the shell, use ↑/↓ and press Enter.\n\n"
         "Recommended options:\n"
-        "- Start with a guided explanation of Folgen [E11].\n"
-        "- Practice one exam-style or exercise question on Grenzwerte [E13].\n"
-        "- Compare Folgen and Grenzwerte so you can separate the ideas [E13]."
+        "- Start with a guided explanation of Signal Entropy [E11].\n"
+        "- Practice one exam-style or exercise question on Carrier Waves [E13].\n"
+        "- Compare Signal Entropy and Carrier Waves so you can separate the ideas [E13]."
     )
 
     menu = overview_topic_menu(reply)
 
     assert menu is not None
     assert menu.options == [
-        ("Folgen", "study this topic"),
-        ("Grenzwerte", "study this topic"),
-        ("Explain Folgen", "recommended"),
-        ("Practice Grenzwerte", "recommended"),
-        ("Compare Folgen and Grenzwerte", "recommended"),
+        ("Signal Entropy", "study this topic"),
+        ("Carrier Waves", "study this topic"),
+        ("Explain Signal Entropy", "recommended"),
+        ("Practice Carrier Waves", "recommended"),
+        ("Compare Signal Entropy and Carrier Waves", "recommended"),
     ]
-    assert menu.prompts["Compare Folgen and Grenzwerte"] == (
-        "Compare Folgen and Grenzwerte so you can separate the ideas [E13]."
+    assert menu.prompts["Explain Signal Entropy"] == (
+        "Teach me Signal Entropy in simple terms, grounded in the evidence for this topic."
+    )
+    assert menu.prompts["Practice Carrier Waves"] == (
+        "Give me one source-grounded practice question about Carrier Waves."
+    )
+    assert menu.prompts["Compare Signal Entropy and Carrier Waves"] == (
+        "Compare Signal Entropy and Carrier Waves, grounded in the evidence for these topics."
     )
 
 

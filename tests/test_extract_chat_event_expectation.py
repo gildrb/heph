@@ -20,6 +20,12 @@ def test_extract_expectation_uses_evidence_notice_metadata(tmp_path: Path) -> No
         [
             {"type": "notice", "code": "reading", "message": "Reading."},
             {
+                "type": "material_operation",
+                "operation": "sample_overview",
+                "message": "Sampling corpus overview.",
+                "metadata": {"query": "what is the material about"},
+            },
+            {
                 "type": "notice",
                 "code": "evidence",
                 "message": "Using evidence.",
@@ -54,6 +60,8 @@ def test_extract_expectation_uses_evidence_notice_metadata(tmp_path: Path) -> No
 
     assert expectation[0]["expected_citations"] == ["E1", "E2"]
     assert "must_include" not in expectation[0]
+    assert expectation[0]["required_material_operations"] == ["sample_overview"]
+    assert expectation[0]["forbidden_material_operations"] == ["search_index"]
     assert expectation[0]["evidence"] == [
         {
             "id": "E1",

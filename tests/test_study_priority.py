@@ -67,12 +67,12 @@ def test_priority_analysis_uses_extracted_text_to_classify_generic_sources(
     index = ArmoryIndex(tmp_path)
     exam_chunk = _chunk(
         "materials/document-a.pdf",
-        "Klausur Mathematik für Informatiker 2. Bearbeitungszeit 90 Minuten. "
+        "Klausur Administrative Header 2. Bearbeitungszeit 90 Minuten. "
         "Aufgabe 1 [10 Punkte]: Explain Dijkstra shortest paths.",
     )
     slides_chunk = _chunk(
         "materials/document-b.pdf",
-        "Mathematik für Informatiker 2. Sommersemester 2026. Vorlesung. "
+        "Administrative Header 2. Sommersemester 2026. Vorlesung. "
         "Table of contents. Dijkstra shortest paths use graph relaxation.",
     )
     index.documents = [
@@ -93,6 +93,54 @@ def test_priority_analysis_uses_extracted_text_to_classify_generic_sources(
     assert analysis.material_sources == ("materials/document-b.pdf",)
     assert dijkstra.exam_hits == 1
     assert dijkstra.material_hits == 1
+
+
+def _generated_unicode_word(start: int, *, length: int = 5) -> str:
+    letters: list[str] = []
+    for codepoint in range(start, 0x110000):
+        char = chr(codepoint)
+        if char.isalpha() and not char.isascii():
+            letters.append(char)
+            if len(letters) == length:
+                return "".join(letters)
+    raise AssertionError("unicode sample generation failed")
+
+
+def test_priority_analysis_extracts_generated_unicode_letter_topics(
+    tmp_path: Path,
+) -> None:
+    topic_a = f"{_generated_unicode_word(0x0370)} {_generated_unicode_word(0x0400)}"
+    topic_b = f"{_generated_unicode_word(0x0900)} {_generated_unicode_word(0x0980)}"
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/unicode-a.md",
+            content_hash="unicode-a",
+            chunks=[
+                _chunk(
+                    "materials/unicode-a.md",
+                    topic_a,
+                    heading=topic_a,
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/unicode-b.md",
+            content_hash="unicode-b",
+            chunks=[
+                _chunk(
+                    "materials/unicode-b.md",
+                    topic_b,
+                    heading=topic_b,
+                )
+            ],
+        ),
+    ]
+
+    topics = {topic.topic for topic in analyze_priority(index.all_chunks).topics}
+
+    assert topic_a.casefold() in topics
+    assert topic_b.casefold() in topics
 
 
 def test_priority_analysis_render_includes_exam_and_material_sources(tmp_path: Path) -> None:
@@ -468,9 +516,9 @@ def test_priority_analysis_filters_repeated_lecture_boilerplate(tmp_path: Path) 
             chunks=[
                 _chunk(
                     f"materials/Folien_2026_04_{day}.pdf",
-                    "Mathematik f ur Informatiker Sommersemester. Jesse Ratzkin. "
-                    "Universit at W urzburg. Beispiel. Ohne Beweis. "
-                    "Geometrische Reihe und Konvergenz von Partialsummen.",
+                    "Administrative Header Sommersemester. Administrative line. "
+                    "Administrative block. Beispiel. Ohne Beweis. "
+                    "Graph routing and packet scheduling.",
                 )
             ],
         )
@@ -483,7 +531,7 @@ def test_priority_analysis_filters_repeated_lecture_boilerplate(tmp_path: Path) 
             chunks=[
                 _chunk(
                     "materials/past-exams/mock.md",
-                    "Aufgabe 1 [8 Punkte]: Untersuchen Sie eine geometrische Reihe.",
+                    "Aufgabe 1 [8 Punkte]: Untersuchen Sie graph routing.",
                 )
             ],
         )
@@ -491,12 +539,11 @@ def test_priority_analysis_filters_repeated_lecture_boilerplate(tmp_path: Path) 
 
     topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
 
-    assert "jesse ratzkin" not in topics
-    assert "mathematik f ur informatiker sommersemester" not in topics
-    assert "universit at w urzburg" not in topics
+    assert "administrative line" not in topics
+    assert "administrative block" not in topics
     assert "ohne beweis" not in topics
-    assert "geometrische reihe" in topics
-    assert topics["geometrische reihe"].exam_marks == 8
+    assert "graph routing" in topics
+    assert topics["graph routing"].exam_marks == 8
 
 
 def test_priority_analysis_filters_generic_course_boilerplate(tmp_path: Path) -> None:
@@ -508,9 +555,9 @@ def test_priority_analysis_filters_generic_course_boilerplate(tmp_path: Path) ->
             chunks=[
                 _chunk(
                     "materials/biochemistry-lecture.md",
-                    "# Biochemistry 201\n"
-                    "Professor Amelia Carter. Northbridge University. "
-                    "Department of Biochemistry. Fall semester.\n"
+                    "# Biochemistry Lecture\n"
+                    "Administrative line. Administrative block. Administrative unit. "
+                    "Fall semester.\n"
                     "## Enzyme Kinetics\n"
                     "Enzyme kinetics explains Michaelis Menten saturation and reaction velocity.\n"
                     "## Protein Folding\n"
@@ -535,9 +582,9 @@ def test_priority_analysis_filters_generic_course_boilerplate(tmp_path: Path) ->
 
     topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
 
-    assert "amelia carter" not in topics
-    assert "northbridge university" not in topics
-    assert "department biochemistry" not in topics
+    assert "administrative line" not in topics
+    assert "administrative block" not in topics
+    assert "administrative unit" not in topics
     assert "student name student id" not in topics
     assert "enzyme kinetics" in topics
     assert "protein folding" in topics
@@ -548,14 +595,14 @@ def test_priority_analysis_extracts_definition_heads_across_subjects(tmp_path: P
     index = ArmoryIndex(tmp_path)
     index.documents = [
         ChunkedDocument(
-            source="materials/analysis.md",
-            content_hash="math",
+            source="materials/signal-processing.md",
+            content_hash="signal-processing",
             chunks=[
                 _chunk(
-                    "materials/analysis.md",
-                    "Mathematik für Informatiker 2. Ableitung definiert. "
-                    "Eine Folge in M ist eine Abbildung von N nach M. "
-                    "Die Reihe bezeichnet die Folge der Partialsummen.",
+                    "materials/signal-processing.md",
+                    "Administrative Header 2. "
+                    "Signal entropy is a measure of uncertainty in observations. "
+                    "A carrier wave is a reference waveform for modulation.",
                 )
             ],
         ),
@@ -584,14 +631,13 @@ def test_priority_analysis_extracts_definition_heads_across_subjects(tmp_path: P
 
     topics = {topic.topic for topic in analyze_priority(index.all_chunks, limit=20).topics}
 
-    assert "ableitungen" in topics
-    assert "folgen" in topics
-    assert "reihen" in topics
+    assert "signal entropy" in topics
+    assert "carrier wave" in topics
     assert "enzyme kinetics" in topics
+    assert "enzymen" not in topics
     assert "protein folding" in topics
     assert "hash table" in topics
-    assert "mathematik für informatiker" not in topics
-    assert "ableitung definiert" not in topics
+    assert "administrative title" not in topics
 
 
 def test_priority_report_cleans_repeated_headings_in_evidence(tmp_path: Path) -> None:

@@ -122,7 +122,7 @@ def test_infer_material_role_uses_path_hints() -> None:
         "materials/lectures/week-1.md": "lecture",
         "materials/slides/deck.pptx": "slides",
         "materials/Folien_2026_04_13.pdf": "slides",
-        "materials/Klausur_MfI2_WS2024.pdf": "past_exam",
+        "materials/Klausur_WorkspaceFixture2_WS2024.pdf": "past_exam",
         "materials/book/chapter-2.pdf": "textbook",
         "materials/project/main.py": "codebase",
         "materials/misc/context.md": "reference",
@@ -147,7 +147,7 @@ def test_infer_material_role_from_text_detects_generic_exam_file() -> None:
     role, confidence, reason = infer_material_role_from_text(
         "materials/document.pdf",
         """
-        Mathematik für Informatiker 2
+        Administrative Header 2
         Klausur SS23
         Bearbeitungszeit: 90 Minuten
         Hilfsmittel: keine
@@ -220,8 +220,8 @@ def test_infer_material_role_from_text_detects_german_exercise_sheet() -> None:
         Übungsblatt 6
         Abgabe: Mittwoch
 
-        Aufgabe 1. Zeigen Sie die Konvergenz der Folge.
-        Aufgabe 2. Berechnen Sie die Ableitung.
+        Aufgabe 1. Erklären Sie den Algorithmus.
+        Aufgabe 2. Vergleichen Sie zwei Verfahren.
         Aufgabe 3. Begründen Sie Ihre Antwort.
         """,
     )

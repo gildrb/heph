@@ -124,7 +124,7 @@ class TestDiscoverStartupArmory:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_armory_env: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        armory = clean_armory_env / "mfi-1"
+        armory = clean_armory_env / "workspace-fixture-1"
         initialize(armory)
 
         result = discover_startup_armory()

@@ -154,6 +154,11 @@ from evidence-notice metadata. The extractor writes `known_limits` deliberately;
 `scripts.benchmark_chat_events` rejects the expectation until those limits are
 removed after review.
 
+For overview prompts, add `required_material_operations: ["sample_overview"]`
+and `forbidden_material_operations: ["search_index"]` to the expectation. That
+guards broad corpus-orientation requests against regressing into narrow query
+retrieval while still using the normal answer-shape and citation checks.
+
 Before labelled cases exist for a real armory, run a generic document
 understanding smoke check. This checks extraction health, indexed coverage, and
 content-based role inference without assuming a specific subject, lecturer,
@@ -361,7 +366,7 @@ Use index integrity datasets to answer: "Did extraction, normalization, and
 chunking preserve source text before retrieval or model answering starts?"
 
 ```json
-{"id": "german-lecture-text", "domain": "mathematics", "task": "unicode-extraction", "source": "materials/lecture.md", "must_include": ["Universität Würzburg", "geometrische Reihe"], "must_not_include": ["Formula-not-decoded"]}
+{"id": "lecture-topic-text", "domain": "mathematics", "task": "topic-extraction", "source": "materials/lecture.md", "must_include": ["Administrative header", "Matrix multiplication"], "must_not_include": ["Formula-not-decoded"]}
 {"id": "exam-format-text", "domain": "mathematics", "task": "exam-format-preservation", "source": "materials/past-exam.md", "must_include": ["Aufgabe 1 [8 Punkte]"], "must_not_include": ["Matrikelnummcr"]}
 ```
 
@@ -407,14 +412,14 @@ rank real academic topics and reject boilerplate/OCR noise?"
 
 ```json
 {
-  "id": "mfi-priority",
+  "id": "mathematics-priority",
   "domain": "mathematics",
-  "expected_topics": ["geometrische reihe"],
-  "expected_ordered_topics": ["geometrische reihe", "ableitung funktionen"],
-  "expected_mark_totals": {"geometrische reihe": 8},
-  "expected_tiers": {"geometrische reihe": "High-yield"},
-  "forbidden_topics": ["jesse ratzkin", "universität würzburg"],
-  "expected_past_exam_sources": ["materials/mfi-past-exam.md"],
+  "expected_topics": ["matrix multiplication"],
+  "expected_ordered_topics": ["matrix multiplication", "eigenvalues"],
+  "expected_mark_totals": {"matrix multiplication": 8},
+  "expected_tiers": {"matrix multiplication": "High-yield"},
+  "forbidden_topics": ["administrative line", "administrative header"],
+  "expected_past_exam_sources": ["materials/past-exam-a.md"],
   "limit": 6
 }
 ```

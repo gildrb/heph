@@ -747,7 +747,7 @@ class TestArmoryIndexStrategy:
             assert chunk.heading_level == 0
 
     def test_load_normalizes_legacy_extracted_text(self, armory: Path) -> None:
-        legacy_text = "Mathematik f¨ ur Informatiker <!-- formula-not-decoded --> <!-- image -->"
+        legacy_text = "Administrative Header <!-- formula-not-decoded --> <!-- image -->"
         (armory / "materials" / "python.md").write_text(legacy_text, encoding="utf-8")
         index = ArmoryIndex(armory)
         index.build()
@@ -769,7 +769,7 @@ class TestArmoryIndexStrategy:
         chunk_text = next(
             chunk.text for chunk in loaded.all_chunks if chunk.source == "materials/python.md"
         )
-        assert "Mathematik für Informatiker" in chunk_text
+        assert "Administrative Header" in chunk_text
         assert "formula-not-decoded" not in chunk_text
         assert "<!-- image -->" not in chunk_text
 

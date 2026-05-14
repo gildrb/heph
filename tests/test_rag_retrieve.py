@@ -233,10 +233,12 @@ class TestTfidfRetriever:
         chunks = [
             _make_chunk(
                 "The main theorem connects differentiation with integration.",
-                "materials/L7_MfI-1_Fundamentalsatz.pdf",
+                "materials/L7_WorkspaceFixture-1_Fundamentalsatz.pdf",
                 0,
             ),
-            _make_chunk("<!-- image -->", "materials/L7_MfI-1_Fundamentalsatz.pdf", 1),
+            _make_chunk(
+                "<!-- image -->", "materials/L7_WorkspaceFixture-1_Fundamentalsatz.pdf", 1
+            ),
             _make_chunk(
                 "Linear algebra introduces vector spaces and matrices.",
                 "materials/linear-algebra.md",
@@ -248,7 +250,7 @@ class TestTfidfRetriever:
         results = retriever.retrieve("how does the fundamentalsatz work")
 
         assert len(results) > 0
-        assert results[0].chunk.source == "materials/L7_MfI-1_Fundamentalsatz.pdf"
+        assert results[0].chunk.source == "materials/L7_WorkspaceFixture-1_Fundamentalsatz.pdf"
 
     def test_sklearn_token_pattern_matches_words(self) -> None:
         captured: dict[str, str] = {}

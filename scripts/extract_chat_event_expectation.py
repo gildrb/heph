@@ -47,6 +47,9 @@ def extract_expectation(events_path: Path, *, reviewed: bool = False) -> list[di
         "min_cited_bullet_count": 2,
         "evidence": evidence_items,
     }
+    if _has_material_operation(events, "sample_overview"):
+        expectation["required_material_operations"] = ["sample_overview"]
+        expectation["forbidden_material_operations"] = ["search_index"]
     if not reviewed:
         expectation["known_limits"] = [
             "Review scaffold extracted from chat JSONL; verify evidence text and "
@@ -134,6 +137,13 @@ def _evidence_items(events: Sequence[Mapping[str, object]]) -> list[dict[str, ob
             }
         )
     return items
+
+
+def _has_material_operation(events: Sequence[Mapping[str, object]], operation: str) -> bool:
+    return any(
+        event.get("type") == "material_operation" and event.get("operation") == operation
+        for event in events
+    )
 
 
 def _string_field(raw_item: Mapping[object, object], field: str, index: int) -> str:

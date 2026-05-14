@@ -28,6 +28,10 @@ from hephaistos.study.autopilot import (
 from hephaistos.study.controller import (
     StudyTurnPlan,
     apply_turn_result,
+    material_overview_plan,
+    material_source_qa_plan,
+    material_topic_drill_plan,
+    material_topic_presentation_plan,
     plan_turn,
 )
 from hephaistos.study.knowledge import (
@@ -84,6 +88,10 @@ __all__ = [
     "generate_grounded_study_questions",
     "infer_turn_mode",
     "learner_assessment_from_state",
+    "material_overview_plan",
+    "material_source_qa_plan",
+    "material_topic_drill_plan",
+    "material_topic_presentation_plan",
     "move_for_plan",
     "normalize_confidence_value",
     "parse_time_budget_minutes",

@@ -37,17 +37,20 @@ from hephaistos.chat.evidence import (
     evidence_refs,
     is_overview_query,
     parse_source_ref,
+    query_demands_source_only_answer,
     resolve_turn_evidence,
 )
 from hephaistos.chat.orchestrator import (
     TurnOrchestrator,
     _evidence_notice,
     _evidence_notice_metadata,
+    _model_normalized_study_plan,
     _needs_overview_fallback,
     _overview_answer_has_bad_shape,
     _overview_fallback_reply,
     _overview_topic_is_useful,
     _overview_topic_items,
+    _overview_topic_items_from_model_payload,
     _overview_topic_looks_like_metadata,
     _repair_pedagogy_shape,
     _run_bounded_internal_repairs,
@@ -65,6 +68,7 @@ from hephaistos.study import (
     StudyRecallRating,
     StudyState,
     StudyTurnPlan,
+    material_overview_plan,
     plan_turn,
 )
 from hephaistos.study.priority import PriorityWebSearchResult
@@ -184,6 +188,22 @@ def test_bounded_internal_repair_loop_caps_passes_and_repairs_shape() -> None:
     assert "Next action:" in repaired
 
 
+def test_german_overview_repair_does_not_append_english_study_scaffold() -> None:
+    plan = material_overview_plan("um was geht es in den dateien")
+    reply = (
+        "Die Dateien geben einen Überblick über die wichtigsten mathematischen "
+        "Zusammenhänge und Übungsformen [E1] [E2]."
+    )
+
+    repaired, passes = _run_bounded_internal_repairs(plan, reply, None)
+
+    assert passes <= 3
+    assert repaired == reply
+    assert "Include your confidence from 0-100%" not in repaired
+    assert "Next action:" not in repaired
+    assert "Say ready" not in repaired
+
+
 def test_repair_pedagogy_shape_adds_guided_recommendation_reason() -> None:
     plan = plan_turn(StudyState(autonomy_mode=StudyAutonomyMode.GUIDED), "Explain compactness")
 
@@ -205,6 +225,220 @@ def test_student_visible_reply_strips_inline_tool_call_markup() -> None:
     cleaned = _student_visible_reply(plan, raw)
 
     assert cleaned == "No searchable armory evidence was found."
+
+
+def test_overview_student_visible_reply_strips_trailing_study_loop_boilerplate() -> None:
+    plan = material_overview_plan("um was geht es in den dateien")
+    raw = (
+        "Die Dateien behandeln Mathematik fuer Informatiker [E1][E2].\n"
+        "- Ein Schwerpunkt sind Reihen und Konvergenzkriterien [E1].\n"
+        "- Ein weiterer Schwerpunkt sind Taylor-Polynome und Approximationen [E2].\n\n"
+        "Am sinnvollsten ist jetzt, den kleinsten source-backed Block zu wiederholen. "
+        "Danach Recall.\n\n"
+        "Next action: Review the smallest source-backed piece, then ask for recall."
+    )
+
+    cleaned = _student_visible_reply(plan, raw)
+
+    assert "Die Dateien behandeln Mathematik" in cleaned
+    assert "Taylor-Polynome" in cleaned
+    assert "Am sinnvollsten" not in cleaned
+    assert "Next action" not in cleaned
+    assert "source-backed" not in cleaned
+
+
+@pytest.mark.parametrize(
+    (
+        "intent",
+        "user_input",
+        "expected_action",
+        "expected_query",
+        "expected_allow_tools",
+        "expected_buffer",
+        "prompt_bits",
+    ),
+    [
+        (
+            "source_qa",
+            "was sagt das material ueber enzymkinetik?",
+            StudyAction.SOURCE_QA,
+            "enzyme kinetics in the material",
+            False,
+            True,
+            ("Execute SOURCE_QA", "User request: was sagt", "same language"),
+        ),
+        (
+            "topic_presentation",
+            "erklaer mir enzymkinetik",
+            StudyAction.PRESENT,
+            "enzyme kinetics",
+            True,
+            False,
+            ("Execute the PRESENT phase", "User request: erklaer", "same language"),
+        ),
+        (
+            "topic_drill",
+            "frag mich zu enzymkinetik ab",
+            StudyAction.CALIBRATE,
+            "enzyme kinetics",
+            False,
+            True,
+            ("Execute CALIBRATE", "student's language", "active-recall"),
+        ),
+    ],
+)
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_routes_non_english_material_intents(
+    mock_stream: MagicMock,
+    intent: str,
+    user_input: str,
+    expected_action: StudyAction,
+    expected_query: str,
+    expected_allow_tools: bool,
+    expected_buffer: bool,
+    prompt_bits: tuple[str, ...],
+) -> None:
+    base_plan = _make_study_plan(retrieval_query=user_input, allow_tools=True)
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    f'{{"intent":"{intent}",'
+                    f'"canonical_english_request":"{expected_query}",'
+                    '"confidence":0.94}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        StudyState(),
+        user_input,
+        config,
+    )
+
+    assert normalized_plan.action is expected_action
+    assert normalized_plan.retrieval_query == expected_query
+    assert normalized_plan.allow_tools is expected_allow_tools
+    assert normalized_plan.buffer_response is expected_buffer
+    assert all(bit in normalized_plan.prompt for bit in prompt_bits)
+    intent_prompt = mock_stream.call_args.args[1].messages[0].content
+    assert "English-first control signal" in intent_prompt
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_keeps_low_confidence_plan(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = _make_study_plan(retrieval_query="erzaehl mal ueber enzymkinetik")
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"topic_presentation",'
+                    '"canonical_english_request":"enzyme kinetics",'
+                    '"confidence":0.41}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        StudyState(),
+        "erzaehl mal ueber enzymkinetik",
+        config,
+    )
+
+    assert normalized_plan is base_plan
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_reclassifies_non_english_ready_wait_followup(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = StudyTurnPlan(
+        action=StudyAction.REVIEW,
+        phase=StudyPhase.PRESENTING,
+        prompt="follow-up",
+        retrieval_query="conditional probability",
+        use_expected_source_refs=True,
+        allow_tools=False,
+    )
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"source_qa",'
+                    '"canonical_english_request":"Bayes theorem in the notes",'
+                    '"confidence":0.92}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        state,
+        "was sagen die notizen ueber den satz von bayes?",
+        config,
+    )
+
+    assert normalized_plan.action is StudyAction.SOURCE_QA
+    assert normalized_plan.retrieval_query == "Bayes theorem in the notes"
+    assert normalized_plan.use_expected_source_refs is False
+    assert "User request: was sagen die notizen" in normalized_plan.prompt
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_does_not_reclassify_recall_assessment(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = StudyTurnPlan(
+        action=StudyAction.ASSESS,
+        phase=StudyPhase.ASSESS,
+        prompt="assess",
+        retrieval_query="conditional probability",
+        use_expected_source_refs=True,
+        allow_tools=False,
+        buffer_response=True,
+    )
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+        attempt_count=1,
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        state,
+        "die wahrscheinlichkeit unter einer bedingung",
+        config,
+    )
+
+    assert normalized_plan is base_plan
+    mock_stream.assert_not_called()
 
 
 def test_study_autopilot_context_reads_schedule_learner_state(tmp_path: Path) -> None:
@@ -400,8 +634,8 @@ def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
     assert "sampled" not in reply.casefold()
     assert "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in reply
     assert "Recommended options:" in reply
-    assert "graph algorithms [E1]" in reply
-    assert "recurrence [E1]" in reply
+    assert "graph algorithms [e1]" in reply.casefold()
+    assert "recurrence [e1]" in reply.casefold()
     assert "[E2]" in reply
     assert "[E1]" in reply
 
@@ -528,6 +762,13 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
         "- Choose a topic to study next.",
         evidence,
     )
+    assert _overview_answer_has_bad_shape(
+        "The material is about graph algorithms and recurrence relations [E1][E2].\n"
+        "- Graph algorithms [E1].\n"
+        "- Recurrence relations [E2].\n"
+        "Next action: Review the smallest source-backed piece, then ask for recall.",
+        evidence,
+    )
     assert not _overview_answer_has_bad_shape(
         "These are the study topics I found in the material [E1][E2].\n"
         "- Graph algorithms [E1].\n"
@@ -546,8 +787,8 @@ def test_overview_shape_rejects_non_topic_menu_labels() -> None:
 
     assert _overview_answer_has_bad_shape(
         "These are the study topics I found in the material [E1][E2].\n"
-        "- Ableitung definiert [E1].\n"
-        "- Mathematik für Informatiker 2 [E1].\n"
+        "- Definition only [E1].\n"
+        "- Administrative Header 2 [E1].\n"
         "- exam-style questions or structured assessment prompts [E2].\n"
         "Use the shell menu to choose one cited topic for guided study next.",
         evidence,
@@ -560,11 +801,11 @@ def test_overview_topic_metadata_filter_removes_title_page_person_names() -> Non
             "materials/lecture.pdf",
             0,
             "E1",
-            "## Introduction to Biology\n\nAda Lovelace\n\nUniversity of Example\n\n2026",
+            "## Introduction to Biology\n\nAdministrative line\n\nAdministrative block\n\n2026",
         )
     )
 
-    assert _overview_topic_looks_like_metadata("ada lovelace", evidence)
+    assert _overview_topic_looks_like_metadata("administrative line", evidence)
     assert not _overview_topic_looks_like_metadata("biology", evidence)
 
 
@@ -578,12 +819,11 @@ def test_overview_topic_filter_rejects_generic_lecture_scaffolding() -> None:
     assert not _overview_topic_is_useful("mal haben")
     assert not _overview_topic_is_useful("table")
     assert not _overview_topic_is_useful("achtung")
-    assert not _overview_topic_is_useful("Mathematik für Informatiker 2")
+    assert not _overview_topic_is_useful("Administrative Header 2")
     assert not _overview_topic_is_useful("exam-style questions or structured assessment prompts")
-    assert not _overview_topic_is_useful("Sei M eine Menge, dann ist eine Folge")
-    assert _overview_topic_is_useful("geometrische reihe")
+    assert not _overview_topic_is_useful("Let X be a set, then define a mapping")
+    assert _overview_topic_is_useful("signal entropy")
     assert _overview_topic_is_useful("matrix multiplication")
-    assert _overview_topic_is_useful("ableitungen")
     assert _overview_topic_is_useful("Bayes theorem")
     assert _overview_topic_is_useful("graph")
 
@@ -591,40 +831,44 @@ def test_overview_topic_filter_rejects_generic_lecture_scaffolding() -> None:
 def test_overview_topic_items_use_general_definition_and_web_validation() -> None:
     evidence = _make_turn_evidence(
         _make_evidence_chunk(
-            "materials/math.pdf",
+            "materials/signals.pdf",
             0,
             "E1",
-            "Mathematik für Informatiker 2 Sommersemester 2026. Ableitung definiert.",
+            "Administrative Header 2 Sommersemester 2026. "
+            "Signal entropy is a measure of uncertainty in observations.",
         ),
         _make_evidence_chunk(
-            "materials/math.pdf",
+            "materials/signals.pdf",
             1,
             "E2",
-            "Definition. Eine Folge in M ist eine Abbildung N nach M.",
+            "A carrier wave is a reference waveform for modulation.",
         ),
         _make_evidence_chunk(
-            "materials/math.pdf",
+            "materials/biology.pdf",
             2,
             "E3",
-            "Die Reihe bezeichnet die Folge der Partialsummen.",
+            "Protein folding is the process where a chain reaches its native structure.",
         ),
         _make_evidence_chunk(
-            "materials/math.pdf",
+            "materials/cs.pdf",
             3,
             "E4",
-            "Den Grenzwert der Partialsummen haben wir definiert.",
+            "A hash table is a data structure for key value lookup.",
         ),
     )
 
     def web_searcher(query: str) -> tuple[PriorityWebSearchResult, ...]:
-        supported = ("ableitungen", "folgen", "reihen", "grenzwerte")
-        snippet = "Course topic overview for Ableitungen, Folgen, Reihen, and Grenzwerte."
+        supported = ("signal entropy", "carrier wave", "protein folding", "hash table")
+        snippet = (
+            "Course topic overview for signal entropy, carrier wave, protein folding, "
+            "and hash table."
+        )
         if not any(term in query.casefold() for term in supported):
             snippet = "Course topic overview for unrelated material."
         return (
             PriorityWebSearchResult(
-                title="Mathematics lecture topic",
-                url="https://example.test/math",
+                title="Course topic",
+                url="https://example.test/topic",
                 snippet=snippet,
             ),
         )
@@ -632,9 +876,8 @@ def test_overview_topic_items_use_general_definition_and_web_validation() -> Non
     topics = _overview_topic_items(evidence, web_searcher=web_searcher)
     labels = [topic.rsplit(" [", maxsplit=1)[0] for topic in topics]
 
-    assert "Mathematik für Informatiker 2" not in labels
-    assert "ableitung definiert" not in {label.casefold() for label in labels}
-    assert {"Ableitungen", "Folgen", "Reihen", "Grenzwerte"} <= set(labels)
+    assert "Administrative Header 2" not in labels
+    assert {"Signal entropy", "Carrier wave", "Protein folding", "Hash table"} <= set(labels)
 
 
 def test_overview_topic_items_are_not_math_specific() -> None:
@@ -677,9 +920,41 @@ def test_overview_topic_items_are_not_math_specific() -> None:
         for topic in _overview_topic_items(evidence, web_searcher=web_searcher)
     ]
 
-    assert "enzyme kinetics" in labels
-    assert "protein folding" in labels
-    assert "hash table" in labels
+    normalized_labels = {label.casefold() for label in labels}
+    assert "enzyme kinetics" in normalized_labels
+    assert "protein folding" in normalized_labels
+    assert "hash table" in normalized_labels
+
+
+def test_overview_model_topic_items_require_exact_evidence_quotes() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/signals.pdf",
+            0,
+            "E1",
+            "Signal entropy is a measure of uncertainty in observations.",
+        )
+    )
+    payload: dict[str, object] = {
+        "topics": [
+            {
+                "canonical_english": "quantum mechanics",
+                "display_label": "Quantum mechanics",
+                "evidence_id": "E1",
+                "evidence_quote": "quantum mechanics",
+            },
+            {
+                "canonical_english": "signal entropy",
+                "display_label": "Signal entropy",
+                "evidence_id": "E1",
+                "evidence_quote": "Signal entropy",
+            },
+        ]
+    }
+
+    topics = _overview_topic_items_from_model_payload(payload, evidence)
+
+    assert topics == ["Signal entropy [E1]"]
 
 
 def test_overview_fallback_unescapes_content_and_filters_exam_noise_topics() -> None:
@@ -709,7 +984,7 @@ def test_overview_fallback_unescapes_content_and_filters_exam_noise_topics() -> 
 
     reply = _overview_fallback_reply(plan, evidence)
 
-    assert "geometric series [E1]" in reply
+    assert "geometric series [e1]" in reply.casefold()
     assert "&lt;" not in reply
     assert "Practice one exam-style or exercise question" in reply
     assert "critical points" not in reply.casefold()
@@ -760,6 +1035,71 @@ def test_assess_turn_evidence_flags_weak_source_only_support() -> None:
     assert assessment.recommended_action == "give_partial_answer"
     assert assessment.supporting_refs == ("materials/a.md#chunk=0",)
     assert "corroborating source span" in assessment.missing_information
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "What do my notes say about Bayes theorem?",
+        "Do the slides mention Lagrange multipliers?",
+        "According to my lecture notes, what is the definition of entropy?",
+        "Based on the PDF, what is the exact formula?",
+        "If my uploaded documents do not contain it, do not guess.",
+        "Can you check my notes for Bayes theorem?",
+        "Find Lagrange multipliers in the slides.",
+        "Summarize my notes on Bayes theorem.",
+        "List the formulas from my lecture notes.",
+        "What page mentions Lagrange multipliers?",
+        "Which slide explains Lagrange multipliers?",
+        "What does the textbook say about Bayes theorem?",
+        "According to the reading, what is entropy?",
+        "Can you check the workbook for Lagrange multipliers?",
+        "Find eigenvalues in the worksheet.",
+        "What does the assignment ask us to prove?",
+        "Summarize the problem set on induction.",
+        "Does the syllabus mention Bayes theorem?",
+        "What does the mark scheme say about partial credit?",
+        "Based on the paper, what is the method?",
+        "Look through the article for the theorem.",
+        "Rely only on the lecture notes for this.",
+        "Stick to the source material.",
+        "What does the source material say about entropy?",
+        "Where did the slides explain Lagrange multipliers?",
+        "What do the course notes say about Bayes theorem?",
+        "According to the class notes, what is entropy?",
+        "Based on the study guide, what is the formula?",
+        "From the course pack, define entropy.",
+        "Using the attached documents, what is the theorem?",
+        "If the attached files do not contain it, do not guess.",
+        "Show me where the slides explain Bayes theorem.",
+        "Which document covers Bayes theorem?",
+        "Which source says entropy is conserved?",
+        "Can you cite the notes for the theorem?",
+        "Point me to the lecture notes that define entropy.",
+        "Base your answer on the textbook only.",
+        "If my notes do not mention it, say so.",
+        "If it is not in the slides, say so.",
+    ],
+)
+def test_source_only_detection_accepts_common_material_references(query: str) -> None:
+    assert query_demands_source_only_answer(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "do not guess",
+        "please do not guess",
+        "don't guess",
+        "don't hallucinate",
+        "do not use outside knowledge",
+        "no outside knowledge",
+        "don't make it up",
+        "say you don't know",
+    ],
+)
+def test_source_only_detection_accepts_standalone_abstention_policy(query: str) -> None:
+    assert query_demands_source_only_answer(query)
 
 
 def test_assess_turn_evidence_routes_broad_present_query_to_clarifying() -> None:
@@ -1320,6 +1660,85 @@ class TestTurnOrchestratorStudy:
         assert "heph index <armory>" in reply
         assert session.conversation.messages[-1].content == reply
 
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_german_overview_samples_corpus_without_search_or_english_scaffold(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        evidence = TurnEvidence(
+            items=(
+                _make_evidence_chunk(
+                    "materials/lecture-a.md",
+                    0,
+                    "E1",
+                    "Reihen und Konvergenzkriterien stehen im Mittelpunkt.",
+                ),
+                _make_evidence_chunk(
+                    "materials/lecture-b.md",
+                    0,
+                    "E2",
+                    "Taylor-Polynome und lineare Approximationen werden behandelt.",
+                ),
+            ),
+            sampled_source_count=2,
+            total_source_count=4,
+        )
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter(
+            [
+                AssistantDeltaEvent(
+                    "Die Dateien geben einen Überblick über Analysis für Informatiker.\n"
+                    "- Ein Schwerpunkt sind Reihen und Konvergenzkriterien [E1].\n"
+                    "- Ein weiterer Schwerpunkt sind Approximationen mit "
+                    "Taylor-Polynomen [E2].\n\n"
+                    "Am sinnvollsten ist jetzt, den kleinsten source-backed Block zu "
+                    "wiederholen. Danach Recall.\n\n"
+                    "Next action: Review the smallest source-backed piece, then ask for recall."
+                )
+            ]
+        )
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(
+                    content=(
+                        '{"intent":"material_overview",'
+                        '"canonical_english_request":"what are the materials about",'
+                        '"confidence":0.96}'
+                    )
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "intent-normalizer"
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("um was geht es in den dateien"))
+
+        operations = [
+            event.operation for event in events if isinstance(event, MaterialOperationEvent)
+        ]
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        extra_prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        assert "sample_overview" in operations
+        assert "search_index" not in operations
+        assert len(deltas) == 1
+        assert "Include your confidence from 0-100%" not in deltas[0]
+        assert "Next action:" not in deltas[0]
+        assert "Say ready" not in deltas[0]
+        assert "Answer in the same language" in extra_prompt
+        assert "Give the big picture first" in extra_prompt
+        assert "User request: um was geht es in den dateien" in extra_prompt
+        assert "Autonomous study policy" not in extra_prompt
+        normalized_plan = mock_resolve_evidence.call_args.args[1]
+        assert normalized_plan.retrieval_query == "what are the materials about"
+        intent_prompt = mock_stream.call_args_list[0].args[1].messages[0].content
+        assert "English-first control signal" in intent_prompt
+
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
@@ -1466,31 +1885,32 @@ class TestTurnOrchestratorStudy:
                 "materials/lecture-1.pdf",
                 0,
                 "E1",
-                "## Ableitungen\nCourse slides on derivatives and higher-order derivatives.",
+                "## Signal entropy\nCourse slides on uncertainty measures.",
             ),
             _make_evidence_chunk(
                 "materials/lecture-2.pdf",
                 0,
                 "E2",
-                "## Taylor's theorem with remainder\nNotes on Taylor approximation.",
+                "## Carrier waves\nNotes on modulation references.",
             ),
             _make_evidence_chunk(
                 "materials/lecture-3.pdf",
                 0,
                 "E3",
-                "## Folgen und Reihen\nSequences, series, partial sums, and convergence.",
+                "## Protein folding\nNotes on native structures and interactions.",
             ),
         )
         mock_resolve_evidence.return_value = evidence
         mock_overview_context.return_value = ""
         model_reply = (
-            'The indexed materials are course slides and notes for "Mathematik für '
-            'Informatiker 2" in Sommersemester 2026 [E1][E2].\n'
-            "- Derivatives and higher-order derivatives are a major topic [E1].\n"
-            "- Taylor's theorem with remainder is covered in the notes [E2].\n"
-            "- Sequences and series appear through partial sums and convergence [E3].\n\n"
+            "The indexed materials are course slides and notes for a mixed study module "
+            "in 2026 [E1][E2].\n"
+            "- Signal entropy is a major topic [E1].\n"
+            "- Carrier waves are covered in the notes [E2].\n"
+            "- Protein folding appears through native structures [E3].\n\n"
             "Recommendation: ask a contrastive question next, such as "
-            '"Which topic is different between sequences and series?" This is beneficial '
+            '"Which topic is different between signal entropy and carrier waves?" '
+            "This is beneficial "
             "because it separates closely related ideas."
         )
         mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
@@ -1509,9 +1929,9 @@ class TestTurnOrchestratorStudy:
             "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in final_reply
         )
         assert "Recommended options:" in final_reply
-        assert "Ableitungen [E1]" in final_reply
-        assert "Taylor's theorem with remainder [E2]" in final_reply
-        assert "Folgen und Reihen [E3]" in final_reply
+        assert "Signal entropy [E1]" in final_reply
+        assert "Carrier waves [E2]" in final_reply
+        assert "Protein folding [E3]" in final_reply
         assert "I could not identify precise study topics" not in final_reply
         assert orch.last_reply == final_reply
 
@@ -1529,19 +1949,19 @@ class TestTurnOrchestratorStudy:
                 "materials/lecture-1.pdf",
                 0,
                 "E1",
-                "## Ableitungen\nCourse slides on derivatives and higher-order derivatives.",
+                "## Signal entropy\nCourse slides on uncertainty measures.",
             ),
             _make_evidence_chunk(
                 "materials/lecture-2.pdf",
                 0,
                 "E2",
-                "## Taylor's theorem with remainder\nNotes on Taylor approximation.",
+                "## Carrier waves\nNotes on modulation references.",
             ),
         )
         mock_resolve_evidence.return_value = evidence
         mock_overview_context.return_value = ""
         mock_iter_agent.return_value = iter(
-            [AssistantDeltaEvent("The materials cover core math topics [E1][E2].")]
+            [AssistantDeltaEvent("The materials cover core study topics [E1][E2].")]
         )
 
         session = _make_study_session()
@@ -1552,13 +1972,13 @@ class TestTurnOrchestratorStudy:
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
         final_reply = deltas[0]
-        assert "The materials cover core math topics" not in final_reply
+        assert "The materials cover core study topics" not in final_reply
         assert "These are the study topics I found in the material:" in final_reply
         assert (
             "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in final_reply
         )
-        assert "Ableitungen [E1]" in final_reply
-        assert "Taylor's theorem with remainder [E2]" in final_reply
+        assert "Signal entropy [E1]" in final_reply
+        assert "Carrier waves [E2]" in final_reply
         assert orch.last_reply == final_reply
 
     @patch("hephaistos.chat.orchestrator._build_overview_context")
@@ -1706,6 +2126,145 @@ class TestTurnOrchestratorStudy:
         assert "[E1]" in deltas[0]
         assert "[E2]" in deltas[0]
         assert not any("No evidence citations" in notice for notice in notices)
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_overview_fallback_uses_model_normalized_topics_with_display_labels(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+            buffer_response=True,
+        )
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/analysis.pdf",
+                0,
+                "E1",
+                "Administrative Header. Signal entropy is introduced with examples.",
+            ),
+            _make_evidence_chunk(
+                "materials/analysis.pdf",
+                1,
+                "E2",
+                "Carrier waves are defined before modulation examples.",
+            ),
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("The files cover vague course material [E1] [E2].")]
+        )
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(
+                    content=(
+                        '{"topics":['
+                        '{"canonical_english":"signal entropy",'
+                        '"display_label":"Signal entropy","evidence_id":"E1",'
+                        '"evidence_quote":"Signal entropy"},'
+                        '{"canonical_english":"carrier waves",'
+                        '"display_label":"Carrier waves","evidence_id":"E2",'
+                        '"evidence_quote":"Carrier waves"}'
+                        "]}"
+                    )
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "topic-normalizer"
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("Which topics should I study?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        final_reply = deltas[0]
+        assert "The files cover vague course material" not in final_reply
+        assert "Signal entropy [E1]" in final_reply
+        assert "Carrier waves [E2]" in final_reply
+        assert orch.last_reply == final_reply
+        normalizer_conversation = mock_stream.call_args.args[1]
+        system_prompt = normalizer_conversation.messages[0].content
+        user_prompt = normalizer_conversation.messages[1].content
+        assert "canonical topic names in English" in system_prompt
+        assert "display label in the language" in system_prompt
+        assert "User request: Which topics should I study?" in user_prompt
+        assert "Evidence E1" in user_prompt
+        assert "Evidence E2" in user_prompt
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_german_overview_fallback_uses_localized_model_repair(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+            buffer_response=True,
+            allow_tools=False,
+        )
+        evidence = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/reihen.md",
+                0,
+                "E1",
+                "Reihen und Konvergenzkriterien stehen im Mittelpunkt der Vorlesung.",
+            ),
+            _make_evidence_chunk(
+                "materials/taylor.md",
+                0,
+                "E2",
+                "Taylor-Polynome und lineare Approximationen werden als Werkzeuge behandelt.",
+            ),
+        )
+        repaired_reply = (
+            "Die Unterlagen geben einen Überblick über zentrale Analysis-Konzepte und "
+            "Aufgabentypen [E1] [E2].\n"
+            "- Ein Schwerpunkt sind Reihen und Kriterien, mit denen man ihre Konvergenz "
+            "beurteilt [E1].\n"
+            "- Ein weiterer Schwerpunkt sind Taylor-Polynome und lineare Approximationen "
+            "als Werkzeuge für Funktionen [E2].\n"
+            "- Zusammen geht es eher um Begriffe und Verfahren als um Dateidaten [E1] [E2]."
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("The files cover vague course material [E1] [E2].")]
+        )
+        mock_stream.return_value = iter([CompletionDelta(content=repaired_reply)])
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "localized-overview-repair"
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("um was geht es in den dateien"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        final_reply = deltas[0]
+        assert final_reply == repaired_reply
+        assert "The files cover" not in final_reply
+        assert "These are the study topics" not in final_reply
+        assert "Choose a topic" not in final_reply
+        assert "Say ready" not in final_reply
+        system_prompt = mock_stream.call_args.args[1].messages[0].content
+        assert "same language as the user's request" in system_prompt
+        assert "Do not ask a recall question" in system_prompt
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -2248,10 +2807,10 @@ class TestTurnOrchestratorStudy:
 
         session = _make_study_session()
         session.source_file_count = 1
-        session.source_files = ("materials/L7_MfI-1_Fundamentalsatz.pdf",)
+        session.source_files = ("materials/L7_WorkspaceFixture-1_Fundamentalsatz.pdf",)
         index = ArmoryIndex(Path("/tmp/fake-armory"))
         index.unindexable_files = {
-            "materials/L7_MfI-1_Fundamentalsatz.pdf": (
+            "materials/L7_WorkspaceFixture-1_Fundamentalsatz.pdf": (
                 "binary document; document conversion backend unavailable"
             )
         }
@@ -2262,7 +2821,7 @@ class TestTurnOrchestratorStudy:
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
-        assert "@L7_MfI-1_Fundamentalsatz.pdf" in deltas[0]
+        assert "@L7_WorkspaceFixture-1_Fundamentalsatz.pdf" in deltas[0]
         assert "PDF/document conversion is unavailable" in deltas[0]
         assert "cannot answer from outside knowledge" in deltas[0]
         assert "heph index <armory>" in deltas[0]
@@ -2496,16 +3055,16 @@ class TestHelperFunctions:
         mock_ensure: MagicMock,
     ) -> None:
         text = (
-            "Definition. Sei M eine Menge, dann ist eine Folge in M eine Abbildung "
-            "phi: N -> M. Das n-te Folgenglied wird mit phi(n) bezeichnet."
+            "Definition. A vector index is a retrieval structure that stores embeddings "
+            "for nearest-neighbor lookup."
         )
         index = ArmoryIndex(Path("/tmp/fake-armory"))
         index.documents = [
             ChunkedDocument(
-                source="materials/folgen.md",
+                source="materials/vector-index.md",
                 chunks=[
-                    _make_chunk("materials/folgen.md", 0, "Mathematik fuer Informatiker 2"),
-                    _make_chunk("materials/folgen.md", 1, text),
+                    _make_chunk("materials/vector-index.md", 0, "Administrative Header 2"),
+                    _make_chunk("materials/vector-index.md", 1, text),
                 ],
             )
         ]
@@ -2515,11 +3074,11 @@ class TestHelperFunctions:
             session = _make_study_session()
             result = build_turn_evidence_from_query(
                 session,
-                "Explain Folgen from the material in simple terms.",
+                "Explain vector indexes from the material in simple terms.",
             )
 
         assert result is not None
-        assert any("Folge in M" in item.content for item in result.items)
+        assert any("vector index" in item.content for item in result.items)
 
     @patch("hephaistos.chat.evidence.ensure_rag_index")
     def testbuild_turn_evidence_from_query_error(
@@ -2743,7 +3302,8 @@ class TestHelperFunctions:
             _make_chunk(
                 "materials/lecture.md",
                 0,
-                "## Biology 101\n\nAda Lovelace\n\nUniversity of Example\n\n12 April 2026",
+                "## Biology lecture\n\nAdministrative line\n\n"
+                "Administrative block\n\n12 April 2026",
             ),
             _make_chunk(
                 "materials/lecture.md",
@@ -2861,6 +3421,29 @@ class TestHelperFunctions:
         assert is_overview_query("what are the materials about")
         assert is_overview_query("Can you read through all the files")
         assert not is_overview_query("explain Dijkstra")
+
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_overview")
+    @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")
+    def test_resolve_turn_evidence_uses_overview_for_canonical_material_overview(
+        self,
+        mock_query: MagicMock,
+        mock_overview: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+            buffer_response=True,
+            allow_tools=False,
+        )
+        evidence = _make_turn_evidence(_make_evidence_chunk())
+        mock_overview.return_value = evidence
+
+        session = _make_study_session()
+        result = resolve_turn_evidence(session, plan)
+
+        assert result is evidence
+        mock_overview.assert_called_once_with(session)
+        mock_query.assert_not_called()
 
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_refs")
     @patch("hephaistos.chat.evidence.build_turn_evidence_from_query")

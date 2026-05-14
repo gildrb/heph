@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import TypeGuard, cast
 
 type JSONPrimitive = None | bool | int | float | str
@@ -16,3 +17,21 @@ def is_string_mapping(value: object) -> TypeGuard[dict[str, object]]:
 
 def is_object_list(value: object) -> TypeGuard[list[object]]:
     return isinstance(value, list)
+
+
+def parse_json_object_fragment(text: str) -> dict[str, object] | None:
+    """Extract a JSON object from plain text or a fenced JSON block."""
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.lower().startswith("json"):
+            stripped = stripped[4:].strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        parsed: object = json.loads(stripped[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    return parsed if is_string_mapping(parsed) else None

@@ -29,6 +29,7 @@ from hephaistos.runtime import (
     to_chat_completion_messages,
 )
 from hephaistos.study import EvidenceAssessment, StudyAction, StudyTurnPlan, assess_evidence
+from hephaistos.study.intent import is_source_only_query
 from hephaistos.study.overview import OVERVIEW_REQUEST_RE
 from hephaistos.study.priority import analyze_priority
 
@@ -41,13 +42,6 @@ _QUERY_RETRIEVAL_TOP_K = 30
 _QUERY_NEIGHBOR_RADIUS = 1
 _QUERY_NEIGHBOR_LIMIT = 8
 _SOURCE_ONLY_MIN_TOP_SCORE = 0.18
-_SOURCE_ONLY_QUERY_RE = re.compile(
-    r"\b(?:using|use|from|based on)\s+(?:only\s+)?(?:the\s+)?"
-    r"(?:indexed\s+)?(?:sources?|materials?|documents?)\b|"
-    r"\b(?:if|when)\s+(?:the\s+)?(?:sources?|materials?|documents?)\s+do\s+not\s+contain\b|"
-    r"\bdo\s+not\s+guess\b",
-    re.IGNORECASE,
-)
 _OVERVIEW_CHUNK_LIMIT = 32
 _OVERVIEW_CHUNKS_PER_DOCUMENT = 2
 _OVERVIEW_DOCUMENT_LIMIT = 32
@@ -55,7 +49,7 @@ _OVERVIEW_EXCERPT_CHAR_LIMIT = 700
 _OVERVIEW_CONTEXT_TOKEN_BUDGET = 6000
 _FRONT_MATTER_METADATA_RE = re.compile(
     r"\b(?:university|universität|institute|department|faculty|semester|professor|lecturer|"
-    r"instructor|dozent|dozentin|author|email)\b",
+    r"instructor|dozent|dozentin|author|email|administrative)\b",
     re.IGNORECASE,
 )
 _FRONT_MATTER_DATE_RE = re.compile(r"\b\d{1,2}[. ]\s*[A-Za-zÄÖÜäöüß]+\s+\d{4}\b|\b\d{4}\b")
@@ -116,7 +110,7 @@ _TOPIC_FOLLOWUP_PATTERNS = (
 )
 _TOPIC_CITATION_RE = re.compile(r"\s*\[(?:e|E)\d+\]\s*")
 _TOPIC_SPLIT_RE = re.compile(r"\s+(?:and|und|or|oder)\s+|[,;]")
-_TOPIC_WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ0-9_+-]{2,}")
+_TOPIC_WORD_RE = re.compile(r"[^\W\d_][\w+-]{2,}")
 _TOPIC_FOLLOWUP_STOPWORDS = frozenset(
     {
         "about",
@@ -321,7 +315,7 @@ def _enabled_scored_chunks(
 
 
 def query_demands_source_only_answer(query: str) -> bool:
-    return bool(_SOURCE_ONLY_QUERY_RE.search(query))
+    return is_source_only_query(query)
 
 
 def _needs_clarifying_query(query: str) -> bool:

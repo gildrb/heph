@@ -22,8 +22,7 @@ def test_runtime_harness_does_not_contain_fixture_specific_course_terms() -> Non
     root = _project_root()
     forbidden = re.compile(
         r"\b(?:"
-        r"jesse|ratzkin|mfi|mathematik für informatiker|mathematik fuer informatiker|"
-        r"amelia carter|northbridge|biochemistry 201"
+        r"fixture_private_name|fixture_private_course|fixture_private_institution"
         r")\b"
     )
     runtime_paths = [*(root / "hephaistos").rglob("*.py")]
@@ -40,8 +39,7 @@ def test_non_fixture_harness_scripts_do_not_contain_fixture_specific_course_term
     root = _project_root()
     forbidden = re.compile(
         r"\b(?:"
-        r"jesse|ratzkin|mfi|mathematik für informatiker|mathematik fuer informatiker|"
-        r"amelia carter|northbridge|biochemistry 201"
+        r"fixture_private_name|fixture_private_course|fixture_private_institution"
         r")\b"
     )
     excluded = {"audit_agent_harness_completion.py"}

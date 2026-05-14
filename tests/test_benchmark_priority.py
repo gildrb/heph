@@ -13,13 +13,13 @@ def _write_material(path: Path, text: str) -> None:
 def test_load_cases_supports_jsonl(tmp_path: Path) -> None:
     dataset = tmp_path / "priority.jsonl"
     dataset.write_text(
-        '{"id":"mfi","expected_topics":["geometrische reihe"],'
+        '{"id":"math-benchmark","expected_topics":["matrix multiplication"],'
         '"domain":"mathematics",'
-        '"forbidden_topics":["jesse ratzkin"],'
+        '"forbidden_topics":["administrative line"],'
         '"expected_past_exam_sources":["materials/exam.md"],'
-        '"expected_ordered_topics":["geometrische reihe","konvergenz"],'
-        '"expected_mark_totals":{"geometrische reihe":8},'
-        '"expected_tiers":{"geometrische reihe":"High-yield"},'
+        '"expected_ordered_topics":["matrix multiplication","eigenvalues"],'
+        '"expected_mark_totals":{"matrix multiplication":8},'
+        '"expected_tiers":{"matrix multiplication":"High-yield"},'
         '"limit":4}\n',
         encoding="utf-8",
     )
@@ -28,14 +28,14 @@ def test_load_cases_supports_jsonl(tmp_path: Path) -> None:
 
     assert cases == [
         benchmark_priority.PriorityBenchmarkCase(
-            case_id="mfi",
-            expected_topics=("geometrische reihe",),
+            case_id="math-benchmark",
+            expected_topics=("matrix multiplication",),
             domain="mathematics",
-            forbidden_topics=("jesse ratzkin",),
+            forbidden_topics=("administrative line",),
             expected_past_exam_sources=("materials/exam.md",),
-            expected_ordered_topics=("geometrische reihe", "konvergenz"),
-            expected_mark_totals={"geometrische reihe": 8},
-            expected_tiers={"geometrische reihe": "High-yield"},
+            expected_ordered_topics=("matrix multiplication", "eigenvalues"),
+            expected_mark_totals={"matrix multiplication": 8},
+            expected_tiers={"matrix multiplication": "High-yield"},
             limit=4,
         )
     ]
@@ -47,20 +47,19 @@ def test_priority_benchmark_scores_expected_topics_and_forbidden_noise(
     armory = tmp_path / "armory"
     _write_material(
         armory / "materials" / "lecture.md",
-        "# Mathematik für Informatiker 2\n\n"
-        "Jesse Ratzkin. Universität Würzburg. Sommersemester 2026.\n\n"
-        "Geometrische Reihe und Konvergenz von Partialsummen.\n",
+        "# Administrative Header 2\n\n"
+        "Administrative line. Administrative block. Sommersemester 2026.\n\n"
+        "Matrix multiplication and eigenvalues.\n",
     )
     _write_material(
         armory / "materials" / "exam.md",
-        "# Klausur\n\n"
-        "Aufgabe 1 [8 Punkte]: Untersuchen Sie eine geometrische Reihe auf Konvergenz.\n",
+        "# Klausur\n\nAufgabe 1 [8 Punkte]: Untersuchen Sie matrix multiplication.\n",
     )
     case = benchmark_priority.PriorityBenchmarkCase(
-        case_id="mfi",
-        expected_topics=("geometrische reihe",),
+        case_id="math-benchmark",
+        expected_topics=("matrix multiplication",),
         domain="mathematics",
-        forbidden_topics=("jesse ratzkin", "universität würzburg"),
+        forbidden_topics=("administrative line", "administrative header"),
         expected_past_exam_sources=("materials/exam.md",),
         limit=5,
     )
@@ -107,7 +106,7 @@ def test_priority_benchmark_reports_failures(tmp_path: Path) -> None:
     _write_material(armory / "materials" / "notes.md", "# Notes\n\nHash tables.\n")
     case = benchmark_priority.PriorityBenchmarkCase(
         case_id="missing",
-        expected_topics=("geometrische reihe",),
+        expected_topics=("matrix multiplication",),
         forbidden_topics=(),
         expected_past_exam_sources=("materials/exam.md",),
         limit=3,
@@ -117,5 +116,5 @@ def test_priority_benchmark_reports_failures(tmp_path: Path) -> None:
 
     assert report.pass_rate == 0.0
     assert report.failures == ("missing",)
-    assert report.results[0].missing_topics == ("geometrische reihe",)
+    assert report.results[0].missing_topics == ("matrix multiplication",)
     assert report.results[0].missing_past_exam_sources == ("materials/exam.md",)

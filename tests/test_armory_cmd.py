@@ -51,9 +51,9 @@ def test_armory_name_shortcut_creates_in_default_home(
 ) -> None:
     parser = build_parser()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path / ".armories"))
-    armory_path = tmp_path / ".armories" / "mfi-1"
+    armory_path = tmp_path / ".armories" / "workspace-fixture-1"
 
-    run_argv(parser, ["armory", "mfi-1"])
+    run_argv(parser, ["armory", "workspace-fixture-1"])
 
     out = capsys.readouterr().out
     assert "Created armory" in out
@@ -69,7 +69,7 @@ def test_armory_name_shortcut_rejects_explicit_parent(
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path / ".armories"))
 
     with pytest.raises(SystemExit) as exc:
-        run_argv(parser, ["armory", "mfi-1", str(tmp_path / "Code")])
+        run_argv(parser, ["armory", "workspace-fixture-1", str(tmp_path / "Code")])
 
     assert exc.value.code == 2
     err = capsys.readouterr().err

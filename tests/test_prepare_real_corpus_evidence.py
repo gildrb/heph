@@ -56,6 +56,8 @@ def test_prepare_evidence_writes_manifest_and_keeps_scaffold_unreviewed(
     )
     assert chat_expectation[0]["task"] == "material-overview"
     assert chat_expectation[0]["expected_citations"] == ["E1", "E2"]
+    assert chat_expectation[0]["required_material_operations"] == ["sample_overview"]
+    assert chat_expectation[0]["forbidden_material_operations"] == ["search_index"]
     assert chat_expectation[0]["evidence"] == []
     assert "Document signals" in chat_expectation[0]["must_not_include"]
     assert "Sampled orientation" in chat_expectation[0]["must_not_include"]

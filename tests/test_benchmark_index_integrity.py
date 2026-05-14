@@ -15,9 +15,9 @@ def test_load_cases_supports_jsonl() -> None:
 
     cases = benchmark_index_integrity.load_cases(dataset)
 
-    assert cases[0].case_id == "mfi-umlaut-and-topic-preserved"
-    assert "Universität Würzburg" in cases[0].must_include
-    assert cases[0].task == "unicode-extraction"
+    assert cases[0].case_id == "matrix-topic-preserved"
+    assert "Administrative header" in cases[0].must_include
+    assert cases[0].task == "topic-extraction"
 
 
 def test_index_integrity_benchmark_scores_required_and_forbidden_text(
@@ -26,16 +26,16 @@ def test_index_integrity_benchmark_scores_required_and_forbidden_text(
     armory = tmp_path / "armory"
     _write_material(
         armory / "materials" / "lecture.md",
-        "# Lecture\n\nUniversität Würzburg explains the geometrische Reihe.\n",
+        "# Lecture\n\nAdministrative header explains matrix multiplication.\n",
     )
     cases = [
         benchmark_index_integrity.IndexIntegrityCase(
-            case_id="unicode",
+            case_id="topic",
             source="materials/lecture.md",
-            must_include=("Universität Würzburg", "geometrische Reihe"),
+            must_include=("Administrative header", "matrix multiplication"),
             must_not_include=("Formula-not-decoded",),
             domain="mathematics",
-            task="unicode-extraction",
+            task="topic-extraction",
         )
     ]
 
@@ -45,7 +45,7 @@ def test_index_integrity_benchmark_scores_required_and_forbidden_text(
     assert report.required_text_rate == 1.0
     assert report.forbidden_text_rate == 1.0
     assert report.corpus_forbidden_text_rate == 1.0
-    assert report.tasks == ("unicode-extraction",)
+    assert report.tasks == ("topic-extraction",)
 
 
 def test_index_integrity_benchmark_reports_missing_and_forbidden_text(

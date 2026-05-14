@@ -508,13 +508,13 @@ def test_completion_audit_rejects_fixture_terms_in_runtime_code(
 ) -> None:
     runtime = tmp_path / "hephaistos"
     runtime.mkdir()
-    (runtime / "bad.py").write_text('EXAMPLE = "mfi-1"\n', encoding="utf-8")
+    (runtime / "bad.py").write_text('EXAMPLE = "fixture_private_course"\n', encoding="utf-8")
     monkeypatch.setattr(audit_agent_harness_completion, "REPO_ROOT", tmp_path)
 
     item = audit_agent_harness_completion._runtime_generality_item()
 
     assert item.status == "missing"
-    assert "mfi" in item.evidence
+    assert "fixture_private_course" in item.evidence
 
 
 def test_completion_audit_rejects_fixture_terms_in_harness_scripts(
@@ -523,13 +523,16 @@ def test_completion_audit_rejects_fixture_terms_in_harness_scripts(
 ) -> None:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
-    (scripts / "bad_harness.py").write_text('COURSE = "Jesse Ratzkin"\n', encoding="utf-8")
+    (scripts / "bad_harness.py").write_text(
+        'COURSE = "fixture_private_name"\n',
+        encoding="utf-8",
+    )
     monkeypatch.setattr(audit_agent_harness_completion, "REPO_ROOT", tmp_path)
 
     item = audit_agent_harness_completion._script_generality_item()
 
     assert item.status == "missing"
-    assert "Jesse".casefold() in item.evidence.casefold()
+    assert "fixture_private_name" in item.evidence
 
 
 def test_completion_audit_verifies_model_matrix_example_responsibilities() -> None:
@@ -580,7 +583,7 @@ def test_completion_audit_allows_fixture_terms_inside_audit_policy(
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     (scripts / "audit_agent_harness_completion.py").write_text(
-        'FORBIDDEN = "Jesse Ratzkin"\n',
+        'FORBIDDEN = "fixture_private_name"\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(audit_agent_harness_completion, "REPO_ROOT", tmp_path)

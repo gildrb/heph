@@ -179,7 +179,8 @@ def run_chat_event_benchmark(
     has_reading = "reading" in notice_codes
     has_evidence = "evidence" in notice_codes
     has_writing = "writing" in notice_codes
-    material_operation_failures = _material_operation_failures(events)
+    material_operation_failures = list(_material_operation_failures(events))
+    material_operation_failures.extend(_expected_material_operation_failures(events, expectation))
     material_operations = [event for event in events if event["type"] == "material_operation"]
     has_material_operation = bool(material_operations)
     has_material_operation_metadata = bool(material_operations) and not material_operation_failures
@@ -426,6 +427,37 @@ def _material_operation_failures(events: Sequence[RawEvent]) -> tuple[str, ...]:
     if not operations.intersection({"read_excerpt", "search_result"}):
         failures.append("material operations missing excerpt or search result operation")
     return tuple(failures)
+
+
+def _expected_material_operation_failures(
+    events: Sequence[RawEvent],
+    expectation: Mapping[str, object],
+) -> list[str]:
+    operations = {
+        operation.strip()
+        for event in events
+        if event["type"] == "material_operation"
+        for operation in (event.get("operation"),)
+        if isinstance(operation, str) and operation.strip()
+    }
+    failures: list[str] = []
+    required = _string_set(expectation.get("required_material_operations"))
+    forbidden = _string_set(expectation.get("forbidden_material_operations"))
+    missing = sorted(required - operations)
+    present = sorted(forbidden & operations)
+    if missing:
+        failures.append("material operations missing required operation(s): " + ", ".join(missing))
+    if present:
+        failures.append(
+            "material operations included forbidden operation(s): " + ", ".join(present)
+        )
+    return failures
+
+
+def _string_set(raw: object) -> set[str]:
+    if not isinstance(raw, list):
+        return set()
+    return {item.strip() for item in raw if isinstance(item, str) and item.strip()}
 
 
 def _tool_runtime_metadata_failures(events: Sequence[RawEvent]) -> tuple[str, ...]:

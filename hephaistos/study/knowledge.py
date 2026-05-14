@@ -9,6 +9,10 @@ from enum import StrEnum
 from typing import Protocol
 
 _HEADING_RE = re.compile(r"^\s{0,3}(?:#{1,6}\s+|\d+(?:\.\d+)*[.)]\s+)(?P<text>.+?)\s*$")
+_HEADING_CONTEXT_PREFIX_RE = re.compile(
+    r"^(?:lecture|vorlesung|chapter|kapitel|unit|session)\s+\d+[a-z]?\s*[-:]\s*",
+    re.IGNORECASE,
+)
 _DEFINITION_RE = re.compile(
     r"^\s*(?:[-*]\s*)?(?P<term>[A-ZÀ-ÖØ-Þa-zà-öø-ÿ][^:.\n]{2,80}?)\s+"
     r"(?:is|are|means|refers to|describes|represents|studies|ist|sind|bedeutet)\s+"
@@ -59,6 +63,17 @@ _ANSWER_RE = re.compile(
     re.IGNORECASE,
 )
 _WHITESPACE_RE = re.compile(r"\s+")
+_METADATA_CONCEPT_RE = re.compile(
+    r"\b(?:"
+    r"all rights reserved|copyright|date|dozent|dozentin|email|instructor|lecturer|"
+    r"page|professor|seite|semester|slide|universität|university|www|http"
+    r")\b",
+    re.IGNORECASE,
+)
+_DATE_ONLY_RE = re.compile(
+    r"^\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}\s+\w+\s+\d{4}|\d{4})\s*$",
+    re.IGNORECASE,
+)
 _BAD_DEFINITION_TERMS = frozenset(
     {
         "als hilfsmittel",
@@ -203,11 +218,11 @@ def generate_grounded_study_questions(
     *,
     limit_per_concept: int = 4,
 ) -> list[GroundedStudyQuestion]:
-    """Generate active-recall questions only from grounded graph nodes."""
+    """Generate high-yield active-recall questions only from grounded graph nodes."""
     questions: list[GroundedStudyQuestion] = []
     seen: set[tuple[str, str]] = set()
     for node in graph.nodes:
-        if not node.source_refs:
+        if not node.source_refs or not _node_is_question_worthy(node):
             continue
         candidates = _questions_for_node(node)
         for question in candidates[: max(0, limit_per_concept)]:
@@ -301,10 +316,14 @@ def _heading(line: str) -> str | None:
     match = _HEADING_RE.match(line)
     if match is None:
         return None
-    heading = _clean(match.group("text"))
+    heading = _heading_context_prefix_removed(_clean(match.group("text")))
     if len(heading) < 3 or len(heading.split()) > 10:
         return None
     return heading
+
+
+def _heading_context_prefix_removed(heading: str) -> str:
+    return _clean(_HEADING_CONTEXT_PREFIX_RE.sub("", heading, count=1))
 
 
 def _definition(line: str, source_ref: str) -> AcademicItem | None:
@@ -406,6 +425,8 @@ def _starts_cued_item(line: str) -> bool:
 
 def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion]:
     questions: list[GroundedStudyQuestion] = []
+    if not _node_is_question_worthy(node):
+        return questions
     if node.definitions:
         questions.append(
             _question(
@@ -443,7 +464,7 @@ def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion
     if node.examples:
         questions.append(
             _question(
-                f"Give one source-backed example of {node.concept} and explain why it fits.",
+                f"Why does this example fit {node.concept}: {node.examples[0]}?",
                 question_type="application_scenario",
                 node=node,
                 difficulty="transfer",
@@ -452,7 +473,7 @@ def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion
     if node.tables:
         questions.append(
             _question(
-                f"Use the table evidence for {node.concept} to explain the key pattern.",
+                f"What key pattern does the table show for {node.concept}?",
                 question_type="data_interpretation",
                 node=node,
                 difficulty="transfer",
@@ -461,8 +482,7 @@ def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion
     if node.exam_questions:
         questions.append(
             _question(
-                f"Past-exam style: answer this source question about {node.concept}: "
-                f"{node.exam_questions[0]}",
+                f"Past-exam style: {node.exam_questions[0]}",
                 question_type="past_exam_style",
                 node=node,
                 difficulty="exam",
@@ -500,7 +520,7 @@ def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion
         if "compar" in node.exam_skills[0].casefold():
             questions.append(
                 _question(
-                    f"Compare and contrast using the source prompt: {node.exam_skills[0]}",
+                    f"Compare and contrast: {node.exam_skills[0]}",
                     question_type="compare_and_contrast",
                     node=node,
                     difficulty="transfer",
@@ -517,6 +537,13 @@ def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion
             )
         )
     return questions
+
+
+def _node_is_question_worthy(node: CourseKnowledgeNode) -> bool:
+    concept = node.concept.strip()
+    if not concept or _DATE_ONLY_RE.fullmatch(concept):
+        return False
+    return not _METADATA_CONCEPT_RE.search(concept)
 
 
 def _question(

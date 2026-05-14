@@ -1,6 +1,6 @@
-# Biochemistry 201
+# Biochemistry Lecture
 
-Professor Amelia Carter. Northbridge University. Department of Biochemistry. Fall
+Administrative line. Administrative block. Fall
 semester.
 
 ## Enzyme Kinetics

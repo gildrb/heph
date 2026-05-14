@@ -261,6 +261,9 @@ def test_autopilot_command_bootstrap_uses_corpus_diagnostic() -> None:
     assert plan.action is StudyAction.CALIBRATE
     assert plan.retrieval_query is None
     assert "Use the retrieved source material to ask exactly one diagnostic" in plan.prompt
+    assert "Use only the provided source material" in plan.prompt
+    assert "student's language" in plan.prompt
+    assert "provided canonical source label" in plan.prompt
 
 
 def test_just_answer_temporarily_uses_manual_mode() -> None:
@@ -405,6 +408,18 @@ def test_first_turn_material_overview_uses_internal_evidence_without_llm_tools()
     assert "Do not paste long source excerpts" in plan.prompt
 
 
+def test_non_english_material_overview_is_left_for_model_intent_normalization() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "um was geht es in den dateien")
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.retrieval_query == "um was geht es in den dateien"
+    assert plan.allow_tools is True
+    assert plan.buffer_response is False
+    assert "Execute MATERIAL_OVERVIEW" not in plan.prompt
+
+
 def test_source_worded_material_overview_still_uses_overview_plan() -> None:
     state = StudyState()
 
@@ -425,9 +440,10 @@ def test_first_turn_explain_material_simply_uses_overview() -> None:
     plan = plan_turn(state, "explain the material simply")
 
     assert plan.action is StudyAction.PRESENT
-    assert plan.retrieval_query == "explain the material simply"
+    assert plan.retrieval_query == "what is the material about"
     assert plan.allow_tools is False
     assert plan.buffer_response is True
+    assert "User request: explain the material simply" in plan.prompt
     assert "document types" in plan.prompt
 
 
@@ -437,9 +453,10 @@ def test_read_through_all_files_uses_overview() -> None:
     plan = plan_turn(state, "Can you read through all the files")
 
     assert plan.action is StudyAction.PRESENT
-    assert plan.retrieval_query == "Can you read through all the files"
+    assert plan.retrieval_query == "what is the material about"
     assert plan.allow_tools is False
     assert plan.buffer_response is True
+    assert "User request: Can you read through all the files" in plan.prompt
     assert "Execute MATERIAL_OVERVIEW" in plan.prompt
 
 
@@ -483,6 +500,466 @@ def test_explicit_source_question_answers_without_entering_recall_loop() -> None
     assert next_state.phase is StudyPhase.PRESENTING
     assert next_state.current_item == ""
     assert next_state.expected_source_refs == []
+
+
+@pytest.mark.parametrize(
+    ("message", "query"),
+    [
+        ("Can you quiz me on Bayes theorem?", "Bayes theorem"),
+        ("Ask me a question about Bayes theorem", "Bayes theorem"),
+        ("Practice Bayes theorem with me", "Bayes theorem"),
+        ("Give me an exam-style question on Bayes theorem.", "Bayes theorem"),
+    ],
+)
+def test_topic_specific_calibration_requests_use_named_topic(message: str, query: str) -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.phase is StudyPhase.RECALL
+    assert plan.retrieval_query == query
+    assert plan.allow_tools is False
+    assert plan.buffer_response is True
+    assert "Execute CALIBRATE" in plan.prompt
+    assert "Execute the PRESENT phase" not in plan.prompt
+
+
+def test_topic_specific_exam_question_keeps_answer_hidden() -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, "Give me an exam-style question on Bayes theorem.")
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert "active-recall exam drill" in plan.prompt
+    assert "do not show the result" in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What do my notes say about Bayes theorem?",
+        "Do the slides mention Lagrange multipliers?",
+        "According to my lecture notes, what is the definition of entropy?",
+        "Based on the PDF, what is the exact formula?",
+        "Can you check my notes for Bayes theorem?",
+        "Find Lagrange multipliers in the slides.",
+        "Summarize my notes on Bayes theorem.",
+        "List the formulas from my lecture notes.",
+        "What page mentions Lagrange multipliers?",
+        "Which slide explains Lagrange multipliers?",
+        "What does the textbook say about Bayes theorem?",
+        "According to the reading, what is entropy?",
+        "Can you check the workbook for Lagrange multipliers?",
+        "Find eigenvalues in the worksheet.",
+        "What does the assignment ask us to prove?",
+        "Summarize the problem set on induction.",
+        "Does the syllabus mention Bayes theorem?",
+        "What does the mark scheme say about partial credit?",
+        "Based on the paper, what is the method?",
+        "Look through the article for the theorem.",
+        "Rely only on the lecture notes for this.",
+        "Stick to the source material.",
+        "What does the source material say about entropy?",
+        "Where did the slides explain Lagrange multipliers?",
+        "What do the course notes say about Bayes theorem?",
+        "According to the class notes, what is entropy?",
+        "Based on the study guide, what is the formula?",
+        "From the course pack, define entropy.",
+        "Using the attached documents, what is the theorem?",
+        "If the attached files do not contain it, do not guess.",
+        "Show me where the slides explain Bayes theorem.",
+        "Which document covers Bayes theorem?",
+        "Which source says entropy is conserved?",
+        "Can you cite the notes for the theorem?",
+        "Point me to the lecture notes that define entropy.",
+        "Base your answer on the textbook only.",
+        "If my notes do not mention it, say so.",
+        "If it is not in the slides, say so.",
+    ],
+)
+def test_material_referential_questions_use_source_qa(message: str) -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.SOURCE_QA
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.retrieval_query == message
+    assert plan.allow_tools is False
+    assert plan.buffer_response is True
+    assert "Execute SOURCE_QA" in plan.prompt
+    assert "Say ready when you want recall" not in plan.prompt
+
+
+def test_material_referential_question_interrupts_ready_wait_with_source_qa() -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, "What do my notes say about Bayes theorem?")
+
+    assert plan.action is StudyAction.SOURCE_QA
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.allow_tools is False
+    assert plan.buffer_response is True
+    assert "Execute SOURCE_QA" in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What does the textbook say about Bayes theorem?",
+        "What does the assignment ask us to prove?",
+        "Look through the article for the theorem.",
+        "Stick to the source material.",
+        "Using the attached documents, what is the theorem?",
+        "If the attached files do not contain it, do not guess.",
+        "Which document covers Bayes theorem?",
+        "Can you cite the notes for the theorem?",
+        "If my notes do not mention it, say so.",
+        "If it is not in the slides, say so.",
+    ],
+)
+def test_academic_source_question_interrupts_ready_wait_with_source_qa(message: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.SOURCE_QA
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.retrieval_query == message
+    assert plan.allow_tools is False
+    assert plan.buffer_response is True
+    assert "Execute SOURCE_QA" in plan.prompt
+    assert "SOURCE_FOLLOWUP" not in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "do not guess",
+        "please do not guess",
+        "don't guess",
+        "don't hallucinate",
+        "do not use outside knowledge",
+        "no outside knowledge",
+        "don't make it up",
+        "say you don't know",
+    ],
+)
+def test_standalone_source_policy_without_active_item_acknowledges(message: str) -> None:
+    state = StudyState()
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.direct_reply is not None
+    assert "stick to enabled material" in plan.direct_reply
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is False
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "do not guess",
+        "please do not guess",
+        "don't guess",
+        "don't hallucinate",
+        "do not use outside knowledge",
+        "no outside knowledge",
+        "don't make it up",
+        "say you don't know",
+    ],
+)
+def test_standalone_source_policy_does_not_reset_ready_wait(message: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.REVIEW
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.retrieval_query == "conditional probability"
+    assert plan.use_expected_source_refs is True
+    assert "SOURCE_FOLLOWUP" in plan.prompt
+    assert "Execute SOURCE_QA" not in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Can you quiz me on Bayes theorem?",
+        "Ask me a question about Bayes theorem",
+        "Practice Bayes theorem with me",
+    ],
+)
+def test_topic_specific_drill_interrupts_ready_wait_with_calibration(message: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.phase is StudyPhase.RECALL
+    assert plan.retrieval_query == "Bayes theorem"
+    assert plan.use_expected_source_refs is False
+    assert plan.allow_tools is False
+    assert plan.buffer_response is True
+    assert "Execute CALIBRATE" in plan.prompt
+    assert "SOURCE_FOLLOWUP" not in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Explain Bayes theorem",
+        "Teach me derivatives",
+        "Can you help me study eigenvalues?",
+        "Can you compare Bayes theorem and conditional probability?",
+        "Compare Bayes theorem with conditional probability",
+        "What are the differences between Bayes theorem and conditional probability?",
+        "Can you give me an example of Bayes theorem?",
+        "Do Bayes theorem",
+        "Let's do Bayes theorem",
+        "Can we do Bayes theorem?",
+        "I want to study Bayes theorem",
+        "I would like to study Bayes theorem",
+        "Work on Bayes theorem with me",
+        "Move to eigenvalues",
+        "Switch to Lagrange multipliers",
+        "Start derivatives",
+        "Next topic: entropy",
+    ],
+)
+def test_new_topic_question_interrupts_ready_wait_with_fresh_presentation(
+    message: str,
+) -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.retrieval_query == message
+    assert plan.use_expected_source_refs is False
+    assert plan.allow_tools is True
+    assert "Execute the PRESENT phase" in plan.prompt
+    assert "SOURCE_FOLLOWUP" not in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Explain the question again",
+        "Teach me this again",
+        "Can you compare this with that?",
+        "Can you give me an example of the question?",
+        "Let's do this again",
+    ],
+)
+def test_followup_referents_do_not_start_fresh_topic_in_ready_wait(message: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.REVIEW
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.retrieval_query == "conditional probability"
+    assert plan.use_expected_source_refs is True
+    assert "SOURCE_FOLLOWUP" in plan.prompt
+    assert "Execute the PRESENT phase" not in plan.prompt
+
+
+def test_material_referential_question_interrupts_recall_with_source_qa() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+        attempt_count=1,
+    )
+
+    plan = plan_turn(state, "What do my notes say about Bayes theorem?")
+
+    assert plan.action is StudyAction.SOURCE_QA
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.retrieval_query == "What do my notes say about Bayes theorem?"
+    assert plan.allow_tools is False
+    assert plan.buffer_response is True
+    assert "Execute SOURCE_QA" in plan.prompt
+    assert "Execute ASSESS" not in plan.prompt
+    assert "Execute RECALL_CLARIFICATION" not in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Can you quiz me on Bayes theorem?",
+        "Ask me a question about Bayes theorem",
+        "Practice Bayes theorem with me",
+    ],
+)
+def test_topic_specific_drill_interrupts_recall_with_calibration(message: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+        attempt_count=1,
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.phase is StudyPhase.RECALL
+    assert plan.retrieval_query == "Bayes theorem"
+    assert plan.use_expected_source_refs is False
+    assert plan.allow_tools is False
+    assert plan.buffer_response is True
+    assert "Execute CALIBRATE" in plan.prompt
+    assert "Execute ASSESS" not in plan.prompt
+    assert "Execute RECALL_CLARIFICATION" not in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Explain Bayes theorem",
+        "Can you compare Bayes theorem and conditional probability?",
+        "Compare Bayes theorem with conditional probability",
+        "What are the differences between Bayes theorem and conditional probability?",
+        "Can you give me an example of Bayes theorem?",
+        "Do Bayes theorem",
+        "Let's do Bayes theorem",
+        "Can we do Bayes theorem?",
+        "I want to study Bayes theorem",
+        "I would like to study Bayes theorem",
+        "Work on Bayes theorem with me",
+        "Move to eigenvalues",
+        "Switch to Lagrange multipliers",
+        "Start derivatives",
+        "Next topic: entropy",
+    ],
+)
+def test_new_topic_question_interrupts_recall_with_fresh_presentation(message: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+        attempt_count=1,
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.phase is StudyPhase.PRESENTING
+    assert plan.retrieval_query == message
+    assert plan.use_expected_source_refs is False
+    assert plan.allow_tools is True
+    assert "Execute the PRESENT phase" in plan.prompt
+    assert "Execute ASSESS" not in plan.prompt
+
+
+def test_explain_question_again_in_recall_reprompts_without_assessing() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+        attempt_count=1,
+    )
+
+    plan = plan_turn(state, "Explain the question again")
+
+    assert plan.action is StudyAction.PROMPT_RECALL
+    assert plan.phase is StudyPhase.RECALL
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is False
+    assert "Execute RECALL_CLARIFICATION" in plan.prompt
+    assert "Execute the PRESENT phase" not in plan.prompt
+    assert "Execute ASSESS" not in plan.prompt
+
+
+def test_lets_do_this_again_in_recall_reprompts_without_assessing() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+        attempt_count=1,
+    )
+
+    plan = plan_turn(state, "Let's do this again")
+
+    assert plan.action is StudyAction.PROMPT_RECALL
+    assert plan.phase is StudyPhase.RECALL
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is False
+    assert "Execute RECALL_CLARIFICATION" in plan.prompt
+    assert "Execute the PRESENT phase" not in plan.prompt
+    assert "Execute ASSESS" not in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "do not guess",
+        "please do not guess",
+        "don't guess",
+        "don't hallucinate",
+        "do not use outside knowledge",
+        "no outside knowledge",
+        "don't make it up",
+        "say you don't know",
+    ],
+)
+def test_standalone_source_policy_in_recall_reprompts_without_assessing(message: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="define conditional probability",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+        attempt_count=1,
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.PROMPT_RECALL
+    assert plan.phase is StudyPhase.RECALL
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is False
+    assert "Execute RECALL_CLARIFICATION" in plan.prompt
+    assert "Execute SOURCE_QA" not in plan.prompt
+    assert "Execute ASSESS" not in plan.prompt
 
 
 @pytest.mark.parametrize(
@@ -538,6 +1015,13 @@ def test_easy_question_starts_calibration() -> None:
     # Calibration must explicitly forbid trivial metadata questions
     assert "FORBIDDEN" in plan.prompt
     assert "Titles of documents" in plan.prompt
+    assert "active-recall questions, not passive summaries" in plan.prompt
+    assert "Each question must ask exactly one thing" in plan.prompt
+    assert "trade-offs" in plan.prompt
+    assert "copyright text" in plan.prompt
+    assert "English term and a local-language technical term" in plan.prompt
+    assert "Keep expected answers concise but exam-useful" in plan.prompt
+    assert "filenames, chunk IDs, dates, or instructor metadata" in plan.prompt
 
 
 def test_exam_question_prompt_requires_timing_and_no_solution() -> None:
@@ -604,14 +1088,15 @@ def test_calibration_result_starts_recall_from_model_question() -> None:
     assert next_state.last_feedback_type is StudyFeedbackType.CALIBRATING
 
 
-def test_waiting_for_ready_refuses_more_reveal() -> None:
+@pytest.mark.parametrize("message", ["show me the answer again", "explain again"])
+def test_waiting_for_ready_refuses_more_reveal(message: str) -> None:
     state = StudyState(
         phase=StudyPhase.WAITING_FOR_READY,
         current_item="Q1",
         retrieval_query="Q1",
     )
 
-    plan = plan_turn(state, "show me the answer again")
+    plan = plan_turn(state, message)
 
     assert plan.action is StudyAction.REFUSE_REVEAL
     assert plan.phase is StudyPhase.WAITING_FOR_READY
@@ -763,17 +1248,33 @@ def test_skip_with_current_item_requests_different_material_backed_item() -> Non
     assert plan.retrieval_query == "different material-backed item from Q1"
 
 
-def test_waiting_for_ready_reminder_keeps_waiting_state() -> None:
+@pytest.mark.parametrize(
+    "message",
+    [
+        "what now?",
+        "not ready yet",
+        "I'm not ready yet",
+        "give me a minute",
+        "one sec",
+        "one second",
+        "hold on a second",
+        "wait a minute",
+        "later please",
+        "pause",
+    ],
+)
+def test_waiting_for_ready_reminder_keeps_waiting_state(message: str) -> None:
     state = StudyState(
         phase=StudyPhase.WAITING_FOR_READY,
         current_item="Q1",
         retrieval_query="Q1",
     )
 
-    plan = plan_turn(state, "what now?")
+    plan = plan_turn(state, message)
     next_state, cleaned = apply_turn_result(state, plan, "Say ready when you want recall.", [])
 
     assert plan.action is StudyAction.WAIT_READY_REMINDER
+    assert "SOURCE_FOLLOWUP" not in plan.prompt
     assert cleaned == "Say ready when you want recall."
     assert next_state.phase is StudyPhase.WAITING_FOR_READY
     assert next_state.last_feedback_type is StudyFeedbackType.WAITING
@@ -893,6 +1394,8 @@ def test_recall_reprompt_language_request_is_not_assessed(student_request: str) 
         "what can Heph do?",
         "how do I switch models in Hephaistos?",
         "can you explain /autopilot?",
+        "what can you do?",
+        "how can you help?",
     ],
 )
 def test_recall_heph_self_request_is_chat_not_assessment(student_request: str) -> None:
@@ -953,7 +1456,73 @@ def test_recall_attempt_that_mentions_answer_is_assessed() -> None:
     assert plan.phase is StudyPhase.ASSESS
 
 
-def test_recall_phase_can_request_easier_question_when_too_hard() -> None:
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Is it 4?",
+        "Maybe 4?",
+        "I think it is 4?",
+        "Could it be entropy?",
+        "Bayes theorem?",
+        "A?",
+        "My answer would be conditional probability?",
+    ],
+)
+def test_recall_tentative_answer_questions_are_assessed(message: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.ASSESS
+    assert plan.phase is StudyPhase.ASSESS
+    assert "Execute RECALL_CLARIFICATION" not in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Which answer?",
+        "What answer do you want?",
+        "What question am I answering?",
+    ],
+)
+def test_recall_answer_clarification_questions_still_reprompt(message: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, message)
+
+    assert plan.action is StudyAction.PROMPT_RECALL
+    assert plan.phase is StudyPhase.RECALL
+    assert "Execute RECALL_CLARIFICATION" in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "too hard",
+        "I do not understand",
+        "I don't understand this",
+        "I'm confused",
+        "I need help",
+        "help me please",
+        "I don't understand?",
+        "Can you explain this?",
+        "Why is that true?",
+        "How do I approach this?",
+        "What is the first step?",
+        "Can you walk me through this?",
+        "Break this down please",
+    ],
+)
+def test_recall_phase_help_request_scaffolds_instead_of_assessing(message: str) -> None:
     state = StudyState(
         phase=StudyPhase.RECALL,
         current_item="Q1",
@@ -961,7 +1530,7 @@ def test_recall_phase_can_request_easier_question_when_too_hard() -> None:
         expected_source_refs=["source/exam.md#chunk=0"],
     )
 
-    plan = plan_turn(state, "too hard")
+    plan = plan_turn(state, message)
     next_state, cleaned = apply_turn_result(
         state,
         plan,
@@ -972,6 +1541,8 @@ def test_recall_phase_can_request_easier_question_when_too_hard() -> None:
     assert plan.action is StudyAction.SIMPLIFY
     assert plan.use_expected_source_refs is True
     assert plan.allow_tools is False
+    assert "Execute ASSESS" not in plan.prompt
+    assert "HEPH self-help mode" not in plan.prompt
     assert cleaned == "What is the first definition used in Q1?"
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.current_item == "What is the first definition used in Q1?"

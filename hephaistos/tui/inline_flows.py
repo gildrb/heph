@@ -337,6 +337,7 @@ class TuiInlineFlowMixin:
             all_options=list(options),
             prompts=dict(prompts or {}),
         )
+        self._hide_completions()
         self._render_inline_menu_options(options)
         composer = self.query_one("#composer", Input)
         composer.value = ""
@@ -1165,7 +1166,29 @@ def _overview_recommendation_prompt(recommendation: str) -> str:
     question = _OVERVIEW_QUOTED_QUESTION_RE.search(recommendation)
     if question is not None:
         return question.group("question").strip()
-    return f"{recommendation}."
+    clean = _strip_overview_citations(recommendation).rstrip(".")
+    explanation = re.fullmatch(r"Start with a guided explanation of (?P<topic>.+)", clean)
+    if explanation is not None:
+        topic = explanation.group("topic").strip()
+        return f"Teach me {topic} in simple terms, grounded in the evidence for this topic."
+    practice = re.fullmatch(
+        r"Practice one exam-style or exercise question on (?P<topic>.+?)(?: using)?",
+        clean,
+    )
+    if practice is not None:
+        topic = practice.group("topic").strip()
+        return f"Give me one source-grounded practice question about {topic}."
+    compare = re.fullmatch(
+        r"Compare (?P<left>.+?) and (?P<right>.+?) so you can separate the ideas",
+        clean,
+    )
+    if compare is not None:
+        left = compare.group("left").strip()
+        right = compare.group("right").strip()
+        return f"Compare {left} and {right}, grounded in the evidence for these topics."
+    if clean.startswith("Make a short study order"):
+        return f"{clean}, grounded in the source material."
+    return f"{clean}."
 
 
 def _overview_recommendation_label(recommendation: str) -> str:

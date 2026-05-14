@@ -307,11 +307,11 @@ def test_suite_rejects_narrow_material_role_domains(tmp_path: Path, capsys) -> N
             (
                 (
                     '{"id":"lecture","domain":"mathematics",'
-                    '"source":"materials/mfi-lecture.md","expected_role":"lecture"}'
+                    '"source":"materials/lecture-a.md","expected_role":"lecture"}'
                 ),
                 (
                     '{"id":"exam","domain":"mathematics",'
-                    '"source":"materials/mfi-past-exam.md","expected_role":"past_exam"}'
+                    '"source":"materials/past-exam-a.md","expected_role":"past_exam"}'
                 ),
             )
         ),
@@ -487,9 +487,9 @@ def test_suite_rejects_narrow_priority_domains(tmp_path: Path, capsys) -> None:
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     (suite / "priority.jsonl").write_text(
         (
-            '{"id":"mfi","domain":"mathematics","limit":30,'
-            '"expected_topics":["geometrische reihe"],'
-            '"expected_past_exam_sources":["materials/mfi-past-exam.md"]}\n'
+            '{"id":"math-benchmark","domain":"mathematics","limit":30,'
+            '"expected_topics":["matrix multiplication"],'
+            '"expected_past_exam_sources":["materials/past-exam-a.md"]}\n'
         ),
         encoding="utf-8",
     )
@@ -510,8 +510,8 @@ def test_suite_rejects_narrow_index_integrity_tasks(
     (suite / "index_integrity.jsonl").write_text(
         (
             '{"id":"unicode","domain":"mathematics","task":"unicode-extraction",'
-            '"source":"materials/mfi-lecture.md",'
-            '"must_include":["Universität Würzburg"]}\n'
+            '"source":"materials/lecture-a.md",'
+            '"must_include":["Administrative header"]}\n'
         ),
         encoding="utf-8",
     )
@@ -534,8 +534,8 @@ def test_suite_rejects_narrow_index_integrity_domains(
             (
                 (
                     '{"id":"unicode","domain":"mathematics","task":"unicode-extraction",'
-                    '"source":"materials/mfi-lecture.md",'
-                    '"must_include":["Universität Würzburg"]}'
+                    '"source":"materials/lecture-a.md",'
+                    '"must_include":["Administrative header"]}'
                 ),
                 (
                     '{"id":"formula","domain":"mathematics","task":"formula-language-extraction",'
@@ -544,7 +544,7 @@ def test_suite_rejects_narrow_index_integrity_domains(
                 ),
                 (
                     '{"id":"exam","domain":"mathematics","task":"exam-format-extraction",'
-                    '"source":"materials/mfi-past-exam.md",'
+                    '"source":"materials/past-exam-a.md",'
                     '"must_include":["Aufgabe 1 [8 Punkte]"]}'
                 ),
             )

@@ -1,6 +1,6 @@
 # Classical Mechanics
 
-Instructor: Morgan Lee. East Harbor College. Spring term.
+Administrative line. Administrative block. Spring term.
 
 ## Hamiltonian Mechanics
 

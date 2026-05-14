@@ -16,6 +16,13 @@ from hephaistos.study.autopilot import (
     move_for_plan,
     normalize_confidence_value,
 )
+from hephaistos.study.intent import (
+    is_material_source_request,
+    is_new_material_topic_request,
+    is_source_only_policy,
+    is_standalone_source_only_policy,
+    material_drill_query,
+)
 from hephaistos.study.overview import OVERVIEW_REQUEST_RE
 from hephaistos.study.state import (
     StudyAction,
@@ -39,8 +46,10 @@ _READY_RE = re.compile(
 _WAITING_PROCEDURE_RE = re.compile(
     r"^(?:"
     r"what now|now what|what next|next step|what should i do|what do i do next|"
-    r"not ready|not yet|wait|wait for now|later|hold on|"
-    r"i\s*(?:am|'m|m)?\s+not\s+ready|"
+    r"not ready(?: yet)?|not yet|wait|wait for now|wait a minute|"
+    r"later(?: please)?|hold on(?: a (?:sec|second|minute))?|"
+    r"give me a minute|one sec(?:ond)?|pause|"
+    r"i\s*(?:am|'m|m)?\s+not\s+ready(?: yet)?|"
     r"no"
     r")[.!?]?$",
     re.IGNORECASE,
@@ -48,8 +57,11 @@ _WAITING_PROCEDURE_RE = re.compile(
 _RECALL_CLARIFICATION_RE = re.compile(
     r"\b(?:"
     r"which (?:answer|question|one)|"
+    r"explain (?:the )?(?:question|prompt)(?: again)?|"
     r"what (?:answer|question|do you want|should i answer|am i answering)|"
     r"answer what|"
+    r"(?:do not|don'?t) guess|"
+    r"let'?s do (?:this|that|it)(?: again)?|"
     r"repeat (?:the )?(?:question|prompt)|"
     r"say (?:the )?(?:question|prompt) again"
     r")\b",
@@ -78,16 +90,50 @@ _RECALL_GERMAN_REPROMPT_RE = re.compile(
     r"(?=[^.!?]*(?:mich|frage|aufgabe|nochmal|noch einmal|deutsch|englisch))",
     re.IGNORECASE,
 )
+_RECALL_FRENCH_REPROMPT_RE = re.compile(
+    r"^\s*(?:peux-tu\s+me\s+|pouvez-vous\s+me\s+)?"
+    r"(?:reposer|poser|repeter|répéter)\b"
+    r"(?=[^.!?]*(?:question|encore|francais|français))",
+    re.IGNORECASE,
+)
 _RECALL_QUESTION_PUNCT_RE = re.compile(r"[?\u00bf\u061f\uff1f]")
 _RECALL_ANSWER_CLAIM_RE = re.compile(
     r"\b(?:the\s+)?answer\s+(?:is|=)|\bconfidence\b|(?<!\w)[A-D][.)]\s+\w+",
     re.IGNORECASE,
 )
+_RECALL_TENTATIVE_ANSWER_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:is|are|was|were)\s+(?:it|this|that|the\s+answer)\s+\S.+|"
+    r"(?:could|would|should|can)\s+(?:it|this|that|the\s+answer)\s+be\s+\S.+|"
+    r"(?:maybe|perhaps|probably)\s+\S.+|"
+    r"i\s+(?:think|guess|believe|would\s+say|suspect)\s+\S.+|"
+    r"my\s+answer\s+(?:is|would\s+be)\s+\S.+"
+    r")\s*[.?!]?\s*$",
+    re.IGNORECASE,
+)
+_RECALL_SHORT_ANSWER_RE = re.compile(
+    r"^\s*(?!(?:why|what|which|who|where|when|how|again|yes|no)\b)"
+    r"(?:[A-D][.)]?|[\wÀ-ÖØ-öø-ÿ][\wÀ-ÖØ-öø-ÿ0-9_+*/=.,:;'\s-]{1,80})\?\s*$",
+    re.IGNORECASE,
+)
 _HEPH_SELF_RE = re.compile(
     r"\b(?:"
-    r"heph|hephaistos|this\s+(?:tool|app|cli)|you|yourself|your\s+commands?|"
+    r"heph|hephaistos|this\s+(?:tool|app|cli)|yourself|your\s+commands?|"
     r"armory|armories|autopilot|guided\s+mode|manual\s+mode|model\s+picker|"
     r"login|privacy|diagnostics|settings"
+    r")\b",
+    re.IGNORECASE,
+)
+_HEPH_PRONOUN_SELF_REQUEST_RE = re.compile(
+    r"\b(?:"
+    r"what\s+can\s+you\s+do|"
+    r"what\s+do\s+you\s+do|"
+    r"who\s+are\s+you|"
+    r"how\s+do\s+you\s+work|"
+    r"how\s+can\s+you\s+help(?:\s+me)?|"
+    r"how\s+(?:do|can|should)\s+(?:i|we)\s+(?:use|work\s+with)\s+you|"
+    r"what\s+commands?\s+(?:can\s+i\s+use|do\s+you\s+have)|"
+    r"show\s+me\s+your\s+commands?"
     r")\b",
     re.IGNORECASE,
 )
@@ -138,25 +184,34 @@ _SHORT_REVEAL_RE = re.compile(r"^(?:answer|solution)\s*(?:please|\?)?$", re.IGNO
 _HINT_RE = re.compile(r"\b(?:hint|nudge|clue)\b", re.IGNORECASE)
 _TOO_HARD_RE = re.compile(
     r"\b(?:too hard|too difficult|easier|simpler|not sure|unsure|not prepared|"
-    r"i don'?t know|dunno|no idea|lost|stuck|can'?t answer|cannot answer)\b",
+    r"i don'?t know|dunno|no idea|lost|stuck|can'?t answer|cannot answer|"
+    r"i (?:do not|don'?t|cannot|can'?t) understand|i don'?t get (?:it|this)|"
+    r"i(?: am|'m)? confused|confused|need help|help me)\b",
+    re.IGNORECASE,
+)
+_RECALL_SCAFFOLD_RE = re.compile(
+    r"\b(?:"
+    r"(?:can|could|would)\s+you\s+(?:please\s+)?"
+    r"(?:explain|walk\s+me\s+through|show\s+me\s+how\s+to\s+"
+    r"(?:start|approach|think)|help\s+me\s+(?:start|approach|understand)|"
+    r"break\s+(?:this|that|it)\s+down)|"
+    r"(?:explain|walk\s+me\s+through)\s+(?:this|that|it|the\s+"
+    r"(?:problem|item|exercise|concept))|"
+    r"break\s+(?:this|that|it)\s+down|"
+    r"break\s+down\s+(?:this|that|it|the\s+(?:problem|item|exercise|concept))|"
+    r"why\s+(?:is|are|does|do|did)\s+(?:this|that|it|the\s+.{1,80})|"
+    r"how\s+(?:do|should|can)\s+i\s+"
+    r"(?:start|begin|approach|think\s+about|solve|work\s+through|answer)|"
+    r"where\s+(?:do|should|can)\s+i\s+start|"
+    r"what(?:'s|\s+is)\s+the\s+first\s+step|"
+    r"show\s+me\s+how\s+to\s+start|"
+    r"give\s+me\s+(?:a\s+)?(?:scaffold|starting\s+point)"
+    r")\b",
     re.IGNORECASE,
 )
 _REVIEW_MATERIAL_RE = re.compile(
     r"\b(?:review|look at (?:the )?material|study (?:the )?material|"
     r"show (?:me )?(?:the )?material|teach me|walk me through)\b",
-    re.IGNORECASE,
-)
-_SOURCE_QA_RE = re.compile(
-    r"\b(?:"
-    r"using (?:the )?source files?|"
-    r"using (?:the )?indexed (?:source|sources|materials?|documents?)|"
-    r"from (?:the )?(?:source|sources|materials?)|"
-    r"from (?:the )?indexed (?:source|sources|materials?|documents?)|"
-    r"according to (?:the )?(?:source|sources|materials?)|"
-    r"according to (?:the )?indexed (?:source|sources|materials?|documents?)|"
-    r"answer with (?:just )?(?:the )?exact|"
-    r"exact phrase|exact wording"
-    r")\b",
     re.IGNORECASE,
 )
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
@@ -165,6 +220,24 @@ _CONFIDENCE_RE = re.compile(
     r"(?P<value>\d+(?:[.]\d+)?)\s*"
     r"(?P<unit>%|/10|/5)?(?=\s|[.,;:!?]|$)",
     re.IGNORECASE,
+)
+_ACTIVE_RECALL_QUESTION_CONTRACT = (
+    "- Use only the provided source material; do not invent facts beyond normal wording "
+    "or clarification.\n"
+    "- Write learner-facing questions in the student's language while preserving source "
+    "technical terms.\n"
+    "- Make active-recall questions, not passive summaries.\n"
+    "- Each question must ask exactly one thing.\n"
+    "- Prefer conceptual distinctions, definitions, steps, trade-offs, and "
+    "when/why questions.\n"
+    "- Avoid trivia such as slide numbers, instructor names, copyright text, dates, "
+    "and decorative examples.\n"
+    "- When the material uses both an English term and a local-language technical term "
+    "for the same concept, include both terms in the question.\n"
+    "- Keep expected answers concise but exam-useful.\n"
+    "- If a generated question schema includes a source field, set it exactly to the "
+    "provided canonical source label; do not substitute filenames, chunk IDs, dates, "
+    "or instructor metadata."
 )
 _MAX_AUTOPILOT_TURNS = 24
 
@@ -201,13 +274,29 @@ def _derive_presentation_query(user_input: str, state: StudyState) -> str:
 
 def _needs_initial_calibration(user_input: str) -> bool:
     text = _normalize(user_input)
-    return bool(_INITIAL_CALIBRATION_RE.fullmatch(text)) or bool(
-        re.fullmatch(
-            r"(?:can|could|would) you ask me .*question.*\??",
-            text,
-            re.IGNORECASE,
+    return (
+        material_drill_query(text) is not None
+        or bool(_INITIAL_CALIBRATION_RE.fullmatch(text))
+        or bool(
+            re.fullmatch(
+                r"(?:can|could|would) you ask me .*question.*\??",
+                text,
+                re.IGNORECASE,
+            )
         )
     )
+
+
+def _calibration_prompt_for_input(user_input: str) -> str:
+    prompt = _calibration_prompt()
+    if _EXAM_DRILL_RE.search(_normalize(user_input)):
+        return (
+            f"{prompt}\n"
+            "- This is an active-recall exam drill: do not show the result, answer key, "
+            "rubric, source explanation, source IDs, or citations until after the student's "
+            "attempt has been assessed."
+        )
+    return prompt
 
 
 def _is_simple_greeting(user_input: str) -> bool:
@@ -231,6 +320,11 @@ def _direct_chat_reply(user_input: str) -> str | None:
             "run /exam for active recall, run /priority for a plan, or /autopilot on "
             "to let Heph drive the session."
         )
+    if is_standalone_source_only_policy(text):
+        return (
+            "Understood. I will stick to enabled material and say when the sources "
+            "are insufficient."
+        )
     if _THANKS_RE.fullmatch(text):
         return "You're welcome."
     return None
@@ -245,7 +339,7 @@ def _is_reveal_request(text: str) -> bool:
 
 
 def _is_source_qa_request(text: str) -> bool:
-    return bool(_SOURCE_QA_RE.search(_normalize(text)))
+    return is_material_source_request(text)
 
 
 def _is_ready_signal(text: str) -> bool:
@@ -259,20 +353,43 @@ def _is_waiting_procedure_request(text: str) -> bool:
 def _is_recall_clarification_request(text: str) -> bool:
     normalized = _normalize(text)
     has_question_punct = _RECALL_QUESTION_PUNCT_RE.search(normalized) is not None
-    looks_like_answer_claim = _RECALL_ANSWER_CLAIM_RE.search(normalized) is not None
+    looks_like_answer_claim = (
+        _RECALL_ANSWER_CLAIM_RE.search(normalized) is not None
+        or _RECALL_TENTATIVE_ANSWER_RE.fullmatch(normalized) is not None
+        or _RECALL_SHORT_ANSWER_RE.fullmatch(normalized) is not None
+    )
     return bool(
-        _RECALL_CLARIFICATION_RE.search(normalized)
+        is_source_only_policy(normalized)
+        or _RECALL_CLARIFICATION_RE.search(normalized)
         or _RECALL_REPROMPT_RE.search(normalized)
         or _RECALL_SHORT_REPROMPT_RE.fullmatch(normalized)
         or _RECALL_LANGUAGE_ONLY_RE.fullmatch(normalized)
         or _RECALL_GERMAN_REPROMPT_RE.search(normalized)
+        or _RECALL_FRENCH_REPROMPT_RE.search(normalized)
         or (has_question_punct and not looks_like_answer_claim)
     )
 
 
 def _is_heph_self_request(text: str) -> bool:
     normalized = _normalize(text)
-    return bool(_HEPH_SELF_RE.search(normalized) and _HEPH_SELF_INTENT_RE.search(normalized))
+    return bool(
+        _HEPH_PRONOUN_SELF_REQUEST_RE.search(normalized)
+        or (_HEPH_SELF_RE.search(normalized) and _HEPH_SELF_INTENT_RE.search(normalized))
+    )
+
+
+def _is_recall_scaffold_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if (
+        _RECALL_CLARIFICATION_RE.search(normalized)
+        or _RECALL_REPROMPT_RE.search(normalized)
+        or _RECALL_SHORT_REPROMPT_RE.fullmatch(normalized)
+        or _RECALL_LANGUAGE_ONLY_RE.fullmatch(normalized)
+        or _RECALL_GERMAN_REPROMPT_RE.search(normalized)
+        or _RECALL_FRENCH_REPROMPT_RE.search(normalized)
+    ):
+        return False
+    return bool(_RECALL_SCAFFOLD_RE.search(normalized))
 
 
 def _material_request_plan(
@@ -296,16 +413,18 @@ def _material_request_plan(
             retrieval_query="exam priority topics prerequisites past exams materials overview",
             allow_tools=False,
         )
-    query = _derive_presentation_query(user_input, state)
-    if _is_overview_request(query):
+    if drill_query := material_drill_query(user_input):
         return StudyTurnPlan(
-            action=StudyAction.PRESENT,
-            phase=StudyPhase.PRESENTING,
-            prompt=_overview_prompt(query),
-            retrieval_query=query,
+            action=StudyAction.CALIBRATE,
+            phase=StudyPhase.RECALL,
+            prompt=_calibration_prompt_for_input(user_input),
+            retrieval_query=drill_query,
             allow_tools=False,
             buffer_response=True,
         )
+    query = _derive_presentation_query(user_input, state)
+    if _is_overview_request(query):
+        return material_overview_plan(query)
     if _is_source_qa_request(query):
         return StudyTurnPlan(
             action=StudyAction.SOURCE_QA,
@@ -314,6 +433,14 @@ def _material_request_plan(
             retrieval_query=query,
             allow_tools=False,
             buffer_response=True,
+        )
+    if is_new_material_topic_request(query):
+        return StudyTurnPlan(
+            action=StudyAction.PRESENT,
+            phase=StudyPhase.PRESENTING,
+            prompt=_present_prompt(query),
+            retrieval_query=query,
+            allow_tools=True,
         )
     return None
 
@@ -327,6 +454,8 @@ def _calibration_prompt() -> str:
         "past-exam pattern, rubric point, or mark-scheme point.\n"
         "- The question must test understanding of a concept, procedure, or "
         "relationship from the material — not surface-level document metadata.\n"
+        "Question quality contract:\n"
+        f"{_ACTIVE_RECALL_QUESTION_CONTRACT}\n"
         "- FORBIDDEN question types (these never test knowledge):\n"
         "  * Titles of documents, chapters, sections, or slides.\n"
         "  * Author names, dates, or institutional affiliations.\n"
@@ -367,11 +496,16 @@ def _priority_prompt() -> str:
     )
 
 
-def _present_prompt(item: str) -> str:
+def _present_prompt(item: str, *, user_request: str | None = None) -> str:
+    request_line = ""
+    if user_request and _normalize(user_request) != _normalize(item):
+        request_line = f"User request: {user_request}\n"
     return (
         "Controlled study state machine. Execute the PRESENT phase.\n"
         f"Current item: {item}\n"
+        f"{request_line}"
         "Rules:\n"
+        "- Answer in the same language as the student's request.\n"
         "- Use only the retrieved material for this item.\n"
         "- Present the complete solution or method once, concisely.\n"
         "- Cite evidence IDs whenever you state a factual step or value.\n"
@@ -388,6 +522,12 @@ def _overview_prompt(query: str) -> str:
         "Controlled study state machine. Execute MATERIAL_OVERVIEW.\n"
         f"User request: {query}\n"
         "Rules:\n"
+        "- Answer in the same language as the student's request.\n"
+        "- Give the big picture first: what domain the files are about, how the major "
+        "topic clusters relate, and what kind of studying they support.\n"
+        "- Do not organize the answer primarily by file dates, lecture dates, filenames, "
+        "authors, institutions, or individual chunks unless the student asks for that "
+        "level of detail.\n"
         "- Treat the retrieved evidence as a sample across the enabled corpus, not as the "
         "entire corpus.\n"
         "- Identify the subject, document types, and major topic clusters only from cited "
@@ -411,11 +551,86 @@ def _overview_prompt(query: str) -> str:
     )
 
 
-def _source_qa_prompt(query: str) -> str:
+def material_overview_plan(
+    user_request: str,
+    *,
+    retrieval_query: str = "what is the material about",
+) -> StudyTurnPlan:
+    """Build a corpus-overview plan from an original user request.
+
+    The retrieval query stays canonical English so deterministic overview evidence
+    routing does not need per-language phrase lists. The prompt preserves the
+    original request so the model can answer in the user's language.
+    """
+    return StudyTurnPlan(
+        action=StudyAction.PRESENT,
+        phase=StudyPhase.PRESENTING,
+        prompt=_overview_prompt(user_request),
+        retrieval_query=retrieval_query,
+        allow_tools=False,
+        buffer_response=True,
+    )
+
+
+def material_topic_presentation_plan(
+    user_request: str,
+    *,
+    retrieval_query: str,
+) -> StudyTurnPlan:
+    """Build a topic-presentation plan with a canonical retrieval query."""
+    query = _normalize(retrieval_query) or _normalize(user_request)
+    return StudyTurnPlan(
+        action=StudyAction.PRESENT,
+        phase=StudyPhase.PRESENTING,
+        prompt=_present_prompt(query, user_request=user_request),
+        retrieval_query=query,
+        allow_tools=True,
+    )
+
+
+def material_topic_drill_plan(
+    user_request: str,
+    *,
+    retrieval_query: str,
+) -> StudyTurnPlan:
+    """Build an active-recall drill plan with a canonical retrieval query."""
+    return StudyTurnPlan(
+        action=StudyAction.CALIBRATE,
+        phase=StudyPhase.RECALL,
+        prompt=_calibration_prompt_for_input(user_request),
+        retrieval_query=_normalize(retrieval_query) or None,
+        allow_tools=False,
+        buffer_response=True,
+    )
+
+
+def material_source_qa_plan(
+    user_request: str,
+    *,
+    retrieval_query: str,
+) -> StudyTurnPlan:
+    """Build a source-QA plan with a canonical retrieval query."""
+    query = _normalize(retrieval_query) or _normalize(user_request)
+    return StudyTurnPlan(
+        action=StudyAction.SOURCE_QA,
+        phase=StudyPhase.PRESENTING,
+        prompt=_source_qa_prompt(query, user_request=user_request),
+        retrieval_query=query,
+        allow_tools=False,
+        buffer_response=True,
+    )
+
+
+def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
+    request_line = ""
+    if user_request and _normalize(user_request) != _normalize(query):
+        request_line = f"User request: {user_request}\n"
     return (
         "Controlled study state machine. Execute SOURCE_QA.\n"
         f"User question: {query}\n"
+        f"{request_line}"
         "Rules:\n"
+        "- Answer in the same language as the student's request.\n"
         "- Answer the user's question directly using only the retrieved source material.\n"
         "- If the user asks for an exact phrase, quote only the exact phrase plus citations.\n"
         "- Cite evidence IDs for source-backed claims.\n"
@@ -476,6 +691,8 @@ def _autopilot_calibration_prompt(query: str, state: StudyState) -> str:
         "- Use the retrieved source material to ask exactly one diagnostic recall, "
         "prediction, application, or comparison question.\n"
         "- The question must test understanding, not document metadata.\n"
+        "Question quality contract:\n"
+        f"{_ACTIVE_RECALL_QUESTION_CONTRACT}\n"
         "- Do not reveal the answer, method, answer key, source IDs, or citations.\n"
         "- Require the learner to answer from memory and include confidence from 0-100%.\n"
         "- If source material is unavailable or too thin, ask the smallest necessary "
@@ -588,6 +805,8 @@ def _simplify_prompt(item: str) -> str:
         "- Ground the easier question in a retrieved source span, past-exam pattern, "
         "rubric point, or mark-scheme point.\n"
         "- Ask exactly one easier prerequisite recall question.\n"
+        "Question quality contract:\n"
+        f"{_ACTIVE_RECALL_QUESTION_CONTRACT}\n"
         "- The question must test understanding — not document titles, author names, "
         "dates, page numbers, file names, headings, or other surface metadata.\n"
         "- Do not reveal the answer to either question.\n"
@@ -694,11 +913,20 @@ def plan_turn(
         due_reviews=due_reviews,
         memory_state=effective_memory,
     )
-    prompt = append_policy_prompt(
-        plan.prompt,
-        mode=mode,
-        move=move,
-        action=plan.action,
+    is_material_overview = (
+        plan.action is StudyAction.PRESENT
+        and plan.retrieval_query is not None
+        and _is_overview_request(plan.retrieval_query)
+    )
+    prompt = (
+        plan.prompt
+        if is_material_overview
+        else append_policy_prompt(
+            plan.prompt,
+            mode=mode,
+            move=move,
+            action=plan.action,
+        )
     )
     allow_tools = (
         plan.allow_tools
@@ -710,7 +938,7 @@ def plan_turn(
         prompt=prompt,
         allow_tools=allow_tools,
         autonomy_mode=mode,
-        study_move=move,
+        study_move=None if is_material_overview else move,
     )
 
 
@@ -835,10 +1063,12 @@ def _plan_turn_manual(state: StudyState, user_input: str) -> StudyTurnPlan:
             allow_tools=False,
         )
     if _needs_initial_calibration(user_input):
+        drill_query = material_drill_query(user_input)
         return StudyTurnPlan(
             action=StudyAction.CALIBRATE,
             phase=StudyPhase.RECALL,
-            prompt=_calibration_prompt(),
+            prompt=_calibration_prompt_for_input(user_input),
+            retrieval_query=drill_query,
             allow_tools=False,
             buffer_response=True,
         )
@@ -913,15 +1143,9 @@ def _plan_turn_autopilot(
 
     query = _derive_presentation_query(user_input, state)
     if _is_overview_request(query):
-        return StudyTurnPlan(
-            action=StudyAction.PRESENT,
-            phase=StudyPhase.PRESENTING,
-            prompt=_overview_prompt(query),
-            retrieval_query=query,
-            allow_tools=False,
-            buffer_response=True,
-        )
-    if _is_source_qa_request(query):
+        return material_overview_plan(query)
+    is_autopilot_bootstrap = _is_autopilot_bootstrap(query)
+    if not is_autopilot_bootstrap and _is_source_qa_request(query):
         return StudyTurnPlan(
             action=StudyAction.SOURCE_QA,
             phase=StudyPhase.PRESENTING,
@@ -931,9 +1155,15 @@ def _plan_turn_autopilot(
             buffer_response=True,
         )
 
-    retrieval_query = (
-        None if _is_autopilot_bootstrap(query) or _needs_initial_calibration(query) else query
-    )
+    drill_query = material_drill_query(query)
+    if is_autopilot_bootstrap:
+        retrieval_query = None
+    elif drill_query is not None:
+        retrieval_query = drill_query
+    elif _needs_initial_calibration(query):
+        retrieval_query = None
+    else:
+        retrieval_query = query
     return StudyTurnPlan(
         action=StudyAction.CALIBRATE,
         phase=StudyPhase.RECALL,
@@ -991,32 +1221,19 @@ def _plan_turn_base(
                 allow_tools=False,
             )
         if _needs_initial_calibration(user_input):
-            prompt = _calibration_prompt()
-            if _EXAM_DRILL_RE.search(text):
-                prompt = (
-                    f"{prompt}\n"
-                    "- This is an active-recall exam drill: do not show the result, "
-                    "answer key, rubric, source explanation, source IDs, or citations until "
-                    "after the student's attempt has been assessed."
-                )
+            drill_query = material_drill_query(user_input)
             return StudyTurnPlan(
                 action=StudyAction.CALIBRATE,
                 phase=StudyPhase.RECALL,
-                prompt=prompt,
+                prompt=_calibration_prompt_for_input(user_input),
+                retrieval_query=drill_query,
                 allow_tools=False,
                 buffer_response=True,
             )
         query = _derive_presentation_query(user_input, state)
         is_overview = _is_overview_request(query)
         if is_overview:
-            return StudyTurnPlan(
-                action=StudyAction.PRESENT,
-                phase=StudyPhase.PRESENTING,
-                prompt=_overview_prompt(query),
-                retrieval_query=query,
-                allow_tools=False,
-                buffer_response=True,
-            )
+            return material_overview_plan(query)
         if _is_source_qa_request(query):
             return StudyTurnPlan(
                 action=StudyAction.SOURCE_QA,
@@ -1029,22 +1246,22 @@ def _plan_turn_base(
         return StudyTurnPlan(
             action=StudyAction.PRESENT,
             phase=StudyPhase.PRESENTING,
-            prompt=_overview_prompt(query) if is_overview else _present_prompt(query),
+            prompt=_present_prompt(query),
             retrieval_query=query,
-            allow_tools=not is_overview,
-            buffer_response=is_overview,
+            allow_tools=True,
         )
 
     if _SKIP_RE.search(text):
         query = _derive_presentation_query(user_input, state)
         is_overview = _is_overview_request(query)
+        if is_overview:
+            return material_overview_plan(query)
         return StudyTurnPlan(
             action=StudyAction.PRESENT,
             phase=StudyPhase.PRESENTING,
-            prompt=_overview_prompt(query) if is_overview else _present_prompt(query),
+            prompt=_present_prompt(query),
             retrieval_query=query,
-            allow_tools=not is_overview,
-            buffer_response=is_overview,
+            allow_tools=True,
         )
 
     if state.phase == StudyPhase.WAITING_FOR_READY:
@@ -1095,6 +1312,22 @@ def _plan_turn_base(
                 prompt=_heph_self_prompt(text),
                 allow_tools=False,
             )
+        if material_plan := _material_request_plan(state, user_input):
+            return material_plan
+        if _is_recall_scaffold_request(text) or _TOO_HARD_RE.search(text):
+            prompt = (
+                _autopilot_scaffold_prompt(state.current_item)
+                if state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+                else _simplify_prompt(state.current_item)
+            )
+            return StudyTurnPlan(
+                action=StudyAction.SIMPLIFY,
+                phase=StudyPhase.RECALL,
+                prompt=prompt,
+                retrieval_query=state.retrieval_query or state.current_item,
+                use_expected_source_refs=True,
+                allow_tools=False,
+            )
         if _is_recall_clarification_request(text):
             return StudyTurnPlan(
                 action=StudyAction.PROMPT_RECALL,
@@ -1107,20 +1340,6 @@ def _plan_turn_base(
                 action=StudyAction.REVIEW,
                 phase=StudyPhase.PRESENTING,
                 prompt=_review_prompt(state.current_item),
-                retrieval_query=state.retrieval_query or state.current_item,
-                use_expected_source_refs=True,
-                allow_tools=False,
-            )
-        if _TOO_HARD_RE.search(text):
-            prompt = (
-                _autopilot_scaffold_prompt(state.current_item)
-                if state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
-                else _simplify_prompt(state.current_item)
-            )
-            return StudyTurnPlan(
-                action=StudyAction.SIMPLIFY,
-                phase=StudyPhase.RECALL,
-                prompt=prompt,
                 retrieval_query=state.retrieval_query or state.current_item,
                 use_expected_source_refs=True,
                 allow_tools=False,
@@ -1147,13 +1366,14 @@ def _plan_turn_base(
 
     query = _derive_presentation_query(user_input, state)
     is_overview = _is_overview_request(query)
+    if is_overview:
+        return material_overview_plan(query)
     return StudyTurnPlan(
         action=StudyAction.PRESENT,
         phase=StudyPhase.PRESENTING,
-        prompt=_overview_prompt(query) if is_overview else _present_prompt(query),
+        prompt=_present_prompt(query),
         retrieval_query=query,
-        allow_tools=not is_overview,
-        buffer_response=is_overview,
+        allow_tools=True,
     )
 
 

@@ -5,7 +5,7 @@ Dataset format:
 JSONL:
     {
       "id": "exam-priority",
-      "expected_topics": ["geometrische reihe"],
+      "expected_topics": ["matrix multiplication"],
       "forbidden_topics": ["course logistics"],
       "expected_past_exam_sources": ["materials/past-exam.md"]
     }

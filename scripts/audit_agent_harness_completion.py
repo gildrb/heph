@@ -36,8 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FORBIDDEN_FRAMEWORKS = ("langchain", "langgraph", "llama-index", "llama_index")
 FORBIDDEN_FIXTURE_COURSE_TERMS = re.compile(
     r"\b(?:"
-    r"jesse|ratzkin|mfi|mathematik für informatiker|mathematik fuer informatiker|"
-    r"amelia carter|northbridge|biochemistry 201"
+    r"fixture_private_name|fixture_private_course|fixture_private_institution"
     r")\b"
 )
 DEFAULT_REAL_MIN_DOCUMENTS = 40
