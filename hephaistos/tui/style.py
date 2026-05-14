@@ -285,11 +285,6 @@ RichLog {{
     background: {bg};
     color: {p.text};
 }}
-#suggestions.inline-menu > .option-list--option-highlighted,
-#suggestions.inline-menu:focus > .option-list--option-highlighted {{
-    background: {p.selection_background};
-    color: {p.selection_text};
-}}
 .hidden {{
     visibility: hidden;
 }}

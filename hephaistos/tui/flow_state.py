@@ -12,6 +12,7 @@ class InlineFlow:
     model: str = ""
     options: list[tuple[str, str]] = field(default_factory=list)
     all_options: list[tuple[str, str]] = field(default_factory=list)
+    prompts: dict[str, str] = field(default_factory=dict)
 
     @property
     def active(self) -> bool:

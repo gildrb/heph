@@ -263,6 +263,7 @@ _MODEL_STREAM_PROGRESS_SECONDS = 8.0
 _STOPWORDS = frozenset(
     {
         "about",
+        "achtung",
         "aber",
         "after",
         "also",

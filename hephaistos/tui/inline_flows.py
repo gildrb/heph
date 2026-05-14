@@ -42,19 +42,22 @@ from hephaistos.providers.keyring_store import (
     store_key,
 )
 from hephaistos.providers.model_choices import configured_model_choices
-from hephaistos.terminal import set_theme
+from hephaistos.terminal import current_palette, set_theme
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.session_state import TuiRuntimeState
 from hephaistos.tui.style import _tui_css
 
 try:
+    from rich.text import Text as _RichText
     from textual.widgets import Input, OptionList, RichLog
 except ImportError:
+    _RichText = None  # ty:ignore[invalid-assignment]
     Input = None  # ty:ignore[invalid-assignment]
     OptionList = None  # ty:ignore[invalid-assignment]
     RichLog = None  # ty:ignore[invalid-assignment]
 
 if TYPE_CHECKING:
+    from rich.text import Text
     from textual import events
     from textual.widget import Widget
 
@@ -77,7 +80,10 @@ _ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in _ACTIVITY_TRACE_
 _OVERVIEW_TOPIC_SECTION_HEADING = "These are the study topics I found in the material:"
 _OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
 _OVERVIEW_TOPIC_PROMPT = "Choose a topic to study next. In the shell, use ↑/↓"
+_OVERVIEW_RECOMMENDATION_LINE_RE = re.compile(r"^- (?P<label>.+?)\.?$")
 _OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
+_OVERVIEW_CITATION_RE = re.compile(r"\s+\[(?:e|E)\d+\]")
+_INLINE_MENU_LABEL_WIDTH = 22
 
 
 @dataclass(frozen=True)
@@ -86,6 +92,12 @@ class _LogoutTarget:
     kind: str
     label: str
     description: str
+
+
+@dataclass(frozen=True)
+class OverviewTopicMenu:
+    options: list[tuple[str, str]]
+    prompts: dict[str, str]
 
 
 class _StyleObject(Protocol):
@@ -178,9 +190,15 @@ class _InlineFlowHost(Protocol):
         step: str,
         title: str,
         options: list[tuple[str, str]],
+        prompts: dict[str, str] | None = None,
     ) -> None: ...
 
-    def _render_inline_menu_options(self, options: list[tuple[str, str]]) -> None: ...
+    def _render_inline_menu_options(
+        self,
+        options: list[tuple[str, str]],
+        *,
+        highlighted: int | None = 0,
+    ) -> None: ...
 
     def _filter_inline_menu_options(self, query: str) -> None: ...
 
@@ -254,6 +272,22 @@ class _InlineFlowHost(Protocol):
     def _close_inline_flow(self, notice: str = "") -> None: ...
 
 
+def _inline_menu_option_text(
+    label: str,
+    description: str,
+    *,
+    selected: bool,
+) -> str | Text:
+    if _RichText is None:
+        return f"{label:<{_INLINE_MENU_LABEL_WIDTH}} {description}"
+    palette = current_palette()
+    label_style = f"bold {palette.brand}" if selected else palette.text
+    text = _RichText()
+    text.append(f"{label:<{_INLINE_MENU_LABEL_WIDTH}} ", style=label_style)
+    text.append(description, style=palette.dim)
+    return text
+
+
 class TuiInlineFlowMixin:
     def _handle_inline_command(self: _InlineFlowHost, value: str) -> None:
         if value == "/login":
@@ -279,6 +313,7 @@ class TuiInlineFlowMixin:
         step: str,
         title: str,
         options: list[tuple[str, str]],
+        prompts: dict[str, str] | None = None,
     ) -> None:
         options = _dedupe_inline_options(options)
         self._inline_flow = InlineFlow(
@@ -286,6 +321,7 @@ class TuiInlineFlowMixin:
             step=step,
             options=list(options),
             all_options=list(options),
+            prompts=dict(prompts or {}),
         )
         self._render_inline_menu_options(options)
         composer = self.query_one("#composer", Input)
@@ -294,14 +330,27 @@ class TuiInlineFlowMixin:
         composer.focus()
         self.set_focus(composer)
 
-    def _render_inline_menu_options(self: _InlineFlowHost, options: list[tuple[str, str]]) -> None:
+    def _render_inline_menu_options(
+        self: _InlineFlowHost,
+        options: list[tuple[str, str]],
+        *,
+        highlighted: int | None = 0,
+    ) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
         composer = self.query_one("#composer", Input)
         if options:
+            selected = 0 if highlighted is None else min(highlighted, len(options) - 1)
             suggestions.set_options(
-                [f"{label:<22} {description}" for label, description in options]
+                [
+                    _inline_menu_option_text(
+                        label,
+                        description,
+                        selected=index == selected,
+                    )
+                    for index, (label, description) in enumerate(options)
+                ]
             )
-            suggestions.highlighted = 0
+            suggestions.highlighted = selected
         else:
             query = composer.value.strip()
             suffix = f" for {query}" if query else ""
@@ -679,6 +728,10 @@ class TuiInlineFlowMixin:
     def _handle_inline_menu_choice(self: _InlineFlowHost, label: str) -> None:
         if self._inline_flow.name == "study_topic":
             if self._inline_flow.step == "topic":
+                if prompt := self._inline_flow.prompts.get(label):
+                    self._close_inline_flow(f"selected: {label}")
+                    self._submit_inline_chat_value(prompt)
+                    return
                 self._open_inline_menu(
                     name="study_topic",
                     step="action",
@@ -744,12 +797,14 @@ class TuiInlineFlowMixin:
     def _open_study_topic_flow(
         self: _InlineFlowHost,
         options: list[tuple[str, str]],
+        prompts: dict[str, str] | None = None,
     ) -> None:
         self._open_inline_menu(
             name="study_topic",
             step="topic",
             title="Choose a topic to study",
             options=options,
+            prompts=prompts,
         )
 
     def _handle_privacy_choice(self: _InlineFlowHost, label: str) -> None:
@@ -982,25 +1037,46 @@ def _dedupe_inline_options(options: list[tuple[str, str]]) -> list[tuple[str, st
 
 def _study_topic_action_prompt(action: str, topic: str) -> str:
     if action == "Explain it":
-        return f"Explain {topic} from the material in simple terms."
+        return f"Teach me {topic} in simple terms, grounded in the evidence for this topic."
     if action == "Practice it":
         return f"Give me one source-grounded practice question about {topic}."
     return f"Start a quick recall drill about {topic}."
 
 
-def overview_topic_options(reply: str) -> list[tuple[str, str]]:
+def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
     if _OVERVIEW_TOPIC_PROMPT not in reply:
-        return []
+        return None
     topics: list[tuple[str, str]] = []
+    recommendation_options: list[tuple[str, str]] = []
+    prompts: dict[str, str] = {}
     in_topics = False
+    in_recommendations = False
     for line in reply.splitlines():
         stripped = line.strip()
         if stripped.startswith(_OVERVIEW_TOPIC_SECTION_HEADING.removesuffix(":")):
             in_topics = True
+            in_recommendations = False
+            continue
+        if stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
+            in_topics = False
+            in_recommendations = True
+            continue
+        if not stripped:
+            if in_topics and topics:
+                in_topics = False
+            elif in_recommendations and recommendation_options:
+                in_recommendations = False
+            continue
+        if in_recommendations:
+            recommendation = _overview_recommendation_option(stripped)
+            if recommendation is not None:
+                option, prompt = recommendation
+                recommendation_options.append(option)
+                prompts[option[0]] = prompt
             continue
         if not in_topics:
             continue
-        if not stripped or stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
+        if not stripped:
             break
         match = _OVERVIEW_TOPIC_LINE_RE.match(stripped)
         if match is None:
@@ -1010,7 +1086,60 @@ def overview_topic_options(reply: str) -> list[tuple[str, str]]:
         label = match.group("label").strip()
         if label:
             topics.append((label, "study this topic"))
-    return topics[:7]
+    if not topics and not recommendation_options:
+        return None
+    topic_limit = max(0, 7 - len(recommendation_options))
+    options = [*topics[:topic_limit], *recommendation_options[:7]]
+    return OverviewTopicMenu(options=options[:7], prompts=prompts)
+
+
+def overview_topic_options(reply: str) -> list[tuple[str, str]]:
+    menu = overview_topic_menu(reply)
+    return menu.options if menu is not None else []
+
+
+def _overview_recommendation_option(
+    line: str,
+) -> tuple[tuple[str, str], str] | None:
+    match = _OVERVIEW_RECOMMENDATION_LINE_RE.match(line)
+    if match is None:
+        return None
+    recommendation = match.group("label").strip()
+    if not recommendation:
+        return None
+    return (_overview_recommendation_label(recommendation), "recommended"), f"{recommendation}."
+
+
+def _overview_recommendation_label(recommendation: str) -> str:
+    clean = _strip_overview_citations(recommendation)
+    explanation = re.fullmatch(r"Start with a guided explanation of (?P<topic>.+)", clean)
+    if explanation is not None:
+        return f"Explain {explanation.group('topic')}"
+    practice = re.fullmatch(
+        r"Practice one exam-style or exercise question on (?P<topic>.+?)(?: using)?",
+        clean,
+    )
+    if practice is not None:
+        return f"Practice {practice.group('topic')}"
+    compare = re.fullmatch(
+        r"Compare (?P<left>.+?) and (?P<right>.+?) so you can separate the ideas",
+        clean,
+    )
+    if compare is not None:
+        return f"Compare {compare.group('left')} and {compare.group('right')}"
+    if clean.startswith("Make a short study order"):
+        return "Make a study order"
+    return _trim_inline_option_label(clean)
+
+
+def _strip_overview_citations(text: str) -> str:
+    return " ".join(_OVERVIEW_CITATION_RE.sub("", text).split())
+
+
+def _trim_inline_option_label(label: str, *, limit: int = 52) -> str:
+    if len(label) <= limit:
+        return label
+    return label[: limit - 1].rstrip(" ,;:.") + "…"
 
 
 def _api_key_logout_label(display_name: str) -> str:

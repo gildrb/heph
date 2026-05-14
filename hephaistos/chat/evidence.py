@@ -83,6 +83,69 @@ _ASSESSMENT_CHUNK_RE = re.compile(
     r".{0,80}\b(?:points?|punkte)\b)|\b(?:question|aufgabe)\s+\d+\b",
     re.IGNORECASE,
 )
+_TOPIC_FOLLOWUP_PATTERNS = (
+    re.compile(
+        r"^\s*(?:teach\s+me|explain)\s+(?P<topic>[^.?!]{3,160}?)"
+        r"(?:\s+(?:in|from|as|grounded)\b|[.?!]|$)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bguided\s+explanation\s+of\s+(?P<topic>[^.?!]{3,160}?)"
+        r"(?:\s+\[(?:e|E)\d+\])?[.?!]?$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:practice\s+.*?\s+question|question)\s+(?:about|on)\s+"
+        r"(?P<topic>[^.?!]{3,160}?)(?:\s+\[(?:e|E)\d+\])?"
+        r"(?:\s+using\s+\[(?:e|E)\d+\])?[.?!]?$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bquick\s+recall\s+drill\s+about\s+(?P<topic>[^.?!]{3,160}?)[.?!]?$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bcompare\s+(?P<topic>[^.?!]{3,180}?)(?:\s+so\s+you\s+can\b|[.?!]|$)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bstudy\s+order\s+for\s+(?P<topic>[^.?!]{3,180}?)"
+        r"(?:\s+\[(?:e|E)\d+\])?[.?!]?$",
+        re.IGNORECASE,
+    ),
+)
+_TOPIC_CITATION_RE = re.compile(r"\s*\[(?:e|E)\d+\]\s*")
+_TOPIC_SPLIT_RE = re.compile(r"\s+(?:and|und|or|oder)\s+|[,;]")
+_TOPIC_WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ0-9_+-]{2,}")
+_TOPIC_FOLLOWUP_STOPWORDS = frozenset(
+    {
+        "about",
+        "and",
+        "auf",
+        "der",
+        "die",
+        "das",
+        "evidence",
+        "for",
+        "from",
+        "grounded",
+        "in",
+        "material",
+        "materials",
+        "oder",
+        "on",
+        "or",
+        "selected",
+        "source",
+        "sources",
+        "the",
+        "this",
+        "topic",
+        "und",
+        "using",
+        "with",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +345,174 @@ def _filter_weak_source_only_evidence(
     return scored
 
 
+def _topic_followup_queries(query: str) -> tuple[str, ...]:
+    """Extract the compact topic from TUI-generated follow-up prompts."""
+    candidates: list[str] = []
+    for pattern in _TOPIC_FOLLOWUP_PATTERNS:
+        match = pattern.search(query)
+        if match is None:
+            continue
+        topic = _clean_topic_followup_query(match.group("topic"))
+        if topic:
+            candidates.append(topic)
+
+    queries: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        _add_topic_query(queries, seen, candidate)
+        for part in _TOPIC_SPLIT_RE.split(candidate):
+            _add_topic_query(queries, seen, part)
+    return tuple(queries)
+
+
+def _clean_topic_followup_query(value: str) -> str:
+    cleaned = _TOPIC_CITATION_RE.sub(" ", value)
+    cleaned = re.sub(r"\busing\s+\[(?:e|E)\d+\]\b", " ", cleaned, flags=re.IGNORECASE)
+    return " ".join(cleaned.strip(" .?!:;-").split())
+
+
+def _add_topic_query(queries: list[str], seen: set[str], candidate: str) -> None:
+    cleaned = _clean_topic_followup_query(candidate)
+    if not _is_specific_topic_query(cleaned):
+        return
+    key = cleaned.casefold()
+    if key in seen:
+        return
+    seen.add(key)
+    queries.append(cleaned)
+
+
+def _is_specific_topic_query(candidate: str) -> bool:
+    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(candidate)]
+    useful = [word for word in words if word not in _TOPIC_FOLLOWUP_STOPWORDS]
+    return bool(useful) and len(useful) <= 6
+
+
+def _retrieve_topic_followup_chunks(
+    query: str,
+    index: ArmoryIndex,
+    disabled_sources: set[str],
+) -> tuple[str, list[ScoredChunk]]:
+    topic_queries = _topic_followup_queries(query)
+    for topic_query in topic_queries:
+        scored = retrieve(
+            topic_query,
+            index,
+            top_k=_QUERY_RETRIEVAL_TOP_K,
+            min_score=_RAG_MIN_SCORE,
+        )
+        scored = _prepare_fallback_scored_chunks(index, scored, disabled_sources)
+        if scored:
+            return topic_query, scored
+
+    for topic_query in topic_queries:
+        scored = _lexical_topic_scored_chunks(topic_query, index, disabled_sources)
+        scored = _prepare_fallback_scored_chunks(index, scored, disabled_sources)
+        if scored:
+            return topic_query, scored
+    return "", []
+
+
+def _prepare_query_scored_chunks(
+    query: str,
+    index: ArmoryIndex,
+    scored: list[ScoredChunk],
+    disabled_sources: set[str],
+) -> list[ScoredChunk]:
+    scored = _enabled_scored_chunks(scored, disabled_sources)
+    scored = _filter_weak_source_only_evidence(query, scored)
+    scored = _filter_low_content_chunks(scored)
+    scored = _expand_with_neighbor_chunks(index, scored)
+    return _expand_assessment_survey_chunks(query, index, scored)
+
+
+def _prepare_fallback_scored_chunks(
+    index: ArmoryIndex,
+    scored: list[ScoredChunk],
+    disabled_sources: set[str],
+) -> list[ScoredChunk]:
+    scored = _enabled_scored_chunks(scored, disabled_sources)
+    scored = _filter_low_content_chunks(scored)
+    return _expand_with_neighbor_chunks(index, scored)
+
+
+def _lexical_topic_scored_chunks(
+    topic_query: str,
+    index: ArmoryIndex,
+    disabled_sources: set[str],
+) -> list[ScoredChunk]:
+    variants = _topic_query_variants(topic_query)
+    if not variants:
+        return []
+
+    scored: list[ScoredChunk] = []
+    for chunk in index.all_chunks:
+        if chunk.source in disabled_sources:
+            continue
+        haystack = f"{chunk.heading}\n{chunk.text}".casefold()
+        heading = chunk.heading.casefold()
+        match_count = 0
+        score = 0.42
+        for variant in variants:
+            count = _topic_variant_count(haystack, variant)
+            if count <= 0:
+                continue
+            match_count += count
+            score += min(0.2, count * 0.04)
+            if _topic_variant_count(heading, variant) > 0:
+                score += 0.12
+        if match_count:
+            scored.append(ScoredChunk(chunk=chunk, score=min(score, 0.95)))
+    scored.sort(key=lambda item: (-item.score, item.chunk.source, item.chunk.index))
+    return scored[:_QUERY_RETRIEVAL_TOP_K]
+
+
+def _topic_query_variants(topic_query: str) -> tuple[str, ...]:
+    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(topic_query)]
+    useful_words = [word for word in words if word not in _TOPIC_FOLLOWUP_STOPWORDS]
+    if not useful_words:
+        return ()
+
+    variants: list[str] = []
+    seen: set[str] = set()
+    phrase = " ".join(useful_words)
+    _add_topic_variant(variants, seen, phrase)
+    for word in useful_words:
+        _add_topic_variant(variants, seen, word)
+        for variant in _singular_topic_variants(word):
+            _add_topic_variant(variants, seen, variant)
+    return tuple(variants)
+
+
+def _singular_topic_variants(word: str) -> tuple[str, ...]:
+    variants: list[str] = []
+    if word.endswith("ungen") and len(word) > 7:
+        variants.append(word[:-2])
+    if word.endswith("n") and len(word) > 5:
+        variants.append(word[:-1])
+    if word.endswith("e") and len(word) > 5:
+        variants.append(word[:-1])
+    if word.endswith("s") and len(word) > 5:
+        variants.append(word[:-1])
+    return tuple(variants)
+
+
+def _add_topic_variant(variants: list[str], seen: set[str], variant: str) -> None:
+    cleaned = " ".join(variant.split())
+    if len(cleaned) < 4 or cleaned in seen:
+        return
+    seen.add(cleaned)
+    variants.append(cleaned)
+
+
+def _topic_variant_count(haystack: str, variant: str) -> int:
+    if not haystack or not variant:
+        return 0
+    if " " in variant:
+        return haystack.count(variant)
+    return len(re.findall(rf"(?<!\w){re.escape(variant)}(?!\w)", haystack))
+
+
 def adaptive_rag_budget(session: ChatSession) -> int:
     """Allocate a bounded retrieval context budget for the current session."""
     budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
@@ -323,11 +554,19 @@ def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvid
                 transform_strategy=strategy,
                 prompt_fn=prompt_fn,
             )
-        scored = _enabled_scored_chunks(scored, session.disabled_source_files)
-        scored = _filter_weak_source_only_evidence(query, scored)
-        scored = _filter_low_content_chunks(scored)
-        scored = _expand_with_neighbor_chunks(index, scored)
-        scored = _expand_assessment_survey_chunks(query, index, scored)
+            scored = _prepare_query_scored_chunks(
+                query,
+                index,
+                scored,
+                session.disabled_source_files,
+            )
+            fallback_query = ""
+            if not scored:
+                fallback_query, scored = _retrieve_topic_followup_chunks(
+                    query,
+                    index,
+                    session.disabled_source_files,
+                )
         if not scored:
             _log.info(
                 "rag retrieve: no relevant results",
@@ -368,6 +607,17 @@ def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvid
                 for sc in scored
             ],
         )
+        if fallback_query:
+            _log.info(
+                "rag retrieve: used topic follow-up fallback",
+                extra={
+                    "fields": {
+                        "query_len": len(query),
+                        "fallback_query_len": len(fallback_query),
+                        "retrieved": len(scored),
+                    }
+                },
+            )
         return build_turn_evidence(scored, max_tokens=adaptive_rag_budget(session))
     except Exception:
         _log.warning("turn evidence build failed", exc_info=True)

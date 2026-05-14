@@ -42,7 +42,7 @@ from hephaistos.tui.display_text import (
 )
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.history import TuiHistoryMixin
-from hephaistos.tui.inline_flows import TuiInlineFlowMixin, overview_topic_options
+from hephaistos.tui.inline_flows import TuiInlineFlowMixin, overview_topic_menu
 from hephaistos.tui.keymap import armory_binding_keys
 from hephaistos.tui.no_armory import record_no_armory_turn
 from hephaistos.tui.routing import (
@@ -907,8 +907,8 @@ class HephaistosTui(
 
         def on_reply(reply: str) -> None:
             self.call_from_thread(self._append_assistant_reply, reply)
-            if options := overview_topic_options(reply):
-                self.call_from_thread(self._open_study_topic_flow, options)
+            if menu := overview_topic_menu(reply):
+                self.call_from_thread(self._open_study_topic_flow, menu.options, menu.prompts)
 
         def on_notice(notice: str) -> None:
             self.call_from_thread(self._append_notice, notice)
@@ -984,8 +984,8 @@ class HephaistosTui(
 
         def on_reply(reply: str) -> None:
             self.call_from_thread(self._append_assistant_reply, reply)
-            if options := overview_topic_options(reply):
-                self.call_from_thread(self._open_study_topic_flow, options)
+            if menu := overview_topic_menu(reply):
+                self.call_from_thread(self._open_study_topic_flow, menu.options, menu.prompts)
 
         def on_notice(notice: str) -> None:
             self.call_from_thread(self._append_notice, notice)
@@ -1064,6 +1064,8 @@ class HephaistosTui(
         highlighted = (current + offset) % option_count
         if self.completion_candidates:
             self._set_completion_options(highlighted=highlighted)
+        elif self._inline_flow.active:
+            self._render_inline_menu_options(self._inline_flow.options, highlighted=highlighted)
         suggestions.highlighted = highlighted
         suggestions.scroll_y = _completion_menu_scroll_y(
             highlighted,

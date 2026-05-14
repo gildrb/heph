@@ -6,7 +6,7 @@ import asyncio
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
 from rich.segment import Segment
@@ -27,8 +27,10 @@ from hephaistos.tui.armory_browser import armory_detail, build_entries, default_
 from hephaistos.tui.inline_flows import (
     _dedupe_inline_options,
     _duplicate_model_names,
+    _inline_menu_option_text,
     _model_choice_from_label,
     _model_choice_label,
+    overview_topic_menu,
     overview_topic_options,
 )
 from hephaistos.tui.transparent import Region as _Region
@@ -39,6 +41,14 @@ if TYPE_CHECKING:
     from textual.screen import Screen
     from textual.widget import Widget
     from textual.widgets import OptionList as TextualOptionList
+
+
+class _RichSpanLike(Protocol):
+    style: object
+
+
+class _RichPromptLike(Protocol):
+    spans: list[_RichSpanLike]
 
 
 def _plain_session() -> ChatSession:
@@ -685,15 +695,24 @@ def test_tui_css_completion_highlight_avoids_brand_strip() -> None:
     assert f"color: {palette.selection_text};" not in block
 
 
-def test_tui_css_inline_menu_highlight_uses_selection_tokens() -> None:
+def test_tui_css_inline_menu_highlight_has_no_brand_stripe() -> None:
     css = tui._tui_css()
-    palette = tui.current_palette()
-    block_start = css.index("#suggestions.inline-menu > .option-list--option-highlighted")
-    block_end = css.index("}", block_start)
-    block = css[block_start:block_end]
 
-    assert f"background: {palette.selection_background};" in block
-    assert f"color: {palette.selection_text};" in block
+    assert "#suggestions.inline-menu > .option-list--option-highlighted" not in css
+
+
+def test_inline_menu_selected_label_uses_brand_without_recoloring_description() -> None:
+    selected = _inline_menu_option_text("Folgen", "study this topic", selected=True)
+    unselected = _inline_menu_option_text("Folgen", "study this topic", selected=False)
+    palette = tui.current_palette()
+
+    assert not isinstance(selected, str)
+    assert not isinstance(unselected, str)
+    selected_styles = [str(span.style) for span in selected.spans]
+    unselected_styles = [str(span.style) for span in unselected.spans]
+    assert any(palette.brand in style and "bold" in style for style in selected_styles)
+    assert any(palette.dim in style for style in selected_styles)
+    assert not any(palette.brand in style for style in unselected_styles)
 
 
 def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
@@ -1650,8 +1669,23 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
             )  # ty:ignore[redundant-cast]
             assert suggestions.has_class("visible")
             assert suggestions.has_class("inline-menu")
+            palette = tui.current_palette()
+
+            def option_styles(index: int) -> list[str]:
+                prompt = cast("_RichPromptLike", suggestions.get_option_at_index(index).prompt)
+                return [str(span.style) for span in prompt.spans]
+
+            first_styles = option_styles(0)
+            second_styles = option_styles(1)
+            assert any(palette.brand in style and "bold" in style for style in first_styles)
+            assert not any(palette.brand in style for style in second_styles)
 
             await pilot.press("down")
+            await pilot.pause()
+            first_styles = option_styles(0)
+            second_styles = option_styles(1)
+            assert not any(palette.brand in style for style in first_styles)
+            assert any(palette.brand in style and "bold" in style for style in second_styles)
             await pilot.press("enter")
             await pilot.pause()
 
@@ -1673,13 +1707,53 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
     asyncio.run(check_topic_flow())
 
 
+def test_overview_recommended_option_submits_direct_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    submitted: list[str] = []
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_recommendation_flow() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
+            app._open_study_topic_flow(
+                [
+                    ("Folgen", "study this topic"),
+                    ("Compare Folgen and Grenzwerte", "recommended"),
+                ],
+                {
+                    "Compare Folgen and Grenzwerte": (
+                        "Compare Folgen and Grenzwerte so you can separate the ideas [E13]."
+                    )
+                },
+            )
+            await pilot.pause()
+
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert submitted == [
+                "Compare Folgen and Grenzwerte so you can separate the ideas [E13]."
+            ]
+            assert app._inline_flow.active is False
+
+    asyncio.run(check_recommendation_flow())
+
+
 def test_overview_topic_options_parse_only_actual_topic_section() -> None:
     reply = (
         "These are the study topics I found in the material [E1][E2].\n"
         "- Ableitungen [E1].\n"
         "- Grenzwerte [E2].\n\n"
-        "Other material signals:\n"
-        "- exam-style questions or structured assessment prompts [E3]\n\n"
         "Choose a topic to study next. In the shell, use ↑/↓ and press Enter.\n\n"
         "Recommended options:\n"
         "- Start with a guided explanation of Ableitungen [E1]."
@@ -1688,7 +1762,35 @@ def test_overview_topic_options_parse_only_actual_topic_section() -> None:
     assert overview_topic_options(reply) == [
         ("Ableitungen", "study this topic"),
         ("Grenzwerte", "study this topic"),
+        ("Explain Ableitungen", "recommended"),
     ]
+
+
+def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> None:
+    reply = (
+        "These are the study topics I found in the material:\n"
+        "- Folgen [E11]\n"
+        "- Grenzwerte [E13]\n\n"
+        "Choose a topic to study next. In the shell, use ↑/↓ and press Enter.\n\n"
+        "Recommended options:\n"
+        "- Start with a guided explanation of Folgen [E11].\n"
+        "- Practice one exam-style or exercise question on Grenzwerte [E13].\n"
+        "- Compare Folgen and Grenzwerte so you can separate the ideas [E13]."
+    )
+
+    menu = overview_topic_menu(reply)
+
+    assert menu is not None
+    assert menu.options == [
+        ("Folgen", "study this topic"),
+        ("Grenzwerte", "study this topic"),
+        ("Explain Folgen", "recommended"),
+        ("Practice Grenzwerte", "recommended"),
+        ("Compare Folgen and Grenzwerte", "recommended"),
+    ]
+    assert menu.prompts["Compare Folgen and Grenzwerte"] == (
+        "Compare Folgen and Grenzwerte so you can separate the ideas [E13]."
+    )
 
 
 def test_overview_topic_options_limits_to_seven_topics() -> None:

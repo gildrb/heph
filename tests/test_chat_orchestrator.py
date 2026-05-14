@@ -396,6 +396,7 @@ def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
     assert "indexed sources" not in reply
     assert "corpus-level claim" not in reply
     assert "document signal" not in reply.casefold()
+    assert "Other material signals" not in reply
     assert "sampled" not in reply.casefold()
     assert "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in reply
     assert "Recommended options:" in reply
@@ -576,6 +577,7 @@ def test_overview_topic_filter_rejects_generic_lecture_scaffolding() -> None:
     assert not _overview_topic_is_useful("letztes mal")
     assert not _overview_topic_is_useful("mal haben")
     assert not _overview_topic_is_useful("table")
+    assert not _overview_topic_is_useful("achtung")
     assert not _overview_topic_is_useful("Mathematik für Informatiker 2")
     assert not _overview_topic_is_useful("exam-style questions or structured assessment prompts")
     assert not _overview_topic_is_useful("Sei M eine Menge, dann ist eine Folge")
@@ -2333,6 +2335,37 @@ class TestHelperFunctions:
             session = _make_study_session()
             result = build_turn_evidence_from_query(session, "test query")
         assert result is None
+
+    @patch("hephaistos.chat.evidence.ensure_rag_index")
+    def test_build_turn_evidence_from_generated_topic_prompt_uses_lexical_fallback(
+        self,
+        mock_ensure: MagicMock,
+    ) -> None:
+        text = (
+            "Definition. Sei M eine Menge, dann ist eine Folge in M eine Abbildung "
+            "phi: N -> M. Das n-te Folgenglied wird mit phi(n) bezeichnet."
+        )
+        index = ArmoryIndex(Path("/tmp/fake-armory"))
+        index.documents = [
+            ChunkedDocument(
+                source="materials/folgen.md",
+                chunks=[
+                    _make_chunk("materials/folgen.md", 0, "Mathematik fuer Informatiker 2"),
+                    _make_chunk("materials/folgen.md", 1, text),
+                ],
+            )
+        ]
+        mock_ensure.return_value = index
+
+        with patch("hephaistos.chat.evidence.retrieve", return_value=[]):
+            session = _make_study_session()
+            result = build_turn_evidence_from_query(
+                session,
+                "Explain Folgen from the material in simple terms.",
+            )
+
+        assert result is not None
+        assert any("Folge in M" in item.content for item in result.items)
 
     @patch("hephaistos.chat.evidence.ensure_rag_index")
     def testbuild_turn_evidence_from_query_error(

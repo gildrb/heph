@@ -167,6 +167,7 @@ _OVERVIEW_DATE_LINE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-zÄÖÜäöüß]+\s+\d{4
 _OVERVIEW_TOPIC_STOPWORDS = frozenset(
     {
         "about",
+        "achtung",
         "assessment",
         "aufgabe",
         "beispiel",
@@ -272,7 +273,7 @@ _OVERVIEW_FORMULA_RE = re.compile(r"(?:\\[a-zA-Z]+|[$=∑∫√≤≥→↦∀�
 _OVERVIEW_LINE_MARKER_RE = re.compile(r"^[#*\-\d.\s:;()\[\]]+")
 _OVERVIEW_TOPIC_FRAGMENT_RE = re.compile(
     r"\b(?:"
-    r"defined|definiert|bezeichnet|bezeichnen|setting|setzen|question|questions|"
+    r"achtung|defined|definiert|bezeichnet|bezeichnen|setting|setzen|question|questions|"
     r"assessment|prompts?|exam-style|structured|readiness|recall|study\s+topic"
     r")\b",
     re.IGNORECASE,
@@ -1080,11 +1081,6 @@ def _overview_fallback_reply(
 
     lines = [_OVERVIEW_TOPIC_SECTION_HEADING]
     lines.extend(f"- {topic}" for topic in topic_items[:_OVERVIEW_TOPIC_LIMIT])
-    material_signals = _overview_material_signal_items(evidence, topic_items, limit=2)
-    if material_signals:
-        lines.append("")
-        lines.append("Other material signals:")
-        lines.extend(f"- {signal}" for signal in material_signals)
     lines.append("")
     lines.append("Choose a topic to study next. In the shell, use ↑/↓ and press Enter.")
     if recommendations:
@@ -1293,29 +1289,6 @@ def _overview_topic_sentence(evidence: TurnEvidence) -> str:
     return ", ".join(topic_clues)
 
 
-def _overview_material_signal_items(
-    evidence: TurnEvidence,
-    topic_items: list[str],
-    *,
-    limit: int,
-) -> list[str]:
-    topic_labels = {
-        _normalize_overview_topic(_split_overview_citation(topic)[0]) for topic in topic_items
-    }
-    signals: list[str] = []
-    seen: set[str] = set()
-    for clue in _overview_content_clues(evidence, limit=limit + len(topic_items)):
-        label, citation = _split_overview_citation(clue)
-        normalized = _normalize_overview_topic(label)
-        if not normalized or normalized in seen or normalized in topic_labels:
-            continue
-        seen.add(normalized)
-        signals.append(f"{label} {citation}".strip())
-        if len(signals) >= limit:
-            break
-    return signals
-
-
 def _overview_default_web_searcher(evidence: TurnEvidence | None) -> PriorityWebSearcher | None:
     if evidence is None or not evidence.items:
         return None
@@ -1379,16 +1352,21 @@ def _overview_recommendation_items(
     if cited_topics:
         recommendations.append(f"Start with a guided explanation of {cited_topics[0]}.")
     if _overview_has_role(evidence, {"past_exam", "assignment"}):
+        practice_source = _overview_first_role_citation(evidence, {"past_exam", "assignment"})
         target = ""
         if len(cited_topics) > 1:
             target = cited_topics[1]
         elif cited_topics:
             target = cited_topics[0]
         if target:
-            recommendations.append(f"Practice one exam-style or exercise question on {target}.")
-        else:
+            source_text = f" using {practice_source}" if practice_source else ""
             recommendations.append(
-                "Practice one exam-style or exercise question from the material."
+                f"Practice one exam-style or exercise question on {target}{source_text}."
+            )
+        else:
+            source_text = f" {practice_source}" if practice_source else ""
+            recommendations.append(
+                f"Practice one exam-style or exercise question from the material{source_text}."
             )
     if len(cited_topics) >= 2:
         topic_pair = " and ".join(clean_topics[:2])
@@ -1409,6 +1387,14 @@ def _overview_has_role(evidence: TurnEvidence, roles: set[str]) -> bool:
         if confidence >= 0.6 and role in roles:
             return True
     return False
+
+
+def _overview_first_role_citation(evidence: TurnEvidence, roles: set[str]) -> str:
+    for item in evidence.items:
+        role, confidence, _reason = infer_material_role_from_text(item.source, item.content)
+        if confidence >= 0.6 and role in roles:
+            return f"[{item.evidence_id}]"
+    return ""
 
 
 def _dedupe_overview_recommendations(recommendations: list[str]) -> list[str]:
