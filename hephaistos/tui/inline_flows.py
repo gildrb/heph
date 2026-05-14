@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, cast
@@ -73,6 +74,9 @@ _ACTIVITY_TRACE_DESCRIPTIONS = {
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "hide internal activity lines",
 }
 _ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in _ACTIVITY_TRACE_LABELS.items()}
+_OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?$")
+_OVERVIEW_TOPIC_PROMPT = "Choose a topic to study next. In the shell, use ↑/↓"
+_OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 
 
 @dataclass(frozen=True)
@@ -164,7 +168,7 @@ class _InlineFlowHost(Protocol):
 
     def _submit_inline_chat_value(self, value: str) -> None: ...
 
-    def _handle_study_topic_choice(self, label: str) -> None: ...
+    def on_input_submitted(self, event: Input.Submitted) -> None: ...
 
     def _open_inline_menu(
         self,
@@ -261,6 +265,11 @@ class TuiInlineFlowMixin:
             self._open_models_flow()
         elif value == "/sessions" or value.startswith("/sessions "):
             self._handle_sessions_command(value)
+
+    def _submit_inline_chat_value(self: _InlineFlowHost, value: str) -> None:
+        composer = self.query_one("#composer", Input)
+        composer.value = value
+        self.on_input_submitted(Input.Submitted(composer, value, None))
 
     def _open_inline_menu(
         self: _InlineFlowHost,
@@ -667,8 +676,25 @@ class TuiInlineFlowMixin:
 
     def _handle_inline_menu_choice(self: _InlineFlowHost, label: str) -> None:
         if self._inline_flow.name == "study_topic":
-            self._handle_study_topic_choice(label)
-            return
+            if self._inline_flow.step == "topic":
+                self._open_inline_menu(
+                    name="study_topic",
+                    step="action",
+                    title=f"Study {label}",
+                    options=[
+                        ("Explain it", "build intuition from the selected topic"),
+                        ("Practice it", "try one source-grounded exercise"),
+                        ("Recall drill", "answer from memory, then get feedback"),
+                    ],
+                )
+                self._inline_flow.slug = label
+                return
+            if self._inline_flow.step == "action":
+                topic = self._inline_flow.slug
+                prompt = _study_topic_action_prompt(label, topic)
+                self._close_inline_flow(f"selected: {topic}")
+                self._submit_inline_chat_value(prompt)
+                return
         if self._inline_flow.name == "settings":
             if self._inline_flow.step == "menu":
                 if label == "Privacy & Diagnostics":
@@ -723,27 +749,6 @@ class TuiInlineFlowMixin:
             title="Choose a topic to study",
             options=options,
         )
-
-    def _handle_study_topic_choice(self: _InlineFlowHost, label: str) -> None:
-        if self._inline_flow.step == "topic":
-            self._open_inline_menu(
-                name="study_topic",
-                step="action",
-                title=f"Study {label}",
-                options=[
-                    ("Explain it", "build intuition from the selected topic"),
-                    ("Practice it", "try one source-grounded exercise"),
-                    ("Recall drill", "answer from memory, then get feedback"),
-                ],
-            )
-            self._inline_flow.slug = label
-            return
-        if self._inline_flow.step != "action":
-            return
-        topic = self._inline_flow.slug
-        prompt = _study_topic_action_prompt(label, topic)
-        self._close_inline_flow(f"selected: {topic}")
-        self._submit_inline_chat_value(prompt)
 
     def _handle_privacy_choice(self: _InlineFlowHost, label: str) -> None:
         settings = load_app_settings()
@@ -979,6 +984,27 @@ def _study_topic_action_prompt(action: str, topic: str) -> str:
     if action == "Practice it":
         return f"Give me one source-grounded practice question about {topic}."
     return f"Start a quick recall drill about {topic}."
+
+
+def overview_topic_options(reply: str) -> list[tuple[str, str]]:
+    if _OVERVIEW_TOPIC_PROMPT not in reply:
+        return []
+    topics: list[tuple[str, str]] = []
+    in_recommendations = False
+    for line in reply.splitlines():
+        stripped = line.strip()
+        if stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
+            in_recommendations = True
+            continue
+        if in_recommendations:
+            continue
+        match = _OVERVIEW_TOPIC_LINE_RE.match(stripped)
+        if match is None:
+            continue
+        label = match.group("label").strip()
+        if label:
+            topics.append((label, "study this topic"))
+    return topics[:8]
 
 
 def _api_key_logout_label(display_name: str) -> str:

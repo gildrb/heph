@@ -5,7 +5,6 @@ Imports stay lazy so test suites can exercise dependency errors cleanly.
 
 from __future__ import annotations
 
-import re
 import subprocess  # nosec B404
 import sys
 import threading
@@ -43,7 +42,7 @@ from hephaistos.tui.display_text import (
 )
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.history import TuiHistoryMixin
-from hephaistos.tui.inline_flows import TuiInlineFlowMixin
+from hephaistos.tui.inline_flows import TuiInlineFlowMixin, overview_topic_options
 from hephaistos.tui.keymap import armory_binding_keys
 from hephaistos.tui.no_armory import record_no_armory_turn
 from hephaistos.tui.routing import (
@@ -193,9 +192,6 @@ _format_command_activity_details = format_command_activity_details
 _format_command_activity_line = format_command_activity_line
 _RESEND_PREFIX = "__RESEND__:"
 _TUI_MANAGED_RESEND_COMMANDS = {"autopilot", "exam", "mode"}
-_OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?$")
-_OVERVIEW_TOPIC_PROMPT = "Choose a topic to study next. In the shell, use ↑/↓"
-_OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 
 
 class SlashSuggester(Suggester):
@@ -562,11 +558,6 @@ class HephaistosTui(
         self._refresh_status("assistant working")
         self.run_worker(lambda: self._run_turn(value), thread=True)
 
-    def _submit_inline_chat_value(self, value: str) -> None:
-        composer = self.query_one("#composer", Input)
-        composer.value = value
-        self.on_input_submitted(Input.Submitted(composer, value, None))
-
     def action_cancel_turn(self) -> None:
         if self.busy:
             self.abort_event.set()
@@ -916,7 +907,7 @@ class HephaistosTui(
 
         def on_reply(reply: str) -> None:
             self.call_from_thread(self._append_assistant_reply, reply)
-            if options := _overview_topic_options(reply):
+            if options := overview_topic_options(reply):
                 self.call_from_thread(self._open_study_topic_flow, options)
 
         def on_notice(notice: str) -> None:
@@ -993,7 +984,7 @@ class HephaistosTui(
 
         def on_reply(reply: str) -> None:
             self.call_from_thread(self._append_assistant_reply, reply)
-            if options := _overview_topic_options(reply):
+            if options := overview_topic_options(reply):
                 self.call_from_thread(self._open_study_topic_flow, options)
 
         def on_notice(notice: str) -> None:
@@ -1164,27 +1155,6 @@ class HephaistosTui(
         indicator.remove_class("active")
         indicator.add_class("hidden")
         self._refresh_footer_hints()
-
-
-def _overview_topic_options(reply: str) -> list[tuple[str, str]]:
-    if _OVERVIEW_TOPIC_PROMPT not in reply:
-        return []
-    topics: list[tuple[str, str]] = []
-    in_recommendations = False
-    for line in reply.splitlines():
-        stripped = line.strip()
-        if stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
-            in_recommendations = True
-            continue
-        if in_recommendations:
-            continue
-        match = _OVERVIEW_TOPIC_LINE_RE.match(stripped)
-        if match is None:
-            continue
-        label = match.group("label").strip()
-        if label:
-            topics.append((label, "study this topic"))
-    return topics[:8]
 
 
 def run_tui(session: ChatSession | None = None) -> None:
