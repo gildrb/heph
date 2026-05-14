@@ -841,7 +841,103 @@ def test_recall_clarification_is_not_assessed_as_attempt() -> None:
 
     assert plan.action is StudyAction.PROMPT_RECALL
     assert plan.phase is StudyPhase.RECALL
+    assert plan.study_move is not None
+    assert plan.study_move.kind == "ask_clarifying_question"
     assert "RECALL_CLARIFICATION" in plan.prompt
+
+
+@pytest.mark.parametrize(
+    "student_request",
+    [
+        "ask me again in German",
+        "can you ask that in German again?",
+        "in German please",
+        "again in German please",
+        "again in Spanish please",
+        "en espanol por favor",
+        "¿Puedes preguntarme otra vez en espanol?",
+        "Peux-tu me reposer la question en francais ?",
+        "frag mich nochmal auf deutsch",
+    ],
+)
+def test_recall_reprompt_language_request_is_not_assessed(student_request: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Explain integration by parts.",
+        retrieval_query="integration by parts",
+        attempt_count=2,
+    )
+
+    plan = plan_turn(state, student_request)
+    next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        "Erklaere die Aufgabe noch einmal aus dem Gedaechtnis.",
+        [],
+    )
+
+    assert plan.action is StudyAction.PROMPT_RECALL
+    assert plan.phase is StudyPhase.RECALL
+    assert "RECALL_CLARIFICATION" in plan.prompt
+    assert "translate, or use a language" in plan.prompt
+    assert "Do not include answer content, grading, scores" in plan.prompt
+    assert cleaned == "Erklaere die Aufgabe noch einmal aus dem Gedaechtnis."
+    assert next_state.phase is StudyPhase.RECALL
+    assert next_state.current_item == "Explain integration by parts."
+    assert next_state.attempt_count == 2
+
+
+@pytest.mark.parametrize(
+    "student_request",
+    [
+        "what can Heph do?",
+        "how do I switch models in Hephaistos?",
+        "can you explain /autopilot?",
+    ],
+)
+def test_recall_heph_self_request_is_chat_not_assessment(student_request: str) -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Explain integration by parts.",
+        retrieval_query="integration by parts",
+        attempt_count=2,
+    )
+
+    plan = plan_turn(state, student_request)
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.phase is StudyPhase.RECALL
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is False
+    assert "HEPH self-help mode" in plan.prompt
+    assert "Do not treat the user message as a recall attempt" in plan.prompt
+    assert "Do not use armory material" in plan.prompt
+
+
+def test_recall_translate_answer_request_is_refused_not_reprompted() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Explain integration by parts.",
+        retrieval_query="integration by parts",
+    )
+
+    plan = plan_turn(state, "translate the answer into Spanish")
+
+    assert plan.action is StudyAction.REFUSE_REVEAL
+    assert plan.phase is StudyPhase.RECALL
+
+
+def test_recall_attempt_with_language_words_is_still_assessed() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Explain the German terminology in the theorem.",
+        retrieval_query="German terminology",
+    )
+
+    plan = plan_turn(state, "I would write the answer in German as Begriff and Beispiel")
+
+    assert plan.action is StudyAction.ASSESS
+    assert plan.phase is StudyPhase.ASSESS
 
 
 def test_recall_attempt_that_mentions_answer_is_assessed() -> None:
@@ -1041,7 +1137,7 @@ def test_hint_prompt_uses_ladder_level_four_for_deeper_scaffold() -> None:
     assert "partial worked step" in plan.prompt
 
 
-def test_hint_prompt_uses_ladder_level_five_for_full_solution() -> None:
+def test_hint_prompt_level_five_still_hides_direct_answer() -> None:
     state = StudyState(
         phase=StudyPhase.RECALL,
         current_item="Q1",
@@ -1054,7 +1150,8 @@ def test_hint_prompt_uses_ladder_level_five_for_full_solution() -> None:
 
     assert plan.action is StudyAction.HINT
     assert "Hint level: 5" in plan.prompt
-    assert "full solution with explanation" in plan.prompt
+    assert "strongest scaffold" in plan.prompt
+    assert "do not state the final answer directly" in plan.prompt
 
 
 def test_present_result_without_source_refs_resets_current_item() -> None:

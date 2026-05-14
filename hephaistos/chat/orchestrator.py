@@ -60,6 +60,7 @@ from hephaistos.materials import infer_material_role_from_text
 from hephaistos.memory.workflow import schedule_memory_extraction
 from hephaistos.rag import TurnEvidence
 from hephaistos.runtime import (
+    Conversation,
     EngineError,
     Message,
     RetryConfig,
@@ -73,6 +74,7 @@ from hephaistos.study import (
     ReviewItem,
     StudyAction,
     StudyFeedbackType,
+    StudyPhase,
     StudyState,
     StudyTurnPlan,
     apply_turn_result,
@@ -715,6 +717,31 @@ def _run_bounded_internal_repairs(
         if repaired == previous:
             break
     return repaired, passes
+
+
+def _isolated_recall_conversation(
+    plan: StudyTurnPlan,
+    original_study_state: StudyState,
+    user_input: str,
+) -> Conversation | None:
+    """Return a minimal context for recall control turns that must not see answers."""
+    if plan.action in {
+        StudyAction.PROMPT_RECALL,
+        StudyAction.REFUSE_REVEAL,
+        StudyAction.WAIT_READY_REMINDER,
+    }:
+        conversation = Conversation()
+        conversation.add("user", user_input)
+        return conversation
+    if (
+        original_study_state.phase is StudyPhase.RECALL
+        and plan.action is StudyAction.CHAT
+        and plan.retrieval_query is None
+    ):
+        conversation = Conversation()
+        conversation.add("user", user_input)
+        return conversation
+    return None
 
 
 def _repair_pedagogy_shape(plan: StudyTurnPlan, reply: str) -> str:
@@ -1455,6 +1482,7 @@ class TurnOrchestrator:
                     for event in self._iter_study_events(
                         resolved,
                         original_study_state,
+                        user_input=user_input,
                         abort=abort,
                     ):
                         yield event
@@ -1554,6 +1582,7 @@ class TurnOrchestrator:
         resolved: ResolvedTurnPlan,
         original_study_state: StudyState,
         *,
+        user_input: str,
         abort: threading.Event | None,
     ) -> Iterator[TurnEvent]:
         session = self.session
@@ -1648,9 +1677,13 @@ class TurnOrchestrator:
         raw_parts: list[str] = []
         last_reply_parts: list[str] = []
         completion_event: TurnCompleteEvent | None = None
+        agent_conversation = (
+            _isolated_recall_conversation(plan, original_study_state, user_input)
+            or session.conversation
+        )
         for event in iter_agent_events(
             session.config,
-            session.conversation,
+            agent_conversation,
             session.armory_path,
             abort=abort,
             retry=self.retry,

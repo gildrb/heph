@@ -55,6 +55,49 @@ _RECALL_CLARIFICATION_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+_RECALL_REPROMPT_RE = re.compile(
+    r"^\s*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"
+    r"(?:ask|repeat|restate|rephrase|say|read|write|translate|traduc\w*)\b"
+    r"(?=[^.!?]*(?:again|once more|one more time|question|prompt|item|task|exercise|"
+    r"(?:in|auf|en|em)\s+[\w-]+|language|sprache|idioma|langue|lingua))",
+    re.IGNORECASE,
+)
+_RECALL_SHORT_REPROMPT_RE = re.compile(
+    r"^(?:again|once more|one more time|nochmal|noch einmal)"
+    r"(?:\s+(?:in|auf|en|em)\s+[\w-]+)?"
+    r"(?:\s+(?:please|bitte))?[.!?]?$",
+    re.IGNORECASE,
+)
+_RECALL_LANGUAGE_ONLY_RE = re.compile(
+    r"^(?:in|auf|en|em)\s+[\w-]+"
+    r"(?:\s+(?:please|bitte|por\s+favor))?[.!?]?$",
+    re.IGNORECASE,
+)
+_RECALL_GERMAN_REPROMPT_RE = re.compile(
+    r"^\s*(?:bitte\s+)?(?:frag|frage|wiederhol|wiederhole|stell)\b"
+    r"(?=[^.!?]*(?:mich|frage|aufgabe|nochmal|noch einmal|deutsch|englisch))",
+    re.IGNORECASE,
+)
+_RECALL_QUESTION_PUNCT_RE = re.compile(r"[?\u00bf\u061f\uff1f]")
+_RECALL_ANSWER_CLAIM_RE = re.compile(
+    r"\b(?:the\s+)?answer\s+(?:is|=)|\bconfidence\b|(?<!\w)[A-D][.)]\s+\w+",
+    re.IGNORECASE,
+)
+_HEPH_SELF_RE = re.compile(
+    r"\b(?:"
+    r"heph|hephaistos|this\s+(?:tool|app|cli)|you|yourself|your\s+commands?|"
+    r"armory|armories|autopilot|guided\s+mode|manual\s+mode|model\s+picker|"
+    r"login|privacy|diagnostics|settings"
+    r")\b",
+    re.IGNORECASE,
+)
+_HEPH_SELF_INTENT_RE = re.compile(
+    r"\b(?:"
+    r"what\s+can|what\s+do|who\s+are|how\s+(?:do|can|should)|help|commands?|"
+    r"use|work|switch|change|configure|set\s+up|turn\s+(?:on|off)|explain"
+    r")\b",
+    re.IGNORECASE,
+)
 _INITIAL_CALIBRATION_RE = re.compile(
     r"^(?:"
     r"start|begin|"
@@ -85,6 +128,7 @@ _REVEAL_RE = re.compile(
     r"show (?:me )?(?:the )?(?:full )?(?:answer|solution)|"
     r"tell me (?:the )?(?:full )?(?:answer|solution)|"
     r"give me (?:the )?(?:full )?(?:answer|solution)|"
+    r"translate (?:the )?(?:answer|solution)|"
     r"reveal(?: the)?(?: answer| solution)?|"
     r"explain again|full answer|full solution"
     r")\b",
@@ -213,7 +257,22 @@ def _is_waiting_procedure_request(text: str) -> bool:
 
 
 def _is_recall_clarification_request(text: str) -> bool:
-    return bool(_RECALL_CLARIFICATION_RE.search(_normalize(text)))
+    normalized = _normalize(text)
+    has_question_punct = _RECALL_QUESTION_PUNCT_RE.search(normalized) is not None
+    looks_like_answer_claim = _RECALL_ANSWER_CLAIM_RE.search(normalized) is not None
+    return bool(
+        _RECALL_CLARIFICATION_RE.search(normalized)
+        or _RECALL_REPROMPT_RE.search(normalized)
+        or _RECALL_SHORT_REPROMPT_RE.fullmatch(normalized)
+        or _RECALL_LANGUAGE_ONLY_RE.fullmatch(normalized)
+        or _RECALL_GERMAN_REPROMPT_RE.search(normalized)
+        or (has_question_punct and not looks_like_answer_claim)
+    )
+
+
+def _is_heph_self_request(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(_HEPH_SELF_RE.search(normalized) and _HEPH_SELF_INTENT_RE.search(normalized))
 
 
 def _material_request_plan(
@@ -386,6 +445,23 @@ def _manual_chat_prompt(query: str) -> str:
     )
 
 
+def _heph_self_prompt(query: str) -> str:
+    return (
+        "HEPH self-help mode.\n"
+        f"User request: {query}\n"
+        "Rules:\n"
+        "- Answer as Hephaistos about Hephaistos: the local-first study CLI, armories, "
+        "materials, chat, source-grounded answers, active recall, /priority, /exam, "
+        "/autopilot, /manual, /guided, /models, /login, /settings, privacy, and diagnostics.\n"
+        "- Do not treat the user message as a recall attempt, even during an active drill.\n"
+        "- Do not grade the learner, require confidence, or reveal any active study answer.\n"
+        "- Do not use armory material, citations, retrieved evidence, or tool output.\n"
+        "- If the request is outside what Hephaistos can do, say so and point to /help or "
+        "the relevant slash command.\n"
+        "- Keep the answer concise and practical."
+    )
+
+
 def _autopilot_calibration_prompt(query: str, state: StudyState) -> str:
     goal = state.session_goal or "autonomous study"
     session_type = state.autopilot_session_type or "general"
@@ -448,14 +524,18 @@ def _recall_prompt(item: str) -> str:
     )
 
 
-def _recall_clarification_prompt(item: str) -> str:
+def _recall_clarification_prompt(item: str, request: str) -> str:
     return (
         "Controlled study state machine. Execute RECALL_CLARIFICATION.\n"
         f"Current item: {item}\n"
+        f"Student request: {request}\n"
         "Rules:\n"
         "- The student is asking what to answer, not attempting the answer.\n"
+        "- If the student asks to repeat, rephrase, translate, or use a language, honor "
+        "that request for the prompt only.\n"
         "- Restate what they should recall from memory without revealing the solution.\n"
         "- Do not assess the student.\n"
+        "- Do not include answer content, grading, scores, or correctness labels.\n"
         "- Keep it to one or two short sentences."
     )
 
@@ -478,12 +558,12 @@ def _hint_prompt(item: str, hint_level: int) -> str:
         2: "- Give exactly one relevant definition or formula hint.",
         3: "- Give exactly one next-step procedural hint.",
         4: "- Give exactly one partial worked step.",
-        5: "- Give the full solution with explanation.",
+        5: "- Give the strongest scaffold that still leaves the learner to complete the answer.",
     }[bounded_level]
     leakage_rule = (
         "- Do not reveal later steps or the full answer."
         if bounded_level < 5
-        else "- This is the final ladder level; include the complete method."
+        else "- This is the final ladder level; do not state the final answer directly."
     )
     return (
         "Controlled study state machine. Execute HINT.\n"
@@ -903,6 +983,13 @@ def _plan_turn_base(
                 retrieval_query="exam priority topics prerequisites past exams materials overview",
                 allow_tools=False,
             )
+        if _is_heph_self_request(text):
+            return StudyTurnPlan(
+                action=StudyAction.CHAT,
+                phase=state.phase,
+                prompt=_heph_self_prompt(text),
+                allow_tools=False,
+            )
         if _needs_initial_calibration(user_input):
             prompt = _calibration_prompt()
             if _EXAM_DRILL_RE.search(text):
@@ -1001,11 +1088,18 @@ def _plan_turn_base(
                 prompt=_refusal_prompt(state.current_item),
                 allow_tools=False,
             )
+        if _is_heph_self_request(text):
+            return StudyTurnPlan(
+                action=StudyAction.CHAT,
+                phase=StudyPhase.RECALL,
+                prompt=_heph_self_prompt(text),
+                allow_tools=False,
+            )
         if _is_recall_clarification_request(text):
             return StudyTurnPlan(
                 action=StudyAction.PROMPT_RECALL,
                 phase=StudyPhase.RECALL,
-                prompt=_recall_clarification_prompt(state.current_item),
+                prompt=_recall_clarification_prompt(state.current_item, text),
                 allow_tools=False,
             )
         if _REVIEW_MATERIAL_RE.search(text):

@@ -889,6 +889,91 @@ class TestTurnOrchestratorStudy:
             }
         ]
 
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_recall_reprompt_language_request_does_not_grade(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("Erklaere die Aufgabe noch einmal aus dem Gedaechtnis.")]
+        )
+
+        session = _make_study_session()
+        session.study_state = StudyState(
+            phase=StudyPhase.RECALL,
+            current_item="Explain integration by parts.",
+            retrieval_query="integration by parts",
+            attempt_count=1,
+        )
+        session.conversation.add(
+            "assistant",
+            "Solution: integrate u dv as uv minus the integral of v du.",
+        )
+
+        events = list(TurnOrchestrator(session).iter_events("ask me again in German"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        extra_prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        agent_conversation = mock_iter_agent.call_args.args[1]
+        assert deltas == ["Erklaere die Aufgabe noch einmal aus dem Gedaechtnis."]
+        assert "Execute RECALL_CLARIFICATION" in extra_prompt
+        assert "Student request: ask me again in German" in extra_prompt
+        assert "Execute ASSESS" not in extra_prompt
+        assert mock_iter_agent.call_args.kwargs["turn_evidence"] is None
+        assert mock_iter_agent.call_args.kwargs["tool_schemas"] == []
+        assert agent_conversation is not session.conversation
+        assert [message.role for message in agent_conversation.messages] == ["user"]
+        assert agent_conversation.messages[0].content == "ask me again in German"
+        assert "Solution:" not in " ".join(
+            message.content for message in agent_conversation.messages
+        )
+        assert session.study_state.phase is StudyPhase.RECALL
+        assert session.study_state.attempt_count == 1
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_recall_heph_self_request_uses_isolated_self_help_context(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent("Use /models to switch models.")])
+
+        session = _make_study_session()
+        session.study_state = StudyState(
+            phase=StudyPhase.RECALL,
+            current_item="Explain integration by parts.",
+            retrieval_query="integration by parts",
+            attempt_count=1,
+        )
+        session.conversation.add(
+            "assistant",
+            "Solution: integrate u dv as uv minus the integral of v du.",
+        )
+
+        events = list(TurnOrchestrator(session).iter_events("how do I switch models in Heph?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        extra_prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        agent_conversation = mock_iter_agent.call_args.args[1]
+        assert deltas == ["Use /models to switch models."]
+        assert "HEPH self-help mode" in extra_prompt
+        assert "Execute ASSESS" not in extra_prompt
+        assert mock_iter_agent.call_args.kwargs["turn_evidence"] is None
+        assert mock_iter_agent.call_args.kwargs["tool_schemas"] == []
+        assert agent_conversation is not session.conversation
+        assert [message.role for message in agent_conversation.messages] == ["user"]
+        assert agent_conversation.messages[0].content == "how do I switch models in Heph?"
+        assert "Solution:" not in " ".join(
+            message.content for message in agent_conversation.messages
+        )
+        assert session.study_state.phase is StudyPhase.RECALL
+        assert session.study_state.attempt_count == 1
+
     @patch("hephaistos.chat.orchestrator.apply_turn_result")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")

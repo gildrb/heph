@@ -346,7 +346,11 @@ def validate_pedagogy(reply: str, move: StudyMove, mode: StudyAutonomyMode) -> P
         issues.append("missing confidence request")
     if move.kind in {"ask_recall", "contrastive_question"} and _looks_like_answer_leak(reply):
         issues.append("possible answer leakage during recall")
-    if mode is not StudyAutonomyMode.MANUAL and not _has_next_action(reply, move):
+    if (
+        mode is not StudyAutonomyMode.MANUAL
+        and move.kind != "ask_clarifying_question"
+        and not _has_next_action(reply, move)
+    ):
         issues.append("missing explicit next action")
     if (
         mode is StudyAutonomyMode.GUIDED
@@ -833,6 +837,13 @@ def _autopilot_move(input_data: AutopilotInput) -> StudyMove:
 
 
 def _move_from_action(action: StudyAction, input_data: AutopilotInput) -> StudyMove | None:
+    if action is StudyAction.PROMPT_RECALL and input_data.study_state.phase is StudyPhase.RECALL:
+        return _move(
+            "ask_clarifying_question",
+            "the learner asked to clarify or restate the active recall prompt",
+            requires_evidence=False,
+            requires_user_commitment=False,
+        )
     if action in {StudyAction.CALIBRATE, StudyAction.PROMPT_RECALL, StudyAction.SIMPLIFY}:
         return _move(
             "ask_recall",
