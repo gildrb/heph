@@ -74,7 +74,8 @@ _ACTIVITY_TRACE_DESCRIPTIONS = {
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "hide internal activity lines",
 }
 _ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in _ACTIVITY_TRACE_LABELS.items()}
-_OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?$")
+_OVERVIEW_TOPIC_SECTION_HEADING = "These are the study topics I found in the material:"
+_OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
 _OVERVIEW_TOPIC_PROMPT = "Choose a topic to study next. In the shell, use ↑/↓"
 _OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 
@@ -306,6 +307,7 @@ class TuiInlineFlowMixin:
             suffix = f" for {query}" if query else ""
             suggestions.set_options([f"No matches{suffix}"])
             suggestions.highlighted = None
+        suggestions.add_class("inline-menu")
         suggestions.add_class("visible")
         self._refresh_footer_hints()
 
@@ -990,21 +992,25 @@ def overview_topic_options(reply: str) -> list[tuple[str, str]]:
     if _OVERVIEW_TOPIC_PROMPT not in reply:
         return []
     topics: list[tuple[str, str]] = []
-    in_recommendations = False
+    in_topics = False
     for line in reply.splitlines():
         stripped = line.strip()
-        if stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
-            in_recommendations = True
+        if stripped.startswith(_OVERVIEW_TOPIC_SECTION_HEADING.removesuffix(":")):
+            in_topics = True
             continue
-        if in_recommendations:
+        if not in_topics:
             continue
+        if not stripped or stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
+            break
         match = _OVERVIEW_TOPIC_LINE_RE.match(stripped)
         if match is None:
+            if topics:
+                break
             continue
         label = match.group("label").strip()
         if label:
             topics.append((label, "study this topic"))
-    return topics[:8]
+    return topics[:7]
 
 
 def _api_key_logout_label(display_name: str) -> str:

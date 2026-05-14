@@ -83,6 +83,54 @@ _WEB_PREREQ_CLAUSE_RE = re.compile(
     r"understand(?:ing)?)\b[^.?!:;]{0,48}[:;\-]?\s*(?P<tail>[^.?!]{0,180})",
     re.IGNORECASE,
 )
+_TOPIC_INTRO_RE = re.compile(
+    r"\b(?:"
+    r"definition|defined|definiert|bezeichnet|bezeichnen|heisst|heißt|nennt|setzen|"
+    r"we\s+call|we\s+define|is\s+called|is\s+defined"
+    r")\b",
+    re.IGNORECASE,
+)
+_DEFINITION_SUBJECT_RE = re.compile(
+    rf"\b(?P<term>(?:the|a|an|der|die|das|den|dem|ein|eine|einen|einer)?\s*"
+    rf"[{_LETTER}][{_LETTER}0-9_+-]{{2,}}"
+    rf"(?:\s+[{_LETTER}][{_LETTER}0-9_+-]{{2,}}){{0,4}})"
+    r"\s+(?:is|are|ist|sind|means|denotes|bezeichnet|heisst|heißt|nennt|"
+    r"refers\s+to)\b",
+    re.IGNORECASE,
+)
+_DEFINED_OBJECT_RE = re.compile(
+    rf"\b(?:the|a|an|der|die|das|den|dem|ein|eine|einen|einer)\s+"
+    rf"(?P<term>[{_LETTER}][{_LETTER}0-9_+-]{{2,}}"
+    rf"(?:\s+[{_LETTER}][{_LETTER}0-9_+-]{{2,}}){{0,4}})"
+    r"\b[^.?!]{0,80}\b(?:defined|definiert|definition)\b",
+    re.IGNORECASE,
+)
+_DEFINITION_TERM_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "der",
+        "die",
+        "das",
+        "den",
+        "dem",
+        "ein",
+        "eine",
+        "einen",
+        "einer",
+        "eines",
+        "of",
+        "von",
+        "in",
+        "im",
+        "on",
+        "for",
+        "für",
+        "to",
+        "als",
+    }
+)
 _MARK_RE = re.compile(
     r"(?:\[\s*(\d{1,2})\s*(?:marks?|pts?|points?|punkte?)\s*\]|"
     r"\((\d{1,2})\s*(?:marks?|pts?|points?|punkte?)\)|"
@@ -250,10 +298,13 @@ _STOPWORDS = frozenset(
         "compute",
         "connected",
         "define",
+        "defined",
         "depend",
         "depends",
         "derive",
         "describe",
+        "definition",
+        "definiert",
         "der",
         "des",
         "dann",
@@ -275,6 +326,7 @@ _STOPWORDS = frozenset(
         "euro",
         "falls",
         "explain",
+        "folien",
         "folgenden",
         "folgt",
         "following",
@@ -285,6 +337,9 @@ _STOPWORDS = frozenset(
         "given",
         "gilt",
         "gewinnt",
+        "folgenglied",
+        "called",
+        "denotes",
         "handschriftlich",
         "have",
         "hilfsmittel",
@@ -293,12 +348,16 @@ _STOPWORDS = frozenset(
         "insbesondere",
         "in",
         "into",
+        "is",
         "marks",
         "maximal",
         "midterm",
+        "means",
         "muss",
+        "nach",
         "nicht",
         "notizen",
+        "n-te",
         "one",
         "oder",
         "past",
@@ -308,8 +367,13 @@ _STOPWORDS = frozenset(
         "pts",
         "question",
         "questions",
+        "bezeichne",
+        "bezeichnen",
+        "bezeichnet",
+        "setzen",
         "show",
         "sketch",
+        "sn",
         "state",
         "sowie",
         "that",
@@ -390,6 +454,7 @@ _STOPWORDS = frozenset(
         "wünschen",
         "wurzburg",
         "würzburg",
+        "x0",
         "wenn",
         "verliert",
         "verfasste",
@@ -400,8 +465,7 @@ _STOPWORDS = frozenset(
         "nachname",
         "nschen",
         "vorname",
-        "algorithm",
-        "algorithms",
+        "vorlesung",
         "article",
         "course",
         "example",
@@ -411,6 +475,9 @@ _STOPWORDS = frozenset(
         "introduction",
         "learn",
         "learning",
+        "lecture",
+        "lectures",
+        "notes",
         "overview",
         "should",
         "tutorial",
@@ -422,9 +489,53 @@ _STOPWORDS = frozenset(
 _BOILERPLATE_TOPIC_PHRASES = frozenset(
     {
         "a f x in e",
+        "chapter",
+        "chapters",
+        "concept",
+        "concepts",
+        "definitions",
+        "exercises",
+        "problems",
+        "proof",
+        "proofs",
+        "reihe folge",
+        "theorem",
+        "theorems",
+        "topics",
         "ohne beweis",
     }
 )
+_CANONICAL_CONCEPT_TERMS = {
+    "ableitung": "ableitungen",
+    "ableitungen": "ableitungen",
+    "derivative": "derivatives",
+    "derivatives": "derivatives",
+    "differenzierbarkeit": "differenzierbarkeit",
+    "folge": "folgen",
+    "folgen": "folgen",
+    "sequence": "sequences",
+    "sequences": "sequences",
+    "grenzwert": "grenzwerte",
+    "grenzwerte": "grenzwerte",
+    "limit": "limits",
+    "limits": "limits",
+    "konvergenz": "konvergenz",
+    "convergence": "convergence",
+    "partialsumme": "partialsummen",
+    "partialsummen": "partialsummen",
+    "reihe": "reihen",
+    "reihen": "reihen",
+    "series": "series",
+    "stetig": "stetigkeit",
+    "stetigkeit": "stetigkeit",
+    "continuity": "continuity",
+    "integral": "integrale",
+    "integrale": "integrale",
+    "taylorreihe": "taylorreihen",
+    "taylorreihen": "taylorreihen",
+    "kurvendiskussion": "kurvendiskussion",
+}
+_SYMBOLIC_TOPIC_TOKEN_RE = re.compile(r"^[a-zäöüß]{1,2}\d*$|^\d+$|^[a-zäöüß]-[a-zäöüß]$")
 
 
 class PriorityChunk(Protocol):
@@ -915,10 +1026,18 @@ def _topic_terms(heading: str, text: str) -> list[str]:
     seen: set[str] = set()
     terms: list[str] = []
     for candidate in _candidate_topic_phrases(raw):
-        if _valid_topic(candidate) and candidate not in seen:
-            terms.append(candidate)
-            seen.add(candidate)
+        canonical = _canonical_topic_term(candidate)
+        if _valid_topic(canonical) and canonical not in seen:
+            terms.append(canonical)
+            seen.add(canonical)
     return terms
+
+
+def _canonical_topic_term(candidate: str) -> str:
+    normalized = " ".join(candidate.casefold().split())
+    if " " not in normalized:
+        return _CANONICAL_CONCEPT_TERMS.get(normalized, normalized)
+    return normalized
 
 
 def _topic_confidence(
@@ -1029,19 +1148,46 @@ def _candidate_web_prerequisite_terms(text: str, topic_words: set[str]) -> Itera
 
 def _candidate_topic_phrases(raw: str) -> Iterator[str]:
     topic_text = _topic_candidate_text(raw)
+    yield from _definition_head_candidates(topic_text)
+    yield from _canonical_concept_candidates(topic_text)
     yield from _heading_candidates(topic_text)
     yield from _prompt_topic_candidates(topic_text)
     for phrase_match in _TOPIC_PHRASE_RE.finditer(topic_text):
         phrase = phrase_match.group(0)
-        words = [word.lower() for word in _WORD_SPLIT_RE.findall(phrase)]
-        useful = [word for word in words if word not in _STOPWORDS and not word.isdigit()]
-        yield from _content_phrase_candidates(phrase, useful)
+        parts = [
+            part.strip()
+            for part in _PROMPT_TOPIC_SPLIT_RE.split(phrase)
+            if part.strip() and part.strip() != phrase
+        ]
+        if parts:
+            for part in parts:
+                yield from _topic_part_candidates(part)
+            continue
+        yield from _topic_part_candidates(phrase)
+
+
+def _topic_part_candidates(phrase: str) -> Iterator[str]:
+    words = [word.lower() for word in _WORD_SPLIT_RE.findall(phrase)]
+    useful = [word for word in words if word not in _STOPWORDS and not word.isdigit()]
+    if len(useful) == 1 and len(useful[0]) >= 5:
+        yield useful[0]
+        return
+    yield from _content_phrase_candidates(phrase, useful)
 
 
 def _heading_candidates(raw: str) -> Iterator[str]:
     for line in raw.splitlines():
         cleaned = _HEADING_PREFIX_RE.sub("", line.strip())
         if not cleaned or len(cleaned) > 90 or _is_boilerplate_line(cleaned):
+            continue
+        parts = [
+            part.strip()
+            for part in _PROMPT_TOPIC_SPLIT_RE.split(cleaned)
+            if part.strip() and part.strip() != cleaned
+        ]
+        if parts:
+            for part in parts:
+                yield from _topic_part_candidates(part)
             continue
         words = [word.lower() for word in _WORD_SPLIT_RE.findall(cleaned)]
         useful = [word for word in words if word not in _STOPWORDS and not word.isdigit()]
@@ -1075,11 +1221,72 @@ def _content_phrase_candidates(phrase: str, words: list[str]) -> Iterator[str]:
         and first_token_match.group(0)[:1].isupper()
         and first_token_match.group(0).lower() == words[0]
         and len(words[0]) >= 5
+        and not _SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(words[1])
     ):
         yield words[0]
     for size in (2, 3):
         for start in range(len(words) - size + 1):
             yield " ".join(words[start : start + size])
+
+
+def _definition_head_candidates(text: str) -> Iterator[str]:
+    seen: set[str] = set()
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        for pattern in (_DEFINITION_SUBJECT_RE, _DEFINED_OBJECT_RE):
+            for match in pattern.finditer(line):
+                term = _definition_term_candidate(match.group("term"))
+                if not term or term in seen:
+                    continue
+                seen.add(term)
+                yield term
+
+
+def _definition_term_candidate(raw: str) -> str:
+    words = [word.lower() for word in _WORD_SPLIT_RE.findall(raw)]
+    kept: list[str] = []
+    for word in words:
+        if word in _DEFINITION_TERM_STOPWORDS:
+            if kept:
+                break
+            continue
+        if word in _STOPWORDS:
+            if kept:
+                break
+            continue
+        kept.append(word)
+        if len(kept) >= 3:
+            break
+    return " ".join(kept)
+
+
+def _canonical_concept_candidates(text: str) -> Iterator[str]:
+    """Recover named concepts from definition-heavy lecture prose."""
+    seen: set[str] = set()
+    for raw_line in text.splitlines():
+        if not raw_line.strip():
+            continue
+        line = raw_line.casefold()
+        for token_match in _WORD_SPLIT_RE.finditer(line):
+            term = _CANONICAL_CONCEPT_TERMS.get(token_match.group(0))
+            if term is None:
+                continue
+            if not _line_supports_concept_topic(line, token_match.start()):
+                continue
+            if term in seen:
+                continue
+            seen.add(term)
+            yield term
+
+
+def _line_supports_concept_topic(line: str, token_start: int) -> bool:
+    if _TOPIC_INTRO_RE.search(line):
+        return True
+    window_start = max(0, token_start - 48)
+    window_end = min(len(line), token_start + 80)
+    window = line[window_start:window_end]
+    return bool(re.search(r"[:=→↦∑∫]|\\(?:lim|sum|int|frac)\b", window))
 
 
 def _topic_candidate_text(raw: str) -> str:
@@ -1092,8 +1299,7 @@ def _topic_candidate_text(raw: str) -> str:
             for unit in _content_units(line)
             if unit.strip() and not _is_boilerplate_line(unit)
         ]
-        if kept_units:
-            lines.append(" ".join(kept_units))
+        lines.extend(kept_units)
     return "\n".join(lines)
 
 
@@ -1131,6 +1337,8 @@ def _valid_topic(candidate: str) -> bool:
     if candidate in _BOILERPLATE_TOPIC_PHRASES:
         return False
     if any(word in _STOPWORDS for word in words):
+        return False
+    if any(_SYMBOLIC_TOPIC_TOKEN_RE.fullmatch(word) for word in words):
         return False
     if any(len(word) <= 1 for word in words):
         return False
@@ -1187,7 +1395,7 @@ def _topic_is_preferred(candidate: str, current: str) -> bool:
         return True
     if len(current_words) >= 2 and current_words < candidate_words:
         return False
-    return len(candidate_words) > len(current_words)
+    return len(current_words) == 1 and current_words < candidate_words
 
 
 def _explicit_prerequisites(text: str) -> list[str]:
@@ -1538,7 +1746,8 @@ def _analysis_for_full_report(analysis: PriorityAnalysis) -> PriorityAnalysis:
     return analysis
 
 
-def _duckduckgo_search(query: str) -> Iterable[PriorityWebSearchResult]:
+def duckduckgo_search(query: str) -> Iterable[PriorityWebSearchResult]:
+    """Return lightweight DuckDuckGo HTML results for study-topic enrichment."""
     params = urllib.parse.urlencode({"q": query})
     request = urllib.request.Request(
         f"{_WEB_PREREQ_SEARCH_URL}?{params}",
@@ -1547,6 +1756,9 @@ def _duckduckgo_search(query: str) -> Iterable[PriorityWebSearchResult]:
     with urllib.request.urlopen(request, timeout=_WEB_PREREQ_TIMEOUT) as response:  # nosec B310
         raw_html = response.read().decode("utf-8", errors="replace")
     return tuple(_parse_duckduckgo_results(raw_html))
+
+
+_duckduckgo_search = duckduckgo_search
 
 
 def _parse_duckduckgo_results(raw_html: str) -> Iterator[PriorityWebSearchResult]:

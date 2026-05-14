@@ -47,6 +47,7 @@ from hephaistos.chat.orchestrator import (
     _overview_answer_has_bad_shape,
     _overview_fallback_reply,
     _overview_topic_is_useful,
+    _overview_topic_items,
     _overview_topic_looks_like_metadata,
     _repair_pedagogy_shape,
     _run_bounded_internal_repairs,
@@ -66,6 +67,7 @@ from hephaistos.study import (
     StudyTurnPlan,
     plan_turn,
 )
+from hephaistos.study.priority import PriorityWebSearchResult
 from hephaistos.study.schedule import load_study_schedule
 from scripts import benchmark_answers
 
@@ -397,7 +399,8 @@ def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
     assert "sampled" not in reply.casefold()
     assert "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in reply
     assert "Recommended options:" in reply
-    assert "graph recurrence [E1]" in reply
+    assert "graph algorithms [E1]" in reply
+    assert "recurrence [E1]" in reply
     assert "[E2]" in reply
     assert "[E1]" in reply
 
@@ -498,9 +501,10 @@ def test_overview_fallback_needed_for_vague_or_range_cited_answer() -> None:
         plan,
         (
             "These are the study topics I found in the material [E1][E2].\n"
-            "- Lecture overview and table of contents [E1].\n"
-            "- Final exam question practice [E2].\n"
-            "- Choose a topic to study next [E1]."
+            "- Graph algorithms [E1].\n"
+            "- Recurrence relations [E2].\n"
+            "- Bayes theorem [E1].\n"
+            "Use the shell menu to choose one cited topic for guided study next."
         ),
         evidence,
     )
@@ -525,9 +529,26 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
     )
     assert not _overview_answer_has_bad_shape(
         "These are the study topics I found in the material [E1][E2].\n"
-        "- Lecture material appears in the material [E1].\n"
-        "- Exam material appears in the material [E2].\n"
-        "- Choose a topic to study next using the menu [E1].",
+        "- Graph algorithms [E1].\n"
+        "- Recurrence relations [E2].\n"
+        "- Bayes theorem [E1].\n"
+        "Use the shell menu to choose one cited topic for guided study next.",
+        evidence,
+    )
+
+
+def test_overview_shape_rejects_non_topic_menu_labels() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk("materials/lecture.pdf", 0, "E1"),
+        _make_evidence_chunk("materials/exam.pdf", 0, "E2"),
+    )
+
+    assert _overview_answer_has_bad_shape(
+        "These are the study topics I found in the material [E1][E2].\n"
+        "- Ableitung definiert [E1].\n"
+        "- Mathematik für Informatiker 2 [E1].\n"
+        "- exam-style questions or structured assessment prompts [E2].\n"
+        "Use the shell menu to choose one cited topic for guided study next.",
         evidence,
     )
 
@@ -548,13 +569,115 @@ def test_overview_topic_metadata_filter_removes_title_page_person_names() -> Non
 
 def test_overview_topic_filter_rejects_generic_lecture_scaffolding() -> None:
     assert not _overview_topic_is_useful("definition")
+    assert not _overview_topic_is_useful("definitions")
+    assert not _overview_topic_is_useful("theorems")
+    assert not _overview_topic_is_useful("proofs")
     assert not _overview_topic_is_useful("heute sprechen")
     assert not _overview_topic_is_useful("letztes mal")
     assert not _overview_topic_is_useful("mal haben")
     assert not _overview_topic_is_useful("table")
+    assert not _overview_topic_is_useful("Mathematik für Informatiker 2")
+    assert not _overview_topic_is_useful("exam-style questions or structured assessment prompts")
+    assert not _overview_topic_is_useful("Sei M eine Menge, dann ist eine Folge")
     assert _overview_topic_is_useful("geometrische reihe")
     assert _overview_topic_is_useful("matrix multiplication")
     assert _overview_topic_is_useful("ableitungen")
+    assert _overview_topic_is_useful("Bayes theorem")
+    assert _overview_topic_is_useful("graph")
+
+
+def test_overview_topic_items_use_general_definition_and_web_validation() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/math.pdf",
+            0,
+            "E1",
+            "Mathematik für Informatiker 2 Sommersemester 2026. Ableitung definiert.",
+        ),
+        _make_evidence_chunk(
+            "materials/math.pdf",
+            1,
+            "E2",
+            "Definition. Eine Folge in M ist eine Abbildung N nach M.",
+        ),
+        _make_evidence_chunk(
+            "materials/math.pdf",
+            2,
+            "E3",
+            "Die Reihe bezeichnet die Folge der Partialsummen.",
+        ),
+        _make_evidence_chunk(
+            "materials/math.pdf",
+            3,
+            "E4",
+            "Den Grenzwert der Partialsummen haben wir definiert.",
+        ),
+    )
+
+    def web_searcher(query: str) -> tuple[PriorityWebSearchResult, ...]:
+        supported = ("ableitungen", "folgen", "reihen", "grenzwerte")
+        snippet = "Course topic overview for Ableitungen, Folgen, Reihen, and Grenzwerte."
+        if not any(term in query.casefold() for term in supported):
+            snippet = "Course topic overview for unrelated material."
+        return (
+            PriorityWebSearchResult(
+                title="Mathematics lecture topic",
+                url="https://example.test/math",
+                snippet=snippet,
+            ),
+        )
+
+    topics = _overview_topic_items(evidence, web_searcher=web_searcher)
+    labels = [topic.rsplit(" [", maxsplit=1)[0] for topic in topics]
+
+    assert "Mathematik für Informatiker 2" not in labels
+    assert "ableitung definiert" not in {label.casefold() for label in labels}
+    assert {"Ableitungen", "Folgen", "Reihen", "Grenzwerte"} <= set(labels)
+
+
+def test_overview_topic_items_are_not_math_specific() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/biochem.md",
+            0,
+            "E1",
+            "Enzyme kinetics is the study of reaction rates.",
+        ),
+        _make_evidence_chunk(
+            "materials/biochem.md",
+            1,
+            "E2",
+            "Protein folding is the process where a chain reaches its native structure.",
+        ),
+        _make_evidence_chunk(
+            "materials/cs.md",
+            0,
+            "E3",
+            "A hash table is a data structure for key value lookup.",
+        ),
+    )
+
+    def web_searcher(query: str) -> tuple[PriorityWebSearchResult, ...]:
+        supported = ("enzyme kinetics", "protein folding", "hash table")
+        snippet = "Syllabus topics include enzyme kinetics, protein folding, and hash table."
+        if not any(term in query.casefold() for term in supported):
+            snippet = "Syllabus topics include unrelated review material."
+        return (
+            PriorityWebSearchResult(
+                title="Course topic overview",
+                url="https://example.test/topics",
+                snippet=snippet,
+            ),
+        )
+
+    labels = [
+        topic.rsplit(" [", maxsplit=1)[0]
+        for topic in _overview_topic_items(evidence, web_searcher=web_searcher)
+    ]
+
+    assert "enzyme kinetics" in labels
+    assert "protein folding" in labels
+    assert "hash table" in labels
 
 
 def test_overview_fallback_unescapes_content_and_filters_exam_noise_topics() -> None:
@@ -1309,9 +1432,10 @@ class TestTurnOrchestratorStudy:
         mock_overview_context.return_value = "Deterministic local corpus overview."
         model_reply = (
             "These are the study topics I found in the material [E1] [E2].\n"
-            "- Graph concepts, definitions, and worked examples [E1].\n"
-            "- Related practice problems from the same topic [E2].\n"
-            "- Choose a topic to study next with the menu [E1]."
+            "- Graph algorithms [E1].\n"
+            "- Recurrence relations [E2].\n"
+            "- Bayes theorem [E1].\n"
+            "Use the shell menu to choose one cited topic for guided study next."
         )
         mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
 
@@ -1356,7 +1480,8 @@ class TestTurnOrchestratorStudy:
 
         session = _make_study_session()
         orch = TurnOrchestrator(session)
-        events = list(orch.iter_events("what is the material about"))
+        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
+            events = list(orch.iter_events("what is the material about"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
@@ -1411,14 +1536,16 @@ class TestTurnOrchestratorStudy:
 
         session = _make_study_session()
         orch = TurnOrchestrator(session)
-        events = list(orch.iter_events("what is the material about"))
+        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
+            events = list(orch.iter_events("what is the material about"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         notices = [event.message for event in events if isinstance(event, NoticeEvent)]
         assert len(deltas) == 1
         assert "The files cover" not in deltas[0]
         assert "Say ready when you want recall" not in deltas[0]
-        assert "These are the study topics I found" in deltas[0]
+        assert "I could not identify precise study topics" in deltas[0]
+        assert "Choose a topic to study next" not in deltas[0]
         assert "not an exhaustive summary" not in deltas[0]
         assert "[E1]" in deltas[0]
         assert "[E2]" in deltas[0]
@@ -1469,13 +1596,15 @@ class TestTurnOrchestratorStudy:
         )
 
         session = _make_study_session()
-        events = list(TurnOrchestrator(session).iter_events("what is the material about"))
+        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
+            events = list(TurnOrchestrator(session).iter_events("what is the material about"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
         assert len(deltas) == 1
         assert len(completions) == 1
-        assert "These are the study topics I found" in deltas[0]
+        assert "I could not identify precise study topics" in deltas[0]
+        assert "Choose a topic to study next" not in deltas[0]
         assert completions[0].full_text == deltas[0]
         assert "The files cover" not in completions[0].full_text
         assert completions[0].turn_index == 3
@@ -1553,11 +1682,13 @@ class TestTurnOrchestratorStudy:
 
         session = _make_study_session()
         orch = TurnOrchestrator(session)
-        events = list(orch.iter_events("what is the material about"))
+        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
+            events = list(orch.iter_events("what is the material about"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
-        assert "These are the study topics I found" in deltas[0]
+        assert "I could not identify precise study topics" in deltas[0]
+        assert "Choose a topic to study next" not in deltas[0]
         assert "exam-style questions or structured assessment prompts [E1]" in deltas[0]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")

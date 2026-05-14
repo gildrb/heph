@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import re
 import threading
+import urllib.error
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from html import unescape
@@ -82,7 +83,7 @@ from hephaistos.study import (
     plan_turn,
     validate_pedagogy,
 )
-from hephaistos.study.priority import analyze_priority
+from hephaistos.study.priority import PriorityWebSearcher, analyze_priority, duckduckgo_search
 from hephaistos.study.schedule import StudyItemState, load_study_schedule, save_study_schedule
 
 if TYPE_CHECKING:
@@ -137,6 +138,11 @@ _OVERVIEW_MIN_CITATIONS = 2
 _OVERVIEW_MIN_DISTINCT_SOURCES = 2
 _OVERVIEW_MIN_BULLETS = 3
 _OVERVIEW_MIN_CITED_BULLETS = 2
+_OVERVIEW_TOPIC_LIMIT = 7
+_OVERVIEW_WEB_TOPIC_SEARCH_LIMIT = 10
+_OVERVIEW_TOPIC_SECTION_HEADING = "These are the study topics I found in the material:"
+_OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
+_OVERVIEW_REPLY_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
 _MAX_INTERNAL_PASSES = 3
 _OVERVIEW_REQUIRED_SHAPE: tuple[str, ...] = ()
 _OVERVIEW_FORBIDDEN_SHAPE = (
@@ -161,10 +167,14 @@ _OVERVIEW_DATE_LINE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-zÄÖÜäöüß]+\s+\d{4
 _OVERVIEW_TOPIC_STOPWORDS = frozenset(
     {
         "about",
+        "assessment",
         "aufgabe",
         "beispiel",
         "beispiele",
+        "bezeichnet",
+        "bezeichnen",
         "course",
+        "definiert",
         "definition",
         "example",
         "examples",
@@ -180,8 +190,11 @@ _OVERVIEW_TOPIC_STOPWORDS = frozenset(
         "letztes",
         "lecture",
         "mal",
+        "mathematik",
         "material",
         "materials",
+        "module",
+        "modul",
         "contents",
         "das",
         "dem",
@@ -199,6 +212,8 @@ _OVERVIEW_TOPIC_STOPWORDS = frozenset(
         "of",
         "overview",
         "previous",
+        "prompt",
+        "prompts",
         "question",
         "slide",
         "slides",
@@ -208,7 +223,42 @@ _OVERVIEW_TOPIC_STOPWORDS = frozenset(
         "vorlesung",
         "welcome",
         "willkommen",
+        "informatiker",
     }
+)
+_OVERVIEW_GENERIC_TOPIC_LABELS = frozenset(
+    {
+        "chapter",
+        "chapters",
+        "concept",
+        "concepts",
+        "definition",
+        "definitions",
+        "example",
+        "examples",
+        "exercise",
+        "exercises",
+        "problem",
+        "problems",
+        "proof",
+        "proofs",
+        "satz",
+        "sätze",
+        "saetze",
+        "theorem",
+        "theorems",
+        "topic",
+        "topics",
+    }
+)
+_OVERVIEW_COURSE_TITLE_RE = re.compile(
+    r"\b(?:"
+    r"(?:mathematik|math(?:ematics)?|informatik|computer\s+science|biochemistry|biology|"
+    r"chemistry|physics|calculus|analysis|algebra)\s+"
+    r"(?:für|fuer|for|[ivx]{1,4}|\d)|"
+    r"(?:module|modul|course|vorlesung)\s*[:#]?\s*\d*"
+    r")\b",
+    re.IGNORECASE,
 )
 _OVERVIEW_CONTENT_CUE_RE = re.compile(
     r"\b(?:"
@@ -220,6 +270,21 @@ _OVERVIEW_CONTENT_CUE_RE = re.compile(
 )
 _OVERVIEW_FORMULA_RE = re.compile(r"(?:\\[a-zA-Z]+|[$=∑∫√≤≥→↦∀∃])")
 _OVERVIEW_LINE_MARKER_RE = re.compile(r"^[#*\-\d.\s:;()\[\]]+")
+_OVERVIEW_TOPIC_FRAGMENT_RE = re.compile(
+    r"\b(?:"
+    r"defined|definiert|bezeichnet|bezeichnen|setting|setzen|question|questions|"
+    r"assessment|prompts?|exam-style|structured|readiness|recall|study\s+topic"
+    r")\b",
+    re.IGNORECASE,
+)
+_OVERVIEW_WEB_EDUCATION_RE = re.compile(
+    r"\b(?:"
+    r"course|curriculum|definition|example|guide|intro(?:duction)?|lecture|learn|lesson|"
+    r"module|notes|overview|prerequisite|syllabus|theorem|topic|tutorial|"
+    r"beispiel|definition|lernen|skript|thema|themen|vorlesung|übungen|uebungen"
+    r")\b",
+    re.IGNORECASE,
+)
 _OVERVIEW_ROLE_LABELS = {
     "assignment": "assignment or exercise sheet",
     "codebase": "source code",
@@ -229,6 +294,24 @@ _OVERVIEW_ROLE_LABELS = {
     "slides": "lecture slides",
     "textbook": "textbook or chapter material",
     "vocabulary": "vocabulary practice material",
+}
+_OVERVIEW_CANONICAL_LABELS = {
+    "ableitungen": "Ableitungen",
+    "derivatives": "Derivatives",
+    "differenzierbarkeit": "Differenzierbarkeit",
+    "folgen": "Folgen",
+    "sequences": "Sequences",
+    "grenzwerte": "Grenzwerte",
+    "limits": "Limits",
+    "konvergenz": "Konvergenz",
+    "partialsummen": "Partialsummen",
+    "reihen": "Reihen",
+    "series": "Series",
+    "stetigkeit": "Stetigkeit",
+    "continuity": "Continuity",
+    "integrale": "Integrale",
+    "taylorreihen": "Taylorreihen",
+    "kurvendiskussion": "Kurvendiskussion",
 }
 
 
@@ -973,35 +1056,40 @@ def _overview_turn(plan: StudyTurnPlan) -> bool:
     )
 
 
-def _overview_fallback_reply(plan: StudyTurnPlan, evidence: TurnEvidence | None) -> str:
+def _overview_fallback_reply(
+    plan: StudyTurnPlan,
+    evidence: TurnEvidence | None,
+    *,
+    web_searcher: PriorityWebSearcher | None = None,
+) -> str:
     """Return a conservative local overview when model grounding is unusable."""
     if not _overview_turn(plan) or evidence is None or not evidence.items:
         return ""
 
-    topic_items = _overview_topic_items(evidence)
+    topic_items = _overview_topic_items(evidence, web_searcher=web_searcher)
     if not topic_items:
-        topic_items = _overview_content_topic_items(evidence)
-    elif len(topic_items) < 2:
-        seen_topics = {
-            _normalize_overview_topic(topic.rsplit(" [", maxsplit=1)[0]) for topic in topic_items
-        }
-        for topic in _overview_content_topic_items(evidence):
-            normalized_topic = _normalize_overview_topic(topic.rsplit(" [", maxsplit=1)[0])
-            if normalized_topic in seen_topics:
-                continue
-            seen_topics.add(normalized_topic)
-            topic_items.append(topic)
-            if len(topic_items) >= 8:
-                break
+        lines = ["I could not identify precise study topics from the sampled material yet."]
+        content_clues = _overview_content_clues(evidence, limit=3)
+        if content_clues:
+            lines.append("")
+            lines.append("What the sample does show:")
+            lines.extend(f"- {clue}" for clue in content_clues)
+        return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
+
     recommendations = _overview_recommendation_items(evidence, topic_items)
 
-    lines = ["These are the study topics I found in the material:"]
-    lines.extend(f"- {topic}" for topic in topic_items[:8])
+    lines = [_OVERVIEW_TOPIC_SECTION_HEADING]
+    lines.extend(f"- {topic}" for topic in topic_items[:_OVERVIEW_TOPIC_LIMIT])
+    material_signals = _overview_material_signal_items(evidence, topic_items, limit=2)
+    if material_signals:
+        lines.append("")
+        lines.append("Other material signals:")
+        lines.extend(f"- {signal}" for signal in material_signals)
     lines.append("")
     lines.append("Choose a topic to study next. In the shell, use ↑/↓ and press Enter.")
     if recommendations:
         lines.append("")
-        lines.append("Recommended options:")
+        lines.append(_OVERVIEW_RECOMMENDATIONS_HEADING)
         lines.extend(f"- {recommendation}" for recommendation in recommendations)
     return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
 
@@ -1159,30 +1247,41 @@ def _trim_overview_cue(line: str, *, limit: int = 120) -> str:
     return line[: limit - 1].rstrip(" ,;:.") + "…"
 
 
-def _overview_topic_items(evidence: TurnEvidence) -> list[str]:
+def _overview_topic_items(
+    evidence: TurnEvidence,
+    *,
+    web_searcher: PriorityWebSearcher | None = None,
+) -> list[str]:
     topic_clues = _overview_heading_topics(evidence)
     seen = {_normalize_overview_topic(topic.rsplit(" [", maxsplit=1)[0]) for topic in topic_clues}
 
-    analysis = analyze_priority((item.chunk for item in evidence.items), limit=10)
+    analysis = analyze_priority((item.chunk for item in evidence.items), limit=16)
     evidence_id_by_source = {item.source: item.evidence_id for item in evidence.items}
+    subject_hint = _overview_subject_hint(evidence)
+    web_checked = 0
     for topic in analysis.topics:
         evidence_id = ""
         for source in topic.sources:
             evidence_id = evidence_id_by_source.get(source, "")
             if evidence_id:
                 break
-        normalized_topic = _normalize_overview_topic(topic.topic)
+        label = _overview_display_topic(topic.topic)
+        normalized_topic = _normalize_overview_topic(label)
         if not evidence_id or normalized_topic in seen:
             continue
         if _overview_topic_source_role(topic.sources, evidence) in {"assignment", "past_exam"}:
             continue
         if _overview_topic_looks_like_metadata(topic.topic, evidence):
             continue
-        if not _overview_topic_is_useful(topic.topic):
+        if not _overview_topic_is_useful(label):
             continue
+        if web_searcher is not None and web_checked < _OVERVIEW_WEB_TOPIC_SEARCH_LIMIT:
+            web_checked += 1
+            if not _overview_topic_web_supported(label, subject_hint, web_searcher):
+                continue
         seen.add(normalized_topic)
-        topic_clues.append(f"{topic.topic} [{evidence_id}]")
-        if len(topic_clues) >= 8:
+        topic_clues.append(f"{label} [{evidence_id}]")
+        if len(topic_clues) >= _OVERVIEW_TOPIC_LIMIT:
             break
     return topic_clues
 
@@ -1194,22 +1293,80 @@ def _overview_topic_sentence(evidence: TurnEvidence) -> str:
     return ", ".join(topic_clues)
 
 
-def _overview_content_topic_items(evidence: TurnEvidence, *, limit: int = 8) -> list[str]:
-    topics: list[str] = []
+def _overview_material_signal_items(
+    evidence: TurnEvidence,
+    topic_items: list[str],
+    *,
+    limit: int,
+) -> list[str]:
+    topic_labels = {
+        _normalize_overview_topic(_split_overview_citation(topic)[0]) for topic in topic_items
+    }
+    signals: list[str] = []
     seen: set[str] = set()
-    for clue in _overview_content_clues(evidence, limit=limit):
+    for clue in _overview_content_clues(evidence, limit=limit + len(topic_items)):
         label, citation = _split_overview_citation(clue)
-        if ": " in label:
-            label = label.split(": ", maxsplit=1)[1]
-        label = _trim_overview_cue(label)
         normalized = _normalize_overview_topic(label)
-        if not normalized or normalized in seen:
+        if not normalized or normalized in seen or normalized in topic_labels:
             continue
         seen.add(normalized)
-        topics.append(f"{label} {citation}".strip())
-        if len(topics) >= limit:
+        signals.append(f"{label} {citation}".strip())
+        if len(signals) >= limit:
             break
-    return topics
+    return signals
+
+
+def _overview_default_web_searcher(evidence: TurnEvidence | None) -> PriorityWebSearcher | None:
+    if evidence is None or not evidence.items:
+        return None
+    return duckduckgo_search
+
+
+def _overview_subject_hint(evidence: TurnEvidence) -> str:
+    for item in evidence.items:
+        for line in unescape(item.content).splitlines()[:8]:
+            candidate = _clean_overview_line(line)
+            if not candidate:
+                continue
+            if _OVERVIEW_COURSE_TITLE_RE.search(candidate):
+                return _trim_overview_cue(candidate, limit=80)
+    role_sentence = _overview_role_sentence(evidence)
+    topic_text = " ".join(
+        _split_overview_citation(topic)[0] for topic in _overview_heading_topics(evidence, limit=3)
+    )
+    return _trim_overview_cue(f"{topic_text} {role_sentence}".strip(), limit=80)
+
+
+def _overview_display_topic(topic: str) -> str:
+    normalized = _normalize_overview_topic(topic)
+    return _OVERVIEW_CANONICAL_LABELS.get(normalized, topic)
+
+
+def _overview_topic_web_supported(
+    topic: str,
+    subject_hint: str,
+    web_searcher: PriorityWebSearcher,
+) -> bool:
+    query = f"{subject_hint} {topic} topic".strip()
+    try:
+        results = tuple(web_searcher(query))
+    except (OSError, TimeoutError, ValueError, urllib.error.URLError):
+        return True
+    if not results:
+        return True
+
+    topic_words = [
+        word for word in re.findall(r"[\wÄÖÜäöüß+-]+", topic.casefold()) if len(word) > 2
+    ]
+    if not topic_words:
+        return False
+    for result in results[:3]:
+        haystack = f"{result.title} {result.snippet}".casefold()
+        if not all(word in haystack for word in topic_words):
+            continue
+        if _OVERVIEW_WEB_EDUCATION_RE.search(haystack):
+            return True
+    return False
 
 
 def _overview_recommendation_items(
@@ -1297,7 +1454,7 @@ def _overview_heading_topics(evidence: TurnEvidence, *, limit: int = 8) -> list[
             seen.add(normalized_topic)
             topic_clues.append(f"{topic} [{item.evidence_id}]")
             break
-        if len(topic_clues) >= limit:
+        if len(topic_clues) >= min(limit, _OVERVIEW_TOPIC_LIMIT):
             break
     return topic_clues
 
@@ -1339,10 +1496,20 @@ def _overview_topic_is_useful(topic: str) -> bool:
     normalized = " ".join(topic.casefold().split())
     if len(normalized) < 4:
         return False
+    if normalized == "table" or normalized in _OVERVIEW_GENERIC_TOPIC_LABELS:
+        return False
+    if _OVERVIEW_COURSE_TITLE_RE.search(topic):
+        return False
+    if _OVERVIEW_TOPIC_FRAGMENT_RE.search(topic):
+        return False
+    if _OVERVIEW_FORMULA_RE.search(topic):
+        return False
+    if re.search(r"[.:;!?]|->|:=|=>", topic):
+        return False
     words = normalized.split()
     if any(word in _OVERVIEW_TOPIC_STOPWORDS for word in words):
         return False
-    return not (len(words) == 1 and len(words[0]) < 8)
+    return len(words) <= 5
 
 
 def _overview_topic_looks_like_metadata(topic: str, evidence: TurnEvidence) -> bool:
@@ -1418,7 +1585,33 @@ def _overview_answer_has_bad_shape(
     if len(bullet_lines) < _OVERVIEW_MIN_BULLETS:
         return True
     cited_bullets = [line for line in bullet_lines if _OVERVIEW_CITATION_ID_RE.search(line)]
-    return len(cited_bullets) < _OVERVIEW_MIN_CITED_BULLETS
+    if len(cited_bullets) < _OVERVIEW_MIN_CITED_BULLETS:
+        return True
+    topic_labels = _overview_reply_topic_labels(raw_reply)
+    if len(topic_labels) > _OVERVIEW_TOPIC_LIMIT:
+        return True
+    return any(not _overview_topic_is_useful(label) for label in topic_labels)
+
+
+def _overview_reply_topic_labels(raw_reply: str) -> tuple[str, ...]:
+    labels: list[str] = []
+    in_topics = False
+    for line in raw_reply.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(_OVERVIEW_TOPIC_SECTION_HEADING.removesuffix(":")):
+            in_topics = True
+            continue
+        if not in_topics:
+            continue
+        if not stripped or stripped == _OVERVIEW_RECOMMENDATIONS_HEADING:
+            break
+        match = _OVERVIEW_REPLY_TOPIC_LINE_RE.match(stripped)
+        if match is None:
+            if labels:
+                break
+            continue
+        labels.append(match.group("label").strip())
+    return tuple(labels)
 
 
 @dataclass(slots=True)
@@ -1713,7 +1906,11 @@ class TurnOrchestrator:
         if not raw_reply:
             fallback_reply = _source_qa_fallback_reply(plan, resolved.turn_evidence)
             if not fallback_reply:
-                fallback_reply = _overview_fallback_reply(plan, resolved.turn_evidence)
+                fallback_reply = _overview_fallback_reply(
+                    plan,
+                    resolved.turn_evidence,
+                    web_searcher=_overview_default_web_searcher(resolved.turn_evidence),
+                )
             if not fallback_reply:
                 fallback_reply = (
                     "I could not generate a grounded assessment. Please try again."
@@ -1737,7 +1934,11 @@ class TurnOrchestrator:
             return
 
         if _needs_overview_fallback(plan, raw_reply, resolved.turn_evidence):
-            fallback_reply = _overview_fallback_reply(plan, resolved.turn_evidence)
+            fallback_reply = _overview_fallback_reply(
+                plan,
+                resolved.turn_evidence,
+                web_searcher=_overview_default_web_searcher(resolved.turn_evidence),
+            )
             if fallback_reply:
                 raw_reply = fallback_reply
                 visible_reply = fallback_reply

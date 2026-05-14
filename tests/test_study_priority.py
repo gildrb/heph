@@ -231,8 +231,9 @@ def test_priority_analysis_keeps_inline_question_marks_with_matching_topics(
     topics = {topic.topic: topic for topic in analyze_priority(index.all_chunks).topics}
 
     assert topics["dijkstra shortest"].exam_marks == 12
-    assert topics["heaps priority"].exam_marks == 4
-    assert topics["heaps priority"].score < topics["dijkstra shortest"].score
+    assert topics["heaps"].exam_marks == 4
+    assert topics["priority queues"].exam_marks == 4
+    assert topics["priority queues"].score < topics["dijkstra shortest"].score
     assert "ocr noise" not in topics
 
 
@@ -541,6 +542,56 @@ def test_priority_analysis_filters_generic_course_boilerplate(tmp_path: Path) ->
     assert "enzyme kinetics" in topics
     assert "protein folding" in topics
     assert topics["enzyme kinetics"].exam_marks == 12
+
+
+def test_priority_analysis_extracts_definition_heads_across_subjects(tmp_path: Path) -> None:
+    index = ArmoryIndex(tmp_path)
+    index.documents = [
+        ChunkedDocument(
+            source="materials/analysis.md",
+            content_hash="math",
+            chunks=[
+                _chunk(
+                    "materials/analysis.md",
+                    "Mathematik für Informatiker 2. Ableitung definiert. "
+                    "Eine Folge in M ist eine Abbildung von N nach M. "
+                    "Die Reihe bezeichnet die Folge der Partialsummen.",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/biochemistry.md",
+            content_hash="bio",
+            chunks=[
+                _chunk(
+                    "materials/biochemistry.md",
+                    "Enzyme kinetics is the study of reaction rates. "
+                    "Protein folding is the process that reaches a native state.",
+                )
+            ],
+        ),
+        ChunkedDocument(
+            source="materials/data-structures.md",
+            content_hash="cs",
+            chunks=[
+                _chunk(
+                    "materials/data-structures.md",
+                    "A hash table is a data structure for key value lookup.",
+                )
+            ],
+        ),
+    ]
+
+    topics = {topic.topic for topic in analyze_priority(index.all_chunks, limit=20).topics}
+
+    assert "ableitungen" in topics
+    assert "folgen" in topics
+    assert "reihen" in topics
+    assert "enzyme kinetics" in topics
+    assert "protein folding" in topics
+    assert "hash table" in topics
+    assert "mathematik für informatiker" not in topics
+    assert "ableitung definiert" not in topics
 
 
 def test_priority_report_cleans_repeated_headings_in_evidence(tmp_path: Path) -> None:

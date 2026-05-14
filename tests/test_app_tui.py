@@ -29,6 +29,7 @@ from hephaistos.tui.inline_flows import (
     _duplicate_model_names,
     _model_choice_from_label,
     _model_choice_label,
+    overview_topic_options,
 )
 from hephaistos.tui.transparent import Region as _Region
 from hephaistos.tui.transparent import style_without_black_background
@@ -682,6 +683,17 @@ def test_tui_css_completion_highlight_avoids_brand_strip() -> None:
     assert f"color: {palette.text};" in block
     assert f"background: {palette.selection_background};" not in block
     assert f"color: {palette.selection_text};" not in block
+
+
+def test_tui_css_inline_menu_highlight_uses_selection_tokens() -> None:
+    css = tui._tui_css()
+    palette = tui.current_palette()
+    block_start = css.index("#suggestions.inline-menu > .option-list--option-highlighted")
+    block_end = css.index("}", block_start)
+    block = css[block_start:block_end]
+
+    assert f"background: {palette.selection_background};" in block
+    assert f"color: {palette.selection_text};" in block
 
 
 def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
@@ -1637,6 +1649,7 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
                 app.query_one("#suggestions", tui.OptionList),
             )  # ty:ignore[redundant-cast]
             assert suggestions.has_class("visible")
+            assert suggestions.has_class("inline-menu")
 
             await pilot.press("down")
             await pilot.press("enter")
@@ -1658,6 +1671,43 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
             assert app._inline_flow.active is False
 
     asyncio.run(check_topic_flow())
+
+
+def test_overview_topic_options_parse_only_actual_topic_section() -> None:
+    reply = (
+        "These are the study topics I found in the material [E1][E2].\n"
+        "- Ableitungen [E1].\n"
+        "- Grenzwerte [E2].\n\n"
+        "Other material signals:\n"
+        "- exam-style questions or structured assessment prompts [E3]\n\n"
+        "Choose a topic to study next. In the shell, use ↑/↓ and press Enter.\n\n"
+        "Recommended options:\n"
+        "- Start with a guided explanation of Ableitungen [E1]."
+    )
+
+    assert overview_topic_options(reply) == [
+        ("Ableitungen", "study this topic"),
+        ("Grenzwerte", "study this topic"),
+    ]
+
+
+def test_overview_topic_options_limits_to_seven_topics() -> None:
+    topics = "\n".join(f"- Topic {index} [E1]" for index in range(1, 9))
+    reply = (
+        "These are the study topics I found in the material:\n"
+        f"{topics}\n\n"
+        "Choose a topic to study next. In the shell, use ↑/↓ and press Enter."
+    )
+
+    assert [label for label, _description in overview_topic_options(reply)] == [
+        "Topic 1",
+        "Topic 2",
+        "Topic 3",
+        "Topic 4",
+        "Topic 5",
+        "Topic 6",
+        "Topic 7",
+    ]
 
 
 def test_settings_inline_submenus_expose_theme_and_telemetry() -> None:

@@ -1032,6 +1032,7 @@ class HephaistosTui(
             _tui_command_suggestions(),
         )
         suggestions = self.query_one("#suggestions", OptionList)
+        suggestions.remove_class("inline-menu")
         if not self.completion_candidates:
             suggestions.set_options([])
             suggestions.remove_class("visible")
@@ -1048,6 +1049,7 @@ class HephaistosTui(
         self.completion_candidates = []
         suggestions = self.query_one("#suggestions", OptionList)
         suggestions.set_options([])
+        suggestions.remove_class("inline-menu")
         suggestions.remove_class("visible")
         self._refresh_footer_hints()
 
