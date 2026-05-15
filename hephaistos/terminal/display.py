@@ -8,6 +8,7 @@ from hephaistos.terminal import (  # re-export shared terminal primitives
     STYLE_ASSISTANT,
     STYLE_DIM,
     STYLE_ERROR,
+    STYLE_METADATA,
     STYLE_SHORTCUT,
     STYLE_SUCCESS,
     STYLE_WARNING,
@@ -20,6 +21,7 @@ from hephaistos.terminal.banner import ascii_logo, separator_line, wordmark
 
 __all__ = [
     "STYLE_ASSISTANT",
+    "STYLE_METADATA",
     "direct_input",
     "direct_print",
     "print_error",
@@ -109,13 +111,13 @@ def print_shell_intro(
     print(
         f"{wordmark()} {styled(f'v{version}', STYLE_DIM)}"
         f"  {styled('\u2502', STYLE_DIM)}  "
-        f"{styled('armory', STYLE_DIM)} {styled(armory_path, armory_style)}"
+        f"{styled('armory', STYLE_METADATA)} {styled(armory_path, armory_style)}"
         f" {styled('\u00b7', STYLE_DIM)} "
-        f"{styled('model', STYLE_DIM)} {styled(model_text, model_style)}"
+        f"{styled('model', STYLE_METADATA)} {styled(model_text, model_style)}"
         f" {styled('\u00b7', STYLE_DIM)} "
-        f"{styled('api', STYLE_DIM)} {api_status}"
+        f"{styled('api', STYLE_METADATA)} {api_status}"
         f" {styled('\u00b7', STYLE_DIM)} "
-        f"{styled('materials', STYLE_DIM)} {source_status}"
+        f"{styled('materials', STYLE_METADATA)} {source_status}"
     )
     for hint_line in hints:
         print(f"  {hint_line}")
@@ -156,16 +158,16 @@ def format_shell_header(
         ("class:header.title", "\u2301 Hephaistos"),
         ("class:header.dim", f" v{version}"),
         ("class:header.dim", "  \u2502  "),
-        ("class:header.dim", "armory "),
+        ("class:header.metadata", "armory "),
         (armory_style, armory_path),
         ("class:header.dim", " \u00b7 "),
-        ("class:header.dim", "model "),
+        ("class:header.metadata", "model "),
         (model_style, model_text),
         ("class:header.dim", " \u00b7 "),
-        ("class:header.dim", "api "),
+        ("class:header.metadata", "api "),
         (api_style, api_status),
         ("class:header.dim", " \u00b7 "),
-        ("class:header.dim", "materials "),
+        ("class:header.metadata", "materials "),
         (source_style, source_text),
         ("", "\n"),
         ("class:header.dim", "  enter "),

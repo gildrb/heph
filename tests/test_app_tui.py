@@ -249,7 +249,7 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
     hints = tui._footer_hints_text(_plain_session())
     palette = tui.current_palette()
     dim_label_style = f"dim {palette.dim}"
-    shortcut_style = f"dim {palette.shortcut}"
+    shortcut_style = palette.metadata
     labels = ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+d")
     shortcut_styles: dict[str, list[str]] = {}
     for label in labels:
@@ -308,7 +308,7 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
             assert not any(palette.accent in style for style in styles)
         assert brand_styles == [f"bold {palette.brand}"]
         assert str(hints.style) == f"dim {palette.dim}"
-        assert shortcut_styles == [f"dim {palette.shortcut}"]
+        assert shortcut_styles == [palette.metadata]
         assert not any(palette.emphasis in style for style in shortcut_styles)
         assert not any(palette.accent in style for style in shortcut_styles)
     finally:
@@ -524,6 +524,7 @@ def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
         accent="#ffffff",
         emphasis="#ffffff",
         shortcut="#999999",
+        metadata="#c9a3a3",
         ember="#ff6600",
         configured="#00ff00",
         error="#ff0000",

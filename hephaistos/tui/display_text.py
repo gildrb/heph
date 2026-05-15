@@ -49,7 +49,7 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
 
     for label in ("armory", "model", "mode"):
         start = 0 if plain.startswith(f"{label} ") else plain.index(f" {label} ") + 1
-        text.stylize(f"dim {palette.dim}", start, start + len(label))
+        text.stylize(palette.metadata, start, start + len(label))
 
     for label in ("armory", "model"):
         value_start = plain.index(f"{label} ") + len(label) + 1
@@ -83,7 +83,7 @@ def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False)
             idx = plain.find(label, start)
             if idx == -1:
                 break
-            style = f"bold {palette.emphasis}" if label == "armory" else shortcut_style
+            style = palette.metadata if label == "armory" else shortcut_style
             text.stylize(style, idx, idx + len(label))
             start = idx + len(label)
     return text
@@ -97,7 +97,7 @@ def footer_hints_text(
     """Build contextual footer hints that change based on current state."""
     palette = current_palette()
     footer_style = f"dim {palette.dim}"
-    shortcut_style = f"dim {palette.shortcut}"
+    shortcut_style = palette.metadata
 
     if busy:
         plain = "esc stop  ctrl+c cancel"
@@ -188,7 +188,7 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
             idx = plain.find(label, start)
             if idx == -1:
                 break
-            text.stylize(f"dim {palette.dim}", idx, idx + len(label))
+            text.stylize(palette.metadata, idx, idx + len(label))
             start = idx + len(label)
     for name in session.source_files:
         display_name = name.removeprefix("materials/")

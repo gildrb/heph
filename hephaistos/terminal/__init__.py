@@ -29,6 +29,7 @@ from hephaistos.terminal.palette import (
     FORGE_HIGHLIGHT,
     FORGE_MATERIAL_DISABLED,
     FORGE_MATERIAL_ENABLED,
+    FORGE_METADATA,
     FORGE_PANEL,
     FORGE_SELECTION_BACKGROUND,
     FORGE_SELECTION_TEXT,
@@ -46,6 +47,7 @@ from hephaistos.terminal.palette import (
     HIGH_CONTRAST_HIGHLIGHT,
     HIGH_CONTRAST_MATERIAL_DISABLED,
     HIGH_CONTRAST_MATERIAL_ENABLED,
+    HIGH_CONTRAST_METADATA,
     HIGH_CONTRAST_PANEL,
     HIGH_CONTRAST_SELECTION_BACKGROUND,
     HIGH_CONTRAST_SELECTION_TEXT,
@@ -63,6 +65,7 @@ from hephaistos.terminal.palette import (
     LIGHT_HIGHLIGHT,
     LIGHT_MATERIAL_DISABLED,
     LIGHT_MATERIAL_ENABLED,
+    LIGHT_METADATA,
     LIGHT_PANEL,
     LIGHT_SELECTION_BACKGROUND,
     LIGHT_SELECTION_TEXT,
@@ -86,6 +89,7 @@ __all__ = [
     "STYLE_EMBER",
     "STYLE_EMPHASIS",
     "STYLE_ERROR",
+    "STYLE_METADATA",
     "STYLE_PROMPT",
     "STYLE_SHORTCUT",
     "STYLE_SUCCESS",
@@ -122,6 +126,7 @@ class ThemePalette:
     accent: str
     emphasis: str
     shortcut: str
+    metadata: str
     ember: str
     configured: str
     error: str
@@ -146,6 +151,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         accent=FORGE_ACCENT,
         emphasis=FORGE_EMPHASIS,
         shortcut=FORGE_SHORTCUT,
+        metadata=FORGE_METADATA,
         ember=FORGE_EMBER,
         configured=FORGE_CONFIGURED,
         error=FORGE_ERROR,
@@ -168,6 +174,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         accent=LIGHT_ACCENT,
         emphasis=LIGHT_EMPHASIS,
         shortcut=LIGHT_SHORTCUT,
+        metadata=LIGHT_METADATA,
         ember=LIGHT_EMBER,
         configured=LIGHT_CONFIGURED,
         error=LIGHT_ERROR,
@@ -190,6 +197,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         accent=HIGH_CONTRAST_ACCENT,
         emphasis=HIGH_CONTRAST_EMPHASIS,
         shortcut=HIGH_CONTRAST_SHORTCUT,
+        metadata=HIGH_CONTRAST_METADATA,
         ember=HIGH_CONTRAST_EMBER,
         configured=HIGH_CONTRAST_CONFIGURED,
         error=HIGH_CONTRAST_ERROR,
@@ -235,6 +243,8 @@ def style_code(style_name: str) -> str:
         return f"{BOLD}{ansi_fg(palette.brand)}"
     if style_name == "shortcut":
         return f"{DIM}{ansi_fg(palette.shortcut)}"
+    if style_name == "metadata":
+        return ansi_fg(palette.metadata)
     if style_name == "dim":
         return f"{DIM}{ansi_fg(palette.dim)}"
     if style_name == "error":
@@ -261,6 +271,7 @@ STYLE_PROMPT = _StyleToken("prompt")
 STYLE_BRAND = _StyleToken("brand")
 STYLE_ACCENT = _StyleToken("accent")
 STYLE_SHORTCUT = _StyleToken("shortcut")
+STYLE_METADATA = _StyleToken("metadata")
 STYLE_DIM = _StyleToken("dim")
 STYLE_EMBER = _StyleToken("ember")
 STYLE_EMPHASIS = _StyleToken("emphasis")
