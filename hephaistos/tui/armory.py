@@ -129,6 +129,10 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
+def _sidebar_text(content: str) -> str:
+    return "\n".join(f"  {line}" if line else "" for line in content.splitlines())
+
+
 def _armory_entry_text(entry: _DirEntry, *, selected: bool) -> str | Text:
     if _RichText is None:
         return entry.label
@@ -170,7 +174,7 @@ class TuiArmoryMixin:
         self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
         self.query_one("#transcript-spacer", Static).add_class("hidden-for-armory")
         self.query_one("#armory-inline").add_class("active")
-        self._set_sidebar_visible(False)
+        self._set_sidebar_visible(self._sidebar_width_visible)
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = (
@@ -191,6 +195,7 @@ class TuiArmoryMixin:
         self.query_one("#transcript-spacer", Static).remove_class("hidden-for-armory")
         self.query_one("#armory-inline").remove_class("active")
         self._set_sidebar_visible(self._sidebar_width_visible)
+        self._update_info_panel()
         self._schedule_transcript_reflow()
         composer = self.query_one("#composer", Input)
         composer.value = ""
@@ -305,19 +310,19 @@ class TuiArmoryMixin:
 
     def _update_armory_preview(self: _ArmoryHost) -> None:
         preview = self.query_one("#armory-preview-inline", Static)
+        sidebar = self.query_one("#info-panel", Static)
         entry = self._armory_highlighted_entry()
         if entry is None:
             if self._armory_filter:
-                preview.update(
-                    f"No matches\n\nFilter: {self._armory_filter}\n\nEsc clears the filter."
-                )
+                content = f"No matches\n\nFilter: {self._armory_filter}\n\nEsc clears the filter."
             else:
-                preview.update("No selection")
-            return
-        if entry.path is None:
-            preview.update(entry.label or "")
-            return
-        preview.update(armory_detail(entry.path))
+                content = "No selection"
+        elif entry.path is None:
+            content = entry.label or ""
+        else:
+            content = armory_detail(entry.path)
+        preview.update(content)
+        sidebar.update(_sidebar_text(content))
 
     def _move_armory_highlight(self: _ArmoryHost, offset: int) -> None:
         if not self._armory_entries:

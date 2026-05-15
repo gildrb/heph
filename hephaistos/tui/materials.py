@@ -31,6 +31,10 @@ _MATERIALS_LIST_IDS = ("materials-list", "materials-list-right")
 _MATERIALS_MIN_TWO_COLUMN_WIDTH = 72
 
 
+def _sidebar_text(content: str) -> str:
+    return "\n".join(f"  {line}" if line else "" for line in content.splitlines())
+
+
 class _MaterialsHost(Protocol):
     _materials_inline_active: bool
     _materials_filter: str
@@ -70,6 +74,8 @@ class _MaterialsHost(Protocol):
     def _refresh_materials_inline(self) -> None: ...
 
     def _materials_footer_text(self) -> str: ...
+
+    def _update_materials_sidebar(self) -> None: ...
 
     def _format_material_option(self, file: str, *, selected: bool) -> str | Text: ...
 
@@ -124,7 +130,7 @@ class TuiMaterialsMixin:
         self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
         self.query_one("#transcript-spacer", Static).add_class("hidden-for-armory")
         self.query_one("#materials-inline").add_class("active")
-        self._set_sidebar_visible(False)
+        self._set_sidebar_visible(self._sidebar_width_visible)
         composer = self.query_one("#composer", Input)
         composer.value = self._materials_filter
         composer.placeholder = "Filter materials..."
@@ -214,11 +220,39 @@ class TuiMaterialsMixin:
             footer.update(f"No materials match: {self._materials_filter}")
         else:
             footer.update(self._materials_footer_text())
+        self._update_materials_sidebar()
 
     def _materials_footer_text(self: _MaterialsHost) -> str:
         if self._materials_mode == "toggle":
             return "type to filter  space or enter toggle  esc close"
         return "type to filter  enter or esc close"
+
+    def _update_materials_sidebar(self: _MaterialsHost) -> None:
+        sidebar = self.query_one("#info-panel", Static)
+        idx = self._materials_highlighted_index
+        total = len(self.session.source_files)
+        enabled = sum(
+            1
+            for file in self.session.source_files
+            if file not in self.session.disabled_source_files
+        )
+        title = "Materials" if self._materials_mode == "toggle" else "Sources"
+        if idx is None or idx < 0 or idx >= len(self._materials_entries):
+            if self._materials_filter:
+                content = (
+                    f"{title}\n\n"
+                    f"{enabled}/{total} active\n"
+                    f"No matches\n\n"
+                    f"Filter: {self._materials_filter}"
+                )
+            else:
+                content = f"{title}\n\n{enabled}/{total} active\nNo material selected"
+        else:
+            file = self._materials_entries[idx]
+            label = file.removeprefix("materials/")
+            state = "active" if file not in self.session.disabled_source_files else "disabled"
+            content = f"{title}\n\n@{label}\n{state}\n\n{file}"
+        sidebar.update(_sidebar_text(content))
 
     def _format_material_option(
         self: _MaterialsHost,

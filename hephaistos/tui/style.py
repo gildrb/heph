@@ -133,17 +133,13 @@ RichLog {{
     width: 100%;
 }}
 #armory-current-label {{
-    width: 1fr;
+    width: 100%;
     padding: 0 1;
     color: {p.dim};
     background: {bg};
 }}
 #armory-preview-label {{
-    width: 40;
-    padding: 0 1;
-    border-left: solid transparent;
-    color: {p.dim};
-    background: {bg};
+    display: none;
 }}
 #armory-columns-inline {{
     layout: horizontal;
@@ -163,12 +159,7 @@ RichLog {{
     color: {p.text};
 }}
 #armory-preview-inline {{
-    width: 40;
-    height: 100%;
-    padding: 0 1;
-    border-left: solid transparent;
-    background: {bg};
-    color: {p.dim};
+    display: none;
 }}
 #armory-error-inline {{
     height: 1;

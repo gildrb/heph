@@ -60,6 +60,7 @@ class _TranscriptHost(Protocol):
     _armory_creating: bool
     _armory_filter: str
     _armory_inline_active: bool
+    _materials_inline_active: bool
     _focused_msg_index: int | None
     _inline_flow: InlineFlow
     _transcript_reflow_pending: bool
@@ -114,6 +115,10 @@ class _TranscriptHost(Protocol):
     def _refresh_footer_hints(self) -> None: ...
 
     def _update_info_panel(self) -> None: ...
+
+    def _update_armory_preview(self) -> None: ...
+
+    def _update_materials_sidebar(self) -> None: ...
 
     def _tui_session_seconds(self) -> int: ...
 
@@ -433,6 +438,12 @@ class TuiTranscriptMixin:
         try:
             panel = self.query_one("#info-panel", Static)
         except NoMatches:
+            return
+        if self._armory_inline_active:
+            self._update_armory_preview()
+            return
+        if self._materials_inline_active:
+            self._update_materials_sidebar()
             return
         if self._focused_msg_index is not None:
             entries = [e for e in self.state.transcript if e.kind in ("user", "markdown", "plain")]
