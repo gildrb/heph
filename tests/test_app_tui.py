@@ -1727,24 +1727,23 @@ def test_run_tui_for_path_passes_session_with_armory(
     assert captured_session is resolved_session
 
 
-def test_status_lines_shows_compact_armory_name() -> None:
-    """Status bar text includes a compact armory name when session has one."""
+def test_status_lines_shows_armory_path() -> None:
+    """Status bar text includes the armory path when session has one."""
     session = _plain_session()
     session.armory_path = Path("/tmp/my-armory")
 
     status = tui._status_lines(session)
 
-    assert "armory my-armory" in status
-    assert "/tmp" not in status
+    assert "armory /tmp/my-armory" in status
 
 
-def test_status_lines_truncates_long_armory_name() -> None:
+def test_status_lines_truncates_long_armory_path() -> None:
     session = _plain_session()
-    session.armory_path = Path("/tmp/heph-qa-status-very-long-armory-name")
+    session.armory_path = Path("/tmp/heph-qa-status/nested/folder/very-long-armory-name")
 
     status = tui._status_lines(session)
 
-    assert "armory ...very-long-armory-name" in status
+    assert "armory ...qa-status/nested/folder/very-long-armory-name" in status
     assert "model test-model mode guided" in status
 
 

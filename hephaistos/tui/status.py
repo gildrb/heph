@@ -6,20 +6,22 @@ TUI renderer so adapters only format it for their surface.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hephaistos.runtime import has_configured_access
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from hephaistos.chat.session import ChatSession
 
 
-def _armory_status_label(path: Path | None, *, max_length: int = 24) -> str:
+def _armory_status_label(path: Path | None, *, max_length: int = 48) -> str:
     if path is None:
         return "none"
-    label = path.name or str(path)
+    try:
+        label = f"~/{path.expanduser().resolve(strict=False).relative_to(Path.home())}"
+    except ValueError:
+        label = str(path)
     if len(label) <= max_length:
         return label
     return f"...{label[-(max_length - 3) :]}"
