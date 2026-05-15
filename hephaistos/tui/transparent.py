@@ -179,16 +179,18 @@ def selectable_text_strip(
             segments.append(segment)
             continue
 
+        selectable_start = len(text) - len(text.lstrip(" "))
         selectable_end = len(text.rstrip(" "))
-        if selectable_end == 0:
+        if selectable_start >= selectable_end:
             segments.append(segment)
             char_x += len(text)
             continue
 
-        selectable_text = text[:selectable_end]
+        leading_text = text[:selectable_start]
+        selectable_text = text[selectable_start:selectable_end]
         trailing_text = text[selectable_end:]
-        local_start = 0
-        local_end = len(selectable_text)
+        local_start = selectable_start
+        local_end = selectable_end
         absolute_start = char_x
         overlap_start = local_end
         overlap_end = local_start
@@ -221,15 +223,17 @@ def selectable_text_strip(
             segments.append(Segment(part_text, part_style, segment_control))
 
         if selected_span is None or overlap_start >= overlap_end:
-            append_part(selectable_text, 0, selected=False)
+            append_part(leading_text, 0, selected=False)
+            append_part(selectable_text, selectable_start, selected=False)
         else:
-            append_part(selectable_text[:overlap_start], 0, selected=False)
+            append_part(leading_text, 0, selected=False)
+            append_part(text[selectable_start:overlap_start], selectable_start, selected=False)
             append_part(
-                selectable_text[overlap_start:overlap_end],
+                text[overlap_start:overlap_end],
                 overlap_start,
                 selected=True,
             )
-            append_part(selectable_text[overlap_end:], overlap_end, selected=False)
+            append_part(text[overlap_end:selectable_end], overlap_end, selected=False)
 
         if trailing_text:
             segments.append(Segment(trailing_text, segment.style, segment.control))

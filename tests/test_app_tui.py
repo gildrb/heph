@@ -594,6 +594,54 @@ def test_mouse_selection_normalizes_neutral_label_highlights() -> None:
     asyncio.run(check_selection_colours())
 
 
+def test_mouse_selection_skips_info_panel_leading_indentation() -> None:
+    if tui.Static is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = tuple(f"materials/source-{index}.pdf" for index in range(9))
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    panel_text = tui._info_panel_default_text(session).plain
+    panel_lines = panel_text.splitlines()
+    plus_line = next(index for index, line in enumerate(panel_lines) if "+1 more" in line)
+    exam_line = next(
+        index for index, line in enumerate(panel_lines) if "/exam active recall" in line
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_indentation_selection() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.pause()
+            panel = app.query_one("#info-panel", tui.Static)
+
+            for line_y, end_x in ((plus_line, 12), (exam_line, 25)):
+                await pilot.mouse_down("#info-panel", offset=(4, line_y))
+                await pilot.hover("#info-panel", offset=(end_x, line_y))
+                await pilot.pause()
+
+                segments = list(panel.render_line(line_y))
+                leading_reverse = [
+                    segment
+                    for segment in segments
+                    if segment.text.isspace() and "reverse" in str(segment.style)
+                ]
+                visible_reverse = [
+                    segment
+                    for segment in segments
+                    if segment.text.strip() and "reverse" in str(segment.style)
+                ]
+
+                assert not leading_reverse
+                assert visible_reverse
+                await pilot.mouse_up("#info-panel", offset=(end_x, line_y))
+
+    asyncio.run(check_indentation_selection())
+
+
 def test_tui_css_has_info_panel_layout() -> None:
     css = tui._tui_css()
 
