@@ -40,8 +40,11 @@ def test_style_tokens_render_from_current_theme() -> None:
     assert str(palette.STYLE_BRAND) == f"{palette.BOLD}{palette.ansi_fg('#C65050')}"
     assert str(palette.STYLE_ACCENT) == str(palette.STYLE_PROMPT)
     assert str(palette.STYLE_DIM) == f"{palette.DIM}{palette.ansi_fg('#808080')}"
-    assert str(palette.STYLE_SHORTCUT) == f"{palette.DIM}{palette.ansi_fg('#808080')}"
-    assert str(palette.STYLE_METADATA) == palette.ansi_fg("#C9A3A3")
+    assert str(palette.STYLE_CHROME_LABEL) == palette.ansi_fg("#D4C6A5")
+    assert str(palette.STYLE_SHORTCUT) == palette.ansi_fg("#D4C6A5")
+    assert str(palette.STYLE_METADATA) == palette.ansi_fg("#D4C6A5")
+    assert str(palette.STYLE_SHORTCUT) == str(palette.STYLE_METADATA)
+    assert str(palette.STYLE_CHROME_LABEL) == str(palette.STYLE_METADATA)
     assert str(palette.STYLE_EMBER) == str(palette.STYLE_BRAND)
     assert str(palette.STYLE_EMPHASIS) == str(palette.STYLE_PROMPT)
     assert str(palette.STYLE_ERROR) == f"{palette.BOLD}{palette.ansi_fg('#CC3333')}"
@@ -57,11 +60,13 @@ def test_high_contrast_keeps_emphasis_neutral_and_accent_for_attention() -> None
     assert p.emphasis == p.text
     assert p.shortcut == p.dim
     assert p.metadata == p.dim
+    assert p.chrome_label == p.dim
     assert p.emphasis != p.accent
     assert str(palette.STYLE_PROMPT) == f"{palette.BOLD}{palette.ansi_fg(p.emphasis)}"
     assert str(palette.STYLE_ASSISTANT) == str(palette.STYLE_PROMPT)
     assert str(palette.STYLE_ACCENT) == f"{palette.BOLD}{palette.ansi_fg(p.accent)}"
-    assert str(palette.STYLE_SHORTCUT) == f"{palette.DIM}{palette.ansi_fg(p.shortcut)}"
+    assert str(palette.STYLE_CHROME_LABEL) == palette.ansi_fg(p.chrome_label)
+    assert str(palette.STYLE_SHORTCUT) == palette.ansi_fg(p.shortcut)
     assert str(palette.STYLE_WARNING) == str(palette.STYLE_ACCENT)
 
 
@@ -88,8 +93,9 @@ def test_current_palette_returns_forge_by_default() -> None:
     assert p.brand == "#C65050"
     assert p.accent == "#C8C8C8"
     assert p.emphasis == "#C8C8C8"
-    assert p.shortcut == "#808080"
-    assert p.metadata == "#C9A3A3"
+    assert p.shortcut == "#D4C6A5"
+    assert p.metadata == "#D4C6A5"
+    assert p.chrome_label == "#D4C6A5"
     assert p.selection_background == "#B85A5A"
     assert p.selection_text == "#000000"
 
@@ -105,6 +111,9 @@ def test_all_theme_presets_are_valid_palettes() -> None:
         assert p.emphasis.startswith("#")
         assert p.shortcut.startswith("#")
         assert p.metadata.startswith("#")
+        assert p.chrome_label.startswith("#")
+        assert p.shortcut == p.chrome_label
+        assert p.metadata == p.chrome_label
         assert p.highlight.startswith("#")
         assert p.selection_background.startswith("#")
         assert p.selection_text.startswith("#")

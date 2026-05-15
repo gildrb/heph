@@ -6,10 +6,10 @@ from hephaistos.parameters.settings import load_app_settings
 from hephaistos.terminal import (  # re-export shared terminal primitives
     STYLE_ACCENT,
     STYLE_ASSISTANT,
+    STYLE_CHROME_LABEL,
     STYLE_DIM,
     STYLE_ERROR,
     STYLE_METADATA,
-    STYLE_SHORTCUT,
     STYLE_SUCCESS,
     STYLE_WARNING,
     direct_input,
@@ -21,6 +21,7 @@ from hephaistos.terminal.banner import ascii_logo, separator_line, wordmark
 
 __all__ = [
     "STYLE_ASSISTANT",
+    "STYLE_CHROME_LABEL",
     "STYLE_METADATA",
     "direct_input",
     "direct_print",
@@ -54,11 +55,11 @@ def _progressive_hints(session_count: int) -> list[str]:
     Always:           /help
     """
     parts: list[str] = [
-        f"{styled('enter', STYLE_SHORTCUT)} send  {styled('tab', STYLE_SHORTCUT)} complete"
+        f"{styled('enter', STYLE_CHROME_LABEL)} send  {styled('tab', STYLE_CHROME_LABEL)} complete"
     ]
     essentials = (
-        f"{styled('ctrl+c', STYLE_SHORTCUT)} interrupt"
-        f"  {styled('ctrl+d', STYLE_SHORTCUT)} exit"
+        f"{styled('ctrl+c', STYLE_CHROME_LABEL)} interrupt"
+        f"  {styled('ctrl+d', STYLE_CHROME_LABEL)} exit"
         f"  {styled('/help', STYLE_ACCENT)} commands"
     )
     parts.append(essentials)
@@ -70,7 +71,9 @@ def _progressive_hints(session_count: int) -> list[str]:
         )
         parts.append(tier1)
     if session_count >= 5:
-        tier2 = f"{styled('!', STYLE_ACCENT)} shell  {styled('\\', STYLE_SHORTCUT)} continuation"
+        tier2 = (
+            f"{styled('!', STYLE_ACCENT)} shell  {styled('\\', STYLE_CHROME_LABEL)} continuation"
+        )
         parts.append(tier2)
     return parts
 
@@ -111,13 +114,13 @@ def print_shell_intro(
     print(
         f"{wordmark()} {styled(f'v{version}', STYLE_DIM)}"
         f"  {styled('\u2502', STYLE_DIM)}  "
-        f"{styled('armory', STYLE_METADATA)} {styled(armory_path, armory_style)}"
+        f"{styled('armory', STYLE_CHROME_LABEL)} {styled(armory_path, armory_style)}"
         f" {styled('\u00b7', STYLE_DIM)} "
-        f"{styled('model', STYLE_METADATA)} {styled(model_text, model_style)}"
+        f"{styled('model', STYLE_CHROME_LABEL)} {styled(model_text, model_style)}"
         f" {styled('\u00b7', STYLE_DIM)} "
         f"{styled('api', STYLE_METADATA)} {api_status}"
         f" {styled('\u00b7', STYLE_DIM)} "
-        f"{styled('materials', STYLE_METADATA)} {source_status}"
+        f"{styled('materials', STYLE_CHROME_LABEL)} {source_status}"
     )
     for hint_line in hints:
         print(f"  {hint_line}")
@@ -170,13 +173,13 @@ def format_shell_header(
         ("class:header.metadata", "materials "),
         (source_style, source_text),
         ("", "\n"),
-        ("class:header.dim", "  enter "),
+        ("class:header.metadata", "  enter "),
         ("class:header.dim", "send  "),
-        ("class:header.dim", "tab "),
+        ("class:header.metadata", "tab "),
         ("class:header.dim", "complete  "),
-        ("class:header.dim", "ctrl+c "),
+        ("class:header.metadata", "ctrl+c "),
         ("class:header.dim", "interrupt  "),
-        ("class:header.dim", "ctrl+d "),
+        ("class:header.metadata", "ctrl+d "),
         ("class:header.dim", "exit"),
     ]
     if not has_api_key and not is_keyless:

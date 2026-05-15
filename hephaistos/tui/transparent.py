@@ -136,7 +136,9 @@ def normalize_selected_text_style(
         palette.dim.lower(),
         palette.accent.lower(),
         palette.emphasis.lower(),
+        palette.chrome_label.lower(),
         palette.shortcut.lower(),
+        palette.metadata.lower(),
         palette.stone.lower(),
     }
     colour = _style_color_hex(style)

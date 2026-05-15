@@ -248,8 +248,8 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
 
     hints = tui._footer_hints_text(_plain_session())
     palette = tui.current_palette()
-    dim_label_style = f"dim {palette.dim}"
-    shortcut_style = palette.metadata
+    footer_label_style = palette.text
+    shortcut_style = palette.chrome_label
     labels = ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+d")
     shortcut_styles: dict[str, list[str]] = {}
     for label in labels:
@@ -259,12 +259,39 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
             str(span.style) for span in hints.spans if span.start <= start and span.end >= end
         ]
 
-    assert str(hints.style) == dim_label_style
+    assert str(hints.style) == footer_label_style
     for styles in shortcut_styles.values():
         assert styles == [shortcut_style]
         assert not any(palette.brand in style for style in styles)
         assert not any(palette.emphasis in style for style in styles)
         assert not any("bold" in style.lower() for style in styles)
+
+
+def test_status_sidebar_and_footer_chrome_labels_share_one_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
+    session = _plain_session()
+    session.source_files = ("materials/calculus.md",)
+    palette = tui.current_palette()
+
+    labelled_texts = (
+        (tui._status_text(session), ("armory", "model", "mode")),
+        (tui._info_panel_default_text(session), ("materials", "time", "next")),
+        (
+            tui._footer_hints_text(session),
+            ("armory", "enter", "tab", "ctrl+p", "ctrl+o", "ctrl+d"),
+        ),
+    )
+
+    for text, labels in labelled_texts:
+        for label in labels:
+            start = text.plain.index(label)
+            end = start + len(label)
+            styles = [
+                str(span.style) for span in text.spans if span.start <= start and span.end >= end
+            ]
+            assert styles == [palette.chrome_label]
 
 
 def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
@@ -307,8 +334,8 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
             assert any(palette.emphasis in style for style in styles)
             assert not any(palette.accent in style for style in styles)
         assert brand_styles == [f"bold {palette.brand}"]
-        assert str(hints.style) == f"dim {palette.dim}"
-        assert shortcut_styles == [palette.metadata]
+        assert str(hints.style) == palette.text
+        assert shortcut_styles == [palette.chrome_label]
         assert not any(palette.emphasis in style for style in shortcut_styles)
         assert not any(palette.accent in style for style in shortcut_styles)
     finally:
@@ -525,6 +552,7 @@ def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
         emphasis="#ffffff",
         shortcut="#999999",
         metadata="#c9a3a3",
+        chrome_label="#c9a3a3",
         ember="#ff6600",
         configured="#00ff00",
         error="#ff0000",

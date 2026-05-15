@@ -49,7 +49,7 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
 
     for label in ("armory", "model", "mode"):
         start = 0 if plain.startswith(f"{label} ") else plain.index(f" {label} ") + 1
-        text.stylize(palette.metadata, start, start + len(label))
+        text.stylize(palette.chrome_label, start, start + len(label))
 
     for label in ("armory", "model"):
         value_start = plain.index(f"{label} ") + len(label) + 1
@@ -67,8 +67,8 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
 def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False) -> Text:
     """Build footer hints for inline armory mode."""
     palette = current_palette()
-    footer_style = f"dim {palette.dim}"
-    shortcut_style = f"dim {palette.shortcut}"
+    footer_style = palette.dim
+    shortcut_style = palette.chrome_label
     if creating:
         parts = ["armory", "enter create", "esc cancel"]
     elif filtering:
@@ -83,8 +83,7 @@ def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False)
             idx = plain.find(label, start)
             if idx == -1:
                 break
-            style = palette.metadata if label == "armory" else shortcut_style
-            text.stylize(style, idx, idx + len(label))
+            text.stylize(shortcut_style, idx, idx + len(label))
             start = idx + len(label)
     return text
 
@@ -96,8 +95,8 @@ def footer_hints_text(
 ) -> Text:
     """Build contextual footer hints that change based on current state."""
     palette = current_palette()
-    footer_style = f"dim {palette.dim}"
-    shortcut_style = palette.metadata
+    footer_style = palette.text
+    shortcut_style = palette.chrome_label
 
     if busy:
         plain = "esc stop  ctrl+c cancel"
@@ -120,7 +119,7 @@ def footer_hints_text(
         parts.append("api missing")
     plain = "  ".join(parts)
     text = require_rich_text()(plain, style=footer_style)
-    for label in ("enter", "tab", "ctrl+p", shortcut, "ctrl+c", "ctrl+d"):
+    for label in ("enter", "tab", "ctrl+p", shortcut, "armory", "ctrl+c", "ctrl+d"):
         try:
             start = plain.index(label)
         except ValueError:
@@ -188,7 +187,7 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
             idx = plain.find(label, start)
             if idx == -1:
                 break
-            text.stylize(palette.metadata, idx, idx + len(label))
+            text.stylize(palette.chrome_label, idx, idx + len(label))
             start = idx + len(label)
     for name in session.source_files:
         display_name = name.removeprefix("materials/")

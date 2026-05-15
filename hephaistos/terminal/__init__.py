@@ -21,6 +21,7 @@ from hephaistos.terminal.palette import (
     DIM,
     FORGE_ACCENT,
     FORGE_BRAND,
+    FORGE_CHROME_LABEL,
     FORGE_CONFIGURED,
     FORGE_DIM,
     FORGE_EMBER,
@@ -39,6 +40,7 @@ from hephaistos.terminal.palette import (
     FORGE_TEXT,
     HIGH_CONTRAST_ACCENT,
     HIGH_CONTRAST_BRAND,
+    HIGH_CONTRAST_CHROME_LABEL,
     HIGH_CONTRAST_CONFIGURED,
     HIGH_CONTRAST_DIM,
     HIGH_CONTRAST_EMBER,
@@ -57,6 +59,7 @@ from hephaistos.terminal.palette import (
     HIGH_CONTRAST_TEXT,
     LIGHT_ACCENT,
     LIGHT_BRAND,
+    LIGHT_CHROME_LABEL,
     LIGHT_CONFIGURED,
     LIGHT_DIM,
     LIGHT_EMBER,
@@ -85,6 +88,7 @@ __all__ = [
     "STYLE_ACCENT",
     "STYLE_ASSISTANT",
     "STYLE_BRAND",
+    "STYLE_CHROME_LABEL",
     "STYLE_DIM",
     "STYLE_EMBER",
     "STYLE_EMPHASIS",
@@ -127,6 +131,7 @@ class ThemePalette:
     emphasis: str
     shortcut: str
     metadata: str
+    chrome_label: str
     ember: str
     configured: str
     error: str
@@ -152,6 +157,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         emphasis=FORGE_EMPHASIS,
         shortcut=FORGE_SHORTCUT,
         metadata=FORGE_METADATA,
+        chrome_label=FORGE_CHROME_LABEL,
         ember=FORGE_EMBER,
         configured=FORGE_CONFIGURED,
         error=FORGE_ERROR,
@@ -175,6 +181,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         emphasis=LIGHT_EMPHASIS,
         shortcut=LIGHT_SHORTCUT,
         metadata=LIGHT_METADATA,
+        chrome_label=LIGHT_CHROME_LABEL,
         ember=LIGHT_EMBER,
         configured=LIGHT_CONFIGURED,
         error=LIGHT_ERROR,
@@ -198,6 +205,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         emphasis=HIGH_CONTRAST_EMPHASIS,
         shortcut=HIGH_CONTRAST_SHORTCUT,
         metadata=HIGH_CONTRAST_METADATA,
+        chrome_label=HIGH_CONTRAST_CHROME_LABEL,
         ember=HIGH_CONTRAST_EMBER,
         configured=HIGH_CONTRAST_CONFIGURED,
         error=HIGH_CONTRAST_ERROR,
@@ -241,10 +249,8 @@ def style_code(style_name: str) -> str:
         return f"{BOLD}{ansi_fg(palette.emphasis)}"
     if style_name in {"brand", "ember"}:
         return f"{BOLD}{ansi_fg(palette.brand)}"
-    if style_name == "shortcut":
-        return f"{DIM}{ansi_fg(palette.shortcut)}"
-    if style_name == "metadata":
-        return ansi_fg(palette.metadata)
+    if style_name in {"chrome_label", "shortcut", "metadata"}:
+        return ansi_fg(palette.chrome_label)
     if style_name == "dim":
         return f"{DIM}{ansi_fg(palette.dim)}"
     if style_name == "error":
@@ -270,6 +276,7 @@ class _StyleToken:
 STYLE_PROMPT = _StyleToken("prompt")
 STYLE_BRAND = _StyleToken("brand")
 STYLE_ACCENT = _StyleToken("accent")
+STYLE_CHROME_LABEL = _StyleToken("chrome_label")
 STYLE_SHORTCUT = _StyleToken("shortcut")
 STYLE_METADATA = _StyleToken("metadata")
 STYLE_DIM = _StyleToken("dim")
