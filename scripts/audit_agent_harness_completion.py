@@ -350,6 +350,7 @@ def _deterministic_suite_evidence() -> str:
         return str(suite)
     try:
         prompt_cache_report = benchmark_prompt_cache.run_benchmark()
+        study_intent_report = run_benchmark_suite.study_intent_contract_report()
         with tempfile.TemporaryDirectory(prefix="heph-audit-academic-items-") as tmp:
             armory = Path(tmp) / "armory"
             shutil.copytree(suite / "armory", armory)
@@ -363,6 +364,13 @@ def _deterministic_suite_evidence() -> str:
         f"{suite}: academic_items_pass_rate={academic_report.pass_rate:.3f}, "
         f"academic_question_type_count={academic_report.question_type_count}, "
         f"academic_grounded_question_rate={academic_report.grounded_question_rate:.3f}, "
+        "academic_canonical_source_label_rate="
+        f"{academic_report.canonical_source_label_rate:.3f}, "
+        f"study_intent_contract_passed={study_intent_report.passed}, "
+        "study_intent_required_intents="
+        f"{','.join(study_intent_report.required_intents)}, "
+        "study_intent_parsed_intents="
+        f"{','.join(study_intent_report.parsed_intents)}, "
         f"prompt_cache_pass_rate={prompt_cache_report.pass_rate:.3f}, "
         f"prompt_cache_stable_hash_reuse={prompt_cache_report.stable_hash_reuse_rate:.3f}"
     )
@@ -1114,7 +1122,7 @@ def _replay_dataset_audit(path: Path) -> ReplayDatasetAudit:
         return ReplayDatasetAudit(
             error=(
                 "replay material-overview case must include word, citation, source, bullet, "
-                "and cited-bullet shape constraints"
+                "cited-bullet, and explicit-date shape constraints"
             ),
             case_count=len(cases),
             case_ids=case_ids,

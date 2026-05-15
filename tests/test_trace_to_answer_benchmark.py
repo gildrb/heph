@@ -136,6 +136,7 @@ def test_material_overview_trace_gets_generic_answer_shape_contract(tmp_path: Pa
     assert fixtures[0]["min_sampled_sources"] == 2
     assert fixtures[0]["min_bullet_count"] == 2
     assert fixtures[0]["min_cited_bullet_count"] == 2
+    assert fixtures[0]["max_explicit_date_lines"] == 1
     assert fixtures[0]["evidence_coverage"] == {
         "evidence_blocks": 2,
         "sampled_sources": 2,

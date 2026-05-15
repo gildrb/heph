@@ -88,6 +88,7 @@ def _write_candidate_replay_report(path: Path, *, status: int = 0) -> None:
             "min_distinct_sources": 2,
             "min_bullet_count": 2,
             "min_cited_bullet_count": 2,
+            "max_explicit_date_lines": 1,
         },
     )
     output.write_text(
@@ -173,6 +174,7 @@ def _write_valid_replay_dataset(path: Path) -> None:
                     "min_distinct_sources": 2,
                     "min_bullet_count": 2,
                     "min_cited_bullet_count": 2,
+                    "max_explicit_date_lines": 1,
                 },
             )
         )
@@ -419,6 +421,9 @@ def test_completion_audit_runs_default_deterministic_suite() -> None:
     assert "academic_items_pass_rate=1.000" in item.evidence
     assert "academic_question_type_count=6" in item.evidence
     assert "academic_grounded_question_rate=1.000" in item.evidence
+    assert "academic_canonical_source_label_rate=1.000" in item.evidence
+    assert "study_intent_contract_passed=True" in item.evidence
+    assert "recall_clarification" in item.evidence
 
 
 def test_completion_audit_rejects_failing_deterministic_suite(

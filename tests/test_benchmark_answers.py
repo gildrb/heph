@@ -54,6 +54,7 @@ def test_load_cases_supports_jsonl_and_defaults_citation_requirement(tmp_path: P
                         "evidence": _evidence(),
                         "expected_citations": ["E1"],
                         "must_include": ["priority queue"],
+                        "max_explicit_date_lines": 1,
                         "supported_claims": [
                             {"text": "priority queue", "evidence_id": "E1"},
                         ],
@@ -84,6 +85,7 @@ def test_load_cases_supports_jsonl_and_defaults_citation_requirement(tmp_path: P
     assert cases[0].supported_claims == (
         benchmark_answers.SupportedClaim(text="priority queue", evidence_id="E1"),
     )
+    assert cases[0].max_explicit_date_lines == 1
     assert cases[1].require_citations is False
     assert cases[1].require_abstention is True
     assert cases[1].required_label == "PARTIAL"
@@ -350,8 +352,9 @@ def test_material_overview_rejects_boilerplate_topic_phrases() -> None:
         answer=(
             "Retrieved overview sample: two indexed sources were sampled [E1] [E2].\n"
             "- Document signals: the sample includes lecture and exam material [E1].\n"
-            "- Visible topics: definition [E1], heute sprechen [E1], letztes mal [E2].\n"
-            "- Scope: this is not an exhaustive summary [E2]."
+            "- Visible topics: definition [E1], today speaking [E1], last time [E2].\n"
+            "- Scope: this is not an exhaustive summary [E2].\n"
+            "Next action: Review the smallest source-backed piece, then ask for recall."
         ),
         evidence=TurnEvidence(
             (
@@ -383,7 +386,11 @@ def test_material_overview_rejects_boilerplate_topic_phrases() -> None:
         ),
         expected_citations=("E1", "E2"),
         must_include=("Retrieved overview sample", "not an exhaustive summary"),
-        must_not_include=("Visible topics: definition", "heute sprechen", "letztes mal"),
+        must_not_include=(
+            "Visible topics: definition",
+            "next action",
+            "source-backed",
+        ),
         min_words=24,
         min_citation_count=2,
         min_distinct_sources=2,
@@ -396,9 +403,67 @@ def test_material_overview_rejects_boilerplate_topic_phrases() -> None:
     assert not result.passed
     assert result.forbidden_text_present == (
         "Visible topics: definition",
-        "heute sprechen",
-        "letztes mal",
+        "next action",
+        "source-backed",
     )
+
+
+def test_material_overview_rejects_date_by_date_document_walkthrough() -> None:
+    case = benchmark_answers.AnswerCase(
+        case_id="overview-date-walkthrough",
+        answer=(
+            "Der Korpus behandelt Mathematik fuer Informatiker 2 [E1][E2].\n"
+            "- In den Folien vom 22. April geht es um Reihen und Potenzreihen [E1].\n"
+            "- In den Folien vom 15. April geht es um Folgen und Grenzwerte [E2].\n"
+            "- In den Folien vom 4. Mai geht es um Taylor-Polynome [E1]."
+        ),
+        evidence=_turn_evidence(),
+        expected_citations=("E1",),
+        min_words=24,
+        min_citation_count=2,
+        min_bullet_count=3,
+        min_cited_bullet_count=3,
+        max_explicit_date_lines=1,
+    )
+
+    result = benchmark_answers.evaluate_case(case)
+
+    assert not result.passed
+    assert result.shape_failures == ("explicit date lines 2 above 1",)
+
+
+def test_material_overview_rejects_chronological_walkthrough_without_dates() -> None:
+    case = benchmark_answers.AnswerCase(
+        case_id="overview-chronological-walkthrough",
+        answer=(
+            "The corpus is about applied mathematics and exam preparation [E1][E2].\n"
+            "- First, the material introduces sequences and limits [E1].\n"
+            "- Then, the material moves to series and convergence criteria [E2].\n"
+            "- Later, it covers Taylor polynomials and approximation [E1]."
+        ),
+        evidence=_turn_evidence(),
+        expected_citations=("E1",),
+        task="material-overview",
+        min_words=24,
+        min_citation_count=2,
+        min_bullet_count=3,
+        min_cited_bullet_count=3,
+        max_explicit_date_lines=1,
+    )
+
+    result = benchmark_answers.evaluate_case(case)
+
+    assert not result.passed
+    assert "chronological overview lines 3 above 1" in result.shape_failures
+
+
+def test_explicit_date_counter_ignores_numbered_concepts() -> None:
+    answer = (
+        "- 1. Definitionen und Grundbegriffe bilden den Einstieg [E1].\n"
+        "- Unit 2. Trade-offs bleiben trotzdem ein normales Thema [E2]."
+    )
+
+    assert benchmark_answers._explicit_date_line_count(answer) == 0
 
 
 def test_evidence_coverage_constraints_can_require_sampled_sources() -> None:

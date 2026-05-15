@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from hephaistos.study.knowledge import (
     AcademicItem,
     AcademicItemKind,
+    GroundedStudyQuestion,
     build_course_knowledge_graph,
     extract_academic_items,
     generate_grounded_study_questions,
+    grounded_study_question_quality_issues,
 )
 
 
@@ -16,6 +18,7 @@ class Chunk:
     source: str
     index: int
     text: str
+    heading: str = ""
 
 
 def test_extract_academic_items_preserves_source_refs() -> None:
@@ -147,6 +150,7 @@ def test_extract_academic_items_strips_lecture_prefix_from_heading_concepts() ->
     assert items[0].text == "Requirements Engineering"
     assert items[0].concept == "Requirements Engineering"
     assert items[1].concept == "Requirements Engineering"
+    assert all(item.source_label == "3 Requirements Engineering" for item in items)
 
 
 def test_build_course_knowledge_graph_groups_items_by_concept() -> None:
@@ -278,6 +282,7 @@ def test_generate_grounded_study_questions_preserves_grounding() -> None:
         "materials/lecture.md#chunk=2",
         "materials/exam.md#chunk=0",
     )
+    assert questions[0].source_label == "lecture; exam"
     assert any("LTP is only a structural change" in question.question for question in questions)
     assert not any("and explain why it fits" in question.question for question in questions)
     assert any(
@@ -290,7 +295,9 @@ def test_generate_grounded_study_questions_preserves_grounding() -> None:
         for question in questions
     )
     assert not any("source-backed" in question.question for question in questions)
+    assert not any("source-supported" in question.question for question in questions)
     assert not any("source question" in question.question for question in questions)
+    assert all(not grounded_study_question_quality_issues(question) for question in questions)
 
 
 def test_generate_grounded_study_questions_skips_metadata_trivia_nodes() -> None:
@@ -342,3 +349,46 @@ def test_generate_grounded_study_questions_skips_ungrounded_nodes() -> None:
     )
 
     assert generate_grounded_study_questions(graph) == []
+
+
+def test_grounded_study_question_quality_rejects_metadata_and_internal_source_text() -> None:
+    question = GroundedStudyQuestion(
+        question=(
+            "What does slide 7 say about source-backed claims in materials/lecture.pdf#chunk=2?"
+        ),
+        question_type="free_recall",
+        concept="Lecture date",
+        grounding_source_refs=("materials/lecture.pdf#chunk=2",),
+    )
+
+    issues = grounded_study_question_quality_issues(question)
+
+    assert "contains metadata or internal source wording" in issues
+    assert "uses metadata-like concept" in issues
+
+
+def test_grounded_study_question_quality_rejects_ungrounded_passive_prompt() -> None:
+    question = GroundedStudyQuestion(
+        question="Summarize the document.",
+        question_type="summary",
+        concept="Enzyme kinetics",
+        grounding_source_refs=(),
+    )
+
+    assert grounded_study_question_quality_issues(question) == (
+        "missing grounding source refs",
+        "missing canonical source label",
+        "not framed as active recall",
+    )
+
+
+def test_grounded_study_question_quality_rejects_multi_part_prompt() -> None:
+    question = GroundedStudyQuestion(
+        question="Define enzyme kinetics and explain why substrate concentration matters?",
+        question_type="free_recall",
+        concept="Enzyme kinetics",
+        grounding_source_refs=("materials/biochem-lecture.md#chunk=1",),
+        source_label="biochem lecture",
+    )
+
+    assert grounded_study_question_quality_issues(question) == ("asks more than one thing",)

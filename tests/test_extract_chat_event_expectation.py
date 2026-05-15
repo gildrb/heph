@@ -59,9 +59,15 @@ def test_extract_expectation_uses_evidence_notice_metadata(tmp_path: Path) -> No
     expectation = extract_chat_event_expectation.extract_expectation(events_path)
 
     assert expectation[0]["expected_citations"] == ["E1", "E2"]
+    assert expectation[0]["max_explicit_date_lines"] == 1
     assert "must_include" not in expectation[0]
     assert expectation[0]["required_material_operations"] == ["sample_overview"]
     assert expectation[0]["forbidden_material_operations"] == ["search_index"]
+    must_not_include = expectation[0]["must_not_include"]
+    assert isinstance(must_not_include, list)
+    assert "next action" in must_not_include
+    assert "source-backed" in must_not_include
+    assert "ask for recall" in must_not_include
     assert expectation[0]["evidence"] == [
         {
             "id": "E1",

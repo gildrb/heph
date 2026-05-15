@@ -98,6 +98,9 @@ _OVERVIEW_QUOTED_QUESTION_RE = re.compile(r"[\"“](?P<question>[^\"”]{8,180}\
 _OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 _OVERVIEW_CITATION_RE = re.compile(r"\s+\[(?:e|E)\d+\]")
 _INLINE_MENU_LABEL_WIDTH = 22
+_LANGUAGE_PRESERVING_TOPIC_PROMPT = (
+    " Answer in the same language as the selected topic when that language is clear."
+)
 
 
 @dataclass(frozen=True)
@@ -1051,11 +1054,14 @@ def _dedupe_inline_options(options: list[tuple[str, str]]) -> list[tuple[str, st
 
 
 def _study_topic_action_prompt(action: str, topic: str) -> str:
+    suffix = _LANGUAGE_PRESERVING_TOPIC_PROMPT
     if action == "Explain it":
-        return f"Teach me {topic} in simple terms, grounded in the evidence for this topic."
+        return (
+            f"Teach me {topic} in simple terms, grounded in the evidence for this topic.{suffix}"
+        )
     if action == "Practice it":
-        return f"Give me one source-grounded practice question about {topic}."
-    return f"Start a quick recall drill about {topic}."
+        return f"Give me one source-grounded practice question about {topic}.{suffix}"
+    return f"Start a quick recall drill about {topic}.{suffix}"
 
 
 def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
@@ -1170,14 +1176,20 @@ def _overview_recommendation_prompt(recommendation: str) -> str:
     explanation = re.fullmatch(r"Start with a guided explanation of (?P<topic>.+)", clean)
     if explanation is not None:
         topic = explanation.group("topic").strip()
-        return f"Teach me {topic} in simple terms, grounded in the evidence for this topic."
+        return (
+            f"Teach me {topic} in simple terms, grounded in the evidence for this topic."
+            f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
+        )
     practice = re.fullmatch(
         r"Practice one exam-style or exercise question on (?P<topic>.+?)(?: using)?",
         clean,
     )
     if practice is not None:
         topic = practice.group("topic").strip()
-        return f"Give me one source-grounded practice question about {topic}."
+        return (
+            f"Give me one source-grounded practice question about {topic}."
+            f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
+        )
     compare = re.fullmatch(
         r"Compare (?P<left>.+?) and (?P<right>.+?) so you can separate the ideas",
         clean,
@@ -1185,10 +1197,13 @@ def _overview_recommendation_prompt(recommendation: str) -> str:
     if compare is not None:
         left = compare.group("left").strip()
         right = compare.group("right").strip()
-        return f"Compare {left} and {right}, grounded in the evidence for these topics."
+        return (
+            f"Compare {left} and {right}, grounded in the evidence for these topics."
+            f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
+        )
     if clean.startswith("Make a short study order"):
-        return f"{clean}, grounded in the source material."
-    return f"{clean}."
+        return f"{clean}, grounded in the source material.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
+    return f"{clean}.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
 
 
 def _overview_recommendation_label(recommendation: str) -> str:

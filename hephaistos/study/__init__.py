@@ -28,11 +28,13 @@ from hephaistos.study.autopilot import (
 from hephaistos.study.controller import (
     StudyTurnPlan,
     apply_turn_result,
+    manual_chat_plan,
     material_overview_plan,
     material_source_qa_plan,
     material_topic_drill_plan,
     material_topic_presentation_plan,
     plan_turn,
+    recall_clarification_plan,
 )
 from hephaistos.study.knowledge import (
     AcademicItem,
@@ -43,6 +45,7 @@ from hephaistos.study.knowledge import (
     build_course_knowledge_graph,
     extract_academic_items,
     generate_grounded_study_questions,
+    grounded_study_question_quality_issues,
 )
 from hephaistos.study.state import (
     StudyAction,
@@ -86,8 +89,10 @@ __all__ = [
     "choice_prompt",
     "extract_academic_items",
     "generate_grounded_study_questions",
+    "grounded_study_question_quality_issues",
     "infer_turn_mode",
     "learner_assessment_from_state",
+    "manual_chat_plan",
     "material_overview_plan",
     "material_source_qa_plan",
     "material_topic_drill_plan",
@@ -96,6 +101,7 @@ __all__ = [
     "normalize_confidence_value",
     "parse_time_budget_minutes",
     "plan_turn",
+    "recall_clarification_plan",
     "session_type_from_text",
     "validate_pedagogy",
 ]

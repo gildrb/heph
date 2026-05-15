@@ -74,7 +74,7 @@
     {
       "requirement": "Deterministic academic benchmark suite passes",
       "status": "covered",
-      "evidence": "/Users/gilrodrigues/Code/Hephaistos/benchmarks/academic: academic_items_pass_rate=1.000, academic_question_type_count=6, academic_grounded_question_rate=1.000, prompt_cache_pass_rate=1.000, prompt_cache_stable_hash_reuse=1.000"
+      "evidence": "/Users/gilrodrigues/Code/Hephaistos/benchmarks/academic: academic_items_pass_rate=1.000, academic_question_type_count=6, academic_grounded_question_rate=1.000, academic_canonical_source_label_rate=1.000, study_intent_contract_passed=True, study_intent_required_intents=material_overview,source_qa,source_only_policy,topic_presentation,topic_drill,ready_for_recall,recall_clarification,recall_answer_attempt,chat, study_intent_parsed_intents=material_overview,source_qa,source_only_policy,topic_presentation,topic_drill,ready_for_recall,recall_clarification,recall_answer_attempt,chat, prompt_cache_pass_rate=1.000, prompt_cache_stable_hash_reuse=1.000"
     },
     {
       "requirement": "Deterministic suite verifies public chat JSONL harness events",

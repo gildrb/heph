@@ -47,6 +47,10 @@ def test_prepare_evidence_writes_manifest_and_keeps_scaffold_unreviewed(
     assert report.status == 1
     assert manifest["id"] == "permissioned-test-corpus"
     assert len(manifest["documents"]) == 2
+    assert all(
+        "Local permissioned material from armory:" in document["permission_note"]
+        for document in manifest["documents"]
+    )
     assert preflight["status"] == 1
     assert preflight["manifest_path"] == report.manifest_path
     assert (output_dir / "chat_events.jsonl").is_file()
@@ -58,13 +62,15 @@ def test_prepare_evidence_writes_manifest_and_keeps_scaffold_unreviewed(
     assert chat_expectation[0]["expected_citations"] == ["E1", "E2"]
     assert chat_expectation[0]["required_material_operations"] == ["sample_overview"]
     assert chat_expectation[0]["forbidden_material_operations"] == ["search_index"]
+    assert chat_expectation[0]["max_explicit_date_lines"] == 1
     assert chat_expectation[0]["evidence"] == []
     assert "Document signals" in chat_expectation[0]["must_not_include"]
     assert "Sampled orientation" in chat_expectation[0]["must_not_include"]
-    assert any(
-        "Generated scaffold" in failure or "missing provenance" in failure
-        for failure in report.failures
-    )
+    assert "next action" in chat_expectation[0]["must_not_include"]
+    assert "source-backed" in chat_expectation[0]["must_not_include"]
+    assert "ask for recall" in chat_expectation[0]["must_not_include"]
+    assert any("Generated scaffold" in failure for failure in report.failures)
+    assert not any("missing provenance" in failure for failure in report.failures)
     assert "heph chat ask --jsonl" in report.next_chat_capture_command
     assert "chat_events.jsonl" in report.next_chat_capture_command
     assert "extract_chat_event_expectation" in report.next_chat_extract_command

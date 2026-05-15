@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -72,6 +73,7 @@ class RawAnswerCase(TypedDict):
     min_sampled_sources: NotRequired[int]
     min_bullet_count: NotRequired[int]
     min_cited_bullet_count: NotRequired[int]
+    max_explicit_date_lines: NotRequired[int]
     required_sections: NotRequired[list[str]]
     evidence_coverage: NotRequired[dict[str, int]]
     supported_claims: NotRequired[list[RawSupportedClaim]]
@@ -104,6 +106,7 @@ class AnswerCase:
     min_sampled_sources: int = 0
     min_bullet_count: int = 0
     min_cited_bullet_count: int = 0
+    max_explicit_date_lines: int = 0
     required_sections: tuple[str, ...] = ()
     evidence_coverage: dict[str, int] | None = None
     supported_claims: tuple[SupportedClaim, ...] = ()
@@ -152,6 +155,24 @@ class AnswerBenchmarkReport:
     required_label_rate: float
     failures: tuple[str, ...]
     results: tuple[AnswerCaseResult, ...]
+
+
+_EXPLICIT_DATE_RE = re.compile(
+    r"\b(?:"
+    r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|"
+    r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|"
+    r"\d{1,2}\.\s*[A-ZÀ-ÖØ-Þa-zà-öø-ÿ]{3,}\s+\d{4}|"
+    r"(?:1[3-9]|2\d|3[01])\.\s*[A-ZÀ-ÖØ-Þa-zà-öø-ÿ]{3,}"
+    r")\b"
+)
+_CHRONOLOGICAL_OVERVIEW_LINE_RE = re.compile(
+    r"^\s*(?:[-*+]\s*|\d+[.)]\s*)?"
+    r"(?:"
+    r"(?:first|second|third|next|then|afterwards?|later|finally|subsequently)\b|"
+    r"in\s+(?:the\s+)?(?:first|second|third|next|following|later)\b"
+    r")",
+    re.IGNORECASE,
+)
 
 
 def _as_string_list(value: object, field_name: str, case_idx: int) -> list[str]:
@@ -308,6 +329,13 @@ def _as_raw_cases(payload: object) -> list[RawAnswerCase]:
         )
         if min_cited_bullet_count:
             raw_case["min_cited_bullet_count"] = min_cited_bullet_count
+        max_explicit_date_lines = _as_non_negative_int(
+            raw.get("max_explicit_date_lines"),
+            "max_explicit_date_lines",
+            idx,
+        )
+        if max_explicit_date_lines:
+            raw_case["max_explicit_date_lines"] = max_explicit_date_lines
         required_sections = _as_string_list(raw.get("required_sections"), "required_sections", idx)
         if required_sections:
             raw_case["required_sections"] = required_sections
@@ -430,6 +458,7 @@ def load_cases_from_payload(payload: object) -> list[AnswerCase]:
                 min_sampled_sources=raw.get("min_sampled_sources", 0),
                 min_bullet_count=raw.get("min_bullet_count", 0),
                 min_cited_bullet_count=raw.get("min_cited_bullet_count", 0),
+                max_explicit_date_lines=raw.get("max_explicit_date_lines", 0),
                 required_sections=tuple(raw.get("required_sections", [])),
                 evidence_coverage=raw.get("evidence_coverage"),
                 supported_claims=_supported_claims_from_raw(raw.get("supported_claims", [])),
@@ -554,6 +583,14 @@ def _cited_bullet_count(text: str) -> int:
     )
 
 
+def _explicit_date_line_count(text: str) -> int:
+    return sum(1 for line in text.splitlines() if _EXPLICIT_DATE_RE.search(line))
+
+
+def _chronological_overview_line_count(text: str) -> int:
+    return sum(1 for line in text.splitlines() if _CHRONOLOGICAL_OVERVIEW_LINE_RE.search(line))
+
+
 def _has_required_section(answer: str, section: str) -> bool:
     normalized_section = section.strip().rstrip(":").casefold()
     if not normalized_section:
@@ -608,6 +645,14 @@ def _shape_failures(
     cited_bullet_count = _cited_bullet_count(case.answer)
     if case.min_cited_bullet_count and cited_bullet_count < case.min_cited_bullet_count:
         failures.append(f"cited bullets {cited_bullet_count} below {case.min_cited_bullet_count}")
+    explicit_date_lines = _explicit_date_line_count(case.answer)
+    if case.max_explicit_date_lines and explicit_date_lines > case.max_explicit_date_lines:
+        failures.append(
+            f"explicit date lines {explicit_date_lines} above {case.max_explicit_date_lines}"
+        )
+    chronological_lines = _chronological_overview_line_count(case.answer)
+    if case.task == "material-overview" and chronological_lines > 1:
+        failures.append(f"chronological overview lines {chronological_lines} above 1")
     missing_sections = [
         section
         for section in case.required_sections

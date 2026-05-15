@@ -18,6 +18,8 @@ from hephaistos.study import (
     assess_choice_response,
     assess_evidence,
     choice_prompt,
+    manual_chat_plan,
+    material_topic_drill_plan,
     plan_turn,
     validate_pedagogy,
 )
@@ -32,6 +34,22 @@ def test_first_turn_plans_presentation() -> None:
     assert plan.phase is StudyPhase.PRESENTING
     assert plan.retrieval_query == "Explain question 1"
     assert plan.allow_tools is True
+    assert "signal when they are ready for recall" in plan.prompt
+    assert "Do not require a specific English word such as `ready`" in plan.prompt
+    assert "type the literal command `ready`" not in plan.prompt
+    assert "End with exactly: Say ready when you want recall" not in plan.prompt
+
+
+def test_manual_chat_plan_is_non_material_specific() -> None:
+    plan = manual_chat_plan("que puedes hacer?")
+
+    assert plan.action is StudyAction.CHAT
+    assert plan.retrieval_query is None
+    assert plan.allow_tools is False
+    assert plan.direct_reply is None
+    assert "HEPH chat mode" in plan.prompt
+    assert "same language as the user's request" in plan.prompt
+    assert "que puedes hacer?" in plan.prompt
 
 
 def test_study_state_round_trips_confidence() -> None:
@@ -139,6 +157,8 @@ def test_guided_plan_attaches_study_move_policy() -> None:
     assert "Autonomous study policy" in plan.prompt
     assert "confidence from 0-100%" in plan.prompt
     assert "why the recommendation is beneficial" in plan.prompt
+    assert "Treat the response shape as semantic guidance" in plan.prompt
+    assert "adapt the wording to the learner's language" in plan.prompt
 
 
 def test_manual_mode_answers_direct_requests_without_study_loop() -> None:
@@ -149,6 +169,7 @@ def test_manual_mode_answers_direct_requests_without_study_loop() -> None:
     assert plan.action is StudyAction.CHAT
     assert plan.autonomy_mode is StudyAutonomyMode.MANUAL
     assert plan.retrieval_query == "Explain Bayes theorem"
+    assert "same language as the user's request" in plan.prompt
     assert "normal conversational assistant" in plan.prompt
     assert "Do not force a ready/recall loop" in plan.prompt
     assert "Say ready when you want recall" not in plan.prompt
@@ -176,6 +197,7 @@ def test_manual_mode_light_chat_goes_to_model_without_tools(message: str) -> Non
     assert plan.retrieval_query is None
     assert plan.allow_tools is False
     assert "HEPH chat mode" in plan.prompt
+    assert "same language as the user's request" in plan.prompt
     assert "available tools" not in plan.prompt
 
 
@@ -263,6 +285,7 @@ def test_autopilot_command_bootstrap_uses_corpus_diagnostic() -> None:
     assert "Use the retrieved source material to ask exactly one diagnostic" in plan.prompt
     assert "Use only the provided source material" in plan.prompt
     assert "student's language" in plan.prompt
+    assert "Do not hard-code an English closing instruction" in plan.prompt
     assert "provided canonical source label" in plan.prompt
 
 
@@ -402,10 +425,34 @@ def test_first_turn_material_overview_uses_internal_evidence_without_llm_tools()
     assert plan.allow_tools is False
     assert plan.buffer_response is True
     assert "Execute MATERIAL_OVERVIEW" in plan.prompt
-    assert "not as the entire corpus" in plan.prompt
+    assert "do not explain retrieval sampling mechanics" in plan.prompt
+    assert "generic sampling or completeness disclaimer" in plan.prompt
+    assert "non-exhaustive list" in plan.prompt
     assert "Do not infer from filenames" in plan.prompt
+    assert "semester labels" in plan.prompt
+    assert "course administration metadata" in plan.prompt
     assert "Use material tools to inspect indexed sources" not in plan.prompt
     assert "Do not paste long source excerpts" in plan.prompt
+    assert "next-step, evidence-grounding-block" in plan.prompt
+
+
+def test_material_overview_result_does_not_enter_ready_loop() -> None:
+    state = StudyState()
+    plan = plan_turn(state, "what is the material about")
+
+    next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        "The material covers graph algorithms and exams [E1].",
+        ["materials/algorithms.md#chunk=0"],
+    )
+
+    assert cleaned == "The material covers graph algorithms and exams [E1]."
+    assert next_state.phase is StudyPhase.PRESENTING
+    assert next_state.current_item == ""
+    assert next_state.retrieval_query == ""
+    assert next_state.expected_source_refs == []
+    assert next_state.last_feedback_type is StudyFeedbackType.NONE
 
 
 def test_non_english_material_overview_is_left_for_model_intent_normalization() -> None:
@@ -533,6 +580,25 @@ def test_topic_specific_exam_question_keeps_answer_hidden() -> None:
     assert plan.action is StudyAction.CALIBRATE
     assert "active-recall exam drill" in plan.prompt
     assert "do not show the result" in plan.prompt
+
+
+def test_model_normalized_topic_drill_prompt_keeps_original_language_signal() -> None:
+    plan = material_topic_drill_plan(
+        "frag mich zu Enzymkinetik ab",
+        retrieval_query="enzyme kinetics",
+    )
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.retrieval_query == "enzyme kinetics"
+    assert "Student request (language/topic signal; rules below override it)" in plan.prompt
+    assert "frag mich zu Enzymkinetik ab" in plan.prompt
+    assert "student's language" in plan.prompt
+    assert "answer from memory, or ask for an easier question" in plan.prompt
+    assert "Do not hard-code an English closing instruction" in plan.prompt
+    assert "End with exactly: Answer from memory" not in plan.prompt
+    assert "Use only the provided source material" in plan.prompt
+    assert "Softwaretechnik" not in plan.prompt
+    assert "English/German" not in plan.prompt
 
 
 @pytest.mark.parametrize(
@@ -696,6 +762,7 @@ def test_standalone_source_policy_does_not_reset_ready_wait(message: str) -> Non
     assert plan.retrieval_query == "conditional probability"
     assert plan.use_expected_source_refs is True
     assert "SOURCE_FOLLOWUP" in plan.prompt
+    assert "same language as the student's follow-up" in plan.prompt
     assert "Execute SOURCE_QA" not in plan.prompt
 
 
@@ -795,6 +862,7 @@ def test_followup_referents_do_not_start_fresh_topic_in_ready_wait(message: str)
     assert plan.retrieval_query == "conditional probability"
     assert plan.use_expected_source_refs is True
     assert "SOURCE_FOLLOWUP" in plan.prompt
+    assert "same language as the student's follow-up" in plan.prompt
     assert "Execute the PRESENT phase" not in plan.prompt
 
 
@@ -975,7 +1043,7 @@ def test_standalone_source_policy_in_recall_reprompts_without_assessing(message:
         ),
         (
             "What can I use this for?",
-            "Use Hephaistos to study your own materials: ask a source-backed question, run "
+            "Use Hephaistos to study your own materials: ask a source-grounded question, run "
             "/exam for active recall, run /priority for a plan, or /autopilot on to let Heph "
             "drive the session.",
         ),
@@ -1054,6 +1122,8 @@ def test_priority_request_does_not_start_recall_item() -> None:
     assert (
         plan.retrieval_query == "exam priority topics prerequisites past exams materials overview"
     )
+    assert "User request: Figure out my priorities" in plan.prompt
+    assert "same language as the student's request" in plan.prompt
     assert "Do not ask a recall question" in plan.prompt
     assert cleaned == "Prioritize recurrence relations first [E1]."
     assert next_state.current_item == ""
@@ -1120,6 +1190,33 @@ def test_ready_signal_moves_to_recall() -> None:
     assert next_state.recall_started_at == now
 
 
+def test_non_english_ready_signal_is_not_hard_coded_in_controller() -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="Definiere bedingte Wahrscheinlichkeit.",
+        retrieval_query="conditional probability",
+    )
+
+    plan = plan_turn(state, "ich bin bereit")
+
+    assert plan.action is StudyAction.REVIEW
+    assert "SOURCE_FOLLOWUP" in plan.prompt
+
+
+def test_recall_prompt_localizes_short_memory_instruction() -> None:
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="Definiere eine Folge mit Definitionsmenge und Folgenglied.",
+        retrieval_query="folge definition",
+    )
+
+    plan = plan_turn(state, "ready")
+
+    assert plan.action is StudyAction.PROMPT_RECALL
+    assert "same language as the current item" in plan.prompt
+    assert "Do not hard-code an English recall sentence" in plan.prompt
+
+
 def test_assess_partial_keeps_item_active() -> None:
     started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     state = StudyState(
@@ -1139,7 +1236,7 @@ def test_assess_partial_keeps_item_active() -> None:
         now=started + timedelta(seconds=45),
     )
 
-    assert cleaned == "You omitted the final justification."
+    assert cleaned == "PARTIAL: You omitted the final justification."
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.current_item == "Q1"
     assert next_state.attempt_count == 1
@@ -1169,7 +1266,7 @@ def test_assess_correct_resets_for_next_item() -> None:
         now=started + timedelta(seconds=18),
     )
 
-    assert cleaned == "Correct. Move to the next item."
+    assert cleaned == "CORRECT: Correct. Move to the next item."
     assert next_state.phase is StudyPhase.PRESENTING
     assert next_state.current_item == ""
     assert next_state.retrieval_query == ""
@@ -1220,10 +1317,33 @@ def test_missing_assessment_prefix_defaults_to_partial() -> None:
         [],
     )
 
-    assert cleaned == "You are missing the setup."
+    assert cleaned == "PARTIAL: You are missing the setup."
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.last_feedback_type is StudyFeedbackType.PARTIAL
     assert next_state.attempt_count == 1
+
+
+def test_structured_assessment_reply_preserves_label_and_sections() -> None:
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q1",
+        retrieval_query="Q1",
+    )
+
+    plan = plan_turn(state, "attempt")
+    _next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        "PARTIAL:\n"
+        "Score: 1/2.\n"
+        "Got: You recalled the definition.\n"
+        "Missing: You missed the condition.",
+        [],
+    )
+
+    assert cleaned.startswith("PARTIAL:\nScore: 1/2.")
+    assert "Got: You recalled the definition." in cleaned
+    assert "Missing: You missed the condition." in cleaned
 
 
 def test_skip_without_current_item_requests_next_material_backed_item() -> None:
@@ -1275,6 +1395,10 @@ def test_waiting_for_ready_reminder_keeps_waiting_state(message: str) -> None:
 
     assert plan.action is StudyAction.WAIT_READY_REMINDER
     assert "SOURCE_FOLLOWUP" not in plan.prompt
+    assert "signal when they are ready for recall" in plan.prompt
+    assert "Do not require a specific English word such as `ready`" in plan.prompt
+    assert "type the literal command `ready`" not in plan.prompt
+    assert "Tell the student to say ready" not in plan.prompt
     assert cleaned == "Say ready when you want recall."
     assert next_state.phase is StudyPhase.WAITING_FOR_READY
     assert next_state.last_feedback_type is StudyFeedbackType.WAITING
@@ -1317,7 +1441,7 @@ def test_im_ready_moves_waiting_state_to_recall() -> None:
 def test_recall_phase_refuses_reveal_requests() -> None:
     state = StudyState(
         phase=StudyPhase.RECALL,
-        current_item="Q1",
+        current_item="Definiere eine Folge.",
         retrieval_query="Q1",
     )
 
@@ -1326,6 +1450,8 @@ def test_recall_phase_refuses_reveal_requests() -> None:
 
     assert plan.action is StudyAction.REFUSE_REVEAL
     assert plan.phase is StudyPhase.RECALL
+    assert "same language as the current item" in plan.prompt
+    assert "Do not hard-code an English refusal" in plan.prompt
     assert cleaned == "No. Attempt recall first."
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.last_feedback_type is StudyFeedbackType.REFUSED
@@ -1355,10 +1481,7 @@ def test_recall_clarification_is_not_assessed_as_attempt() -> None:
         "in German please",
         "again in German please",
         "again in Spanish please",
-        "en espanol por favor",
         "¿Puedes preguntarme otra vez en espanol?",
-        "Peux-tu me reposer la question en francais ?",
-        "frag mich nochmal auf deutsch",
     ],
 )
 def test_recall_reprompt_language_request_is_not_assessed(student_request: str) -> None:
@@ -1382,6 +1505,8 @@ def test_recall_reprompt_language_request_is_not_assessed(student_request: str) 
     assert "RECALL_CLARIFICATION" in plan.prompt
     assert "translate, or use a language" in plan.prompt
     assert "Do not include answer content, grading, scores" in plan.prompt
+    assert "same language as the student's clarification request" in plan.prompt
+    assert "Do not hard-code an English recall sentence" in plan.prompt
     assert cleaned == "Erklaere die Aufgabe noch einmal aus dem Gedaechtnis."
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.current_item == "Explain integration by parts."
@@ -1413,6 +1538,7 @@ def test_recall_heph_self_request_is_chat_not_assessment(student_request: str) -
     assert plan.retrieval_query is None
     assert plan.allow_tools is False
     assert "HEPH self-help mode" in plan.prompt
+    assert "same language as the user's request" in plan.prompt
     assert "Do not treat the user message as a recall attempt" in plan.prompt
     assert "Do not use armory material" in plan.prompt
 
@@ -1567,6 +1693,9 @@ def test_autopilot_not_sure_scaffolds_instead_of_grading() -> None:
     assert "Do not grade the learner" in plan.prompt
     assert "fill-the-gaps" in plan.prompt
     assert "confidence from 0-100%" in plan.prompt
+    assert "student's language" in plan.prompt
+    assert "Do not hard-code an English closing instruction" in plan.prompt
+    assert "End with exactly: Fill the gap" not in plan.prompt
 
 
 def test_simplify_prompt_forbids_metadata_questions() -> None:
@@ -1584,6 +1713,8 @@ def test_simplify_prompt_forbids_metadata_questions() -> None:
     assert "surface metadata" in plan.prompt
     assert "retrieved source span" in plan.prompt
     assert "Do not invent prerequisite questions" in plan.prompt
+    assert "same language as the question" in plan.prompt
+    assert "End with exactly: Answer from memory" not in plan.prompt
 
 
 def test_calibration_prompt_requires_grounded_questions() -> None:
@@ -1595,6 +1726,8 @@ def test_calibration_prompt_requires_grounded_questions() -> None:
     assert "retrieved source span" in plan.prompt
     assert "past-exam pattern" in plan.prompt
     assert "never invent unsupported questions" in plan.prompt
+    assert "student's language" in plan.prompt
+    assert "End with exactly: Answer from memory" not in plan.prompt
 
 
 def test_assessment_prompt_requires_source_backed_feedback_shape() -> None:
@@ -1637,6 +1770,10 @@ def test_recall_phase_can_review_material_when_student_requests_it() -> None:
 
     assert plan.action is StudyAction.REVIEW
     assert plan.use_expected_source_refs is True
+    assert "signal when they are ready for recall" in plan.prompt
+    assert "Do not require a specific English word such as `ready`" in plan.prompt
+    assert "type the literal command `ready`" not in plan.prompt
+    assert "End with exactly: Say ready when you want recall" not in plan.prompt
     assert cleaned == "Review the setup. Say ready when you want recall."
     assert next_state.phase is StudyPhase.WAITING_FOR_READY
     assert next_state.current_item == "Q1"
@@ -1690,6 +1827,8 @@ def test_hint_prompt_uses_ladder_level_one_for_first_hint() -> None:
     assert "Hint level: 1" in plan.prompt
     assert "orienting hint" in plan.prompt
     assert "Do not reveal later steps" in plan.prompt
+    assert "same language as the current item" in plan.prompt
+    assert "Do not hard-code an English hint" in plan.prompt
 
 
 def test_hint_prompt_uses_ladder_level_four_for_deeper_scaffold() -> None:
@@ -1804,7 +1943,7 @@ def test_empty_assessment_body_uses_feedback_fallback_message() -> None:
     plan = plan_turn(state, "attempt")
     next_state, cleaned = apply_turn_result(state, plan, "WRONG:", [])
 
-    assert cleaned == "Start again from the first step only."
+    assert cleaned == "WRONG: Start again from the first step only."
     assert next_state.phase is StudyPhase.RECALL
     assert next_state.last_feedback_type is StudyFeedbackType.WRONG
     assert next_state.attempt_count == 1

@@ -48,6 +48,7 @@ class RawReplayCase(TypedDict):
     min_sampled_sources: NotRequired[int]
     min_bullet_count: NotRequired[int]
     min_cited_bullet_count: NotRequired[int]
+    max_explicit_date_lines: NotRequired[int]
     supported_claims: NotRequired[list[dict[str, str]]]
 
 
@@ -71,6 +72,7 @@ class AnswerFixture(TypedDict):
     min_sampled_sources: NotRequired[int]
     min_bullet_count: NotRequired[int]
     min_cited_bullet_count: NotRequired[int]
+    max_explicit_date_lines: NotRequired[int]
     evidence_coverage: NotRequired[dict[str, int]]
     supported_claims: NotRequired[list[dict[str, str]]]
 
@@ -93,6 +95,7 @@ class ReplayCase:
     min_distinct_sources: int = 0
     min_bullet_count: int = 0
     min_cited_bullet_count: int = 0
+    max_explicit_date_lines: int = 0
     supported_claims: tuple[dict[str, str], ...] = ()
 
 
@@ -195,6 +198,13 @@ def _as_raw_cases(payload: object) -> list[RawReplayCase]:
         )
         if min_cited_bullet_count:
             raw_case["min_cited_bullet_count"] = min_cited_bullet_count
+        max_explicit_date_lines = _as_non_negative_int(
+            raw.get("max_explicit_date_lines"),
+            "max_explicit_date_lines",
+            idx,
+        )
+        if max_explicit_date_lines:
+            raw_case["max_explicit_date_lines"] = max_explicit_date_lines
         raw_supported_claims = raw.get("supported_claims")
         if isinstance(raw_supported_claims, list):
             supported_claims: list[dict[str, str]] = []
@@ -256,6 +266,7 @@ def load_cases(path: Path) -> list[ReplayCase]:
             min_distinct_sources=raw.get("min_distinct_sources", 0),
             min_bullet_count=raw.get("min_bullet_count", 0),
             min_cited_bullet_count=raw.get("min_cited_bullet_count", 0),
+            max_explicit_date_lines=raw.get("max_explicit_date_lines", 0),
             supported_claims=tuple(raw.get("supported_claims", [])),
         )
         if not _has_answer_contract(case):
@@ -280,6 +291,7 @@ def _has_answer_contract(case: ReplayCase) -> bool:
         or case.min_distinct_sources
         or case.min_bullet_count
         or case.min_cited_bullet_count
+        or case.max_explicit_date_lines
         or case.supported_claims
     )
 
@@ -294,6 +306,7 @@ def has_shaped_material_overview_case(cases: Sequence[ReplayCase]) -> bool:
         and case.min_distinct_sources > 1
         and case.min_bullet_count > 1
         and case.min_cited_bullet_count > 1
+        and case.max_explicit_date_lines > 0
         for case in cases
     )
 
@@ -353,6 +366,8 @@ def _fixture_from_result(
         fixture["min_bullet_count"] = case.min_bullet_count
     if case.min_cited_bullet_count:
         fixture["min_cited_bullet_count"] = case.min_cited_bullet_count
+    if case.max_explicit_date_lines:
+        fixture["max_explicit_date_lines"] = case.max_explicit_date_lines
     if case.supported_claims:
         fixture["supported_claims"] = list(case.supported_claims)
     return fixture

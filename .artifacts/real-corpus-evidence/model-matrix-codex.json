@@ -1,15 +1,16 @@
 {
   "candidates": [
     {
-      "id": "pollinations-openai-fast",
+      "id": "local-openai-harness",
       "group": "local",
-      "model": "openai-fast",
-      "base_url": "https://text.pollinations.ai/openai",
+      "model": "local-harness",
+      "base_url": "http://127.0.0.1:8765/v1",
+      "api_key": "local-harness-key",
       "max_tokens": 1024,
       "rag_context_budget": 2000,
-      "timeout_seconds": 90,
+      "timeout_seconds": 300,
       "responsibilities": [
-        "small-model retrieval answer sanity",
+        "local OpenAI-compatible replay harness sanity",
         "citation formatting",
         "short factual answers"
       ]
@@ -21,7 +22,7 @@
       "provider_slug": "openai-codex",
       "max_tokens": 1024,
       "rag_context_budget": 2000,
-      "timeout_seconds": 180,
+      "timeout_seconds": 600,
       "responsibilities": [
         "subscription-backed grounded explanation",
         "misconception-resistant synthesis",

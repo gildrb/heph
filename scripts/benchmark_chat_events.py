@@ -239,7 +239,9 @@ def run_chat_event_benchmark(
         answer_pass_rate = answer_report.pass_rate
         answer_shape_rate = answer_report.answer_shape_rate
         failures.extend(
-            f"answer benchmark failed: {failure}" for failure in answer_report.failures
+            f"answer benchmark failed: {result.case_id}: {_answer_failure_reasons(result)}"
+            for result in answer_report.results
+            if not result.passed
         )
 
     return ChatEventBenchmarkReport(
@@ -275,6 +277,29 @@ def _excerpt(text: str, *, limit: int = 240) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 1].rstrip() + "…"
+
+
+def _answer_failure_reasons(result: benchmark_answers.AnswerCaseResult) -> str:
+    reasons: list[str] = []
+    if result.unverified_citations:
+        reasons.append("unverified citations: " + ", ".join(result.unverified_citations))
+    if result.missing_expected_citations:
+        reasons.append(
+            "missing expected citations: " + ", ".join(result.missing_expected_citations)
+        )
+    if result.missing_required_text:
+        reasons.append("missing required text: " + ", ".join(result.missing_required_text))
+    if result.forbidden_text_present:
+        reasons.append("forbidden text: " + ", ".join(result.forbidden_text_present))
+    if result.unsupported_claims:
+        reasons.append("unsupported claims: " + ", ".join(result.unsupported_claims))
+    if result.shape_failures:
+        reasons.append("answer shape: " + "; ".join(result.shape_failures))
+    if result.coverage_failures:
+        reasons.append("evidence coverage: " + "; ".join(result.coverage_failures))
+    if result.missing_required_label:
+        reasons.append("missing required label: " + result.missing_required_label)
+    return "; ".join(reasons) or "unknown reason"
 
 
 def _assistant_text(events: Sequence[RawEvent]) -> str:

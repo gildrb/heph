@@ -1,9 +1,9 @@
 {
   "armory": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/armory",
   "replay_dataset": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/replay.jsonl",
-  "output": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/openai-codex-gpt-5-4-mini.answers.jsonl",
-  "model": "gpt-5.4-mini",
-  "base_url": "",
+  "output": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/local-openai-harness.answers.jsonl",
+  "model": "local-harness",
+  "base_url": "http://127.0.0.1:8765/v1",
   "max_tokens": 1024,
   "rag_context_budget": 2000,
   "status": 0,
@@ -109,7 +109,7 @@
       {
         "case_id": "real-akids-graphs",
         "query": "Using only the indexed sources, what course is the Graphs lecture part of? Answer in one sentence and cite the evidence.",
-        "answer_excerpt": "The Graphs lecture is part of \"Algorithms, AI and Data Science II\" [E2][E4][E5]. - Algorithmen, KI und Data Science 2 Lecture 01 handout 1x1: Information Logics, Reasoning, Probabilistic Graphs this Reasoning and Compression course Topology [E1] - Algorithmen, KI und Data Science 2 Lecture 01 hando…",
+        "answer_excerpt": "The Graphs lecture is part of Algorithms, AI & Data Science II [E7]. - Algorithmen, KI und Data Science 2 Lecture 01 handout 1x1: Information Logics, Reasoning, Probabilistic Graphs this Reasoning and Compression course Topology [E1] - Algorithmen, KI und Data Science 2 Lecture 01 handout 1x1: • If…",
         "evidence_refs": [
           "E1:materials/Algorithmen, KI und Data Science 2-Lecture_01_handout_1x1.pdf#chunk=67",
           "E2:materials/Algorithmen, KI und Data Science 2-Lecture_01_handout_1x1.pdf#chunk=66",
@@ -131,13 +131,13 @@
         "cited_bullet_count": 8,
         "evidence_coverage": null,
         "verified_citations": [
+          "E7",
+          "E1",
           "E2",
+          "E3",
           "E4",
           "E5",
-          "E1",
-          "E3",
           "E6",
-          "E7",
           "E8"
         ],
         "unverified_citations": [],
@@ -155,7 +155,7 @@
       {
         "case_id": "real-akids-dp",
         "query": "Using only the indexed sources, name the two dynamic programming approaches listed in the Dynamic Programming lecture. Answer briefly and cite the evidence.",
-        "answer_excerpt": "The two approaches are Recursive DP and Iterative (Bottom-Up) DP [E12]. - Optimization Constrained Optimization: #### Linear programming [E1] - Optimization Constrained Optimization: ### Inequality constraints [E2] - Optimization Constrained Optimization: If the objective function and all of the ha…",
+        "answer_excerpt": "Recursive DP and Iterative (Bottom-Up) DP [E12]. - Optimization Constrained Optimization: #### Linear programming [E1] - Optimization Constrained Optimization: ### Inequality constraints [E2] - Optimization Constrained Optimization: If the objective function and all of the hard constraints are line…",
         "evidence_refs": [
           "E1:materials/Optimization-Constrained Optimization.md#chunk=13",
           "E2:materials/Optimization-Constrained Optimization.md#chunk=12",
@@ -171,7 +171,7 @@
           "E12:materials/Algorithmen, KI und Data Science 1-L12_DP.pdf#chunk=19",
           "E13:materials/Algorithmen, KI und Data Science 1-L12_DP.pdf#chunk=18"
         ],
-        "word_count": 468,
+        "word_count": 464,
         "citation_count": 9,
         "distinct_cited_sources": 3,
         "bullet_count": 8,
@@ -202,5 +202,5 @@
       }
     ]
   },
-  "report_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/openai-codex-gpt-5-4-mini.report.json"
+  "report_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/local-openai-harness.report.json"
 }

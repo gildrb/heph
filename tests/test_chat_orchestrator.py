@@ -44,8 +44,11 @@ from hephaistos.chat.orchestrator import (
     TurnOrchestrator,
     _evidence_notice,
     _evidence_notice_metadata,
+    _large_corpus_local_overview_reply,
+    _localize_deterministic_reply,
     _model_normalized_study_plan,
     _needs_overview_fallback,
+    _normalized_study_intent_from_payload,
     _overview_answer_has_bad_shape,
     _overview_fallback_reply,
     _overview_topic_is_useful,
@@ -64,6 +67,7 @@ from hephaistos.rag.context import EvidenceChunk
 from hephaistos.study import (
     StudyAction,
     StudyAutonomyMode,
+    StudyFeedbackType,
     StudyPhase,
     StudyRecallRating,
     StudyState,
@@ -152,7 +156,7 @@ def _make_study_plan(
     )
 
 
-def test_repair_pedagogy_shape_adds_missing_confidence_request() -> None:
+def test_repair_pedagogy_shape_does_not_append_english_confidence_request() -> None:
     plan = plan_turn(
         StudyState(
             autonomy_mode=StudyAutonomyMode.GUIDED,
@@ -164,10 +168,11 @@ def test_repair_pedagogy_shape_adds_missing_confidence_request() -> None:
 
     repaired = _repair_pedagogy_shape(plan, "Define compactness from memory.")
 
-    assert "Include your confidence from 0-100%." in repaired
+    assert repaired == "Define compactness from memory."
+    assert "Include your confidence from 0-100%." not in repaired
 
 
-def test_bounded_internal_repair_loop_caps_passes_and_repairs_shape() -> None:
+def test_bounded_internal_repair_loop_does_not_append_english_pedagogy_scaffold() -> None:
     plan = plan_turn(
         StudyState(
             autonomy_mode=StudyAutonomyMode.GUIDED,
@@ -179,13 +184,14 @@ def test_bounded_internal_repair_loop_caps_passes_and_repairs_shape() -> None:
 
     repaired, passes = _run_bounded_internal_repairs(
         plan,
-        "Define compactness from memory.",
+        "Definiere Kompaktheit und nenne deine Sicherheit von 0-100%.",
         None,
     )
 
     assert passes <= 3
-    assert "Include your confidence from 0-100%." in repaired
-    assert "Next action:" in repaired
+    assert repaired == "Definiere Kompaktheit und nenne deine Sicherheit von 0-100%."
+    assert "Include your confidence from 0-100%." not in repaired
+    assert "Next action:" not in repaired
 
 
 def test_german_overview_repair_does_not_append_english_study_scaffold() -> None:
@@ -204,7 +210,7 @@ def test_german_overview_repair_does_not_append_english_study_scaffold() -> None
     assert "Say ready" not in repaired
 
 
-def test_repair_pedagogy_shape_adds_guided_recommendation_reason() -> None:
+def test_repair_pedagogy_shape_does_not_append_english_recommendation_reason() -> None:
     plan = plan_turn(StudyState(autonomy_mode=StudyAutonomyMode.GUIDED), "Explain compactness")
 
     repaired = _repair_pedagogy_shape(
@@ -212,7 +218,8 @@ def test_repair_pedagogy_shape_adds_guided_recommendation_reason() -> None:
         "Compactness is source-backed. Next action: try one similar recall prompt.",
     )
 
-    assert "Why this helps:" in repaired
+    assert repaired == "Compactness is source-backed. Next action: try one similar recall prompt."
+    assert "Why this helps:" not in repaired
 
 
 def test_student_visible_reply_strips_inline_tool_call_markup() -> None:
@@ -247,6 +254,133 @@ def test_overview_student_visible_reply_strips_trailing_study_loop_boilerplate()
     assert "source-backed" not in cleaned
 
 
+def test_overview_student_visible_reply_strips_short_uncited_recall_footer() -> None:
+    plan = material_overview_plan("um was geht es in den dateien")
+    raw = (
+        "Der Korpus gibt eine quellenbelegte Orientierung zu Mathematik [E1][E2].\n"
+        "1. Folgen und Reihen werden ueber Grenzwerte und Partialsummen vorbereitet [E1].\n"
+        "2. Ableitungen und Approximationen verbinden Funktionen mit Rechenregeln [E2].\n\n"
+        "Danach Recall."
+    )
+
+    cleaned = _student_visible_reply(plan, raw)
+
+    assert "Der Korpus gibt" in cleaned
+    assert "Approximationen" in cleaned
+    assert "Danach Recall" not in cleaned
+
+
+def test_source_qa_student_visible_reply_strips_trailing_study_loop_footer() -> None:
+    plan = _make_study_plan(action=StudyAction.SOURCE_QA)
+    raw = (
+        "Die Quelle verbindet Enzymkinetik mit Substratkonzentration und "
+        "Reaktionsgeschwindigkeit [E1].\n\n"
+        "Next action: Review the smallest source-backed piece, then ask for recall."
+    )
+
+    cleaned = _student_visible_reply(plan, raw)
+
+    assert "Enzymkinetik" in cleaned
+    assert "Next action" not in cleaned
+    assert "source-backed" not in cleaned
+
+
+def test_source_qa_student_visible_reply_strips_inline_say_ready_footer() -> None:
+    plan = _make_study_plan(action=StudyAction.SOURCE_QA)
+    raw = (
+        "Die Graphs-Vorlesung gehoert zu Algorithms, AI & Data Science II [E7]. "
+        "Say ready when you want recall."
+    )
+
+    cleaned = _student_visible_reply(plan, raw)
+
+    assert cleaned == "Die Graphs-Vorlesung gehoert zu Algorithms, AI & Data Science II [E7]."
+    assert "Say ready" not in cleaned
+
+
+def test_source_qa_student_visible_reply_keeps_cited_active_recall_content() -> None:
+    plan = _make_study_plan(action=StudyAction.SOURCE_QA)
+    raw = (
+        "Die Quelle beschreibt Lernmethoden [E1].\n"
+        "- Active recall asks the student to produce an answer from memory [E1]."
+    )
+
+    cleaned = _student_visible_reply(plan, raw)
+
+    assert cleaned == raw
+
+
+def test_overview_bad_shape_rejects_chronological_walkthrough_without_dates() -> None:
+    raw = (
+        "The material is about applied mathematics and exam preparation [E1][E2].\n"
+        "- First, it introduces sequences and limits [E1].\n"
+        "- Then, it moves to series and convergence criteria [E2].\n"
+        "- Later, it covers Taylor polynomials and approximation [E1]."
+    )
+
+    assert _overview_answer_has_bad_shape(raw, None)
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_deterministic_fallback_localization_rejects_added_citations(
+    mock_stream: MagicMock,
+) -> None:
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "fallback-localizer"
+    mock_stream.return_value = iter(
+        [CompletionDelta(content="Keine Antwort in den Quellen [E1].")]
+    )
+
+    reply = _localize_deterministic_reply(
+        "The enabled armory sources do not contain an answer.",
+        user_input="was steht dazu in den quellen?",
+        config=config,
+    )
+
+    assert reply == "The enabled armory sources do not contain an answer."
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_deterministic_fallback_localization_preserves_quoted_phrases(
+    mock_stream: MagicMock,
+) -> None:
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "fallback-localizer"
+    mock_stream.return_value = iter(
+        [CompletionDelta(content='Der genaue Ausdruck ist "bernstein forge".')]
+    )
+
+    reply = _localize_deterministic_reply(
+        'The exact phrase is "amber forge".',
+        user_input="was ist die genaue phrase?",
+        config=config,
+    )
+
+    assert reply == 'The exact phrase is "amber forge".'
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_deterministic_fallback_localization_preserves_assessment_labels(
+    mock_stream: MagicMock,
+) -> None:
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "fallback-localizer"
+    mock_stream.return_value = iter(
+        [CompletionDelta(content="TEILWEISE: Ich konnte keine Bewertung erzeugen.")]
+    )
+
+    reply = _localize_deterministic_reply(
+        "PARTIAL: I could not generate a grounded assessment.",
+        user_input="bewerte meine antwort",
+        config=config,
+    )
+
+    assert reply == "PARTIAL: I could not generate a grounded assessment."
+
+
 @pytest.mark.parametrize(
     (
         "intent",
@@ -268,6 +402,15 @@ def test_overview_student_visible_reply_strips_trailing_study_loop_boilerplate()
             ("Execute SOURCE_QA", "User request: was sagt", "same language"),
         ),
         (
+            "source_qa",
+            "que dicen los apuntes sobre cinetica enzimatica?",
+            StudyAction.SOURCE_QA,
+            "enzyme kinetics in the notes",
+            False,
+            True,
+            ("Execute SOURCE_QA", "User request: que dicen", "same language"),
+        ),
+        (
             "topic_presentation",
             "erklaer mir enzymkinetik",
             StudyAction.PRESENT,
@@ -277,13 +420,41 @@ def test_overview_student_visible_reply_strips_trailing_study_loop_boilerplate()
             ("Execute the PRESENT phase", "User request: erklaer", "same language"),
         ),
         (
+            "topic_presentation",
+            "expliquez moi la cinetique enzymatique",
+            StudyAction.PRESENT,
+            "enzyme kinetics",
+            True,
+            False,
+            ("Execute the PRESENT phase", "User request: expliquez", "same language"),
+        ),
+        (
             "topic_drill",
             "frag mich zu enzymkinetik ab",
             StudyAction.CALIBRATE,
             "enzyme kinetics",
             False,
             True,
-            ("Execute CALIBRATE", "student's language", "active-recall"),
+            (
+                "Execute CALIBRATE",
+                "Student request (language/topic signal",
+                "student's language",
+                "active-recall",
+            ),
+        ),
+        (
+            "topic_drill",
+            "faz perguntas sobre cinetica enzimatica",
+            StudyAction.CALIBRATE,
+            "enzyme kinetics",
+            False,
+            True,
+            (
+                "Execute CALIBRATE",
+                "Student request (language/topic signal",
+                "student's language",
+                "active-recall",
+            ),
         ),
     ],
 )
@@ -328,6 +499,14 @@ def test_model_normalized_study_plan_routes_non_english_material_intents(
     assert all(bit in normalized_plan.prompt for bit in prompt_bits)
     intent_prompt = mock_stream.call_args.args[1].messages[0].content
     assert "English-first control signal" in intent_prompt
+    assert "whatever language the user wrote" in intent_prompt
+    assert (
+        '"intent": "material_overview | source_qa | source_only_policy | '
+        "topic_presentation | topic_drill | ready_for_recall | recall_clarification | "
+        'recall_answer_attempt | chat"'
+    ) in intent_prompt
+    assert "topic_drill |\n" not in intent_prompt
+    assert "German" not in intent_prompt
 
 
 @patch("hephaistos.chat.orchestrator.stream_completion")
@@ -358,6 +537,274 @@ def test_model_normalized_study_plan_keeps_low_confidence_plan(
     )
 
     assert normalized_plan is base_plan
+
+
+@pytest.mark.parametrize(
+    ("raw_intent", "expected"),
+    [
+        ("source qa", "source_qa"),
+        ("source-QA", "source_qa"),
+        ("topic presentation", "topic_presentation"),
+        ("topic/presentation", "topic_presentation"),
+        ("topic drill", "topic_drill"),
+        ("material overview", "material_overview"),
+        ("source only policy", "source_only_policy"),
+        ("ready for recall", "ready_for_recall"),
+        ("recall clarification", "recall_clarification"),
+        ("recall answer attempt", "recall_answer_attempt"),
+    ],
+)
+def test_normalized_study_intent_accepts_label_spacing_variants(
+    raw_intent: str,
+    expected: str,
+) -> None:
+    normalized = _normalized_study_intent_from_payload(
+        {
+            "intent": raw_intent,
+            "canonical_english_request": "enzyme kinetics",
+            "confidence": "94%",
+        }
+    )
+
+    assert normalized is not None
+    assert normalized.intent == expected
+    assert normalized.canonical_english_request == "enzyme kinetics"
+    assert normalized.confidence == pytest.approx(0.94)
+
+
+def test_normalized_study_intent_still_rejects_unsupported_label() -> None:
+    normalized = _normalized_study_intent_from_payload(
+        {
+            "intent": "answer-the-user",
+            "canonical_english_request": "enzyme kinetics",
+            "confidence": 1.0,
+        }
+    )
+
+    assert normalized is None
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_handles_standalone_source_only_policy(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = _make_study_plan(
+        retrieval_query="por favor no inventes informacion",
+        allow_tools=True,
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"source_only_policy",'
+                    '"canonical_english_request":"do not use outside knowledge",'
+                    '"confidence":0.93}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        StudyState(),
+        "por favor no inventes informacion",
+        config,
+    )
+
+    assert normalized_plan.action is StudyAction.CHAT
+    assert normalized_plan.retrieval_query is None
+    assert normalized_plan.allow_tools is False
+    assert normalized_plan.direct_reply is not None
+    assert "stick to enabled material" in normalized_plan.direct_reply
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_keeps_recall_answer_attempt(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = StudyTurnPlan(
+        action=StudyAction.ASSESS,
+        phase=StudyPhase.ASSESS,
+        prompt="assess",
+        retrieval_query="integration by parts",
+        use_expected_source_refs=True,
+        allow_tools=False,
+        buffer_response=True,
+    )
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="State integration by parts.",
+        retrieval_query="integration by parts",
+        expected_source_refs=["materials/calculus.md#chunk=0"],
+        attempt_count=1,
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"recall_answer_attempt",'
+                    '"canonical_english_request":"integral u dv equals uv minus integral v du",'
+                    '"confidence":0.95}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        state,
+        "Integral u dv equals uv minus integral v du. Confidence 80%",
+        config,
+    )
+
+    assert normalized_plan is base_plan
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_reclassifies_recall_source_question(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = StudyTurnPlan(
+        action=StudyAction.ASSESS,
+        phase=StudyPhase.ASSESS,
+        prompt="assess",
+        retrieval_query="integration by parts",
+        use_expected_source_refs=True,
+        allow_tools=False,
+        buffer_response=True,
+    )
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="State integration by parts.",
+        retrieval_query="integration by parts",
+        expected_source_refs=["materials/calculus.md#chunk=0"],
+        attempt_count=1,
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"source_qa",'
+                    '"canonical_english_request":"Bayes theorem in the notes",'
+                    '"confidence":0.95}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        state,
+        "was sagen die quellen zu Bayes?",
+        config,
+    )
+
+    assert normalized_plan.action is StudyAction.SOURCE_QA
+    assert normalized_plan.phase is StudyPhase.PRESENTING
+    assert normalized_plan.retrieval_query == "Bayes theorem in the notes"
+    assert normalized_plan.allow_tools is False
+    assert normalized_plan.buffer_response is True
+    assert "Execute SOURCE_QA" in normalized_plan.prompt
+    assert "User request: was sagen die quellen zu Bayes?" in normalized_plan.prompt
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_reclassifies_recall_clarification(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = StudyTurnPlan(
+        action=StudyAction.ASSESS,
+        phase=StudyPhase.ASSESS,
+        prompt="assess",
+        retrieval_query="integration by parts",
+        use_expected_source_refs=True,
+        allow_tools=False,
+        buffer_response=True,
+    )
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="State integration by parts.",
+        retrieval_query="integration by parts",
+        expected_source_refs=["materials/calculus.md#chunk=0"],
+        attempt_count=1,
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"recall_clarification",'
+                    '"canonical_english_request":'
+                    '"repeat the prompt in the requested language",'
+                    '"confidence":0.95}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        state,
+        "frag mich nochmal auf deutsch",
+        config,
+    )
+
+    assert normalized_plan.action is StudyAction.PROMPT_RECALL
+    assert normalized_plan.phase is StudyPhase.RECALL
+    assert normalized_plan.retrieval_query is None
+    assert normalized_plan.allow_tools is False
+    assert "Execute RECALL_CLARIFICATION" in normalized_plan.prompt
+    assert "Student request: frag mich nochmal auf deutsch" in normalized_plan.prompt
+    assert "Do not assess the student" in normalized_plan.prompt
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_routes_chat_intent_without_material_search(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = _make_study_plan(
+        retrieval_query="que puedes hacer?",
+        allow_tools=True,
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"chat",'
+                    '"canonical_english_request":"what can you do?",'
+                    '"confidence":0.91}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        StudyState(),
+        "que puedes hacer?",
+        config,
+    )
+
+    assert normalized_plan.action is StudyAction.CHAT
+    assert normalized_plan.retrieval_query is None
+    assert normalized_plan.allow_tools is False
+    assert "HEPH chat mode" in normalized_plan.prompt
+    assert "que puedes hacer?" in normalized_plan.prompt
+    assert "Execute the PRESENT phase" not in normalized_plan.prompt
 
 
 @patch("hephaistos.chat.orchestrator.stream_completion")
@@ -407,6 +854,55 @@ def test_model_normalized_study_plan_reclassifies_non_english_ready_wait_followu
 
 
 @patch("hephaistos.chat.orchestrator.stream_completion")
+def test_model_normalized_study_plan_reclassifies_non_english_ready_signal(
+    mock_stream: MagicMock,
+) -> None:
+    base_plan = StudyTurnPlan(
+        action=StudyAction.REVIEW,
+        phase=StudyPhase.PRESENTING,
+        prompt="follow-up",
+        retrieval_query="conditional probability",
+        use_expected_source_refs=True,
+        allow_tools=False,
+    )
+    state = StudyState(
+        phase=StudyPhase.WAITING_FOR_READY,
+        current_item="Definiere bedingte Wahrscheinlichkeit.",
+        retrieval_query="conditional probability",
+        expected_source_refs=["materials/notes.md#chunk=0"],
+    )
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"ready_for_recall",'
+                    '"canonical_english_request":"ready",'
+                    '"confidence":0.96}'
+                )
+            )
+        ]
+    )
+
+    normalized_plan = _model_normalized_study_plan(
+        base_plan,
+        state,
+        "ich bin bereit",
+        config,
+    )
+
+    assert normalized_plan.action is StudyAction.PROMPT_RECALL
+    assert normalized_plan.phase is StudyPhase.RECALL
+    assert normalized_plan.retrieval_query is None
+    assert normalized_plan.use_expected_source_refs is False
+    assert normalized_plan.allow_tools is False
+    assert "Execute RECALL" in normalized_plan.prompt
+    assert "same language as the current item" in normalized_plan.prompt
+
+
+@patch("hephaistos.chat.orchestrator.stream_completion")
 def test_model_normalized_study_plan_does_not_reclassify_recall_assessment(
     mock_stream: MagicMock,
 ) -> None:
@@ -429,6 +925,17 @@ def test_model_normalized_study_plan_does_not_reclassify_recall_assessment(
     config = ChatConfig()
     config.base_url = "https://local.test/v1"
     config.model = "intent-normalizer"
+    mock_stream.return_value = iter(
+        [
+            CompletionDelta(
+                content=(
+                    '{"intent":"recall_answer_attempt",'
+                    '"canonical_english_request":"conditional probability answer",'
+                    '"confidence":0.92}'
+                )
+            )
+        ]
+    )
 
     normalized_plan = _model_normalized_study_plan(
         base_plan,
@@ -438,7 +945,7 @@ def test_model_normalized_study_plan_does_not_reclassify_recall_assessment(
     )
 
     assert normalized_plan is base_plan
-    mock_stream.assert_not_called()
+    mock_stream.assert_called_once()
 
 
 def test_study_autopilot_context_reads_schedule_learner_state(tmp_path: Path) -> None:
@@ -666,6 +1173,35 @@ def test_overview_fallback_uses_document_headings_as_generic_topics() -> None:
     assert "Protein Folding [E2]" in reply
 
 
+def test_overview_fallback_does_not_append_english_menu_for_non_latin_request() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.PRESENT,
+        retrieval_query="what is the material about",
+    )
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/lecture.pdf",
+            0,
+            "E1",
+            "Lecture overview. Table of contents. Graph algorithms and recurrence.",
+        ),
+        _make_evidence_chunk(
+            "materials/lecture-2.pdf",
+            0,
+            "E2",
+            "Lecture notes. Dynamic programming uses recurrence relations to build solutions.",
+        ),
+    )
+
+    reply = _overview_fallback_reply(plan, evidence, user_input="这些文件讲什么?")
+
+    assert "[E1]" in reply
+    assert "[E2]" in reply
+    assert "These are the study topics" not in reply
+    assert "Choose a topic to study next" not in reply
+    assert "Recommended options" not in reply
+
+
 def test_overview_fallback_satisfies_answer_shape_contract() -> None:
     plan = _make_study_plan(
         action=StudyAction.PRESENT,
@@ -769,6 +1305,20 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
         "Next action: Review the smallest source-backed piece, then ask for recall.",
         evidence,
     )
+    assert _overview_answer_has_bad_shape(
+        "The material is about graph algorithms and recurrence relations [E1][E2].\n"
+        "- Graph algorithms [E1].\n"
+        "- Recurrence relations [E2].\n"
+        "This is only a sample, not a non-exhaustive list of every source [E1].",
+        evidence,
+    )
+    assert _overview_answer_has_bad_shape(
+        "Der Korpus behandelt Mathematik fuer Informatiker 2 [E1][E2].\n"
+        "- In den Folien vom 22. April geht es um Reihen und Potenzreihen [E1].\n"
+        "- In den Folien vom 15. April geht es um Folgen und Grenzwerte [E2].\n"
+        "- In den Folien vom 4. Mai geht es um Taylor-Polynome [E1].",
+        evidence,
+    )
     assert not _overview_answer_has_bad_shape(
         "These are the study topics I found in the material [E1][E2].\n"
         "- Graph algorithms [E1].\n"
@@ -777,6 +1327,56 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
         "Use the shell menu to choose one cited topic for guided study next.",
         evidence,
     )
+    assert not _overview_answer_has_bad_shape(
+        "Die Materialien geben eine quellenbelegte Orientierung zu Mathematik und "
+        "Biochemie [E1] [E2].\n"
+        "- Folgen und Reihen werden ueber Grenzwerte und Partialsummen vorbereitet [E1].\n"
+        "- Enzymkinetik wird mit Reaktionsgeschwindigkeit und Proteinstruktur verbunden [E2].",
+        evidence,
+    )
+
+
+def test_large_corpus_local_overview_is_concise_cited_and_not_boilerplate() -> None:
+    plan = material_overview_plan("what is the material about")
+    evidence = TurnEvidence(
+        items=(
+            _make_evidence_chunk(
+                "materials/linear-algebra.md",
+                0,
+                "E1",
+                "Lecture notes. Linear algebra studies vectors, matrices, bases, and rank.",
+            ),
+            _make_evidence_chunk(
+                "materials/graph-search-exam.pdf",
+                0,
+                "E2",
+                "Final exam. Explain breadth-first search and depth-first search. Points: 10.",
+            ),
+            _make_evidence_chunk(
+                "materials/dynamic-programming-slides.pdf",
+                0,
+                "E3",
+                "Lecture slides. Dynamic programming compares recursive and iterative methods.",
+            ),
+        ),
+        sampled_source_count=32,
+        total_source_count=382,
+    )
+
+    reply = _large_corpus_local_overview_reply(
+        plan,
+        evidence,
+        user_input="what is the material about",
+    )
+
+    assert reply
+    assert "- " in reply
+    assert "[E1]" in reply
+    assert "[E2]" in reply
+    assert "Visible topics" not in reply
+    assert "Sampled orientation" not in reply
+    assert "non-exhaustive" not in reply
+    assert not _overview_answer_has_bad_shape(reply, evidence)
 
 
 def test_overview_shape_rejects_non_topic_menu_labels() -> None:
@@ -814,9 +1414,8 @@ def test_overview_topic_filter_rejects_generic_lecture_scaffolding() -> None:
     assert not _overview_topic_is_useful("definitions")
     assert not _overview_topic_is_useful("theorems")
     assert not _overview_topic_is_useful("proofs")
-    assert not _overview_topic_is_useful("heute sprechen")
-    assert not _overview_topic_is_useful("letztes mal")
-    assert not _overview_topic_is_useful("mal haben")
+    assert not _overview_topic_is_useful("today speaking")
+    assert not _overview_topic_is_useful("last time")
     assert not _overview_topic_is_useful("table")
     assert not _overview_topic_is_useful("achtung")
     assert not _overview_topic_is_useful("Administrative Header 2")
@@ -1211,6 +1810,38 @@ class TestTurnOrchestratorPlain:
         mock_stream.assert_not_called()
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
+    def test_plain_direct_reply_localizes_when_model_configured(
+        self,
+        mock_stream: MagicMock,
+    ) -> None:
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(
+                    content=(
+                        "Hey. Ich kann quellenbasiertes Lernen mit /exam, /priority "
+                        "oder /autopilot on starten."
+                    )
+                )
+            ]
+        )
+        session = _make_plain_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "localizer"
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("hey"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == [
+            "Hey. Ich kann quellenbasiertes Lernen mit /exam, /priority "
+            "oder /autopilot on starten."
+        ]
+        assert session.conversation.messages[-1].content == deltas[0]
+        assert "/exam" in deltas[0]
+        assert "/priority" in deltas[0]
+        assert "/autopilot" in deltas[0]
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
     def test_plain_yields_deltas(self, mock_stream: MagicMock) -> None:
         mock_stream.return_value = iter(
             [
@@ -1266,6 +1897,22 @@ class TestTurnOrchestratorPlain:
         deltas = [event for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
         assert deltas[0].delta == "real"
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    def test_plain_empty_model_response_yields_visible_fallback(
+        self,
+        mock_stream: MagicMock,
+    ) -> None:
+        mock_stream.return_value = iter([])
+        session = _make_plain_session()
+        orch = TurnOrchestrator(session)
+
+        events = list(orch.iter_events("tell me what to do next"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == ["I could not generate a response. Please try again."]
+        assert orch.last_reply == "I could not generate a response. Please try again."
+        assert session.conversation.messages[-1].content == orch.last_reply
 
     @patch("hephaistos.chat.orchestrator.stream_completion")
     def test_plain_no_notice_when_no_evidence(self, mock_stream: MagicMock) -> None:
@@ -1335,7 +1982,9 @@ class TestTurnOrchestratorStudy:
         trace = cast("MagicMock", session.trace)
         reply_trace = trace.record_session_event.call_args
         assert reply_trace.args == ("reply",)
-        assert reply_trace.kwargs["reply_excerpt"].startswith("chunk1chunk2 Evidence checked:")
+        assert reply_trace.kwargs["reply_excerpt"].startswith(
+            "chunk1chunk2 - notes: evidence content [E1]"
+        )
         assert reply_trace.kwargs["internal_passes"] >= 1
         assert reply_trace.kwargs["internal_pass_max"] == 3
         assert "learner_assessment" in reply_trace.kwargs
@@ -1397,6 +2046,327 @@ class TestTurnOrchestratorStudy:
         )
         assert session.study_state.phase is StudyPhase.RECALL
         assert session.study_state.attempt_count == 1
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_non_english_recall_clarification_uses_model_normalized_prompt(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("Erklaere die Aufgabe noch einmal aus dem Gedaechtnis.")]
+        )
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(
+                    content=(
+                        '{"intent":"recall_clarification",'
+                        '"canonical_english_request":'
+                        '"repeat the prompt in the requested language",'
+                        '"confidence":0.96}'
+                    )
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "intent-normalizer"
+        session.study_state = StudyState(
+            phase=StudyPhase.RECALL,
+            current_item="Explain integration by parts.",
+            retrieval_query="integration by parts",
+            attempt_count=1,
+        )
+
+        events = list(TurnOrchestrator(session).iter_events("frag mich nochmal auf deutsch"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        resolved_plan = mock_resolve_evidence.call_args.args[1]
+        extra_prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        assert deltas == ["Erklaere die Aufgabe noch einmal aus dem Gedaechtnis."]
+        assert resolved_plan.action is StudyAction.PROMPT_RECALL
+        assert resolved_plan.phase is StudyPhase.RECALL
+        assert "Execute RECALL_CLARIFICATION" in extra_prompt
+        assert "Student request: frag mich nochmal auf deutsch" in extra_prompt
+        assert "Execute ASSESS" not in extra_prompt
+        assert session.study_state.phase is StudyPhase.RECALL
+        assert session.study_state.attempt_count == 1
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_non_english_ready_signal_uses_model_normalized_recall_transition(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("Gib die Definition jetzt aus dem Gedaechtnis wieder.")]
+        )
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(
+                    content=(
+                        '{"intent":"ready_for_recall",'
+                        '"canonical_english_request":"ready",'
+                        '"confidence":0.97}'
+                    )
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "intent-normalizer"
+        session.study_state = StudyState(
+            phase=StudyPhase.WAITING_FOR_READY,
+            current_item="Definiere bedingte Wahrscheinlichkeit.",
+            retrieval_query="conditional probability",
+            expected_source_refs=["materials/notes.md#chunk=0"],
+        )
+
+        events = list(TurnOrchestrator(session).iter_events("ich bin bereit"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        extra_prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        resolved_plan = mock_resolve_evidence.call_args.args[1]
+        assert deltas == ["Gib die Definition jetzt aus dem Gedaechtnis wieder."]
+        assert resolved_plan.action is StudyAction.PROMPT_RECALL
+        assert resolved_plan.retrieval_query is None
+        assert "Execute RECALL" in extra_prompt
+        assert "same language as the current item" in extra_prompt
+        assert "SOURCE_FOLLOWUP" not in extra_prompt
+        assert session.study_state.phase is StudyPhase.RECALL
+        assert session.study_state.last_feedback_type is StudyFeedbackType.READY
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_non_english_source_only_policy_uses_model_normalized_direct_reply(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([])
+        mock_stream.side_effect = [
+            iter(
+                [
+                    CompletionDelta(
+                        content=(
+                            '{"intent":"source_only_policy",'
+                            '"canonical_english_request":"do not use outside knowledge",'
+                            '"confidence":0.96}'
+                        )
+                    )
+                ]
+            ),
+            iter(
+                [
+                    CompletionDelta(
+                        content=(
+                            "Entendido. Me quedare con el material activado y avisare "
+                            "cuando las fuentes no sean suficientes."
+                        )
+                    )
+                ]
+            ),
+        ]
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "intent-normalizer"
+        events = list(TurnOrchestrator(session).iter_events("por favor no inventes informacion"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        resolved_plan = mock_resolve_evidence.call_args.args[1]
+        assert deltas == [
+            "Entendido. Me quedare con el material activado y avisare "
+            "cuando las fuentes no sean suficientes."
+        ]
+        assert "Verstanden" not in deltas[0]
+        assert resolved_plan.action is StudyAction.CHAT
+        assert resolved_plan.direct_reply is not None
+        assert resolved_plan.allow_tools is False
+        assert session.study_state.last_feedback_type is StudyFeedbackType.NONE
+        mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_recall_source_only_policy_is_not_assessed(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([])
+        mock_stream.side_effect = [
+            iter(
+                [
+                    CompletionDelta(
+                        content=(
+                            '{"intent":"source_only_policy",'
+                            '"canonical_english_request":"do not use outside knowledge",'
+                            '"confidence":0.96}'
+                        )
+                    )
+                ]
+            ),
+            iter(
+                [
+                    CompletionDelta(
+                        content=(
+                            "Entendido. Me quedare con el material activado y avisare "
+                            "cuando las fuentes no sean suficientes."
+                        )
+                    )
+                ]
+            ),
+        ]
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "intent-normalizer"
+        session.study_state = StudyState(
+            phase=StudyPhase.RECALL,
+            current_item="State integration by parts.",
+            retrieval_query="integration by parts",
+            expected_source_refs=["materials/calculus.md#chunk=0"],
+            attempt_count=2,
+        )
+        events = list(TurnOrchestrator(session).iter_events("por favor no inventes informacion"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        resolved_plan = mock_resolve_evidence.call_args.args[1]
+        assert deltas == [
+            "Entendido. Me quedare con el material activado y avisare "
+            "cuando las fuentes no sean suficientes."
+        ]
+        assert "Verstanden" not in deltas[0]
+        assert resolved_plan.action is StudyAction.CHAT
+        assert resolved_plan.direct_reply is not None
+        assert session.study_state.phase is StudyPhase.RECALL
+        assert session.study_state.attempt_count == 2
+        assert session.study_state.last_feedback_type is StudyFeedbackType.NONE
+        mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_recall_source_question_uses_model_normalized_source_qa(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/notes.md",
+                0,
+                "E1",
+                "Bayes theorem relates conditional probability to prior probability.",
+            )
+        )
+        mock_iter_agent.return_value = iter(
+            [
+                AssistantDeltaEvent(
+                    "Die Quellen verbinden Bayes mit bedingter Wahrscheinlichkeit [E1]."
+                )
+            ]
+        )
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(
+                    content=(
+                        '{"intent":"source_qa",'
+                        '"canonical_english_request":"Bayes theorem in the notes",'
+                        '"confidence":0.96}'
+                    )
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "intent-normalizer"
+        session.study_state = StudyState(
+            phase=StudyPhase.RECALL,
+            current_item="State integration by parts.",
+            retrieval_query="integration by parts",
+            expected_source_refs=["materials/calculus.md#chunk=0"],
+            attempt_count=2,
+        )
+        events = list(TurnOrchestrator(session).iter_events("was sagen die quellen zu Bayes?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        resolved_plan = mock_resolve_evidence.call_args.args[1]
+        extra_prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        assert len(deltas) == 1
+        assert deltas[0].startswith(
+            "Die Quellen verbinden Bayes mit bedingter Wahrscheinlichkeit [E1]."
+        )
+        assert "- notes: Bayes theorem relates conditional probability" in deltas[0]
+        assert resolved_plan.action is StudyAction.SOURCE_QA
+        assert resolved_plan.retrieval_query == "Bayes theorem in the notes"
+        assert "Execute SOURCE_QA" in extra_prompt
+        assert "User request: was sagen die quellen zu Bayes?" in extra_prompt
+        assert "Execute ASSESS" not in extra_prompt
+        assert session.study_state.phase is StudyPhase.PRESENTING
+        assert session.study_state.last_feedback_type is StudyFeedbackType.NONE
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    def test_non_material_chat_intent_skips_material_search_plan(
+        self,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter(
+            [AssistantDeltaEvent("Ich kann dir beim Lernen mit Hephaistos helfen.")]
+        )
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(
+                    content=(
+                        '{"intent":"chat",'
+                        '"canonical_english_request":"what can you do?",'
+                        '"confidence":0.96}'
+                    )
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "intent-normalizer"
+        events = list(TurnOrchestrator(session).iter_events("que puedes hacer?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        notices = [event for event in events if isinstance(event, NoticeEvent)]
+        resolved_plan = mock_resolve_evidence.call_args.args[1]
+        extra_prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
+        assert deltas == ["Ich kann dir beim Lernen mit Hephaistos helfen."]
+        assert resolved_plan.action is StudyAction.CHAT
+        assert resolved_plan.retrieval_query is None
+        assert resolved_plan.allow_tools is False
+        assert "HEPH chat mode" in extra_prompt
+        assert "que puedes hacer?" in extra_prompt
+        assert [event.message for event in notices if event.code == "writing"] == [
+            "Writing a response."
+        ]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -1660,6 +2630,62 @@ class TestTurnOrchestratorStudy:
         assert "heph index <armory>" in reply
         assert session.conversation.messages[-1].content == reply
 
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_non_english_read_all_request_does_not_append_english_scope_suffix(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = material_overview_plan(
+            "lies bitte alle dateien",
+            retrieval_query="read through all the files",
+        )
+        evidence = TurnEvidence(
+            items=(
+                _make_evidence_chunk(
+                    "materials/lecture-a.md",
+                    0,
+                    "E1",
+                    "Reihen und Konvergenzkriterien stehen im Mittelpunkt.",
+                ),
+                _make_evidence_chunk(
+                    "materials/lecture-b.md",
+                    0,
+                    "E2",
+                    "Taylor-Polynome und lineare Approximationen werden behandelt.",
+                ),
+            ),
+            sampled_source_count=2,
+            total_source_count=5,
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+        mock_iter_agent.return_value = iter(
+            [
+                AssistantDeltaEvent(
+                    "Die Unterlagen geben einen Überblick über Analysis [E1] [E2].\n"
+                    "- Reihen und Konvergenzkriterien sind ein Schwerpunkt [E1].\n"
+                    "- Taylor-Polynome und lineare Approximationen kommen dazu [E2]."
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        events = list(TurnOrchestrator(session).iter_events("lies bitte alle dateien"))
+
+        operations = [event for event in events if isinstance(event, MaterialOperationEvent)]
+        assert operations[-1].operation == "read_all_scope"
+        reply = "".join(event.delta for event in events if isinstance(event, AssistantDeltaEvent))
+        assert "Read-all scope" not in reply
+        assert "I did not read every file end to end" not in reply
+        assert "heph index <armory>" not in reply
+        assert "[E1]" in reply
+        assert "[E2]" in reply
+        assert session.conversation.messages[-1].content == reply
+
     @patch("hephaistos.chat.orchestrator.stream_completion")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -1734,6 +2760,9 @@ class TestTurnOrchestratorStudy:
         assert "Give the big picture first" in extra_prompt
         assert "User request: um was geht es in den dateien" in extra_prompt
         assert "Autonomous study policy" not in extra_prompt
+        assert session.study_state.phase is StudyPhase.PRESENTING
+        assert session.study_state.current_item == ""
+        assert session.study_state.expected_source_refs == []
         normalized_plan = mock_resolve_evidence.call_args.args[1]
         assert normalized_plan.retrieval_query == "what are the materials about"
         intent_prompt = mock_stream.call_args_list[0].args[1].messages[0].content
@@ -2238,8 +3267,7 @@ class TestTurnOrchestratorStudy:
             "- Ein Schwerpunkt sind Reihen und Kriterien, mit denen man ihre Konvergenz "
             "beurteilt [E1].\n"
             "- Ein weiterer Schwerpunkt sind Taylor-Polynome und lineare Approximationen "
-            "als Werkzeuge für Funktionen [E2].\n"
-            "- Zusammen geht es eher um Begriffe und Verfahren als um Dateidaten [E1] [E2]."
+            "als Werkzeuge für Funktionen [E2]."
         )
         mock_plan_turn.return_value = plan
         mock_resolve_evidence.return_value = evidence
@@ -2262,9 +3290,13 @@ class TestTurnOrchestratorStudy:
         assert "These are the study topics" not in final_reply
         assert "Choose a topic" not in final_reply
         assert "Say ready" not in final_reply
+        assert "Next action" not in final_reply
+        assert "source-backed" not in final_reply
         system_prompt = mock_stream.call_args.args[1].messages[0].content
         assert "same language as the user's request" in system_prompt
         assert "Do not ask a recall question" in system_prompt
+        assert "next-step/readiness/drill instructions" in system_prompt
+        assert "internal evidence-grounding blocks" in system_prompt
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -2425,8 +3457,10 @@ class TestTurnOrchestratorStudy:
         events = list(orch.iter_events("test input"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert deltas == ["I could not generate a grounded assessment. Please try again."]
-        assert orch.last_reply == "I could not generate a grounded assessment. Please try again."
+        assert deltas == ["PARTIAL: I could not generate a grounded assessment. Please try again."]
+        assert orch.last_reply == (
+            "PARTIAL: I could not generate a grounded assessment. Please try again."
+        )
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -2449,6 +3483,94 @@ class TestTurnOrchestratorStudy:
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert deltas == ["I could not generate a study prompt. Please try again."]
         assert orch.last_reply == "I could not generate a study prompt. Please try again."
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_study_turn_uses_completion_full_text_when_deltas_are_empty(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(action=StudyAction.CHAT)
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter(
+            [
+                TurnCompleteEvent(
+                    full_text="Das ist eine normale Antwort.",
+                    turn_index=2,
+                    latency_ms=18.0,
+                    finish_reason="stop",
+                    tokens_remaining=500,
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("kurze frage"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
+        assert deltas == ["Das ist eine normale Antwort."]
+        assert completions[-1].full_text == "Das ist eine normale Antwort."
+        assert completions[-1].turn_index == 2
+        assert orch.last_reply == "Das ist eine normale Antwort."
+        assert session.conversation.messages[-1].content == "Das ist eine normale Antwort."
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_buffered_study_turn_uses_completion_full_text_when_deltas_are_empty(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.SOURCE_QA,
+            retrieval_query="what does the material say about enzyme kinetics?",
+            buffer_response=True,
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/enzyme-notes.md",
+                0,
+                "E1",
+                "Enzyme kinetics connects substrate concentration with reaction velocity.",
+            )
+        )
+        mock_iter_agent.return_value = iter(
+            [
+                TurnCompleteEvent(
+                    full_text="Enzyme kinetics connects substrate concentration with "
+                    "reaction velocity [E1].",
+                    turn_index=4,
+                    latency_ms=12.0,
+                    finish_reason="stop",
+                    tokens_remaining=400,
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("what does the material say about enzyme kinetics?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
+        assert len(deltas) == 1
+        assert deltas[0].startswith(
+            "Enzyme kinetics connects substrate concentration with reaction velocity [E1]."
+        )
+        assert "I could not generate" not in deltas[0]
+        assert "enzyme notes" in deltas[0]
+        assert completions[-1].full_text == deltas[0]
+        assert completions[-1].turn_index == 4
+        assert orch.last_reply == deltas[0]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -2492,7 +3614,43 @@ class TestTurnOrchestratorStudy:
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_source_answer_without_evidence_ids_gets_auditable_footer(
+    def test_source_qa_non_exact_empty_model_fallback_is_cited_without_english_wrapper(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.SOURCE_QA,
+            retrieval_query="was sagen die quellen ueber enzyme kinetics?",
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = _make_turn_evidence(
+            _make_evidence_chunk(
+                "materials/enzyme-notes.md",
+                0,
+                "E1",
+                "Enzyme kinetics connects substrate concentration with reaction velocity.",
+            )
+        )
+        mock_iter_agent.return_value = iter([])
+
+        session = _make_study_session()
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("was sagen die quellen ueber enzyme kinetics?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert deltas == [
+            "- enzyme notes: Enzyme kinetics connects substrate concentration with "
+            "reaction velocity. [E1]"
+        ]
+        assert "The indexed sources provide this directly" not in deltas[0]
+        assert orch.last_reply == deltas[0]
+
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_source_answer_without_evidence_ids_gets_auditable_bullets(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
@@ -2515,7 +3673,10 @@ class TestTurnOrchestratorStudy:
         events = list(orch.iter_events("Using the sources, what does the exam test?"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert "Evidence checked:" in deltas[0]
+        assert "Evidence checked:" not in deltas[0]
+        assert "Key evidence:" not in deltas[0]
+        assert "- exam: Question about cancer. [E1]" in deltas[0]
+        assert "- exam: Question about genetics. [E2]" in deltas[0]
         assert "[E1]" in deltas[0]
         assert "[E2]" in deltas[0]
 
@@ -2560,6 +3721,103 @@ class TestTurnOrchestratorStudy:
         assert "/materials" in deltas[0]
         assert "study prompt" not in deltas[0]
         mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_source_qa_without_evidence_localizes_deterministic_fallback(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.SOURCE_QA,
+            retrieval_query="what do the sources say about the sentinel phrase?",
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = None
+        mock_iter_agent.return_value = iter([])
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(
+                    content=(
+                        "Die aktivierten Armory-Quellen enthalten keine Antwort auf diese "
+                        "Frage. Aktiviere das relevante Material mit /materials oder gib eine "
+                        "spezifischere Quelle an."
+                    )
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "fallback-localizer"
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("was steht dazu in den quellen?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert deltas[0].startswith("Die aktivierten Armory-Quellen")
+        assert "/materials" in deltas[0]
+        assert "enabled armory sources" not in deltas[0]
+        assert (
+            "Rewrite an internal English fallback"
+            in mock_stream.call_args.args[1].messages[0].content
+        )
+        mock_iter_agent.assert_not_called()
+
+    @patch("hephaistos.chat.orchestrator.stream_completion")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_direct_reply_localizes_without_losing_commands(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_stream: MagicMock,
+    ) -> None:
+        direct_reply = (
+            "Use Hephaistos to study your own materials: ask a source-grounded question, "
+            "run /exam for active recall, run /priority for a plan, or /autopilot on "
+            "to let Heph drive the session."
+        )
+        mock_plan_turn.return_value = StudyTurnPlan(
+            action=StudyAction.CHAT,
+            phase=StudyPhase.PRESENTING,
+            prompt="",
+            allow_tools=False,
+            direct_reply=direct_reply,
+        )
+        mock_resolve_evidence.return_value = None
+        mock_stream.return_value = iter(
+            [
+                CompletionDelta(
+                    content=(
+                        "Nutze Hephaistos, um mit deinen eigenen Materialien zu lernen: "
+                        "stelle eine quellenbasierte Frage, starte /exam fuer Active Recall, "
+                        "nutze /priority fuer einen Plan oder /autopilot on, damit Heph die "
+                        "Sitzung fuehrt."
+                    )
+                )
+            ]
+        )
+
+        session = _make_study_session()
+        session.config.base_url = "https://local.test/v1"
+        session.config.model = "fallback-localizer"
+        orch = TurnOrchestrator(session)
+        events = list(orch.iter_events("was kann heph tun?"))
+
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert deltas[0].startswith("Nutze Hephaistos")
+        assert "/exam" in deltas[0]
+        assert "/priority" in deltas[0]
+        assert "/autopilot" in deltas[0]
+        assert "Use Hephaistos" not in deltas[0]
+        assert session.conversation.messages[-1].content == deltas[0]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")

@@ -13,10 +13,11 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
+from hephaistos.chat import orchestrator as chat_orchestrator
 from scripts import (
     benchmark_academic_items,
     benchmark_answers,
@@ -44,8 +45,12 @@ DEFAULT_MIN_RAG_TASKS = 3
 DEFAULT_MIN_RAG_MULTI_SOURCE_CASES = 1
 DEFAULT_ANSWER_PASS_RATE = 1.0
 DEFAULT_MIN_ANSWER_DOMAINS = 3
+DEFAULT_MIN_SPECIALIZED_ANSWER_DOMAINS = 1
 DEFAULT_MIN_ANSWER_TASKS = 3
 DEFAULT_MIN_ANSWER_MULTI_EVIDENCE_CASES = 1
+DEFAULT_FOUNDATIONAL_ANSWER_DOMAINS = frozenset(
+    {"computer-science", "cross-domain", "general", "mathematics", "study-methods"}
+)
 DEFAULT_CITATION_VALIDITY = 1.0
 DEFAULT_CITATION_PRESENCE = 1.0
 DEFAULT_EXPECTED_CITATIONS = 1.0
@@ -77,17 +82,56 @@ DEFAULT_STUDY_STATE_TRANSITION_PASS_RATE = 1.0
 DEFAULT_STUDY_STATE_SCHEDULING_PASS_RATE = 1.0
 DEFAULT_MIN_STUDY_STATE_DOMAINS = 2
 DEFAULT_MIN_STUDY_STATE_SCHEDULE_CASES = 1
+DEFAULT_MIN_STUDY_STATE_PROMPT_CONTRACT_TURNS = 1
 DEFAULT_MIN_ACADEMIC_QUESTION_TYPES = 6
+DEFAULT_ACADEMIC_QUESTION_QUALITY_RATE = 1.0
+DEFAULT_REQUIRED_STUDY_INTENT_LABELS = (
+    "material_overview",
+    "source_qa",
+    "source_only_policy",
+    "topic_presentation",
+    "topic_drill",
+    "ready_for_recall",
+    "recall_clarification",
+    "recall_answer_attempt",
+    "chat",
+)
+DEFAULT_REQUIRED_STUDY_INTENT_PROMPT_PHRASES = (
+    "whatever language",
+    "English-first control signal",
+    "Do not answer the request",
+    "Return JSON only",
+)
+DEFAULT_FORBIDDEN_STUDY_INTENT_LANGUAGE_EXAMPLES = (
+    "deutsch",
+    "español",
+    "espanol",
+    "français",
+    "francais",
+    "german",
+    "spanish",
+    "french",
+    "por favor",
+    "frag mich",
+)
+DEFAULT_LANGUAGE_GENERIC_PROMPT_PATHS = (
+    "hephaistos/chat/orchestrator.py",
+    "hephaistos/study/controller.py",
+    "hephaistos/study/autopilot.py",
+    "hephaistos/tui/inline_flows.py",
+)
 DEFAULT_DOCUMENT_UNDERSTANDING_MIN_DOCUMENTS = 10
 DEFAULT_DOCUMENT_UNDERSTANDING_REQUIRED_ROLES = ("assignment", "lecture", "past_exam")
 DEFAULT_DOCUMENT_UNDERSTANDING_OVERVIEW_COVERAGE = 1.0
 DEFAULT_OVERVIEW_FORBIDDEN_PHRASES = (
     "Document signals",
+    "Retrieved overview sample",
     "Sampled orientation",
     "Visible topics",
-    "heute sprechen",
-    "letztes mal",
-    "mal haben",
+    "non-exhaustive list",
+    "not an exhaustive summary",
+    "only a sample",
+    "partial inventory",
 )
 
 
@@ -101,6 +145,7 @@ class BenchmarkSuiteSummary(TypedDict):
     index_integrity: dict[str, object]
     priority: dict[str, object]
     prompt_cache: dict[str, object]
+    study_intent: dict[str, object]
     replay: dict[str, object]
     chat_events: dict[str, object]
     chat_runtime_events: dict[str, object]
@@ -109,6 +154,17 @@ class BenchmarkSuiteSummary(TypedDict):
     academic_items: dict[str, object]
     manifest: dict[str, object]
     report_path: NotRequired[str]
+
+
+@dataclass(frozen=True, slots=True)
+class StudyIntentContractReport:
+    passed: bool
+    required_intents: tuple[str, ...]
+    parsed_intents: tuple[str, ...]
+    required_prompt_phrases: tuple[str, ...]
+    forbidden_language_examples: tuple[str, ...]
+    language_generic_prompt_paths: tuple[str, ...]
+    failures: tuple[str, ...]
 
 
 def _copy_suite_armory(suite_path: Path, destination: Path) -> Path:
@@ -219,7 +275,7 @@ def _validate_replay_suite_integrity(
     if not replay_answer_benchmark.has_shaped_material_overview_case(cases):
         raise ValueError(
             "replay material-overview case must include word, citation, source, bullet, "
-            "and cited-bullet shape constraints"
+            "cited-bullet, and explicit-date shape constraints"
         )
 
 
@@ -271,6 +327,7 @@ def _validate_answer_suite_integrity(
     cases: Sequence[benchmark_answers.AnswerCase],
     *,
     min_domains: int = DEFAULT_MIN_ANSWER_DOMAINS,
+    min_specialized_domains: int = DEFAULT_MIN_SPECIALIZED_ANSWER_DOMAINS,
     min_tasks: int = DEFAULT_MIN_ANSWER_TASKS,
     min_multi_evidence_cases: int = DEFAULT_MIN_ANSWER_MULTI_EVIDENCE_CASES,
     min_active_recall_assessment_cases: int = DEFAULT_MIN_ACTIVE_RECALL_ASSESSMENT_CASES,
@@ -281,6 +338,15 @@ def _validate_answer_suite_integrity(
         raise ValueError(
             "answer benchmark must cover at least "
             f"{min_domains} labelled domains; found {len(report.domains)}"
+        )
+    specialized_domains = [
+        domain for domain in report.domains if domain not in DEFAULT_FOUNDATIONAL_ANSWER_DOMAINS
+    ]
+    if len(specialized_domains) < min_specialized_domains:
+        raise ValueError(
+            "answer benchmark must cover at least "
+            f"{min_specialized_domains} specialized non-math/non-CS domain(s); "
+            f"found {len(specialized_domains)}"
         )
     if len(report.tasks) < min_tasks:
         raise ValueError(
@@ -326,8 +392,9 @@ def _validate_study_state_suite_integrity(
     *,
     min_domains: int = DEFAULT_MIN_STUDY_STATE_DOMAINS,
     min_schedule_cases: int = DEFAULT_MIN_STUDY_STATE_SCHEDULE_CASES,
+    min_prompt_contract_turns: int = DEFAULT_MIN_STUDY_STATE_PROMPT_CONTRACT_TURNS,
 ) -> None:
-    """Reject study-state suites that do not prove scheduling and multiple domains."""
+    """Reject study-state suites that do not prove scheduling, prompts, and domains."""
     if len(report.domains) < min_domains:
         raise ValueError(
             "study-state benchmark must cover at least "
@@ -339,6 +406,104 @@ def _validate_study_state_suite_integrity(
             "study-state benchmark must cover at least "
             f"{min_schedule_cases} scheduling case(s); found {len(schedule_cases)}"
         )
+    prompt_contract_turns = [
+        turn for result in report.results for turn in result.turns if turn.prompt_contract_checked
+    ]
+    if len(prompt_contract_turns) < min_prompt_contract_turns:
+        raise ValueError(
+            "study-state benchmark must cover at least "
+            f"{min_prompt_contract_turns} prompt contract turn(s); "
+            f"found {len(prompt_contract_turns)}"
+        )
+
+
+def study_intent_contract_report(
+    *,
+    schema: str | None = None,
+    prompt: str | None = None,
+    language_generic_prompt_paths: Sequence[str | Path] = DEFAULT_LANGUAGE_GENERIC_PROMPT_PATHS,
+) -> StudyIntentContractReport:
+    """Verify the study intent classifier stays English-first and language-generic."""
+    if schema is None or prompt is None:
+        schema = chat_orchestrator._STUDY_INTENT_NORMALIZATION_SCHEMA
+        prompt = chat_orchestrator._STUDY_INTENT_NORMALIZATION_SYSTEM_PROMPT
+
+    combined = f"{prompt}\n{schema}"
+    combined_normalized = _normalized_contract_text(combined)
+    prompt_normalized = _normalized_contract_text(prompt)
+    failures = [
+        f"schema missing intent label: {intent}"
+        for intent in DEFAULT_REQUIRED_STUDY_INTENT_LABELS
+        if intent not in schema
+    ]
+    failures.extend(
+        f"prompt missing phrase: {phrase}"
+        for phrase in DEFAULT_REQUIRED_STUDY_INTENT_PROMPT_PHRASES
+        if _normalized_contract_text(phrase) not in prompt_normalized
+    )
+    failures.extend(
+        f"prompt/schema contains language-specific example: {example}"
+        for example in DEFAULT_FORBIDDEN_STUDY_INTENT_LANGUAGE_EXAMPLES
+        if _normalized_contract_text(example) in combined_normalized
+    )
+    checked_prompt_paths = tuple(str(path) for path in language_generic_prompt_paths)
+    failures.extend(_language_generic_prompt_failures(language_generic_prompt_paths))
+    parsed_intents: list[str] = []
+    for intent in DEFAULT_REQUIRED_STUDY_INTENT_LABELS:
+        parsed = chat_orchestrator._normalized_study_intent_from_payload(
+            {
+                "intent": intent.replace("_", " "),
+                "canonical_english_request": "source-grounded study request",
+                "confidence": 1.0,
+            }
+        )
+        if parsed is None:
+            failures.append(f"parser rejected intent label: {intent}")
+            continue
+        parsed_intents.append(parsed.intent)
+        if parsed.intent != intent:
+            failures.append(f"parser normalized intent label {intent} as {parsed.intent}")
+    return StudyIntentContractReport(
+        passed=not failures,
+        required_intents=DEFAULT_REQUIRED_STUDY_INTENT_LABELS,
+        parsed_intents=tuple(parsed_intents),
+        required_prompt_phrases=DEFAULT_REQUIRED_STUDY_INTENT_PROMPT_PHRASES,
+        forbidden_language_examples=DEFAULT_FORBIDDEN_STUDY_INTENT_LANGUAGE_EXAMPLES,
+        language_generic_prompt_paths=checked_prompt_paths,
+        failures=tuple(failures),
+    )
+
+
+def _normalized_contract_text(text: str) -> str:
+    return " ".join(text.casefold().split())
+
+
+def _language_generic_prompt_failures(paths: Sequence[str | Path]) -> tuple[str, ...]:
+    failures: list[str] = []
+    for path_like in paths:
+        path = Path(path_like)
+        display = str(path)
+        full_path = path if path.is_absolute() else REPO_ROOT / path
+        try:
+            normalized = _normalized_contract_text(full_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            failures.append(f"language-generic prompt path unreadable: {display}: {exc}")
+            continue
+        failures.extend(
+            f"{display} contains language-specific prompt example: {example}"
+            for example in DEFAULT_FORBIDDEN_STUDY_INTENT_LANGUAGE_EXAMPLES
+            if _normalized_contract_text(example) in normalized
+        )
+    return tuple(failures)
+
+
+def print_study_intent_contract_report(report: StudyIntentContractReport) -> None:
+    """Print a concise study intent prompt contract report."""
+    print("Study intent contract:")
+    print(f"  pass: {'yes' if report.passed else 'no'}")
+    print(f"  required intents: {', '.join(report.required_intents)}")
+    if report.failures:
+        print(f"  failures: {'; '.join(report.failures)}")
 
 
 def run_suite(
@@ -482,6 +647,14 @@ def run_suite(
         prompt_cache_report = benchmark_prompt_cache.run_benchmark()
         benchmark_prompt_cache.print_text_report(prompt_cache_report)
         print()
+        study_intent_report = study_intent_contract_report()
+        print_study_intent_contract_report(study_intent_report)
+        print()
+        if not study_intent_report.passed:
+            raise ValueError(
+                "study intent normalizer contract failed: "
+                + "; ".join(study_intent_report.failures)
+            )
         replay_cases = replay_answer_benchmark.load_cases(replay_dataset)
         _validate_replay_suite_integrity(replay_cases)
         print(f"Replay dataset: {len(replay_cases)} case(s) valid")
@@ -562,6 +735,8 @@ def run_suite(
         or study_state_report.mastery_metadata_rate < 1.0
         or academic_items_report.pass_rate < 1.0
         or academic_items_report.grounded_question_rate < 1.0
+        or academic_items_report.canonical_source_label_rate < 1.0
+        or academic_items_report.question_quality_rate < DEFAULT_ACADEMIC_QUESTION_QUALITY_RATE
         or len(academic_items_report.question_types) < DEFAULT_MIN_ACADEMIC_QUESTION_TYPES
     )
     status = 1 if failed_threshold else 0
@@ -608,6 +783,7 @@ def run_suite(
                 index_integrity_report=index_integrity_report,
                 priority_report=priority_report,
                 prompt_cache_report=prompt_cache_report,
+                study_intent_report=study_intent_report,
                 replay_case_count=len(replay_cases),
                 replay_tasks=tuple(sorted({case.task for case in replay_cases if case.task})),
                 chat_events_report=chat_events_report,
@@ -675,6 +851,7 @@ def _summary(
     index_integrity_report: benchmark_index_integrity.IndexIntegrityReport,
     priority_report: benchmark_priority.PriorityBenchmarkReport,
     prompt_cache_report: benchmark_prompt_cache.PromptCacheBenchmarkReport,
+    study_intent_report: StudyIntentContractReport,
     replay_case_count: int,
     replay_tasks: tuple[str, ...],
     chat_events_report: benchmark_chat_events.ChatEventBenchmarkReport,
@@ -725,6 +902,7 @@ def _summary(
         "index_integrity": cast("dict[str, object]", asdict(index_integrity_report)),
         "priority": cast("dict[str, object]", asdict(priority_report)),
         "prompt_cache": cast("dict[str, object]", asdict(prompt_cache_report)),
+        "study_intent": cast("dict[str, object]", asdict(study_intent_report)),
         "replay": {
             "cases": replay_case_count,
             "tasks": list(replay_tasks),

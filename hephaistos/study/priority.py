@@ -2283,7 +2283,7 @@ def _latex_header(sheet: PriorityCheatSheet) -> str:
             + focus
             + f"Generated {_latex_text(sheet.generated_at)}. "
             + f"{source_count} source(s). "
-            + r"Claims are local-source backed unless listed as uncertainty.\\",
+            + r"Claims are grounded in local sources unless listed as uncertainty.\\",
             r"\vspace{2mm}",
         )
     )

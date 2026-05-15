@@ -827,7 +827,7 @@ def _replay_coverage(
     if not replay_answer_benchmark.has_shaped_material_overview_case(cases):
         raise ValueError(
             "replay material-overview case must include word, citation, source, bullet, "
-            "and cited-bullet shape constraints"
+            "cited-bullet, and explicit-date shape constraints"
         )
     return ReplayCoverage(
         case_count=len(cases),

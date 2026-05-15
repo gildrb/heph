@@ -73,6 +73,7 @@ def prepare_evidence(
             infer_roles_from_index=infer_roles_from_index,
             reviewed=reviewed_manifest,
         )
+        _annotate_local_permissioned_provenance(manifest, armory_path)
         create_benchmark_manifest.write_manifest(manifest_path, manifest)
         _write_placeholder_datasets(output_dir, manifest["datasets"])
     except (OSError, ValueError) as exc:
@@ -142,6 +143,18 @@ def _ensure_suite_armory_link(output_dir: Path, armory_path: Path) -> None:
         shutil.copytree(armory_path, suite_armory)
 
 
+def _annotate_local_permissioned_provenance(
+    manifest: create_benchmark_manifest.GeneratedManifest,
+    armory_path: Path,
+) -> None:
+    if manifest["corpus_kind"] != "permissioned-materials":
+        return
+    note = f"Local permissioned material from armory: {armory_path.expanduser().resolve()}"
+    for document in manifest["documents"]:
+        if not document["source_url"] and not document["permission_note"]:
+            document["permission_note"] = note
+
+
 def _write_placeholder_datasets(
     output_dir: Path,
     datasets: list[create_benchmark_manifest.ManifestDataset],
@@ -170,14 +183,21 @@ def _chat_event_expectation_scaffold() -> list[dict[str, object]]:
             "task": "material-overview",
             "must_not_include": [
                 "the files cover",
+                "next action",
                 "say ready when you want recall",
+                "ask for recall",
+                "answer from memory",
+                "source-backed",
+                "source backed",
                 "no evidence citations",
                 "Document signals",
+                "Retrieved overview sample",
                 "Sampled orientation",
                 "Visible topics",
-                "heute sprechen",
-                "letztes mal",
-                "mal haben",
+                "non-exhaustive list",
+                "not an exhaustive summary",
+                "only a sample",
+                "partial inventory",
             ],
             "expected_citations": ["E1", "E2"],
             "min_words": 24,
@@ -185,6 +205,7 @@ def _chat_event_expectation_scaffold() -> list[dict[str, object]]:
             "min_distinct_sources": 2,
             "min_bullet_count": 2,
             "min_cited_bullet_count": 2,
+            "max_explicit_date_lines": 1,
             "required_material_operations": ["sample_overview"],
             "forbidden_material_operations": ["search_index"],
             "evidence": [],

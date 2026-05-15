@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,9 @@ def test_academic_item_benchmark_passes_fixture_cases(tmp_path: Path) -> None:
     )
     assert report.generated_questions > 0
     assert report.grounded_question_rate == 1.0
+    assert report.canonical_source_label_rate == 1.0
+    assert report.question_quality_rate == 1.0
+    assert report.question_quality_failures == ()
     assert "free_recall" in report.question_types
     assert report.question_type_count == len(report.question_types)
     assert len(report.question_types) >= 3
@@ -107,3 +111,119 @@ def test_academic_item_cli_gates_question_type_breadth(
 
     assert status == 1
     assert "question_types=" in capsys.readouterr().out
+
+
+def test_academic_item_cli_gates_question_quality_rate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = tmp_path / "academic_items.jsonl"
+    dataset.write_text(
+        json.dumps(
+            {
+                "id": "definition",
+                "source_ref": "materials/lecture.md#chunk=0",
+                "kind": "definition",
+                "text": "key idea",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    armory = tmp_path / "armory"
+    armory.mkdir()
+
+    report = benchmark_academic_items.AcademicItemBenchmarkReport(
+        cases=1,
+        domains=(),
+        kinds=("definition",),
+        pass_rate=1.0,
+        generated_questions=1,
+        question_type_count=1,
+        question_types=("free_recall",),
+        grounded_question_rate=1.0,
+        canonical_source_label_rate=1.0,
+        question_quality_rate=0.0,
+        question_quality_failures=("q1:free_recall:Lecture date: contains metadata",),
+        failures=(),
+        results=(),
+    )
+
+    def fake_run_benchmark(
+        _armory_path: Path,
+        _cases: Sequence[benchmark_academic_items.AcademicItemCase],
+    ) -> benchmark_academic_items.AcademicItemBenchmarkReport:
+        return report
+
+    monkeypatch.setattr(benchmark_academic_items, "run_benchmark", fake_run_benchmark)
+
+    status = benchmark_academic_items.main(
+        [
+            str(armory),
+            str(dataset),
+            "--min-question-quality-rate",
+            "1.0",
+        ]
+    )
+
+    assert status == 1
+    assert "question_quality_failures=" in capsys.readouterr().out
+
+
+def test_academic_item_cli_gates_canonical_source_label_rate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = tmp_path / "academic_items.jsonl"
+    dataset.write_text(
+        json.dumps(
+            {
+                "id": "definition",
+                "source_ref": "materials/lecture.md#chunk=0",
+                "kind": "definition",
+                "text": "key idea",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    armory = tmp_path / "armory"
+    armory.mkdir()
+
+    report = benchmark_academic_items.AcademicItemBenchmarkReport(
+        cases=1,
+        domains=(),
+        kinds=("definition",),
+        pass_rate=1.0,
+        generated_questions=1,
+        question_type_count=1,
+        question_types=("free_recall",),
+        grounded_question_rate=1.0,
+        canonical_source_label_rate=0.0,
+        question_quality_rate=1.0,
+        question_quality_failures=(),
+        failures=(),
+        results=(),
+    )
+
+    def fake_run_benchmark(
+        _armory_path: Path,
+        _cases: Sequence[benchmark_academic_items.AcademicItemCase],
+    ) -> benchmark_academic_items.AcademicItemBenchmarkReport:
+        return report
+
+    monkeypatch.setattr(benchmark_academic_items, "run_benchmark", fake_run_benchmark)
+
+    status = benchmark_academic_items.main(
+        [
+            str(armory),
+            str(dataset),
+            "--min-canonical-source-label-rate",
+            "1.0",
+        ]
+    )
+
+    assert status == 1
+    assert "canonical_source_label_rate=0.0%" in capsys.readouterr().out

@@ -63,6 +63,7 @@ def test_load_cases_supports_jsonl(tmp_path: Path) -> None:
                         "min_distinct_sources": 1,
                         "min_bullet_count": 2,
                         "min_cited_bullet_count": 2,
+                        "max_explicit_date_lines": 1,
                         "supported_claims": [
                             {"text": "priority queue", "evidence_id": "E1"},
                         ],
@@ -92,6 +93,7 @@ def test_load_cases_supports_jsonl(tmp_path: Path) -> None:
     assert cases[0].min_words == 5
     assert cases[0].min_bullet_count == 2
     assert cases[0].min_cited_bullet_count == 2
+    assert cases[0].max_explicit_date_lines == 1
     assert cases[0].min_citation_count == 1
     assert cases[0].min_distinct_sources == 1
     assert cases[0].supported_claims == ({"text": "priority queue", "evidence_id": "E1"},)
@@ -134,6 +136,7 @@ def test_replay_cases_captures_answer_and_turn_evidence() -> None:
             min_distinct_sources=1,
             min_bullet_count=2,
             min_cited_bullet_count=2,
+            max_explicit_date_lines=1,
             required_label="CORRECT",
             supported_claims=({"text": "priority queue", "evidence_id": "E1"},),
         )
@@ -174,6 +177,7 @@ def test_replay_cases_captures_answer_and_turn_evidence() -> None:
             "min_distinct_sources": 1,
             "min_bullet_count": 2,
             "min_cited_bullet_count": 2,
+            "max_explicit_date_lines": 1,
             "required_label": "CORRECT",
             "supported_claims": [{"text": "priority queue", "evidence_id": "E1"}],
         }
@@ -218,6 +222,7 @@ def test_shaped_material_overview_requires_bullet_shape() -> None:
         min_distinct_sources=2,
         min_bullet_count=2,
         min_cited_bullet_count=2,
+        max_explicit_date_lines=1,
     )
 
     assert not replay_answer_benchmark.has_shaped_material_overview_case([unstructured])

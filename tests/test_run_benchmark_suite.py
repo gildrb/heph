@@ -4,6 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
+from hephaistos.chat import orchestrator as chat_orchestrator
 from scripts import run_benchmark_suite
 
 
@@ -63,6 +64,14 @@ def test_suite_writes_machine_readable_report(tmp_path: Path) -> None:
     assert report["prompt_cache"]["pass_rate"] == 1.0
     assert report["prompt_cache"]["stable_hash_reuse_rate"] == 1.0
     assert report["prompt_cache"]["dynamic_tail_preservation_rate"] == 1.0
+    assert report["study_intent"]["passed"] is True
+    assert "recall_clarification" in report["study_intent"]["required_intents"]
+    assert "recall_clarification" in report["study_intent"]["parsed_intents"]
+    assert (
+        "hephaistos/chat/orchestrator.py"
+        in report["study_intent"]["language_generic_prompt_paths"]
+    )
+    assert report["study_intent"]["failures"] == []
     assert report["replay"]["cases"] == 7
     assert report["chat_events"]["has_reading"] is True
     assert report["chat_events"]["has_evidence"] is True
@@ -88,9 +97,13 @@ def test_suite_writes_machine_readable_report(tmp_path: Path) -> None:
     assert report["study_state"]["pass_rate"] == 1.0
     assert report["study_state"]["scheduling_pass_rate"] == 1.0
     assert report["study_state"]["mastery_metadata_rate"] == 1.0
+    assert report["study_state"]["prompt_contract_rate"] == 1.0
     assert report["academic_items"]["pass_rate"] == 1.0
     assert report["academic_items"]["question_type_count"] >= 3
     assert report["academic_items"]["grounded_question_rate"] == 1.0
+    assert report["academic_items"]["canonical_source_label_rate"] == 1.0
+    assert report["academic_items"]["question_quality_rate"] == 1.0
+    assert report["academic_items"]["question_quality_failures"] == []
     assert report["report_path"] == str(report_path)
 
 
@@ -138,6 +151,65 @@ def test_suite_gates_answer_shape_thresholds() -> None:
     assert run_benchmark_suite.run_suite(study_state_pass_rate=1.01) == 1
     assert run_benchmark_suite.run_suite(study_state_scheduling_pass_rate=1.01) == 1
     assert run_benchmark_suite.run_suite(document_understanding_overview_coverage=1.01) == 1
+
+
+def test_study_intent_contract_rejects_language_specific_prompt_examples() -> None:
+    report = run_benchmark_suite.study_intent_contract_report(
+        schema=(
+            '{"intent":"material_overview | source_qa | source_only_policy | '
+            "topic_presentation | topic_drill | ready_for_recall | recall_clarification | "
+            'recall_answer_attempt | chat"}'
+        ),
+        prompt=(
+            "Interpret the request in whatever language. Return an English-first control "
+            "signal. Do not answer the request. Return JSON only. If German, do X."
+        ),
+    )
+
+    assert report.passed is False
+    assert "prompt/schema contains language-specific example: german" in report.failures
+
+
+def test_study_intent_contract_rejects_language_specific_production_prompt(
+    tmp_path: Path,
+) -> None:
+    prompt_file = tmp_path / "prompt_source.py"
+    prompt_file.write_text(
+        'PROMPT = "Interpret any request. If Spanish, use this branch."\n',
+        encoding="utf-8",
+    )
+
+    report = run_benchmark_suite.study_intent_contract_report(
+        schema=(
+            '{"intent":"material_overview | source_qa | source_only_policy | '
+            "topic_presentation | topic_drill | ready_for_recall | recall_clarification | "
+            'recall_answer_attempt | chat"}'
+        ),
+        prompt=(
+            "Interpret the request in whatever language. Return an English-first control "
+            "signal. Do not answer the request. Return JSON only."
+        ),
+        language_generic_prompt_paths=(prompt_file,),
+    )
+
+    assert report.passed is False
+    assert report.language_generic_prompt_paths == (str(prompt_file),)
+    assert f"{prompt_file} contains language-specific prompt example: spanish" in report.failures
+
+
+def test_suite_rejects_broken_study_intent_contract(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "_STUDY_INTENT_NORMALIZATION_SCHEMA",
+        '{"intent":"material_overview | source_qa | topic_presentation | chat"}',
+    )
+
+    status = run_benchmark_suite.main([])
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "study intent normalizer contract failed" in captured.err
+    assert "schema missing intent label: source_only_policy" in captured.err
 
 
 def test_missing_suite_returns_error(tmp_path: Path, capsys) -> None:
@@ -255,6 +327,7 @@ def test_suite_rejects_replay_material_overview_without_shape_contract(
                 "min_distinct_sources",
                 "min_bullet_count",
                 "min_cited_bullet_count",
+                "max_explicit_date_lines",
             ):
                 payload.pop(field, None)
             lines.append(json.dumps(payload))
@@ -433,6 +506,26 @@ def test_suite_rejects_answers_without_hint_case(
     assert "hint case" in captured.err
 
 
+def test_suite_rejects_answers_without_specialized_subject_domain(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    suite = tmp_path / "suite"
+    shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
+    cases = [
+        line
+        for line in (suite / "answers.jsonl").read_text(encoding="utf-8").splitlines()
+        if '"domain": "biochemistry"' not in line
+    ]
+    (suite / "answers.jsonl").write_text("\n".join(cases) + "\n", encoding="utf-8")
+
+    status = run_benchmark_suite.main(["--suite", str(suite)])
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "specialized non-math/non-CS domain" in captured.err
+
+
 def test_suite_rejects_overview_answers_without_boilerplate_forbidden_terms(
     tmp_path: Path,
     capsys,
@@ -467,7 +560,7 @@ def test_suite_rejects_chat_expectation_without_boilerplate_forbidden_terms(
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     payload = json.loads((suite / "chat_event_expectation.json").read_text(encoding="utf-8"))
     payload[0]["must_not_include"] = [
-        phrase for phrase in payload[0]["must_not_include"] if phrase != "heute sprechen"
+        phrase for phrase in payload[0]["must_not_include"] if phrase != "Visible topics"
     ]
     (suite / "chat_event_expectation.json").write_text(
         json.dumps(payload) + "\n",
@@ -479,7 +572,7 @@ def test_suite_rejects_chat_expectation_without_boilerplate_forbidden_terms(
     captured = capsys.readouterr()
     assert status == 2
     assert "chat-event expectation material-overview case must forbid" in captured.err
-    assert "heute sprechen" in captured.err
+    assert "Visible topics" in captured.err
 
 
 def test_suite_rejects_narrow_priority_domains(tmp_path: Path, capsys) -> None:
@@ -587,3 +680,36 @@ def test_suite_rejects_narrow_study_state_domains(
     captured = capsys.readouterr()
     assert status == 2
     assert "study-state benchmark must cover at least" in captured.err
+
+
+def test_suite_rejects_study_state_without_prompt_contracts(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    suite = tmp_path / "suite"
+    shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
+    (suite / "study_state.jsonl").write_text(
+        (
+            '{"id":"math-schedule","domain":"mathematics","expected_final_phase":"presenting",'
+            '"expected_scheduled_reviews":1,"turns":['
+            '{"user":"Explain integration by parts","reply":"Use product rule.",'
+            '"source_refs":["materials/calculus.md#chunk=0"]},'
+            '{"user":"ready","reply":"State it from memory."},'
+            '{"user":"attempt confidence 4/5","reply":"CORRECT: Correct.",'
+            '"source_refs":["materials/calculus.md#chunk=0"],'
+            '"advance_seconds":18,"record_schedule":true}'
+            "]}\n"
+            '{"id":"cs-no-schedule","domain":"computer-science",'
+            '"expected_final_phase":"waiting_for_ready","turns":['
+            '{"user":"Explain Dijkstra","reply":"Use a priority queue.",'
+            '"source_refs":["materials/algorithms.md#chunk=0"]}'
+            "]}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    status = run_benchmark_suite.main(["--suite", str(suite)])
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "prompt contract turn" in captured.err

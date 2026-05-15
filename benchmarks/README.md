@@ -21,6 +21,15 @@ Answer quality gates include citation validity, answer shape, and evidence
 coverage; `--min-evidence-coverage` fails the suite when answer fixtures
 under-sample required source coverage.
 
+The suite also prints and writes a `study_intent` contract report. This guards
+the English-first intent-normalizer surface: the schema must keep the full set
+of control labels, the prompt must say it interprets requests in whatever
+language into an English-first control signal, the runtime parser must accept
+those labels, and the contract must not grow language-specific examples that
+would turn multilingual routing into a phrase list. The same report scans the
+main study/chat prompt source files so language-specific examples do not creep
+back into adjacent routing or fallback prompts.
+
 The suite also validates `benchmarks/academic/manifest.json`, which declares
 the domains, material roles, document types, stressors, datasets, and known
 limits covered by the corpus. This keeps breadth visible and machine-checkable:
@@ -537,7 +546,11 @@ citations in the answer, not merely from retrieved evidence. When a case sets
 `min_bullet_count`, the answer must include that many markdown-style bullet
 lines, which lets overview cases reject dense paragraph output even if citations
 are syntactically valid. `min_cited_bullet_count` further requires that many
-bullet lines to contain evidence citations.
+bullet lines to contain evidence citations. `max_explicit_date_lines` lets
+overview cases reject chronological document walk-throughs that mention several
+lecture/file dates instead of synthesizing the big picture. Material-overview
+cases also fail when multiple bullet or numbered lines are shaped as a
+chronological walkthrough, even if they avoid explicit dates.
 
 ## Study-State Datasets
 
@@ -568,7 +581,9 @@ review schedule item?"
       "reply": "State it from memory.",
       "expected_action": "prompt_recall",
       "expected_phase": "recall",
-      "expected_feedback": "ready"
+      "expected_feedback": "ready",
+      "prompt_must_include": ["same language as the current item"],
+      "prompt_must_not_include": ["End with exactly: Answer from memory"]
     },
     {
       "user": "Integral of u dv equals uv minus integral v du. Confidence 4/5.",
@@ -596,11 +611,18 @@ uv run python -m scripts.benchmark_study_state benchmarks/academic/study_state.j
 
 The committed suite must include multiple labelled domains and at least one
 scheduling case with concept, error type, failure count, latency, and confidence
-metadata plus retrieval-success and transfer-success signals. The suite report
-exposes `study_state.mastery_metadata_rate`, and the default comparator tracks
-it so scheduled-review metadata regressions are caught without hand-inspecting
-JSON. This keeps the active-recall harness honest without binding it to a
-specific lecturer, language, or subject.
+metadata plus retrieval-success and transfer-success signals. At least one turn
+must also include prompt contract checks with `prompt_must_include` or
+`prompt_must_not_include`, so the state harness can protect language,
+instruction-shape, and no-boilerplate prompt requirements instead of only
+checking state transitions. Corpus material-overview turns must remain normal
+answers in the `presenting` phase, not arm the ready/recall loop; separate
+topic-presentation cases cover that loop. The suite report exposes
+`study_state.mastery_metadata_rate` and `study_state.prompt_contract_rate`, and
+the default comparator tracks both so scheduled-review metadata and prompt
+contract regressions are caught without hand-inspecting JSON. This keeps the
+active-recall harness honest without binding it to a specific lecturer,
+language, or subject.
 
 ## Academic Item Datasets
 
@@ -627,13 +649,20 @@ uv run python -m scripts.benchmark_academic_items \
   benchmarks/academic/academic_items.jsonl \
   --min-pass-rate 1.0 \
   --min-grounded-question-rate 1.0 \
+  --min-canonical-source-label-rate 1.0 \
+  --min-question-quality-rate 1.0 \
   --min-question-types 6
 ```
 
 The committed suite should cover at least definitions, formula-like source
 spans, figure/table captions, exam questions, answers, rubric points, and
 exam-skill cues. It should also generate several grounded question styles so
-active recall does not collapse to one prompt template.
+active recall does not collapse to one prompt template, and the generated
+questions should avoid metadata trivia, filenames, chunk IDs, and internal
+source-control wording. Each generated question also carries a canonical
+human-facing `source_label` separated from internal chunk refs; labels are
+expected to be exact source names such as `3 Requirements Engineering`, not
+filenames, dates, or `#chunk` locators.
 
 ## Replay Datasets
 
@@ -808,10 +837,12 @@ entries keyed by either `turn` or generated fixture `id`; supported fields are
 `required_label`, `expected_citations`, `must_include`, `must_not_include`, and
 `supported_claims`. Answer fixtures may also set `min_words`, `max_words`,
 `min_citation_count`, `min_distinct_sources`, `min_sampled_sources`,
-`min_bullet_count`, and `min_cited_bullet_count` so vague, narrow,
-under-sampled, hard-to-read, or uncited structured responses fail even when they
-contain syntactically valid citations somewhere. Material-overview trace replay
-adds a default `min_sampled_sources=2` gate.
+`min_bullet_count`, `min_cited_bullet_count`, and `max_explicit_date_lines` so
+vague, narrow, under-sampled, hard-to-read, chronological, or uncited structured
+responses fail even when they contain syntactically valid citations somewhere.
+Material-overview cases are additionally checked for repeated chronology-shaped
+lines such as first/then/later document walkthroughs.
+Material-overview trace replay adds a default `min_sampled_sources=2` gate.
 
 ## What To Add
 

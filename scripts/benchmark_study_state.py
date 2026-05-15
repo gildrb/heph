@@ -47,6 +47,8 @@ class RawStudyTurn(TypedDict):
     expected_feedback: NotRequired[str]
     expected_rating: NotRequired[str]
     expected_confidence: NotRequired[float]
+    prompt_must_include: NotRequired[list[str]]
+    prompt_must_not_include: NotRequired[list[str]]
     source_refs: NotRequired[list[str]]
     advance_seconds: NotRequired[int]
     record_schedule: NotRequired[bool]
@@ -75,6 +77,8 @@ class StudyTurnCase:
     expected_feedback: str | None = None
     expected_rating: str | None = None
     expected_confidence: float | None = None
+    prompt_must_include: tuple[str, ...] = ()
+    prompt_must_not_include: tuple[str, ...] = ()
     record_schedule: bool = False
 
 
@@ -100,6 +104,8 @@ class StudyTurnResult:
     feedback: str
     rating: str
     confidence: float | None
+    prompt_contract_checked: bool
+    prompt_contract_passed: bool
     passed: bool
     failures: tuple[str, ...]
 
@@ -130,6 +136,7 @@ class StudyStateBenchmarkReport:
     transition_pass_rate: float
     scheduling_pass_rate: float
     mastery_metadata_rate: float
+    prompt_contract_rate: float
     failures: tuple[str, ...]
     results: tuple[StudyStateCaseResult, ...]
 
@@ -179,6 +186,13 @@ def _as_raw_cases(payload: object) -> list[RawStudyStateCase]:
             raw_confidence = raw_turn.get("expected_confidence")
             if isinstance(raw_confidence, int | float) and not isinstance(raw_confidence, bool):
                 turn["expected_confidence"] = float(raw_confidence)
+            for field in ("prompt_must_include", "prompt_must_not_include"):
+                prompt_phrases = _as_optional_string_list(
+                    raw_turn.get(field),
+                    f"case {idx} turn {turn_idx} {field}",
+                )
+                if prompt_phrases:
+                    turn[field] = prompt_phrases
             turns.append(turn)
 
         case: RawStudyStateCase = {"turns": turns}
@@ -283,6 +297,8 @@ def load_cases(path: Path) -> list[StudyStateCase]:
                 expected_feedback=raw_turn.get("expected_feedback"),
                 expected_rating=raw_turn.get("expected_rating"),
                 expected_confidence=raw_turn.get("expected_confidence"),
+                prompt_must_include=tuple(raw_turn.get("prompt_must_include", [])),
+                prompt_must_not_include=tuple(raw_turn.get("prompt_must_not_include", [])),
                 record_schedule=raw_turn.get("record_schedule", False),
             )
             for turn_idx, raw_turn in enumerate(raw["turns"], start=1)
@@ -322,6 +338,10 @@ def run_benchmark(
         if not any("scheduled" in failure or "due" in failure for failure in result.failures)
     )
     mastery_metadata_rate = _mastery_metadata_rate(results)
+    prompt_contract_turns = [turn for turn in turn_results if turn.prompt_contract_checked]
+    prompt_contract_passes = sum(
+        1 for turn in prompt_contract_turns if turn.prompt_contract_passed
+    )
     failures = tuple(
         f"{result.case_id}: {failure}" for result in results for failure in result.failures
     )
@@ -334,6 +354,9 @@ def run_benchmark(
             scheduling_passes / len(scheduling_cases) if scheduling_cases else 1.0
         ),
         mastery_metadata_rate=mastery_metadata_rate,
+        prompt_contract_rate=(
+            prompt_contract_passes / len(prompt_contract_turns) if prompt_contract_turns else 1.0
+        ),
         failures=failures,
         results=tuple(results),
     )
@@ -389,7 +412,8 @@ def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResul
             list(turn.source_refs),
             now=now,
         )
-        turn_failures = _turn_failures(idx, turn, plan.action, next_state)
+        prompt_failures = _prompt_contract_failures(idx, turn, plan.prompt)
+        turn_failures = _turn_failures(idx, turn, plan.action, next_state) + prompt_failures
         if turn.record_schedule:
             store.record_review(
                 state.current_item,
@@ -413,6 +437,10 @@ def _run_case(case: StudyStateCase, *, armory_path: Path) -> StudyStateCaseResul
                 feedback=next_state.last_feedback_type.value,
                 rating=next_state.last_recall_rating.value,
                 confidence=next_state.last_confidence,
+                prompt_contract_checked=bool(
+                    turn.prompt_must_include or turn.prompt_must_not_include
+                ),
+                prompt_contract_passed=not prompt_failures,
                 passed=not turn_failures,
                 failures=tuple(turn_failures),
             )
@@ -516,6 +544,24 @@ def _turn_failures(
     return failures
 
 
+def _prompt_contract_failures(
+    turn_idx: int,
+    turn: StudyTurnCase,
+    prompt: str,
+) -> list[str]:
+    failures = [
+        f"turn {turn_idx} prompt missing required phrase {phrase!r}"
+        for phrase in turn.prompt_must_include
+        if phrase not in prompt
+    ]
+    failures.extend(
+        f"turn {turn_idx} prompt includes forbidden phrase {phrase!r}"
+        for phrase in turn.prompt_must_not_include
+        if phrase in prompt
+    )
+    return failures
+
+
 def print_text_report(report: StudyStateBenchmarkReport) -> None:
     """Print a concise human-readable study-state benchmark report."""
     print(f"Study-state benchmark: {report.cases} case(s)")
@@ -523,6 +569,7 @@ def print_text_report(report: StudyStateBenchmarkReport) -> None:
     print(f"  transition pass rate: {report.transition_pass_rate:.2%}")
     print(f"  scheduling pass rate: {report.scheduling_pass_rate:.2%}")
     print(f"  mastery metadata rate: {report.mastery_metadata_rate:.2%}")
+    print(f"  prompt contract rate: {report.prompt_contract_rate:.2%}")
     if report.failures:
         print("  failures:")
         for failure in report.failures:

@@ -28,7 +28,12 @@ def _write_overview_expectation(path: Path) -> None:
                     ],
                     "must_not_include": [
                         "the files cover",
+                        "next action",
                         "say ready when you want recall",
+                        "ask for recall",
+                        "answer from memory",
+                        "source-backed",
+                        "source backed",
                         "Retrieved overview sample",
                         "not an exhaustive summary",
                     ],
@@ -37,6 +42,7 @@ def _write_overview_expectation(path: Path) -> None:
                     "min_distinct_sources": 2,
                     "min_bullet_count": 2,
                     "min_cited_bullet_count": 2,
+                    "max_explicit_date_lines": 1,
                     "required_material_operations": ["sample_overview"],
                     "forbidden_material_operations": ["search_index"],
                     "evidence": [
@@ -160,6 +166,63 @@ def test_chat_event_benchmark_passes_structured_overview_stream(tmp_path: Path) 
     assert report.has_evidence_metadata
     assert report.has_tool_runtime_metadata
     assert report.failures == ()
+
+
+def test_chat_event_benchmark_rejects_overview_study_loop_tail(tmp_path: Path) -> None:
+    events_path = tmp_path / "events.jsonl"
+    expectation_path = tmp_path / "expectation.json"
+    answer = (
+        "These are the study topics I found in the material [E1] [E2].\n"
+        "- Definitions, theorems, and examples [E1].\n"
+        "- Past exam proof practice [E2].\n"
+        "- Choose a topic to study next with the menu [E1].\n\n"
+        "Next action: Review the smallest source-backed piece, then ask for recall."
+    )
+    _write_jsonl(
+        events_path,
+        [
+            {"type": "notice", "code": "reading", "message": "Reading."},
+            *_material_operation_rows(),
+            {
+                "type": "notice",
+                "code": "evidence",
+                "message": "Using evidence.",
+                "metadata": {
+                    "refs": ["materials/lecture.md#chunk=0", "materials/exam.md#chunk=0"],
+                    "coverage": {
+                        "evidence_blocks": 2,
+                        "sampled_sources": 2,
+                        "total_sources": 2,
+                    },
+                    "items": [
+                        {
+                            "evidence_id": "E1",
+                            "ref": "materials/lecture.md#chunk=0",
+                            "text_excerpt": "Lecture notes. Definitions, theorems, and examples.",
+                        },
+                        {
+                            "evidence_id": "E2",
+                            "ref": "materials/exam.md#chunk=0",
+                            "text_excerpt": "Past exam. Question 1 asks for a proof.",
+                        },
+                    ],
+                },
+            },
+            {"type": "notice", "code": "writing", "message": "Writing."},
+            {"type": "assistant_delta", "delta": answer},
+            {"type": "turn_complete", "full_text": answer, "turn_index": 1},
+        ],
+    )
+    _write_overview_expectation(expectation_path)
+
+    report = benchmark_chat_events.run_chat_event_benchmark(
+        benchmark_chat_events.load_events(events_path),
+        expectation=benchmark_chat_events.load_expectation(expectation_path),
+    )
+
+    assert report.answer_pass_rate == 0.0
+    assert any("forbidden text: next action" in failure for failure in report.failures)
+    assert any("source-backed" in failure for failure in report.failures)
 
 
 def test_chat_event_benchmark_validates_tool_runtime_notice_metadata(

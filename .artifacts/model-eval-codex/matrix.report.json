@@ -15,15 +15,15 @@
   "failures": [],
   "results": [
     {
-      "candidate_id": "pollinations-openai-fast",
+      "candidate_id": "local-openai-harness",
       "group": "local",
-      "model": "openai-fast",
-      "base_url": "https://text.pollinations.ai/openai",
+      "model": "local-harness",
+      "base_url": "http://127.0.0.1:8765/v1",
       "provider_slug": "",
-      "auth_source": "base_url",
+      "auth_source": "api_key",
       "status": 0,
-      "output": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/pollinations-openai-fast.answers.jsonl",
-      "report_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/pollinations-openai-fast.report.json",
+      "output": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/local-openai-harness.answers.jsonl",
+      "report_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/model-eval-codex/local-openai-harness.report.json",
       "cases": 3,
       "domains": [
         "algorithms-ai-data-science",
@@ -46,7 +46,7 @@
       "evidence_coverage_rate": 1.0,
       "required_label_rate": 1.0,
       "responsibilities": [
-        "small-model retrieval answer sanity",
+        "local OpenAI-compatible replay harness sanity",
         "citation formatting",
         "short factual answers"
       ],

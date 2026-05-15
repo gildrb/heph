@@ -14,9 +14,11 @@ from hephaistos.rag import load_or_build
 from hephaistos.study.knowledge import (
     AcademicItem,
     AcademicItemKind,
+    GroundedStudyQuestion,
     build_course_knowledge_graph,
     extract_academic_items,
     generate_grounded_study_questions,
+    grounded_study_question_quality_issues,
 )
 
 
@@ -59,6 +61,9 @@ class AcademicItemBenchmarkReport:
     question_type_count: int
     question_types: tuple[str, ...]
     grounded_question_rate: float
+    canonical_source_label_rate: float
+    question_quality_rate: float
+    question_quality_failures: tuple[str, ...]
     failures: tuple[str, ...]
     results: tuple[AcademicItemCaseResult, ...]
 
@@ -151,7 +156,14 @@ def run_benchmark(
     passed = sum(1 for result in results if result.matched)
     failures = tuple(result.case_id for result in results if not result.matched)
     grounded_questions = sum(1 for question in questions if question.grounding_source_refs)
+    canonical_source_labels = sum(
+        1 for question in questions if _has_canonical_source_label(question)
+    )
     question_types = tuple(sorted({question.question_type for question in questions}))
+    question_quality_failures = _question_quality_failures(questions)
+    failed_question_count = len(
+        {failure.split(":", maxsplit=1)[0] for failure in question_quality_failures}
+    )
     return AcademicItemBenchmarkReport(
         cases=len(cases),
         domains=tuple(sorted({case.domain for case in cases if case.domain})),
@@ -161,6 +173,13 @@ def run_benchmark(
         question_type_count=len(question_types),
         question_types=question_types,
         grounded_question_rate=(grounded_questions / len(questions) if questions else 1.0),
+        canonical_source_label_rate=(
+            canonical_source_labels / len(questions) if questions else 1.0
+        ),
+        question_quality_rate=(
+            (len(questions) - failed_question_count) / len(questions) if questions else 1.0
+        ),
+        question_quality_failures=question_quality_failures,
         failures=failures,
         results=results,
     )
@@ -194,6 +213,24 @@ def _evaluate_case(
     )
 
 
+def _question_quality_failures(questions: Sequence[GroundedStudyQuestion]) -> tuple[str, ...]:
+    failures: list[str] = []
+    for index, question in enumerate(questions, start=1):
+        failures.extend(
+            f"q{index}:{question.question_type}:{question.concept}: {issue}"
+            for issue in grounded_study_question_quality_issues(question)
+        )
+    return tuple(failures)
+
+
+def _has_canonical_source_label(question: GroundedStudyQuestion) -> bool:
+    issues = grounded_study_question_quality_issues(question)
+    return (
+        "missing canonical source label" not in issues
+        and "source label contains metadata or internal source wording" not in issues
+    )
+
+
 def print_text_report(report: AcademicItemBenchmarkReport) -> None:
     """Print a compact human-readable report."""
     print(f"Academic item benchmark: {report.cases} cases")
@@ -206,10 +243,14 @@ def print_text_report(report: AcademicItemBenchmarkReport) -> None:
         print(
             f"generated_questions={report.generated_questions} "
             f"question_types={report.question_type_count} "
-            f"grounded_question_rate={report.grounded_question_rate * 100:.1f}%"
+            f"grounded_question_rate={report.grounded_question_rate * 100:.1f}% "
+            f"canonical_source_label_rate={report.canonical_source_label_rate * 100:.1f}% "
+            f"question_quality_rate={report.question_quality_rate * 100:.1f}%"
         )
     if report.failures:
         print(f"failures={', '.join(report.failures)}")
+    if report.question_quality_failures:
+        print(f"question_quality_failures={'; '.join(report.question_quality_failures[:8])}")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -219,6 +260,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--min-pass-rate", type=float, default=0.0)
     parser.add_argument("--min-grounded-question-rate", type=float, default=0.0)
+    parser.add_argument("--min-canonical-source-label-rate", type=float, default=0.0)
+    parser.add_argument("--min-question-quality-rate", type=float, default=0.0)
     parser.add_argument("--min-question-types", type=int, default=0)
     return parser
 
@@ -228,11 +271,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     min_pass_rate = cast("float", args.min_pass_rate)
     min_grounded_question_rate = cast("float", args.min_grounded_question_rate)
+    min_canonical_source_label_rate = cast("float", args.min_canonical_source_label_rate)
+    min_question_quality_rate = cast("float", args.min_question_quality_rate)
     min_question_types = cast("int", args.min_question_types)
     if not 0 <= min_pass_rate <= 1:
         parser.error("--min-pass-rate must be between 0 and 1")
     if not 0 <= min_grounded_question_rate <= 1:
         parser.error("--min-grounded-question-rate must be between 0 and 1")
+    if not 0 <= min_canonical_source_label_rate <= 1:
+        parser.error("--min-canonical-source-label-rate must be between 0 and 1")
+    if not 0 <= min_question_quality_rate <= 1:
+        parser.error("--min-question-quality-rate must be between 0 and 1")
     if min_question_types < 0:
         parser.error("--min-question-types must be non-negative")
     try:
@@ -250,6 +299,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (
         report.pass_rate < min_pass_rate
         or report.grounded_question_rate < min_grounded_question_rate
+        or report.canonical_source_label_rate < min_canonical_source_label_rate
+        or report.question_quality_rate < min_question_quality_rate
         or len(report.question_types) < min_question_types
     ):
         return 1

@@ -6,11 +6,17 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Protocol
 
 _HEADING_RE = re.compile(r"^\s{0,3}(?:#{1,6}\s+|\d+(?:\.\d+)*[.)]\s+)(?P<text>.+?)\s*$")
 _HEADING_CONTEXT_PREFIX_RE = re.compile(
     r"^(?:lecture|vorlesung|chapter|kapitel|unit|session)\s+\d+[a-z]?\s*[-:]\s*",
+    re.IGNORECASE,
+)
+_SOURCE_LABEL_CONTEXT_RE = re.compile(
+    r"^(?:lecture|vorlesung|chapter|kapitel|unit|session)\s+"
+    r"(?P<number>\d+[a-z]?)\s*[-:]\s*(?P<title>.+)$",
     re.IGNORECASE,
 )
 _DEFINITION_RE = re.compile(
@@ -87,6 +93,36 @@ _BAD_DEFINITION_TERMS = frozenset(
         "diese",
     }
 )
+_QUESTION_METADATA_OR_INTERNAL_RE = re.compile(
+    r"\b(?:"
+    r"all rights reserved|copyright|date|dozent|dozentin|email|instructor|lecturer|"
+    r"page|professor|seite|semester|slide|source[-\s]?backed|source[-\s]?supported|"
+    r"source question|source field|chunk|filename|file name|www|http"
+    r")\b|#chunk=|\bmaterials[/\\]",
+    re.IGNORECASE,
+)
+_SOURCE_LABEL_METADATA_RE = re.compile(
+    r"\b(?:"
+    r"all rights reserved|copyright|date|dozent|dozentin|email|instructor|lecturer|"
+    r"page|professor|seite|semester|slide|source[-\s]?backed|source[-\s]?supported|"
+    r"source field|chunk|filename|file name|www|http"
+    r")\b|#chunk=|\bmaterials[/\\]|[.](?:md|pdf|pptx?|docx?|txt)\b",
+    re.IGNORECASE,
+)
+_ACTIVE_RECALL_PROMPT_RE = re.compile(
+    r"^\s*(?:"
+    r"cloze deletion|compare|correct|define|explain|fill|in one|multiple choice|"
+    r"past[- ]exam style|state|what|why"
+    r")\b|[?]",
+    re.IGNORECASE,
+)
+_QUESTION_SECOND_TASK_RE = re.compile(
+    r"\b(?:and|also|then)\s+(?:"
+    r"calculate|compare|compute|define|derive|describe|determine|explain|give|"
+    r"identify|justify|list|name|outline|show|state|summarize|what|when|why"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 class KnowledgeChunk(Protocol):
@@ -122,6 +158,7 @@ class AcademicItem:
     text: str
     source_ref: str
     concept: str = ""
+    source_label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +167,7 @@ class CourseKnowledgeNode:
 
     concept: str
     source_refs: tuple[str, ...] = ()
+    source_labels: tuple[str, ...] = ()
     definitions: tuple[str, ...] = ()
     formulas: tuple[str, ...] = ()
     examples: tuple[str, ...] = ()
@@ -159,6 +197,7 @@ class GroundedStudyQuestion:
     question_type: str
     concept: str
     grounding_source_refs: tuple[str, ...]
+    source_label: str = ""
     difficulty: str = "core"
 
 
@@ -177,7 +216,8 @@ def extract_academic_items(
     seen: set[tuple[AcademicItemKind, str, str]] = set()
     for chunk in chunks:
         source_ref = f"{chunk.source}#chunk={chunk.index}"
-        chunk_items = _items_from_chunk(chunk.text, source_ref)
+        source_label = _source_label_for_chunk(chunk)
+        chunk_items = _items_from_chunk(chunk.text, source_ref, source_label)
         for item in chunk_items[: max(0, limit_per_chunk)]:
             key = (item.kind, item.text.casefold(), item.source_ref)
             if key in seen:
@@ -234,7 +274,30 @@ def generate_grounded_study_questions(
     return questions
 
 
-def _items_from_chunk(text: str, source_ref: str) -> list[AcademicItem]:
+def grounded_study_question_quality_issues(question: GroundedStudyQuestion) -> tuple[str, ...]:
+    """Return conservative quality issues for a generated active-recall question."""
+    issues: list[str] = []
+    text = question.question.strip()
+    if not question.grounding_source_refs:
+        issues.append("missing grounding source refs")
+    if not question.source_label.strip():
+        issues.append("missing canonical source label")
+    elif _SOURCE_LABEL_METADATA_RE.search(question.source_label):
+        issues.append("source label contains metadata or internal source wording")
+    if not _ACTIVE_RECALL_PROMPT_RE.search(text):
+        issues.append("not framed as active recall")
+    if text.count("?") > 1:
+        issues.append("asks more than one question")
+    if _QUESTION_SECOND_TASK_RE.search(text):
+        issues.append("asks more than one thing")
+    if _QUESTION_METADATA_OR_INTERNAL_RE.search(text):
+        issues.append("contains metadata or internal source wording")
+    if _METADATA_CONCEPT_RE.search(question.concept):
+        issues.append("uses metadata-like concept")
+    return tuple(issues)
+
+
+def _items_from_chunk(text: str, source_ref: str, source_label: str) -> list[AcademicItem]:
     items: list[AcademicItem] = []
     for line in text.splitlines():
         cleaned = _clean(line)
@@ -248,13 +311,14 @@ def _items_from_chunk(text: str, source_ref: str) -> list[AcademicItem]:
                     text=heading,
                     source_ref=source_ref,
                     concept=heading,
+                    source_label=source_label,
                 )
             )
     for paragraph in _paragraphs(text):
-        definition = _definition(paragraph, source_ref)
+        definition = _definition(paragraph, source_ref, source_label)
         if definition is not None:
             items.append(definition)
-        formula = _formula(paragraph, source_ref)
+        formula = _formula(paragraph, source_ref, source_label)
         if formula is not None:
             items.append(formula)
         example = _captured_item(
@@ -262,6 +326,7 @@ def _items_from_chunk(text: str, source_ref: str) -> list[AcademicItem]:
             paragraph,
             source_ref,
             AcademicItemKind.EXAMPLE,
+            source_label,
         )
         if example is not None:
             items.append(example)
@@ -270,6 +335,7 @@ def _items_from_chunk(text: str, source_ref: str) -> list[AcademicItem]:
             paragraph,
             source_ref,
             AcademicItemKind.COMMON_MISCONCEPTION,
+            source_label,
         )
         if misconception is not None:
             items.append(misconception)
@@ -278,10 +344,17 @@ def _items_from_chunk(text: str, source_ref: str) -> list[AcademicItem]:
             paragraph,
             source_ref,
             AcademicItemKind.LEARNING_OBJECTIVE,
+            source_label,
         )
         if objective is not None:
             items.append(objective)
-        rubric = _captured_item(_RUBRIC_RE, paragraph, source_ref, AcademicItemKind.EXAM_SKILL)
+        rubric = _captured_item(
+            _RUBRIC_RE,
+            paragraph,
+            source_ref,
+            AcademicItemKind.EXAM_SKILL,
+            source_label,
+        )
         if rubric is not None:
             items.append(rubric)
             items.append(
@@ -290,12 +363,25 @@ def _items_from_chunk(text: str, source_ref: str) -> list[AcademicItem]:
                     text=rubric.text,
                     source_ref=rubric.source_ref,
                     concept=rubric.concept,
+                    source_label=rubric.source_label,
                 )
             )
-        figure = _captured_item(_FIGURE_RE, paragraph, source_ref, AcademicItemKind.FIGURE)
+        figure = _captured_item(
+            _FIGURE_RE,
+            paragraph,
+            source_ref,
+            AcademicItemKind.FIGURE,
+            source_label,
+        )
         if figure is not None:
             items.append(figure)
-        table = _captured_item(_TABLE_RE, paragraph, source_ref, AcademicItemKind.TABLE)
+        table = _captured_item(
+            _TABLE_RE,
+            paragraph,
+            source_ref,
+            AcademicItemKind.TABLE,
+            source_label,
+        )
         if table is not None:
             items.append(table)
         exam_question = _captured_item(
@@ -303,10 +389,17 @@ def _items_from_chunk(text: str, source_ref: str) -> list[AcademicItem]:
             paragraph,
             source_ref,
             AcademicItemKind.EXAM_QUESTION,
+            source_label,
         )
         if exam_question is not None:
             items.append(exam_question)
-        answer = _captured_item(_ANSWER_RE, paragraph, source_ref, AcademicItemKind.ANSWER)
+        answer = _captured_item(
+            _ANSWER_RE,
+            paragraph,
+            source_ref,
+            AcademicItemKind.ANSWER,
+            source_label,
+        )
         if answer is not None:
             items.append(answer)
     return items
@@ -326,7 +419,7 @@ def _heading_context_prefix_removed(heading: str) -> str:
     return _clean(_HEADING_CONTEXT_PREFIX_RE.sub("", heading, count=1))
 
 
-def _definition(line: str, source_ref: str) -> AcademicItem | None:
+def _definition(line: str, source_ref: str, source_label: str) -> AcademicItem | None:
     match = _DEFINITION_RE.match(line)
     if match is None:
         return None
@@ -345,17 +438,23 @@ def _definition(line: str, source_ref: str) -> AcademicItem | None:
         text=f"{concept}: {body}",
         source_ref=source_ref,
         concept=concept,
+        source_label=source_label,
     )
 
 
-def _formula(line: str, source_ref: str) -> AcademicItem | None:
+def _formula(line: str, source_ref: str, source_label: str) -> AcademicItem | None:
     match = _FORMULA_RE.search(line)
     if match is None:
         return None
     text = _clean(match.group("labelled") or match.group("symbolic") or "")
     if not text or len(text) < 4:
         return None
-    return AcademicItem(kind=AcademicItemKind.FORMULA, text=text, source_ref=source_ref)
+    return AcademicItem(
+        kind=AcademicItemKind.FORMULA,
+        text=text,
+        source_ref=source_ref,
+        source_label=source_label,
+    )
 
 
 def _captured_item(
@@ -363,6 +462,7 @@ def _captured_item(
     line: str,
     source_ref: str,
     kind: AcademicItemKind,
+    source_label: str,
 ) -> AcademicItem | None:
     match = pattern.search(line)
     if match is None:
@@ -370,7 +470,41 @@ def _captured_item(
     text = _clean(match.group("body"))
     if not text:
         return None
-    return AcademicItem(kind=kind, text=text, source_ref=source_ref)
+    return AcademicItem(kind=kind, text=text, source_ref=source_ref, source_label=source_label)
+
+
+def _source_label_for_chunk(chunk: KnowledgeChunk) -> str:
+    heading = _clean(str(getattr(chunk, "heading", "")))
+    if heading:
+        return _canonical_source_label_text(heading)
+    heading_label = _source_label_from_text_heading(chunk.text)
+    if heading_label:
+        return heading_label
+    return _source_label_from_ref(f"{chunk.source}#chunk={chunk.index}")
+
+
+def _source_label_from_text_heading(text: str) -> str:
+    for line in text.splitlines():
+        match = _HEADING_RE.match(line)
+        if match is not None:
+            return _canonical_source_label_text(match.group("text"))
+    return ""
+
+
+def _source_label_from_ref(source_ref: str) -> str:
+    source = source_ref.split("#", maxsplit=1)[0]
+    name = PurePosixPath(source.replace("\\", "/")).name or source
+    stem = name.rsplit(".", maxsplit=1)[0]
+    return _canonical_source_label_text(stem)
+
+
+def _canonical_source_label_text(text: str) -> str:
+    cleaned = _clean(text.replace("_", " "))
+    match = _SOURCE_LABEL_CONTEXT_RE.match(cleaned)
+    if match is not None:
+        return _clean(f"{match.group('number')} {match.group('title')}")
+    label = cleaned.replace("-", " ")
+    return _clean(label) or cleaned
 
 
 def _clean(text: str) -> str:
@@ -438,7 +572,7 @@ def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion
         )
         questions.append(
             _question(
-                f"Cloze deletion: {node.concept} is _____. Fill the blank from the cited source.",
+                f"Cloze deletion: {node.concept} is _____. Fill the blank.",
                 question_type="cloze_deletion",
                 node=node,
                 difficulty="core",
@@ -501,7 +635,7 @@ def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion
         if node.definitions:
             questions.append(
                 _question(
-                    f"Multiple choice: which statement is source-supported for {node.concept}? "
+                    f"Multiple choice: which statement best matches {node.concept}? "
                     f"A. {node.definitions[0]} B. {node.common_misconceptions[0]}",
                     question_type="multiple_choice",
                     node=node,
@@ -558,14 +692,23 @@ def _question(
         question_type=question_type,
         concept=node.concept,
         grounding_source_refs=node.source_refs,
+        source_label=_question_source_label(node),
         difficulty=difficulty,
     )
+
+
+def _question_source_label(node: CourseKnowledgeNode) -> str:
+    if node.source_labels:
+        return "; ".join(node.source_labels)
+    labels = tuple(_source_label_from_ref(ref) for ref in node.source_refs)
+    return "; ".join(dict.fromkeys(label for label in labels if label))
 
 
 @dataclass(slots=True)
 class _NodeBuilder:
     concept: str
     source_refs: list[str] = field(default_factory=list)
+    source_labels: list[str] = field(default_factory=list)
     definitions: list[str] = field(default_factory=list)
     formulas: list[str] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
@@ -580,6 +723,7 @@ class _NodeBuilder:
 
     def add(self, item: AcademicItem) -> None:
         _append_unique(self.source_refs, item.source_ref)
+        _append_unique(self.source_labels, item.source_label)
         if item.kind is AcademicItemKind.DEFINITION:
             _append_unique(self.definitions, item.text)
         elif item.kind is AcademicItemKind.FORMULA:
@@ -607,6 +751,7 @@ class _NodeBuilder:
         return CourseKnowledgeNode(
             concept=self.concept,
             source_refs=tuple(self.source_refs),
+            source_labels=tuple(self.source_labels),
             definitions=tuple(self.definitions),
             formulas=tuple(self.formulas),
             examples=tuple(self.examples),

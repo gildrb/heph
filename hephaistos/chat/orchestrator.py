@@ -6,9 +6,10 @@ import contextlib
 import re
 import threading
 import urllib.error
-from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from html import unescape
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hephaistos._types import is_string_mapping, parse_json_object_fragment
@@ -83,11 +84,13 @@ from hephaistos.study import (
     StudyTurnPlan,
     apply_turn_result,
     learner_assessment_from_state,
+    manual_chat_plan,
     material_overview_plan,
     material_source_qa_plan,
     material_topic_drill_plan,
     material_topic_presentation_plan,
     plan_turn,
+    recall_clarification_plan,
     validate_pedagogy,
 )
 from hephaistos.study.priority import PriorityWebSearcher, analyze_priority, duckduckgo_search
@@ -131,6 +134,8 @@ _OVERVIEW_CITATION_ID_RE = re.compile(r"\[(?:e|E)(?P<id>\d+)\]")
 _TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call\b[^>]*>.*?</tool_call>", re.IGNORECASE | re.DOTALL)
 _TOOL_CALL_OPEN_RE = re.compile(r"<tool_call\b[^>]*>", re.IGNORECASE)
 _TOOL_CALL_CLOSE_RE = re.compile(r"</tool_call>", re.IGNORECASE)
+_DETERMINISTIC_REPLY_LITERAL_RE = re.compile(r"`[^`]+`|/[\w-]+|\"[^\"]+\"")
+_ASSESSMENT_LABEL_RE = re.compile(r"^(?:CORRECT|PARTIAL|WRONG):")
 _READ_ALL_FILES_RE = re.compile(
     r"\b(?:"
     r"(?:read|scan|look|go|walk)\s+(?:through|over)?\s*(?:all|every)\s+"
@@ -143,7 +148,7 @@ _READ_ALL_FILES_RE = re.compile(
 _OVERVIEW_MIN_WORDS = 24
 _OVERVIEW_MIN_CITATIONS = 2
 _OVERVIEW_MIN_DISTINCT_SOURCES = 2
-_OVERVIEW_MIN_BULLETS = 3
+_OVERVIEW_MIN_BULLETS = 2
 _OVERVIEW_MIN_CITED_BULLETS = 2
 _OVERVIEW_TOPIC_LIMIT = 7
 _OVERVIEW_WEB_TOPIC_SEARCH_LIMIT = 10
@@ -180,6 +185,22 @@ _ENGLISH_GUIDED_MENU_CUE_WORDS = frozenset(
     }
 )
 _OVERVIEW_REPLY_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
+_OVERVIEW_EXPLICIT_DATE_RE = re.compile(
+    r"\b(?:"
+    r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|"
+    r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|"
+    r"\d{1,2}\.\s*[A-ZÀ-ÖØ-Þa-zà-öø-ÿ]{3,}\s+\d{4}|"
+    r"(?:1[3-9]|2\d|3[01])\.\s*[A-ZÀ-ÖØ-Þa-zà-öø-ÿ]{3,}"
+    r")\b"
+)
+_OVERVIEW_CHRONOLOGICAL_LINE_RE = re.compile(
+    r"^\s*(?:[-*+]\s*|\d+[.)]\s*)?"
+    r"(?:"
+    r"(?:first|second|third|next|then|afterwards?|later|finally|subsequently)\b|"
+    r"in\s+(?:the\s+)?(?:first|second|third|next|following|later)\b"
+    r")",
+    re.IGNORECASE,
+)
 _GUIDED_RECOMMENDATION_LABEL_RE = re.compile(
     r"^\s*Recommendation\s*:", re.IGNORECASE | re.MULTILINE
 )
@@ -191,13 +212,17 @@ _ENGLISH_TOPIC_PRESENTATION_START_RE = re.compile(
 )
 _MAX_INTERNAL_PASSES = 3
 _OVERVIEW_REQUIRED_SHAPE: tuple[str, ...] = ()
+_LOCAL_OVERVIEW_SOURCE_THRESHOLD = 80
 _OVERVIEW_FORBIDDEN_SHAPE = (
     "corpus-level claim",
     "document signal",
     "indexed source",
     "next action",
     "no evidence citations",
+    "non-exhaustive list",
     "not an exhaustive summary",
+    "only a sample",
+    "partial inventory",
     "ask for recall",
     "answer from memory",
     "retrieved overview sample",
@@ -212,9 +237,19 @@ _OVERVIEW_FORBIDDEN_SHAPE = (
 _OVERVIEW_STUDY_LOOP_LINE_RE = re.compile(
     r"\b(?:next\s+action|say\s+ready|source[-\s]?backed|ask\s+for\s+recall|"
     r"want\s+recall|answer\s+from\s+memory|from\s+memory|recall\s+drill)\b|"
-    r"^\s*(?:am\s+sinnvollsten\s+ist\s+jetzt|danach\s+recall)\b",
+    r"^\s*(?:then\s+)?recall[.!]?\s*$",
     re.IGNORECASE,
 )
+_INLINE_STUDY_LOOP_SUFFIX_RE = re.compile(
+    r"(?is)^(?P<body>.+?)\s+(?:"
+    r"say\s+ready(?:\s+when\s+you\s+want\s+recall)?|"
+    r"next\s+action\s*:\s*.+|"
+    r"(?:then\s+)?ask\s+for\s+recall|"
+    r"answer\s+from\s+memory|"
+    r"include\s+your\s+confidence\s+from\s+0\s*-\s*100%\.?"
+    r")[.!?]?\s*$"
+)
+_PROMPT_USER_REQUEST_RE = re.compile(r"^User request:\s*(?P<request>.+)$", re.MULTILINE)
 _OVERVIEW_METADATA_LINE_RE = re.compile(
     r"\b(?:university|universität|institute|department|faculty|semester|professor|lecturer|"
     r"instructor|dozent|dozentin|author|email|opencourseware|administrative)\b",
@@ -360,28 +395,50 @@ labels, administrative text, or generic labels such as definitions, examples, ex
 Every topic must cite exactly one supplied evidence_id and include an exact evidence_quote copied
 from that excerpt. Return JSON only, matching this schema:
 """.strip()
-_STUDY_INTENT_NORMALIZATION_SCHEMA = """
-{
-  "intent": "material_overview | source_qa | topic_presentation | topic_drill | chat",
-  "canonical_english_request": "concise English request preserving the user's intent",
-  "confidence": 0.0
-}
-""".strip()
+_STUDY_INTENT_NORMALIZATION_SCHEMA = "\n".join(
+    (
+        "{",
+        '  "intent": "material_overview | source_qa | source_only_policy | '
+        "topic_presentation | topic_drill | ready_for_recall | recall_clarification | "
+        'recall_answer_attempt | chat",',
+        '  "canonical_english_request": "concise English request preserving the user\'s intent",',
+        '  "confidence": 0.0',
+        "}",
+    )
+)
 _STUDY_INTENT_NORMALIZATION_SYSTEM_PROMPT = """
 Classify a user's study intent for a local source-grounded study assistant. Interpret the request
 in whatever language the user wrote, but return an English-first control signal. Do not answer the
 request. Use material_overview only when the user asks for the broad picture of the enabled,
 uploaded, indexed, or provided materials as a corpus. Use source_qa for a specific fact or quote
-from the materials, topic_presentation for explaining a named concept, topic_drill for quiz or
-practice requests, and chat when the intent is unclear or not material-specific. Return JSON only,
-matching this schema:
+from the materials, source_only_policy when the user only instructs Hephaistos not to guess,
+hallucinate, invent, or use outside knowledge, topic_presentation for explaining a named concept,
+topic_drill for quiz or practice requests, ready_for_recall when the user says they are ready to
+answer from memory or continue the active recall step, recall_clarification when active recall is
+underway and the user asks to repeat, rephrase, translate, clarify what to answer, or change prompt
+language without answering, recall_answer_attempt when the user appears to be answering an
+active-recall prompt from memory, and chat when the intent is unclear or not material-specific.
+Return JSON only, matching this schema:
 """.strip()
 _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT = """
 Write a student-facing corpus overview from cited material excerpts. Use only the supplied
 evidence. Answer in the same language as the user's request. Give the big picture first and avoid
-organizing primarily by dates, filenames, authors, institutions, or individual chunks. Include at
-least two concise bullet lines with evidence IDs such as [E1]. Do not ask a recall question, do not
-say "Say ready", and do not include an English study menu unless the user wrote in English.
+organizing primarily by dates, filenames, authors, institutions, semester labels, course logistics,
+or individual chunks unless the user asks for that metadata. Do not mention calendar dates,
+semester labels, lecturer names, or course administration metadata unless the user asks for that
+metadata. Include at least two concise bullet lines with evidence IDs such as [E1].
+Do not ask a recall question. Do not add next-step/readiness/drill instructions.
+Do not mention internal evidence-grounding blocks, and do not include an English study menu unless
+the user wrote in English. Do not end with a caveat about sampling, orientation, partial inventory,
+or non-exhaustive coverage.
+""".strip()
+_DETERMINISTIC_FALLBACK_LOCALIZATION_PROMPT = """
+Rewrite an internal English fallback message for the user. Use the same language as the user's
+request when clear. If the request is English or the language is unclear, return the original
+English message. Preserve command literals, slash commands, paths, and quoted phrases exactly.
+Preserve any leading CORRECT:, PARTIAL:, or WRONG: assessment label exactly.
+Do not add facts, citations, source claims, apologies, next actions, or study-loop instructions.
+Return plain text only.
 """.strip()
 _OVERVIEW_ROLE_LABELS = {
     "assignment": "assignment or exercise sheet",
@@ -421,6 +478,59 @@ def _format_material_labels(sources: list[str]) -> str:
     if remaining > 0:
         rendered = f"{rendered}, and {remaining} more"
     return rendered
+
+
+def _localize_deterministic_reply(
+    reply: str,
+    *,
+    user_input: str,
+    config: ChatConfig | None,
+) -> str:
+    """Let the model adapt fixed fallback text without changing its factual content."""
+    if (
+        not reply.strip()
+        or not user_input.strip()
+        or config is None
+        or not config.base_url
+        or not config.model
+        or _should_append_english_guided_menu(user_input)
+    ):
+        return reply
+
+    conversation = Conversation()
+    conversation.add("system", _DETERMINISTIC_FALLBACK_LOCALIZATION_PROMPT)
+    conversation.add(
+        "user",
+        f"User request:\n{user_input.strip()}\n\nFallback message:\n{reply.strip()}",
+    )
+    parts: list[str] = []
+    try:
+        parts.extend(
+            delta.content
+            for delta in stream_completion(
+                config,
+                conversation,
+                retry=RetryConfig(max_retries=1),
+                client_factory=build_client,
+            )
+            if delta.content
+        )
+    except EngineError:
+        return reply
+    localized = _strip_tool_call_markup("".join(parts)).strip()
+    if not localized:
+        return reply
+    if len(localized) > max(len(reply) * 3, len(reply) + 600):
+        return reply
+    if _OVERVIEW_CITATION_ID_RE.search(localized) and not _OVERVIEW_CITATION_ID_RE.search(reply):
+        return reply
+    assessment_label = _ASSESSMENT_LABEL_RE.match(reply.strip())
+    if assessment_label is not None and not localized.startswith(assessment_label.group(0)):
+        return reply
+    for literal in _DETERMINISTIC_REPLY_LITERAL_RE.findall(reply):
+        if literal not in localized:
+            return reply
+    return localized
 
 
 def _missing_indexed_material_reply(session: ChatSession, action: StudyAction) -> str:
@@ -525,12 +635,7 @@ def _repair_missing_evidence_citations(
         verification = verify_citations(reply, evidence)
     if verification.has_citations:
         return reply
-    bullets = [
-        f"- {_readable_material_label(item.source)}: "
-        f"{_trace_excerpt(item.content, limit=700)} [{item.evidence_id}]"
-        for item in evidence.items[:8]
-    ]
-    return f"{reply.rstrip()}\n\nEvidence checked:\n" + "\n".join(bullets)
+    return _append_evidence_bullets(reply, evidence)
 
 
 def _remove_unverified_citations(reply: str, unverified_ids: list[str]) -> str:
@@ -549,14 +654,28 @@ def _append_key_evidence_for_source_qa(
         return reply
     if not reply.strip() or evidence is None or not evidence.items:
         return reply
-    if "Key evidence:" in reply or "Evidence checked:" in reply:
+    if _contains_evidence_bullets(reply, evidence):
         return reply
-    bullets = [
+    return _append_evidence_bullets(reply, evidence)
+
+
+def _append_evidence_bullets(reply: str, evidence: TurnEvidence) -> str:
+    bullets = _evidence_bullet_lines(evidence)
+    if not bullets:
+        return reply
+    return f"{reply.rstrip()}\n\n" + "\n".join(bullets)
+
+
+def _contains_evidence_bullets(reply: str, evidence: TurnEvidence) -> bool:
+    return any(line in reply for line in _evidence_bullet_lines(evidence))
+
+
+def _evidence_bullet_lines(evidence: TurnEvidence) -> tuple[str, ...]:
+    return tuple(
         f"- {_readable_material_label(item.source)}: "
         f"{_trace_excerpt(item.content, limit=700)} [{item.evidence_id}]"
         for item in evidence.items[:8]
-    ]
-    return f"{reply.rstrip()}\n\nKey evidence:\n" + "\n".join(bullets)
+    )
 
 
 def _visible_turn_evidence(resolved: ResolvedTurnPlan) -> TurnEvidence | None:
@@ -749,7 +868,7 @@ def _material_operation_events(
                 (
                     "Read-all scope: this turn samples indexed evidence; it did not read every "
                     "file end to end. Run `heph index <armory>` for a full index rebuild, then "
-                    "ask a narrower source-backed question."
+                    "ask a narrower source-grounded question."
                 ),
                 query=plan.retrieval_query,
                 sampled_sources=sampled_sources,
@@ -777,20 +896,24 @@ def _writing_notice(plan: StudyTurnPlan) -> str:
         return ""
     if _overview_turn(plan):
         return "Writing a grounded corpus overview."
+    if plan.action is StudyAction.CHAT and not (
+        plan.retrieval_query or plan.use_expected_source_refs
+    ):
+        return "Writing a response."
     return "Writing a grounded response."
 
 
 def _student_visible_reply(plan: StudyTurnPlan, reply: str) -> str:
     cleaned = _strip_tool_call_markup(reply).strip()
-    if _overview_turn(plan):
-        cleaned = _strip_overview_study_loop_boilerplate(plan, cleaned)
+    if _overview_turn(plan) or plan.action is StudyAction.SOURCE_QA:
+        cleaned = _strip_study_loop_footer(cleaned)
     if plan.action is StudyAction.CALIBRATE:
         return _EVIDENCE_CITATION_TEXT_RE.sub("", cleaned).strip()
     return cleaned
 
 
-def _strip_overview_study_loop_boilerplate(plan: StudyTurnPlan, reply: str) -> str:
-    if not _overview_turn(plan) or not reply.strip():
+def _strip_study_loop_footer(reply: str) -> str:
+    if not reply.strip():
         return reply
     lines = reply.splitlines()
     seen_content = False
@@ -798,11 +921,39 @@ def _strip_overview_study_loop_boilerplate(plan: StudyTurnPlan, reply: str) -> s
         stripped = line.strip()
         if not stripped:
             continue
-        if seen_content and _OVERVIEW_STUDY_LOOP_LINE_RE.search(stripped):
+        if seen_content and _line_looks_like_study_loop_footer(stripped):
             return "\n".join(lines[:index]).rstrip()
         if _OVERVIEW_CITATION_ID_RE.search(stripped) or len(re.findall(r"\b\w+\b", stripped)) >= 4:
             seen_content = True
-    return reply.strip()
+    return _strip_inline_study_loop_suffix(reply)
+
+
+def _strip_inline_study_loop_suffix(reply: str) -> str:
+    cleaned_lines: list[str] = []
+    changed = False
+    for line in reply.splitlines():
+        match = _INLINE_STUDY_LOOP_SUFFIX_RE.match(line.rstrip())
+        if match is None:
+            cleaned_lines.append(line)
+            continue
+        body = match.group("body").rstrip()
+        if not body:
+            cleaned_lines.append(line)
+            continue
+        cleaned_lines.append(body)
+        changed = True
+    if not changed:
+        return reply.strip()
+    return "\n".join(cleaned_lines).strip()
+
+
+def _line_looks_like_study_loop_footer(line: str) -> bool:
+    if _OVERVIEW_CITATION_ID_RE.search(line):
+        return False
+    if _OVERVIEW_STUDY_LOOP_LINE_RE.search(line):
+        return True
+    words = re.findall(r"\b[\w'-]+\b", line)
+    return len(words) <= 10 and bool(re.search(r"\brecall\b[.!]?$", line, re.IGNORECASE))
 
 
 def _strip_tool_call_markup(reply: str) -> str:
@@ -820,6 +971,8 @@ def _append_read_all_scope_disclosure(
 ) -> str:
     if not reply.strip() or not _read_all_files_requested(plan.retrieval_query):
         return reply
+    if not _should_append_english_scope_disclosure(plan):
+        return reply
     normalized = reply.casefold()
     if "did not read every file" in normalized or "heph index <armory>" in normalized:
         return reply
@@ -835,8 +988,15 @@ def _append_read_all_scope_disclosure(
         f"{reply.rstrip()}\n\n"
         f"Read-all scope: I sampled {sample_text}; I did not read every file end to end in "
         "this turn. Run `heph index <armory>` to rebuild the full materials index, then ask "
-        "a narrower source-backed question."
+        "a narrower source-grounded question."
     )
+
+
+def _should_append_english_scope_disclosure(plan: StudyTurnPlan) -> bool:
+    match = _PROMPT_USER_REQUEST_RE.search(plan.prompt)
+    if match is None:
+        return True
+    return _should_append_english_guided_menu(match.group("request"))
 
 
 def _insufficient_evidence_reply(
@@ -853,7 +1013,7 @@ def _insufficient_evidence_reply(
     if action == "abstain":
         return _source_qa_fallback_reply(plan, resolved.turn_evidence) or (
             "I do not have enough source evidence to answer that reliably. "
-            f"Missing: {missing}. Please narrow the source-backed target."
+            f"Missing: {missing}. Please narrow the source-grounded target."
         )
     if (
         action == "retrieve_more"
@@ -945,23 +1105,9 @@ def _repair_pedagogy_shape(plan: StudyTurnPlan, reply: str) -> str:
     validation = validate_pedagogy(reply, move, plan.autonomy_mode)
     if validation.valid:
         return reply
-    additions: list[str] = []
-    issues = set(validation.issues)
-    if "possible answer leakage during recall" in issues:
-        additions.append(
-            "Pause before using the solution: answer the active-recall task from memory first."
-        )
-    if "missing confidence request" in issues:
-        additions.append("Include your confidence from 0-100%.")
-    if "missing explicit next action" in issues:
-        next_action = validation.suggested_next_action or move.expected_output_shape
-        if next_action:
-            additions.append(f"Next action: {next_action}")
-    if "missing recommendation rationale" in issues:
-        additions.append(f"Why this helps: {move.reason}.")
-    if not additions:
-        return reply
-    return f"{reply.rstrip()}\n\n" + "\n".join(dict.fromkeys(additions))
+    # Keep pedagogy-shape validation in traces, but do not patch user-visible answers with
+    # deterministic English control text. The model prompt owns localization of next actions.
+    return reply
 
 
 def _learner_assessment_trace(plan: StudyTurnPlan | None, state: StudyState) -> dict[str, object]:
@@ -1124,7 +1270,7 @@ def _source_qa_fallback_reply(plan: StudyTurnPlan, evidence: TurnEvidence | None
         source = _readable_material_label(item.source)
         excerpt = _trace_excerpt(item.content, limit=700)
         bullets.append(f"- {source}: {excerpt} [{item.evidence_id}]")
-    return "The indexed sources provide this directly:\n" + "\n".join(bullets)
+    return "\n".join(bullets)
 
 
 def _append_evidence_assessment_prompt(
@@ -1232,6 +1378,144 @@ def _overview_fallback_reply(
     return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
 
 
+def _large_corpus_local_overview_reply(
+    plan: StudyTurnPlan,
+    evidence: TurnEvidence | None,
+    *,
+    user_input: str,
+) -> str:
+    """Return a concise deterministic overview for large English corpus requests."""
+    if (
+        not _overview_turn(plan)
+        or evidence is None
+        or not evidence.items
+        or not _should_append_english_guided_menu(user_input)
+    ):
+        return ""
+    total_sources = evidence.total_source_count or len({item.source for item in evidence.items})
+    if total_sources < _LOCAL_OVERVIEW_SOURCE_THRESHOLD:
+        return ""
+
+    topic_label_items = _overview_source_group_items(evidence)
+    topic_items = _overview_topic_items(evidence, web_searcher=None)
+    role_items = _overview_role_items(evidence)
+    opening_citations = _overview_first_evidence_citations(evidence, limit=2)
+
+    topic_labels = [label for label, _evidence_id in topic_label_items[:4]]
+    topic_citations = _overview_citations_from_ids(
+        evidence_id for _label, evidence_id in topic_label_items[:4]
+    )
+    if len(topic_labels) < 2:
+        for topic in topic_items:
+            label, citation = _split_overview_citation(topic)
+            if not label or label in topic_labels:
+                continue
+            topic_labels.append(label)
+            if citation:
+                topic_citations += citation
+            if len(topic_labels) >= 4:
+                break
+    if not topic_labels:
+        topic_labels = _overview_content_clues(evidence, limit=3)
+        topic_citations = opening_citations
+    if not topic_labels:
+        return ""
+
+    role_labels = [label for label, _evidence_id in role_items[:4]]
+    role_citations = _overview_citations_from_ids(
+        evidence_id for _label, evidence_id in role_items
+    )
+    if not role_labels:
+        role_labels = ["searchable study material"]
+        role_citations = opening_citations
+
+    return (
+        f"The material is a broad academic study corpus for concept review and practice. "
+        f"{opening_citations}\n\n"
+        f"- Major topic clusters include {_overview_join_labels(topic_labels)}. "
+        f"{topic_citations or opening_citations}\n"
+        f"- It includes {_overview_join_labels(role_labels)}, so it can support both review "
+        f"and practice. {role_citations or opening_citations}"
+    )
+
+
+def _overview_source_group_items(evidence: TurnEvidence) -> list[tuple[str, str]]:
+    """Return broad corpus labels from source group prefixes with citations."""
+    groups: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in evidence.items:
+        label = _overview_source_group_label(item.source)
+        normalized = _normalize_overview_topic(label)
+        if not label or normalized in seen:
+            continue
+        seen.add(normalized)
+        groups.append((label, item.evidence_id))
+    return groups
+
+
+def _overview_source_group_label(source: str) -> str:
+    stem = Path(source).stem
+    if "-" in stem:
+        prefix = stem.split("-", maxsplit=1)[0]
+        if " " in prefix or "," in prefix:
+            stem = prefix
+    label = _clean_overview_line(stem.replace("_", " "))
+    if not label or len(label) > 80:
+        return ""
+    normalized = label.casefold()
+    if normalized in {"materials", "public", "uploads", "untitled"}:
+        return ""
+    if "wiki import" in normalized or "upload" in normalized:
+        return ""
+    if _overview_line_looks_like_metadata(label):
+        return ""
+    return label
+
+
+def _overview_role_items(evidence: TurnEvidence) -> list[tuple[str, str]]:
+    """Return diverse role labels with citation IDs from overview evidence."""
+    by_role: dict[str, str] = {}
+    for item in evidence.items:
+        role, confidence, _reason = infer_material_role_from_text(item.source, item.content)
+        if confidence < 0.6 and role != "reference":
+            continue
+        by_role.setdefault(_overview_role_label(role), item.evidence_id)
+    return list(by_role.items())
+
+
+def _overview_first_evidence_citations(evidence: TurnEvidence, *, limit: int) -> str:
+    return _overview_citations_from_ids(item.evidence_id for item in evidence.items[:limit])
+
+
+def _overview_citations_from_items(items: Sequence[str]) -> str:
+    return _overview_citations_from_ids(
+        _overview_first_citation(item).strip("[]") for item in items
+    )
+
+
+def _overview_citations_from_ids(ids: Iterable[str]) -> str:
+    citations: list[str] = []
+    seen: set[str] = set()
+    for raw_id in ids:
+        evidence_id = raw_id.strip().upper()
+        if not evidence_id or evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        citations.append(f"[{evidence_id}]")
+    return "".join(citations)
+
+
+def _overview_join_labels(labels: Sequence[str]) -> str:
+    clean_labels = [label.strip(" .") for label in labels if label.strip(" .")]
+    if not clean_labels:
+        return "the cited material"
+    if len(clean_labels) == 1:
+        return clean_labels[0]
+    if len(clean_labels) == 2:
+        return f"{clean_labels[0]} and {clean_labels[1]}"
+    return ", ".join(clean_labels[:-1]) + f", and {clean_labels[-1]}"
+
+
 def _append_guided_choice_menu(
     plan: StudyTurnPlan,
     reply: str,
@@ -1275,9 +1559,11 @@ def _append_guided_choice_menu(
 
 
 def _should_append_english_guided_menu(user_input: str) -> bool:
+    if not user_input.strip():
+        return True
     words = re.findall(r"[a-z]+", user_input.casefold())
     if not words:
-        return True
+        return False
     return any(word in _ENGLISH_GUIDED_MENU_CUE_WORDS for word in words)
 
 
@@ -1505,7 +1791,7 @@ def _overview_model_fallback_reply(
     except EngineError:
         return ""
     reply = _strip_tool_call_markup("".join(parts)).strip()
-    reply = _strip_overview_study_loop_boilerplate(plan, reply)
+    reply = _strip_study_loop_footer(reply)
     if not reply:
         return ""
     verification = verify_citations(reply, evidence)
@@ -1559,7 +1845,9 @@ def _should_model_normalize_study_intent(
     if _overview_turn(plan) or _ENGLISH_TOPIC_PRESENTATION_START_RE.search(user_input):
         return False
     if state.current_item:
-        return state.phase is StudyPhase.WAITING_FOR_READY and plan.action is StudyAction.REVIEW
+        if state.phase is StudyPhase.WAITING_FOR_READY:
+            return plan.action is StudyAction.REVIEW
+        return state.phase is StudyPhase.RECALL and plan.action is StudyAction.ASSESS
     return plan.action is StudyAction.PRESENT and plan.allow_tools
 
 
@@ -1602,12 +1890,16 @@ def _normalized_study_intent_from_payload(
     raw_intent = payload.get("intent")
     if not isinstance(raw_intent, str):
         return None
-    intent = raw_intent.strip().casefold().replace("-", "_")
+    intent = _normalized_intent_label(raw_intent)
     supported_intents = {
         "material_overview",
         "source_qa",
+        "source_only_policy",
         "topic_presentation",
         "topic_drill",
+        "ready_for_recall",
+        "recall_clarification",
+        "recall_answer_attempt",
         "chat",
     }
     if intent not in supported_intents:
@@ -1620,6 +1912,10 @@ def _normalized_study_intent_from_payload(
         canonical_english_request=canonical_request,
         confidence=confidence,
     )
+
+
+def _normalized_intent_label(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", label.strip().casefold()).strip("_")
 
 
 def _normalized_confidence(value: object) -> float:
@@ -1648,6 +1944,27 @@ def _model_normalized_study_plan(
     normalized = _model_normalized_study_intent(user_input, config=config)
     if normalized is not None and normalized.confidence >= 0.75:
         canonical_query = normalized.canonical_english_request or user_input
+        if normalized.intent == "ready_for_recall":
+            if state.phase is StudyPhase.WAITING_FOR_READY and state.current_item:
+                return plan_turn(state, "ready")
+            return plan
+        if normalized.intent == "recall_clarification":
+            if state.phase is StudyPhase.RECALL and state.current_item:
+                return recall_clarification_plan(user_input, current_item=state.current_item)
+            return plan
+        if normalized.intent == "source_only_policy":
+            return StudyTurnPlan(
+                action=StudyAction.CHAT,
+                phase=state.phase,
+                prompt="",
+                allow_tools=False,
+                direct_reply=(
+                    "Understood. I will stick to enabled material and say when the sources "
+                    "are insufficient."
+                ),
+            )
+        if normalized.intent == "chat":
+            return manual_chat_plan(user_input, phase=state.phase)
         if normalized.intent == "source_qa":
             return material_source_qa_plan(user_input, retrieval_query=canonical_query)
         if normalized.intent == "topic_presentation":
@@ -2029,6 +2346,8 @@ def _overview_answer_has_bad_shape(
         return True
     if any(phrase in normalized for phrase in _OVERVIEW_FORBIDDEN_SHAPE):
         return True
+    if _overview_answer_is_date_or_document_organized(raw_reply):
+        return True
     words = re.findall(r"\b[\w'-]+\b", raw_reply)
     if len(words) < _OVERVIEW_MIN_WORDS:
         return True
@@ -2058,6 +2377,16 @@ def _overview_answer_has_bad_shape(
     if len(topic_labels) > _OVERVIEW_TOPIC_LIMIT:
         return True
     return any(not _overview_topic_is_useful(label) for label in topic_labels)
+
+
+def _overview_answer_is_date_or_document_organized(raw_reply: str) -> bool:
+    date_lines = [
+        line for line in raw_reply.splitlines() if _OVERVIEW_EXPLICIT_DATE_RE.search(line)
+    ]
+    chronology_lines = [
+        line for line in raw_reply.splitlines() if _OVERVIEW_CHRONOLOGICAL_LINE_RE.search(line)
+    ]
+    return len(date_lines) >= 2 or len(chronology_lines) >= 2
 
 
 def _overview_reply_topic_labels(raw_reply: str) -> tuple[str, ...]:
@@ -2156,10 +2485,23 @@ class TurnOrchestrator:
                     session.last_turn_evidence = None
                     plain_plan = plan_turn(original_study_state, user_input)
                     if plain_plan.direct_reply is not None:
+                        direct_reply = _localize_deterministic_reply(
+                            plain_plan.direct_reply,
+                            user_input=user_input,
+                            config=session.config,
+                        )
+                        direct_plan = (
+                            plain_plan
+                            if direct_reply == plain_plan.direct_reply
+                            else replace(
+                                plain_plan,
+                                direct_reply=direct_reply,
+                            )
+                        )
                         session.study_state, final_reply = apply_turn_result(
                             original_study_state,
-                            plain_plan,
-                            plain_plan.direct_reply,
+                            direct_plan,
+                            direct_reply,
                             [],
                         )
                         self.last_reply = final_reply
@@ -2171,7 +2513,7 @@ class TurnOrchestrator:
                         if final_reply:
                             yield AssistantDeltaEvent(final_reply)
                         return
-                    for event in self._iter_plain_events(abort=abort):
+                    for event in self._iter_plain_events(user_input=user_input, abort=abort):
                         yield event
 
             notice = self._finalize_successful_turn(user_input, resolved, latency_ms=timer.ms)
@@ -2218,7 +2560,12 @@ class TurnOrchestrator:
             self._rollback_turn(original_messages, original_study_state)
             raise
 
-    def _iter_plain_events(self, *, abort: threading.Event | None) -> Iterator[TurnEvent]:
+    def _iter_plain_events(
+        self,
+        *,
+        user_input: str,
+        abort: threading.Event | None,
+    ) -> Iterator[TurnEvent]:
         session = self.session
         parts: list[str] = []
         for delta in stream_completion(
@@ -2235,6 +2582,13 @@ class TurnOrchestrator:
 
         if parts:
             self.last_reply = "".join(parts)
+        else:
+            self.last_reply = _localize_deterministic_reply(
+                "I could not generate a response. Please try again.",
+                user_input=user_input,
+                config=session.config,
+            )
+            yield AssistantDeltaEvent(self.last_reply)
 
         if self.last_reply and (
             not session.conversation.messages
@@ -2257,6 +2611,11 @@ class TurnOrchestrator:
         assert plan is not None
 
         if missing_reply := _missing_indexed_material_reply(session, plan.action):
+            missing_reply = _localize_deterministic_reply(
+                missing_reply,
+                user_input=user_input,
+                config=session.config,
+            )
             session.study_state, final_reply = apply_turn_result(
                 original_study_state,
                 plan,
@@ -2274,10 +2633,23 @@ class TurnOrchestrator:
             return
 
         if plan.direct_reply is not None:
+            direct_reply = _localize_deterministic_reply(
+                plan.direct_reply,
+                user_input=user_input,
+                config=session.config,
+            )
+            direct_plan = (
+                plan
+                if direct_reply == plan.direct_reply
+                else replace(
+                    plan,
+                    direct_reply=direct_reply,
+                )
+            )
             session.study_state, final_reply = apply_turn_result(
                 original_study_state,
-                plan,
-                plan.direct_reply,
+                direct_plan,
+                direct_reply,
                 [],
             )
             self.last_reply = final_reply
@@ -2292,6 +2664,11 @@ class TurnOrchestrator:
 
         if _needs_source_only_no_evidence_fallback(plan, resolved):
             fallback_reply = _source_qa_fallback_reply(plan, None)
+            fallback_reply = _localize_deterministic_reply(
+                fallback_reply,
+                user_input=user_input,
+                config=session.config,
+            )
             session.study_state, final_reply = apply_turn_result(
                 original_study_state,
                 plan,
@@ -2309,10 +2686,39 @@ class TurnOrchestrator:
             return
 
         if evidence_reply := _insufficient_evidence_reply(plan, resolved):
+            evidence_reply = _localize_deterministic_reply(
+                evidence_reply,
+                user_input=user_input,
+                config=session.config,
+            )
             session.study_state, final_reply = apply_turn_result(
                 original_study_state,
                 plan,
                 evidence_reply,
+                _evidence_refs(resolved.turn_evidence),
+            )
+            self.last_reply = final_reply
+            self.last_internal_passes = 1
+            if final_reply and (
+                not session.conversation.messages
+                or session.conversation.messages[-1].role != "assistant"
+            ):
+                session.conversation.add("assistant", final_reply)
+            if final_reply:
+                yield AssistantDeltaEvent(final_reply)
+            return
+
+        if local_overview_reply := _large_corpus_local_overview_reply(
+            plan,
+            resolved.turn_evidence,
+            user_input=user_input,
+        ):
+            if notice := _writing_notice(plan):
+                yield NoticeEvent(notice, code="writing")
+            session.study_state, final_reply = apply_turn_result(
+                original_study_state,
+                plan,
+                local_overview_reply,
                 _evidence_refs(resolved.turn_evidence),
             )
             self.last_reply = final_reply
@@ -2370,8 +2776,10 @@ class TurnOrchestrator:
             else:
                 yield event
 
-        raw_reply = "".join(raw_parts)
-        streamed_reply = raw_reply
+        streamed_reply = "".join(raw_parts)
+        raw_reply = streamed_reply
+        if not raw_reply and completion_event is not None:
+            raw_reply = completion_event.full_text
         visible_reply = _student_visible_reply(plan, raw_reply)
         if _overview_turn(plan):
             raw_reply = visible_reply
@@ -2390,10 +2798,15 @@ class TurnOrchestrator:
                 )
             if not fallback_reply:
                 fallback_reply = (
-                    "I could not generate a grounded assessment. Please try again."
-                    if plan.buffer_response
+                    "PARTIAL: I could not generate a grounded assessment. Please try again."
+                    if plan.action is StudyAction.ASSESS
                     else "I could not generate a study prompt. Please try again."
                 )
+            fallback_reply = _localize_deterministic_reply(
+                fallback_reply,
+                user_input=user_input,
+                config=session.config,
+            )
             session.study_state, final_reply = apply_turn_result(
                 original_study_state,
                 plan,
@@ -2474,6 +2887,8 @@ class TurnOrchestrator:
             suffix = final_reply.removeprefix(streamed_reply)
             if suffix:
                 yield AssistantDeltaEvent(suffix)
+        elif final_reply and not streamed_reply:
+            yield AssistantDeltaEvent(final_reply)
         yield _turn_complete_from_result(completion_event, final_reply)
 
     def _record_study_review_if_needed(

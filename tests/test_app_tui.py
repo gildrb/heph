@@ -1700,7 +1700,8 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
             await pilot.pause()
 
             assert submitted == [
-                "Give me one source-grounded practice question about Protein Folding."
+                "Give me one source-grounded practice question about Protein Folding. "
+                "Answer in the same language as the selected topic when that language is clear."
             ]
             assert app._inline_flow.active is False
 
@@ -1791,7 +1792,8 @@ def test_inline_study_menu_ignores_stale_completion_candidates(
             await pilot.pause()
 
             assert submitted == [
-                "Give me one source-grounded practice question about Protein Folding."
+                "Give me one source-grounded practice question about Protein Folding. "
+                "Answer in the same language as the selected topic when that language is clear."
             ]
             assert app._inline_flow.active is False
 
@@ -1904,13 +1906,16 @@ def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> Non
         ("Compare Signal Entropy and Carrier Waves", "recommended"),
     ]
     assert menu.prompts["Explain Signal Entropy"] == (
-        "Teach me Signal Entropy in simple terms, grounded in the evidence for this topic."
+        "Teach me Signal Entropy in simple terms, grounded in the evidence for this topic. "
+        "Answer in the same language as the selected topic when that language is clear."
     )
     assert menu.prompts["Practice Carrier Waves"] == (
-        "Give me one source-grounded practice question about Carrier Waves."
+        "Give me one source-grounded practice question about Carrier Waves. "
+        "Answer in the same language as the selected topic when that language is clear."
     )
     assert menu.prompts["Compare Signal Entropy and Carrier Waves"] == (
-        "Compare Signal Entropy and Carrier Waves, grounded in the evidence for these topics."
+        "Compare Signal Entropy and Carrier Waves, grounded in the evidence for these topics. "
+        "Answer in the same language as the selected topic when that language is clear."
     )
 
 

@@ -450,7 +450,13 @@ def append_policy_prompt(
     if move.requires_user_commitment:
         lines.append("- Require the learner to commit and include confidence from 0-100%.")
     if move.expected_output_shape:
-        lines.append(f"- End with this response shape: {move.expected_output_shape}")
+        lines.extend(
+            [
+                f"- End with this response shape: {move.expected_output_shape}",
+                "- Treat the response shape as semantic guidance; adapt the wording to the "
+                "learner's language when clear instead of copying the English phrase.",
+            ]
+        )
     if move.kind == "offer_choices":
         lines.extend(
             [
@@ -716,7 +722,7 @@ def _guided_move(input_data: AutopilotInput) -> StudyMove:
             "material exists but indexed evidence is not available for this turn",
             requires_evidence=True,
             expected_output_shape=(
-                "State the evidence gap and ask for a narrower source-backed target."
+                "State the evidence gap and ask for a narrower source-grounded target."
             ),
         )
     if _STUDY_RE.search(input_data.user_message):
@@ -874,7 +880,10 @@ def _move_from_action(action: StudyAction, input_data: AutopilotInput) -> StudyM
             "worked_example",
             "the learner needs minimum material before retrying recall",
             requires_evidence=True,
-            expected_output_shape="Review the smallest source-backed piece, then ask for recall.",
+            expected_output_shape=(
+                "Review one small cited evidence span, then prompt recall "
+                "in the learner's language."
+            ),
         )
     if action is StudyAction.SOURCE_QA:
         return _move(

@@ -69,31 +69,20 @@ _RECALL_CLARIFICATION_RE = re.compile(
 )
 _RECALL_REPROMPT_RE = re.compile(
     r"^\s*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"
-    r"(?:ask|repeat|restate|rephrase|say|read|write|translate|traduc\w*)\b"
+    r"(?:ask|repeat|restate|rephrase|say|read|write|translate)\b"
     r"(?=[^.!?]*(?:again|once more|one more time|question|prompt|item|task|exercise|"
-    r"(?:in|auf|en|em)\s+[\w-]+|language|sprache|idioma|langue|lingua))",
+    r"in\s+[\w-]+|language))",
     re.IGNORECASE,
 )
 _RECALL_SHORT_REPROMPT_RE = re.compile(
-    r"^(?:again|once more|one more time|nochmal|noch einmal)"
-    r"(?:\s+(?:in|auf|en|em)\s+[\w-]+)?"
-    r"(?:\s+(?:please|bitte))?[.!?]?$",
+    r"^(?:again|once more|one more time)"
+    r"(?:\s+in\s+[\w-]+)?"
+    r"(?:\s+please)?[.!?]?$",
     re.IGNORECASE,
 )
 _RECALL_LANGUAGE_ONLY_RE = re.compile(
-    r"^(?:in|auf|en|em)\s+[\w-]+"
-    r"(?:\s+(?:please|bitte|por\s+favor))?[.!?]?$",
-    re.IGNORECASE,
-)
-_RECALL_GERMAN_REPROMPT_RE = re.compile(
-    r"^\s*(?:bitte\s+)?(?:frag|frage|wiederhol|wiederhole|stell)\b"
-    r"(?=[^.!?]*(?:mich|frage|aufgabe|nochmal|noch einmal|deutsch|englisch))",
-    re.IGNORECASE,
-)
-_RECALL_FRENCH_REPROMPT_RE = re.compile(
-    r"^\s*(?:peux-tu\s+me\s+|pouvez-vous\s+me\s+)?"
-    r"(?:reposer|poser|repeter|répéter)\b"
-    r"(?=[^.!?]*(?:question|encore|francais|français))",
+    r"^in\s+[\w-]+"
+    r"(?:\s+please)?[.!?]?$",
     re.IGNORECASE,
 )
 _RECALL_QUESTION_PUNCT_RE = re.compile(r"[?\u00bf\u061f\uff1f]")
@@ -215,6 +204,10 @@ _REVIEW_MATERIAL_RE = re.compile(
     re.IGNORECASE,
 )
 _ASSESS_PREFIX_RE = re.compile(r"^\s*(CORRECT|PARTIAL|WRONG)\s*[:\-]?\s*", re.IGNORECASE)
+_ASSESS_SECTION_RE = re.compile(
+    r"^(?:Score|Got|Missing|Misconception|Correction|Try again|Confidence):",
+    re.IGNORECASE,
+)
 _CONFIDENCE_RE = re.compile(
     r"\b(?:confidence|confident|sure)(?:\s+is)?\s*[:=]?\s*"
     r"(?P<value>\d+(?:[.]\d+)?)\s*"
@@ -288,7 +281,7 @@ def _needs_initial_calibration(user_input: str) -> bool:
 
 
 def _calibration_prompt_for_input(user_input: str) -> str:
-    prompt = _calibration_prompt()
+    prompt = _calibration_prompt(user_request=user_input)
     if _EXAM_DRILL_RE.search(_normalize(user_input)):
         return (
             f"{prompt}\n"
@@ -316,7 +309,7 @@ def _direct_chat_reply(user_input: str) -> str | None:
         return "Hey. I can run material-backed study with /exam, /priority, or /autopilot on."
     if _PRODUCT_HELP_RE.search(text):
         return (
-            "Use Hephaistos to study your own materials: ask a source-backed question, "
+            "Use Hephaistos to study your own materials: ask a source-grounded question, "
             "run /exam for active recall, run /priority for a plan, or /autopilot on "
             "to let Heph drive the session."
         )
@@ -343,11 +336,13 @@ def _is_source_qa_request(text: str) -> bool:
 
 
 def _is_ready_signal(text: str) -> bool:
-    return bool(_READY_RE.fullmatch(_normalize(text)))
+    normalized = _normalize(text)
+    return bool(_READY_RE.fullmatch(normalized))
 
 
 def _is_waiting_procedure_request(text: str) -> bool:
-    return bool(_WAITING_PROCEDURE_RE.fullmatch(_normalize(text)))
+    normalized = _normalize(text)
+    return bool(_WAITING_PROCEDURE_RE.fullmatch(normalized))
 
 
 def _is_recall_clarification_request(text: str) -> bool:
@@ -364,8 +359,6 @@ def _is_recall_clarification_request(text: str) -> bool:
         or _RECALL_REPROMPT_RE.search(normalized)
         or _RECALL_SHORT_REPROMPT_RE.fullmatch(normalized)
         or _RECALL_LANGUAGE_ONLY_RE.fullmatch(normalized)
-        or _RECALL_GERMAN_REPROMPT_RE.search(normalized)
-        or _RECALL_FRENCH_REPROMPT_RE.search(normalized)
         or (has_question_punct and not looks_like_answer_claim)
     )
 
@@ -385,8 +378,6 @@ def _is_recall_scaffold_request(text: str) -> bool:
         or _RECALL_REPROMPT_RE.search(normalized)
         or _RECALL_SHORT_REPROMPT_RE.fullmatch(normalized)
         or _RECALL_LANGUAGE_ONLY_RE.fullmatch(normalized)
-        or _RECALL_GERMAN_REPROMPT_RE.search(normalized)
-        or _RECALL_FRENCH_REPROMPT_RE.search(normalized)
     ):
         return False
     return bool(_RECALL_SCAFFOLD_RE.search(normalized))
@@ -409,7 +400,7 @@ def _material_request_plan(
         return StudyTurnPlan(
             action=StudyAction.PRIORITY,
             phase=phase,
-            prompt=_priority_prompt(),
+            prompt=_priority_prompt(user_input),
             retrieval_query="exam priority topics prerequisites past exams materials overview",
             allow_tools=False,
         )
@@ -445,9 +436,16 @@ def _material_request_plan(
     return None
 
 
-def _calibration_prompt() -> str:
+def _calibration_prompt(*, user_request: str | None = None) -> str:
+    request_line = ""
+    if user_request:
+        request_line = (
+            "Student request (language/topic signal; rules below override it): "
+            f"{_normalize(user_request)}\n"
+        )
     return (
         "Controlled study state machine. Execute CALIBRATE.\n"
+        f"{request_line}"
         "Rules:\n"
         "- Use the retrieved material to ask exactly one diagnostic recall question.\n"
         "- The question must be grounded in at least one retrieved source span, "
@@ -475,16 +473,22 @@ def _calibration_prompt() -> str:
         "in the question.\n"
         "- Internally preserve the source grounding for later assessment; never invent "
         "unsupported questions from general model knowledge.\n"
-        "- End with exactly: Answer from memory, or say easier or review material.\n"
+        "- End with one short learner-facing instruction in the student's language asking "
+        "them to answer from memory, or ask for an easier question or material review.\n"
+        "- Do not hard-code an English closing instruction when the student wrote in another "
+        "language.\n"
         "- If no retrieved source material is available, ask which material or topic "
         "to start with."
     )
 
 
-def _priority_prompt() -> str:
+def _priority_prompt(user_request: str = "") -> str:
+    request_line = f"User request: {user_request}\n" if user_request else ""
     return (
         "Controlled study state machine. Execute PRIORITY.\n"
+        f"{request_line}"
         "Rules:\n"
+        "- Answer in the same language as the student's request when clear.\n"
         "- Analyze the retrieved materials and past exams only.\n"
         "- Identify the highest-priority topics by recurrence, exam weighting signals, "
         "and prerequisite value.\n"
@@ -509,7 +513,10 @@ def _present_prompt(item: str, *, user_request: str | None = None) -> str:
         "- Use only the retrieved material for this item.\n"
         "- Present the complete solution or method once, concisely.\n"
         "- Cite evidence IDs whenever you state a factual step or value.\n"
-        "- End with exactly: Say ready when you want recall.\n"
+        "- End with one short learner-facing instruction in the student's language asking "
+        "them to signal when they are ready for recall.\n"
+        "- Do not require a specific English word such as `ready` when the student wrote "
+        "in another language.\n"
         "- If no retrieved source material is available, say no searchable armory "
         "evidence was found for this item. Do not answer from outside knowledge. "
         "Ask for a more specific material-backed prompt or for the material to be indexed.\n"
@@ -526,28 +533,31 @@ def _overview_prompt(query: str) -> str:
         "- Give the big picture first: what domain the files are about, how the major "
         "topic clusters relate, and what kind of studying they support.\n"
         "- Do not organize the answer primarily by file dates, lecture dates, filenames, "
-        "authors, institutions, or individual chunks unless the student asks for that "
-        "level of detail.\n"
-        "- Treat the retrieved evidence as a sample across the enabled corpus, not as the "
-        "entire corpus.\n"
+        "authors, institutions, semester labels, course logistics, or individual chunks unless "
+        "the student asks for that level of detail.\n"
+        "- Do not mention calendar dates, semester labels, lecturer names, or course "
+        "administration metadata unless the student asks for that metadata.\n"
+        "- Use the retrieved evidence to synthesize the enabled corpus, but do not explain "
+        "retrieval sampling mechanics to the student.\n"
         "- Identify the subject, document types, and major topic clusters only from cited "
         "evidence.\n"
         "- Mention whether the evidence appears to include lectures, exercises, exams, "
         "notes, or other document roles when the evidence supports it.\n"
-        "- Do not infer from filenames, lecturer names, language, institution, or outside "
-        "knowledge.\n"
-        "- If the retrieved sample is too thin to summarize the whole corpus, say what is "
-        "covered by the sample and what remains uncertain.\n"
+        "- Do not infer from filenames, lecturer names, semester labels, language, institution, "
+        "or outside knowledge.\n"
+        "- If the evidence is too thin, state only the supported high-level subject and "
+        "document roles; do not add a generic sampling or completeness disclaimer.\n"
         "- Synthesize the material in your own words. Do not paste long source excerpts; quote "
         "only short exact wording when it materially helps the answer.\n"
         "- Include at least two concise bullet lines, and cite each bullet with evidence IDs.\n"
         "- Cite at least two distinct evidence sources when the retrieved evidence provides "
         "them.\n"
-        "- Be explicit about whether the answer is a sampled orientation or a complete "
-        "corpus-level conclusion.\n"
+        "- Do not end with a caveat about the answer being only a sample, orientation, "
+        "partial inventory, or non-exhaustive list.\n"
         "- Cite evidence IDs for every factual claim.\n"
         "- Do not ask a recall question.\n"
-        "- Do not end with readiness, drill, or study-loop instructions."
+        "- Do not end with readiness, drill, next-step, evidence-grounding-block, or other "
+        "study-loop instructions."
     )
 
 
@@ -621,6 +631,34 @@ def material_source_qa_plan(
     )
 
 
+def recall_clarification_plan(
+    user_request: str,
+    *,
+    current_item: str,
+) -> StudyTurnPlan:
+    """Build a recall-prompt clarification plan without assessing the user."""
+    return StudyTurnPlan(
+        action=StudyAction.PROMPT_RECALL,
+        phase=StudyPhase.RECALL,
+        prompt=_recall_clarification_prompt(current_item, _normalize(user_request)),
+        allow_tools=False,
+    )
+
+
+def manual_chat_plan(
+    user_request: str,
+    *,
+    phase: StudyPhase = StudyPhase.PRESENTING,
+) -> StudyTurnPlan:
+    """Build a normal chat plan for non-material-specific user intent."""
+    return StudyTurnPlan(
+        action=StudyAction.CHAT,
+        phase=phase,
+        prompt=_manual_chat_prompt(_normalize(user_request)),
+        allow_tools=False,
+    )
+
+
 def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
     request_line = ""
     if user_request and _normalize(user_request) != _normalize(query):
@@ -633,7 +671,7 @@ def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
         "- Answer in the same language as the student's request.\n"
         "- Answer the user's question directly using only the retrieved source material.\n"
         "- If the user asks for an exact phrase, quote only the exact phrase plus citations.\n"
-        "- Cite evidence IDs for source-backed claims.\n"
+        "- Cite evidence IDs for claims grounded in source material.\n"
         "- Do not ask a recall question.\n"
         "- Do not end with readiness, drill, or study-loop instructions.\n"
         "- If no retrieved source material answers the question, say that the armory sources "
@@ -646,6 +684,7 @@ def _manual_chat_prompt(query: str) -> str:
         "HEPH chat mode.\n"
         f"User request: {query}\n"
         "Rules:\n"
+        "- Answer in the same language as the user's request when clear.\n"
         "- Behave like a normal conversational assistant with access to the current "
         "armory's memory and materials.\n"
         "- Use retrieved armory evidence when it is relevant, and cite evidence IDs for "
@@ -665,6 +704,7 @@ def _heph_self_prompt(query: str) -> str:
         "HEPH self-help mode.\n"
         f"User request: {query}\n"
         "Rules:\n"
+        "- Answer in the same language as the user's request when clear.\n"
         "- Answer as Hephaistos about Hephaistos: the local-first study CLI, armories, "
         "materials, chat, source-grounded answers, active recall, /priority, /exam, "
         "/autopilot, /manual, /guided, /models, /login, /settings, privacy, and diagnostics.\n"
@@ -697,7 +737,10 @@ def _autopilot_calibration_prompt(query: str, state: StudyState) -> str:
         "- Require the learner to answer from memory and include confidence from 0-100%.\n"
         "- If source material is unavailable or too thin, ask the smallest necessary "
         "clarifying question instead of inventing a task.\n"
-        "- End with exactly: Your turn: answer from memory and give confidence from 0-100%."
+        "- End with one short learner-facing instruction in the user's language asking them "
+        "to answer from memory and give confidence from 0-100%.\n"
+        "- Do not hard-code an English closing instruction when the user wrote in another "
+        "language."
     )
 
 
@@ -707,13 +750,14 @@ def _source_followup_prompt(item: str, user_input: str) -> str:
         f"Current material focus: {item}\n"
         f"Student follow-up: {user_input}\n"
         "Rules:\n"
-        "- Treat the follow-up as a real source-backed question or reaction, not as a "
+        "- Answer in the same language as the student's follow-up when clear.\n"
+        "- Treat the follow-up as a real question or reaction about the cited material, not as a "
         "readiness signal and not as a recall attempt.\n"
         "- Use the stored or retrieved material evidence before answering.\n"
         "- If the follow-up is an acknowledgement such as 'interesting', explain one "
-        "specific source-backed reason the material is interesting or important.\n"
+        "specific reason grounded in the material for why it is interesting or important.\n"
         "- If the follow-up asks why, answer the why-question directly from the evidence.\n"
-        "- Cite evidence IDs for source-backed claims.\n"
+        "- Cite evidence IDs for claims grounded in source material.\n"
         "- Do not assess the student.\n"
         "- Do not ask a recall question.\n"
         "- Do not end with readiness, drill, or study-loop instructions."
@@ -725,7 +769,10 @@ def _waiting_prompt() -> str:
         "Controlled study state machine. Execute WAITING_FOR_READY.\n"
         "Rules:\n"
         "- Do not reveal any more of the solution.\n"
-        "- Tell the student to say ready when they want recall.\n"
+        "- Tell the student, in their language when clear, to signal when they are ready "
+        "for recall.\n"
+        "- Do not require a specific English word such as `ready` when the student wrote "
+        "in another language.\n"
         "- Keep it to one short sentence."
     )
 
@@ -737,6 +784,10 @@ def _recall_prompt(item: str) -> str:
         "Rules:\n"
         "- Do not answer the item.\n"
         "- Tell the student to reproduce the solution from memory now.\n"
+        "- Answer in the same language as the current item or the student's recent "
+        "request when clear.\n"
+        "- Do not hard-code an English recall sentence when the study exchange is in "
+        "another language.\n"
         "- Keep it to one short sentence."
     )
 
@@ -753,6 +804,9 @@ def _recall_clarification_prompt(item: str, request: str) -> str:
         "- Restate what they should recall from memory without revealing the solution.\n"
         "- Do not assess the student.\n"
         "- Do not include answer content, grading, scores, or correctness labels.\n"
+        "- Answer in the same language as the student's clarification request when clear.\n"
+        "- Do not hard-code an English recall sentence when the student asked in another "
+        "language.\n"
         "- Keep it to one or two short sentences."
     )
 
@@ -764,6 +818,10 @@ def _refusal_prompt(item: str) -> str:
         "Rules:\n"
         "- Do not reveal new solution content.\n"
         "- Briefly refuse and tell the student to attempt recall first.\n"
+        "- Answer in the same language as the current item or the student's recent "
+        "request when clear.\n"
+        "- Do not hard-code an English refusal when the study exchange is in another "
+        "language.\n"
         "- Keep it to one or two short sentences."
     )
 
@@ -791,6 +849,9 @@ def _hint_prompt(item: str, hint_level: int) -> str:
         f"{level_instruction}\n"
         f"{leakage_rule}\n"
         "- If no grounded material context is available, say no grounded hint is available.\n"
+        "- Answer in the same language as the current item or the student's recent "
+        "request when clear.\n"
+        "- Do not hard-code an English hint when the study exchange is in another language.\n"
         "- Keep it to one short sentence."
     )
 
@@ -811,7 +872,10 @@ def _simplify_prompt(item: str) -> str:
         "dates, page numbers, file names, headings, or other surface metadata.\n"
         "- Do not reveal the answer to either question.\n"
         "- Do not invent prerequisite questions from general model knowledge.\n"
-        "- End with exactly: Answer from memory, or say review material.\n"
+        "- End with one short learner-facing instruction in the same language as the question "
+        "asking the student to answer from memory or ask to review material.\n"
+        "- Do not hard-code an English closing instruction when the student wrote in another "
+        "language.\n"
         "- If no grounded material context is available, say no easier grounded question "
         "is available."
     )
@@ -832,8 +896,10 @@ def _autopilot_scaffold_prompt(item: str) -> str:
         "- Ground the scaffold in a retrieved source span, past-exam pattern, rubric "
         "point, or mark-scheme point.\n"
         "- Ask exactly one easier action the learner can complete now.\n"
-        "- End with exactly: Fill the gap or continue the starter, then give confidence "
-        "from 0-100%.\n"
+        "- End with one short learner-facing instruction in the student's language asking "
+        "them to fill the gap or continue the starter, then give confidence from 0-100%.\n"
+        "- Do not hard-code an English closing instruction when the student wrote in another "
+        "language.\n"
         "- If no grounded material context is available, say no grounded scaffold is "
         "available and ask which subtopic to review first."
     )
@@ -846,9 +912,12 @@ def _review_prompt(item: str) -> str:
         "Rules:\n"
         "- The student needs to look at the material before attempting recall.\n"
         "- Use only the stored material context for this item.\n"
-        "- Present the minimum source-backed explanation needed to restart.\n"
+        "- Present the minimum cited-material explanation needed to restart.\n"
         "- Cite evidence IDs whenever you state a factual step or value.\n"
-        "- End with exactly: Say ready when you want recall.\n"
+        "- End with one short learner-facing instruction in the student's language asking "
+        "them to signal when they are ready for recall.\n"
+        "- Do not require a specific English word such as `ready` when the student wrote "
+        "in another language.\n"
         "- If no grounded material context is available, say no grounded review is available."
     )
 
@@ -866,14 +935,14 @@ def _assess_prompt(item: str, attempt_count: int) -> str:
         "- Start the reply with exactly one label: CORRECT:, PARTIAL:, or WRONG:.\n"
         "- After the label, use this compact structure when evidence is available:\n"
         "  Score: <earned>/<available or expected points>.\n"
-        "  Got: <source-backed points the student included>.\n"
-        "  Missing: <rubric/source-backed points still needed>.\n"
+        "  Got: <material-supported points the student included>.\n"
+        "  Missing: <rubric or material-supported points still needed>.\n"
         "  Misconception: <incorrect idea and why the source contradicts it, or none>.\n"
-        "  Correction: <minimal source-backed correction with evidence IDs>.\n"
+        "  Correction: <minimal cited correction with evidence IDs>.\n"
         "  Try again: <one next retrieval prompt>.\n"
         "  Confidence: <whether the student's confidence seems calibrated, if stated>.\n"
         "- CORRECT: keep the structure brief and do not restate a full solution.\n"
-        "- PARTIAL: identify missing source-backed points without revealing unrelated "
+        "- PARTIAL: identify missing required points without revealing unrelated "
         "extra material.\n"
         "- WRONG: correct the misconception or first wrong step immediately, then give "
         "one focused retrieval prompt. Do not let the student continue with a false idea.\n"
@@ -913,11 +982,7 @@ def plan_turn(
         due_reviews=due_reviews,
         memory_state=effective_memory,
     )
-    is_material_overview = (
-        plan.action is StudyAction.PRESENT
-        and plan.retrieval_query is not None
-        and _is_overview_request(plan.retrieval_query)
-    )
+    is_material_overview = _is_material_overview_plan(plan)
     prompt = (
         plan.prompt
         if is_material_overview
@@ -939,6 +1004,13 @@ def plan_turn(
         allow_tools=allow_tools,
         autonomy_mode=mode,
         study_move=None if is_material_overview else move,
+    )
+
+
+def _is_material_overview_plan(plan: StudyTurnPlan) -> bool:
+    return plan.action is StudyAction.PRESENT and (
+        "Execute MATERIAL_OVERVIEW" in plan.prompt
+        or (plan.retrieval_query is not None and _is_overview_request(plan.retrieval_query))
     )
 
 
@@ -1058,7 +1130,7 @@ def _plan_turn_manual(state: StudyState, user_input: str) -> StudyTurnPlan:
         return StudyTurnPlan(
             action=StudyAction.PRIORITY,
             phase=state.phase,
-            prompt=_priority_prompt(),
+            prompt=_priority_prompt(user_input),
             retrieval_query="exam priority topics prerequisites past exams materials overview",
             allow_tools=False,
         )
@@ -1136,7 +1208,7 @@ def _plan_turn_autopilot(
         return StudyTurnPlan(
             action=StudyAction.PRIORITY,
             phase=state.phase,
-            prompt=_priority_prompt(),
+            prompt=_priority_prompt(user_input),
             retrieval_query="exam priority topics prerequisites past exams materials overview",
             allow_tools=False,
         )
@@ -1209,7 +1281,7 @@ def _plan_turn_base(
             return StudyTurnPlan(
                 action=StudyAction.PRIORITY,
                 phase=state.phase,
-                prompt=_priority_prompt(),
+                prompt=_priority_prompt(user_input),
                 retrieval_query="exam priority topics prerequisites past exams materials overview",
                 allow_tools=False,
             )
@@ -1329,12 +1401,7 @@ def _plan_turn_base(
                 allow_tools=False,
             )
         if _is_recall_clarification_request(text):
-            return StudyTurnPlan(
-                action=StudyAction.PROMPT_RECALL,
-                phase=StudyPhase.RECALL,
-                prompt=_recall_clarification_prompt(state.current_item, text),
-                allow_tools=False,
-            )
+            return recall_clarification_plan(text, current_item=state.current_item)
         if _REVIEW_MATERIAL_RE.search(text):
             return StudyTurnPlan(
                 action=StudyAction.REVIEW,
@@ -1390,7 +1457,7 @@ def _parse_assessment_reply(reply: str) -> tuple[StudyFeedbackType, str]:
     if not match:
         _log.warning("assessment reply missing prefix; defaulting to PARTIAL")
         cleaned = reply.strip() or _fallback_assessment_message(StudyFeedbackType.PARTIAL)
-        return StudyFeedbackType.PARTIAL, cleaned
+        return StudyFeedbackType.PARTIAL, _assessment_visible_reply("PARTIAL", cleaned)
 
     label = match.group(1).upper()
     cleaned = _ASSESS_PREFIX_RE.sub("", reply, count=1).strip()
@@ -1399,7 +1466,15 @@ def _parse_assessment_reply(reply: str) -> tuple[StudyFeedbackType, str]:
         "PARTIAL": StudyFeedbackType.PARTIAL,
         "WRONG": StudyFeedbackType.WRONG,
     }[label]
-    return feedback, cleaned or _fallback_assessment_message(feedback)
+    body = cleaned or _fallback_assessment_message(feedback)
+    return feedback, _assessment_visible_reply(label, body)
+
+
+def _assessment_visible_reply(label: str, body: str) -> str:
+    cleaned = body.strip()
+    if _ASSESS_SECTION_RE.match(cleaned):
+        return f"{label}:\n{cleaned}"
+    return f"{label}: {cleaned}"
 
 
 def _recall_elapsed_seconds(state: StudyState, now: datetime) -> int | None:
@@ -1501,6 +1576,20 @@ def apply_turn_result(
         return next_state, reply
 
     if plan.action is StudyAction.PRESENT:
+        if _is_material_overview_plan(plan):
+            next_state.phase = StudyPhase.PRESENTING
+            next_state.current_item = ""
+            next_state.retrieval_query = ""
+            next_state.expected_source_refs = []
+            next_state.attempt_count = 0
+            next_state.last_feedback_type = (
+                StudyFeedbackType.NONE if source_refs else StudyFeedbackType.NO_SOURCE
+            )
+            next_state.recall_started_at = None
+            next_state.hint_level = 0
+            if not source_refs:
+                _set_autopilot_stop_reason(next_state, "evidence is insufficient")
+            return next_state, reply
         if source_refs:
             next_state.phase = StudyPhase.WAITING_FOR_READY
             next_state.current_item = plan.retrieval_query or state.current_item

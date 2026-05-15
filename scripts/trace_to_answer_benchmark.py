@@ -58,6 +58,7 @@ class TraceExpectation(TypedDict, total=False):
     min_sampled_sources: int
     min_bullet_count: int
     min_cited_bullet_count: int
+    max_explicit_date_lines: int
     supported_claims: list[dict[str, str]]
 
 
@@ -307,6 +308,7 @@ def _default_expectation_for_reply(reply: TraceReply) -> TraceExpectation:
         "min_sampled_sources": 2,
         "min_bullet_count": 2,
         "min_cited_bullet_count": 2,
+        "max_explicit_date_lines": 1,
         "must_not_include": [
             "No evidence citations",
             "Say ready when you want recall",
@@ -343,6 +345,7 @@ def _merge_expectations(
         "min_sampled_sources",
         "min_bullet_count",
         "min_cited_bullet_count",
+        "max_explicit_date_lines",
     ):
         merged_value = max(default.get(field_name, 0), explicit.get(field_name, 0))
         if merged_value:
@@ -416,6 +419,7 @@ def _fixture_from_trace_reply(
         "min_sampled_sources",
         "min_bullet_count",
         "min_cited_bullet_count",
+        "max_explicit_date_lines",
     ):
         value = resolved_expectation.get(field_name)
         if isinstance(value, int) and value > 0:
