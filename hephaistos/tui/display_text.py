@@ -55,7 +55,7 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
         value_start = plain.index(f"{label} ") + len(label) + 1
         next_label = " model " if label == "armory" else " mode "
         value_end = plain.index(next_label, value_start)
-        text.stylize(palette.text, value_start, value_end)
+        text.stylize(palette.chrome_detail, value_start, value_end)
 
     mode = session.study_state.autonomy_mode.value
     mode_start = plain.index(mode, plain.index("mode "))
@@ -95,7 +95,7 @@ def footer_hints_text(
 ) -> Text:
     """Build contextual footer hints that change based on current state."""
     palette = current_palette()
-    footer_style = palette.text
+    footer_style = palette.chrome_detail
     shortcut_style = palette.chrome_label
 
     if busy:
@@ -119,7 +119,7 @@ def footer_hints_text(
         parts.append("api missing")
     plain = "  ".join(parts)
     text = require_rich_text()(plain, style=footer_style)
-    for label in ("enter", "tab", "ctrl+p", shortcut, "armory", "ctrl+c", "ctrl+d"):
+    for label in ("enter", "tab", "ctrl+p", shortcut, "ctrl+c", "ctrl+d"):
         try:
             start = plain.index(label)
         except ValueError:
@@ -163,25 +163,20 @@ def _indent_info_panel_lines(lines: list[str]) -> list[str]:
 def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
     """Build the default info panel content showing session length and material names."""
     palette = current_palette()
-    title = session.title or "Study session"
+    title = session.title or "Document session"
 
     lines: list[str] = [
         title,
         f"time {_session_duration(session_seconds)}",
         "",
         *_material_panel_lines(session),
-        "",
-        "next",
-        "  /exam active recall",
-        "  /priority plan focus",
-        "  /remind due review",
     ]
     lines = _indent_info_panel_lines(lines)
     plain = "\n".join(lines)
     text = require_rich_text()(plain, style=palette.dim)
     title_start = plain.index(title)
     text.stylize(f"bold {palette.emphasis}", title_start, title_start + len(title))
-    for label in ("time", "materials", "next"):
+    for label in ("time", "materials"):
         start = 0
         while True:
             idx = plain.find(label, start)
@@ -189,6 +184,14 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
                 break
             text.stylize(palette.chrome_label, idx, idx + len(label))
             start = idx + len(label)
+    duration = _session_duration(session_seconds)
+    duration_start = plain.index(duration, plain.index("time "))
+    text.stylize(palette.chrome_detail, duration_start, duration_start + len(duration))
+    hidden_material_count = max(0, len(session.source_files) - 8)
+    if hidden_material_count:
+        detail = f"+{hidden_material_count} more"
+        detail_start = plain.index(detail)
+        text.stylize(palette.chrome_detail, detail_start, detail_start + len(detail))
     for name in session.source_files:
         display_name = name.removeprefix("materials/")
         token = f"@{display_name}"
@@ -204,6 +207,29 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
     return text
 
 
+def startup_card_text() -> str:
+    """Return the launch guidance card shown at the top of a fresh TUI."""
+    return "\n".join(
+        [
+            "Tips",
+            "  Put PDFs, notes, drafts, and references in the armory materials/ folder.",
+            "  Mention @file names to narrow the context for analysis or editing.",
+            "  Ask for summaries, contradictions, gaps, timelines, and action items.",
+            "  Use /priority to map what needs attention across the document set.",
+            "  Use /evidence after an answer to inspect retrieved source snippets.",
+            "",
+            "Warnings",
+            "  Answers are only as good as the indexed documents and citations.",
+            "  Verify important claims before relying on them in serious work.",
+        ]
+    )
+
+
+def new_chat_card_text() -> str:
+    """Return the compact guidance shown after starting a fresh chat."""
+    return "Tip: use @file for focused document analysis; inspect citations with /evidence."
+
+
 def armory_home_text() -> str:
     """Return the no-armory home card shown on first TUI launch."""
     recent = load_known_armories()[:5]
@@ -214,7 +240,7 @@ def armory_home_text() -> str:
             "Existing armories found.",
             f"Press {armory_shortcut_key()} to choose an armory or create a new one.",
             "Armories are saved locally in ~/.armories/",
-            "Add your study materials (PDFs, notes, textbooks) to ~/.armories/<module>/materials/",
+            "Add documents (PDFs, notes, drafts, references) to ~/.armories/<module>/materials/",
         ]
         lines.extend(["", "Recent armories:"])
         lines.extend(f"  {path.name}  {path}" for path in recent)
@@ -222,10 +248,10 @@ def armory_home_text() -> str:
     lines = [
         "No armory attached.",
         "",
-        "What module or topic are you studying for?",
+        "What document set are you working on?",
         f"Press {armory_shortcut_key()} to create or open an armory.",
         "Armories are saved locally in ~/.armories/",
-        "Add your study materials (PDFs, notes, textbooks) to ~/.armories/<module>/materials/",
+        "Add documents (PDFs, notes, drafts, references) to ~/.armories/<module>/materials/",
     ]
     return "\n".join(lines)
 

@@ -41,6 +41,7 @@ def test_style_tokens_render_from_current_theme() -> None:
     assert str(palette.STYLE_ACCENT) == str(palette.STYLE_PROMPT)
     assert str(palette.STYLE_DIM) == f"{palette.DIM}{palette.ansi_fg('#808080')}"
     assert str(palette.STYLE_CHROME_LABEL) == palette.ansi_fg("#D4C6A5")
+    assert str(palette.STYLE_CHROME_DETAIL) == palette.ansi_fg("#948A73")
     assert str(palette.STYLE_SHORTCUT) == palette.ansi_fg("#D4C6A5")
     assert str(palette.STYLE_METADATA) == palette.ansi_fg("#D4C6A5")
     assert str(palette.STYLE_SHORTCUT) == str(palette.STYLE_METADATA)
@@ -66,6 +67,7 @@ def test_high_contrast_keeps_emphasis_neutral_and_accent_for_attention() -> None
     assert str(palette.STYLE_ASSISTANT) == str(palette.STYLE_PROMPT)
     assert str(palette.STYLE_ACCENT) == f"{palette.BOLD}{palette.ansi_fg(p.accent)}"
     assert str(palette.STYLE_CHROME_LABEL) == palette.ansi_fg(p.chrome_label)
+    assert str(palette.STYLE_CHROME_DETAIL) == palette.ansi_fg(p.chrome_detail)
     assert str(palette.STYLE_SHORTCUT) == palette.ansi_fg(p.shortcut)
     assert str(palette.STYLE_WARNING) == str(palette.STYLE_ACCENT)
 
@@ -76,6 +78,7 @@ def test_set_theme_switches_palette() -> None:
     assert palette.current_theme_name() == "light"
     p = palette.current_palette()
     assert p.text == "#2C241B"
+    assert p.composer_bar == "#EDE8DC"
     assert p.configured == "#6D804F"
 
 
@@ -91,11 +94,13 @@ def test_current_palette_returns_forge_by_default() -> None:
 
     assert p.name == "forge"
     assert p.brand == "#C65050"
+    assert p.composer_bar == "#1C1C1C"
     assert p.accent == "#C8C8C8"
     assert p.emphasis == "#C8C8C8"
     assert p.shortcut == "#D4C6A5"
     assert p.metadata == "#D4C6A5"
     assert p.chrome_label == "#D4C6A5"
+    assert p.chrome_detail == "#948A73"
     assert p.selection_background == "#B85A5A"
     assert p.selection_text == "#000000"
 
@@ -107,11 +112,14 @@ def test_all_theme_presets_are_valid_palettes() -> None:
         assert p.name == theme_name
         assert p.text.startswith("#")
         assert p.brand.startswith("#")
+        assert p.composer_bar.startswith("#")
+        assert p.composer_bar == p.panel
         assert p.accent.startswith("#")
         assert p.emphasis.startswith("#")
         assert p.shortcut.startswith("#")
         assert p.metadata.startswith("#")
         assert p.chrome_label.startswith("#")
+        assert p.chrome_detail.startswith("#")
         assert p.shortcut == p.chrome_label
         assert p.metadata == p.chrome_label
         assert p.highlight.startswith("#")

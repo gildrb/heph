@@ -6,6 +6,7 @@ from hephaistos.parameters.settings import load_app_settings
 from hephaistos.terminal import (  # re-export shared terminal primitives
     STYLE_ACCENT,
     STYLE_ASSISTANT,
+    STYLE_CHROME_DETAIL,
     STYLE_CHROME_LABEL,
     STYLE_DIM,
     STYLE_ERROR,
@@ -21,6 +22,7 @@ from hephaistos.terminal.banner import ascii_logo, separator_line, wordmark
 
 __all__ = [
     "STYLE_ASSISTANT",
+    "STYLE_CHROME_DETAIL",
     "STYLE_CHROME_LABEL",
     "STYLE_METADATA",
     "direct_input",
@@ -55,12 +57,13 @@ def _progressive_hints(session_count: int) -> list[str]:
     Always:           /help
     """
     parts: list[str] = [
-        f"{styled('enter', STYLE_CHROME_LABEL)} send  {styled('tab', STYLE_CHROME_LABEL)} complete"
+        f"{styled('enter', STYLE_CHROME_LABEL)} {styled('send', STYLE_CHROME_DETAIL)}  "
+        f"{styled('tab', STYLE_CHROME_LABEL)} {styled('complete', STYLE_CHROME_DETAIL)}"
     ]
     essentials = (
-        f"{styled('ctrl+c', STYLE_CHROME_LABEL)} interrupt"
-        f"  {styled('ctrl+d', STYLE_CHROME_LABEL)} exit"
-        f"  {styled('/help', STYLE_ACCENT)} commands"
+        f"{styled('ctrl+c', STYLE_CHROME_LABEL)} {styled('interrupt', STYLE_CHROME_DETAIL)}"
+        f"  {styled('ctrl+d', STYLE_CHROME_LABEL)} {styled('exit', STYLE_CHROME_DETAIL)}"
+        f"  {styled('/help', STYLE_ACCENT)} {styled('commands', STYLE_CHROME_DETAIL)}"
     )
     parts.append(essentials)
     if session_count >= 3:
@@ -72,7 +75,8 @@ def _progressive_hints(session_count: int) -> list[str]:
         parts.append(tier1)
     if session_count >= 5:
         tier2 = (
-            f"{styled('!', STYLE_ACCENT)} shell  {styled('\\', STYLE_CHROME_LABEL)} continuation"
+            f"{styled('!', STYLE_ACCENT)} shell  "
+            f"{styled('\\', STYLE_CHROME_LABEL)} {styled('continuation', STYLE_CHROME_DETAIL)}"
         )
         parts.append(tier2)
     return parts
@@ -100,9 +104,9 @@ def print_shell_intro(
         if source_file_count
         else styled("none", STYLE_DIM)
     )
-    armory_style = STYLE_DIM if armory_path != "none" else STYLE_WARNING
+    armory_style = STYLE_CHROME_DETAIL if armory_path != "none" else STYLE_WARNING
     model_text = model or "none"
-    model_style = STYLE_SUCCESS if model else STYLE_WARNING
+    model_style = STYLE_CHROME_DETAIL if model else STYLE_WARNING
 
     settings = load_app_settings()
     hints = _progressive_hints(settings.session_count)
@@ -155,7 +159,7 @@ def format_shell_header(
     model_style = "class:header.configured" if model else "class:header.warning"
     source_text = _format_source_summary(source_file_count, source_files)
     source_style = "class:header.dim" if source_file_count else "class:header.warning"
-    armory_style = "class:header.dim" if armory_path != "none" else "class:header.warning"
+    armory_style = "class:header.detail" if armory_path != "none" else "class:header.warning"
 
     fragments: list[tuple[str, str]] = [
         ("class:header.title", "\u2301 Hephaistos"),
@@ -174,13 +178,13 @@ def format_shell_header(
         (source_style, source_text),
         ("", "\n"),
         ("class:header.metadata", "  enter "),
-        ("class:header.dim", "send  "),
+        ("class:header.detail", "send  "),
         ("class:header.metadata", "tab "),
-        ("class:header.dim", "complete  "),
+        ("class:header.detail", "complete  "),
         ("class:header.metadata", "ctrl+c "),
-        ("class:header.dim", "interrupt  "),
+        ("class:header.detail", "interrupt  "),
         ("class:header.metadata", "ctrl+d "),
-        ("class:header.dim", "exit"),
+        ("class:header.detail", "exit"),
     ]
     if not has_api_key and not is_keyless:
         fragments.extend(

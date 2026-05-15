@@ -21,7 +21,9 @@ from hephaistos.terminal.palette import (
     DIM,
     FORGE_ACCENT,
     FORGE_BRAND,
+    FORGE_CHROME_DETAIL,
     FORGE_CHROME_LABEL,
+    FORGE_COMPOSER_BAR,
     FORGE_CONFIGURED,
     FORGE_DIM,
     FORGE_EMBER,
@@ -40,7 +42,9 @@ from hephaistos.terminal.palette import (
     FORGE_TEXT,
     HIGH_CONTRAST_ACCENT,
     HIGH_CONTRAST_BRAND,
+    HIGH_CONTRAST_CHROME_DETAIL,
     HIGH_CONTRAST_CHROME_LABEL,
+    HIGH_CONTRAST_COMPOSER_BAR,
     HIGH_CONTRAST_CONFIGURED,
     HIGH_CONTRAST_DIM,
     HIGH_CONTRAST_EMBER,
@@ -59,7 +63,9 @@ from hephaistos.terminal.palette import (
     HIGH_CONTRAST_TEXT,
     LIGHT_ACCENT,
     LIGHT_BRAND,
+    LIGHT_CHROME_DETAIL,
     LIGHT_CHROME_LABEL,
+    LIGHT_COMPOSER_BAR,
     LIGHT_CONFIGURED,
     LIGHT_DIM,
     LIGHT_EMBER,
@@ -88,6 +94,7 @@ __all__ = [
     "STYLE_ACCENT",
     "STYLE_ASSISTANT",
     "STYLE_BRAND",
+    "STYLE_CHROME_DETAIL",
     "STYLE_CHROME_LABEL",
     "STYLE_DIM",
     "STYLE_EMBER",
@@ -124,6 +131,7 @@ class ThemePalette:
     name: str
     brand: str
     panel: str
+    composer_bar: str
     stone: str
     text: str
     dim: str
@@ -132,6 +140,7 @@ class ThemePalette:
     shortcut: str
     metadata: str
     chrome_label: str
+    chrome_detail: str
     ember: str
     configured: str
     error: str
@@ -150,6 +159,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         name="forge",
         brand=FORGE_BRAND,
         panel=FORGE_PANEL,
+        composer_bar=FORGE_COMPOSER_BAR,
         stone=FORGE_STONE,
         text=FORGE_TEXT,
         dim=FORGE_DIM,
@@ -158,6 +168,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         shortcut=FORGE_SHORTCUT,
         metadata=FORGE_METADATA,
         chrome_label=FORGE_CHROME_LABEL,
+        chrome_detail=FORGE_CHROME_DETAIL,
         ember=FORGE_EMBER,
         configured=FORGE_CONFIGURED,
         error=FORGE_ERROR,
@@ -174,6 +185,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         name="light",
         brand=LIGHT_BRAND,
         panel=LIGHT_PANEL,
+        composer_bar=LIGHT_COMPOSER_BAR,
         stone=LIGHT_STONE,
         text=LIGHT_TEXT,
         dim=LIGHT_DIM,
@@ -182,6 +194,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         shortcut=LIGHT_SHORTCUT,
         metadata=LIGHT_METADATA,
         chrome_label=LIGHT_CHROME_LABEL,
+        chrome_detail=LIGHT_CHROME_DETAIL,
         ember=LIGHT_EMBER,
         configured=LIGHT_CONFIGURED,
         error=LIGHT_ERROR,
@@ -198,6 +211,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         name="high_contrast",
         brand=HIGH_CONTRAST_BRAND,
         panel=HIGH_CONTRAST_PANEL,
+        composer_bar=HIGH_CONTRAST_COMPOSER_BAR,
         stone=HIGH_CONTRAST_STONE,
         text=HIGH_CONTRAST_TEXT,
         dim=HIGH_CONTRAST_DIM,
@@ -206,6 +220,7 @@ _PALETTES: Final[dict[str, ThemePalette]] = {
         shortcut=HIGH_CONTRAST_SHORTCUT,
         metadata=HIGH_CONTRAST_METADATA,
         chrome_label=HIGH_CONTRAST_CHROME_LABEL,
+        chrome_detail=HIGH_CONTRAST_CHROME_DETAIL,
         ember=HIGH_CONTRAST_EMBER,
         configured=HIGH_CONTRAST_CONFIGURED,
         error=HIGH_CONTRAST_ERROR,
@@ -251,6 +266,8 @@ def style_code(style_name: str) -> str:
         return f"{BOLD}{ansi_fg(palette.brand)}"
     if style_name in {"chrome_label", "shortcut", "metadata"}:
         return ansi_fg(palette.chrome_label)
+    if style_name == "chrome_detail":
+        return ansi_fg(palette.chrome_detail)
     if style_name == "dim":
         return f"{DIM}{ansi_fg(palette.dim)}"
     if style_name == "error":
@@ -277,6 +294,7 @@ STYLE_PROMPT = _StyleToken("prompt")
 STYLE_BRAND = _StyleToken("brand")
 STYLE_ACCENT = _StyleToken("accent")
 STYLE_CHROME_LABEL = _StyleToken("chrome_label")
+STYLE_CHROME_DETAIL = _StyleToken("chrome_detail")
 STYLE_SHORTCUT = _StyleToken("shortcut")
 STYLE_METADATA = _StyleToken("metadata")
 STYLE_DIM = _StyleToken("dim")

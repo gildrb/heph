@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
 from rich.segment import Segment
+from rich.text import Text
 from textual.strip import Strip
 
 from hephaistos import tui
@@ -248,7 +249,7 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
 
     hints = tui._footer_hints_text(_plain_session())
     palette = tui.current_palette()
-    footer_label_style = palette.text
+    footer_label_style = palette.chrome_detail
     shortcut_style = palette.chrome_label
     labels = ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+d")
     shortcut_styles: dict[str, list[str]] = {}
@@ -280,7 +281,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
         (tui._info_panel_default_text(session), ("materials", "time", "next")),
         (
             tui._footer_hints_text(session),
-            ("armory", "enter", "tab", "ctrl+p", "ctrl+o", "ctrl+d"),
+            ("enter", "tab", "ctrl+p", "ctrl+o", "ctrl+d"),
         ),
     )
 
@@ -292,6 +293,44 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
                 str(span.style) for span in text.spans if span.start <= start and span.end >= end
             ]
             assert styles == [palette.chrome_label]
+
+
+def test_secondary_chrome_details_share_darker_tint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+o")
+    session = _plain_session()
+    session.armory_path = Path.home() / ".armories" / "MfI-2"
+    session.source_files = tuple(f"materials/source-{index}.md" for index in range(9))
+    palette = tui.current_palette()
+
+    def effective_style(text: Text, label: str) -> str:
+        start = text.plain.index(label)
+        end = start + len(label)
+        styles = [
+            str(span.style) for span in text.spans if span.start <= start and span.end >= end
+        ]
+        if styles:
+            return styles[0]
+        return str(text.style)
+
+    footer = tui._footer_hints_text(session)
+    for label in ("send", "complete", "commands", "armory", "exit"):
+        assert effective_style(footer, label) == palette.chrome_detail
+
+    status = tui._status_text(session)
+    armory_value = status.plain.split("armory ", maxsplit=1)[1].split(" model ", maxsplit=1)[0]
+    assert effective_style(status, armory_value) == palette.chrome_detail
+    assert effective_style(status, session.config.model) == palette.chrome_detail
+
+    panel = tui._info_panel_default_text(session, session_seconds=125)
+    for label in (
+        "2m 05s",
+        "+1 more",
+    ):
+        assert effective_style(panel, label) == palette.chrome_detail
+
+    assert palette.chrome_detail != palette.chrome_label
 
 
 def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
@@ -334,7 +373,7 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
             assert any(palette.emphasis in style for style in styles)
             assert not any(palette.accent in style for style in styles)
         assert brand_styles == [f"bold {palette.brand}"]
-        assert str(hints.style) == palette.text
+        assert str(hints.style) == palette.chrome_detail
         assert shortcut_styles == [palette.chrome_label]
         assert not any(palette.emphasis in style for style in shortcut_styles)
         assert not any(palette.accent in style for style in shortcut_styles)
@@ -421,9 +460,9 @@ def test_tui_css_keeps_surface_transparent() -> None:
     prompt_end = css.index("}", prompt_start)
     prompt_block = css[prompt_start:prompt_end]
     assert "background: transparent;" in transcript_block
-    assert f"background: {tui.current_palette().panel};" in composer_frame_block
-    assert f"background: {tui.current_palette().panel};" in prompt_block
-    assert f"background: {tui.current_palette().panel};" in composer_block
+    assert f"background: {tui.current_palette().composer_bar};" in composer_frame_block
+    assert f"background: {tui.current_palette().composer_bar};" in prompt_block
+    assert f"background: {tui.current_palette().composer_bar};" in composer_block
     assert "scrollbar-size: 0 0;" in suggestions_block
     assert "scrollbar-size-vertical" not in suggestions_block
     assert "padding: 0 2;" in option_block
@@ -545,6 +584,7 @@ def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
         name="opaque-test",
         brand="#ff6600",
         panel="#000000",
+        composer_bar="#220909",
         stone="#111111",
         text="#ffffff",
         dim="#999999",
@@ -553,6 +593,7 @@ def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
         shortcut="#999999",
         metadata="#c9a3a3",
         chrome_label="#c9a3a3",
+        chrome_detail="#948A73",
         ember="#ff6600",
         configured="#00ff00",
         error="#ff0000",
@@ -1146,7 +1187,7 @@ def test_tui_css_prevents_full_width_status_and_footer_bars() -> None:
 
 def test_tui_css_pads_composer_as_full_width_user_block() -> None:
     css = tui._tui_css()
-    panel = tui.current_palette().panel
+    composer_bar = tui.current_palette().composer_bar
 
     frame_start = css.index("#composer-frame {")
     frame_end = css.index("}", frame_start)
@@ -1165,13 +1206,22 @@ def test_tui_css_pads_composer_as_full_width_user_block() -> None:
     assert "width: 100%;" in frame_block
     assert "layout: horizontal;" in frame_block
     assert "padding: 1 0;" in frame_block
-    assert f"background: {panel};" in frame_block
+    assert f"background: {composer_bar};" in frame_block
     assert "width: 2;" in prompt_block
     assert "padding: 0 0;" in prompt_block
-    assert f"background: {panel};" in prompt_block
+    assert f"background: {composer_bar};" in prompt_block
     assert "width: 100%;" in composer_block
     assert "padding: 0 0;" in composer_block
+    assert f"background: {composer_bar};" in composer_block
     assert "padding: 0 0;" in input_block
+    placeholder_start = css.index("Input > .input--placeholder,")
+    placeholder_end = css.index("}", placeholder_start)
+    placeholder_block = css[placeholder_start:placeholder_end]
+    cursor_start = css.index("Input > .input--cursor {")
+    cursor_end = css.index("}", cursor_start)
+    cursor_block = css[cursor_start:cursor_end]
+    assert f"color: {tui.current_palette().chrome_label};" in placeholder_block
+    assert f"color: {composer_bar};" in cursor_block
 
 
 def test_composer_text_is_inset_inside_full_width_chatbox() -> None:

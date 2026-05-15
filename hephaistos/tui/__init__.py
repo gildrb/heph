@@ -37,6 +37,8 @@ from hephaistos.tui.display_text import (
     footer_hints_text,
     info_panel_default_text,
     info_panel_message_text,
+    new_chat_card_text,
+    startup_card_text,
     status_text,
 )
 from hephaistos.tui.display_text import (
@@ -136,6 +138,8 @@ _armory_footer_hints_text = armory_footer_hints_text
 _footer_hints_text = footer_hints_text
 _info_panel_default_text = info_panel_default_text
 _info_panel_message_text = info_panel_message_text
+_startup_card_text = startup_card_text
+_new_chat_card_text = new_chat_card_text
 _config_error = config_error
 
 _armory_command_mode = _tui_armory._armory_command_mode
@@ -306,7 +310,7 @@ class HephaistosTui(
                 with w.horizontal(id="composer-frame"):
                     yield w.static("▸", id="composer-prompt")
                     yield w.input(
-                        placeholder='Ask anything... "What do I need to study next?"',
+                        placeholder='Ask anything... "Summarize the risks in this document set"',
                         id="composer",
                     )
                 with w.vertical(id="completion-stack"):
@@ -323,7 +327,7 @@ class HephaistosTui(
 
     def on_mount(self) -> None:
         self.title = "Hephaistos"
-        self.sub_title = "command-first study shell"
+        self.sub_title = "command-first document shell"
         visible = self.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
         self._sidebar_width_visible = visible
         self._set_sidebar_visible(
@@ -338,6 +342,9 @@ class HephaistosTui(
         composer.select_on_focus = False
         composer.focus()
         self.set_focus(composer)
+        if self.state.history_obj is not None and not self.state.startup_card_shown:
+            self.state.startup_card_shown = True
+            self._append_startup_card()
         if self.session.armory_path is None and not self.state.armory_home_shown:
             self.state.armory_home_shown = True
             self._append_armory_home()
@@ -730,6 +737,9 @@ class HephaistosTui(
         highlighted = suggestions.highlighted
         self._apply_completion(highlighted if highlighted is not None else 0)
 
+    def _append_startup_card(self) -> None:
+        self._append_entry(_startup_card_text(), "startup")
+
     def _append_armory_home(self) -> None:
         self._append_plain(_armory_home_text())
 
@@ -741,6 +751,7 @@ class HephaistosTui(
             self.session = result.new_session
             self.state.transcript.clear()
             self.query_one("#transcript", RichLog).clear()
+            self._append_entry(_new_chat_card_text(), "startup")
             self._append_notice("New chat started.")
             self._refresh_status("ready")
             self._focused_msg_index = None

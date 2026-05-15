@@ -37,6 +37,7 @@ class TuiRuntimeState:
     history_draft: str = ""
     pending_input: str | None = None
     armory_home_shown: bool = False
+    startup_card_shown: bool = False
     tui_started_at: float = field(default_factory=time.monotonic)
 
 

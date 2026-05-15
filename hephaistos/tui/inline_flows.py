@@ -1010,7 +1010,7 @@ class TuiInlineFlowMixin:
         self._hide_completions()
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = 'Ask anything... "What do I need to study next?"'
+        composer.placeholder = 'Ask anything... "Summarize the risks in this document set"'
         if notice:
             self._append_notice(notice)
         composer.focus()

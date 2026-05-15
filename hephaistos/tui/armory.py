@@ -118,7 +118,7 @@ def _armory_command_mode(value: str) -> str | None:
 
 
 def _armory_usage_message() -> str:
-    return "Usage: /armory [open|create]\nBrowse, open, or create a local study armory."
+    return "Usage: /armory [open|create]\nBrowse, open, or create a local document armory."
 
 
 def _display_path(path: Path) -> str:
@@ -178,7 +178,7 @@ class TuiArmoryMixin:
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = (
-            "Module or topic name..." if self._armory_creating else "Filter armory paths..."
+            "Document set name..." if self._armory_creating else "Filter armory paths..."
         )
         self._hide_completions()
         self._refresh_armory_inline(mode=mode)
@@ -199,7 +199,7 @@ class TuiArmoryMixin:
         self._schedule_transcript_reflow()
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = 'Ask anything... "What do I need to study next?"'
+        composer.placeholder = 'Ask anything... "Summarize the risks in this document set"'
         self._refresh_footer_hints()
         composer.focus()
         self.set_focus(composer)
@@ -362,7 +362,7 @@ class TuiArmoryMixin:
         self._armory_mode = "create"
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = "Module or topic name..."
+        composer.placeholder = "Document set name..."
         self._refresh_armory_inline()
         self._refresh_footer_hints()
         composer.focus()
@@ -395,7 +395,7 @@ class TuiArmoryMixin:
         self._close_armory_inline()
         self._append_notice(f"Created armory '{armory_path.name}' at {armory_path}")
         display_root = _display_path(armory_path.parent)
-        self._append_notice(f"Add study files to {display_root}/{armory_path.name}/materials/")
+        self._append_notice(f"Add documents to {display_root}/{armory_path.name}/materials/")
 
     def _open_selected_armory(self: _ArmoryHost, path: Path) -> None:
         if not _is_within_armory_home(path):

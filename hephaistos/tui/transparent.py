@@ -137,6 +137,7 @@ def normalize_selected_text_style(
         palette.accent.lower(),
         palette.emphasis.lower(),
         palette.chrome_label.lower(),
+        palette.chrome_detail.lower(),
         palette.shortcut.lower(),
         palette.metadata.lower(),
         palette.stone.lower(),

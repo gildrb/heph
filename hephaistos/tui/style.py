@@ -12,7 +12,7 @@ def _tui_css() -> str:
     p = current_palette()
     bg = "transparent"
     bt = "transparent"
-    user_bg = p.panel
+    user_bg = p.composer_bar
     return f"""
 App {{
     background: {bg};
@@ -405,7 +405,7 @@ Input {{
 }}
 Input > .input--placeholder,
 Input > .input--suggestion {{
-    color: {p.dim};
+    color: {p.chrome_label};
 }}
 Input:focus {{
     border: none;
@@ -414,7 +414,7 @@ Input:focus {{
 }}
 Input > .input--cursor {{
     background: {p.text};
-    color: {p.panel};
+    color: {p.composer_bar};
 }}
 Input > .input--selection {{
     background: {bg};

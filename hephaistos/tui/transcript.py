@@ -102,6 +102,16 @@ class _TranscriptHost(Protocol):
 
     def _write_user_transcript_lines(self, log: RichLog, text: str) -> None: ...
 
+    def _write_startup_card_lines(self, log: RichLog, text: str) -> None: ...
+
+    def _write_padded_panel_lines(
+        self,
+        log: RichLog,
+        text: str,
+        *,
+        style: _RichStyle,
+    ) -> None: ...
+
     def _append_entry(self, content: str, kind: str = "plain") -> None: ...
 
     def _append_activity(self, text: str) -> None: ...
@@ -291,6 +301,19 @@ class TuiTranscriptMixin:
     def _write_user_transcript_lines(self: _TranscriptHost, log: RichLog, text: str) -> None:
         p = current_palette()
         style = _RichStyle(color=p.text, bgcolor=p.panel, bold=True)
+        self._write_padded_panel_lines(log, text, style=style)
+
+    def _write_startup_card_lines(self: _TranscriptHost, log: RichLog, text: str) -> None:
+        p = current_palette()
+        self._write_transcript_lines(log, text, style=_RichStyle(color=p.dim))
+
+    def _write_padded_panel_lines(
+        self: _TranscriptHost,
+        log: RichLog,
+        text: str,
+        *,
+        style: _RichStyle,
+    ) -> None:
         if _RichText is None or log.size.width <= _TRANSCRIPT_HORIZONTAL_PADDING:
             self._write_transcript_lines(log, text, style=style)
             return
@@ -323,6 +346,8 @@ class TuiTranscriptMixin:
             self._write_transcript_renderable(log, _reply_renderable(entry))
         elif entry.kind == "user":
             self._write_user_transcript_lines(log, entry.content)
+        elif entry.kind == "startup":
+            self._write_startup_card_lines(log, entry.content)
         elif entry.kind == "ansi":
             if _RichText is None:
                 self._write_transcript_lines(log, entry.content)
