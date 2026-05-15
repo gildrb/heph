@@ -179,6 +179,19 @@ def _completion_menu_scroll_y(
     return min(max(centered_scroll_y, 0), max_scroll_y)
 
 
+def _changed_highlight_indices(
+    previous: int | None,
+    highlighted: int,
+    option_count: int,
+) -> tuple[int, ...]:
+    indices = [
+        index
+        for index in (previous, highlighted)
+        if index is not None and 0 <= index < option_count
+    ]
+    return tuple(dict.fromkeys(indices))
+
+
 _tui_command_suggestions = tui_command_suggestions
 _command_help = command_help
 
@@ -273,6 +286,7 @@ class HephaistosTui(
         self._sidebar_width_visible = True
         self._sidebar_actual_visible: bool | None = None
         self._transcript_reflow_pending = False
+        self._suggestions_mouse_hovering = False
         self._inline_flow = _InlineFlow()
 
     def get_default_screen(self) -> Screen:
@@ -533,34 +547,70 @@ class HephaistosTui(
             )
 
     def _handle_suggestions_mouse_move(self, event: events.MouseMove) -> bool:
-        suggestions = self.query_one("#suggestions", OptionList)
         if getattr(getattr(event, "widget", None), "id", None) != "suggestions":
-            suggestions.remove_class("mouse-hovering")
+            self._clear_suggestions_mouse_hovering()
             return False
+        suggestions = self.query_one("#suggestions", OptionList)
         if not suggestions.has_class("visible"):
-            suggestions.remove_class("mouse-hovering")
+            self._clear_suggestions_mouse_hovering(suggestions)
             return False
         option_index = event.style.meta.get("option")
         if not isinstance(option_index, int):
-            suggestions.remove_class("mouse-hovering")
+            self._clear_suggestions_mouse_hovering(suggestions)
             return False
-        suggestions.add_class("mouse-hovering")
+        self._set_suggestions_mouse_hovering(suggestions)
         if suggestions.highlighted == option_index:
             return False
         if self._inline_flow.active:
             if not (0 <= option_index < len(self._inline_flow.options)):
+                self._clear_suggestions_mouse_hovering(suggestions)
                 return False
-            self._render_inline_menu_options(
-                self._inline_flow.options,
-                highlighted=option_index,
-            )
+            self._highlight_inline_menu_option(option_index, suggestions)
         else:
             if not (0 <= option_index < len(self.completion_candidates)):
+                self._clear_suggestions_mouse_hovering(suggestions)
                 return False
-            self._set_completion_options(highlighted=option_index)
-            suggestions.highlighted = option_index
-            self._refresh_footer_hints()
+            self._highlight_completion_option(option_index, suggestions)
         return False
+
+    def _set_suggestions_mouse_hovering(self, suggestions: OptionList) -> None:
+        if self._suggestions_mouse_hovering:
+            return
+        suggestions.add_class("mouse-hovering")
+        self._suggestions_mouse_hovering = True
+
+    def _clear_suggestions_mouse_hovering(self, suggestions: OptionList | None = None) -> None:
+        if not self._suggestions_mouse_hovering:
+            return
+        if suggestions is None:
+            suggestions = self.query_one("#suggestions", OptionList)
+        suggestions.remove_class("mouse-hovering")
+        self._suggestions_mouse_hovering = False
+
+    def _highlight_completion_option(
+        self,
+        highlighted: int,
+        suggestions: OptionList | None = None,
+    ) -> None:
+        if suggestions is None:
+            suggestions = self.query_one("#suggestions", OptionList)
+        previous = suggestions.highlighted
+        if previous == highlighted:
+            return
+        for option_index in _changed_highlight_indices(
+            previous,
+            highlighted,
+            len(self.completion_candidates),
+        ):
+            suggestions.replace_option_prompt_at_index(
+                option_index,
+                self._format_completion_candidate(
+                    self.completion_candidates[option_index],
+                    selected=option_index == highlighted,
+                ),
+            )
+        suggestions.highlighted = highlighted
+        self._refresh_completion_position()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self._submit_composer_value(apply_highlighted_completion=True)
@@ -1037,7 +1087,7 @@ class HephaistosTui(
             return
         self._set_completion_options(highlighted=0)
         suggestions.add_class("visible")
-        suggestions.remove_class("mouse-hovering")
+        self._clear_suggestions_mouse_hovering(suggestions)
         suggestions.highlighted = 0
         suggestions.scroll_y = 0
         self._refresh_footer_hints()
@@ -1049,12 +1099,12 @@ class HephaistosTui(
         suggestions.set_options([])
         suggestions.remove_class("inline-menu")
         suggestions.remove_class("visible")
-        suggestions.remove_class("mouse-hovering")
+        self._clear_suggestions_mouse_hovering(suggestions)
         self._refresh_footer_hints()
 
     def _move_completion(self, offset: int) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
-        suggestions.remove_class("mouse-hovering")
+        self._clear_suggestions_mouse_hovering(suggestions)
         flow = self._inline_flow
         options = flow.options if flow.active else self.completion_candidates
         if not options:

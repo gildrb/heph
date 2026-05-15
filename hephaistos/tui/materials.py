@@ -130,7 +130,7 @@ class TuiMaterialsMixin:
         self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
         self.query_one("#transcript-spacer", Static).add_class("hidden-for-armory")
         self.query_one("#materials-inline").add_class("active")
-        self._set_sidebar_visible(self._sidebar_width_visible)
+        self._set_sidebar_visible(False)
         composer = self.query_one("#composer", Input)
         composer.value = self._materials_filter
         composer.placeholder = "Filter materials..."

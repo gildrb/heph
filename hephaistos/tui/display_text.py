@@ -156,6 +156,15 @@ def _material_panel_lines(session: ChatSession) -> list[str]:
     return lines
 
 
+def _next_panel_lines() -> list[str]:
+    return [
+        "next",
+        "  /exam active recall",
+        "  /priority plan focus",
+        "  /remind due review",
+    ]
+
+
 def _indent_info_panel_lines(lines: list[str]) -> list[str]:
     return [f"  {line}" if line else "" for line in lines]
 
@@ -163,20 +172,22 @@ def _indent_info_panel_lines(lines: list[str]) -> list[str]:
 def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
     """Build the default info panel content showing session length and material names."""
     palette = current_palette()
-    title = session.title or "Document session"
+    title = session.title or "Study session"
 
     lines: list[str] = [
         title,
         f"time {_session_duration(session_seconds)}",
         "",
         *_material_panel_lines(session),
+        "",
+        *_next_panel_lines(),
     ]
     lines = _indent_info_panel_lines(lines)
     plain = "\n".join(lines)
     text = require_rich_text()(plain, style=palette.dim)
     title_start = plain.index(title)
     text.stylize(f"bold {palette.emphasis}", title_start, title_start + len(title))
-    for label in ("time", "materials"):
+    for label in ("time", "materials", "next"):
         start = 0
         while True:
             idx = plain.find(label, start)

@@ -181,6 +181,8 @@ class _InlineFlowHost(Protocol):
 
     def _refresh_footer_hints(self) -> None: ...
 
+    def _refresh_completion_position(self) -> None: ...
+
     def _update_info_panel(self) -> None: ...
 
     def _schedule_transcript_reflow(self) -> None: ...
@@ -306,6 +308,19 @@ def _inline_menu_option_text(
     return text
 
 
+def _changed_highlight_indices(
+    previous: int | None,
+    highlighted: int,
+    option_count: int,
+) -> tuple[int, ...]:
+    indices = [
+        index
+        for index in (previous, highlighted)
+        if index is not None and 0 <= index < option_count
+    ]
+    return tuple(dict.fromkeys(indices))
+
+
 class TuiInlineFlowMixin:
     def _handle_inline_command(self: _InlineFlowHost, value: str) -> None:
         if value == "/login":
@@ -378,6 +393,30 @@ class TuiInlineFlowMixin:
         suggestions.add_class("inline-menu")
         suggestions.add_class("visible")
         self._refresh_footer_hints()
+
+    def _highlight_inline_menu_option(
+        self: _InlineFlowHost,
+        highlighted: int,
+        suggestions: OptionList | None = None,
+    ) -> None:
+        if suggestions is None:
+            suggestions = self.query_one("#suggestions", OptionList)
+        previous = suggestions.highlighted
+        if previous == highlighted:
+            return
+        options = self._inline_flow.options
+        for option_index in _changed_highlight_indices(previous, highlighted, len(options)):
+            label, description = options[option_index]
+            suggestions.replace_option_prompt_at_index(
+                option_index,
+                _inline_menu_option_text(
+                    label,
+                    description,
+                    selected=option_index == highlighted,
+                ),
+            )
+        suggestions.highlighted = highlighted
+        self._refresh_completion_position()
 
     def _filter_inline_menu_options(self: _InlineFlowHost, query: str) -> None:
         if not self._inline_flow.all_options:

@@ -4360,6 +4360,85 @@ def test_hovering_command_completion_moves_active_row() -> None:
     asyncio.run(check_hover_completion())
 
 
+def test_hovering_command_completion_does_not_rebuild_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_hover_completion() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/sta"
+            composer.cursor_position = len("/sta")
+            app._refresh_completions()
+            await pilot.pause()
+
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+
+            def fail_set_options(_options: object) -> object:
+                raise AssertionError("hover should update the active row incrementally")
+
+            monkeypatch.setattr(suggestions, "set_options", fail_set_options)
+
+            await pilot.hover("#suggestions", offset=(2, 1))
+            await pilot.pause()
+
+            assert suggestions.highlighted == 1
+            assert suggestions.has_class("mouse-hovering")
+
+    asyncio.run(check_hover_completion())
+
+
+def test_hovering_inline_menu_does_not_rebuild_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_hover_inline_menu() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_inline_menu(
+                name="test",
+                step="menu",
+                title="Choose",
+                options=[
+                    ("First", "first option"),
+                    ("Second", "second option"),
+                ],
+            )
+            await pilot.pause()
+
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+
+            def fail_set_options(_options: object) -> object:
+                raise AssertionError("hover should update the active row incrementally")
+
+            monkeypatch.setattr(suggestions, "set_options", fail_set_options)
+
+            await pilot.hover("#suggestions", offset=(2, 1))
+            await pilot.pause()
+
+            assert suggestions.highlighted == 1
+            assert suggestions.has_class("mouse-hovering")
+
+    asyncio.run(check_hover_inline_menu())
+
+
 def test_models_completion_menu_uses_readable_columns() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")

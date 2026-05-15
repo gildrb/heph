@@ -178,7 +178,7 @@ class TuiArmoryMixin:
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = (
-            "Document set name..." if self._armory_creating else "Filter armory paths..."
+            "Module or topic name..." if self._armory_creating else "Filter armory paths..."
         )
         self._hide_completions()
         self._refresh_armory_inline(mode=mode)
@@ -362,7 +362,7 @@ class TuiArmoryMixin:
         self._armory_mode = "create"
         composer = self.query_one("#composer", Input)
         composer.value = ""
-        composer.placeholder = "Document set name..."
+        composer.placeholder = "Module or topic name..."
         self._refresh_armory_inline()
         self._refresh_footer_hints()
         composer.focus()
