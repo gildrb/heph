@@ -43,12 +43,28 @@ if TYPE_CHECKING:
     from textual.widgets import OptionList as TextualOptionList
 
 
+class _SelectionWidgetType(Protocol):
+    ALLOW_SELECT: bool
+
+
+def _allow_select(widget_cls: type) -> bool:
+    return cast("_SelectionWidgetType", widget_cls).ALLOW_SELECT
+
+
 class _RichSpanLike(Protocol):
     style: object
 
 
 class _RichPromptLike(Protocol):
     spans: list[_RichSpanLike]
+
+
+class _SelectableClass(Protocol):
+    ALLOW_SELECT: bool
+
+
+def _allow_select(widget_class: type) -> bool:
+    return cast("_SelectableClass", widget_class).ALLOW_SELECT
 
 
 def _plain_session() -> ChatSession:
@@ -102,17 +118,23 @@ def _clear_credential_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_session_status_for_plain_session() -> None:
     status = tui._status_lines(_plain_session())
 
+    assert status == "Heph armory none model test-model mode guided"
+    assert "Heph" in status
     assert "test-model" in status
     assert "armory" in status
     assert "mode guided" in status
+    assert "Hephaistos" not in status
+    assert "api" not in status
+    assert "materials" not in status
     assert "enter" not in status
     assert "/help" not in status
 
 
-def test_session_status_shows_free_for_keyless_provider() -> None:
+def test_session_status_omits_api_badge_for_keyless_provider() -> None:
     status = tui._status_lines(_keyless_session())
 
-    assert "free" in status
+    assert "api" not in status
+    assert "free" not in status
     assert "configured" not in status
     assert "missing" not in status
 
@@ -217,6 +239,12 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
 
         assert palette.emphasis != palette.accent
 
+        brand_start = status.plain.index("Heph")
+        brand_styles = [
+            str(span.style)
+            for span in status.spans
+            if span.start <= brand_start and span.end >= brand_start + len("Heph")
+        ]
         mode_start = status.plain.index("guided")
         mode_styles = [
             str(span.style)
@@ -239,6 +267,7 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
         for styles in (mode_styles, title_styles):
             assert any(palette.emphasis in style for style in styles)
             assert not any(palette.accent in style for style in styles)
+        assert brand_styles == [f"bold {palette.brand}"]
         assert str(hints.style) == f"dim {palette.dim}"
         assert shortcut_styles == [f"dim {palette.shortcut}"]
         assert not any(palette.emphasis in style for style in shortcut_styles)
@@ -268,7 +297,7 @@ def test_tui_config_error_allows_openai_codex_oauth(
         lambda _provider, **_kwargs: object(),
     )
 
-    assert "api configured" in tui._status_lines(session)
+    assert "api configured" not in tui._status_lines(session)
     assert tui._config_error(session) is None
 
 
@@ -300,9 +329,9 @@ def test_tui_css_keeps_surface_transparent() -> None:
 
     assert "App {\n    background: transparent;" in css
     assert "Screen {\n    layout: vertical;\n    background: transparent;" in css
-    assert "#status {\n    height: auto;\n    max-height: 2;\n    width: auto;" in css
+    assert "#status {\n    height: 1;\n    max-height: 1;\n    width: auto;" in css
     assert ("#footer-hints {\n    height: 1;\n    width: auto;\n    max-width: 100%;") in css
-    assert "#completion-stack {\n    height: 9;" in css
+    assert "#completion-stack {\n    height: 9;\n    min-height: 1;" in css
     assert "#transcript-spacer {\n    height: 1;" in css
     assert "#transcript:focus" in css
     assert "background-tint: transparent;" in css
@@ -472,10 +501,97 @@ def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
     widgets = tui._WidgetClasses.from_palette(palette)
 
     assert widgets.screen.__name__ == "BlankBackgroundWidget"
-    assert widgets.vertical.__name__ == "TransparentWidget"
-    assert widgets.horizontal.__name__ == "TransparentWidget"
+    assert widgets.vertical.__name__ == "SelectionPassthroughTransparentWidget"
+    assert widgets.horizontal.__name__ == "SelectionPassthroughTransparentWidget"
+    assert _allow_select(widgets.vertical) is True
+    assert _allow_select(widgets.horizontal) is True
     assert issubclass(widgets.rich_log, tui.RichLog)
     assert widgets.rich_log.can_focus is False
+
+
+def test_tui_mouse_mode_passes_selection_through_layouts_to_text_widgets() -> None:
+    if tui.RichLog is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    widgets = tui._WidgetClasses.from_palette(tui.current_palette())
+
+    assert tui._TUI_ENABLE_MOUSE is True
+    assert _allow_select(widgets.vertical) is True
+    assert _allow_select(widgets.horizontal) is True
+    assert _allow_select(widgets.static) is True
+    assert _allow_select(widgets.rich_log) is True
+    assert _allow_select(widgets.input) is True
+    assert _allow_select(widgets.option_list) is True
+
+
+def test_composer_mouse_drag_uses_screen_text_selection() -> None:
+    if tui.Input is None or tui.Static is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_drag_selection() -> None:
+        async with typed_app.run_test(size=(100, 20)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "Ask anything"
+            composer.cursor_position = len(composer.value)
+            await pilot.pause()
+
+            await pilot.mouse_down("#composer", offset=(1, 0))
+            await pilot.hover("#footer-hints", offset=(20, 0))
+            await pilot.pause()
+
+            selected_widget_ids = {widget.id for widget in app.screen.selections}
+            selected_text = app.screen.get_selected_text()
+            assert "composer" in selected_widget_ids
+            assert "footer-hints" in selected_widget_ids
+            assert selected_text is not None
+            assert selected_text.startswith("sk anything")
+            assert composer.selection.start == len("Ask anything")
+            assert composer.selection.end == len("Ask anything")
+
+    asyncio.run(check_drag_selection())
+
+
+def test_mouse_selection_normalizes_neutral_label_highlights() -> None:
+    if tui.Static is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/enabled.pdf",)
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    palette = tui.current_palette()
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_selection_colours() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            await pilot.pause()
+
+            await pilot.mouse_down("#info-panel", offset=(3, 3))
+            await pilot.hover("#info-panel", offset=(11, 3))
+            await pilot.pause()
+
+            panel = app.query_one("#info-panel", tui.Static)
+            selected_styles = [
+                str(segment.style).lower()
+                for segment in panel.render_line(3)
+                if segment.text.strip() and "reverse" in str(segment.style)
+            ]
+
+            assert selected_styles
+            assert all(palette.text.lower() in style for style in selected_styles)
+            assert all(palette.dim.lower() not in style for style in selected_styles)
+
+    asyncio.run(check_selection_colours())
 
 
 def test_tui_css_has_info_panel_layout() -> None:
@@ -671,28 +787,161 @@ def test_tui_css_materials_highlight_uses_state_colours() -> None:
 
     assert "#materials-list > .option-list--option-highlighted" not in css
     assert "#materials-list.material-enabled > .option-list--option-highlighted" in css
-    assert f"background: {palette.material_enabled};" in css
     assert "#materials-list.material-disabled > .option-list--option-highlighted" in css
-    assert f"background: {palette.material_disabled};" in css
+    assert "#materials-list-right.material-enabled > .option-list--option-highlighted" in css
+    assert "#materials-list-right.material-disabled > .option-list--option-highlighted" in css
     disabled_start = css.index(
         "#materials-list.material-disabled > .option-list--option-highlighted"
     )
     disabled_end = css.index("}", disabled_start)
     disabled_block = css[disabled_start:disabled_end]
-    assert f"color: {palette.selection_text};" in disabled_block
+    enabled_start = css.index(
+        "#materials-list.material-enabled > .option-list--option-highlighted"
+    )
+    enabled_end = css.index("}", enabled_start)
+    enabled_block = css[enabled_start:enabled_end]
+    assert "background: transparent;" in enabled_block
+    assert "background: transparent;" in disabled_block
+    assert f"color: {palette.material_enabled};" in enabled_block
+    assert f"color: {palette.material_disabled};" in disabled_block
+    assert "text-style: not bold;" in enabled_block
+    assert "text-style: not bold;" in disabled_block
+    assert f"background: {palette.material_enabled};" not in css
+    assert f"background: {palette.material_disabled};" not in css
 
 
-def test_tui_css_completion_highlight_avoids_brand_strip() -> None:
+def test_tui_css_materials_header_and_gaps_are_status_weight() -> None:
     css = tui._tui_css()
     palette = tui.current_palette()
-    block_start = css.index("#suggestions > .option-list--option-highlighted")
-    block_end = css.index("}", block_start)
-    block = css[block_start:block_end]
 
-    assert "background: transparent;" in block
-    assert f"color: {palette.text};" in block
-    assert f"background: {palette.selection_background};" not in block
-    assert f"color: {palette.selection_text};" not in block
+    header_start = css.index("#materials-header {")
+    header_end = css.index("}", header_start)
+    header_block = css[header_start:header_end]
+    top_gap_start = css.index("#materials-top-gap,")
+    top_gap_end = css.index("}", top_gap_start)
+    gap_block = css[top_gap_start:top_gap_end]
+
+    assert f"color: {palette.dim};" in header_block
+    assert "text-style: bold;" not in header_block
+    assert "#materials-bottom-gap" in gap_block
+    assert "height: 1;" in gap_block
+
+
+def test_materials_current_label_matches_other_state_labels() -> None:
+    if tui._RichText is None:
+        pytest.skip("Rich is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/biology.pdf",)
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    selected = app._format_material_option("materials/biology.pdf", selected=True)
+    unselected = app._format_material_option("materials/biology.pdf", selected=False)
+    palette = tui.current_palette()
+
+    assert not isinstance(selected, str)
+    assert not isinstance(unselected, str)
+    assert selected.plain == unselected.plain
+    assert [str(span.style) for span in selected.spans] == [
+        str(span.style) for span in unselected.spans
+    ]
+    styles = [str(span.style) for span in selected.spans]
+    assert palette.material_enabled in styles
+    assert not any("bold" in style for style in styles)
+    assert not any(" on " in style for style in styles)
+
+
+def test_materials_disabled_label_uses_only_disabled_state_colour() -> None:
+    if tui._RichText is None:
+        pytest.skip("Rich is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/biology.pdf",)
+    session.disabled_source_files.add("materials/biology.pdf")
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    option = app._format_material_option("materials/biology.pdf", selected=True)
+    palette = tui.current_palette()
+
+    assert not isinstance(option, str)
+    styles = [str(span.style) for span in option.spans]
+    assert palette.material_disabled in styles
+    assert palette.material_enabled not in styles
+    assert not any("bold" in style for style in styles)
+
+
+def test_materials_mouse_selection_preserves_state_colours() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/enabled.pdf", "materials/disabled.pdf")
+    session.disabled_source_files.add("materials/disabled.pdf")
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    palette = tui.current_palette()
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_material_selection() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            app._open_materials_inline()
+            await pilot.pause()
+
+            await pilot.mouse_down("#materials-list", offset=(3, 0))
+            await pilot.hover("#materials-list", offset=(12, 1))
+            await pilot.pause()
+
+            material_list = app.query_one("#materials-list", tui.OptionList)
+            first_line_styles = [
+                str(segment.style)
+                for segment in material_list.render_line(0)
+                if "enabled.pdf" in segment.text
+            ]
+            second_line_styles = [
+                str(segment.style)
+                for segment in material_list.render_line(1)
+                if "disabled." in segment.text
+            ]
+
+            assert len(first_line_styles) == 1
+            assert "not bold" in first_line_styles[0]
+            assert "reverse" in first_line_styles[0]
+            assert palette.material_enabled.lower() in first_line_styles[0].lower()
+            assert len(second_line_styles) == 1
+            assert "reverse" in second_line_styles[0]
+            assert palette.material_disabled.lower() in second_line_styles[0].lower()
+            assert palette.text.lower() not in second_line_styles[0].lower()
+
+    asyncio.run(check_material_selection())
+
+
+def test_tui_css_completion_highlight_stays_quiet_until_mouse_hover() -> None:
+    css = tui._tui_css()
+    palette = tui.current_palette()
+    highlight_start = css.index("#suggestions > .option-list--option-highlighted")
+    highlight_end = css.index("}", highlight_start)
+    highlight_block = css[highlight_start:highlight_end]
+    hover_start = css.index("#suggestions.mouse-hovering > .option-list--option-highlighted")
+    hover_end = css.index("}", hover_start)
+    hover_block = css[hover_start:hover_end]
+
+    assert "background: transparent;" in highlight_block
+    assert f"color: {palette.text};" in highlight_block
+    assert "#suggestions > .option-list--option-hover" in hover_block
+    assert f"background: {palette.panel};" in hover_block
+    assert f"color: {palette.text};" in hover_block
+    assert f"background: {palette.highlight};" not in hover_block
+    assert f"background: {palette.selection_background};" not in hover_block
+    assert f"color: {palette.selection_text};" not in hover_block
 
 
 def test_tui_css_inline_menu_highlight_has_no_brand_stripe() -> None:
@@ -727,6 +976,25 @@ def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
         block = css[block_start:block_end]
         assert f"background: {palette.selection_background};" in block
         assert f"color: {palette.selection_text};" in block
+        assert "text-style: not bold;" in block
+
+
+def test_tui_css_text_selection_uses_reverse_video() -> None:
+    css = tui._tui_css()
+    palette = tui.current_palette()
+
+    selection_start = css.index("Screen .screen--selection {")
+    selection_end = css.index("}", selection_start)
+    selection_block = css[selection_start:selection_end]
+    input_start = css.index("Input > .input--selection {")
+    input_end = css.index("}", input_start)
+    input_block = css[input_start:input_end]
+
+    assert "background: transparent;" in selection_block
+    assert "text-style: reverse;" in selection_block
+    assert f"background: {palette.selection_background};" not in selection_block
+    assert "background: transparent;" in input_block
+    assert "text-style: reverse;" in input_block
 
 
 def test_info_panel_material_colours_match_materials_picker() -> None:
@@ -839,8 +1107,9 @@ def test_tui_css_reserves_inline_completion_stack_below_composer() -> None:
 
     assert "margin-top: 1;" in composer_block
     assert "height: 9;" in stack_block
-    assert "min-height: 9;" in stack_block
+    assert "min-height: 1;" in stack_block
     assert "max-height: 9;" in stack_block
+    assert "#completion-stack.compact" in css
     assert "width: 100%;" in suggestions_block
     assert "max-width: 100%;" in suggestions_block
     assert "padding-right: 0;" in suggestions_block
@@ -897,6 +1166,34 @@ def test_completion_menu_expands_below_stationary_composer() -> None:
             assert footer.region.y == position.region.y + 1
 
     asyncio.run(check_inline_menu_layout())
+
+
+def test_compact_terminal_collapses_completion_stack_to_footer_row() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_compact_stack() -> None:
+        async with typed_app.run_test(size=(80, 8)):
+            stack = app.query_one("#completion-stack")
+            frame = app.query_one("#composer-frame")
+            footer = app.query_one("#footer-hints")
+            composer = app.query_one("#composer")
+
+            assert stack.has_class("compact")
+            assert frame.has_class("compact")
+            assert stack.size.height == 1
+            assert frame.size.height == 1
+            assert footer.region.y > composer.region.y
+            assert footer.region.y < app.size.height
+
+    asyncio.run(check_compact_stack())
 
 
 def test_transcript_overflow_scrolls_without_moving_composer() -> None:
@@ -1166,6 +1463,7 @@ def test_command_help_is_command_first() -> None:
     assert "/materials" in help_text
     assert "/sessions" in help_text
     assert "/status" in help_text
+    assert "/memory" in help_text
     assert "/sources" not in help_text
     assert "/history" not in help_text
 
@@ -1199,7 +1497,8 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
 
     lines = panel.plain.splitlines()
     assert lines[0].startswith("  Study session")
-    assert lines[1].startswith("  \u2500")
+    assert lines[1].startswith("  time 2m 05s")
+    assert "\u2500" not in panel.plain
     assert all(line.startswith("  ") for line in lines if line)
     assert "time 2m 05s" in panel.plain
     assert "materials" in panel.plain
@@ -1269,7 +1568,7 @@ def test_run_tui_appends_pending_command_output_to_transcript(
 
         def run(self, *, mouse: bool = True) -> None:
             nonlocal run_count
-            assert mouse is False
+            assert mouse is True
             run_count += 1
             assert captured_state is not None
             if run_count == 1:
@@ -1306,7 +1605,7 @@ def test_run_tui_applies_saved_theme_on_startup(monkeypatch: pytest.MonkeyPatch)
             captured_palette = palette
 
         def run(self, *, mouse: bool = True) -> None:
-            assert mouse is False
+            assert mouse is True
 
     def fake_save_on_exit(_session: ChatSession) -> None:
         return
@@ -1380,14 +1679,25 @@ def test_run_tui_for_path_passes_session_with_armory(
     assert captured_session is resolved_session
 
 
-def test_status_lines_shows_armory_path() -> None:
-    """Status bar text includes the armory path when session has one."""
+def test_status_lines_shows_compact_armory_name() -> None:
+    """Status bar text includes a compact armory name when session has one."""
     session = _plain_session()
     session.armory_path = Path("/tmp/my-armory")
 
     status = tui._status_lines(session)
 
-    assert "armory /tmp/my-armory" in status
+    assert "armory my-armory" in status
+    assert "/tmp" not in status
+
+
+def test_status_lines_truncates_long_armory_name() -> None:
+    session = _plain_session()
+    session.armory_path = Path("/tmp/heph-qa-status-very-long-armory-name")
+
+    status = tui._status_lines(session)
+
+    assert "armory ...very-long-armory-name" in status
+    assert "model test-model mode guided" in status
 
 
 def test_status_lines_shows_none_when_no_armory() -> None:
@@ -2674,6 +2984,75 @@ def test_materials_inline_toggles_rag_sources() -> None:
     asyncio.run(check_materials_toggle())
 
 
+def test_materials_inline_splits_long_lists_into_two_columns() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = tuple(f"materials/week-{index:02}.md" for index in range(30))
+    session.source_file_count = len(session.source_files)
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_two_columns() -> None:
+        async with typed_app.run_test(size=(100, 18)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/materials"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            columns = app.query_one("#materials-columns")
+            left = app.query_one("#materials-list", tui.OptionList)
+            right = app.query_one("#materials-list-right", tui.OptionList)
+
+            assert columns.has_class("two-column")
+            assert left.option_count > 0
+            assert right.option_count > 0
+            assert left.option_count + right.option_count == len(session.source_files)
+
+    asyncio.run(check_two_columns())
+
+
+def test_materials_mouse_click_toggles_single_source() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = tuple(f"materials/source-{index}.md" for index in range(6))
+    session.source_file_count = len(session.source_files)
+    session.disabled_source_files.update(session.source_files[:5])
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_mouse_materials() -> None:
+        async with typed_app.run_test(size=(100, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/materials"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            await pilot.click("#materials-list", offset=(2, 4))
+            await pilot.pause()
+            assert session.source_files[4] not in session.disabled_source_files
+            assert getattr(app.focused, "id", None) == "materials-list"
+
+            await pilot.click("#materials-list", offset=(2, 4))
+            await pilot.pause()
+            assert session.source_files[4] in session.disabled_source_files
+            for file in session.source_files[:4]:
+                assert file in session.disabled_source_files
+
+    asyncio.run(check_mouse_materials())
+
+
 def test_transcript_reflows_when_resize_crosses_sidebar_threshold() -> None:
     if tui.Input is None or tui.RichLog is None:
         pytest.skip("Textual is not installed")
@@ -3741,6 +4120,79 @@ def test_enter_submits_highlighted_completion(monkeypatch: pytest.MonkeyPatch) -
             assert composer.value == ""
 
     asyncio.run(check_enter_completion())
+
+
+def test_clicking_command_completion_executes_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    handled: list[str] = []
+
+    def fake_handle_inline_command(value: str) -> None:
+        handled.append(value)
+
+    async def check_click_completion() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(app, "_handle_inline_command", fake_handle_inline_command)
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/model"
+            composer.cursor_position = len("/model")
+            app._refresh_completions()
+            await pilot.pause()
+
+            await pilot.click("#suggestions", offset=(2, 0))
+            await pilot.pause()
+
+            assert handled == ["/models"]
+            assert composer.value == ""
+
+    asyncio.run(check_click_completion())
+
+
+def test_hovering_command_completion_moves_active_row() -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_hover_completion() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "/sta"
+            composer.cursor_position = len("/sta")
+            app._refresh_completions()
+            await pilot.pause()
+
+            suggestions = app.query_one("#suggestions", tui.OptionList)
+            position = app.query_one("#completion-position", tui.Static)
+
+            assert [candidate.text.strip() for candidate in app.completion_candidates] == [
+                "status",
+                "stats",
+            ]
+            assert suggestions.highlighted == 0
+            assert str(position.render()) == "  (1/2)"
+            assert not suggestions.has_class("mouse-hovering")
+
+            await pilot.hover("#suggestions", offset=(2, 1))
+            await pilot.pause()
+
+            assert suggestions.highlighted == 1
+            assert suggestions.has_class("mouse-hovering")
+            assert str(position.render()) == "  (2/2)"
+
+    asyncio.run(check_hover_completion())
 
 
 def test_models_completion_menu_uses_readable_columns() -> None:

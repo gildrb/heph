@@ -8,40 +8,29 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hephaistos import __version__
-from hephaistos.memory.supermemory import supermemory_configured
-from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.runtime import has_configured_access
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from hephaistos.chat.session import ChatSession
 
 
+def _armory_status_label(path: Path | None, *, max_length: int = 24) -> str:
+    if path is None:
+        return "none"
+    label = path.name or str(path)
+    if len(label) <= max_length:
+        return label
+    return f"...{label[-(max_length - 3) :]}"
+
+
 def status_lines(session: ChatSession, state: str = "ready") -> str:
-    armory = str(session.armory_path) if session.armory_path is not None else "none"
+    _ = state
+    armory = _armory_status_label(session.armory_path)
     model = session.config.model or "none"
-    keyless = is_keyless_endpoint(session.config.base_url)
-    key_ok = has_configured_access(session.config, refresh_oauth=False)
-    if keyless:
-        api = "free"
-    elif key_ok:
-        api = "configured"
-    else:
-        api = "missing"
-    mem_status = "on" if supermemory_configured() else "/memory"
     study_mode = session.study_state.autonomy_mode.value
-    sources = session.source_file_count or 0
-    source_str = str(sources)
-    state_tag = f" [{state}]" if state != "ready" else ""
-    return (
-        f"Hephaistos v{__version__}{state_tag}"
-        f" armory {armory}"
-        f" model {model}"
-        f" mode {study_mode}"
-        f" api {api}"
-        f" memory {mem_status}"
-        f" materials {source_str}"
-    )
+    return f"Heph armory {armory} model {model} mode {study_mode}"
 
 
 def config_error(session: ChatSession) -> str | None:

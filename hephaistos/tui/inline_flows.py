@@ -97,7 +97,6 @@ _OVERVIEW_MENU_HINT_RE = re.compile(
 _OVERVIEW_QUOTED_QUESTION_RE = re.compile(r"[\"“](?P<question>[^\"”]{8,180}\?)[\"”]")
 _OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 _OVERVIEW_CITATION_RE = re.compile(r"\s+\[(?:e|E)\d+\]")
-_INLINE_MENU_LABEL_WIDTH = 22
 _LANGUAGE_PRESERVING_TOPIC_PROMPT = (
     " Answer in the same language as the selected topic when that language is clear."
 )
@@ -296,12 +295,14 @@ def _inline_menu_option_text(
     selected: bool,
 ) -> str | Text:
     if _RichText is None:
-        return f"{label:<{_INLINE_MENU_LABEL_WIDTH}} {description}"
+        return f"{label}  {description}" if description else label
     palette = current_palette()
     label_style = f"bold {palette.brand}" if selected else palette.text
     text = _RichText()
-    text.append(f"{label:<{_INLINE_MENU_LABEL_WIDTH}} ", style=label_style)
-    text.append(description, style=palette.dim)
+    text.append(label, style=label_style)
+    if description:
+        text.append("  ", style=palette.dim)
+        text.append(description, style=palette.dim)
     return text
 
 

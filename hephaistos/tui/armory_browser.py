@@ -59,16 +59,16 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 _PARENT_LABEL = "all armories"
-_NEW_ARMORY_LABEL = "+ new armory"
+_NEW_ARMORY_LABEL = "+ new"
 _DIR_PREFIX = "  "
 _FILE_PREFIX = "  "
-_ARMORY_BADGE = "  armory"
+_ARMORY_BADGE = ""
 _RECENT_PREFIX = "  "
 _MISSING_BADGE = "  missing"
-_RECENT_HEADING = "recent armories"
-_ALL_HEADING = "all armories"
-_EMPTY_RECENT_LABEL = "  no recent armories"
-_EMPTY_ALL_LABEL = "  no armories found"
+_RECENT_HEADING = "recent"
+_ALL_HEADING = "all"
+_EMPTY_RECENT_LABEL = "  no recent items"
+_EMPTY_ALL_LABEL = "  none found"
 _PARENT_COLUMN_WIDTH = 0
 _PREVIEW_COLUMN_WIDTH = 38
 _DEFAULT_ARMORY_HOME_ENV = "HEPHAISTOS_ARMORY_HOME"
@@ -326,7 +326,7 @@ def _place_entries() -> list[_DirEntry]:
         if resolved in seen or not resolved.exists() or not resolved.is_dir():
             continue
         seen.add(resolved)
-        entries.append(_DirEntry(f"place   {label:<9} {resolved}", path=resolved, is_place=True))
+        entries.append(_DirEntry(f"{label}  {resolved}", path=resolved, is_place=True))
     return entries
 
 
@@ -520,8 +520,6 @@ def _armory_browser_css(p: ThemePalette) -> str:
     text_color = p.text
     dim_color = p.dim
     emphasis_color = p.emphasis
-    highlight_color = p.highlight
-
     return f"""
 ArmoryBrowserScreen {{
     align: center middle;
@@ -597,12 +595,12 @@ ArmoryBrowserScreen {{
     padding: 0;
 }}
 #armory-current-col > .option-list--option-highlighted {{
-    background: {highlight_color};
+    background: transparent;
     color: {text_color};
     padding: 0;
 }}
 #armory-current-col:focus > .option-list--option-highlighted {{
-    background: {highlight_color};
+    background: transparent;
     color: {text_color};
     padding: 0;
 }}

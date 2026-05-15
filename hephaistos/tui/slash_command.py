@@ -48,9 +48,8 @@ def slash_suggestion(engine: SlashCompletionEngine, value: str) -> str | None:
 
 def command_help() -> str:
     suggestions = tui_command_suggestions()
-    max_name = max(len(s.name) for s in suggestions)
-    lines: list[str] = []
-    for suggestion in sorted(suggestions, key=lambda s: s.name):
-        padded = f"  /{suggestion.name}".ljust(max_name + 4)
-        lines.append(f"{padded} {suggestion.description}")
+    lines = [
+        f"  /{suggestion.name}  {suggestion.description}"
+        for suggestion in sorted(suggestions, key=lambda s: s.name)
+    ]
     return "\n".join(lines)

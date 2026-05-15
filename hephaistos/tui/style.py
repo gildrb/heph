@@ -24,6 +24,10 @@ Screen {{
     color: {p.text};
     layers: base suggestions;
 }}
+Screen .screen--selection {{
+    background: {bg};
+    text-style: reverse;
+}}
 Horizontal,
 Vertical,
 Static,
@@ -56,8 +60,8 @@ RichLog {{
     display: none;
 }}
 #status {{
-    height: auto;
-    max-height: 2;
+    height: 1;
+    max-height: 1;
     width: auto;
     max-width: 100%;
     padding: 0 0;
@@ -155,8 +159,8 @@ RichLog {{
     scrollbar-size: 0 0;
 }}
 #armory-current-inline > .option-list--option-highlighted {{
-    background: {p.selection_background};
-    color: {p.selection_text};
+    background: {bg};
+    color: {p.text};
 }}
 #armory-preview-inline {{
     width: 40;
@@ -173,6 +177,7 @@ RichLog {{
 }}
 #materials-inline {{
     height: 1fr;
+    min-height: 0;
     width: 100%;
     background: {bg};
     background-tint: {bt};
@@ -182,29 +187,56 @@ RichLog {{
 #materials-inline.active {{
     display: block;
 }}
+#materials-top-gap,
+#materials-bottom-gap {{
+    height: 1;
+    background: {bg};
+    color: transparent;
+}}
 #materials-header {{
     height: 1;
     color: {p.dim};
     background: {bg};
-    text-style: bold;
 }}
-#materials-list {{
+#materials-columns {{
+    layout: horizontal;
     height: 1fr;
+    min-height: 0;
     width: 100%;
+    background: {bg};
+    color: {p.text};
+}}
+#materials-list,
+#materials-list-right {{
+    height: 1fr;
+    min-height: 0;
+    width: 1fr;
     padding: 0 1;
     background: {bg};
     color: {p.text};
     scrollbar-size: 0 0;
 }}
+#materials-list-right {{
+    display: none;
+}}
+#materials-columns.two-column > #materials-list-right {{
+    display: block;
+}}
 #materials-list.material-enabled > .option-list--option-highlighted,
-#materials-list.material-enabled:focus > .option-list--option-highlighted {{
-    background: {p.material_enabled};
-    color: {p.selection_text};
+#materials-list.material-enabled:focus > .option-list--option-highlighted,
+#materials-list-right.material-enabled > .option-list--option-highlighted,
+#materials-list-right.material-enabled:focus > .option-list--option-highlighted {{
+    background: {bg};
+    color: {p.material_enabled};
+    text-style: not bold;
 }}
 #materials-list.material-disabled > .option-list--option-highlighted,
-#materials-list.material-disabled:focus > .option-list--option-highlighted {{
-    background: {p.material_disabled};
-    color: {p.selection_text};
+#materials-list.material-disabled:focus > .option-list--option-highlighted,
+#materials-list-right.material-disabled > .option-list--option-highlighted,
+#materials-list-right.material-disabled:focus > .option-list--option-highlighted {{
+    background: {bg};
+    color: {p.material_disabled};
+    text-style: not bold;
 }}
 #materials-footer {{
     height: 1;
@@ -242,6 +274,13 @@ RichLog {{
     background: {user_bg};
     color: {p.text};
 }}
+#composer-frame.compact {{
+    height: 1;
+    min-height: 1;
+    max-height: 1;
+    margin-top: 0;
+    padding: 0 0;
+}}
 #composer-prompt {{
     height: 1;
     min-height: 1;
@@ -255,12 +294,16 @@ RichLog {{
 }}
 #completion-stack {{
     height: 9;
-    min-height: 9;
+    min-height: 1;
     max-height: 9;
     width: 100%;
     max-width: 100%;
     background: {bg};
     color: {p.text};
+}}
+#completion-stack.compact {{
+    height: 1;
+    max-height: 1;
 }}
 #suggestions {{
     height: auto;
@@ -284,6 +327,15 @@ RichLog {{
 #suggestions:focus > .option-list--option-highlighted {{
     background: {bg};
     color: {p.text};
+    text-style: not bold;
+}}
+#suggestions.mouse-hovering > .option-list--option-highlighted,
+#suggestions.mouse-hovering:focus > .option-list--option-highlighted,
+#suggestions > .option-list--option-hover,
+#suggestions:focus > .option-list--option-hover {{
+    background: {user_bg};
+    color: {p.text};
+    text-style: not bold;
 }}
 .hidden {{
     visibility: hidden;
@@ -303,11 +355,13 @@ OptionList > .option-list--option {{
 OptionList > .option-list--option-highlighted {{
     background: {p.selection_background};
     color: {p.selection_text};
+    text-style: not bold;
     padding: 0 2;
 }}
 OptionList:focus > .option-list--option-highlighted {{
     background: {p.selection_background};
     color: {p.selection_text};
+    text-style: not bold;
     padding: 0 2;
 }}
 #composer {{
@@ -372,6 +426,7 @@ Input > .input--cursor {{
     color: {p.panel};
 }}
 Input > .input--selection {{
-    background: {p.stone};
+    background: {bg};
+    text-style: reverse;
 }}
 """

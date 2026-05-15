@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeVar, overload
+from typing import TYPE_CHECKING, Protocol, overload
 
 from hephaistos.armory.search import add_known_armory, set_last_armory
 from hephaistos.armory.storage import ArmoryError, initialize
 from hephaistos.armory.storage import validate as _validate_armory
+from hephaistos.terminal import current_palette
 from hephaistos.tui.armory_browser import (
     _creation_parent_error,
     _DirEntry,
@@ -16,28 +17,28 @@ from hephaistos.tui.armory_browser import (
     default_armory_home,
     new_armory_path,
 )
-
-try:
-    from textual.widgets import Input, OptionList, RichLog, Static
-except ImportError:
-    Input = None  # ty:ignore[invalid-assignment]
-    OptionList = None  # ty:ignore[invalid-assignment]
-    RichLog = None  # ty:ignore[invalid-assignment]
-    Static = None  # ty:ignore[invalid-assignment]
+from hephaistos.tui.textual_compat import (
+    ClassableWidget as _ClassableWidget,
+)
+from hephaistos.tui.textual_compat import (
+    Input,
+    OptionList,
+    RichLog,
+    Static,
+)
+from hephaistos.tui.textual_compat import (
+    RichText as _RichText,
+)
+from hephaistos.tui.textual_compat import (
+    WidgetT as _WidgetT,
+)
 
 if TYPE_CHECKING:
+    from rich.text import Text
     from textual import events
     from textual.widget import Widget
 
     from hephaistos.chat.session import ChatSession
-
-_WidgetT = TypeVar("_WidgetT")
-
-
-class _ClassableWidget(Protocol):
-    def add_class(self, *_class_names: str) -> object: ...
-
-    def remove_class(self, *_class_names: str) -> object: ...
 
 
 class _ArmoryHost(Protocol):
@@ -84,6 +85,8 @@ class _ArmoryHost(Protocol):
 
     def _refresh_armory_inline(self, *, mode: str = "manage") -> None: ...
 
+    def _render_armory_options(self, highlighted: int | None = None) -> None: ...
+
     def _armory_selection_key(self) -> tuple[str, str] | None: ...
 
     def _armory_index_for_key(self, key: tuple[str, str] | None) -> int | None: ...
@@ -124,6 +127,28 @@ def _display_path(path: Path) -> str:
         return f"~/{path.relative_to(Path.home())}"
     except ValueError:
         return str(path)
+
+
+def _armory_entry_text(entry: _DirEntry, *, selected: bool) -> str | Text:
+    if _RichText is None:
+        return entry.label
+    if not entry.label:
+        return ""
+
+    palette = current_palette()
+    text = _RichText()
+    leading = entry.label[: len(entry.label) - len(entry.label.lstrip())]
+    label = entry.label.strip()
+    text.append(leading, style=palette.dim)
+    if entry.is_section:
+        text.append(label, style=f"dim {palette.dim}")
+    elif entry.is_create:
+        text.append(label, style=f"bold {palette.brand}" if selected else palette.emphasis)
+    elif entry.is_missing:
+        text.append(label, style=f"bold {palette.error}" if selected else palette.error)
+    else:
+        text.append(label, style=f"bold {palette.brand}" if selected else palette.text)
+    return text
 
 
 class TuiArmoryMixin:
@@ -177,7 +202,6 @@ class TuiArmoryMixin:
     def _refresh_armory_inline(self: _ArmoryHost, *, mode: str = "manage") -> None:
         if not _is_within_armory_home(self._armory_current):
             self._armory_current = default_armory_home()
-        current = self.query_one("#armory-current-inline", OptionList)
         previous_key = self._armory_selection_key()
         self._armory_entries = build_entries(
             self._armory_current,
@@ -207,17 +231,30 @@ class TuiArmoryMixin:
         pane_hint.update("")
         self.query_one("#armory-count-hint", Static).update("")
 
-        current.clear_options()
-        for entry in self._armory_entries:
-            current.add_option(entry.label)
-        current.highlighted = self._armory_index_for_key(previous_key)
-        if current.highlighted is not None:
-            entry = self._armory_entries[current.highlighted]
+        highlighted = self._armory_index_for_key(previous_key)
+        if highlighted is not None:
+            entry = self._armory_entries[highlighted]
             if entry.path is None and not entry.is_create:
-                current.highlighted = None
-        if current.highlighted is None:
-            current.highlighted = self._first_selectable_armory_index()
+                highlighted = None
+        if highlighted is None:
+            highlighted = self._first_selectable_armory_index()
+        self._render_armory_options(highlighted)
         self._update_armory_preview()
+
+    def _render_armory_options(
+        self: _ArmoryHost,
+        highlighted: int | None = None,
+    ) -> None:
+        current = self.query_one("#armory-current-inline", OptionList)
+        if highlighted is None:
+            highlighted = current.highlighted
+        current.set_options(
+            [
+                _armory_entry_text(entry, selected=index == highlighted)
+                for index, entry in enumerate(self._armory_entries)
+            ]
+        )
+        current.highlighted = highlighted
 
     def _armory_focus_name(self: _ArmoryHost) -> str:
         """Return which pane is focused for explicit navigation feedback."""
@@ -295,6 +332,7 @@ class TuiArmoryMixin:
             if entry.path is not None or entry.is_create:
                 current.highlighted = index
                 break
+        self._render_armory_options()
         self._update_armory_preview()
 
     def _armory_open_highlighted(self: _ArmoryHost) -> None:

@@ -44,6 +44,7 @@ from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.history import TuiHistoryMixin
 from hephaistos.tui.inline_flows import TuiInlineFlowMixin, overview_topic_menu
 from hephaistos.tui.keymap import armory_binding_keys
+from hephaistos.tui.materials import TuiMaterialsMixin
 from hephaistos.tui.no_armory import record_no_armory_turn
 from hephaistos.tui.routing import (
     TERMINAL_INTERACTIVE_COMMANDS,
@@ -153,8 +154,10 @@ _slash_suggestion = slash_suggestion
 
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
 _SIDEBAR_MIN_WINDOW_WIDTH = 120
-# Let the terminal own click-drag selection so the whole TUI is copyable.
-_TUI_ENABLE_MOUSE = False
+_COMPACT_COMPLETION_STACK_MAX_HEIGHT = 12
+# Textual owns mouse events so widgets can be clicked, while ALLOW_SELECT on
+# individual widgets keeps selection scoped to rendered text.
+_TUI_ENABLE_MOUSE = True
 
 
 def _completion_menu_scroll_y(
@@ -214,6 +217,7 @@ class HephaistosTui(
     TuiHistoryMixin,
     TuiInlineFlowMixin,
     TuiArmoryMixin,
+    TuiMaterialsMixin,
     TuiTranscriptMixin,
     App[None],
 ):
@@ -256,6 +260,8 @@ class HephaistosTui(
         self._materials_inline_active = False
         self._materials_filter = ""
         self._materials_entries: list[str] = []
+        self._materials_columns: tuple[list[str], list[str]] = ([], [])
+        self._materials_highlighted_index: int | None = None
         self._materials_mode = "toggle"
         self._sidebar_width_visible = True
         self._sidebar_actual_visible: bool | None = None
@@ -286,9 +292,13 @@ class HephaistosTui(
                         yield w.static("", id="armory-preview-inline")
                     yield w.static("", id="armory-error-inline")
                 with w.vertical(id="materials-inline"):
+                    yield w.static("", id="materials-top-gap")
                     yield w.static("", id="materials-header")
-                    yield w.option_list(id="materials-list")
+                    with w.horizontal(id="materials-columns"):
+                        yield w.option_list(id="materials-list")
+                        yield w.option_list(id="materials-list-right")
                     yield w.static("", id="materials-footer")
+                    yield w.static("", id="materials-bottom-gap")
                 yield w.static("", id="thinking-indicator")
                 with w.horizontal(id="composer-frame"):
                     yield w.static("▸", id="composer-prompt")
@@ -316,6 +326,7 @@ class HephaistosTui(
         self._set_sidebar_visible(
             visible and not self._armory_inline_active and not self._materials_inline_active
         )
+        self._refresh_compact_layout_class()
         for index, entry in enumerate(self.state.transcript):
             if index > 0:
                 self._write_transcript_gap()
@@ -355,16 +366,23 @@ class HephaistosTui(
             event.stop()
 
     def on_click(self, event: events.Click) -> None:
+        if isinstance(event.widget, OptionList):
+            return
         composer = self.query_one("#composer", Input)
         if self.focused is not composer:
             composer.focus()
             self.set_focus(composer)
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        if self._handle_suggestions_mouse_move(event):
+            return
 
     def on_resize(self, event: events.Resize) -> None:
         visible = event.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
         self._sidebar_width_visible = visible
         target = visible and not self._armory_inline_active and not self._materials_inline_active
         self._set_sidebar_visible(target)
+        self._refresh_compact_layout_class()
         self._schedule_transcript_reflow()
 
     def _set_sidebar_visible(self, visible: bool) -> None:
@@ -374,6 +392,16 @@ class HephaistosTui(
         display = "block" if visible else "none"
         self.query_one("#info-panel", Static).styles.display = display
         self._schedule_transcript_reflow()
+
+    def _refresh_compact_layout_class(self) -> None:
+        stack = self.query_one("#completion-stack")
+        frame = self.query_one("#composer-frame")
+        if self.size.height <= _COMPACT_COMPLETION_STACK_MAX_HEIGHT:
+            stack.add_class("compact")
+            frame.add_class("compact")
+        else:
+            stack.remove_class("compact")
+            frame.remove_class("compact")
 
     def on_key(self, event: events.Key) -> None:
         composer = self.query_one("#composer", Input)
@@ -454,19 +482,22 @@ class HephaistosTui(
             self._armory_open_highlighted()
             self._refresh_armory_inline()
             return
-        if event.option_list.id == "materials-list":
+        if event.option_list.id in ("materials-list", "materials-list-right"):
             event.stop()
-            if self._materials_mode == "toggle":
-                self._toggle_highlighted_material()
-            else:
-                self._close_materials_inline()
+            if not self._materials_inline_active:
+                return
+            self._handle_materials_option_selected(
+                event.option_list.id,
+                event.option_index,
+            )
             return
         if event.option_list.id != "suggestions":
             return
         if self._inline_flow.active:
-            self._select_inline_flow_option(event.index)  # ty:ignore[unresolved-attribute]
+            self._select_inline_flow_option(event.option_index)
         else:
-            self._apply_completion(event.index)  # ty:ignore[unresolved-attribute]
+            self._apply_completion(event.option_index)
+            self._submit_composer_value(apply_highlighted_completion=False)
         event.stop()
 
     def on_option_list_option_highlighted(
@@ -476,19 +507,63 @@ class HephaistosTui(
         if event.option_list.id == "armory-current-inline":
             event.stop()
             self._update_armory_preview()
+            return
+        if event.option_list.id in ("materials-list", "materials-list-right"):
+            event.stop()
+            if not self._materials_inline_active:
+                return
+            self._handle_materials_option_highlighted(
+                event.option_list.id,
+                event.option_index,
+            )
+
+    def _handle_suggestions_mouse_move(self, event: events.MouseMove) -> bool:
+        suggestions = self.query_one("#suggestions", OptionList)
+        if getattr(getattr(event, "widget", None), "id", None) != "suggestions":
+            suggestions.remove_class("mouse-hovering")
+            return False
+        if not suggestions.has_class("visible"):
+            suggestions.remove_class("mouse-hovering")
+            return False
+        option_index = event.style.meta.get("option")
+        if not isinstance(option_index, int):
+            suggestions.remove_class("mouse-hovering")
+            return False
+        suggestions.add_class("mouse-hovering")
+        if suggestions.highlighted == option_index:
+            return False
+        if self._inline_flow.active:
+            if not (0 <= option_index < len(self._inline_flow.options)):
+                return False
+            self._render_inline_menu_options(
+                self._inline_flow.options,
+                highlighted=option_index,
+            )
+        else:
+            if not (0 <= option_index < len(self.completion_candidates)):
+                return False
+            self._set_completion_options(highlighted=option_index)
+            suggestions.highlighted = option_index
+            self._refresh_footer_hints()
+        return False
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._submit_composer_value(apply_highlighted_completion=True)
+
+    def _submit_composer_value(self, *, apply_highlighted_completion: bool) -> None:
         composer = self.query_one("#composer", Input)
         value = composer.value.strip()
         if self._inline_flow.active:
-            event.stop()
             self._submit_inline_flow(value)
             return
-        if self._completion_menu_visible() and self.completion_candidates:
+        if (
+            apply_highlighted_completion
+            and self._completion_menu_visible()
+            and self.completion_candidates
+        ):
             self._apply_highlighted_completion()
             value = composer.value.strip()
         if self._armory_inline_active:
-            event.stop()
             if self._armory_creating:
                 self._create_inline_armory(value)
             else:
@@ -498,7 +573,6 @@ class HephaistosTui(
                 self._refresh_armory_inline()
             return
         if self._materials_inline_active:
-            event.stop()
             self._close_materials_inline()
             return
         route = _tui_input_route(value)
@@ -598,154 +672,6 @@ class HephaistosTui(
 
     def _append_armory_home(self) -> None:
         self._append_plain(_armory_home_text())
-
-    def _open_materials_inline(self, value: str = "", *, mode: str = "toggle") -> None:
-        _, _, args = value.partition(" ")
-        self._materials_filter = args.strip()
-        self._materials_mode = mode
-        self._materials_inline_active = True
-        self.query_one("#transcript", RichLog).add_class("hidden-for-armory")
-        self.query_one("#transcript-spacer", Static).add_class("hidden-for-armory")
-        self.query_one("#materials-inline").add_class("active")
-        self._set_sidebar_visible(False)
-        composer = self.query_one("#composer", Input)
-        composer.value = self._materials_filter
-        composer.placeholder = "Filter materials..."
-        self._hide_completions()
-        self._refresh_materials_inline()
-        material_list = self.query_one("#materials-list", OptionList)
-        material_list.focus()
-        self.set_focus(material_list)
-
-    def _close_materials_inline(self) -> None:
-        self._materials_inline_active = False
-        self._materials_filter = ""
-        self._materials_mode = "toggle"
-        self.query_one("#transcript", RichLog).remove_class("hidden-for-armory")
-        self.query_one("#transcript-spacer", Static).remove_class("hidden-for-armory")
-        self.query_one("#materials-inline").remove_class("active")
-        self._set_sidebar_visible(self._sidebar_width_visible)
-        self._schedule_transcript_reflow()
-        composer = self.query_one("#composer", Input)
-        composer.value = ""
-        composer.placeholder = 'Ask anything... "What do I need to study next?"'
-        self._refresh_status("ready")
-        self._update_info_panel()
-        composer.focus()
-        self.set_focus(composer)
-
-    def _refresh_materials_inline(self) -> None:
-        query = self._materials_filter.strip().lower()
-        files = list(self.session.source_files)
-        if query:
-            files = [file for file in files if query in file.lower()]
-        self._materials_entries = files
-        enabled = len(self.session.source_files) - len(self.session.disabled_source_files)
-        if self._materials_mode == "toggle":
-            header = (
-                f"materials  type filter  space toggle  enter toggle  esc close  {enabled} active"
-            )
-        else:
-            header = f"sources  type filter  ↑/↓ browse  enter close  esc close  {enabled} active"
-        self.query_one("#materials-header", Static).update(header)
-        material_list = self.query_one("#materials-list", OptionList)
-        previous = material_list.highlighted
-        material_list.clear_options()
-        highlighted = min(previous or 0, len(self._materials_entries) - 1)
-        for index, file in enumerate(self._materials_entries):
-            material_list.add_option(
-                self._format_material_option(file, selected=index == highlighted)
-            )
-        if self._materials_entries:
-            material_list.highlighted = highlighted
-        self._refresh_materials_highlight_class()
-        footer = self.query_one("#materials-footer", Static)
-        if not self.session.source_files:
-            footer.update("No materials attached.")
-        elif query and not self._materials_entries:
-            footer.update(f"No materials match: {self._materials_filter}")
-        else:
-            footer.update(self._materials_footer_text())
-
-    def _materials_footer_text(self) -> str:
-        if self._materials_mode == "toggle":
-            return "Unchecked materials will not be used for retrieval."
-        return "Use /materials to include or exclude retrieval sources."
-
-    def _format_material_option(self, file: str, *, selected: bool) -> str | Text:
-        palette = current_palette()
-        enabled_file = file not in self.session.disabled_source_files
-        label = f"@{file.removeprefix('materials/')}"
-        state_color = palette.material_enabled if enabled_file else palette.material_disabled
-        style = f"{palette.selection_text} on {state_color}" if selected else state_color
-        return _RichText.styled(label, style) if _RichText is not None else label
-
-    def _refresh_materials_highlight_class(self) -> None:
-        material_list = self.query_one("#materials-list", OptionList)
-        material_list.remove_class("material-enabled", "material-disabled")
-        idx = material_list.highlighted
-        if idx is None or idx < 0 or idx >= len(self._materials_entries):
-            return
-        file = self._materials_entries[idx]
-        class_name = (
-            "material-disabled"
-            if file in self.session.disabled_source_files
-            else "material-enabled"
-        )
-        material_list.add_class(class_name)
-
-    def _toggle_highlighted_material(self) -> None:
-        material_list = self.query_one("#materials-list", OptionList)
-        idx = material_list.highlighted
-        if idx is None or idx < 0 or idx >= len(self._materials_entries):
-            return
-        file = self._materials_entries[idx]
-        if file in self.session.disabled_source_files:
-            self.session.disabled_source_files.remove(file)
-        else:
-            self.session.disabled_source_files.add(file)
-        self.session.dirty = True
-        self._refresh_materials_inline()
-
-    def _move_material_highlight(self, offset: int) -> None:
-        if not self._materials_entries:
-            return
-        material_list = self.query_one("#materials-list", OptionList)
-        highlighted = material_list.highlighted or 0
-        material_list.highlighted = (highlighted + offset) % len(self._materials_entries)
-        self._refresh_materials_inline()
-
-    def _handle_materials_key(self, event: events.Key) -> bool:
-        if event.key == "escape":
-            self._close_materials_inline()
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key == "enter":
-            if self._materials_mode == "toggle":
-                self._toggle_highlighted_material()
-            else:
-                self._close_materials_inline()
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key in ("up", "k"):
-            self._move_material_highlight(-1)
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key in ("down", "j"):
-            self._move_material_highlight(1)
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key == "space" or event.character == " ":
-            if self._materials_mode == "toggle":
-                self._toggle_highlighted_material()
-            event.prevent_default()
-            event.stop()
-            return True
-        return False
 
     def _handle_new(self) -> None:
         from hephaistos.commands import NewCommand
@@ -1040,6 +966,7 @@ class HephaistosTui(
             return
         self._set_completion_options(highlighted=0)
         suggestions.add_class("visible")
+        suggestions.remove_class("mouse-hovering")
         suggestions.highlighted = 0
         suggestions.scroll_y = 0
         self._refresh_footer_hints()
@@ -1051,10 +978,12 @@ class HephaistosTui(
         suggestions.set_options([])
         suggestions.remove_class("inline-menu")
         suggestions.remove_class("visible")
+        suggestions.remove_class("mouse-hovering")
         self._refresh_footer_hints()
 
     def _move_completion(self, offset: int) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
+        suggestions.remove_class("mouse-hovering")
         flow = self._inline_flow
         options = flow.options if flow.active else self.completion_candidates
         if not options:

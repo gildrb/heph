@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hephaistos.armory.search import load_known_armories
-from hephaistos.memory.supermemory import supermemory_configured
-from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.runtime import has_configured_access
 from hephaistos.terminal import current_palette
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
@@ -44,41 +42,25 @@ def _study_mode_style(mode: str) -> str:
 def status_text(session: ChatSession, state: str = "ready") -> Text:
     plain = status_lines(session, state)
     palette = current_palette()
-    keyless = is_keyless_endpoint(session.config.base_url)
-    key_ok = has_configured_access(session.config, refresh_oauth=False)
-    if keyless:
-        api = "free"
-        api_style = palette.dim
-    elif key_ok:
-        api = "configured"
-        api_style = palette.configured
-    else:
-        api = "missing"
-        api_style = palette.error
-
-    mem_configured = supermemory_configured()
-    mem_status = "on" if mem_configured else "/memory"
-    mem_style = palette.configured if mem_configured else palette.dim
 
     text_cls = require_rich_text()
     text = text_cls(plain, style=palette.dim)
+    text.stylize(f"bold {palette.brand}", 0, len("Heph"))
 
-    hep_idx = plain.index("Hephaistos")
-    text.stylize(f"bold {palette.brand}", hep_idx, hep_idx + len("Hephaistos"))
-
-    for label in ("armory", "model", "mode", "api", "memory", "materials"):
-        start = plain.index(f" {label} ") + 1
+    for label in ("armory", "model", "mode"):
+        start = 0 if plain.startswith(f"{label} ") else plain.index(f" {label} ") + 1
         text.stylize(f"dim {palette.dim}", start, start + len(label))
+
+    for label in ("armory", "model"):
+        value_start = plain.index(f"{label} ") + len(label) + 1
+        next_label = " model " if label == "armory" else " mode "
+        value_end = plain.index(next_label, value_start)
+        text.stylize(palette.text, value_start, value_end)
 
     mode = session.study_state.autonomy_mode.value
     mode_start = plain.index(mode, plain.index("mode "))
     text.stylize(_study_mode_style(mode), mode_start, mode_start + len(mode))
 
-    api_start = plain.index(api, plain.index("api "))
-    text.stylize(api_style, api_start, api_start + len(api))
-
-    mem_value_start = plain.index(mem_status, plain.index("memory "))
-    text.stylize(mem_style, mem_value_start, mem_value_start + len(mem_status))
     return text
 
 
@@ -186,7 +168,6 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
 
     lines: list[str] = [
         title,
-        "\u2500" * 40,
         f"time {_session_duration(session_seconds)}",
         "",
         *_material_panel_lines(session),
