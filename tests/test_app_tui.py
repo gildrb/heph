@@ -139,6 +139,45 @@ def test_session_status_omits_api_badge_for_keyless_provider() -> None:
     assert "missing" not in status
 
 
+def test_shift_tab_cycles_study_modes() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_mode_cycle() -> None:
+        async with typed_app.run_test(size=(100, 20)) as pilot:
+            assert session.study_state.autonomy_mode is StudyAutonomyMode.GUIDED
+
+            await pilot.press("shift+tab")
+            await pilot.pause()
+            assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
+            assert session.study_state.autopilot_session_type == "general"
+            assert "mode autopilot" in tui._status_lines(session)
+            assert [entry.content for entry in app.state.transcript] == ["Mode set to autopilot."]
+
+            await pilot.press("shift+tab")
+            await pilot.pause()
+            assert session.study_state.autonomy_mode is StudyAutonomyMode.MANUAL
+            assert session.study_state.autopilot_session_type == ""
+            assert "mode manual" in tui._status_lines(session)
+            assert [entry.content for entry in app.state.transcript] == ["Mode set to manual."]
+
+            await pilot.press("shift+tab")
+            await pilot.pause()
+            assert session.study_state.autonomy_mode is StudyAutonomyMode.GUIDED
+            assert "mode guided" in tui._status_lines(session)
+            assert [entry.content for entry in app.state.transcript] == ["Mode set to guided."]
+
+    asyncio.run(check_mode_cycle())
+
+
 def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hephaistos.tui.display_text.armory_shortcut_key", lambda: "ctrl+a")
 

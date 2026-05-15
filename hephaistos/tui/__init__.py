@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -23,6 +24,7 @@ from hephaistos.parameters.settings import (
 )
 from hephaistos.providers.catalog import prefetch_provider_model_catalogs
 from hephaistos.providers.config import ProviderConfig
+from hephaistos.study import AutopilotSessionType, StudyAutonomyMode
 from hephaistos.terminal import ThemePalette, current_palette, set_theme
 from hephaistos.terminal.history import InputHistory
 from hephaistos.tui import armory as _tui_armory
@@ -223,6 +225,7 @@ class HephaistosTui(
 ):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("tab", "complete", "Complete"),
+        Binding("shift+tab", "cycle_study_mode", "Mode", show=False, priority=True),
         Binding("ctrl+p", "command_palette", "Commands", show=False, priority=True),
         Binding(armory_binding_keys(), "open_armory_home", "Armory", show=False, priority=True),
         Binding("ctrl+s", "open_search", "Search", show=False, priority=True),
@@ -447,6 +450,11 @@ class HephaistosTui(
             event.prevent_default()
             event.stop()
             return
+        if event.key == "shift+tab":
+            self.action_cycle_study_mode()
+            event.prevent_default()
+            event.stop()
+            return
         if event.key == "tab":
             self.action_complete()
             event.prevent_default()
@@ -664,6 +672,58 @@ class HephaistosTui(
         if not self.completion_candidates:
             return
         self._apply_highlighted_completion()
+
+    def action_cycle_study_mode(self) -> None:
+        if self.busy:
+            return
+        current = self.session.study_state.autonomy_mode
+        if current is StudyAutonomyMode.GUIDED:
+            self._set_autopilot_cycle_mode()
+        elif current is StudyAutonomyMode.AUTOPILOT:
+            self._set_manual_cycle_mode()
+        else:
+            self._set_guided_cycle_mode()
+        self._hide_completions()
+        self._refresh_status("ready")
+        self._update_info_panel()
+        self._update_cycle_mode_notice()
+
+    def _update_cycle_mode_notice(self) -> None:
+        text = f"Mode set to {self.session.study_state.autonomy_mode.value}."
+        if self.state.transcript and self.state.transcript[-1].kind == "notice":
+            last_entry = self.state.transcript[-1]
+            if last_entry.content.startswith("Mode set to "):
+                last_entry.content = text
+                self._reflow_transcript_entries()
+                return
+        self._append_notice(text)
+
+    def _set_guided_cycle_mode(self) -> None:
+        self.session.study_state.autonomy_mode = StudyAutonomyMode.GUIDED
+        self._clear_cycle_autopilot_session()
+
+    def _set_manual_cycle_mode(self) -> None:
+        self.session.study_state.autonomy_mode = StudyAutonomyMode.MANUAL
+        self._clear_cycle_autopilot_session()
+
+    def _set_autopilot_cycle_mode(self) -> None:
+        self.session.study_state.autonomy_mode = StudyAutonomyMode.AUTOPILOT
+        self.session.study_state.session_goal = "autonomous study"
+        self.session.study_state.time_budget_minutes = None
+        self.session.study_state.autopilot_session_type = AutopilotSessionType.GENERAL.value
+        self.session.study_state.autopilot_started_at = datetime.now(UTC)
+        self.session.study_state.autopilot_turns = 0
+        self.session.study_state.autopilot_stop_reason = ""
+        self.session.dirty = True
+
+    def _clear_cycle_autopilot_session(self) -> None:
+        self.session.study_state.session_goal = ""
+        self.session.study_state.time_budget_minutes = None
+        self.session.study_state.autopilot_session_type = ""
+        self.session.study_state.autopilot_started_at = None
+        self.session.study_state.autopilot_turns = 0
+        self.session.study_state.autopilot_stop_reason = ""
+        self.session.dirty = True
 
     def _apply_highlighted_completion(self) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
