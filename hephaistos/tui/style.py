@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from hephaistos.terminal import Theme, current_palette
+from hephaistos.terminal.palette import TRANSPARENT
 
 
 def _tui_css(theme: Theme | None = None) -> str:
     """Generate TUI CSS from the selected theme palette."""
     p = theme or current_palette()
-    app_bg = p.bg_app
-    bg = p.bg_surface
-    bt = p.bg_surface
+    app_bg = TRANSPARENT
+    bg = TRANSPARENT
+    bt = TRANSPARENT
     user_bg = p.bg_raised
     return f"""
 App {{

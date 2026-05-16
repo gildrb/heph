@@ -9,6 +9,8 @@ from typing import Protocol
 from hephaistos.agent.persona import list_personas
 from hephaistos.providers.config import Provider, ProviderConfig
 
+_COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
+
 
 class CommandSuggestion(Protocol):
     name: str
@@ -29,6 +31,39 @@ class CompletionCandidate:
 
 class _ProviderConfigLoader(Protocol):
     def __call__(self) -> ProviderConfig: ...
+
+
+def completion_menu_scroll_y(
+    highlighted: int,
+    option_count: int,
+    rendered_height: int,
+    max_visible_rows: int = _COMPLETION_MENU_MAX_VISIBLE_ROWS,
+) -> int:
+    visible_rows = rendered_height if rendered_height > 0 else max_visible_rows
+    visible_rows = max(1, min(option_count, visible_rows, max_visible_rows))
+    max_scroll_y = max(0, option_count - visible_rows)
+    centered_scroll_y = highlighted - (visible_rows // 2)
+    return min(max(centered_scroll_y, 0), max_scroll_y)
+
+
+def changed_highlight_indices(
+    previous: int | None,
+    highlighted: int,
+    option_count: int,
+) -> tuple[int, ...]:
+    indices = [
+        index
+        for index in (previous, highlighted)
+        if index is not None and 0 <= index < option_count
+    ]
+    return tuple(dict.fromkeys(indices))
+
+
+def slash_command_name(value: str) -> str:
+    stripped = value.strip()
+    if not stripped.startswith("/"):
+        return ""
+    return stripped[1:].partition(" ")[0].lower()
 
 
 class SlashCompletionEngine:

@@ -43,6 +43,7 @@ from hephaistos.providers.keyring_store import (
 )
 from hephaistos.providers.model_choices import configured_model_choices
 from hephaistos.terminal import current_palette, set_theme
+from hephaistos.terminal.palette import TRANSPARENT
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.session_state import TuiRuntimeState
 from hephaistos.tui.style import _tui_css
@@ -910,12 +911,11 @@ class TuiInlineFlowMixin:
         read_from = (screen_path, f"{self.__class__.__name__}.CSS")
         self.stylesheet.add_source(self.CSS, read_from=read_from, is_default_css=False)
         self.refresh_css(animate=False)
-        palette = current_palette()
-        self.styles.background = palette.bg_app
-        self.styles.background_tint = palette.bg_app
+        self.styles.background = TRANSPARENT
+        self.styles.background_tint = TRANSPARENT
         screen = cast("_ScreenObject", self.screen)
-        screen.styles.background = palette.bg_app
-        screen.styles.background_tint = palette.bg_app
+        screen.styles.background = TRANSPARENT
+        screen.styles.background_tint = TRANSPARENT
         self._refresh_status("ready")
         self._refresh_footer_hints()
         self._update_info_panel()
