@@ -201,6 +201,48 @@ def test_enrich_reply_formats_common_latex_inline_math() -> None:
     assert "2³⋅3" in result.markdown_text
 
 
+def test_enrich_reply_formats_math_without_evidence() -> None:
+    result = enrich_reply(
+        r"Euler gives \(\sum_{n=1}^{\infty}\frac{1}{n^{2}}=\frac{\pi ^{2}}{6}\).",
+        None,
+    )
+
+    assert r"\sum" not in result.markdown_text
+    assert r"\frac" not in result.markdown_text
+    assert "∑ₙ₌₁^∞1/n²=π²/6" in result.markdown_text
+
+
+def test_enrich_reply_formats_undelimited_latex_math() -> None:
+    result = enrich_reply(
+        r"""Let
+
+[ a_n=\frac{1}{n^{2}}, \qquad n=1,2,\dots ]
+
+The infinite series
+
+[ S=\sum_{n=1}^{\infty}\frac{1}{n^{2}} ]
+
+converges and its value is closed-form:
+
+[ S=\frac{\pi ^{2}}{6}. ]
+
+A demonstration uses \left.\frac{d^{2}}{dx^{2}}x^{2}\right|_{x=0}.""",
+        None,
+    )
+
+    assert r"\frac" not in result.markdown_text
+    assert r"\sum" not in result.markdown_text
+    assert r"\pi" not in result.markdown_text
+    assert r"\qquad" not in result.markdown_text
+    assert r"\dots" not in result.markdown_text
+    assert "≤ft" not in result.markdown_text
+    assert "aₙ=1/n²" in result.markdown_text
+    assert "n=1,2,…" in result.markdown_text
+    assert "S=∑ₙ₌₁^∞1/n²" in result.markdown_text
+    assert "S=π²/6" in result.markdown_text
+    assert "d²/dx²x²|ₓ₌₀" in result.markdown_text
+
+
 def test_evidence_footer_shows_only_cited_evidence_when_available() -> None:
     evidence = _make_evidence(
         ("E1", "source/a.md", 0, 0.5, "a"),

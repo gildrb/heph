@@ -10,6 +10,7 @@ from hephaistos.tui.rich_transcript import (
     enrich_reply,
     evidence_citation_spans,
     is_evidence_sources_line,
+    normalize_math_output,
 )
 from hephaistos.tui.session_state import TuiRuntimeState, TuiTranscriptEntry
 
@@ -375,7 +376,8 @@ class TuiTranscriptMixin:
     def _append_entry(self: _TranscriptHost, content: str, kind: str = "plain") -> None:
         if self.state.transcript:
             self._write_transcript_gap()
-        entry = TuiTranscriptEntry(content, kind)
+        entry_content = normalize_math_output(content) if kind == "markdown" else content
+        entry = TuiTranscriptEntry(entry_content, kind)
         self.state.transcript.append(entry)
         self._write_transcript_entry(entry)
 
