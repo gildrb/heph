@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hephaistos.rag.context as rag_context_module
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import build_context, build_turn_evidence, estimate_tokens
 from hephaistos.rag.retrieve import ScoredChunk
@@ -75,9 +76,28 @@ class TestEstimateTokens:
     def test_empty(self) -> None:
         assert estimate_tokens("") == 0
 
-    def test_estimation(self) -> None:
+    def test_estimation(self, monkeypatch) -> None:
+        monkeypatch.setattr(rag_context_module, "_encoder", None)
+
         text = "A" * 100
+
         assert estimate_tokens(text) == 25
 
-    def test_rounds_down(self) -> None:
+    def test_rounds_down(self, monkeypatch) -> None:
+        monkeypatch.setattr(rag_context_module, "_encoder", None)
+
         assert estimate_tokens("abc") == 0
+
+    def test_tiktoken_encoder_used_when_available(self, monkeypatch) -> None:
+        class FakeEncoder:
+            def encode(self, content: str) -> list[int]:
+                return [1, 2, 3]
+
+        text = "A" * 100
+        char_estimate = len(text) // 4
+        monkeypatch.setattr(rag_context_module, "_encoder", FakeEncoder())
+
+        tokens = estimate_tokens(text)
+
+        assert tokens == 3
+        assert tokens != char_estimate

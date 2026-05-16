@@ -332,49 +332,69 @@ class ArmoryIndex:
         )
         return typed
 
+    def save_retriever_state(self, retriever_type: str, state: dict[str, object]) -> Path | None:
+        """Persist retriever state keyed by index content hash and retriever type."""
+        state_path = (
+            self.armory_path
+            / ".hephaistos"
+            / f"retriever_{self.content_hash}_{retriever_type.replace('/', '_')}.json"
+        )
+        data = {
+            "content_hash": self.content_hash,
+            "retriever_type": retriever_type,
+            "state": state,
+        }
+        try:
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        except (OSError, TypeError):
+            return None
+        _log.debug(
+            "retriever state saved",
+            extra={"fields": {"path": str(state_path), "type": retriever_type}},
+        )
+        return state_path
+
+    def load_retriever_state(self, retriever_type: str) -> dict[str, object] | None:
+        """Load retriever state if it matches the current index content hash."""
+        state_path = (
+            self.armory_path
+            / ".hephaistos"
+            / f"retriever_{self.content_hash}_{retriever_type.replace('/', '_')}.json"
+        )
+        if not state_path.is_file():
+            return None
+        try:
+            data: object = json.loads(state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+        if not is_string_mapping(data):
+            return None
+        if data.get("content_hash") != self.content_hash:
+            return None
+        if data.get("retriever_type") != retriever_type:
+            return None
+        raw_state = data.get("state")
+        if not is_string_mapping(raw_state):
+            return None
+        _log.debug(
+            "retriever state loaded",
+            extra={"fields": {"path": str(state_path), "type": retriever_type}},
+        )
+        return raw_state
+
     @property
     def chunk_count(self) -> int:
         return sum(len(doc.chunks) for doc in self.documents)
 
     def build(self, *, progress: IndexProgress | None = None) -> None:
         """Scan material files and build the chunk index."""
+        self._reset_build_state()
         timer = Timer()
-        self.documents = []
-        self._file_hashes = {}
-        self._retriever = None
-        self._retriever_cache = {}
-        self.unindexable_files = {}
-
+        rebuilt = 0
         with timer:
             for file_path in self._iter_source_files():
-                rel = str(file_path.relative_to(self.armory_path))
-                if progress is not None:
-                    progress("reading", rel)
-                content_hash = _file_hash(file_path)
-                if content_hash is not None:
-                    self._file_hashes[rel] = content_hash
-
-                timeout_seconds = _file_timeout_seconds()
-                doc, timed_out = _chunk_file_with_timeout(
-                    file_path,
-                    self.armory_path,
-                    strategy=self.strategy,
-                    timeout_seconds=timeout_seconds,
-                )
-                if doc is not None and doc.chunks:
-                    self.documents.append(doc)
-                    if progress is not None:
-                        progress("indexed", f"{rel} ({len(doc.chunks)} chunks)")
-                elif not _is_text_file(file_path):
-                    reason = (
-                        _timeout_reason(timeout_seconds)
-                        if timed_out
-                        else _unindexable_reason(file_path)
-                    )
-                    self.unindexable_files[rel] = reason
-                    if progress is not None:
-                        progress("skipped", f"{rel}: {reason}")
-
+                rebuilt += self._index_source_file(file_path, progress=progress)
         _log.info(
             "index built",
             extra={
@@ -383,10 +403,106 @@ class ArmoryIndex:
                     "strategy": self.strategy.value,
                     "documents": len(self.documents),
                     "chunks": self.chunk_count,
+                    "rebuilt_files": rebuilt,
                     "latency_ms": timer.ms,
                 }
             },
         )
+
+    def build_incremental(
+        self,
+        previous: ArmoryIndex,
+        *,
+        progress: IndexProgress | None = None,
+    ) -> None:
+        """Rebuild changed material files while reusing unchanged documents."""
+        previous_documents = {document.source: document for document in previous.documents}
+        self._reset_build_state()
+        timer = Timer()
+        reused = 0
+        rebuilt = 0
+        with timer:
+            for file_path in self._iter_source_files():
+                rel = str(file_path.relative_to(self.armory_path))
+                content_hash = _file_hash(file_path)
+                if content_hash is not None:
+                    self._file_hashes[rel] = content_hash
+                previous_document = previous_documents.get(rel)
+                if (
+                    previous.strategy == self.strategy
+                    and content_hash is not None
+                    and previous._file_hashes.get(rel) == content_hash
+                    and previous_document is not None
+                ):
+                    self.documents.append(previous_document)
+                    reused += 1
+                    if progress is not None:
+                        progress("reading", rel)
+                        progress(
+                            "indexed",
+                            f"{rel} ({len(previous_document.chunks)} chunks, reused)",
+                        )
+                    continue
+                rebuilt += self._index_source_file(
+                    file_path,
+                    content_hash=content_hash,
+                    progress=progress,
+                )
+        _log.info(
+            "index built incrementally",
+            extra={
+                "fields": {
+                    "armory": str(self.armory_path),
+                    "strategy": self.strategy.value,
+                    "documents": len(self.documents),
+                    "chunks": self.chunk_count,
+                    "reused_files": reused,
+                    "rebuilt_files": rebuilt,
+                    "latency_ms": timer.ms,
+                }
+            },
+        )
+
+    def _reset_build_state(self) -> None:
+        self.documents = []
+        self._file_hashes = {}
+        self._retriever = None
+        self._retriever_cache = {}
+        self.unindexable_files = {}
+
+    def _index_source_file(
+        self,
+        file_path: Path,
+        *,
+        content_hash: str | None = None,
+        progress: IndexProgress | None = None,
+    ) -> int:
+        rel = str(file_path.relative_to(self.armory_path))
+        if progress is not None:
+            progress("reading", rel)
+        if content_hash is None:
+            content_hash = _file_hash(file_path)
+        if content_hash is not None:
+            self._file_hashes[rel] = content_hash
+        timeout_seconds = _file_timeout_seconds()
+        doc, timed_out = _chunk_file_with_timeout(
+            file_path,
+            self.armory_path,
+            strategy=self.strategy,
+            timeout_seconds=timeout_seconds,
+        )
+        if doc is not None and doc.chunks:
+            self.documents.append(doc)
+            if progress is not None:
+                progress("indexed", f"{rel} ({len(doc.chunks)} chunks)")
+        elif not _is_text_file(file_path):
+            reason = (
+                _timeout_reason(timeout_seconds) if timed_out else _unindexable_reason(file_path)
+            )
+            self.unindexable_files[rel] = reason
+            if progress is not None:
+                progress("skipped", f"{rel}: {reason}")
+        return 1
 
     def save(self) -> Path:
         """Persist the index to ``.hephaistos/rag_index.json``."""
@@ -427,7 +543,7 @@ class ArmoryIndex:
         index_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return index_path
 
-    def load(self) -> bool:
+    def load(self, *, allow_stale: bool = False) -> bool:
         """Load the index from disk. Returns False if index is missing/corrupt."""
         index_path = self.armory_path / ".hephaistos" / _INDEX_FILE
         if not index_path.is_file():
@@ -532,9 +648,11 @@ class ArmoryIndex:
                 "rag index cache does not match material files",
                 extra={"fields": {"armory": str(self.armory_path)}},
             )
-            self.documents = []
-            self._file_hashes = {}
-            return False
+            if not allow_stale:
+                self.documents = []
+                self._file_hashes = {}
+                return False
+            return True
 
         if not self._documents_match_material_sources(allow_binary_cache=version >= 7):
             _log.warning(
@@ -686,15 +804,19 @@ def build_index(
     *,
     strategy: ChunkStrategy = ChunkStrategy.AUTO,
     progress: IndexProgress | None = None,
+    previous: ArmoryIndex | None = None,
 ) -> ArmoryIndex:
     """Build a fresh index for the armory and persist it."""
-    previous = ArmoryIndex(armory_path, strategy=strategy)
-    previous_loaded = previous.load()
+    previous_loaded = previous is not None
+    if previous is None:
+        previous = ArmoryIndex(armory_path, strategy=strategy)
+        previous_loaded = previous.load(allow_stale=True)
     index = ArmoryIndex(armory_path, strategy=strategy)
-    index.build(progress=progress)
     if previous_loaded:
-        index._preserve_unavailable_docling_documents_from(previous)
-        index._preserve_failed_binary_documents_from(previous)
+        assert previous is not None
+        index.build_incremental(previous, progress=progress)
+    else:
+        index.build(progress=progress)
     if progress is not None:
         progress("writing", str(index.armory_path / ".hephaistos" / _INDEX_FILE))
     index.save()
@@ -719,7 +841,8 @@ def load_or_build(
 ) -> ArmoryIndex:
     """Load existing index if fresh, otherwise rebuild."""
     index = ArmoryIndex(armory_path, strategy=strategy)
-    if index.load() and not index.is_stale():
+    loaded = index.load(allow_stale=True)
+    if loaded and index.strategy == strategy and not index.is_stale():
         if progress is not None:
             index_path = armory_path / ".hephaistos" / _INDEX_FILE
             progress("loaded", f"{index_path} ({index.chunk_count} chunks)")
@@ -741,4 +864,9 @@ def load_or_build(
             }
         },
     )
-    return build_index(armory_path, strategy=strategy, progress=progress)
+    return build_index(
+        armory_path,
+        strategy=strategy,
+        progress=progress,
+        previous=index if loaded else None,
+    )

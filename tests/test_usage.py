@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+import hephaistos.chat.usage as usage_module
 from hephaistos.chat._api_types import ApiMessage, UsagePayload
 from hephaistos.chat.usage import (
     ContextBudget,
@@ -154,9 +157,35 @@ class TestContextWindow:
 
 
 class TestTokenEstimation:
-    def test_estimate_message_tokens(self):
+    def test_estimate_message_tokens_falls_back_to_char_count(self, monkeypatch):
+        monkeypatch.setattr(usage_module, "_encoder", None)
+
         tokens = estimate_message_tokens("Hello world, this is a test")
+
         assert tokens == len("Hello world, this is a test") // 4
+
+    def test_estimate_message_tokens_uses_tiktoken_encoder(self, monkeypatch):
+        class FakeEncoder:
+            def encode(self, content: str) -> list[int]:
+                return [1, 2, 3]
+
+        content = "Hello world, this is a test"
+        char_estimate = len(content) // 4
+        monkeypatch.setattr(usage_module, "_encoder", FakeEncoder())
+
+        tokens = estimate_message_tokens(content)
+
+        assert tokens == 3
+        assert tokens != char_estimate
+
+    def test_estimate_message_tokens_matches_tiktoken_when_installed(self):
+        if usage_module._encoder is None:
+            pytest.skip("tiktoken is not installed")
+
+        content = "antidisestablishmentarianism"
+
+        assert estimate_message_tokens(content) == len(usage_module._encoder.encode(content))
+        assert estimate_message_tokens(content) != len(content) // 4
 
     def test_estimate_conversation_tokens(self):
         messages: list[ApiMessage] = [
@@ -200,7 +229,9 @@ class TestContextBudget:
         assert remaining > 0
         assert remaining < budget.prompt_budget
 
-    def test_compaction_urgency(self):
+    def test_compaction_urgency(self, monkeypatch):
+        monkeypatch.setattr(usage_module, "_encoder", None)
+
         budget = ContextBudget(model="gpt-4o", max_tokens=4096)
         assert budget.compaction_urgency([{"role": "user", "content": "hi"}]) == "none"
 

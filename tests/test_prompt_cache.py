@@ -4,12 +4,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hephaistos.agent.dispatch import _inject_turn_context
+from hephaistos.rag.chunker import Chunk
+from hephaistos.rag.context import EvidenceChunk, TurnEvidence
 from hephaistos.runtime import prompt_cache as prompt_cache_mod
 from hephaistos.runtime._api_types import ApiMessage
 from hephaistos.runtime.prompt_cache import (
     MetricsLogger,
     PromptCacheRequest,
     StablePrefixBuilder,
+    annotate_anthropic_cache_breakpoints,
 )
 
 
@@ -72,6 +76,120 @@ def test_summary_first_message_stays_dynamic() -> None:
 
     assert request.stable_prefix.message_count == 0
     assert request.dynamic_tail.message_count == 2
+
+
+def test_evidence_system_message_after_leading_systems_is_stable() -> None:
+    messages: list[ApiMessage] = [
+        {"role": "system", "content": "Stable persona."},
+        {
+            "role": "system",
+            "content": "Retrieved evidence for this question:\n\n[E1] notes.md (chunk 0)",
+        },
+        {"role": "user", "content": "Use the evidence."},
+    ]
+
+    request = _request(messages)
+
+    assert request.stable_prefix.message_count == 2
+    assert request.stable_prefix.messages[1]["content"] == messages[1]["content"]
+    assert request.dynamic_tail.messages == ({"role": "user", "content": "Use the evidence."},)
+
+
+def test_inject_turn_context_places_evidence_in_stable_prefix_zone() -> None:
+    chunk = Chunk(
+        text="Python supports functions.",
+        source="materials/python.md",
+        index=0,
+        char_start=0,
+        char_end=26,
+    )
+    evidence = TurnEvidence(
+        (
+            EvidenceChunk(
+                evidence_id="E1",
+                chunk=chunk,
+                score=0.9,
+                content="Python supports functions.",
+            ),
+        )
+    )
+    messages: list[ApiMessage] = [
+        {"role": "system", "content": "Stable persona."},
+        {"role": "system", "content": "Stable citation rules."},
+        {"role": "user", "content": "Earlier question."},
+        {"role": "assistant", "content": "Earlier answer."},
+        {"role": "user", "content": "New question."},
+    ]
+
+    injected = _inject_turn_context(messages, evidence, None)
+    request = _request(injected)
+
+    assert [message["role"] for message in injected[:4]] == [
+        "system",
+        "system",
+        "system",
+        "user",
+    ]
+    assert str(injected[2]["content"]).startswith("Retrieved evidence for this question:")
+    assert request.stable_prefix.message_count == 3
+
+
+def test_anthropic_cache_breakpoint_marks_last_stable_string_part() -> None:
+    request = _request(
+        [
+            {"role": "system", "content": "Stable persona."},
+            {"role": "system", "content": "Stable citation rules."},
+            {"role": "user", "content": "Question."},
+        ]
+    )
+
+    annotated = annotate_anthropic_cache_breakpoints(request, "anthropic/claude-3-5-sonnet")
+
+    last_content = annotated.stable_prefix.messages[-1]["content"]
+    assert isinstance(last_content, list)
+    assert last_content == [
+        {
+            "type": "text",
+            "text": "Stable citation rules.",
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    assert annotated.dynamic_tail.messages == request.dynamic_tail.messages
+    assert request.stable_prefix.messages[-1]["content"] == "Stable citation rules."
+
+
+def test_anthropic_cache_breakpoint_marks_last_existing_content_part() -> None:
+    messages: list[ApiMessage] = [
+        {
+            "role": "system",
+            "content": [
+                {"type": "text", "text": "Stable persona."},
+                {"type": "text", "text": "Stable citation rules."},
+            ],
+        },
+        {"role": "user", "content": "Question."},
+    ]
+    request = _request(messages)
+
+    annotated = annotate_anthropic_cache_breakpoints(request, "claude-3-haiku")
+
+    content = annotated.stable_prefix.messages[-1]["content"]
+    assert isinstance(content, list)
+    assert content[-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in messages[0]["content"][1]
+
+
+def test_anthropic_cache_breakpoint_skips_non_anthropic_models() -> None:
+    request = _request(
+        [
+            {"role": "system", "content": "Stable persona."},
+            {"role": "user", "content": "Question."},
+        ]
+    )
+
+    annotated = annotate_anthropic_cache_breakpoints(request, "openai/gpt-4o")
+
+    assert annotated is request
 
 
 def test_metrics_logger_records_cache_structure_without_prompt_text(

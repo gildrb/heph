@@ -28,6 +28,7 @@ class PromptCacheBenchmarkReport:
     prefix_invalidation_rate: float
     dynamic_tail_preservation_rate: float
     request_order_preservation_rate: float
+    evidence_stable_prefix_rate: float
     failures: tuple[str, ...]
     results: tuple[PromptCacheCaseResult, ...]
 
@@ -39,6 +40,7 @@ def run_benchmark() -> PromptCacheBenchmarkReport:
         _check_prefix_invalidation(),
         _check_dynamic_tail_preservation(),
         _check_request_order_preservation(),
+        _check_evidence_in_stable_prefix(),
     )
     failures = tuple(result.detail for result in checks if not result.passed)
     passed_cases = sum(1 for result in checks if result.passed)
@@ -49,6 +51,7 @@ def run_benchmark() -> PromptCacheBenchmarkReport:
         prefix_invalidation_rate=_rate(checks, "prefix-invalidation"),
         dynamic_tail_preservation_rate=_rate(checks, "dynamic-tail-preservation"),
         request_order_preservation_rate=_rate(checks, "request-order-preservation"),
+        evidence_stable_prefix_rate=_rate(checks, "evidence-stable-prefix"),
         failures=failures,
         results=checks,
     )
@@ -62,6 +65,7 @@ def print_text_report(report: PromptCacheBenchmarkReport) -> None:
     print(f"prefix_invalidation={report.prefix_invalidation_rate * 100:.1f}%")
     print(f"dynamic_tail_preservation={report.dynamic_tail_preservation_rate * 100:.1f}%")
     print(f"request_order_preservation={report.request_order_preservation_rate * 100:.1f}%")
+    print(f"evidence_stable_prefix={report.evidence_stable_prefix_rate * 100:.1f}%")
     if report.failures:
         print(f"failures={', '.join(report.failures)}")
 
@@ -151,6 +155,32 @@ def _check_request_order_preservation() -> PromptCacheCaseResult:
         case_id="request-order-preservation",
         passed=passed,
         detail="prompt-cache split changed model request message order",
+    )
+
+
+def _check_evidence_in_stable_prefix() -> PromptCacheCaseResult:
+    request = _request(
+        [
+            {"role": "system", "content": "Stable persona."},
+            {"role": "system", "content": "Stable source-grounding rules."},
+            {
+                "role": "system",
+                "content": "Retrieved evidence for this question:\n\n[E1] notes.md (chunk 0)",
+            },
+            {"role": "user", "content": "Explain the evidence."},
+        ]
+    )
+    passed = (
+        request.stable_prefix.message_count == 3
+        and request.dynamic_tail.message_count == 1
+        and str(request.stable_prefix.messages[-1]["content"]).startswith(
+            "Retrieved evidence for this question:"
+        )
+    )
+    return PromptCacheCaseResult(
+        case_id="evidence-stable-prefix",
+        passed=passed,
+        detail="evidence system message was not included in the stable prefix",
     )
 
 
