@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import shutil
+import zipfile
 from pathlib import Path
 from typing import cast
+
+import pytest
 
 from scripts.external_benchmarks import beir_adapter
 from scripts.external_benchmarks.conversion import MATERIAL_METADATA_NAME, RAG_DATASET_NAME
@@ -25,6 +29,11 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
 def _as_dict(value: object) -> dict[str, object]:
     assert isinstance(value, dict)
     return cast("dict[str, object]", value)
+
+
+def _as_list(value: object) -> list[object]:
+    assert isinstance(value, list)
+    return cast("list[object]", value)
 
 
 def _beir_fixture(tmp_path: Path) -> Path:
@@ -73,6 +82,36 @@ def _beir_fixture(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return fixture
+
+
+def _beir_zip_fixture(tmp_path: Path) -> Path:
+    source = _beir_fixture(tmp_path)
+    zip_path = tmp_path / "beir-fixture.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        for path in sorted(source.rglob("*")):
+            if path.is_file():
+                archive.write(path, Path("fixture") / path.relative_to(source))
+    return zip_path
+
+
+def _read_report(path: Path) -> dict[str, object]:
+    return cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+
+
+def _assert_reported_local_cache_assets_exist(report: dict[str, object]) -> Path:
+    cache = _as_dict(report["cache"])
+    cache_path = Path(cast("str", cache["path"])).resolve()
+    assert cache_path.is_dir()
+    local_assets: list[Path] = []
+    for raw_asset in _as_list(cache["assets"]):
+        assert isinstance(raw_asset, str)
+        if raw_asset.startswith("https://"):
+            continue
+        local_assets.append(Path(raw_asset).resolve())
+    assert local_assets
+    for asset in local_assets:
+        assert asset.exists()
+    return cache_path
 
 
 def test_beir_adapter_maps_positive_qrels_to_expected_references(tmp_path: Path) -> None:
@@ -137,6 +176,155 @@ def test_beir_adapter_maps_positive_qrels_to_expected_references(tmp_path: Path)
     material_metadata = _read_jsonl(output / MATERIAL_METADATA_NAME)
     assert material_metadata[0]["original_document_id"] == "doc-alpha"
     assert _as_dict(material_metadata[0]["metadata"])["role"] == "paper"
+
+
+def test_beir_adapter_source_zip_default_cache_stays_outside_output(
+    tmp_path: Path,
+) -> None:
+    source_zip = _beir_zip_fixture(tmp_path)
+    output = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    status = beir_adapter.main(
+        [
+            "beir/fixture",
+            "--source-zip",
+            str(source_zip),
+            "--output",
+            str(output),
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    assert status == 0
+    report = _read_report(report_path)
+    assert report["status"] == "success"
+    cache = _as_dict(report["cache"])
+    assert cache["enabled"] is True
+    assert cache["used"] is True
+    cache_path = _assert_reported_local_cache_assets_exist(report)
+    assert not cache_path.is_relative_to(output.resolve())
+    assert not (output / ".adapter-cache").exists()
+    assert (output / RAG_DATASET_NAME).is_file()
+
+
+def test_beir_adapter_download_default_cache_does_not_populate_output_before_conversion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_zip = _beir_zip_fixture(tmp_path)
+    output = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+    download_url = "https://example.edu/beir-fixture.zip"
+    observed: dict[str, object] = {}
+
+    def fake_urlretrieve(url: str, filename: str | Path) -> tuple[str, object]:
+        assert url == download_url
+        observed["output_exists_before_download"] = output.exists()
+        target = Path(filename).resolve()
+        observed["download_target"] = str(target)
+        shutil.copyfile(source_zip, target)
+        return str(target), None
+
+    monkeypatch.setattr(beir_adapter.urllib.request, "urlretrieve", fake_urlretrieve)
+
+    status = beir_adapter.main(
+        [
+            "beir/fixture",
+            "--download-url",
+            download_url,
+            "--output",
+            str(output),
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    assert status == 0
+    assert observed["output_exists_before_download"] is False
+    download_target = Path(cast("str", observed["download_target"])).resolve()
+    assert not download_target.is_relative_to(output.resolve())
+    report = _read_report(report_path)
+    cache_path = _assert_reported_local_cache_assets_exist(report)
+    assert not cache_path.is_relative_to(output.resolve())
+    assert not (output / ".adapter-cache").exists()
+
+
+def test_beir_adapter_source_zip_overwrite_preserves_reported_cache_assets(
+    tmp_path: Path,
+) -> None:
+    source_zip = _beir_zip_fixture(tmp_path)
+    output = tmp_path / "out"
+    first_report_path = tmp_path / "first-report.json"
+    second_report_path = tmp_path / "second-report.json"
+
+    first_status = beir_adapter.main(
+        [
+            "beir/fixture",
+            "--source-zip",
+            str(source_zip),
+            "--output",
+            str(output),
+            "--json-report",
+            str(first_report_path),
+        ]
+    )
+    assert first_status == 0
+    first_report = _read_report(first_report_path)
+    first_cache_path = _assert_reported_local_cache_assets_exist(first_report)
+    stale_generated_file = output / "armory" / "materials" / "stale.md"
+    stale_generated_file.write_text("stale generated material\n", encoding="utf-8")
+
+    second_status = beir_adapter.main(
+        [
+            "beir/fixture",
+            "--source-zip",
+            str(source_zip),
+            "--output",
+            str(output),
+            "--json-report",
+            str(second_report_path),
+            "--overwrite",
+        ]
+    )
+
+    assert second_status == 0
+    second_report = _read_report(second_report_path)
+    second_cache_path = _assert_reported_local_cache_assets_exist(second_report)
+    assert second_cache_path == first_cache_path
+    assert first_cache_path.exists()
+    assert not stale_generated_file.exists()
+    assert (output / RAG_DATASET_NAME).is_file()
+
+
+def test_beir_adapter_source_zip_preserves_explicit_cache_dir_outside_output(
+    tmp_path: Path,
+) -> None:
+    source_zip = _beir_zip_fixture(tmp_path)
+    output = tmp_path / "out"
+    cache_dir = tmp_path / "explicit-cache"
+    report_path = tmp_path / "report.json"
+
+    status = beir_adapter.main(
+        [
+            "beir/fixture",
+            "--source-zip",
+            str(source_zip),
+            "--cache-dir",
+            str(cache_dir),
+            "--output",
+            str(output),
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    assert status == 0
+    report = _read_report(report_path)
+    reported_cache_path = _assert_reported_local_cache_assets_exist(report)
+    assert reported_cache_path == cache_dir.resolve()
+    assert not reported_cache_path.is_relative_to(output.resolve())
 
 
 def test_beir_adapter_output_is_deterministic(tmp_path: Path) -> None:

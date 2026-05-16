@@ -130,8 +130,10 @@ def _resolve_dataset_root(
     if source_dir is not None:
         root = _discover_beir_root(source_dir.expanduser().resolve())
         return root, str(root), CacheInfo(enabled=False, path="", used=False)
-    resolved_cache_dir = (cache_dir or output_dir / ".adapter-cache" / _ADAPTER).expanduser()
-    resolved_cache_dir = resolved_cache_dir.resolve()
+    raw_cache_dir = (
+        cache_dir.expanduser() if cache_dir is not None else _default_cache_dir(output_dir)
+    )
+    resolved_cache_dir = raw_cache_dir.resolve()
     if source_zip is not None:
         root = _extract_zip(source_zip.expanduser().resolve(), resolved_cache_dir, beir_name)
         return (
@@ -164,6 +166,11 @@ def _public_dataset_url(beir_name: str) -> str:
     if beir_name not in _SUPPORTED_PUBLIC_DATASETS:
         return ""
     return f"{_PUBLIC_BEIR_BASE_URL}/{beir_name}.zip"
+
+
+def _default_cache_dir(output_dir: Path) -> Path:
+    output = output_dir.expanduser().resolve()
+    return output.parent / f".{output.name}.adapter-cache" / _ADAPTER
 
 
 def _discover_beir_root(path: Path) -> Path:
