@@ -3897,7 +3897,7 @@ class TestTurnOrchestratorStudy:
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_broad_present_query_routes_to_clarifying_question_before_generation(
+    def test_broad_present_query_routes_to_overview_guidance_before_generation(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
@@ -3916,7 +3916,8 @@ class TestTurnOrchestratorStudy:
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
-        assert "need one clarification" in deltas[0]
+        assert "Start with a material overview" in deltas[0]
+        assert "need one clarification" not in deltas[0]
         mock_iter_agent.assert_not_called()
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")

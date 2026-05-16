@@ -1019,6 +1019,8 @@ def _insufficient_evidence_reply(
         action == "retrieve_more"
         and plan.action is StudyAction.PRESENT
         and not assessment.supporting_refs
+        and plan.retrieval_query is not None
+        and _is_overview_query(plan.retrieval_query)
         and (resolved.turn_evidence is None or not resolved.turn_evidence.items)
     ):
         return (
