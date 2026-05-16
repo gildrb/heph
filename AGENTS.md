@@ -1,10 +1,23 @@
 <coding_guidelines>
 # Hephaistos — Agent Guide
 
+## Product Promise
+
+Hephaistos is a **local-first learning agent that works with your files and any LLM**.
+Protect this shape in every change:
+
+- Armories stay portable normal directories.
+- Answers are grounded in user materials and citations remain verifiable.
+- Learning memory is scoped to the armory unless the user explicitly opts into a shared service.
+- Provider and model choices stay swappable; vendor-specific behavior remains optional.
+- Do not market bare-minimum plumbing as a feature in user-facing docs.
+
 ## Setup
 ```bash
 uv sync --frozen           # install all dependencies
 uv sync --group dev        # install dev tools (lint, type-check, test)
+uv sync --group rag        # install optional RAG backends
+uv sync --group docling    # install optional document extraction extras
 uv sync --group docs       # install doc-building tools
 ```
 
@@ -14,6 +27,18 @@ uv run heph                # launch interactive shell
 uv run heph chat           # start a chat session
 uv run heph armory init PATH    # create a new armory
 ```
+
+## Development Workflow
+
+1. Make focused changes from current `main`.
+2. Follow existing package boundaries and local helper APIs.
+3. Add or update tests for behavior that could break.
+4. Update user-facing docs when commands, armory behavior, retrieval, citation checks,
+   memory, provider setup, privacy, or diagnostics behavior changes.
+5. Run the narrowest useful checks before handing off.
+6. Use short conventional-style commit subjects when asked to commit:
+   `fix: ...`, `core: ...`, `tui: ...`, `docs: ...`, `test: ...`,
+   `refactor: ...`, or `chore: ...`.
 
 ## Docs Sync
 <!-- sync-docs:privacy-diagnostics-docs-contract:start -->
@@ -27,6 +52,78 @@ uv run heph armory init PATH    # create a new armory
   `docs/cli-reference.md`, `AGENTS.md`, and the architecture privacy and diagnostics section
   aligned.
 <!-- sync-docs:privacy-diagnostics-docs-contract:end -->
+
+## Core Code Style
+
+- Python ≥3.13 only.
+- Every Python module starts with `from __future__ import annotations`.
+- Line length: 99 characters. Quotes: double. Line endings: LF.
+- Naming is enforced by Ruff N rules:
+  - Classes: `PascalCase`
+  - Functions and variables: `snake_case`
+  - Constants: `UPPER_SNAKE_CASE`
+  - Private implementation helpers: leading underscore
+- Prefer clear, readable code over clever abstractions or micro-optimizations.
+- Keep comments sparse and useful; explain why a non-obvious block exists.
+
+## Type Checking Policy
+
+- Use `ty` strict mode. `pyproject.toml` targets Python 3.13 and includes
+  `hephaistos` and `tests`; all rules are errors except configured import handling.
+- Explicit `Any` is forbidden, including imports from `typing` or `typing_extensions`,
+  bare `Any`, attribute references (`typing.Any`, `typing_extensions.Any`), and
+  `cast()` string arguments that mention `Any`.
+- Use concrete SDK types, `TypedDict`, dataclasses, protocols, or narrow unions instead.
+- Prefer fixing the type issue. Suppressions are last resort only for small,
+  provably safe abstractions the checker cannot recognize.
+- Ty suppressions must use exact diagnostics: `# ty:ignore[exact-diagnostic]`.
+- Ruff suppressions must use exact rules: `# noqa: RULE`.
+- Do not use `# type: ignore[...]` or legacy `# ty: ignore`.
+- Do not suppress private-usage diagnostics with broad type ignores.
+- Type-only imports belong in `if TYPE_CHECKING:` blocks when runtime imports are undesirable.
+
+## Import Architecture
+
+- Adapter surface: `cli`, `commands`, `tui`, `shell`, and most `terminal` modules.
+  Adapters may depend broadly, but reusable decisions should move into services or domains.
+- Core reusable packages: `runtime`, `providers`, `logging`, `matching`,
+  `terminal.palette`, `_types`.
+- Domain reusable packages: `materials`, `rag`, `memory`, `armory`, `vocab`, `study`.
+- Application services: `chat` and focused workflow modules.
+- Reusable packages, including `privacy` and `diagnostics`, must not import adapters
+  (`cli`, `commands`, `tui`, `shell`, `terminal.banner`, `terminal.display`,
+  `terminal.history`, `terminal.input`).
+- `logging` and `diagnostics` must not import adapters.
+- `materials` owns discovery/ignore policy and must not import `chat`, `agent`, `rag`, or `study`.
+- `rag` may import `materials`; it must not import `agent`, `chat`, `tui`, or `study`.
+- `runtime` stays below product workflows and must not import adapters, `chat`, `agent`,
+  `rag`, `study`, `materials`, `memory`, or `armory`.
+- `providers` owns model/provider config and auth; it must not import adapters,
+  `runtime`, `chat`, `agent`, `rag`, `study`, or `materials`.
+- `memory` may use `runtime`, but must not import adapters, `chat`, or `agent`.
+- `study` remains a controller/state layer and must not import adapters, `chat`, `agent`, or `rag`.
+- `agent` must not import `chat.session`.
+- Keep `chat.session` and `chat.orchestrator` independent at runtime.
+- `commands` must not import `tui`.
+- Standard top-level imports are the default.
+- Deferred imports are allowed only for optional extras, plugin loading, or measured
+  startup-critical paths allowlisted in `scripts/check_repo_policies.py`.
+- Imports inside `TYPE_CHECKING` guards or optional-dependency `try` blocks are policy-allowed.
+- Dynamic import helpers are file-allowlisted by `scripts/check_repo_policies.py`;
+  `__import__` is forbidden.
+
+## Tooling Configuration
+
+- Use `uv` for dependency management and command execution.
+- Use `ruff` for linting and formatting.
+- Use `ty` for type checking.
+- Ruff selected rule families include: `E`, `W`, `F`, `I`, `UP`, `B`, `SIM`, `RUF`,
+  `A`, `C4`, `DTZ`, `EM`, `EXE`, `ISC`, `ICN`, `LOG`, `G`, `PIE`, `PYI`, `PT`,
+  `Q`, `R`, `RET`, `SLOT`, `T10`, `TCH`, `INT`, `ARG`, `PTH`, `TD`, `FIX`,
+  `ERA`, `PGH`, `PL`, `TRY`, `FURB`, `PERF`, and `N`.
+- Notable Ruff ignores are intentional for data/config shapes, test magic numbers,
+  TODO usage, protocol-required unused arguments, complexity thresholds, and deferred imports
+  controlled by the custom policy checker.
 
 ## Lint & Format
 ```bash
@@ -42,21 +139,78 @@ uv run python -m scripts.check_repo_policies  # no Any / unapproved deferred imp
 uv run ty check  # type-check the project
 ```
 
-## Dead Code / Architecture / Duplicates
+## Dead Code / Architecture / Quality Gates
 ```bash
 uv run vulture hephaistos tests vulture-whitelist.py  # dead-code detection
 uv run pylint --persistent=no --score=no --disable=all --enable=duplicate-code hephaistos  # duplicate code
 uv run lint-imports        # verify import boundaries
+uv run python scripts/check_tech_debt.py --strict  # TODO/FIXME issue links
+uv run python scripts/validate_agents_md.py --strict  # AGENTS.md command validation
 ```
+
+Additional configured gates:
+
+- Vulture scans `hephaistos`, `tests`, and `vulture-whitelist.py` at 80% confidence.
+- Pylint duplicate-code uses an 8-line similarity threshold and ignores comments,
+  docstrings, and imports.
+- Pre-commit also runs check-large-files, gitleaks, docs sync, deptry, and radon.
+- Bandit is configured in `pyproject.toml`; run it when touching security-sensitive code.
 
 ## Test
 ```bash
 uv run pytest                              # run all tests
 uv run pytest --cov --cov-fail-under=75    # run with coverage gate
 uv run pytest tests/test_chat_engine.py    # single file
+uv run pytest tests/test_app_tui.py -x      # stop on first failure
 uv run pytest -k "test_stream_recovery"    # by keyword
 uv run pytest -m flaky                     # flaky-marked tests only
 ```
+
+Testing rules:
+
+- Pytest uses strict markers, short tracebacks, top-10 duration reporting,
+  xdist auto/worksteal, and a 75% coverage gate on `hephaistos`.
+- Test files: `test_<module>.py` or `*_test.py`; test classes: `Test<Feature>`;
+  test functions: `test_<verb>_<object>_<condition_or_expectation>`.
+- Parametrize with tuple names, list values, and tuple rows.
+- `pytest.raises()` for broad exceptions (`Exception`, `ValueError`, `TypeError`,
+  `RuntimeError`, `OSError`) must include `match=`.
+- Use `tmp_path`, `monkeypatch`, and shared fixtures from `tests/conftest.py`.
+  Do not touch real user config, auth, network, or armory state unless the test is
+  explicitly integration-level.
+- Mark flaky tests with `@pytest.mark.flaky(reruns=2, reruns_delay=1)`.
+- Focus coverage on citation parsing/verification, armory-scoped memory, retrieval
+  and stale indexes, provider/model switching, and learning-loop state transitions
+  implemented by the `study` controller.
+
+## Security and Repository Policy
+
+- Do not commit secrets. Gitleaks runs in pre-commit; `.env.example`, tests, and
+  `vulture-whitelist.py` are allowlisted for known false positives.
+- Added files over 500KB are blocked by pre-commit. Large binary file types belong in LFS.
+- Git LFS tracks PDFs, common images, archives, media, and model artifacts; files over
+  5MB are flagged even if not tracked by LFS.
+- API keys must not be written to config files; resolve them from OS keyring,
+  environment variables, or the in-memory test store.
+- Logs, diagnostics, traces, and crash reports must redact secrets before writing.
+
+## Documentation and Product Style
+
+- Voice: practical, local-first, learning-focused, and grounded in user files.
+- Prefer concrete examples over abstract claims.
+- Use learning-oriented copy (`learn`, `learning`, `recall`, `practice`) in user-facing
+  docs. Reserve `study` for code/package names, command names, and exact feature labels.
+- Emphasize armories, materials/source files, RAG, citation verification,
+  learning memory, recall practice, and model freedom.
+- Keep vendor-specific behavior optional unless the code truly requires it.
+- Avoid user-facing maintainer details and internal operations unless they help users.
+- When docs or wiki conflict with code or `docs/`, prefer code and repo docs.
+
+## Diagnostics
+
+- Structured logging: `HEPHAISTOS_LOG_LEVEL`, `HEPHAISTOS_LOG_FILE`, `HEPHAISTOS_LOG_FORMAT`
+- Session traces: per-armory JSONL files under `.hephaistos/traces/`
+- Profiling: `--profile` (CPU) or `--profile-memory` (memory) CLI flags
 
 ## Build & Release
 ```bash
@@ -74,21 +228,9 @@ Operational playbooks for incident response:
 - `docs/runbooks/deployment-rollback.md` — Revert bad releases
 - `docs/runbooks/rag-retrieval-issues.md` — Debug RAG quality
 
-## Diagnostics
+## Pre-commit Hooks
 
-- Structured logging: `HEPHAISTOS_LOG_LEVEL`, `HEPHAISTOS_LOG_FILE`, `HEPHAISTOS_LOG_FORMAT`
-- Session traces: per-armory JSONL files under `.hephaistos/traces/`
-- Profiling: `--profile` (CPU) or `--profile-memory` (memory) CLI flags
-
-## Project Conventions
-- Python ≥3.13, `from __future__ import annotations` in every module
-- Line length: 99 chars, double quotes, LF line endings
-- Naming: PascalCase classes, snake_case functions/variables, UPPER_SNAKE_CASE constants (enforced by ruff N rules)
-- Type checking: ty strict mode
-- Explicit `Any` is forbidden; use concrete SDK types, `TypedDict`, dataclasses, or protocols instead
-- Type suppressions: prefer fixing the issue. For `ty` diagnostics, use `# ty:ignore[exact-diagnostic]`; for Ruff diagnostics, use `# noqa: RULE`. Do not add `# type: ignore[...]`.
-- Standard top-level imports by default; deferred imports require a policy allowlist for optional extras, plugin loading, or measured startup-critical paths
-- Import boundaries: only `app` may import other packages; all other packages are forbidden from importing `app` (enforced by import-linter)
-- Tests: pytest with `--cov-fail-under=75`, `@pytest.mark.flaky(reruns=2)` for flaky tests
-- Pre-commit: ruff, ruff-format, ty, check-repo-policies, check-large-files, vulture, pylint, lint-imports
+Configured hooks: ruff, ruff-format, check-large-files, gitleaks, sync-docs,
+check-repo-policies, ty, vulture, pylint duplicate-code, lint-imports, deptry,
+radon complexity, check-tech-debt, and validate-agents-md.
 </coding_guidelines>
