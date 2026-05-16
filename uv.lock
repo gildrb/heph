@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -798,6 +798,7 @@ dependencies = [
     { name = "rich" },
     { name = "supermemory" },
     { name = "textual" },
+    { name = "unicodeit" },
 ]
 
 [package.optional-dependencies]
@@ -855,6 +856,7 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=3.0.0" },
     { name = "supermemory", specifier = ">=3.0.0" },
     { name = "textual", specifier = ">=6.0.0" },
+    { name = "unicodeit", specifier = ">=0.7.0" },
 ]
 provides-extras = ["embeddings", "docling", "rag", "fuzzy"]
 
@@ -3561,6 +3563,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/78/67/9a363818028526e2d
 wheels = [
     { url = "https://files.pythonhosted.org/packages/61/73/d21edf5b204d1467e06500080a50f79d49ef2b997c79123a536d4a17d97c/uc_micro_py-2.0.0-py3-none-any.whl", hash = "sha256:3603a3859af53e5a39bc7677713c78ea6589ff188d70f4fee165db88e22b242c", size = 6383, upload-time = "2026-03-01T06:31:26.257Z" },
 ]
+
+[[package]]
+name = "unicodeit"
+version = "0.7.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/59/87694efec0dd8d789776b54a4b928b85d3886ff43ece762b67faa4fbdde5/unicodeit-0.7.5.tar.gz", hash = "sha256:f100df7a1b8c64d7b5160859426b641cd9f30218173c5a3450842370e242a168", size = 40956, upload-time = "2023-03-12T09:23:51.151Z" }
 
 [[package]]
 name = "urllib3"

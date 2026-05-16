@@ -198,7 +198,7 @@ def test_enrich_reply_formats_common_latex_inline_math() -> None:
 
     assert r"$N\ge 2$" not in result.markdown_text
     assert "N≥ 2" in result.markdown_text
-    assert "2³·3" in result.markdown_text
+    assert "2³⋅3" in result.markdown_text
 
 
 def test_evidence_footer_shows_only_cited_evidence_when_available() -> None:

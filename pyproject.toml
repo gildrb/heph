@@ -31,6 +31,7 @@ dependencies = [
     "supermemory>=3.0.0",
     "textual>=6.0.0",
     "docling>=2.0.0",
+    "unicodeit>=0.7.0",
 ]
 
 [project.urls]
