@@ -147,13 +147,13 @@ def _armory_entry_text(entry: _DirEntry, *, selected: bool) -> str | Text:
     if entry.is_section:
         text.append(label, style=f"dim {palette.text_muted}")
     elif entry.is_create:
-        style = f"bold {palette.action_primary_bg}" if selected else palette.text_primary
+        style = f"bold {palette.brand_primary}" if selected else palette.text_primary
         text.append(label, style=style)
     elif entry.is_missing:
         style = f"bold {palette.status_error_text}" if selected else palette.status_error_text
         text.append(label, style=style)
     else:
-        style = f"bold {palette.action_primary_bg}" if selected else palette.text_primary
+        style = f"bold {palette.brand_primary}" if selected else palette.text_primary
         text.append(label, style=style)
     return text
 

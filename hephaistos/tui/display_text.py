@@ -45,7 +45,7 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
 
     text_cls = require_rich_text()
     text = text_cls(plain, style=palette.text_muted)
-    text.stylize(f"bold {palette.action_primary_bg}", 0, len("Heph"))
+    text.stylize(f"bold {palette.brand_primary}", 0, len("Heph"))
 
     for label in ("armory", "model", "mode"):
         start = 0 if plain.startswith(f"{label} ") else plain.index(f" {label} ") + 1

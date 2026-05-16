@@ -1148,7 +1148,7 @@ class HephaistosTui(
                 return f"{value:<22} {candidate.description}  "
             return f"{value}  "
         palette = current_palette()
-        command_style = f"bold {palette.action_primary_bg}" if selected else palette.text_primary
+        command_style = f"bold {palette.brand_primary}" if selected else palette.text_primary
         text = _RichText()
         if candidate.description:
             text.append(f"{value:<22} ", style=command_style)
