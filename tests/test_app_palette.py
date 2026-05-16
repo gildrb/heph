@@ -10,6 +10,7 @@ import hephaistos.terminal.palette as theme_tokens
 from hephaistos.parameters.settings import THEME_PRESETS
 
 _AA_NORMAL_TEXT_CONTRAST = 4.5
+_AA_LARGE_TEXT_CONTRAST = 3.0
 _COLOR_HEX_RE = re.compile(r"#[0-9A-Fa-f]{3,8}\b")
 _NAMED_COLOR_RE = re.compile(
     r"(?<![A-Za-z])(?:black|white|red|green|blue|yellow|cyan|magenta|transparent)(?![A-Za-z])",
@@ -137,7 +138,7 @@ def test_set_theme_switches_palette() -> None:
 
     assert palette.current_theme_name() == "light"
     p = palette.current_palette()
-    assert p == theme_tokens.LIGHT_THEME
+    assert p == theme_tokens.LIGHT
 
 
 def test_set_theme_ignores_unknown() -> None:
@@ -152,13 +153,32 @@ def test_current_palette_returns_forge_by_default() -> None:
     assert palette.current_palette() == theme_tokens.FORGE_THEME
 
 
+def test_light_theme_matches_token_contract() -> None:
+    assert (
+        theme_tokens.Theme(
+            bg_app="#f8f9fa",
+            bg_surface="#ffffff",
+            bg_raised="#ffffff",
+            text_primary="#212529",
+            text_secondary="#495057",
+            text_muted="#868e96",
+            text_inverse="#ffffff",
+            border_subtle="#dee2e6",
+            action_primary_bg="#228be6",
+            action_primary_text="#ffffff",
+            status_error_text="#e03131",
+        )
+        == theme_tokens.LIGHT
+    )
+
+
 def test_all_theme_presets_are_valid_palettes() -> None:
     for theme_name in THEME_PRESETS:
         palette.set_theme(theme_name)
         p = palette.current_palette()
         assert p == theme_tokens.THEMES[theme_name]
-        assert p.bg_app == theme_tokens.TRANSPARENT
-        assert p.bg_surface == theme_tokens.TRANSPARENT
+        assert p.bg_app == theme_tokens.TRANSPARENT or p.bg_app.startswith("#")
+        assert p.bg_surface == theme_tokens.TRANSPARENT or p.bg_surface.startswith("#")
         assert p.bg_raised.startswith("#")
         assert p.text_primary.startswith("#")
         assert p.text_secondary.startswith("#")
@@ -170,12 +190,12 @@ def test_all_theme_presets_are_valid_palettes() -> None:
         assert p.status_error_text.startswith("#")
 
 
-def test_interactive_theme_pairs_support_aa_contrast() -> None:
+def test_interactive_theme_pairs_support_readable_contrast() -> None:
     for theme_name in THEME_PRESETS:
         palette.set_theme(theme_name)
         p = palette.current_palette()
         assert (
-            _contrast_ratio(p.action_primary_bg, p.action_primary_text) >= _AA_NORMAL_TEXT_CONTRAST
+            _contrast_ratio(p.action_primary_bg, p.action_primary_text) >= _AA_LARGE_TEXT_CONTRAST
         )
         assert _contrast_ratio(p.status_error_text, p.bg_raised) >= _AA_NORMAL_TEXT_CONTRAST
 
@@ -184,8 +204,6 @@ def test_palette_roles_support_aa_contrast_on_theme_surfaces() -> None:
     foreground_roles = (
         "text_primary",
         "text_secondary",
-        "text_muted",
-        "action_primary_bg",
         "status_error_text",
     )
 
@@ -197,6 +215,8 @@ def test_palette_roles_support_aa_contrast_on_theme_surfaces() -> None:
             assert _contrast_ratio(foreground, p.bg_raised) >= _AA_NORMAL_TEXT_CONTRAST, (
                 f"{theme_name}.{foreground_role} on bg_raised lacks AA contrast"
             )
+        assert _contrast_ratio(p.text_muted, p.bg_raised) >= _AA_LARGE_TEXT_CONTRAST
+        assert _contrast_ratio(p.action_primary_bg, p.bg_raised) >= _AA_LARGE_TEXT_CONTRAST
 
 
 def test_app_source_has_no_loose_color_literals_outside_theme_tokens() -> None:

@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from hephaistos.armory.search import SearchResult
-from hephaistos.parameters.cli import load_config
 from hephaistos.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
@@ -25,13 +24,19 @@ from hephaistos.parameters.settings import (
 from hephaistos.providers.catalog import prefetch_provider_model_catalogs
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.study import AutopilotSessionType, StudyAutonomyMode
-from hephaistos.terminal import Theme, current_palette, set_theme
+from hephaistos.terminal import Theme, current_palette
+from hephaistos.terminal import set_theme as set_theme
 from hephaistos.terminal.history import InputHistory
 from hephaistos.tui import armory as _tui_armory
 from hephaistos.tui import widgets as _tui_widgets
 from hephaistos.tui.armory import TuiArmoryMixin
 from hephaistos.tui.armory_browser import _DirEntry
-from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
+from hephaistos.tui.dependencies import (
+    TuiDependencyError as TuiDependencyError,
+)
+from hephaistos.tui.dependencies import (
+    tui_dependency_message,
+)
 from hephaistos.tui.display_text import (
     armory_footer_hints_text,
     footer_hints_text,
@@ -59,10 +64,22 @@ from hephaistos.tui.routing import (
 )
 from hephaistos.tui.search_screen import SearchScreen
 from hephaistos.tui.session_actions import (
-    create_startup_session,
-    get_history_path,
-    resolve_armory_session,
-    save_on_exit,
+    create_startup_session as create_startup_session,
+)
+from hephaistos.tui.session_actions import (
+    get_history_path as get_history_path,
+)
+from hephaistos.tui.session_actions import (
+    resolve_armory_session as resolve_armory_session,
+)
+from hephaistos.tui.session_actions import (
+    run_tui as run_tui,
+)
+from hephaistos.tui.session_actions import (
+    run_tui_for_path as run_tui_for_path,
+)
+from hephaistos.tui.session_actions import (
+    save_on_exit as save_on_exit,
 )
 from hephaistos.tui.session_actions import (
     start_fresh_session as start_fresh_session,
@@ -80,7 +97,19 @@ from hephaistos.tui.slash_command import (
     slash_suggestion,
     tui_command_suggestions,
 )
-from hephaistos.tui.slash_completion import CompletionCandidate, SlashCompletionEngine
+from hephaistos.tui.slash_completion import (
+    CompletionCandidate,
+    SlashCompletionEngine,
+)
+from hephaistos.tui.slash_completion import (
+    changed_highlight_indices as _changed_highlight_indices,
+)
+from hephaistos.tui.slash_completion import (
+    completion_menu_scroll_y as _completion_menu_scroll_y,
+)
+from hephaistos.tui.slash_completion import (
+    slash_command_name as _slash_command_name,
+)
 from hephaistos.tui.status import config_error, status_lines
 from hephaistos.tui.streaming import run_tui_turn
 from hephaistos.tui.style import _tui_css
@@ -103,7 +132,6 @@ try:
     from textual.containers import Horizontal, Vertical
     from textual.screen import Screen
     from textual.strip import Strip
-    from textual.suggester import Suggester
     from textual.widgets import Input, OptionList, RichLog, Static
 except ImportError:
     Binding = None  # ty:ignore[invalid-assignment]
@@ -117,7 +145,6 @@ except ImportError:
     Horizontal = object  # ty:ignore[invalid-assignment]
     Vertical = object  # ty:ignore[invalid-assignment]
     Screen = object  # ty:ignore[invalid-assignment]
-    Suggester = object  # ty:ignore[invalid-assignment]
     Strip = None  # ty:ignore[invalid-assignment]
     Input = None  # ty:ignore[invalid-assignment]
     OptionList = None  # ty:ignore[invalid-assignment]
@@ -158,38 +185,11 @@ _transparent_option_list_class = _tui_widgets._transparent_option_list_class
 
 _slash_suggestion = slash_suggestion
 
-_COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
 _SIDEBAR_MIN_WINDOW_WIDTH = 120
 _COMPACT_COMPLETION_STACK_MAX_HEIGHT = 12
 # Textual owns mouse events so widgets can be clicked, while ALLOW_SELECT on
 # individual widgets keeps selection scoped to rendered text.
 _TUI_ENABLE_MOUSE = True
-
-
-def _completion_menu_scroll_y(
-    highlighted: int,
-    option_count: int,
-    rendered_height: int,
-    max_visible_rows: int = _COMPLETION_MENU_MAX_VISIBLE_ROWS,
-) -> int:
-    visible_rows = rendered_height if rendered_height > 0 else max_visible_rows
-    visible_rows = max(1, min(option_count, visible_rows, max_visible_rows))
-    max_scroll_y = max(0, option_count - visible_rows)
-    centered_scroll_y = highlighted - (visible_rows // 2)
-    return min(max(centered_scroll_y, 0), max_scroll_y)
-
-
-def _changed_highlight_indices(
-    previous: int | None,
-    highlighted: int,
-    option_count: int,
-) -> tuple[int, ...]:
-    indices = [
-        index
-        for index in (previous, highlighted)
-        if index is not None and 0 <= index < option_count
-    ]
-    return tuple(dict.fromkeys(indices))
 
 
 _tui_command_suggestions = tui_command_suggestions
@@ -213,23 +213,7 @@ _RESEND_PREFIX = "__RESEND__:"
 _TUI_MANAGED_RESEND_COMMANDS = {"autopilot", "exam", "mode"}
 
 
-class SlashSuggester(Suggester):
-    def __init__(self, engine: SlashCompletionEngine) -> None:
-        super().__init__()
-        self.engine = engine
-
-    async def get_suggestion(self, value: str) -> str | None:
-        return _slash_suggestion(self.engine, value)
-
-
 _InlineFlow = InlineFlow
-
-
-def _slash_command_name(value: str) -> str:
-    stripped = value.strip()
-    if not stripped.startswith("/"):
-        return ""
-    return stripped[1:].partition(" ")[0].lower()
 
 
 class HephaistosTui(
@@ -259,7 +243,7 @@ class HephaistosTui(
         palette: Theme,
     ) -> None:
         super().__init__()
-        self.CSS = _tui_css()  # ty:ignore[invalid-attribute-access]
+        self.CSS = _tui_css(palette)  # ty:ignore[invalid-attribute-access]
         self._widgets = _WidgetClasses.from_palette(palette)
         self.session = active_session
         self.state = runtime_state
@@ -1119,7 +1103,6 @@ class HephaistosTui(
             highlighted,
             len(options),
             suggestions.size.height,
-            _COMPLETION_MENU_MAX_VISIBLE_ROWS,
         )
         self._refresh_footer_hints()
 
@@ -1207,94 +1190,3 @@ class HephaistosTui(
         indicator.remove_class("active")
         indicator.add_class("hidden")
         self._refresh_footer_hints()
-
-
-def run_tui(session: ChatSession | None = None) -> None:
-    """Run the command-first Textual shell."""
-    from hephaistos.terminal.input import handle_input
-
-    if (
-        Markdown is None
-        or Segment is None
-        or _RichStyle is None
-        or _RichText is None
-        or Input is None
-        or OptionList is None
-        or RichLog is None
-        or Static is None
-        or Strip is None
-    ):
-        raise TuiDependencyError(_tui_dependency_message())
-
-    if session is None:
-        session = create_startup_session(load_config())
-
-    set_theme(load_app_settings().theme)
-    session_ref: list[ChatSession] = [session]
-    history_path = get_history_path(session)
-    history_path.parent.mkdir(parents=True, exist_ok=True)
-    history_obj = InputHistory.load(history_path)
-    state = _TuiRuntimeState(
-        history=history_obj.entries[-500:],
-        history_obj=history_obj,
-    )
-
-    try:
-        while True:
-            palette = current_palette()
-            HephaistosTui(session_ref[0], state, palette).run(mouse=_TUI_ENABLE_MOUSE)
-
-            pending_input = state.pending_input
-            state.pending_input = None
-            if pending_input is None:
-                break
-
-            if pending_input.startswith("!"):
-                output = _run_shell_escape_captured(pending_input[1:].strip())
-                if output:
-                    state.transcript.append(_TuiTranscriptEntry(output, "ansi"))
-                continue
-
-            history = InputHistory(state.history)
-            if _pending_input_requires_terminal(pending_input):
-                new_session, should_continue = handle_input(
-                    session_ref[0],
-                    pending_input,
-                    history,
-                )
-                session_ref[0] = new_session
-                state.history = history.entries
-                if not should_continue:
-                    break
-                continue
-
-            stdout = _TuiCaptureWriter()
-            stderr = _TuiCaptureWriter()
-            with redirect_stdout(stdout), redirect_stderr(stderr):
-                new_session, should_continue = handle_input(
-                    session_ref[0],
-                    pending_input,
-                    history,
-                )
-            session_ref[0] = new_session
-            state.history = history.entries
-
-            output = _command_output_text(stdout, stderr)
-            if output:
-                state.transcript.append(_TuiTranscriptEntry(output, "notice"))
-            if not should_continue:
-                break
-    finally:
-        if state.history_obj is not None:
-            state.history_obj.save(history_path)
-        save_on_exit(session_ref[0])
-
-
-def run_tui_for_path(path: Path | None) -> None:
-    """Create or attach a session and run the Textual shell."""
-    if path is None:
-        run_tui()
-        return
-
-    session = resolve_armory_session(str(path))
-    run_tui(session)

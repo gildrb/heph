@@ -14,40 +14,9 @@ BOLD = "\033[1m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
-BLACK = "#000000"
-WHITE = "#FFFFFF"
 TRANSPARENT = "transparent"
 RICH_BLACK_COLOR_NAME = "black"
 BLACK_RGB: Final[tuple[int, int, int]] = (0, 0, 0)
-
-# Raw palette tokens. Concrete colours live here; semantic themes map them into
-# roles that components consume.
-FORGE_BG_RAISED = "#1C1C1C"
-FORGE_TEXT_PRIMARY = "#E0E0E0"
-FORGE_TEXT_SECONDARY = "#D4C6A5"
-FORGE_TEXT_MUTED = "#858585"
-FORGE_BORDER_SUBTLE = "#555555"
-FORGE_ACTION_PRIMARY_BG = "#7F9A6A"
-FORGE_ACTION_PRIMARY_TEXT = BLACK
-FORGE_STATUS_ERROR_TEXT = "#E06666"
-
-LIGHT_BG_RAISED = "#EDE8DC"
-LIGHT_TEXT_PRIMARY = "#2C241B"
-LIGHT_TEXT_SECONDARY = "#7D4F4F"
-LIGHT_TEXT_MUTED = "#6A615A"
-LIGHT_BORDER_SUBTLE = "#C4B8A6"
-LIGHT_ACTION_PRIMARY_BG = "#526837"
-LIGHT_ACTION_PRIMARY_TEXT = WHITE
-LIGHT_STATUS_ERROR_TEXT = "#B03A2E"
-
-HIGH_CONTRAST_BG_RAISED = "#1A1A1A"
-HIGH_CONTRAST_TEXT_PRIMARY = WHITE
-HIGH_CONTRAST_TEXT_SECONDARY = "#C0C0C0"
-HIGH_CONTRAST_TEXT_MUTED = "#C0C0C0"
-HIGH_CONTRAST_BORDER_SUBTLE = "#8A8A8A"
-HIGH_CONTRAST_ACTION_PRIMARY_BG = "#FFD400"
-HIGH_CONTRAST_ACTION_PRIMARY_TEXT = BLACK
-HIGH_CONTRAST_STATUS_ERROR_TEXT = "#FF4D4D"
 
 
 @dataclass(frozen=True)
@@ -71,47 +40,51 @@ class Theme:
     status_error_text: str
 
 
-FORGE_THEME = Theme(
+DARK = Theme(
     bg_app=TRANSPARENT,
     bg_surface=TRANSPARENT,
-    bg_raised=FORGE_BG_RAISED,
-    text_primary=FORGE_TEXT_PRIMARY,
-    text_secondary=FORGE_TEXT_SECONDARY,
-    text_muted=FORGE_TEXT_MUTED,
-    text_inverse=BLACK,
-    border_subtle=FORGE_BORDER_SUBTLE,
-    action_primary_bg=FORGE_ACTION_PRIMARY_BG,
-    action_primary_text=FORGE_ACTION_PRIMARY_TEXT,
-    status_error_text=FORGE_STATUS_ERROR_TEXT,
+    bg_raised="#1C1C1C",
+    text_primary="#E0E0E0",
+    text_secondary="#D4C6A5",
+    text_muted="#858585",
+    text_inverse="#000000",
+    border_subtle="#555555",
+    action_primary_bg="#7F9A6A",
+    action_primary_text="#000000",
+    status_error_text="#E06666",
 )
 
-LIGHT_THEME = Theme(
-    bg_app=TRANSPARENT,
-    bg_surface=TRANSPARENT,
-    bg_raised=LIGHT_BG_RAISED,
-    text_primary=LIGHT_TEXT_PRIMARY,
-    text_secondary=LIGHT_TEXT_SECONDARY,
-    text_muted=LIGHT_TEXT_MUTED,
-    text_inverse=BLACK,
-    border_subtle=LIGHT_BORDER_SUBTLE,
-    action_primary_bg=LIGHT_ACTION_PRIMARY_BG,
-    action_primary_text=LIGHT_ACTION_PRIMARY_TEXT,
-    status_error_text=LIGHT_STATUS_ERROR_TEXT,
+LIGHT = Theme(
+    bg_app="#f8f9fa",
+    bg_surface="#ffffff",
+    bg_raised="#ffffff",
+    text_primary="#212529",
+    text_secondary="#495057",
+    text_muted="#868e96",
+    text_inverse="#ffffff",
+    border_subtle="#dee2e6",
+    action_primary_bg="#228be6",
+    action_primary_text="#ffffff",
+    status_error_text="#e03131",
 )
 
-HIGH_CONTRAST_THEME = Theme(
+HIGH_CONTRAST = Theme(
     bg_app=TRANSPARENT,
     bg_surface=TRANSPARENT,
-    bg_raised=HIGH_CONTRAST_BG_RAISED,
-    text_primary=HIGH_CONTRAST_TEXT_PRIMARY,
-    text_secondary=HIGH_CONTRAST_TEXT_SECONDARY,
-    text_muted=HIGH_CONTRAST_TEXT_MUTED,
-    text_inverse=BLACK,
-    border_subtle=HIGH_CONTRAST_BORDER_SUBTLE,
-    action_primary_bg=HIGH_CONTRAST_ACTION_PRIMARY_BG,
-    action_primary_text=HIGH_CONTRAST_ACTION_PRIMARY_TEXT,
-    status_error_text=HIGH_CONTRAST_STATUS_ERROR_TEXT,
+    bg_raised="#1A1A1A",
+    text_primary="#FFFFFF",
+    text_secondary="#C0C0C0",
+    text_muted="#C0C0C0",
+    text_inverse="#000000",
+    border_subtle="#8A8A8A",
+    action_primary_bg="#FFD400",
+    action_primary_text="#000000",
+    status_error_text="#FF4D4D",
 )
+
+FORGE_THEME = DARK
+LIGHT_THEME = LIGHT
+HIGH_CONTRAST_THEME = HIGH_CONTRAST
 
 THEMES: Final[dict[str, Theme]] = {
     "forge": FORGE_THEME,

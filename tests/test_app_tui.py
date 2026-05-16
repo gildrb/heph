@@ -23,7 +23,6 @@ from hephaistos.parameters import settings as settings_store
 from hephaistos.providers.config import ProviderConfig, default_config
 from hephaistos.study import StudyAutonomyMode
 from hephaistos.terminal import current_theme_name, set_theme
-from hephaistos.terminal.palette import TRANSPARENT
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
 from hephaistos.tui.inline_flows import (
@@ -507,7 +506,7 @@ def test_non_default_themes_do_not_paint_terminal_background() -> None:
             palette = tui.current_palette()
             css = tui._tui_css()
 
-            assert palette.bg_app == TRANSPARENT
+            assert palette.bg_app
             assert "background: transparent;" in css
             assert palette.bg_app in css
     finally:

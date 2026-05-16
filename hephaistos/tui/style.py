@@ -1,31 +1,29 @@
 from __future__ import annotations
 
-from hephaistos.terminal import current_palette
+from hephaistos.terminal import Theme, current_palette
+from hephaistos.terminal.palette import TRANSPARENT
 
 
-def _tui_css() -> str:
-    """Generate TUI CSS from the current theme palette.
-
-    All backgrounds are transparent to support terminal emulator transparency.
-    Text colors remain theme-specific for readability.
-    """
-    p = current_palette()
-    bg = p.bg_app
-    bt = p.bg_app
+def _tui_css(theme: Theme | None = None) -> str:
+    """Generate TUI CSS from the selected theme palette."""
+    p = theme or current_palette()
+    app_bg = TRANSPARENT
+    bg = TRANSPARENT
+    bt = TRANSPARENT
     user_bg = p.bg_raised
     return f"""
 App {{
-    background: {bg};
+    background: {app_bg};
     color: {p.text_primary};
 }}
 Screen {{
     layout: vertical;
-    background: {bg};
+    background: {app_bg};
     color: {p.text_primary};
     layers: base suggestions;
 }}
 Screen .screen--selection {{
-    background: {bg};
+    background: {app_bg};
     text-style: reverse;
 }}
 Horizontal,
@@ -40,7 +38,7 @@ RichLog {{
     layout: horizontal;
     height: 100%;
     width: 100%;
-    background: {bg};
+    background: {app_bg};
     color: {p.text_primary};
 }}
 #shell {{
