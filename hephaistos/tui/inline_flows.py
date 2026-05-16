@@ -303,7 +303,7 @@ def _inline_menu_option_text(
     if _RichText is None:
         return f"{label}  {description}" if description else label
     palette = current_palette()
-    label_style = f"bold {palette.action_primary_bg}" if selected else palette.text_primary
+    label_style = f"bold {palette.brand_primary}" if selected else palette.text_primary
     text = _RichText()
     text.append(label, style=label_style)
     if description:

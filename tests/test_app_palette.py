@@ -85,7 +85,7 @@ def test_style_tokens_render_from_current_theme() -> None:
     p = palette.current_palette()
 
     assert str(palette.STYLE_PROMPT) == f"{palette.BOLD}{palette.ansi_fg(p.text_primary)}"
-    assert str(palette.STYLE_BRAND) == f"{palette.BOLD}{palette.ansi_fg(p.action_primary_bg)}"
+    assert str(palette.STYLE_BRAND) == f"{palette.BOLD}{palette.ansi_fg(p.brand_primary)}"
     assert str(palette.STYLE_ACCENT) == f"{palette.BOLD}{palette.ansi_fg(p.action_primary_bg)}"
     assert str(palette.STYLE_DIM) == f"{palette.DIM}{palette.ansi_fg(p.text_muted)}"
     assert str(palette.STYLE_CHROME_LABEL) == palette.ansi_fg(p.text_secondary)
@@ -127,6 +127,7 @@ def test_theme_exposes_only_semantic_colour_roles() -> None:
         "text_muted",
         "text_inverse",
         "border_subtle",
+        "brand_primary",
         "action_primary_bg",
         "action_primary_text",
         "status_error_text",
@@ -164,6 +165,7 @@ def test_light_theme_matches_token_contract() -> None:
             text_muted="#868e96",
             text_inverse="#ffffff",
             border_subtle="#dee2e6",
+            brand_primary="#e03131",
             action_primary_bg="#228be6",
             action_primary_text="#ffffff",
             status_error_text="#e03131",
@@ -185,6 +187,7 @@ def test_all_theme_presets_are_valid_palettes() -> None:
         assert p.text_muted.startswith("#")
         assert p.text_inverse.startswith("#")
         assert p.border_subtle.startswith("#")
+        assert p.brand_primary.startswith("#")
         assert p.action_primary_bg.startswith("#")
         assert p.action_primary_text.startswith("#")
         assert p.status_error_text.startswith("#")
@@ -204,6 +207,7 @@ def test_palette_roles_support_aa_contrast_on_theme_surfaces() -> None:
     foreground_roles = (
         "text_primary",
         "text_secondary",
+        "brand_primary",
         "status_error_text",
     )
 
