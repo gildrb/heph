@@ -18,7 +18,10 @@ from typing import Final, Protocol, runtime_checkable
 from hephaistos.parameters.settings import DEFAULT_THEME
 from hephaistos.terminal.palette import (
     BOLD,
+    DARK,
     DIM,
+    HIGH_CONTRAST,
+    LIGHT,
     RESET,
     THEMES,
     Theme,
@@ -27,7 +30,10 @@ from hephaistos.terminal.palette import (
 
 __all__ = [
     "BOLD",
+    "DARK",
     "DIM",
+    "HIGH_CONTRAST",
+    "LIGHT",
     "RESET",
     "STYLE_ACCENT",
     "STYLE_ASSISTANT",

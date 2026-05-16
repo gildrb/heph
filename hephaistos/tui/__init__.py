@@ -259,7 +259,7 @@ class HephaistosTui(
         palette: Theme,
     ) -> None:
         super().__init__()
-        self.CSS = _tui_css()  # ty:ignore[invalid-attribute-access]
+        self.CSS = _tui_css(palette)  # ty:ignore[invalid-attribute-access]
         self._widgets = _WidgetClasses.from_palette(palette)
         self.session = active_session
         self.state = runtime_state
