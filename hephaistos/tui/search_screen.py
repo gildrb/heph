@@ -10,7 +10,7 @@ from typing import ClassVar
 
 from hephaistos.armory.search import CrossArmoryIndex, SearchResult
 from hephaistos.shell.startup_discovery import discover_available_armories
-from hephaistos.terminal import ThemePalette, current_palette
+from hephaistos.terminal import Theme, current_palette
 
 try:
     from textual import events
@@ -40,12 +40,12 @@ def _open_file_at_system(path: Path) -> None:
         subprocess.Popen(["start", str(path)])  # nosec B603 B607
 
 
-def _search_screen_css(p: ThemePalette) -> str:
+def _search_screen_css(p: Theme) -> str:
     """Generate CSS from the active theme palette."""
-    bg = "transparent"
-    border_color = "transparent"
-    text_color = p.text
-    dim_color = p.dim
+    bg = p.bg_surface
+    border_color = p.bg_app
+    text_color = p.text_primary
+    dim_color = p.text_muted
 
     return f"""
     SearchScreen {{
@@ -109,7 +109,7 @@ class SearchScreen(ModalScreen[SearchResult | None]):
 
     def compose(self) -> ComposeResult:
         p = current_palette()
-        title = f"[bold {p.emphasis}]\u2301 Search[/bold {p.emphasis}]"
+        title = f"[bold {p.text_primary}]\u2301 Search[/bold {p.text_primary}]"
         with Vertical(id="search-dialog"):
             yield Static(title, id="search-title", markup=True)
             yield Input(placeholder="Search across armories...", id="search-input")
@@ -167,14 +167,14 @@ class SearchScreen(ModalScreen[SearchResult | None]):
             return
         result = self._results[idx]
         lines = [
-            f"[bold {p.emphasis}]Source:[/bold {p.emphasis}] {result.source_rel}",
-            f"[bold {p.emphasis}]Armory:[/bold {p.emphasis}] {result.armory_name}",
+            f"[bold {p.text_primary}]Source:[/bold {p.text_primary}] {result.source_rel}",
+            f"[bold {p.text_primary}]Armory:[/bold {p.text_primary}] {result.armory_name}",
             "",
             result.chunk_text[:300],
         ]
         if result.source_path.suffix.lower() == ".pdf":
             lines.append("")
-            lines.append(f"[bold {p.emphasis}]Press 'o' to open PDF[/bold {p.emphasis}]")
+            lines.append(f"[bold {p.text_primary}]Press 'o' to open PDF[/bold {p.text_primary}]")
         preview.update("\n".join(lines))
 
     def _open_selected_source(self) -> None:

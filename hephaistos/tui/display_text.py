@@ -33,10 +33,10 @@ def require_rich_text() -> type[Text]:
 def _study_mode_style(mode: str) -> str:
     palette = current_palette()
     if mode == "manual":
-        return palette.dim
+        return palette.text_muted
     if mode == "guided":
-        return palette.emphasis
-    return f"bold {palette.error}"
+        return palette.text_primary
+    return f"bold {palette.status_error_text}"
 
 
 def status_text(session: ChatSession, state: str = "ready") -> Text:
@@ -44,18 +44,18 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
     palette = current_palette()
 
     text_cls = require_rich_text()
-    text = text_cls(plain, style=palette.dim)
-    text.stylize(f"bold {palette.brand}", 0, len("Heph"))
+    text = text_cls(plain, style=palette.text_muted)
+    text.stylize(f"bold {palette.action_primary_bg}", 0, len("Heph"))
 
     for label in ("armory", "model", "mode"):
         start = 0 if plain.startswith(f"{label} ") else plain.index(f" {label} ") + 1
-        text.stylize(palette.chrome_label, start, start + len(label))
+        text.stylize(palette.text_secondary, start, start + len(label))
 
     for label in ("armory", "model"):
         value_start = plain.index(f"{label} ") + len(label) + 1
         next_label = " model " if label == "armory" else " mode "
         value_end = plain.index(next_label, value_start)
-        text.stylize(palette.chrome_detail, value_start, value_end)
+        text.stylize(palette.text_muted, value_start, value_end)
 
     mode = session.study_state.autonomy_mode.value
     mode_start = plain.index(mode, plain.index("mode "))
@@ -67,8 +67,8 @@ def status_text(session: ChatSession, state: str = "ready") -> Text:
 def armory_footer_hints_text(*, creating: bool = False, filtering: bool = False) -> Text:
     """Build footer hints for inline armory mode."""
     palette = current_palette()
-    footer_style = palette.dim
-    shortcut_style = palette.chrome_label
+    footer_style = palette.text_muted
+    shortcut_style = palette.text_secondary
     if creating:
         parts = ["armory", "enter create", "esc cancel"]
     elif filtering:
@@ -95,8 +95,8 @@ def footer_hints_text(
 ) -> Text:
     """Build contextual footer hints that change based on current state."""
     palette = current_palette()
-    footer_style = palette.chrome_detail
-    shortcut_style = palette.chrome_label
+    footer_style = palette.text_muted
+    shortcut_style = palette.text_secondary
 
     if busy:
         plain = "esc stop  ctrl+c cancel"
@@ -127,7 +127,7 @@ def footer_hints_text(
         text.stylize(shortcut_style, start, start + len(label))
     if "api missing" in plain:
         api_start = plain.index("api missing")
-        text.stylize(palette.error, api_start, api_start + len("api missing"))
+        text.stylize(palette.status_error_text, api_start, api_start + len("api missing"))
     return text
 
 
@@ -184,25 +184,25 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
     ]
     lines = _indent_info_panel_lines(lines)
     plain = "\n".join(lines)
-    text = require_rich_text()(plain, style=palette.dim)
+    text = require_rich_text()(plain, style=palette.text_muted)
     title_start = plain.index(title)
-    text.stylize(f"bold {palette.emphasis}", title_start, title_start + len(title))
+    text.stylize(f"bold {palette.text_primary}", title_start, title_start + len(title))
     for label in ("time", "materials", "next"):
         start = 0
         while True:
             idx = plain.find(label, start)
             if idx == -1:
                 break
-            text.stylize(palette.chrome_label, idx, idx + len(label))
+            text.stylize(palette.text_secondary, idx, idx + len(label))
             start = idx + len(label)
     duration = _session_duration(session_seconds)
     duration_start = plain.index(duration, plain.index("time "))
-    text.stylize(palette.chrome_detail, duration_start, duration_start + len(duration))
+    text.stylize(palette.text_muted, duration_start, duration_start + len(duration))
     hidden_material_count = max(0, len(session.source_files) - 8)
     if hidden_material_count:
         detail = f"+{hidden_material_count} more"
         detail_start = plain.index(detail)
-        text.stylize(palette.chrome_detail, detail_start, detail_start + len(detail))
+        text.stylize(palette.text_muted, detail_start, detail_start + len(detail))
     for name in session.source_files:
         display_name = name.removeprefix("materials/")
         token = f"@{display_name}"
@@ -210,9 +210,9 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
         if idx == -1:
             continue
         style = (
-            palette.material_disabled
+            palette.status_error_text
             if name in session.disabled_source_files
-            else palette.material_enabled
+            else palette.action_primary_bg
         )
         text.stylize(style, idx, idx + len(token))
     return text
@@ -297,14 +297,14 @@ def info_panel_message_text(entry: TuiTranscriptEntry, session: ChatSession) -> 
 
     lines = _indent_info_panel_lines(lines)
     plain = "\n".join(lines)
-    text = require_rich_text()(plain, style=palette.dim)
+    text = require_rich_text()(plain, style=palette.text_muted)
     first_line = lines[0].strip()
     title_start = plain.index(first_line)
-    text.stylize(f"bold {palette.emphasis}", title_start, title_start + len(first_line))
+    text.stylize(f"bold {palette.text_primary}", title_start, title_start + len(first_line))
     for label in ("model", "tokens", "cost", "evidence"):
         try:
             start = plain.index(label)
-            text.stylize(f"dim {palette.dim}", start, start + len(label))
+            text.stylize(f"dim {palette.text_muted}", start, start + len(label))
         except ValueError:
             pass
     return text

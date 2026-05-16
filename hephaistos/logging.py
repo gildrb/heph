@@ -43,12 +43,7 @@ from pathlib import Path
 from typing import ClassVar, Self, TextIO
 
 from hephaistos._types import is_string_mapping
-from hephaistos.terminal.palette import (
-    FORGE_EMBER,
-    FORGE_IRON,
-    FORGE_SMOKE,
-    ansi_fg,
-)
+from hephaistos.terminal.palette import FORGE_THEME, ansi_fg
 
 # -- Redaction / scrubbing ---------------------------------------------------
 
@@ -151,14 +146,14 @@ class _TextFormatter(logging.Formatter):
     """Human-readable coloured formatter for development."""
 
     _LEVEL_COLOURS: ClassVar[dict[str, str]] = {
-        "DEBUG": ansi_fg(FORGE_SMOKE),
-        "INFO": ansi_fg(FORGE_EMBER),
-        "WARNING": ansi_fg(FORGE_EMBER),
-        "ERROR": ansi_fg(FORGE_IRON),
-        "CRITICAL": f"\033[1m{ansi_fg(FORGE_IRON)}",
+        "DEBUG": ansi_fg(FORGE_THEME.text_muted),
+        "INFO": ansi_fg(FORGE_THEME.action_primary_bg),
+        "WARNING": ansi_fg(FORGE_THEME.action_primary_bg),
+        "ERROR": ansi_fg(FORGE_THEME.status_error_text),
+        "CRITICAL": f"\033[1m{ansi_fg(FORGE_THEME.status_error_text)}",
     }
     _RESET = "\033[0m"
-    _DIM = f"\033[2m{ansi_fg(FORGE_SMOKE)}"
+    _DIM = f"\033[2m{ansi_fg(FORGE_THEME.text_muted)}"
 
     def format(self, record: logging.LogRecord) -> str:
         ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%H:%M:%S")

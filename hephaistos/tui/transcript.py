@@ -190,7 +190,7 @@ class _EvidenceMarkdown:
 
 
 def _evidence_metadata_style() -> _RichStyle:
-    return _RichStyle.parse(f"dim {current_palette().dim}")
+    return _RichStyle.parse(f"dim {current_palette().text_muted}")
 
 
 def _markdown_renderable(entry: TuiTranscriptEntry) -> RenderableType:
@@ -214,7 +214,8 @@ class TuiTranscriptMixin:
         highlighted = suggestions.highlighted
         if suggestions.has_class("visible") and option_count > 0 and highlighted is not None:
             palette = current_palette()
-            position.update(_RichText(f"  ({highlighted + 1}/{option_count})", style=palette.dim))
+            position_text = f"  ({highlighted + 1}/{option_count})"
+            position.update(_RichText(position_text, style=palette.text_muted))
             position.add_class("visible")
             return
         position.update("")
@@ -300,12 +301,12 @@ class TuiTranscriptMixin:
 
     def _write_user_transcript_lines(self: _TranscriptHost, log: RichLog, text: str) -> None:
         p = current_palette()
-        style = _RichStyle(color=p.text, bgcolor=p.panel, bold=True)
+        style = _RichStyle(color=p.text_primary, bgcolor=p.bg_raised, bold=True)
         self._write_padded_panel_lines(log, text, style=style)
 
     def _write_startup_card_lines(self: _TranscriptHost, log: RichLog, text: str) -> None:
         p = current_palette()
-        self._write_transcript_lines(log, text, style=_RichStyle(color=p.dim))
+        self._write_transcript_lines(log, text, style=_RichStyle(color=p.text_muted))
 
     def _write_padded_panel_lines(
         self: _TranscriptHost,
@@ -361,7 +362,7 @@ class TuiTranscriptMixin:
             self._write_transcript_lines(
                 log,
                 entry.content,
-                style=_RichStyle(color=p.dim),
+                style=_RichStyle(color=p.text_muted),
                 ansi=True,
             )
         else:
@@ -407,7 +408,8 @@ class TuiTranscriptMixin:
 
     def _append_error(self: _TranscriptHost, text: str) -> None:
         p = current_palette()
-        self._append_entry(f"[bold {p.error}]error:[/bold {p.error}] {text}", "error")
+        error_style = p.status_error_text
+        self._append_entry(f"[bold {error_style}]error:[/bold {error_style}] {text}", "error")
 
     def _finish_turn(self: _TranscriptHost) -> None:
         self.busy = False

@@ -32,8 +32,8 @@ def wordmark(*, color: bool = True) -> str:
     """
     spark = "\u2301"
     if color:
-        brand = current_palette().brand
-        dim = current_palette().dim
+        brand = current_palette().action_primary_bg
+        dim = current_palette().text_muted
         return f"{ansi_fg(brand)}{spark} Hephaistos{ansi_fg(dim)}"
     return f"{spark} Hephaistos"
 

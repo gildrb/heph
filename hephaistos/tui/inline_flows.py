@@ -100,6 +100,9 @@ _OVERVIEW_CITATION_RE = re.compile(r"\s+\[(?:e|E)\d+\]")
 _LANGUAGE_PRESERVING_TOPIC_PROMPT = (
     " Answer in the same language as the selected topic when that language is clear."
 )
+_CUSTOM_STUDY_PROMPT_LABEL = "Ask something else"
+_CUSTOM_STUDY_PROMPT_DESCRIPTION = "custom study prompt"
+_CUSTOM_STUDY_PROMPT_PLACEHOLDER = "What would you like to study or ask?"
 
 
 @dataclass(frozen=True)
@@ -299,12 +302,12 @@ def _inline_menu_option_text(
     if _RichText is None:
         return f"{label}  {description}" if description else label
     palette = current_palette()
-    label_style = f"bold {palette.brand}" if selected else palette.text
+    label_style = f"bold {palette.action_primary_bg}" if selected else palette.text_primary
     text = _RichText()
     text.append(label, style=label_style)
     if description:
-        text.append("  ", style=palette.dim)
-        text.append(description, style=palette.dim)
+        text.append("  ", style=palette.text_muted)
+        text.append(description, style=palette.text_muted)
     return text
 
 
@@ -790,6 +793,13 @@ class TuiInlineFlowMixin:
                     self._close_inline_flow(f"selected: {label}")
                     self._submit_inline_chat_value(prompt)
                     return
+                if label == _CUSTOM_STUDY_PROMPT_LABEL:
+                    self._prompt_inline_text(
+                        "study_topic",
+                        "custom_prompt",
+                        _CUSTOM_STUDY_PROMPT_PLACEHOLDER,
+                    )
+                    return
                 self._open_inline_menu(
                     name="study_topic",
                     step="action",
@@ -861,7 +871,7 @@ class TuiInlineFlowMixin:
             name="study_topic",
             step="topic",
             title="Choose a topic to study",
-            options=options,
+            options=_study_topic_menu_options(options),
             prompts=prompts,
         )
 
@@ -900,11 +910,12 @@ class TuiInlineFlowMixin:
         read_from = (screen_path, f"{self.__class__.__name__}.CSS")
         self.stylesheet.add_source(self.CSS, read_from=read_from, is_default_css=False)
         self.refresh_css(animate=False)
-        self.styles.background = "transparent"
-        self.styles.background_tint = "transparent"
+        palette = current_palette()
+        self.styles.background = palette.bg_app
+        self.styles.background_tint = palette.bg_app
         screen = cast("_ScreenObject", self.screen)
-        screen.styles.background = "transparent"
-        screen.styles.background_tint = "transparent"
+        screen.styles.background = palette.bg_app
+        screen.styles.background_tint = palette.bg_app
         self._refresh_status("ready")
         self._refresh_footer_hints()
         self._update_info_panel()
@@ -964,6 +975,9 @@ class TuiInlineFlowMixin:
         elif step == "custom_model":
             self._inline_flow.model = value
             self._prompt_inline_text("login", "custom_key", "API key")
+        elif self._inline_flow.name == "study_topic" and step == "custom_prompt":
+            self._close_inline_flow("selected: custom prompt")
+            self._submit_inline_chat_value(value)
         elif step == "custom_key":
             pc = ProviderConfig.load()
             provider = pc.providers["custom"]
@@ -1153,12 +1167,13 @@ def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
             continue
         label = match.group("label").strip()
         if label:
-            topics.append((label, "study this topic"))
+            topics.append((label, _overview_topic_description(label)))
     if not topics and not recommendation_options:
         return None
-    topic_limit = max(0, 7 - len(recommendation_options))
-    options = [*topics[:topic_limit], *recommendation_options[:7]]
-    return OverviewTopicMenu(options=options[:7], prompts=prompts)
+    option_limit = 6
+    topic_limit = max(0, option_limit - len(recommendation_options))
+    options = [*topics[:topic_limit], *recommendation_options[:option_limit]]
+    return OverviewTopicMenu(options=_study_topic_menu_options(options), prompts=prompts)
 
 
 def _overview_reply_has_menu_context(reply: str) -> bool:
@@ -1176,6 +1191,47 @@ def _overview_reply_has_menu_context(reply: str) -> bool:
 def overview_topic_options(reply: str) -> list[tuple[str, str]]:
     menu = overview_topic_menu(reply)
     return menu.options if menu is not None else []
+
+
+def _study_topic_menu_options(options: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    content_options = [option for option in options if option[0] != _CUSTOM_STUDY_PROMPT_LABEL][:6]
+    return [
+        *content_options,
+        (_CUSTOM_STUDY_PROMPT_LABEL, _CUSTOM_STUDY_PROMPT_DESCRIPTION),
+    ]
+
+
+def _overview_topic_description(topic: str) -> str:
+    """Return a short, topic-specific hint for the study-topic menu."""
+    words = _strip_overview_citations(topic).strip(" .")
+    if not words:
+        return "key ideas"
+    normalized = " ".join(words.split())
+    lowered = normalized.casefold()
+    descriptions_by_topic = {
+        "carrier waves": "signals carrying information",
+        "eigenvalues": "matrix scaling factors",
+        "enzyme kinetics": "enzyme reaction rates",
+        "graph algorithms": "network problem solving",
+        "matrix multiplication": "combining matrices",
+        "protein folding": "how proteins take shape",
+        "recurrence relations": "recursive sequence rules",
+        "sequences": "ordered value patterns",
+        "signal entropy": "uncertainty in signals",
+    }
+    if description := descriptions_by_topic.get(lowered):
+        return description
+    if " and " in lowered:
+        return "relationship between ideas"
+    if lowered.endswith(" kinetics"):
+        return "rates of change"
+    if lowered.endswith(" entropy"):
+        return "uncertainty measure"
+    if lowered.endswith(" algorithms"):
+        return "problem-solving methods"
+    if lowered.endswith(" waves"):
+        return "wave behavior"
+    return _trim_inline_option_label(f"what {normalized} means", limit=34)
 
 
 def _overview_recommendation_option(

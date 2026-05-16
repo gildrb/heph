@@ -143,15 +143,18 @@ def _armory_entry_text(entry: _DirEntry, *, selected: bool) -> str | Text:
     text = _RichText()
     leading = entry.label[: len(entry.label) - len(entry.label.lstrip())]
     label = entry.label.strip()
-    text.append(leading, style=palette.dim)
+    text.append(leading, style=palette.text_muted)
     if entry.is_section:
-        text.append(label, style=f"dim {palette.dim}")
+        text.append(label, style=f"dim {palette.text_muted}")
     elif entry.is_create:
-        text.append(label, style=f"bold {palette.brand}" if selected else palette.emphasis)
+        style = f"bold {palette.action_primary_bg}" if selected else palette.text_primary
+        text.append(label, style=style)
     elif entry.is_missing:
-        text.append(label, style=f"bold {palette.error}" if selected else palette.error)
+        style = f"bold {palette.status_error_text}" if selected else palette.status_error_text
+        text.append(label, style=style)
     else:
-        text.append(label, style=f"bold {palette.brand}" if selected else palette.text)
+        style = f"bold {palette.action_primary_bg}" if selected else palette.text_primary
+        text.append(label, style=style)
     return text
 
 

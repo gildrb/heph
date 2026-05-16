@@ -23,6 +23,7 @@ from hephaistos.parameters import settings as settings_store
 from hephaistos.providers.config import ProviderConfig, default_config
 from hephaistos.study import StudyAutonomyMode
 from hephaistos.terminal import current_theme_name, set_theme
+from hephaistos.terminal.palette import TRANSPARENT
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
 from hephaistos.tui.inline_flows import (
@@ -249,8 +250,8 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
 
     hints = tui._footer_hints_text(_plain_session())
     palette = tui.current_palette()
-    footer_label_style = palette.chrome_detail
-    shortcut_style = palette.chrome_label
+    footer_label_style = palette.text_muted
+    shortcut_style = palette.text_secondary
     labels = ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+d")
     shortcut_styles: dict[str, list[str]] = {}
     for label in labels:
@@ -263,8 +264,8 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
     assert str(hints.style) == footer_label_style
     for styles in shortcut_styles.values():
         assert styles == [shortcut_style]
-        assert not any(palette.brand in style for style in styles)
-        assert not any(palette.emphasis in style for style in styles)
+        assert not any(palette.action_primary_bg in style for style in styles)
+        assert not any(palette.text_primary in style for style in styles)
         assert not any("bold" in style.lower() for style in styles)
 
 
@@ -292,7 +293,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
             styles = [
                 str(span.style) for span in text.spans if span.start <= start and span.end >= end
             ]
-            assert styles == [palette.chrome_label]
+            assert styles == [palette.text_secondary]
 
 
 def test_secondary_chrome_details_share_darker_tint(
@@ -316,21 +317,21 @@ def test_secondary_chrome_details_share_darker_tint(
 
     footer = tui._footer_hints_text(session)
     for label in ("send", "complete", "commands", "armory", "exit"):
-        assert effective_style(footer, label) == palette.chrome_detail
+        assert effective_style(footer, label) == palette.text_muted
 
     status = tui._status_text(session)
     armory_value = status.plain.split("armory ", maxsplit=1)[1].split(" model ", maxsplit=1)[0]
-    assert effective_style(status, armory_value) == palette.chrome_detail
-    assert effective_style(status, session.config.model) == palette.chrome_detail
+    assert effective_style(status, armory_value) == palette.text_muted
+    assert effective_style(status, session.config.model) == palette.text_muted
 
     panel = tui._info_panel_default_text(session, session_seconds=125)
     for label in (
         "2m 05s",
         "+1 more",
     ):
-        assert effective_style(panel, label) == palette.chrome_detail
+        assert effective_style(panel, label) == palette.text_muted
 
-    assert palette.chrome_detail != palette.chrome_label
+    assert palette.text_muted != palette.text_secondary
 
 
 def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
@@ -342,7 +343,7 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
         panel = tui._info_panel_default_text(session)
         palette = tui.current_palette()
 
-        assert palette.emphasis != palette.accent
+        assert palette.text_primary != palette.action_primary_bg
 
         brand_start = status.plain.index("Heph")
         brand_styles = [
@@ -370,13 +371,13 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
         ]
 
         for styles in (mode_styles, title_styles):
-            assert any(palette.emphasis in style for style in styles)
-            assert not any(palette.accent in style for style in styles)
-        assert brand_styles == [f"bold {palette.brand}"]
-        assert str(hints.style) == palette.chrome_detail
-        assert shortcut_styles == [palette.chrome_label]
-        assert not any(palette.emphasis in style for style in shortcut_styles)
-        assert not any(palette.accent in style for style in shortcut_styles)
+            assert any(palette.text_primary in style for style in styles)
+            assert not any(palette.action_primary_bg in style for style in styles)
+        assert brand_styles == [f"bold {palette.action_primary_bg}"]
+        assert str(hints.style) == palette.text_muted
+        assert shortcut_styles == [palette.text_secondary]
+        assert not any(palette.text_primary in style for style in shortcut_styles)
+        assert not any(palette.action_primary_bg in style for style in shortcut_styles)
     finally:
         set_theme("forge")
 
@@ -460,9 +461,9 @@ def test_tui_css_keeps_surface_transparent() -> None:
     prompt_end = css.index("}", prompt_start)
     prompt_block = css[prompt_start:prompt_end]
     assert "background: transparent;" in transcript_block
-    assert f"background: {tui.current_palette().composer_bar};" in composer_frame_block
-    assert f"background: {tui.current_palette().composer_bar};" in prompt_block
-    assert f"background: {tui.current_palette().composer_bar};" in composer_block
+    assert f"background: {tui.current_palette().bg_raised};" in composer_frame_block
+    assert f"background: {tui.current_palette().bg_raised};" in prompt_block
+    assert f"background: {tui.current_palette().bg_raised};" in composer_block
     assert "scrollbar-size: 0 0;" in suggestions_block
     assert "scrollbar-size-vertical" not in suggestions_block
     assert "padding: 0 2;" in option_block
@@ -506,10 +507,9 @@ def test_non_default_themes_do_not_paint_terminal_background() -> None:
             palette = tui.current_palette()
             css = tui._tui_css()
 
-            assert palette.is_transparent is True
-            assert palette.background == "transparent"
+            assert palette.bg_app == TRANSPARENT
             assert "background: transparent;" in css
-            assert palette.background in css
+            assert palette.bg_app in css
     finally:
         set_theme("forge")
 
@@ -546,7 +546,7 @@ def test_runtime_theme_switch_keeps_core_tui_backgrounds_transparent() -> None:
             assert all(
                 segment.style is None
                 or segment.style.bgcolor is None
-                or segment.style.bgcolor.name == palette.panel.lower()
+                or segment.style.bgcolor.name == palette.bg_raised.lower()
                 for segment in strip
             )
 
@@ -580,42 +580,20 @@ def test_tui_uses_transparent_widgets_for_all_palettes() -> None:
     if tui.RichLog is None:
         pytest.skip("Textual is not installed")
 
-    palette = tui.ThemePalette(
-        name="opaque-test",
-        brand="#ff6600",
-        panel="#000000",
-        composer_bar="#220909",
-        stone="#111111",
-        text="#ffffff",
-        dim="#999999",
-        accent="#ffffff",
-        emphasis="#ffffff",
-        shortcut="#999999",
-        metadata="#c9a3a3",
-        chrome_label="#c9a3a3",
-        chrome_detail="#948A73",
-        ember="#ff6600",
-        configured="#00ff00",
-        error="#ff0000",
-        success="#00ff00",
-        highlight="#222222",
-        selection_background="#bbbbbb",
-        selection_text="#000000",
-        material_enabled="#00ff00",
-        material_disabled="#ff6600",
-        is_transparent=False,
-        background="#000000",
-    )
+    try:
+        for theme_name in settings_store.THEME_PRESETS:
+            set_theme(theme_name)
+            widgets = tui._WidgetClasses.from_palette(tui.current_palette())
 
-    widgets = tui._WidgetClasses.from_palette(palette)
-
-    assert widgets.screen.__name__ == "BlankBackgroundWidget"
-    assert widgets.vertical.__name__ == "SelectionPassthroughTransparentWidget"
-    assert widgets.horizontal.__name__ == "SelectionPassthroughTransparentWidget"
-    assert _allow_select(widgets.vertical) is True
-    assert _allow_select(widgets.horizontal) is True
-    assert issubclass(widgets.rich_log, tui.RichLog)
-    assert widgets.rich_log.can_focus is False
+            assert widgets.screen.__name__ == "BlankBackgroundWidget"
+            assert widgets.vertical.__name__ == "SelectionPassthroughTransparentWidget"
+            assert widgets.horizontal.__name__ == "SelectionPassthroughTransparentWidget"
+            assert _allow_select(widgets.vertical) is True
+            assert _allow_select(widgets.horizontal) is True
+            assert issubclass(widgets.rich_log, tui.RichLog)
+            assert widgets.rich_log.can_focus is False
+    finally:
+        set_theme("forge")
 
 
 def test_tui_mouse_mode_passes_selection_through_layouts_to_text_widgets() -> None:
@@ -697,8 +675,8 @@ def test_mouse_selection_normalizes_neutral_label_highlights() -> None:
             ]
 
             assert selected_styles
-            assert all(palette.text.lower() in style for style in selected_styles)
-            assert all(palette.dim.lower() not in style for style in selected_styles)
+            assert all(palette.text_primary.lower() in style for style in selected_styles)
+            assert all(palette.text_muted.lower() not in style for style in selected_styles)
 
     asyncio.run(check_selection_colours())
 
@@ -797,7 +775,7 @@ def test_transcript_panel_background_only_paints_user_entries() -> None:
             await pilot.pause()
 
             transcript = app.query_one("#transcript")
-            panel = tui.current_palette().panel.lower()
+            panel = tui.current_palette().bg_raised.lower()
             user_segments: list[str] = []
             assistant_segments: list[str] = []
             panel_scroll_y = -1
@@ -902,8 +880,8 @@ def test_activity_trace_lines_are_muted_but_readable() -> None:
 
             assert activity_styles
             assert notice_styles
-            assert any(palette.dim.lower() in style for style in activity_styles)
-            assert any(palette.dim.lower() in style for style in notice_styles)
+            assert any(palette.text_muted.lower() in style for style in activity_styles)
+            assert any(palette.text_muted.lower() in style for style in notice_styles)
 
     asyncio.run(check_activity_style())
 
@@ -959,12 +937,12 @@ def test_tui_css_materials_highlight_uses_state_colours() -> None:
     enabled_block = css[enabled_start:enabled_end]
     assert "background: transparent;" in enabled_block
     assert "background: transparent;" in disabled_block
-    assert f"color: {palette.material_enabled};" in enabled_block
-    assert f"color: {palette.material_disabled};" in disabled_block
+    assert f"color: {palette.action_primary_bg};" in enabled_block
+    assert f"color: {palette.status_error_text};" in disabled_block
     assert "text-style: not bold;" in enabled_block
     assert "text-style: not bold;" in disabled_block
-    assert f"background: {palette.material_enabled};" not in css
-    assert f"background: {palette.material_disabled};" not in css
+    assert f"background: {palette.action_primary_bg};" not in enabled_block
+    assert f"background: {palette.status_error_text};" not in disabled_block
 
 
 def test_tui_css_materials_header_and_gaps_are_status_weight() -> None:
@@ -978,7 +956,7 @@ def test_tui_css_materials_header_and_gaps_are_status_weight() -> None:
     top_gap_end = css.index("}", top_gap_start)
     gap_block = css[top_gap_start:top_gap_end]
 
-    assert f"color: {palette.dim};" in header_block
+    assert f"color: {palette.text_muted};" in header_block
     assert "text-style: bold;" not in header_block
     assert "#materials-bottom-gap" in gap_block
     assert "height: 1;" in gap_block
@@ -1006,7 +984,7 @@ def test_materials_current_label_matches_other_state_labels() -> None:
         str(span.style) for span in unselected.spans
     ]
     styles = [str(span.style) for span in selected.spans]
-    assert palette.material_enabled in styles
+    assert palette.action_primary_bg in styles
     assert not any("bold" in style for style in styles)
     assert not any(" on " in style for style in styles)
 
@@ -1028,8 +1006,8 @@ def test_materials_disabled_label_uses_only_disabled_state_colour() -> None:
 
     assert not isinstance(option, str)
     styles = [str(span.style) for span in option.spans]
-    assert palette.material_disabled in styles
-    assert palette.material_enabled not in styles
+    assert palette.status_error_text in styles
+    assert palette.action_primary_bg not in styles
     assert not any("bold" in style for style in styles)
 
 
@@ -1072,11 +1050,11 @@ def test_materials_mouse_selection_preserves_state_colours() -> None:
             assert len(first_line_styles) == 1
             assert "not bold" in first_line_styles[0]
             assert "reverse" in first_line_styles[0]
-            assert palette.material_enabled.lower() in first_line_styles[0].lower()
+            assert palette.action_primary_bg.lower() in first_line_styles[0].lower()
             assert len(second_line_styles) == 1
             assert "reverse" in second_line_styles[0]
-            assert palette.material_disabled.lower() in second_line_styles[0].lower()
-            assert palette.text.lower() not in second_line_styles[0].lower()
+            assert palette.status_error_text.lower() in second_line_styles[0].lower()
+            assert palette.text_primary.lower() not in second_line_styles[0].lower()
 
     asyncio.run(check_material_selection())
 
@@ -1092,13 +1070,13 @@ def test_tui_css_completion_highlight_stays_quiet_until_mouse_hover() -> None:
     hover_block = css[hover_start:hover_end]
 
     assert "background: transparent;" in highlight_block
-    assert f"color: {palette.text};" in highlight_block
+    assert f"color: {palette.text_primary};" in highlight_block
     assert "#suggestions > .option-list--option-hover" in hover_block
-    assert f"background: {palette.panel};" in hover_block
-    assert f"color: {palette.text};" in hover_block
-    assert f"background: {palette.highlight};" not in hover_block
-    assert f"background: {palette.selection_background};" not in hover_block
-    assert f"color: {palette.selection_text};" not in hover_block
+    assert f"background: {palette.bg_raised};" in hover_block
+    assert f"color: {palette.text_primary};" in hover_block
+    assert f"background: {palette.bg_surface};" not in hover_block
+    assert f"background: {palette.action_primary_bg};" not in hover_block
+    assert f"color: {palette.action_primary_text};" not in hover_block
 
 
 def test_tui_css_inline_menu_highlight_has_no_brand_stripe() -> None:
@@ -1108,17 +1086,25 @@ def test_tui_css_inline_menu_highlight_has_no_brand_stripe() -> None:
 
 
 def test_inline_menu_selected_label_uses_brand_without_recoloring_description() -> None:
-    selected = _inline_menu_option_text("Signal Entropy", "study this topic", selected=True)
-    unselected = _inline_menu_option_text("Signal Entropy", "study this topic", selected=False)
+    selected = _inline_menu_option_text(
+        "Signal Entropy",
+        "uncertainty in signals",
+        selected=True,
+    )
+    unselected = _inline_menu_option_text(
+        "Signal Entropy",
+        "uncertainty in signals",
+        selected=False,
+    )
     palette = tui.current_palette()
 
     assert not isinstance(selected, str)
     assert not isinstance(unselected, str)
     selected_styles = [str(span.style) for span in selected.spans]
     unselected_styles = [str(span.style) for span in unselected.spans]
-    assert any(palette.brand in style and "bold" in style for style in selected_styles)
-    assert any(palette.dim in style for style in selected_styles)
-    assert not any(palette.brand in style for style in unselected_styles)
+    assert any(palette.action_primary_bg in style and "bold" in style for style in selected_styles)
+    assert any(palette.text_muted in style for style in selected_styles)
+    assert not any(palette.action_primary_bg in style for style in unselected_styles)
 
 
 def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
@@ -1131,8 +1117,8 @@ def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
         block_start = css.index(selector)
         block_end = css.index("}", block_start)
         block = css[block_start:block_end]
-        assert f"background: {palette.selection_background};" in block
-        assert f"color: {palette.selection_text};" in block
+        assert f"background: {palette.action_primary_bg};" in block
+        assert f"color: {palette.action_primary_text};" in block
         assert "text-style: not bold;" in block
 
 
@@ -1149,7 +1135,7 @@ def test_tui_css_text_selection_uses_reverse_video() -> None:
 
     assert "background: transparent;" in selection_block
     assert "text-style: reverse;" in selection_block
-    assert f"background: {palette.selection_background};" not in selection_block
+    assert f"background: {palette.action_primary_bg};" not in selection_block
     assert "background: transparent;" in input_block
     assert "text-style: reverse;" in input_block
 
@@ -1165,11 +1151,11 @@ def test_info_panel_material_colours_match_materials_picker() -> None:
 
     enabled_start = panel.plain.index("@enabled.pdf")
     disabled_start = panel.plain.index("@disabled.pdf")
-    assert (enabled_start, enabled_start + len("@enabled.pdf"), palette.material_enabled) in spans
+    assert (enabled_start, enabled_start + len("@enabled.pdf"), palette.action_primary_bg) in spans
     assert (
         disabled_start,
         disabled_start + len("@disabled.pdf"),
-        palette.material_disabled,
+        palette.status_error_text,
     ) in spans
 
 
@@ -1187,7 +1173,7 @@ def test_tui_css_prevents_full_width_status_and_footer_bars() -> None:
 
 def test_tui_css_pads_composer_as_full_width_user_block() -> None:
     css = tui._tui_css()
-    composer_bar = tui.current_palette().composer_bar
+    composer_bar = tui.current_palette().bg_raised
 
     frame_start = css.index("#composer-frame {")
     frame_end = css.index("}", frame_start)
@@ -1220,7 +1206,7 @@ def test_tui_css_pads_composer_as_full_width_user_block() -> None:
     cursor_start = css.index("Input > .input--cursor {")
     cursor_end = css.index("}", cursor_start)
     cursor_block = css[cursor_start:cursor_end]
-    assert f"color: {tui.current_palette().chrome_label};" in placeholder_block
+    assert f"color: {tui.current_palette().text_secondary};" in placeholder_block
     assert f"color: {composer_bar};" in cursor_block
 
 
@@ -1727,7 +1713,7 @@ def test_run_tui_appends_pending_command_output_to_transcript(
             self,
             _session: ChatSession,
             state: tui._TuiRuntimeState,
-            _palette: tui.ThemePalette,
+            _palette: tui.Theme,
         ) -> None:
             nonlocal captured_state
             captured_state = state
@@ -1758,14 +1744,14 @@ def test_run_tui_appends_pending_command_output_to_transcript(
 
 
 def test_run_tui_applies_saved_theme_on_startup(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured_palette: tui.ThemePalette | None = None
+    captured_palette: tui.Theme | None = None
 
     class FakeTui:
         def __init__(
             self,
             _session: ChatSession,
             _state: tui._TuiRuntimeState,
-            palette: tui.ThemePalette,
+            palette: tui.Theme,
         ) -> None:
             nonlocal captured_palette
             captured_palette = palette
@@ -1792,7 +1778,7 @@ def test_run_tui_applies_saved_theme_on_startup(monkeypatch: pytest.MonkeyPatch)
         set_theme("forge")
         tui.run_tui(_plain_session())
         assert captured_palette is not None
-        assert captured_palette.name == "high_contrast"
+        assert captured_palette == tui.current_palette()
         assert current_theme_name() == "high_contrast"
     finally:
         set_theme("forge")
@@ -1884,16 +1870,16 @@ def test_status_lines_shows_active_study_mode() -> None:
 
 
 @pytest.mark.parametrize(
-    ("mode", "expected_color", "expected_weight"),
+    ("mode", "expected_role", "expected_weight"),
     [
-        (StudyAutonomyMode.MANUAL, "#808080", ""),
-        (StudyAutonomyMode.GUIDED, "#C8C8C8", ""),
-        (StudyAutonomyMode.AUTOPILOT, "#CC3333", "bold"),
+        (StudyAutonomyMode.MANUAL, "text_muted", ""),
+        (StudyAutonomyMode.GUIDED, "text_primary", ""),
+        (StudyAutonomyMode.AUTOPILOT, "status_error_text", "bold"),
     ],
 )
 def test_status_text_colours_active_study_mode(
     mode: StudyAutonomyMode,
-    expected_color: str,
+    expected_role: str,
     expected_weight: str,
 ) -> None:
     session = _plain_session()
@@ -1905,6 +1891,7 @@ def test_status_text_colours_active_study_mode(
     mode_styles = [
         str(span.style).lower() for span in status.spans if span.start <= start and span.end >= end
     ]
+    expected_color = getattr(tui.current_palette(), expected_role)
 
     assert any(expected_color.lower() in style for style in mode_styles)
     if expected_weight:
@@ -2130,14 +2117,18 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
             )
             app._open_study_topic_flow(
                 [
-                    ("Enzyme Kinetics", "study this topic"),
-                    ("Protein Folding", "study this topic"),
+                    ("Enzyme Kinetics", "enzyme reaction rates"),
+                    ("Protein Folding", "how proteins take shape"),
                 ]
             )
             await pilot.pause()
 
             assert app._inline_flow.name == "study_topic"
             assert app._inline_flow.step == "topic"
+            assert app._inline_flow.options[-1] == (
+                "Ask something else",
+                "custom study prompt",
+            )
             suggestions = cast(
                 "TextualOptionList",
                 app.query_one("#suggestions", tui.OptionList),
@@ -2152,15 +2143,19 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
 
             first_styles = option_styles(0)
             second_styles = option_styles(1)
-            assert any(palette.brand in style and "bold" in style for style in first_styles)
-            assert not any(palette.brand in style for style in second_styles)
+            assert any(
+                palette.action_primary_bg in style and "bold" in style for style in first_styles
+            )
+            assert not any(palette.action_primary_bg in style for style in second_styles)
 
             await pilot.press("down")
             await pilot.pause()
             first_styles = option_styles(0)
             second_styles = option_styles(1)
-            assert not any(palette.brand in style for style in first_styles)
-            assert any(palette.brand in style and "bold" in style for style in second_styles)
+            assert not any(palette.action_primary_bg in style for style in first_styles)
+            assert any(
+                palette.action_primary_bg in style and "bold" in style for style in second_styles
+            )
             await pilot.press("enter")
             await pilot.pause()
 
@@ -2202,7 +2197,7 @@ def test_overview_recommended_option_submits_direct_prompt(
             monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
             app._open_study_topic_flow(
                 [
-                    ("Signal Entropy", "study this topic"),
+                    ("Signal Entropy", "uncertainty in signals"),
                     ("Compare Signal Entropy and Carrier Waves", "recommended"),
                 ],
                 {
@@ -2227,6 +2222,55 @@ def test_overview_recommended_option_submits_direct_prompt(
     asyncio.run(check_recommendation_flow())
 
 
+def test_study_topic_menu_custom_prompt_submits_user_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    submitted: list[str] = []
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_custom_prompt_flow() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
+            app._open_study_topic_flow(
+                [
+                    ("Signal Entropy", "uncertainty in signals"),
+                    ("Carrier Waves", "signals carrying information"),
+                ]
+            )
+            await pilot.pause()
+
+            assert app._inline_flow.options[-1] == (
+                "Ask something else",
+                "custom study prompt",
+            )
+
+            await pilot.press("down")
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app._inline_flow.name == "study_topic"
+            assert app._inline_flow.step == "custom_prompt"
+
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "Compare entropy with noise"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert submitted == ["Compare entropy with noise"]
+            assert app._inline_flow.active is False
+
+    asyncio.run(check_custom_prompt_flow())
+
+
 def test_inline_study_menu_ignores_stale_completion_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2246,8 +2290,8 @@ def test_inline_study_menu_ignores_stale_completion_candidates(
             monkeypatch.setattr(app, "_submit_inline_chat_value", submitted.append)
             app._open_study_topic_flow(
                 [
-                    ("Enzyme Kinetics", "study this topic"),
-                    ("Protein Folding", "study this topic"),
+                    ("Enzyme Kinetics", "enzyme reaction rates"),
+                    ("Protein Folding", "how proteins take shape"),
                 ]
             )
             app.completion_candidates = [
@@ -2286,9 +2330,10 @@ def test_overview_topic_options_parse_only_actual_topic_section() -> None:
     )
 
     assert overview_topic_options(reply) == [
-        ("Matrix multiplication", "study this topic"),
-        ("Eigenvalues", "study this topic"),
+        ("Matrix multiplication", "combining matrices"),
+        ("Eigenvalues", "matrix scaling factors"),
         ("Explain Matrix multiplication", "recommended"),
+        ("Ask something else", "custom study prompt"),
     ]
 
 
@@ -2301,8 +2346,9 @@ def test_overview_topic_options_accepts_shell_menu_hint() -> None:
     )
 
     assert overview_topic_options(reply) == [
-        ("Signal entropy", "study this topic"),
-        ("Carrier waves", "study this topic"),
+        ("Signal entropy", "uncertainty in signals"),
+        ("Carrier waves", "signals carrying information"),
+        ("Ask something else", "custom study prompt"),
     ]
 
 
@@ -2330,9 +2376,10 @@ def test_overview_topic_menu_accepts_recommendations_with_topic_heading() -> Non
 
     assert menu is not None
     assert menu.options == [
-        ("Graph algorithms", "study this topic"),
-        ("Recurrence relations", "study this topic"),
+        ("Graph algorithms", "network problem solving"),
+        ("Recurrence relations", "recursive sequence rules"),
         ("Explain Graph algorithms", "recommended"),
+        ("Ask something else", "custom study prompt"),
     ]
 
 
@@ -2350,8 +2397,9 @@ def test_overview_topic_menu_converts_recommendation_to_direct_prompt() -> None:
 
     assert menu is not None
     assert menu.options == [
-        ("Sequences", "study this topic"),
+        ("Sequences", "ordered value patterns"),
         ("Ask a contrastive question", "recommended"),
+        ("Ask something else", "custom study prompt"),
     ]
     assert menu.prompts == {
         "Ask a contrastive question": "Which topic is different between sequences and series?"
@@ -2374,11 +2422,12 @@ def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> Non
 
     assert menu is not None
     assert menu.options == [
-        ("Signal Entropy", "study this topic"),
-        ("Carrier Waves", "study this topic"),
+        ("Signal Entropy", "uncertainty in signals"),
+        ("Carrier Waves", "signals carrying information"),
         ("Explain Signal Entropy", "recommended"),
         ("Practice Carrier Waves", "recommended"),
         ("Compare Signal Entropy and Carrier Waves", "recommended"),
+        ("Ask something else", "custom study prompt"),
     ]
     assert menu.prompts["Explain Signal Entropy"] == (
         "Teach me Signal Entropy in simple terms, grounded in the evidence for this topic. "
@@ -2392,6 +2441,19 @@ def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> Non
         "Compare Signal Entropy and Carrier Waves, grounded in the evidence for these topics. "
         "Answer in the same language as the selected topic when that language is clear."
     )
+
+
+def test_overview_topic_options_uses_specific_fallback_descriptions() -> None:
+    reply = (
+        "These are the study topics I found in the material:\n"
+        "- Byzantine Consensus [E1].\n"
+        "Use the shell menu to choose one cited topic for guided study next."
+    )
+
+    assert overview_topic_options(reply) == [
+        ("Byzantine Consensus", "what Byzantine Consensus means"),
+        ("Ask something else", "custom study prompt"),
+    ]
 
 
 def test_overview_topic_options_limits_to_seven_topics() -> None:
@@ -2409,7 +2471,7 @@ def test_overview_topic_options_limits_to_seven_topics() -> None:
         "Topic 4",
         "Topic 5",
         "Topic 6",
-        "Topic 7",
+        "Ask something else",
     ]
 
 
@@ -2519,7 +2581,7 @@ def test_settings_inline_toggles_privacy_and_theme(
             app._submit_inline_flow("light")
 
             assert settings_store.load_app_settings().theme == "light"
-            assert "#2C241B" in app.CSS
+            assert tui.current_palette().text_primary in app.CSS
 
             app._open_settings_flow()
             app._submit_inline_flow("Activity trace")
@@ -4542,10 +4604,12 @@ def test_command_completion_selected_text_uses_brand_without_recoloring_descript
 
             selected_styles = [str(span.style) for span in selected.spans]
             unselected_styles = [str(span.style) for span in unselected.spans]
-            assert any(palette.brand in style and "bold" in style for style in selected_styles)
-            assert any(palette.dim in style for style in selected_styles)
-            assert any(palette.text in style for style in unselected_styles)
-            assert not any(palette.brand in style for style in unselected_styles)
+            assert any(
+                palette.action_primary_bg in style and "bold" in style for style in selected_styles
+            )
+            assert any(palette.text_muted in style for style in selected_styles)
+            assert any(palette.text_primary in style for style in unselected_styles)
+            assert not any(palette.action_primary_bg in style for style in unselected_styles)
 
     asyncio.run(check_completion_styles())
 

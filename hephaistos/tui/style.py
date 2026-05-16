@@ -10,18 +10,18 @@ def _tui_css() -> str:
     Text colors remain theme-specific for readability.
     """
     p = current_palette()
-    bg = "transparent"
-    bt = "transparent"
-    user_bg = p.composer_bar
+    bg = p.bg_app
+    bt = p.bg_app
+    user_bg = p.bg_raised
     return f"""
 App {{
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 Screen {{
     layout: vertical;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
     layers: base suggestions;
 }}
 Screen .screen--selection {{
@@ -41,7 +41,7 @@ RichLog {{
     height: 100%;
     width: 100%;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 #shell {{
     layout: vertical;
@@ -49,12 +49,12 @@ RichLog {{
     width: 1fr;
     min-width: 0;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 #transcript-spacer {{
     height: 1;
     background: {bg};
-    color: transparent;
+    color: {p.bg_app};
 }}
 #transcript-spacer.hidden-for-armory {{
     display: none;
@@ -66,7 +66,7 @@ RichLog {{
     max-width: 100%;
     padding: 0 0;
     background: {bg};
-    color: {p.dim};
+    color: {p.text_muted};
 }}
 #transcript {{
     height: 1fr;
@@ -76,7 +76,7 @@ RichLog {{
     padding: 0 0;
     content-align: left bottom;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
     scrollbar-size: 0 0;
     background-tint: {bt};
 }}
@@ -92,7 +92,7 @@ RichLog {{
     width: 100%;
     background: {bg};
     background-tint: {bt};
-    color: {p.text};
+    color: {p.text_primary};
     display: none;
 }}
 #armory-inline.active {{
@@ -100,31 +100,31 @@ RichLog {{
 }}
 #armory-header {{
     height: 1;
-    color: {p.emphasis};
+    color: {p.text_primary};
     background: {bg};
     text-style: bold;
 }}
 #armory-breadcrumbs {{
     height: auto;
     max-height: 0;
-    color: {p.dim};
+    color: {p.text_muted};
     background: {bg};
 }}
 #armory-mode-hint {{
     height: 1;
-    color: {p.dim};
+    color: {p.text_muted};
     background: {bg};
 }}
 #armory-pane-hint {{
     height: auto;
     max-height: 0;
-    color: {p.dim};
+    color: {p.text_muted};
     background: {bg};
 }}
 #armory-count-hint {{
     height: auto;
     max-height: 0;
-    color: {p.dim};
+    color: {p.text_muted};
     background: {bg};
 }}
 #armory-columns-inline-labels {{
@@ -135,7 +135,7 @@ RichLog {{
 #armory-current-label {{
     width: 100%;
     padding: 0 1;
-    color: {p.dim};
+    color: {p.text_muted};
     background: {bg};
 }}
 #armory-preview-label {{
@@ -151,19 +151,19 @@ RichLog {{
     height: 100%;
     padding: 0 1;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
     scrollbar-size: 0 0;
 }}
 #armory-current-inline > .option-list--option-highlighted {{
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 #armory-preview-inline {{
     display: none;
 }}
 #armory-error-inline {{
     height: 1;
-    color: {p.error};
+    color: {p.status_error_text};
     background: {bg};
 }}
 #materials-inline {{
@@ -172,7 +172,7 @@ RichLog {{
     width: 100%;
     background: {bg};
     background-tint: {bt};
-    color: {p.text};
+    color: {p.text_primary};
     display: none;
 }}
 #materials-inline.active {{
@@ -182,11 +182,11 @@ RichLog {{
 #materials-bottom-gap {{
     height: 1;
     background: {bg};
-    color: transparent;
+    color: {p.bg_app};
 }}
 #materials-header {{
     height: 1;
-    color: {p.dim};
+    color: {p.text_muted};
     background: {bg};
 }}
 #materials-columns {{
@@ -195,7 +195,7 @@ RichLog {{
     min-height: 0;
     width: 100%;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 #materials-list,
 #materials-list-right {{
@@ -204,7 +204,7 @@ RichLog {{
     width: 1fr;
     padding: 0 1;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
     scrollbar-size: 0 0;
 }}
 #materials-list-right {{
@@ -218,7 +218,7 @@ RichLog {{
 #materials-list-right.material-enabled > .option-list--option-highlighted,
 #materials-list-right.material-enabled:focus > .option-list--option-highlighted {{
     background: {bg};
-    color: {p.material_enabled};
+    color: {p.action_primary_bg};
     text-style: not bold;
 }}
 #materials-list.material-disabled > .option-list--option-highlighted,
@@ -226,19 +226,19 @@ RichLog {{
 #materials-list-right.material-disabled > .option-list--option-highlighted,
 #materials-list-right.material-disabled:focus > .option-list--option-highlighted {{
     background: {bg};
-    color: {p.material_disabled};
+    color: {p.status_error_text};
     text-style: not bold;
 }}
 #materials-footer {{
     height: 1;
-    color: {p.dim};
+    color: {p.text_muted};
     background: {bg};
 }}
 #transcript RichLog {{
-    color: {p.text};
+    color: {p.text_primary};
 }}
 #transcript RichLog .md-code-inline {{
-    color: {p.text};
+    color: {p.text_primary};
     text-style: bold;
 }}
 #thinking-indicator {{
@@ -247,7 +247,7 @@ RichLog {{
     max-width: 100%;
     padding: 0 0;
     background: {bg};
-    color: {p.dim};
+    color: {p.text_muted};
     display: none;
 }}
 #thinking-indicator.active {{
@@ -263,7 +263,7 @@ RichLog {{
     margin-top: 1;
     padding: 1 0;
     background: {user_bg};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 #composer-frame.compact {{
     height: 1;
@@ -281,7 +281,7 @@ RichLog {{
     max-width: 2;
     padding: 0 0;
     background: {user_bg};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 #completion-stack {{
     height: 9;
@@ -290,7 +290,7 @@ RichLog {{
     width: 100%;
     max-width: 100%;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 #completion-stack.compact {{
     height: 1;
@@ -304,7 +304,7 @@ RichLog {{
     max-width: 100%;
     padding-right: 0;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
     scrollbar-size: 0 0;
     display: none;
 }}
@@ -317,7 +317,7 @@ RichLog {{
 #suggestions > .option-list--option-highlighted,
 #suggestions:focus > .option-list--option-highlighted {{
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
     text-style: not bold;
 }}
 #suggestions.mouse-hovering > .option-list--option-highlighted,
@@ -325,7 +325,7 @@ RichLog {{
 #suggestions > .option-list--option-hover,
 #suggestions:focus > .option-list--option-hover {{
     background: {user_bg};
-    color: {p.text};
+    color: {p.text_primary};
     text-style: not bold;
 }}
 .hidden {{
@@ -334,24 +334,24 @@ RichLog {{
 OptionList {{
     width: 100%;
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
     border: none;
     padding: 0;
 }}
 OptionList > .option-list--option {{
     background: {bg};
-    color: {p.text};
+    color: {p.text_primary};
     padding: 0 2;
 }}
 OptionList > .option-list--option-highlighted {{
-    background: {p.selection_background};
-    color: {p.selection_text};
+    background: {p.action_primary_bg};
+    color: {p.action_primary_text};
     text-style: not bold;
     padding: 0 2;
 }}
 OptionList:focus > .option-list--option-highlighted {{
-    background: {p.selection_background};
-    color: {p.selection_text};
+    background: {p.action_primary_bg};
+    color: {p.action_primary_text};
     text-style: not bold;
     padding: 0 2;
 }}
@@ -363,14 +363,14 @@ OptionList:focus > .option-list--option-highlighted {{
     max-width: 100%;
     padding: 0 0;
     background: {user_bg};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 #footer-hints {{
     height: 1;
     width: auto;
     max-width: 100%;
     background: {bg};
-    color: {p.dim};
+    color: {p.text_muted};
 }}
 #completion-position {{
     height: 1;
@@ -378,7 +378,7 @@ OptionList:focus > .option-list--option-highlighted {{
     max-width: 100%;
     padding: 0 2;
     background: {bg};
-    color: {p.dim};
+    color: {p.text_muted};
     display: none;
 }}
 #completion-position.visible {{
@@ -391,7 +391,7 @@ OptionList:focus > .option-list--option-highlighted {{
     height: 100%;
     padding: 0 1;
     background: {bg};
-    color: {p.dim};
+    color: {p.text_muted};
 }}
 Input {{
     height: 1;
@@ -401,11 +401,11 @@ Input {{
     padding: 0 0;
     background: {user_bg};
     background-tint: {bt};
-    color: {p.text};
+    color: {p.text_primary};
 }}
 Input > .input--placeholder,
 Input > .input--suggestion {{
-    color: {p.chrome_label};
+    color: {p.text_secondary};
 }}
 Input:focus {{
     border: none;
@@ -413,8 +413,8 @@ Input:focus {{
     background-tint: {bt};
 }}
 Input > .input--cursor {{
-    background: {p.text};
-    color: {p.composer_bar};
+    background: {p.text_primary};
+    color: {p.bg_raised};
 }}
 Input > .input--selection {{
     background: {bg};

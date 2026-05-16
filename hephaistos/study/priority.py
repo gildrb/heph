@@ -33,6 +33,7 @@ from hephaistos.runtime import (
     has_configured_access,
     stream_completion,
 )
+from hephaistos.terminal.palette import LIGHT_THEME, Theme
 
 _LETTER_RE = r"[^\W\d_]"
 _WORD_BODY_RE = r"[\w+-]"
@@ -2019,7 +2020,8 @@ def render_priority_latex(sheet: PriorityCheatSheet) -> str:
         r"\setlength{\parskip}{1.5pt}",
         r"\setlist[itemize]{leftmargin=*,topsep=1pt,itemsep=1pt,parsep=0pt}",
         r"\setlist[enumerate]{leftmargin=*,topsep=1pt,itemsep=1pt,parsep=0pt}",
-        r"\newcommand{\sourceids}[1]{\textcolor{black!55}{\footnotesize #1}}",
+        r"\definecolor{hephSourceText}{HTML}{" + _latex_color_hex(LIGHT_THEME.text_muted) + "}",
+        r"\newcommand{\sourceids}[1]{\textcolor{hephSourceText}{\footnotesize #1}}",
         r"\newcommand{\topicrule}{\vspace{2pt}\hrule\vspace{3pt}}",
         r"\pagestyle{empty}",
         r"\begin{document}",
@@ -2391,6 +2393,10 @@ def _latex_text(value: str) -> str:
     return "".join(replacements.get(char, char) for char in value)
 
 
+def _latex_color_hex(hex_color: str) -> str:
+    return hex_color.removeprefix("#").upper()
+
+
 def _latex_mixed_text(value: str) -> str:
     parts = re.split(r"(\$[^$\n]+\$|\\\([^)]*\\\)|\\\[[\s\S]*?\\\])", value)
     rendered: list[str] = []
@@ -2499,65 +2505,74 @@ def _report_timestamp() -> str:
     return _escape(datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"))
 
 
-def _priority_css() -> str:
-    return """
-:root {
-  color: #111;
-  background: #fff;
+def _priority_css(theme: Theme = LIGHT_THEME) -> str:
+    background = theme.bg_raised
+    primary = theme.text_primary
+    secondary = theme.text_secondary
+    border = theme.border_subtle
+    return f"""
+:root {{
+  color: {primary};
+  background: {background};
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
-}
-* { box-sizing: border-box; }
-body { margin: 0; color: #111; background: #fff; font-size: 16px; }
-main { width: min(920px, calc(100% - 48px)); margin: 0 auto; padding: 40px 0 64px; }
-.hero { border-bottom: 2px solid #111; padding-bottom: 22px; margin-bottom: 30px; }
-.eyebrow {
-  color: #111;
+}}
+* {{ box-sizing: border-box; }}
+body {{ margin: 0; color: {primary}; background: {background}; font-size: 16px; }}
+main {{ width: min(920px, calc(100% - 48px)); margin: 0 auto; padding: 40px 0 64px; }}
+.hero {{ border-bottom: 2px solid {primary}; padding-bottom: 22px; margin-bottom: 30px; }}
+.eyebrow {{
+  color: {primary};
   text-transform: uppercase;
   letter-spacing: .08em;
   font-weight: 700;
   margin: 0 0 10px;
   font-size: .78rem;
-}
-h1 { font-size: clamp(2.2rem, 5vw, 3.5rem); line-height: 1; margin: 0 0 18px; }
-h2 {
+}}
+h1 {{ font-size: clamp(2.2rem, 5vw, 3.5rem); line-height: 1; margin: 0 0 18px; }}
+h2 {{
   font-size: 1.45rem;
   margin: 36px 0 16px;
-  border-bottom: 1px solid #111;
+  border-bottom: 1px solid {primary};
   padding-bottom: 8px;
-}
-h3 { font-size: 1.16rem; margin: 0 0 8px; }
-h4 { font-size: .95rem; margin: 16px 0 8px; }
-p { line-height: 1.55; }
-.meta, .source, .evidence, .unknown { color: #333; font-size: .94rem; }
-.topic-list { display: flex; flex-direction: column; gap: 28px; }
-.topic {
+}}
+h3 {{ font-size: 1.16rem; margin: 0 0 8px; }}
+h4 {{ font-size: .95rem; margin: 16px 0 8px; }}
+p {{ line-height: 1.55; }}
+.meta, .source, .evidence, .unknown {{ color: {secondary}; font-size: .94rem; }}
+.topic-list {{ display: flex; flex-direction: column; gap: 28px; }}
+.topic {{
   display: grid;
   grid-template-columns: minmax(0, 1fr) 12rem;
   gap: 20px;
   padding-bottom: 24px;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid {border};
   break-inside: avoid;
-}
-.topic:last-child { border-bottom: 0; }
-.topic-main > :first-child, .topic-side > :first-child { margin-top: 0; }
-ul { padding-left: 1.2rem; }
-li { margin: 6px 0; }
-blockquote {
+}}
+.topic:last-child {{ border-bottom: 0; }}
+.topic-main > :first-child, .topic-side > :first-child {{ margin-top: 0; }}
+ul {{ padding-left: 1.2rem; }}
+li {{ margin: 6px 0; }}
+blockquote {{
   margin: 12px 0 0;
   padding: 0 0 0 12px;
-  border-left: 2px solid #aaa;
-}
-table { width: 100%; border-collapse: collapse; }
-th, td { border-bottom: 1px solid #ddd; padding: 9px 0; vertical-align: top; text-align: left; }
-th { border-bottom-color: #111; }
-@media print {
-  main { width: 100%; padding: 0; }
-  .topic { page-break-inside: avoid; }
-}
-@media (max-width: 760px) {
-  .topic { grid-template-columns: 1fr; }
-}
+  border-left: 2px solid {border};
+}}
+table {{ width: 100%; border-collapse: collapse; }}
+th, td {{
+  border-bottom: 1px solid {border};
+  padding: 9px 0;
+  vertical-align: top;
+  text-align: left;
+}}
+th {{ border-bottom-color: {primary}; }}
+@media print {{
+  main {{ width: 100%; padding: 0; }}
+  .topic {{ page-break-inside: avoid; }}
+}}
+@media (max-width: 760px) {{
+  .topic {{ grid-template-columns: 1fr; }}
+}}
 """.strip()
 
 

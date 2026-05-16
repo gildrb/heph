@@ -264,11 +264,11 @@ class TuiMaterialsMixin:
         palette = current_palette()
         enabled_file = file not in self.session.disabled_source_files
         label = file.removeprefix("materials/")
-        state_color = palette.material_enabled if enabled_file else palette.material_disabled
+        state_color = palette.action_primary_bg if enabled_file else palette.status_error_text
         if _RichText is None:
             return f"@{label}"
         text = _RichText()
-        text.append("@", style=palette.dim)
+        text.append("@", style=palette.text_muted)
         text.append(label, style=state_color)
         return text
 

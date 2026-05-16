@@ -19,71 +19,9 @@ from hephaistos.parameters.settings import DEFAULT_THEME
 from hephaistos.terminal.palette import (
     BOLD,
     DIM,
-    FORGE_ACCENT,
-    FORGE_BRAND,
-    FORGE_CHROME_DETAIL,
-    FORGE_CHROME_LABEL,
-    FORGE_COMPOSER_BAR,
-    FORGE_CONFIGURED,
-    FORGE_DIM,
-    FORGE_EMBER,
-    FORGE_EMPHASIS,
-    FORGE_ERROR,
-    FORGE_HIGHLIGHT,
-    FORGE_MATERIAL_DISABLED,
-    FORGE_MATERIAL_ENABLED,
-    FORGE_METADATA,
-    FORGE_PANEL,
-    FORGE_SELECTION_BACKGROUND,
-    FORGE_SELECTION_TEXT,
-    FORGE_SHORTCUT,
-    FORGE_STONE,
-    FORGE_SUCCESS,
-    FORGE_TEXT,
-    HIGH_CONTRAST_ACCENT,
-    HIGH_CONTRAST_BRAND,
-    HIGH_CONTRAST_CHROME_DETAIL,
-    HIGH_CONTRAST_CHROME_LABEL,
-    HIGH_CONTRAST_COMPOSER_BAR,
-    HIGH_CONTRAST_CONFIGURED,
-    HIGH_CONTRAST_DIM,
-    HIGH_CONTRAST_EMBER,
-    HIGH_CONTRAST_EMPHASIS,
-    HIGH_CONTRAST_ERROR,
-    HIGH_CONTRAST_HIGHLIGHT,
-    HIGH_CONTRAST_MATERIAL_DISABLED,
-    HIGH_CONTRAST_MATERIAL_ENABLED,
-    HIGH_CONTRAST_METADATA,
-    HIGH_CONTRAST_PANEL,
-    HIGH_CONTRAST_SELECTION_BACKGROUND,
-    HIGH_CONTRAST_SELECTION_TEXT,
-    HIGH_CONTRAST_SHORTCUT,
-    HIGH_CONTRAST_STONE,
-    HIGH_CONTRAST_SUCCESS,
-    HIGH_CONTRAST_TEXT,
-    LIGHT_ACCENT,
-    LIGHT_BRAND,
-    LIGHT_CHROME_DETAIL,
-    LIGHT_CHROME_LABEL,
-    LIGHT_COMPOSER_BAR,
-    LIGHT_CONFIGURED,
-    LIGHT_DIM,
-    LIGHT_EMBER,
-    LIGHT_EMPHASIS,
-    LIGHT_ERROR,
-    LIGHT_HIGHLIGHT,
-    LIGHT_MATERIAL_DISABLED,
-    LIGHT_MATERIAL_ENABLED,
-    LIGHT_METADATA,
-    LIGHT_PANEL,
-    LIGHT_SELECTION_BACKGROUND,
-    LIGHT_SELECTION_TEXT,
-    LIGHT_SHORTCUT,
-    LIGHT_STONE,
-    LIGHT_SUCCESS,
-    LIGHT_TEXT,
     RESET,
-    TRANSPARENT,
+    THEMES,
+    Theme,
     ansi_fg,
 )
 
@@ -106,7 +44,7 @@ __all__ = [
     "STYLE_SUCCESS",
     "STYLE_WARNING",
     "MenuOption",
-    "ThemePalette",
+    "Theme",
     "ansi_fg",
     "browse_directory",
     "confirm",
@@ -126,114 +64,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class ThemePalette:
-    name: str
-    brand: str
-    panel: str
-    composer_bar: str
-    stone: str
-    text: str
-    dim: str
-    accent: str
-    emphasis: str
-    shortcut: str
-    metadata: str
-    chrome_label: str
-    chrome_detail: str
-    ember: str
-    configured: str
-    error: str
-    success: str
-    highlight: str
-    selection_background: str
-    selection_text: str
-    material_enabled: str
-    material_disabled: str
-    is_transparent: bool = True
-    background: str = TRANSPARENT
-
-
-_PALETTES: Final[dict[str, ThemePalette]] = {
-    "forge": ThemePalette(
-        name="forge",
-        brand=FORGE_BRAND,
-        panel=FORGE_PANEL,
-        composer_bar=FORGE_COMPOSER_BAR,
-        stone=FORGE_STONE,
-        text=FORGE_TEXT,
-        dim=FORGE_DIM,
-        accent=FORGE_ACCENT,
-        emphasis=FORGE_EMPHASIS,
-        shortcut=FORGE_SHORTCUT,
-        metadata=FORGE_METADATA,
-        chrome_label=FORGE_CHROME_LABEL,
-        chrome_detail=FORGE_CHROME_DETAIL,
-        ember=FORGE_EMBER,
-        configured=FORGE_CONFIGURED,
-        error=FORGE_ERROR,
-        success=FORGE_SUCCESS,
-        highlight=FORGE_HIGHLIGHT,
-        selection_background=FORGE_SELECTION_BACKGROUND,
-        selection_text=FORGE_SELECTION_TEXT,
-        material_enabled=FORGE_MATERIAL_ENABLED,
-        material_disabled=FORGE_MATERIAL_DISABLED,
-        is_transparent=True,
-        background=TRANSPARENT,
-    ),
-    "light": ThemePalette(
-        name="light",
-        brand=LIGHT_BRAND,
-        panel=LIGHT_PANEL,
-        composer_bar=LIGHT_COMPOSER_BAR,
-        stone=LIGHT_STONE,
-        text=LIGHT_TEXT,
-        dim=LIGHT_DIM,
-        accent=LIGHT_ACCENT,
-        emphasis=LIGHT_EMPHASIS,
-        shortcut=LIGHT_SHORTCUT,
-        metadata=LIGHT_METADATA,
-        chrome_label=LIGHT_CHROME_LABEL,
-        chrome_detail=LIGHT_CHROME_DETAIL,
-        ember=LIGHT_EMBER,
-        configured=LIGHT_CONFIGURED,
-        error=LIGHT_ERROR,
-        success=LIGHT_SUCCESS,
-        highlight=LIGHT_HIGHLIGHT,
-        selection_background=LIGHT_SELECTION_BACKGROUND,
-        selection_text=LIGHT_SELECTION_TEXT,
-        material_enabled=LIGHT_MATERIAL_ENABLED,
-        material_disabled=LIGHT_MATERIAL_DISABLED,
-        is_transparent=True,
-        background=TRANSPARENT,
-    ),
-    "high_contrast": ThemePalette(
-        name="high_contrast",
-        brand=HIGH_CONTRAST_BRAND,
-        panel=HIGH_CONTRAST_PANEL,
-        composer_bar=HIGH_CONTRAST_COMPOSER_BAR,
-        stone=HIGH_CONTRAST_STONE,
-        text=HIGH_CONTRAST_TEXT,
-        dim=HIGH_CONTRAST_DIM,
-        accent=HIGH_CONTRAST_ACCENT,
-        emphasis=HIGH_CONTRAST_EMPHASIS,
-        shortcut=HIGH_CONTRAST_SHORTCUT,
-        metadata=HIGH_CONTRAST_METADATA,
-        chrome_label=HIGH_CONTRAST_CHROME_LABEL,
-        chrome_detail=HIGH_CONTRAST_CHROME_DETAIL,
-        ember=HIGH_CONTRAST_EMBER,
-        configured=HIGH_CONTRAST_CONFIGURED,
-        error=HIGH_CONTRAST_ERROR,
-        success=HIGH_CONTRAST_SUCCESS,
-        highlight=HIGH_CONTRAST_HIGHLIGHT,
-        selection_background=HIGH_CONTRAST_SELECTION_BACKGROUND,
-        selection_text=HIGH_CONTRAST_SELECTION_TEXT,
-        material_enabled=HIGH_CONTRAST_MATERIAL_ENABLED,
-        material_disabled=HIGH_CONTRAST_MATERIAL_DISABLED,
-        is_transparent=True,
-        background=TRANSPARENT,
-    ),
-}
+_PALETTES: Final[dict[str, Theme]] = THEMES
 
 _current_theme_name = DEFAULT_THEME
 
@@ -252,28 +83,28 @@ def current_theme_name() -> str:
     return _current_theme_name
 
 
-def current_palette() -> ThemePalette:
+def current_palette() -> Theme:
     return _PALETTES.get(_current_theme_name, _PALETTES[DEFAULT_THEME])
 
 
 def style_code(style_name: str) -> str:
     palette = current_palette()
     if style_name in {"accent", "warning"}:
-        return f"{BOLD}{ansi_fg(palette.accent)}"
+        return f"{BOLD}{ansi_fg(palette.action_primary_bg)}"
     if style_name in {"prompt", "assistant", "emphasis"}:
-        return f"{BOLD}{ansi_fg(palette.emphasis)}"
+        return f"{BOLD}{ansi_fg(palette.text_primary)}"
     if style_name in {"brand", "ember"}:
-        return f"{BOLD}{ansi_fg(palette.brand)}"
+        return f"{BOLD}{ansi_fg(palette.action_primary_bg)}"
     if style_name in {"chrome_label", "shortcut", "metadata"}:
-        return ansi_fg(palette.chrome_label)
+        return ansi_fg(palette.text_secondary)
     if style_name == "chrome_detail":
-        return ansi_fg(palette.chrome_detail)
+        return ansi_fg(palette.text_muted)
     if style_name == "dim":
-        return f"{DIM}{ansi_fg(palette.dim)}"
+        return f"{DIM}{ansi_fg(palette.text_muted)}"
     if style_name == "error":
-        return f"{BOLD}{ansi_fg(palette.error)}"
+        return f"{BOLD}{ansi_fg(palette.status_error_text)}"
     if style_name == "success":
-        return f"{BOLD}{ansi_fg(palette.success)}"
+        return f"{BOLD}{ansi_fg(palette.action_primary_bg)}"
     return ""
 
 

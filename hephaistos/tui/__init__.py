@@ -25,7 +25,7 @@ from hephaistos.parameters.settings import (
 from hephaistos.providers.catalog import prefetch_provider_model_catalogs
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.study import AutopilotSessionType, StudyAutonomyMode
-from hephaistos.terminal import ThemePalette, current_palette, set_theme
+from hephaistos.terminal import Theme, current_palette, set_theme
 from hephaistos.terminal.history import InputHistory
 from hephaistos.tui import armory as _tui_armory
 from hephaistos.tui import widgets as _tui_widgets
@@ -256,7 +256,7 @@ class HephaistosTui(
         self,
         active_session: ChatSession,
         runtime_state: _TuiRuntimeState,
-        palette: ThemePalette,
+        palette: Theme,
     ) -> None:
         super().__init__()
         self.CSS = _tui_css()  # ty:ignore[invalid-attribute-access]
@@ -1165,11 +1165,11 @@ class HephaistosTui(
                 return f"{value:<22} {candidate.description}  "
             return f"{value}  "
         palette = current_palette()
-        command_style = f"bold {palette.brand}" if selected else palette.text
+        command_style = f"bold {palette.action_primary_bg}" if selected else palette.text_primary
         text = _RichText()
         if candidate.description:
             text.append(f"{value:<22} ", style=command_style)
-            text.append(f"{candidate.description}  ", style=palette.dim)
+            text.append(f"{candidate.description}  ", style=palette.text_muted)
             return text
         text.append(f"{value}  ", style=command_style)
         return text

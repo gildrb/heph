@@ -33,6 +33,7 @@ import certifi
 from hephaistos._types import is_string_mapping
 from hephaistos.logging import get_logger
 from hephaistos.providers.volatile_keys import clear_volatile_key
+from hephaistos.terminal.palette import LIGHT_THEME
 
 _log = get_logger("providers.oauth")
 
@@ -60,7 +61,7 @@ _SUCCESS_HTML = (
 _ERROR_HTML_TEMPLATE = (
     "<!DOCTYPE html><html><body"
     " style='font-family:sans-serif;text-align:center;padding:2em'>"
-    "<h2 style='color:red'>Authentication failed</h2>"
+    f"<h2 style='color:{LIGHT_THEME.status_error_text}'>Authentication failed</h2>"
     "<p>{error}</p></body></html>"
 )
 

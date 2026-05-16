@@ -30,7 +30,7 @@ from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
 from hephaistos.matching import ranked_matches
 from hephaistos.materials import count_material_files
 from hephaistos.shell.startup_discovery import discover_available_armories
-from hephaistos.terminal import ThemePalette, current_palette
+from hephaistos.terminal import Theme, current_palette
 from hephaistos.tui.transparent import transparent_strip
 
 try:
@@ -513,18 +513,18 @@ def file_detail(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _armory_browser_css(p: ThemePalette) -> str:
+def _armory_browser_css(p: Theme) -> str:
     """Generate CSS from the active theme palette."""
-    bg = "transparent"
-    border_color = "transparent"
-    text_color = p.text
-    dim_color = p.dim
-    emphasis_color = p.emphasis
+    bg = p.bg_surface
+    border_color = p.bg_app
+    text_color = p.text_primary
+    dim_color = p.text_muted
+    emphasis_color = p.text_primary
     return f"""
 ArmoryBrowserScreen {{
     align: center middle;
-    background: transparent;
-    background-tint: transparent;
+    background: {p.bg_app};
+    background-tint: {p.bg_app};
 }}
 #armory-dialog {{
     width: 112;
@@ -533,7 +533,7 @@ ArmoryBrowserScreen {{
     max-height: 88%;
     padding: 1 2;
     background: {bg};
-    background-tint: transparent;
+    background-tint: {p.bg_app};
     border: none;
     color: {text_color};
 }}
@@ -553,7 +553,7 @@ ArmoryBrowserScreen {{
     width: 100%;
     margin-bottom: 0;
     display: none;
-    background: transparent;
+    background: {bg};
 }}
 #armory-filter-container.active {{
     display: block;
@@ -574,7 +574,7 @@ ArmoryBrowserScreen {{
     display: none;
     width: {_PARENT_COLUMN_WIDTH};
     height: 100%;
-    background: transparent;
+    background: {bg};
     border: none;
     padding: 0 1 0 0;
     color: {dim_color};
@@ -583,24 +583,24 @@ ArmoryBrowserScreen {{
 #armory-current-col {{
     width: 1fr;
     height: 100%;
-    background: transparent;
+    background: {bg};
     border: none;
     padding: 0 1;
     color: {text_color};
     scrollbar-size: 0 0;
 }}
 #armory-current-col > .option-list--option {{
-    background: transparent;
+    background: {bg};
     color: {text_color};
     padding: 0;
 }}
 #armory-current-col > .option-list--option-highlighted {{
-    background: transparent;
+    background: {bg};
     color: {text_color};
     padding: 0;
 }}
 #armory-current-col:focus > .option-list--option-highlighted {{
-    background: transparent;
+    background: {bg};
     color: {text_color};
     padding: 0;
 }}
@@ -612,7 +612,7 @@ ArmoryBrowserScreen {{
     color: {dim_color};
 }}
 #armory-error {{
-    color: {p.error};
+    color: {p.status_error_text};
     width: 100%;
     margin-top: 0;
 }}
@@ -626,7 +626,7 @@ ArmoryBrowserScreen {{
     width: 100%;
     padding: 0 1;
     display: none;
-    background: transparent;
+    background: {bg};
 }}
 #armory-new-input-container.active {{
     display: block;
@@ -685,7 +685,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def compose(self) -> ComposeResult:
         p = current_palette()
-        title = f"[bold {p.emphasis}]{self._title}[/bold {p.emphasis}]"
+        title = f"[bold {p.text_primary}]{self._title}[/bold {p.text_primary}]"
         with Vertical(id="armory-dialog"):
             yield Static(title, id="armory-title", markup=True)
             yield Static("", id="armory-path")

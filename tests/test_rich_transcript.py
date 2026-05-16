@@ -8,6 +8,7 @@ from rich.style import Style
 
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import EvidenceChunk, TurnEvidence
+from hephaistos.terminal import current_palette
 from hephaistos.tui.rich_transcript import (
     enrich_reply,
     evidence_summary_text,
@@ -44,7 +45,7 @@ def _render_evidence_markdown(markdown_text: str) -> list[Segment]:
     console = Console(width=160)
     return list(
         console.render(
-            _EvidenceMarkdown(markdown_text, Style.parse("dim #808080")),
+            _EvidenceMarkdown(markdown_text, Style.parse(f"dim {current_palette().text_muted}")),
         )
     )
 
@@ -54,7 +55,12 @@ def _assert_dim_gray(style: Style | None) -> None:
     assert style.dim is True
     assert style.color is not None
     color = style.color.get_truecolor()
-    assert (color.red, color.green, color.blue) == (128, 128, 128)
+    expected = current_palette().text_muted.removeprefix("#")
+    assert (color.red, color.green, color.blue) == (
+        int(expected[0:2], 16),
+        int(expected[2:4], 16),
+        int(expected[4:6], 16),
+    )
 
 
 def test_enrich_reply_with_no_evidence_returns_text_unchanged() -> None:

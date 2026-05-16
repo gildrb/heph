@@ -7,7 +7,8 @@ respect the active theme's transparency setting consistently.
 
 from __future__ import annotations
 
-from hephaistos.terminal import ThemePalette, current_palette
+from hephaistos.terminal import Theme, current_palette
+from hephaistos.terminal.palette import BLACK_RGB, RICH_BLACK_COLOR_NAME
 
 try:
     from rich.segment import Segment
@@ -33,11 +34,13 @@ def style_without_black_background(style: _RichStyle | None) -> _RichStyle:
         return _RichStyle()
     bgcolor = style.bgcolor
     triplet = bgcolor.triplet if bgcolor is not None else None
-    is_standard_black = bgcolor is not None and bgcolor.name == "black" and bgcolor.number == 0
-    is_truecolor_black = triplet is not None and (triplet.red, triplet.green, triplet.blue) == (
-        0,
-        0,
-        0,
+    is_standard_black = (
+        bgcolor is not None
+        and bgcolor.name == RICH_BLACK_COLOR_NAME
+        and bgcolor.number == BLACK_RGB[0]
+    )
+    is_truecolor_black = (
+        triplet is not None and (triplet.red, triplet.green, triplet.blue) == BLACK_RGB
     )
     if not is_standard_black and not is_truecolor_black:
         return style
@@ -118,7 +121,7 @@ def _style_color_hex(style: _RichStyle | None) -> str | None:
 
 def normalize_selected_text_style(
     style: _RichStyle | None,
-    palette: ThemePalette | None = None,
+    palette: Theme | None = None,
 ) -> _RichStyle | None:
     """Return selected *style* with neutral UI colours promoted to readable text.
 
@@ -132,20 +135,15 @@ def normalize_selected_text_style(
         return style
     palette = palette or current_palette()
     neutral_colours = {
-        palette.text.lower(),
-        palette.dim.lower(),
-        palette.accent.lower(),
-        palette.emphasis.lower(),
-        palette.chrome_label.lower(),
-        palette.chrome_detail.lower(),
-        palette.shortcut.lower(),
-        palette.metadata.lower(),
-        palette.stone.lower(),
+        palette.text_primary.lower(),
+        palette.text_muted.lower(),
+        palette.text_secondary.lower(),
+        palette.border_subtle.lower(),
     }
     colour = _style_color_hex(style)
     if colour not in neutral_colours:
         return style
-    return style + _RichStyle(color=palette.text)
+    return style + _RichStyle(color=palette.text_primary)
 
 
 def selectable_text_strip(

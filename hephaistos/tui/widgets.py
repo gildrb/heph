@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from hephaistos.terminal import ThemePalette
+from hephaistos.terminal import Theme
 from hephaistos.tui.transparent import (
     make_blank_background_cls,
     make_transparent_cls,
@@ -43,7 +43,7 @@ class WidgetClasses:
     option_list: type
 
     @classmethod
-    def from_palette(cls, _palette: ThemePalette) -> WidgetClasses:
+    def from_palette(cls, _palette: Theme) -> WidgetClasses:
         input_class = input_without_ctrl_a_class(Input)
         return cls(
             screen=make_blank_background_cls(Screen),
