@@ -6,6 +6,7 @@ import math
 from collections import Counter
 from typing import cast
 
+from hephaistos._types import is_string_mapping
 from hephaistos.logging import get_logger
 from hephaistos.rag import optional_backends
 from hephaistos.rag.index import ArmoryIndex
@@ -34,13 +35,56 @@ class TfidfRetriever:
         self._idf: dict[str, float] = {}
         self._chunk_freqs: list[Counter[str]] = []
         if self._chunks:
+            cached_state = index.load_retriever_state("tfidf")
+            if cached_state is not None and self._load_idf_state(cached_state):
+                return
             if optional_backends.has_sklearn():
                 try:
                     self._build_sklearn()
+                    return
                 except Exception:
                     self._build_idf()
             else:
                 self._build_idf()
+            self._save_idf_state(index)
+
+    def _load_idf_state(self, state: dict[str, object]) -> bool:
+        raw_idf = state.get("idf")
+        raw_chunk_freqs = state.get("chunk_freqs")
+        if not is_string_mapping(raw_idf) or not isinstance(raw_chunk_freqs, list):
+            return False
+
+        idf: dict[str, float] = {}
+        for term, raw_value in raw_idf.items():
+            if not isinstance(raw_value, int | float):
+                return False
+            idf[term] = float(raw_value)
+
+        chunk_freqs: list[Counter[str]] = []
+        for raw_freq in raw_chunk_freqs:
+            if not is_string_mapping(raw_freq):
+                return False
+            freq: Counter[str] = Counter()
+            for term, raw_count in raw_freq.items():
+                if not isinstance(raw_count, int):
+                    return False
+                freq[term] = raw_count
+            chunk_freqs.append(freq)
+
+        if len(chunk_freqs) != len(self._chunks):
+            return False
+        self._idf = idf
+        self._chunk_freqs = chunk_freqs
+        return True
+
+    def _save_idf_state(self, index: ArmoryIndex) -> None:
+        index.save_retriever_state(
+            "tfidf",
+            {
+                "idf": dict(self._idf),
+                "chunk_freqs": [dict(freq) for freq in self._chunk_freqs],
+            },
+        )
 
     def _build_idf(self) -> None:
         doc_count = len(self._chunks)
@@ -144,22 +188,49 @@ class Bm25Retriever:
         self._retriever: object | None = None
         self._corpus_tokens: list[list[str]] = []
         if self._chunks and optional_backends.bm25_class() is not None:
-            self._build()
+            cached_state = index.load_retriever_state("bm25_tokens")
+            if cached_state is not None and self._load_corpus_tokens(cached_state):
+                self._build_retriever()
+            else:
+                self._build(index)
 
     @property
     def available(self) -> bool:
         """Whether the BM25 backend was built successfully."""
         return self._retriever is not None
 
-    def _build(self) -> None:
-        bm25_factory = optional_backends.bm25_class()
-        assert bm25_factory is not None
+    def _load_corpus_tokens(self, state: dict[str, object]) -> bool:
+        raw_corpus_tokens = state.get("corpus_tokens")
+        if not isinstance(raw_corpus_tokens, list):
+            return False
+        corpus_tokens: list[list[str]] = []
+        for raw_tokens in raw_corpus_tokens:
+            if not isinstance(raw_tokens, list):
+                return False
+            tokens: list[str] = []
+            for raw_token in raw_tokens:
+                if not isinstance(raw_token, str):
+                    return False
+                tokens.append(raw_token)
+            corpus_tokens.append(tokens)
+        if len(corpus_tokens) != len(self._chunks):
+            return False
+        self._corpus_tokens = corpus_tokens
+        return True
+
+    def _build(self, index: ArmoryIndex) -> None:
         self._corpus_tokens = [
             tokenize(_chunk_search_text(chunk.text, chunk.source, chunk.heading))
             for chunk in self._chunks
         ]
+        index.save_retriever_state("bm25_tokens", {"corpus_tokens": self._corpus_tokens})
+        self._build_retriever()
+
+    def _build_retriever(self) -> None:
         if not any(self._corpus_tokens):
             return
+        bm25_factory = optional_backends.bm25_class()
+        assert bm25_factory is not None
         try:
             retriever = bm25_factory()
             retriever.index(self._corpus_tokens, show_progress=False)

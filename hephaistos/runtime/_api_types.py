@@ -7,6 +7,7 @@ class ContentPart(TypedDict, total=False):
     type: Required[str]
     text: NotRequired[str]
     content: NotRequired[str]
+    cache_control: NotRequired[dict[str, str]]
 
 
 class ToolCallFunction(TypedDict):
@@ -31,6 +32,7 @@ class UsagePayload(TypedDict, total=False):
 class ApiMessage(TypedDict, total=False):
     role: Required[str]
     content: Required[str | None | list[ContentPart]]
+    cache_control: NotRequired[dict[str, str]]
     tool_calls: NotRequired[list[ToolCallDelta]]
     tool_call_id: NotRequired[str]
     tool_success: NotRequired[bool]

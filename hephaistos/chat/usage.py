@@ -20,6 +20,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    import tiktoken
+except Exception:
+    _encoder = None
+else:
+    try:
+        _encoder = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        _encoder = None
+
 from hephaistos._types import is_string_mapping
 from hephaistos.logging import get_logger
 from hephaistos.runtime import ApiMessage, ContentPart, UsagePayload
@@ -188,6 +198,8 @@ def get_context_window(model: str) -> int:
 
 def estimate_message_tokens(content: str) -> int:
     """Estimate token count for a message string."""
+    if _encoder is not None:
+        return len(_encoder.encode(content))
     return len(content) // _CHARS_PER_TOKEN
 
 

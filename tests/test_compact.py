@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import hephaistos.rag.context as rag_context_module
 from hephaistos.agent.compact import (
     KEEP_RECENT,
     auto_compact,
@@ -78,7 +79,9 @@ class TestEstimateMessagesTokens:
     def test_empty(self) -> None:
         assert estimate_messages_tokens([]) == 0
 
-    def test_text_messages(self) -> None:
+    def test_text_messages(self, monkeypatch) -> None:
+        monkeypatch.setattr(rag_context_module, "_encoder", None)
+
         msgs: list[ApiMessage] = [
             {"role": "user", "content": "a" * 400},
             {"role": "assistant", "content": "b" * 400},
@@ -300,6 +303,110 @@ class TestAutoCompact:
         compressed = auto_compact(messages, config, tmp_path)
         summary_msgs = [m for m in compressed if m["role"] == "user"]
         assert any("42" in _message_text(message) for message in summary_msgs)
+
+    def test_first_compaction_saves_summary_cache(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        messages = _build_multi_exchange(n_exchanges=5)
+        config, mock_client = self._mock_config_and_client(summary="Cached summary.")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: mock_client,
+        )
+
+        compressed = auto_compact(messages, config, tmp_path)
+
+        cache_files = list((tmp_path / ".hephaistos" / "compaction_cache").glob("*.txt"))
+        assert len(cache_files) == 1
+        assert cache_files[0].read_text(encoding="utf-8") == "Cached summary."
+        assert any("Cached summary." in _message_text(message) for message in compressed)
+
+    def test_unavailable_summary_is_not_cached(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        messages = _build_multi_exchange(n_exchanges=5)
+        config, empty_client = self._mock_config_and_client(summary="")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: empty_client,
+        )
+
+        compressed = auto_compact(messages, config, tmp_path)
+
+        assert any("(summary unavailable)" in _message_text(message) for message in compressed)
+        cache_dir = tmp_path / ".hephaistos" / "compaction_cache"
+        assert not list(cache_dir.glob("*.txt"))
+
+        _config, retry_client = self._mock_config_and_client(summary="Recovered summary.")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: retry_client,
+        )
+
+        retried = auto_compact(messages, config, tmp_path)
+
+        retry_client.chat.completions.create.assert_called_once()
+        assert any("Recovered summary." in _message_text(message) for message in retried)
+        cache_files = list(cache_dir.glob("*.txt"))
+        assert len(cache_files) == 1
+        assert cache_files[0].read_text(encoding="utf-8") == "Recovered summary."
+
+    def test_identical_compaction_reuses_summary_cache(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        messages = _build_multi_exchange(n_exchanges=5)
+        config, mock_client = self._mock_config_and_client(summary="Cached summary.")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: mock_client,
+        )
+        auto_compact(messages, config, tmp_path)
+
+        failing_client = MagicMock()
+        failing_client.chat.completions.create.side_effect = AssertionError("unexpected LLM call")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: failing_client,
+        )
+
+        compressed = auto_compact(messages, config, tmp_path)
+
+        failing_client.chat.completions.create.assert_not_called()
+        assert any("Cached summary." in _message_text(message) for message in compressed)
+
+    def test_changed_compaction_messages_use_new_summary_cache(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        messages = _build_multi_exchange(n_exchanges=5)
+        config, first_client = self._mock_config_and_client(summary="First summary.")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: first_client,
+        )
+        auto_compact(messages, config, tmp_path)
+
+        changed = _build_multi_exchange(n_exchanges=5)
+        changed[1]["content"] = "changed_exchange_0"
+        _config, second_client = self._mock_config_and_client(summary="Second summary.")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: second_client,
+        )
+
+        compressed = auto_compact(changed, config, tmp_path)
+
+        second_client.chat.completions.create.assert_called_once()
+        cache_files = list((tmp_path / ".hephaistos" / "compaction_cache").glob("*.txt"))
+        assert len(cache_files) == 2
+        assert any("Second summary." in _message_text(message) for message in compressed)
 
     def test_returns_original_on_llm_failure(
         self,
