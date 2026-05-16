@@ -54,6 +54,7 @@ from hephaistos.runtime import (
     build_client,
     stream_completion,
 )
+from hephaistos.runtime.prompt_cache import StablePrefixBuilder
 
 _log = get_logger("agent.dispatch")
 
@@ -115,11 +116,9 @@ def _inject_turn_context(
     if not inserts:
         return messages
     msgs = list(messages)
-    last_user = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i]["role"] == "user"), None)
-    if last_user is None:
-        return msgs + inserts
+    insert_at = StablePrefixBuilder().build(msgs).message_count
     for pos, insert in enumerate(inserts):
-        msgs.insert(last_user + pos, insert)
+        msgs.insert(insert_at + pos, insert)
     return msgs
 
 

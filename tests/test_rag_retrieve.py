@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import hephaistos.rag.sparse as sparse_module
 from hephaistos.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.rag.index import ArmoryIndex
 from hephaistos.rag.query_transform import TransformStrategy
@@ -41,11 +42,15 @@ def _make_chunk(text: str, source: str = "test.md", index: int = 0) -> Chunk:
 
 def _make_index_with_chunks(chunks: list[Chunk]) -> ArmoryIndex:
     """Build a minimal ArmoryIndex with the given chunks."""
+    return _make_index_with_chunks_at(Path("/fake"), chunks)
+
+
+def _make_index_with_chunks_at(armory_path: Path, chunks: list[Chunk]) -> ArmoryIndex:
     by_source: dict[str, list[Chunk]] = {}
     for c in chunks:
         by_source.setdefault(c.source, []).append(c)
 
-    index = ArmoryIndex(Path("/fake"))
+    index = ArmoryIndex(armory_path)
     for source, source_chunks in by_source.items():
         index.documents.append(
             ChunkedDocument(
@@ -276,6 +281,30 @@ class TestTfidfRetriever:
             "programming",
         ]
 
+    def test_idf_state_saved_and_reused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chunks = [
+            _make_chunk("Python is a programming language.", "python.md", 0),
+            _make_chunk("Rust ownership and borrowing.", "rust.md", 0),
+        ]
+        index = _make_index_with_chunks_at(tmp_path, chunks)
+        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        monkeypatch.setattr(retrieve_module, "HAS_SKLEARN", False)
+
+        TfidfRetriever(index)
+        state_path = tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_tfidf.json"
+
+        assert state_path.is_file()
+        with patch.object(
+            TfidfRetriever,
+            "_build_idf",
+            side_effect=AssertionError("cached IDF state should be reused"),
+        ):
+            retriever = TfidfRetriever(index)
+
+        assert retriever.retrieve("python")
+
 
 class TestBm25Retriever:
     def test_uses_bm25_backend_when_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -337,6 +366,41 @@ class TestBm25Retriever:
         retriever = Bm25Retriever(index)
 
         assert not retriever.available
+
+    def test_corpus_tokens_state_saved_and_reused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class FakeBm25:
+            def index(self, _corpus_tokens: list[list[str]], *, show_progress: bool) -> object:
+                assert show_progress is False
+                return None
+
+            def retrieve(
+                self,
+                _query_tokens: list[list[str]],
+                *,
+                k: int,
+                show_progress: bool,
+            ) -> tuple[object, object]:
+                return [[0]], [[1.0]]
+
+        chunks = [_make_chunk("Python is a programming language.", "python.md", 0)]
+        index = _make_index_with_chunks_at(tmp_path, chunks)
+        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
+
+        Bm25Retriever(index)
+        state_path = tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_bm25_tokens.json"
+
+        assert state_path.is_file()
+
+        def fail_tokenize(_text: str) -> list[str]:
+            raise AssertionError("cached corpus tokens should be reused")
+
+        monkeypatch.setattr(sparse_module, "tokenize", fail_tokenize)
+        retriever = Bm25Retriever(index)
+
+        assert retriever.available
 
 
 # ---------------------------------------------------------------------------

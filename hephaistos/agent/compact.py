@@ -15,6 +15,7 @@ Nothing is truly lost — full transcripts are persisted under
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -41,6 +42,7 @@ KEEP_RECENT_EXCHANGES: int = 2  # complete exchanges preserved verbatim by auto_
 PLACEHOLDER_THRESHOLD: int = 100  # only replace results longer than this (chars)
 TOKEN_THRESHOLD: int = 50_000  # auto_compact trigger
 TRANSCRIPTS_DIR: str = ".hephaistos/transcripts"
+_COMPACTION_CACHE_DIR: str = ".hephaistos/compaction_cache"
 
 
 def estimate_messages_tokens(messages: list[ApiMessage]) -> int:
@@ -133,43 +135,49 @@ def auto_compact(
     if not old_messages:
         return messages
 
+    serialized = json.dumps(old_messages, default=str, ensure_ascii=False, sort_keys=True)
+    messages_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    summary = _load_cached_summary(workspace, messages_hash)
+
     try:
-        serialized = json.dumps(old_messages, default=str, ensure_ascii=False)
-        if len(serialized) > 80_000:
-            # Truncate at the last newline boundary to avoid splitting
-            # mid-escape-sequence (e.g. "\u00" -> "\u0").
-            cut = serialized.rfind("\n", 0, 80_000)
-            if cut == -1:
-                cut = 80_000
-            serialized = serialized[:cut] + "\n... [truncated]"
+        if summary is None:
+            prompt_serialized = serialized
+            if len(prompt_serialized) > 80_000:
+                # Truncate at the last newline boundary to avoid splitting
+                # mid-escape-sequence (e.g. "\u00" -> "\u0").
+                cut = prompt_serialized.rfind("\n", 0, 80_000)
+                if cut == -1:
+                    cut = 80_000
+                prompt_serialized = prompt_serialized[:cut] + "\n... [truncated]"
 
-        summary_prompt = (
-            "Summarize the following conversation for continuity. "
-            "Preserve key facts, decisions, file paths, code changes, "
-            "and any context needed to continue working.\n\n"
-            f"{serialized}"
-        )
+            summary_prompt = (
+                "Summarize the following conversation for continuity. "
+                "Preserve key facts, decisions, file paths, code changes, "
+                "and any context needed to continue working.\n\n"
+                f"{prompt_serialized}"
+            )
 
-        temp = Conversation()
-        temp.add(
-            "system",
-            "You are a helpful assistant that summarizes conversations concisely.",
-        )
-        temp.add("user", summary_prompt)
+            temp = Conversation()
+            temp.add(
+                "system",
+                "You are a helpful assistant that summarizes conversations concisely.",
+            )
+            temp.add("user", summary_prompt)
 
-        client = build_client(config)
-        response: ChatCompletion = client.chat.completions.create(
-            model=config.model,
-            messages=to_chat_completion_messages(temp.to_api_messages()),
-            max_tokens=2000,
-            stream=False,
-        )
-        message_content = response.choices[0].message.content
-        summary = (
-            message_content
-            if isinstance(message_content, str) and message_content
-            else ("(summary unavailable)")
-        )
+            client = build_client(config)
+            response: ChatCompletion = client.chat.completions.create(
+                model=config.model,
+                messages=to_chat_completion_messages(temp.to_api_messages()),
+                max_tokens=2000,
+                stream=False,
+            )
+            message_content = response.choices[0].message.content
+            summary = (
+                message_content
+                if isinstance(message_content, str) and message_content
+                else ("(summary unavailable)")
+            )
+            _save_cached_summary(workspace, messages_hash, summary)
     except Exception as exc:
         _log.error(
             "auto_compact summarisation failed",
@@ -204,6 +212,24 @@ def auto_compact(
     )
 
     return compressed
+
+
+def _compaction_cache_path(workspace: Path, messages_hash: str) -> Path:
+    return workspace / _COMPACTION_CACHE_DIR / f"{messages_hash}.txt"
+
+
+def _load_cached_summary(workspace: Path, messages_hash: str) -> str | None:
+    path = _compaction_cache_path(workspace, messages_hash)
+    if not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def _save_cached_summary(workspace: Path, messages_hash: str, summary: str) -> Path:
+    path = _compaction_cache_path(workspace, messages_hash)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(summary, encoding="utf-8")
+    return path
 
 
 def _save_transcript(messages: list[ApiMessage], workspace: Path) -> Path:
