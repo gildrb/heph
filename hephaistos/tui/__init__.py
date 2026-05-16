@@ -1,7 +1,4 @@
-"""Command-first Textual shell for Hephaistos.
-
-Imports stay lazy so test suites can exercise dependency errors cleanly.
-"""
+"""Command-first Textual shell for Hephaistos."""
 
 from __future__ import annotations
 
@@ -23,14 +20,7 @@ from hephaistos.parameters.settings import (
 )
 from hephaistos.providers.catalog import prefetch_provider_model_catalogs
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.study import (
-    AutopilotSessionType,
-    StudyAutonomyMode,
-    StudyFeedbackType,
-    StudyPhase,
-    StudyRecallRating,
-)
-from hephaistos.study.exam_session import activate_exam_session_item
+from hephaistos.study import AutopilotSessionType, StudyAutonomyMode
 from hephaistos.terminal import Theme, current_palette
 from hephaistos.terminal import set_theme as set_theme
 from hephaistos.terminal.history import InputHistory
@@ -100,6 +90,11 @@ from hephaistos.tui.shell import (
     format_command_activity_details,
     format_command_activity_line,
     run_shell_escape_captured,
+)
+from hephaistos.tui.sidebar_navigation import (
+    activate_exam_sidebar_item,
+    milestone_sidebar_topic,
+    next_study_sidebar_selection,
 )
 from hephaistos.tui.slash_command import (
     command_help,
@@ -489,41 +484,25 @@ class HephaistosTui(
     def _handle_study_sidebar_key(self, event: events.Key, composer: Input) -> bool:
         if composer.value.strip() or self._completion_menu_visible():
             return False
-        if event.key in ("up", "k") and self._move_study_sidebar_selection(-1):
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key in ("down", "j") and self._move_study_sidebar_selection(1):
-            event.prevent_default()
-            event.stop()
-            return True
-        if event.key == "enter" and self._activate_study_sidebar_selection():
-            event.prevent_default()
-            event.stop()
-            return True
-        return False
-
-    def _study_sidebar_count(self) -> int:
-        exam_session = self.session.study_state.exam_session
-        if exam_session is not None:
-            return len(exam_session.items)
-        milestone_tracker = self.session.study_state.milestone_tracker
-        if milestone_tracker is not None:
-            return len(milestone_tracker.milestones)
-        return 0
+        delta_by_key = {"up": -1, "k": -1, "down": 1, "j": 1}
+        handled = (
+            self._move_study_sidebar_selection(delta_by_key[event.key])
+            if event.key in delta_by_key
+            else event.key == "enter" and self._activate_study_sidebar_selection()
+        )
+        if not handled:
+            return False
+        event.prevent_default()
+        event.stop()
+        return True
 
     def _move_study_sidebar_selection(self, delta: int) -> bool:
-        count = self._study_sidebar_count()
-        if count <= 0:
+        index = next_study_sidebar_selection(
+            self.session.study_state, self._sidebar_selected_index, delta
+        )
+        if index is None:
             return False
-        if self._sidebar_selected_index is None:
-            exam_session = self.session.study_state.exam_session
-            current = exam_session.active_index if exam_session is not None else 0
-            if current is None:
-                current = 0
-        else:
-            current = self._sidebar_selected_index
-        self._sidebar_selected_index = min(count - 1, max(0, current + delta))
+        self._sidebar_selected_index = index
         self._focused_msg_index = None
         self._update_info_panel()
         return True
@@ -532,42 +511,21 @@ class HephaistosTui(
         index = self._sidebar_selected_index
         if index is None:
             return False
-        exam_session = self.session.study_state.exam_session
-        if exam_session is not None:
-            if not 0 <= index < len(exam_session.items):
+        state = self.session.study_state
+        if state.exam_session is not None:
+            if not activate_exam_sidebar_item(state, index):
                 return False
-            self._activate_exam_sidebar_item(index)
+            self._focused_msg_index = None
+            self._append_notice(f"Exam question {index + 1} selected.")
+            self._update_info_panel()
             return True
-        milestone_tracker = self.session.study_state.milestone_tracker
-        if milestone_tracker is None or not 0 <= index < len(milestone_tracker.milestones):
+        topic = milestone_sidebar_topic(state, index)
+        if topic is None:
             return False
         composer = self.query_one("#composer", Input)
-        composer.value = f"Study {milestone_tracker.milestones[index].name}"
+        composer.value = f"Study {topic}"
         self._submit_composer_value(apply_highlighted_completion=False)
         return True
-
-    def _activate_exam_sidebar_item(self, index: int) -> None:
-        state = self.session.study_state
-        exam_session = state.exam_session
-        if exam_session is None:
-            return
-        state.exam_session = activate_exam_session_item(exam_session, index)
-        active_item = state.exam_session.active_item
-        if active_item is None:
-            return
-        state.phase = StudyPhase.RECALL
-        state.current_item = active_item.question
-        state.expected_source_refs = [active_item.source_ref]
-        state.attempt_count = 0
-        state.last_feedback_type = StudyFeedbackType.CALIBRATING
-        state.retrieval_query = active_item.question
-        state.recall_started_at = datetime.now(UTC)
-        state.last_recall_seconds = None
-        state.last_recall_rating = StudyRecallRating.NONE
-        state.hint_level = 0
-        self._focused_msg_index = None
-        self._append_notice(f"Exam question {index + 1} selected.")
-        self._update_info_panel()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "composer":

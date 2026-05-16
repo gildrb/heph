@@ -444,7 +444,8 @@ class ExamCommand(Command):
         session.study_state.milestone_tracker = MilestoneTracker(
             milestones=milestones_from_exam_session(exam_session)
         )
-        print_success(f"Exam session started with {len(questions)} question(s).")
+        label = "question" if len(questions) == 1 else "questions"
+        print_success(f"Exam session started with {len(questions)} {label}.")
         return _activate_exam_session_question(session, chunks, 0)
 
     @staticmethod

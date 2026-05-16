@@ -1724,8 +1724,7 @@ def test_info_panel_renders_exam_session_questions() -> None:
     assert "/exam next" in panel.plain
 
 
-@pytest.mark.asyncio
-async def test_keyboard_navigation_jumps_exam_sidebar_question() -> None:
+def test_keyboard_navigation_jumps_exam_sidebar_question() -> None:
     session = _plain_session()
     session.study_state.exam_session = ExamSession(
         items=[
@@ -1751,11 +1750,14 @@ async def test_keyboard_navigation_jumps_exam_sidebar_question() -> None:
     )
     typed_app = cast("TextualApp[None]", app)
 
-    async with typed_app.run_test(size=(160, 24)) as pilot:
-        await pilot.pause()
-        await pilot.press("down")
-        await pilot.press("enter")
-        await pilot.pause()
+    async def check_keyboard_navigation() -> None:
+        async with typed_app.run_test(size=(160, 24)) as pilot:
+            await pilot.pause()
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+    asyncio.run(check_keyboard_navigation())
 
     assert session.study_state.exam_session is not None
     assert session.study_state.exam_session.active_index == 1
