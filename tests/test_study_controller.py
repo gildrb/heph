@@ -448,6 +448,17 @@ def test_vague_math_study_requests_use_material_overview(message: str) -> None:
     assert "ask_clarifying_question" not in plan.prompt
 
 
+def test_practice_with_me_remains_drill_intent_in_autopilot() -> None:
+    plan = plan_turn(
+        StudyState(autonomy_mode=StudyAutonomyMode.AUTOPILOT),
+        "practice math with me",
+    )
+
+    assert plan.action is StudyAction.CALIBRATE
+    assert plan.retrieval_query == "math"
+    assert "Execute MATERIAL_OVERVIEW" not in plan.prompt
+
+
 def test_material_overview_result_does_not_enter_ready_loop() -> None:
     state = StudyState()
     plan = plan_turn(state, "what is the material about")
