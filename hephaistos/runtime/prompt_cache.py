@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from hephaistos.logging import get_logger
-from hephaistos.runtime._api_types import ApiMessage
+from hephaistos.runtime._api_types import ApiMessage, ContentPart
 
 _log = get_logger("runtime.prompt_cache")
 
@@ -61,6 +61,21 @@ class StablePrefixBuilder:
         stable = self.build(messages)
         dynamic = DynamicTailBuilder().build(messages, stable_prefix_messages=stable.message_count)
         return PromptCacheRequest(stable_prefix=stable, dynamic_tail=dynamic)
+
+
+def annotate_anthropic_cache_breakpoints(
+    request: PromptCacheRequest,
+    model: str,
+) -> PromptCacheRequest:
+    slug = model.lower()
+    if ("claude" not in slug and "anthropic" not in slug) or not request.stable_prefix.messages:
+        return request
+    messages = [_copy_message(message) for message in request.stable_prefix.messages]
+    messages[-1] = _with_cache_control(messages[-1])
+    return PromptCacheRequest(
+        stable_prefix=_segment("stable_prefix", messages),
+        dynamic_tail=request.dynamic_tail,
+    )
 
 
 class DynamicTailBuilder:
@@ -116,6 +131,23 @@ def _copy_message(message: ApiMessage) -> ApiMessage:
     if isinstance(tool_metadata, dict):
         copied["tool_metadata"] = dict(tool_metadata)
     return cast("ApiMessage", copied)
+
+
+def _with_cache_control(message: ApiMessage) -> ApiMessage:
+    copied = _copy_message(message)
+    content = copied.get("content")
+    parts: list[ContentPart]
+    if isinstance(content, str):
+        parts = [{"type": "text", "text": content}]
+    elif isinstance(content, list):
+        parts = [cast("ContentPart", dict(part)) for part in content]
+    else:
+        parts = [{"type": "text", "text": ""}]
+    if not parts:
+        parts.append({"type": "text", "text": ""})
+    parts[-1]["cache_control"] = {"type": "ephemeral"}
+    copied["content"] = parts
+    return copied
 
 
 def _is_conversation_summary(message: ApiMessage) -> bool:

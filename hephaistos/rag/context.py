@@ -10,6 +10,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+try:
+    import tiktoken
+except Exception:
+    _encoder = None
+else:
+    try:
+        _encoder = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        _encoder = None
+
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.retrieve import ScoredChunk
 
@@ -150,4 +160,6 @@ def build_context(
 
 def estimate_tokens(text: str) -> int:
     """Rough token estimate for budget tracking."""
+    if _encoder is not None:
+        return len(_encoder.encode(text))
     return len(text) // _CHARS_PER_TOKEN

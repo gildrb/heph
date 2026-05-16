@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from hephaistos.rag import index as rag_index
 from hephaistos.rag.chunker import Chunk, ChunkedDocument, ChunkStrategy
 from hephaistos.rag.index import (
     ArmoryIndex,
@@ -291,6 +292,101 @@ class TestLoadOrBuild:
         index = load_or_build(armory)
         sources = {doc.source for doc in index.documents}
         assert "materials/extra.md" in sources
+
+    def test_incremental_rebuild_only_rechunks_edited_file(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        build_index(armory)
+        (armory / "materials" / "python.md").write_text(
+            "# Python Changed\n\nNew Python details.\n"
+        )
+        calls: list[str] = []
+        original = rag_index._chunk_file_with_timeout
+
+        def wrapped_chunk_file(
+            file_path: Path,
+            armory_path: Path,
+            *,
+            strategy: ChunkStrategy,
+            timeout_seconds: int,
+        ) -> tuple[ChunkedDocument | None, bool]:
+            calls.append(str(file_path.relative_to(armory_path)))
+            return original(
+                file_path,
+                armory_path,
+                strategy=strategy,
+                timeout_seconds=timeout_seconds,
+            )
+
+        monkeypatch.setattr(rag_index, "_chunk_file_with_timeout", wrapped_chunk_file)
+
+        index = load_or_build(armory)
+
+        assert calls == ["materials/python.md"]
+        sources = {doc.source for doc in index.documents}
+        assert sources == {
+            "materials/python.md",
+            "materials/rust.md",
+            "materials/algorithms.md",
+        }
+
+    def test_incremental_rebuild_reuses_existing_documents_when_file_added(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        build_index(armory)
+        (armory / "materials" / "extra.md").write_text("# Extra\n\nAdditional material.\n")
+        calls: list[str] = []
+        original = rag_index._chunk_file_with_timeout
+
+        def wrapped_chunk_file(
+            file_path: Path,
+            armory_path: Path,
+            *,
+            strategy: ChunkStrategy,
+            timeout_seconds: int,
+        ) -> tuple[ChunkedDocument | None, bool]:
+            calls.append(str(file_path.relative_to(armory_path)))
+            return original(
+                file_path,
+                armory_path,
+                strategy=strategy,
+                timeout_seconds=timeout_seconds,
+            )
+
+        monkeypatch.setattr(rag_index, "_chunk_file_with_timeout", wrapped_chunk_file)
+
+        index = load_or_build(armory)
+
+        assert calls == ["materials/extra.md"]
+        sources = {doc.source for doc in index.documents}
+        assert "materials/extra.md" in sources
+        assert "materials/python.md" in sources
+
+    def test_incremental_rebuild_removes_deleted_file(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        build_index(armory)
+        (armory / "materials" / "rust.md").unlink()
+        calls: list[str] = []
+
+        def fail_chunk_file(*_args: object, **_kwargs: object) -> tuple[None, bool]:
+            calls.append("unexpected")
+            return None, False
+
+        monkeypatch.setattr(rag_index, "_chunk_file_with_timeout", fail_chunk_file)
+
+        index = load_or_build(armory)
+
+        assert calls == []
+        sources = {doc.source for doc in index.documents}
+        assert "materials/rust.md" not in sources
+        assert sources == {"materials/python.md", "materials/algorithms.md"}
 
     def test_builds_when_no_index(self, armory: Path) -> None:
         index = load_or_build(armory)
@@ -722,6 +818,42 @@ class TestArmoryIndexStrategy:
         index = load_or_build(armory, strategy=ChunkStrategy.TEXT)
         assert index.chunk_count > 0
         assert index.strategy == ChunkStrategy.TEXT
+
+    def test_load_or_build_rebuilds_when_strategy_changes(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        build_index(armory, strategy=ChunkStrategy.MARKDOWN)
+        calls: list[str] = []
+        original = rag_index._chunk_file_with_timeout
+
+        def wrapped_chunk_file(
+            file_path: Path,
+            armory_path: Path,
+            *,
+            strategy: ChunkStrategy,
+            timeout_seconds: int,
+        ) -> tuple[ChunkedDocument | None, bool]:
+            calls.append(str(file_path.relative_to(armory_path)))
+            return original(
+                file_path,
+                armory_path,
+                strategy=strategy,
+                timeout_seconds=timeout_seconds,
+            )
+
+        monkeypatch.setattr(rag_index, "_chunk_file_with_timeout", wrapped_chunk_file)
+
+        index = load_or_build(armory, strategy=ChunkStrategy.TEXT)
+
+        assert set(calls) == {
+            "materials/python.md",
+            "materials/rust.md",
+            "materials/algorithms.md",
+        }
+        assert index.strategy == ChunkStrategy.TEXT
+        assert all(chunk.heading == "" for chunk in index.all_chunks)
 
     def test_v1_index_still_loads(self, armory: Path) -> None:
         """A v1 index (without heading fields) should still load gracefully."""

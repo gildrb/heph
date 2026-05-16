@@ -44,6 +44,7 @@ from hephaistos.runtime.prompt_cache import (
 from hephaistos.runtime.prompt_cache import (
     PromptCacheRequest,
     StablePrefixBuilder,
+    annotate_anthropic_cache_breakpoints,
 )
 from hephaistos.runtime.resilience import CircuitBreaker
 
@@ -734,6 +735,7 @@ def stream_completion(
         messages.to_api_messages() if isinstance(messages, Conversation) else messages
     )
     prompt_request = _prompt_cache_builder.build_request(raw_api_messages)
+    prompt_request = annotate_anthropic_cache_breakpoints(prompt_request, config.model)
     _prompt_cache_metrics.record_request(prompt_request, model=config.model)
     api_messages = prompt_request.messages
     msg_count = len(api_messages)
