@@ -15,6 +15,23 @@ _SINGLE_ID_RE = re.compile(r"[Ee](\d+)")
 _LATEX_INLINE_RE = re.compile(r"\\\((.*?)\\\)", re.DOTALL)
 _LATEX_BLOCK_RE = re.compile(r"\\\[(.*?)\\\]", re.DOTALL)
 _MATH_SPAN_RE = re.compile(r"\$(?!\$)(.+?)(?<!\$)\$", re.DOTALL)
+_LATEX_FRACTION_RE = re.compile(r"\\(?:dfrac|tfrac|frac)\{([^{}]+)\}\{([^{}]+)\}")
+_LATEX_BRACED_SCRIPT_RE = re.compile(r"([_^])\{([^{}]+)\}")
+_LATEX_SUPERSCRIPT_SPACING_RE = re.compile(r"(?<=[A-Za-z\u0370-\u03FF])\s+([⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾])")
+_LATEX_COMMAND_REPLACEMENTS = {
+    r"\displaystyle": "",
+    r"\left.": "",
+    r"\left": "",
+    r"\right": "",
+    r"\qquad": " ",
+    r"\quad": " ",
+    r"\dots": "…",
+    r"\,": " ",
+    r"\;": " ",
+    r"\:": " ",
+    r"\!": "",
+}
+_MARKDOWN_CODE_RE = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]+`", re.DOTALL)
 _MAX_VISIBLE_SOURCE_ITEMS = 3
 
 
@@ -26,9 +43,26 @@ class EnrichedReply:
     evidence: TurnEvidence | None
 
 
+def _replace_latex_commands(text: str) -> str:
+    formatted = text
+    for latex, replacement in _LATEX_COMMAND_REPLACEMENTS.items():
+        formatted = formatted.replace(latex, replacement)
+    formatted = unicodeit.replace(formatted)
+    formatted = _LATEX_BRACED_SCRIPT_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}",
+        formatted,
+    )
+    formatted = _LATEX_FRACTION_RE.sub(
+        lambda match: f"{match.group(1)}/{match.group(2)}",
+        formatted,
+    )
+    formatted = _LATEX_SUPERSCRIPT_SPACING_RE.sub(lambda match: match.group(1), formatted)
+    return re.sub(r"[ \t]{2,}", " ", formatted)
+
+
 def _format_math_expression(expression: str) -> str:
     """Render LaTeX math fragments as terminal-friendly Unicode text."""
-    return unicodeit.replace(expression.strip())
+    return _replace_latex_commands(expression.strip())
 
 
 def _normalize_latex_delimiters(text: str) -> str:
@@ -39,6 +73,19 @@ def _normalize_latex_delimiters(text: str) -> str:
     )
     text = _LATEX_INLINE_RE.sub(lambda match: f"${match.group(1).strip()}$", text)
     return _MATH_SPAN_RE.sub(lambda match: _format_math_expression(match.group(1)), text)
+
+
+def normalize_math_output(text: str) -> str:
+    pieces: list[str] = []
+    last_end = 0
+    for match in _MARKDOWN_CODE_RE.finditer(text):
+        pieces.append(
+            _replace_latex_commands(_normalize_latex_delimiters(text[last_end : match.start()]))
+        )
+        pieces.append(match.group(0))
+        last_end = match.end()
+    pieces.append(_replace_latex_commands(_normalize_latex_delimiters(text[last_end:])))
+    return "".join(pieces)
 
 
 def _render_evidence_panel(evidence: TurnEvidence, cited_ids: list[str]) -> str:
@@ -92,10 +139,10 @@ def enrich_reply(text: str, evidence: TurnEvidence | None) -> EnrichedReply:
     Replaces plain [E1] citations with styled badge markup and appends
     an evidence panel below the reply.
     """
+    enriched = normalize_math_output(text)
     if not evidence or not evidence.items:
-        return EnrichedReply(markdown_text=text, evidence=evidence)
+        return EnrichedReply(markdown_text=enriched, evidence=evidence)
 
-    enriched = _normalize_latex_delimiters(text)
     enriched_panel = _render_evidence_panel(evidence, extract_cited_ids(text))
 
     result = f"{enriched}\n\n{enriched_panel}"
