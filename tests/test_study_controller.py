@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from hephaistos.study import (
+    ExamSession,
+    ExamSessionItem,
     MemoryState,
     StudyAction,
     StudyAutonomyMode,
@@ -1300,6 +1302,60 @@ def test_slow_correct_recall_is_hard_for_scheduler_signal() -> None:
     assert next_state.last_feedback_type is StudyFeedbackType.CORRECT
     assert next_state.last_recall_seconds == 180
     assert next_state.last_recall_rating is StudyRecallRating.HARD
+
+
+def test_exam_session_summary_is_added_only_when_session_becomes_complete() -> None:
+    started = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    state = StudyState(
+        phase=StudyPhase.RECALL,
+        current_item="Q2",
+        retrieval_query="Q2",
+        expected_source_refs=["source/exam.md#chunk=1"],
+        recall_started_at=started,
+        exam_session=ExamSession(
+            items=[
+                ExamSessionItem(
+                    question="Q1",
+                    source_ref="source/exam.md#chunk=0",
+                    status="correct",
+                ),
+                ExamSessionItem(
+                    question="Q2",
+                    source_ref="source/exam.md#chunk=1",
+                    status="active",
+                ),
+            ],
+            active_index=1,
+            completed_count=1,
+        ),
+    )
+
+    plan = plan_turn(state, "The recalled answer is Q2. Confidence: 80%.")
+    next_state, cleaned = apply_turn_result(
+        state,
+        plan,
+        "CORRECT: Correct. Move to the next item.",
+        ["source/exam.md#chunk=1"],
+        now=started + timedelta(seconds=10),
+    )
+
+    assert "Exam session summary" in cleaned
+    next_state.phase = StudyPhase.RECALL
+    next_state.current_item = "Q2"
+    next_state.retrieval_query = "Q2"
+    next_state.expected_source_refs = ["source/exam.md#chunk=1"]
+    next_state.recall_started_at = started + timedelta(seconds=20)
+
+    plan = plan_turn(next_state, "The answer remains Q2. Confidence: 80%.")
+    _final_state, cleaned_again = apply_turn_result(
+        next_state,
+        plan,
+        "CORRECT: Still correct.",
+        ["source/exam.md#chunk=1"],
+        now=started + timedelta(seconds=30),
+    )
+
+    assert "Exam session summary" not in cleaned_again
 
 
 def test_missing_assessment_prefix_defaults_to_partial() -> None:

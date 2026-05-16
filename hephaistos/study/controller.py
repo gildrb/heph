@@ -1733,6 +1733,7 @@ def _update_assessment_progress(
 ) -> tuple[StudyState, str]:
     exam_status = _exam_status_from_feedback(feedback)
     if state.exam_session is not None:
+        was_complete = state.exam_session.is_complete
         state.exam_session = update_active_exam_session_item(
             state.exam_session,
             status=exam_status,
@@ -1742,7 +1743,7 @@ def _update_assessment_progress(
         state.milestone_tracker = MilestoneTracker(
             milestones=milestones_from_exam_session(state.exam_session)
         )
-        if state.exam_session.completed_count == len(state.exam_session.items):
+        if state.exam_session.is_complete and not was_complete:
             reply = f"{reply}\n\n{_exam_session_gap_report(state)}"
         return state, reply
     milestone_tracker = state.milestone_tracker

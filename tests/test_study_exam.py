@@ -4,6 +4,13 @@ import random
 
 from hephaistos.rag.chunker import Chunk
 from hephaistos.study.exam import select_exam_question, supporting_source_refs
+from hephaistos.study.exam_session import (
+    EXAM_SESSION_CORRECT,
+    EXAM_SESSION_PENDING,
+    ExamSession,
+    ExamSessionItem,
+    next_exam_session_index,
+)
 
 
 def _chunk(source: str, text: str) -> Chunk:
@@ -150,3 +157,24 @@ def test_supporting_source_refs_prefers_overlapping_non_exam_chunks() -> None:
     refs = supporting_source_refs(chunks, "Explain neural network backpropagation.")
 
     assert refs == ["materials/neural-networks.md#chunk=0"]
+
+
+def test_next_exam_session_index_returns_none_when_remaining_questions_completed() -> None:
+    session = ExamSession(
+        items=[
+            ExamSessionItem(
+                question="Q1",
+                source_ref="exam.md#chunk=0",
+                status=EXAM_SESSION_PENDING,
+            ),
+            ExamSessionItem(
+                question="Q2",
+                source_ref="exam.md#chunk=1",
+                status=EXAM_SESSION_CORRECT,
+            ),
+        ],
+        active_index=0,
+        completed_count=1,
+    )
+
+    assert next_exam_session_index(session) is None

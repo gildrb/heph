@@ -222,6 +222,7 @@ def info_panel_exam_session_text(
     title = session.title or "Study session"
     total = len(exam_session.items)
     lines = ["Exam session", title, f"{exam_session.completed_count}/{total} answered", ""]
+    active_line_index: int | None = None
     if not exam_session.items:
         lines.append("- no exam questions")
     for index, item in enumerate(exam_session.items):
@@ -230,6 +231,8 @@ def info_panel_exam_session_text(
         marker = _exam_session_marker(item.status)
         marks = f" [{item.marks}]" if item.marks is not None else ""
         prefix = f"{selected}{active}{marker} {index + 1}. "
+        if exam_session.active_index == index:
+            active_line_index = len(lines)
         lines.append(f"{prefix}{_compact_line(item.question, 29)}{marks}")
     lines.extend(["", "arrows move", "enter jump", "/exam next"])
     lines = _indent_info_panel_lines(lines)
@@ -237,14 +240,10 @@ def info_panel_exam_session_text(
     text = require_rich_text()(plain, style=palette.text_muted)
     _stylize_panel_title(text, plain, "Exam session")
     _stylize_status_tokens(text, plain)
-    if exam_session.active_index is not None and 0 <= exam_session.active_index < total:
-        active_line = f"{exam_session.active_index + 1}."
-        active_start = plain.find(active_line)
-        if active_start != -1:
-            active_end = plain.find("\n", active_start)
-            if active_end == -1:
-                active_end = len(plain)
-            text.stylize(f"bold {palette.text_primary}", active_start, active_end)
+    if active_line_index is not None:
+        active_start = sum(len(line) + 1 for line in lines[:active_line_index])
+        active_end = active_start + len(lines[active_line_index])
+        text.stylize(f"bold {palette.text_primary}", active_start, active_end)
     return text
 
 

@@ -1724,6 +1724,41 @@ def test_info_panel_renders_exam_session_questions() -> None:
     assert "/exam next" in panel.plain
 
 
+def test_info_panel_highlights_active_exam_line_not_question_number_text() -> None:
+    session = _plain_session()
+    exam_session = ExamSession(
+        items=[
+            ExamSessionItem(
+                question="Explain why step 2. is invalid.",
+                source_ref="past-exam.md#chunk=0",
+                marks=4,
+                status="correct",
+            ),
+            ExamSessionItem(
+                question="Define validation sets.",
+                source_ref="past-exam.md#chunk=1",
+                marks=10,
+                status="active",
+            ),
+        ],
+        active_index=1,
+        completed_count=1,
+    )
+
+    panel = tui._info_panel_exam_session_text(exam_session, session)
+    earlier_number = panel.plain.index("step 2.")
+    active_line = panel.plain.index("*• 2. Define")
+    earlier_styles = [
+        str(span.style) for span in panel.spans if span.start <= earlier_number < span.end
+    ]
+    active_styles = [
+        str(span.style) for span in panel.spans if span.start <= active_line < span.end
+    ]
+
+    assert not any("bold" in style for style in earlier_styles)
+    assert any("bold" in style for style in active_styles)
+
+
 def test_keyboard_navigation_jumps_exam_sidebar_question() -> None:
     session = _plain_session()
     session.study_state.exam_session = ExamSession(

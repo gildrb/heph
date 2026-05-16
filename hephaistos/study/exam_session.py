@@ -209,8 +209,6 @@ def next_exam_session_index(session: ExamSession) -> int | None:
     for index in range(start + 1, len(session.items)):
         if session.items[index].status not in EXAM_SESSION_COMPLETED_STATUSES:
             return index
-    if start + 1 < len(session.items):
-        return start + 1
     return None
 
 
