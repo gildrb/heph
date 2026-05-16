@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+import unicodeit
+
 from hephaistos.rag.context import TurnEvidence
 from hephaistos.rag.source_mapping import evidence_location_label
 
@@ -13,24 +15,6 @@ _SINGLE_ID_RE = re.compile(r"[Ee](\d+)")
 _LATEX_INLINE_RE = re.compile(r"\\\((.*?)\\\)", re.DOTALL)
 _LATEX_BLOCK_RE = re.compile(r"\\\[(.*?)\\\]", re.DOTALL)
 _MATH_SPAN_RE = re.compile(r"\$(?!\$)(.+?)(?<!\$)\$", re.DOTALL)
-_SUPERSCRIPT_DIGITS = str.maketrans("0123456789+-=()", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾")
-_SUBSCRIPT_DIGITS = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
-_LATEX_REPLACEMENTS = {
-    r"\cdot": "·",
-    r"\times": "\u00d7",
-    r"\geq": "≥",
-    r"\ge": "≥",
-    r"\leq": "≤",
-    r"\le": "≤",
-    r"\neq": "≠",
-    r"\ne": "≠",
-    r"\equiv": "≡",
-    r"\mod": "mod",
-    r"\in": "∈",
-    r"\notin": "∉",
-    r"\mathbb{N}": "\u2115",
-    r"\mathbb{Z}": "\u2124",
-}
 _MAX_VISIBLE_SOURCE_ITEMS = 3
 
 
@@ -42,27 +26,9 @@ class EnrichedReply:
     evidence: TurnEvidence | None
 
 
-def _translate_script(match: re.Match[str], table: dict[int, int]) -> str:
-    value = match.group(1) or match.group(2)
-    return value.translate(table)
-
-
 def _format_math_expression(expression: str) -> str:
-    """Render common LaTeX fragments as terminal-friendly Unicode text."""
-    formatted = expression.strip()
-    for latex, replacement in _LATEX_REPLACEMENTS.items():
-        formatted = formatted.replace(latex, replacement)
-    formatted = re.sub(
-        r"\^\{([^{}]+)\}|\^([0-9+\-=()]+)",
-        lambda match: _translate_script(match, _SUPERSCRIPT_DIGITS),
-        formatted,
-    )
-    formatted = re.sub(
-        r"_\{([^{}]+)\}|_([0-9+\-=()]+)",
-        lambda match: _translate_script(match, _SUBSCRIPT_DIGITS),
-        formatted,
-    )
-    return formatted.replace("\\", "")
+    """Render LaTeX math fragments as terminal-friendly Unicode text."""
+    return unicodeit.replace(expression.strip())
 
 
 def _normalize_latex_delimiters(text: str) -> str:
