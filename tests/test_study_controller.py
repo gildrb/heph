@@ -436,6 +436,18 @@ def test_first_turn_material_overview_uses_internal_evidence_without_llm_tools()
     assert "next-step, evidence-grounding-block" in plan.prompt
 
 
+@pytest.mark.parametrize("message", ["Do some math", "any math"])
+def test_vague_math_study_requests_use_material_overview(message: str) -> None:
+    plan = plan_turn(StudyState(), message)
+
+    assert plan.action is StudyAction.PRESENT
+    assert plan.retrieval_query == "what is the material about"
+    assert plan.allow_tools is False
+    assert plan.buffer_response is True
+    assert "Execute MATERIAL_OVERVIEW" in plan.prompt
+    assert "ask_clarifying_question" not in plan.prompt
+
+
 def test_material_overview_result_does_not_enter_ready_loop() -> None:
     state = StudyState()
     plan = plan_turn(state, "what is the material about")

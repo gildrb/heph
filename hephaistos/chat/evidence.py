@@ -228,6 +228,8 @@ def assess_turn_evidence(
     if plan.action in {StudyAction.PRESENT, StudyAction.PRIORITY} and _needs_clarifying_query(
         query
     ):
+        if plan.action is StudyAction.PRESENT and not assessment.supporting_refs:
+            return assessment
         return replace(assessment, recommended_action="ask_clarifying_question")
     return assessment
 

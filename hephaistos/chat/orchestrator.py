@@ -1017,6 +1017,17 @@ def _insufficient_evidence_reply(
         )
     if (
         action == "retrieve_more"
+        and plan.action is StudyAction.PRESENT
+        and not assessment.supporting_refs
+        and (resolved.turn_evidence is None or not resolved.turn_evidence.items)
+    ):
+        return (
+            "I could not find indexed evidence for that broad study request. "
+            "Start with a material overview first so you can pick one source-backed topic "
+            "to study."
+        )
+    if (
+        action == "retrieve_more"
         and resolved.turn_evidence is None
         and plan.action is StudyAction.SOURCE_QA
     ):

@@ -6,6 +6,9 @@ from re import Pattern
 OVERVIEW_SUBJECT_RE = r"(?:material|materials|document|documents|pdf|pdfs|file|files)"
 OVERVIEW_REQUEST_RE: Pattern[str] = re.compile(
     r"\b(?:"
+    r"(?:do|let'?s do|let us do|practice|work on)\s+(?:some\s+|any\s+)?"
+    r"(?:math|studying|study|learning|revision|review)|"
+    r"any\s+(?:math|studying|study|learning|revision|review)|"
     rf"what (?:is|are) (?:the |this |these )?{OVERVIEW_SUBJECT_RE}(?: about)?|"
     rf"what (?:does|do) (?:the |this |these )?{OVERVIEW_SUBJECT_RE} cover|"
     rf"explain (?:the |this |all )?{OVERVIEW_SUBJECT_RE}"

@@ -44,6 +44,7 @@ from hephaistos.chat.orchestrator import (
     TurnOrchestrator,
     _evidence_notice,
     _evidence_notice_metadata,
+    _insufficient_evidence_reply,
     _large_corpus_local_overview_reply,
     _localize_deterministic_reply,
     _model_normalized_study_plan,
@@ -1701,7 +1702,7 @@ def test_source_only_detection_accepts_standalone_abstention_policy(query: str) 
     assert query_demands_source_only_answer(query)
 
 
-def test_assess_turn_evidence_routes_broad_present_query_to_clarifying() -> None:
+def test_assess_turn_evidence_keeps_empty_present_query_retrievable() -> None:
     plan = _make_study_plan(
         action=StudyAction.PRESENT,
         retrieval_query="what is this material about overall",
@@ -1710,7 +1711,27 @@ def test_assess_turn_evidence_routes_broad_present_query_to_clarifying() -> None
     assessment = assess_turn_evidence(plan, None)
 
     assert assessment.sufficient is False
-    assert assessment.recommended_action == "ask_clarifying_question"
+    assert assessment.recommended_action == "retrieve_more"
+
+
+def test_empty_present_retrieve_more_falls_back_to_overview_guidance() -> None:
+    plan = _make_study_plan(
+        action=StudyAction.PRESENT,
+        retrieval_query="Do some math",
+    )
+    assessment = assess_turn_evidence(plan, None)
+    resolved = ResolvedTurnPlan(
+        study_plan=plan,
+        turn_evidence=None,
+        evidence_assessment=assessment,
+    )
+
+    reply = _insufficient_evidence_reply(plan, resolved)
+
+    assert reply
+    assert "need one clarification" not in reply.casefold()
+    assert "material overview" in reply.casefold()
+    assert "pick one source-backed topic" in reply.casefold()
 
 
 def test_assess_turn_evidence_routes_assess_without_evidence_to_quiz_first() -> None:
