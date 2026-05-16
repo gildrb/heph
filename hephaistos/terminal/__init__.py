@@ -100,7 +100,7 @@ def style_code(style_name: str) -> str:
     if style_name in {"prompt", "assistant", "emphasis"}:
         return f"{BOLD}{ansi_fg(palette.text_primary)}"
     if style_name in {"brand", "ember"}:
-        return f"{BOLD}{ansi_fg(palette.action_primary_bg)}"
+        return f"{BOLD}{ansi_fg(palette.brand_primary)}"
     if style_name in {"chrome_label", "shortcut", "metadata"}:
         return ansi_fg(palette.text_secondary)
     if style_name == "chrome_detail":

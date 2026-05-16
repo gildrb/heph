@@ -372,7 +372,7 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
         for styles in (mode_styles, title_styles):
             assert any(palette.text_primary in style for style in styles)
             assert not any(palette.action_primary_bg in style for style in styles)
-        assert brand_styles == [f"bold {palette.action_primary_bg}"]
+        assert brand_styles == [f"bold {palette.brand_primary}"]
         assert str(hints.style) == palette.text_muted
         assert shortcut_styles == [palette.text_secondary]
         assert not any(palette.text_primary in style for style in shortcut_styles)
@@ -1101,9 +1101,9 @@ def test_inline_menu_selected_label_uses_brand_without_recoloring_description() 
     assert not isinstance(unselected, str)
     selected_styles = [str(span.style) for span in selected.spans]
     unselected_styles = [str(span.style) for span in unselected.spans]
-    assert any(palette.action_primary_bg in style and "bold" in style for style in selected_styles)
+    assert any(palette.brand_primary in style and "bold" in style for style in selected_styles)
     assert any(palette.text_muted in style for style in selected_styles)
-    assert not any(palette.action_primary_bg in style for style in unselected_styles)
+    assert not any(palette.brand_primary in style for style in unselected_styles)
 
 
 def test_tui_css_option_list_highlights_use_selection_tokens() -> None:
@@ -2143,17 +2143,17 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
             first_styles = option_styles(0)
             second_styles = option_styles(1)
             assert any(
-                palette.action_primary_bg in style and "bold" in style for style in first_styles
+                palette.brand_primary in style and "bold" in style for style in first_styles
             )
-            assert not any(palette.action_primary_bg in style for style in second_styles)
+            assert not any(palette.brand_primary in style for style in second_styles)
 
             await pilot.press("down")
             await pilot.pause()
             first_styles = option_styles(0)
             second_styles = option_styles(1)
-            assert not any(palette.action_primary_bg in style for style in first_styles)
+            assert not any(palette.brand_primary in style for style in first_styles)
             assert any(
-                palette.action_primary_bg in style and "bold" in style for style in second_styles
+                palette.brand_primary in style and "bold" in style for style in second_styles
             )
             await pilot.press("enter")
             await pilot.pause()
@@ -4604,11 +4604,11 @@ def test_command_completion_selected_text_uses_brand_without_recoloring_descript
             selected_styles = [str(span.style) for span in selected.spans]
             unselected_styles = [str(span.style) for span in unselected.spans]
             assert any(
-                palette.action_primary_bg in style and "bold" in style for style in selected_styles
+                palette.brand_primary in style and "bold" in style for style in selected_styles
             )
             assert any(palette.text_muted in style for style in selected_styles)
             assert any(palette.text_primary in style for style in unselected_styles)
-            assert not any(palette.action_primary_bg in style for style in unselected_styles)
+            assert not any(palette.brand_primary in style for style in unselected_styles)
 
     asyncio.run(check_completion_styles())
 

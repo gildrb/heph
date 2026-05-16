@@ -34,6 +34,8 @@ class Theme:
 
     border_subtle: str
 
+    brand_primary: str
+
     action_primary_bg: str
     action_primary_text: str
 
@@ -49,6 +51,7 @@ DARK = Theme(
     text_muted="#858585",
     text_inverse="#000000",
     border_subtle="#555555",
+    brand_primary="#E06666",
     action_primary_bg="#7F9A6A",
     action_primary_text="#000000",
     status_error_text="#E06666",
@@ -63,6 +66,7 @@ LIGHT = Theme(
     text_muted="#868e96",
     text_inverse="#ffffff",
     border_subtle="#dee2e6",
+    brand_primary="#e03131",
     action_primary_bg="#228be6",
     action_primary_text="#ffffff",
     status_error_text="#e03131",
@@ -77,6 +81,7 @@ HIGH_CONTRAST = Theme(
     text_muted="#C0C0C0",
     text_inverse="#000000",
     border_subtle="#8A8A8A",
+    brand_primary="#FF4D4D",
     action_primary_bg="#FFD400",
     action_primary_text="#000000",
     status_error_text="#FF4D4D",
