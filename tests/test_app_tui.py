@@ -21,7 +21,13 @@ from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
 from hephaistos.parameters import settings as settings_store
 from hephaistos.providers.config import ProviderConfig, default_config
-from hephaistos.study import StudyAutonomyMode
+from hephaistos.study import (
+    ExamSession,
+    ExamSessionItem,
+    Milestone,
+    StudyAutonomyMode,
+    StudyPhase,
+)
 from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
 from hephaistos.tui.armory_browser import armory_detail, build_entries, default_armory_home
@@ -1664,6 +1670,99 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
     assert "model" not in panel.plain
     assert "armory" not in panel.plain
     assert "evidence" not in panel.plain
+
+
+def test_info_panel_renders_milestone_checklist() -> None:
+    session = _plain_session()
+    milestones = [
+        Milestone(name="Dijkstra", status="passed", subtasks=["relax edges"], progress=1.0),
+        Milestone(name="Dynamic programming", status="in_progress", progress=0.5),
+        Milestone(name="Greedy proofs", status="failed"),
+        Milestone(name="Hash tables", status="not_started"),
+    ]
+
+    panel = tui._info_panel_milestones_text(milestones, session, selected_index=1)
+
+    assert "Milestones" in panel.plain
+    assert "✓ Dijkstra 100%" in panel.plain
+    assert "relax edges" in panel.plain
+    assert "> • Dynamic programming 50%" in panel.plain
+    assert "✗ Greedy proofs" in panel.plain
+    assert "- Hash tables" in panel.plain
+    assert "enter study" in panel.plain
+
+
+def test_info_panel_renders_exam_session_questions() -> None:
+    session = _plain_session()
+    exam_session = ExamSession(
+        items=[
+            ExamSessionItem(
+                question="Define validation sets.",
+                source_ref="past-exam.md#chunk=0",
+                marks=4,
+                status="correct",
+            ),
+            ExamSessionItem(
+                question="Explain backpropagation in neural networks.",
+                source_ref="past-exam.md#chunk=1",
+                marks=10,
+                status="active",
+            ),
+        ],
+        active_index=1,
+        completed_count=1,
+    )
+
+    panel = tui._info_panel_exam_session_text(exam_session, session, selected_index=1)
+
+    assert "Exam session" in panel.plain
+    assert "1/2 answered" in panel.plain
+    assert "✓ 1. Define validation sets. [4]" in panel.plain
+    assert "> *• 2. Explain backpropagation" in panel.plain
+    assert "[10]" in panel.plain
+    assert "enter jump" in panel.plain
+    assert "/exam next" in panel.plain
+
+
+@pytest.mark.asyncio
+async def test_keyboard_navigation_jumps_exam_sidebar_question() -> None:
+    session = _plain_session()
+    session.study_state.exam_session = ExamSession(
+        items=[
+            ExamSessionItem(
+                question="Define validation sets.",
+                source_ref="past-exam.md#chunk=0",
+                marks=4,
+                status="active",
+            ),
+            ExamSessionItem(
+                question="Explain backpropagation.",
+                source_ref="past-exam.md#chunk=1",
+                marks=10,
+                status="pending",
+            ),
+        ],
+        active_index=0,
+    )
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(armory_home_shown=True),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async with typed_app.run_test(size=(160, 24)) as pilot:
+        await pilot.pause()
+        await pilot.press("down")
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert session.study_state.exam_session is not None
+    assert session.study_state.exam_session.active_index == 1
+    assert session.study_state.exam_session.items[1].status == "active"
+    assert session.study_state.current_item == "Explain backpropagation."
+    assert session.study_state.expected_source_refs == ["past-exam.md#chunk=1"]
+    assert session.study_state.phase is StudyPhase.RECALL
 
 
 def test_info_panel_message_text_is_indented_from_sidebar_edge() -> None:

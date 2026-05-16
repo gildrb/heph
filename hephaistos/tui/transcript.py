@@ -63,6 +63,7 @@ class _TranscriptHost(Protocol):
     _armory_inline_active: bool
     _materials_inline_active: bool
     _focused_msg_index: int | None
+    _sidebar_selected_index: int | None
     _inline_flow: InlineFlow
     _transcript_reflow_pending: bool
 
@@ -485,6 +486,26 @@ class TuiTranscriptMixin:
                 )
                 return
         tui_module = sys.modules["hephaistos.tui"]
+        exam_session = self.session.study_state.exam_session
+        if exam_session is not None:
+            panel.update(
+                tui_module._info_panel_exam_session_text(
+                    exam_session,
+                    self.session,
+                    selected_index=self._sidebar_selected_index,
+                )
+            )
+            return
+        milestone_tracker = self.session.study_state.milestone_tracker
+        if milestone_tracker is not None and milestone_tracker.milestones:
+            panel.update(
+                tui_module._info_panel_milestones_text(
+                    milestone_tracker.milestones,
+                    self.session,
+                    selected_index=self._sidebar_selected_index,
+                )
+            )
+            return
         panel.update(
             tui_module._info_panel_default_text(
                 self.session,

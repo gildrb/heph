@@ -12,6 +12,10 @@ from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import SessionError, create_session, resume_session, save_session
 from hephaistos.rag.health import ExtractionHealthIssue
 from hephaistos.study import (
+    ExamSession,
+    ExamSessionItem,
+    Milestone,
+    MilestoneTracker,
     StudyAutonomyMode,
     StudyFeedbackType,
     StudyPhase,
@@ -63,6 +67,46 @@ def test_save_and_resume_preserves_study_state(tmp_path: Path) -> None:
     assert resumed.study_state.session_goal == "exam preparation"
     assert resumed.study_state.time_budget_minutes == 45
     assert resumed.study_state.autopilot_session_type == "exam"
+
+
+def test_save_and_resume_preserves_exam_session_and_milestones(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    session = create_session(
+        ChatConfig(base_url="https://api.openai.com/v1", model="gpt-4o-mini"),
+        armory,
+    )
+    session.study_state.exam_session = ExamSession(
+        items=[
+            ExamSessionItem(
+                question="Explain Dijkstra.",
+                source_ref="materials/exam.md#chunk=0",
+                marks=10,
+                status="partial",
+                answer="shortest paths",
+                feedback="needs edge relaxation",
+            )
+        ],
+        active_index=0,
+        started_at=datetime(2026, 5, 9, 12, 30, tzinfo=UTC),
+        completed_count=1,
+    )
+    session.study_state.milestone_tracker = MilestoneTracker(
+        milestones=[Milestone(name="Dijkstra", status="in_progress", progress=0.5)]
+    )
+
+    save_session(session)
+
+    resumed = resume_session(session.config, armory, session.session_id)
+    assert resumed.study_state.exam_session is not None
+    assert resumed.study_state.exam_session.active_index == 0
+    assert resumed.study_state.exam_session.started_at == datetime(2026, 5, 9, 12, 30, tzinfo=UTC)
+    assert resumed.study_state.exam_session.completed_count == 1
+    assert resumed.study_state.exam_session.items[0].answer == "shortest paths"
+    assert resumed.study_state.exam_session.items[0].feedback == "needs edge relaxation"
+    assert resumed.study_state.exam_session.items[0].marks == 10
+    assert resumed.study_state.milestone_tracker is not None
+    assert resumed.study_state.milestone_tracker.milestones[0].name == "Dijkstra"
+    assert resumed.study_state.milestone_tracker.milestones[0].progress == 0.5
 
 
 def test_resume_preserves_only_existing_disabled_sources(tmp_path: Path) -> None:

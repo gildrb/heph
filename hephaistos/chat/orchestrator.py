@@ -2812,6 +2812,7 @@ class TurnOrchestrator:
                 plan,
                 fallback_reply,
                 _evidence_refs(resolved.turn_evidence),
+                learner_answer=user_input,
             )
             self.last_reply = final_reply
             if final_reply and (
@@ -2862,6 +2863,7 @@ class TurnOrchestrator:
                 plan,
                 visible_reply,
                 _evidence_refs(resolved.turn_evidence),
+                learner_answer=user_input,
             )
             self._record_study_review_if_needed(
                 original_study_state,

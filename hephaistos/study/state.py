@@ -7,6 +7,8 @@ from datetime import datetime
 from enum import StrEnum
 
 from hephaistos._types import is_object_list, is_string_mapping
+from hephaistos.study.exam_session import ExamSession
+from hephaistos.study.milestones import MilestoneTracker
 
 
 class StudyPhase(StrEnum):
@@ -92,6 +94,8 @@ class StudyState:
     autopilot_started_at: datetime | None = None
     autopilot_turns: int = 0
     autopilot_stop_reason: str = ""
+    exam_session: ExamSession | None = None
+    milestone_tracker: MilestoneTracker | None = None
 
     def clone(self) -> StudyState:
         """Return a deep-enough copy for rollback and persistence."""
@@ -124,6 +128,12 @@ class StudyState:
             ),
             "autopilot_turns": self.autopilot_turns,
             "autopilot_stop_reason": self.autopilot_stop_reason,
+            "exam_session": (
+                self.exam_session.to_dict() if self.exam_session is not None else None
+            ),
+            "milestone_tracker": (
+                self.milestone_tracker.to_dict() if self.milestone_tracker is not None else None
+            ),
         }
 
     @classmethod
@@ -227,6 +237,9 @@ class StudyState:
         raw_stop_reason = data.get("autopilot_stop_reason", "")
         autopilot_stop_reason = raw_stop_reason if isinstance(raw_stop_reason, str) else ""
 
+        exam_session = ExamSession.from_dict(data.get("exam_session"))
+        milestone_tracker = MilestoneTracker.from_dict(data.get("milestone_tracker"))
+
         return cls(
             phase=phase,
             current_item=current_item,
@@ -246,6 +259,8 @@ class StudyState:
             autopilot_started_at=autopilot_started_at,
             autopilot_turns=autopilot_turns,
             autopilot_stop_reason=autopilot_stop_reason,
+            exam_session=exam_session,
+            milestone_tracker=milestone_tracker,
         )
 
 

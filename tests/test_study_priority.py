@@ -4,7 +4,10 @@ from pathlib import Path
 
 from hephaistos.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.rag.index import ArmoryIndex
+from hephaistos.study.milestones import milestones_from_priority
 from hephaistos.study.priority import (
+    PriorityAnalysis,
+    PriorityTopic,
     PriorityWebSearchResult,
     analyze_priority,
     generate_priority_report,
@@ -26,6 +29,32 @@ class _FakePdfCompiler:
     def compile(self, tex_path: Path, pdf_path: Path) -> None:
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         pdf_path.write_bytes(b"%PDF-1.4\n% hephaistos fake test pdf\n")
+
+
+def test_milestones_from_priority_use_topic_prerequisites_and_progress() -> None:
+    analysis = PriorityAnalysis(
+        topics=(
+            PriorityTopic(
+                topic="Dynamic programming",
+                score=42.0,
+                exam_hits=2,
+                exam_marks=18,
+                material_hits=3,
+                sources=("past-exam.md", "lecture.md"),
+                prerequisites=("recurrences", "optimal substructure"),
+            ),
+        ),
+        past_exam_sources=("past-exam.md",),
+        material_sources=("lecture.md",),
+    )
+
+    milestones = milestones_from_priority(analysis)
+
+    assert len(milestones) == 1
+    assert milestones[0].name == "Dynamic programming"
+    assert milestones[0].status == "not_started"
+    assert milestones[0].progress == 0.0
+    assert milestones[0].subtasks == ["recurrences", "optimal substructure"]
 
 
 def test_priority_analysis_weights_past_exam_occurrence(tmp_path: Path) -> None:

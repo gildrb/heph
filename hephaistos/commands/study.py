@@ -12,14 +12,26 @@ from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.rag.index import load_or_build
 from hephaistos.study import (
     AutopilotSessionType,
+    ExamSession,
     StudyAutonomyMode,
     StudyFeedbackType,
     StudyPhase,
     StudyRecallRating,
+    activate_exam_session_item,
+    exam_session_from_questions,
+    milestones_from_exam_session,
+    milestones_from_priority,
+    next_exam_session_index,
     parse_time_budget_minutes,
     session_type_from_text,
 )
-from hephaistos.study.exam import select_exam_question, supporting_source_refs
+from hephaistos.study.exam import (
+    ExamChunk,
+    select_exam_question,
+    select_exam_questions,
+    supporting_source_refs,
+)
+from hephaistos.study.milestones import MilestoneTracker
 from hephaistos.study.priority import (
     PriorityAnalysis,
     PriorityChunk,
@@ -357,11 +369,21 @@ class ExamCommand(Command):
         if s.armory_path is None:
             print_error("No armory attached. Use /armory to open one first.")
             return CommandResult()
+        normalized_args = args.strip()
+        subcommand_parts = normalized_args.split(maxsplit=1)
+        subcommand = subcommand_parts[0].lower() if subcommand_parts else ""
+        subcommand_args = subcommand_parts[1] if len(subcommand_parts) > 1 else ""
+        if subcommand == "session":
+            return self._start_session(s, subcommand_args.strip())
+        if subcommand == "next":
+            return self._next_question(s)
+        if subcommand == "jump":
+            return self._jump_question(s, subcommand_args.strip())
         print_info(
             "Active recall works best with materials aside unless your exam allows a cheat "
             "sheet. Use the time limit as real exam pressure."
         )
-        topic = args.strip()
+        topic = normalized_args
         chunks = list(load_or_build(s.armory_path).all_chunks)
         question = select_exam_question(chunks, topic=topic)
         if question is not None:
@@ -404,6 +426,64 @@ class ExamCommand(Command):
                 "or citations until after my attempt."
             )
         return CommandResult(output=f"__RESEND__:{prompt}")
+
+    @staticmethod
+    def _start_session(session: ChatSession, topic: str) -> CommandResult:
+        armory_path = session.armory_path
+        if armory_path is None:
+            print_error("No armory attached. Use /armory to open one first.")
+            return CommandResult()
+        print_info("Loading all extracted past-exam questions...")
+        chunks = list(load_or_build(armory_path).all_chunks)
+        questions = select_exam_questions(chunks, topic=topic)
+        if not questions:
+            print_error("No exam questions found in enabled past-exam materials.")
+            return CommandResult()
+        exam_session = exam_session_from_questions(questions)
+        session.study_state.exam_session = exam_session
+        session.study_state.milestone_tracker = MilestoneTracker(
+            milestones=milestones_from_exam_session(exam_session)
+        )
+        print_success(f"Exam session started with {len(questions)} question(s).")
+        return _activate_exam_session_question(session, chunks, 0)
+
+    @staticmethod
+    def _next_question(session: ChatSession) -> CommandResult:
+        exam_session = session.study_state.exam_session
+        if exam_session is None:
+            print_error("No exam session is active. Run /exam session first.")
+            return CommandResult()
+        next_index = next_exam_session_index(exam_session)
+        if next_index is None:
+            print(_exam_session_summary(exam_session))
+            return CommandResult()
+        armory_path = session.armory_path
+        if armory_path is None:
+            print_error("No armory attached. Use /armory to open one first.")
+            return CommandResult()
+        chunks = list(load_or_build(armory_path).all_chunks)
+        return _activate_exam_session_question(session, chunks, next_index)
+
+    @staticmethod
+    def _jump_question(session: ChatSession, raw_index: str) -> CommandResult:
+        exam_session = session.study_state.exam_session
+        if exam_session is None:
+            print_error("No exam session is active. Run /exam session first.")
+            return CommandResult()
+        try:
+            index = int(raw_index) - 1
+        except ValueError:
+            print_error("Usage: /exam jump N")
+            return CommandResult()
+        if not 0 <= index < len(exam_session.items):
+            print_error(f"Question number must be between 1 and {len(exam_session.items)}.")
+            return CommandResult()
+        armory_path = session.armory_path
+        if armory_path is None:
+            print_error("No armory attached. Use /armory to open one first.")
+            return CommandResult()
+        chunks = list(load_or_build(armory_path).all_chunks)
+        return _activate_exam_session_question(session, chunks, index)
 
 
 class PriorityCommand(Command):
@@ -448,6 +528,9 @@ class PriorityCommand(Command):
         except PriorityPdfError as exc:
             print_error(str(exc))
             return CommandResult()
+        s.study_state.milestone_tracker = MilestoneTracker(
+            milestones=milestones_from_priority(analysis)
+        )
         print_info(_priority_terminal_summary(analysis))
         if focus:
             print_info(f"Focus requested: {focus}")
@@ -456,6 +539,80 @@ class PriorityCommand(Command):
             f"({report.topic_count} topics, {report.source_count} sources)."
         )
         return CommandResult()
+
+
+def _activate_exam_session_question(
+    session: ChatSession,
+    chunks: Sequence[ExamChunk],
+    index: int,
+) -> CommandResult:
+    exam_session = session.study_state.exam_session
+    if exam_session is None:
+        print_error("No exam session is active. Run /exam session first.")
+        return CommandResult()
+    session.study_state.exam_session = activate_exam_session_item(exam_session, index)
+    exam_session = session.study_state.exam_session
+    active_item = exam_session.active_item
+    if active_item is None:
+        print_error("Could not activate that exam question.")
+        return CommandResult()
+    source_refs = [active_item.source_ref, *supporting_source_refs(chunks, active_item.question)]
+    session.study_state.phase = StudyPhase.RECALL
+    session.study_state.current_item = active_item.question
+    session.study_state.expected_source_refs = source_refs
+    session.study_state.attempt_count = 0
+    session.study_state.last_feedback_type = StudyFeedbackType.CALIBRATING
+    session.study_state.retrieval_query = active_item.question
+    session.study_state.recall_started_at = datetime.now(UTC)
+    session.study_state.last_recall_seconds = None
+    session.study_state.last_recall_rating = StudyRecallRating.NONE
+    session.study_state.hint_level = 0
+    session.study_state.milestone_tracker = MilestoneTracker(
+        milestones=milestones_from_exam_session(exam_session)
+    )
+    print(
+        "\n".join(
+            [
+                f"Exam question {index + 1}/{len(exam_session.items)}",
+                _exam_time_limit_line(active_item.marks),
+                active_item.question,
+                "Answer from memory. Do not open the material unless your exam allows it.",
+            ]
+        )
+    )
+    return CommandResult()
+
+
+def _exam_time_limit_line(marks: int | None) -> str:
+    if marks is None:
+        minutes = 5
+    elif marks <= 4:
+        minutes = 3
+    elif marks <= 10:
+        minutes = 8
+    else:
+        minutes = 12
+    return f"Time limit: {minutes} minutes"
+
+
+def _exam_session_summary(exam_session: ExamSession) -> str:
+    gaps: list[str] = []
+    passed = 0
+    for index, item in enumerate(exam_session.items, start=1):
+        if item.status == "correct":
+            passed += 1
+            continue
+        gaps.append(f"  Q{index}: {item.status} — {item.question[:80]}")
+    lines = [
+        "Exam session summary",
+        f"  Completed: {exam_session.completed_count}/{len(exam_session.items)}",
+        f"  Correct: {passed}/{len(exam_session.items)}",
+    ]
+    if gaps:
+        lines.extend(["", "Gap report:", *gaps])
+    else:
+        lines.append("No gaps recorded.")
+    return "\n".join(lines)
 
 
 def _priority_output_dir() -> Path:

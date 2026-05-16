@@ -6,6 +6,21 @@ from typing import TYPE_CHECKING
 
 from hephaistos.armory.search import load_known_armories
 from hephaistos.runtime import has_configured_access
+from hephaistos.study.exam_session import (
+    EXAM_SESSION_ACTIVE,
+    EXAM_SESSION_CORRECT,
+    EXAM_SESSION_PARTIAL,
+    EXAM_SESSION_PENDING,
+    EXAM_SESSION_WRONG,
+    ExamSession,
+)
+from hephaistos.study.milestones import (
+    MILESTONE_FAILED,
+    MILESTONE_IN_PROGRESS,
+    MILESTONE_NOT_STARTED,
+    MILESTONE_PASSED,
+    Milestone,
+)
 from hephaistos.terminal import current_palette
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
 from hephaistos.tui.keymap import armory_shortcut_key
@@ -169,6 +184,70 @@ def _indent_info_panel_lines(lines: list[str]) -> list[str]:
     return [f"  {line}" if line else "" for line in lines]
 
 
+def info_panel_milestones_text(
+    milestones: list[Milestone],
+    session: ChatSession,
+    *,
+    selected_index: int | None = None,
+) -> Text:
+    """Build milestone checklist content for the info panel."""
+    palette = current_palette()
+    title = session.title or "Study session"
+    lines = ["Milestones", title, ""]
+    if not milestones:
+        lines.append("- no milestones yet")
+    for index, milestone in enumerate(milestones):
+        selected = "> " if selected_index == index else "  "
+        marker = _milestone_marker(milestone.status)
+        progress = f" {milestone.progress:.0%}" if milestone.progress > 0 else ""
+        lines.append(f"{selected}{marker} {_compact_line(milestone.name, 32)}{progress}")
+        lines.extend(f"    {_compact_line(subtask, 36)}" for subtask in milestone.subtasks[:2])
+    lines.extend(["", "arrows move", "enter study"])
+    lines = _indent_info_panel_lines(lines)
+    plain = "\n".join(lines)
+    text = require_rich_text()(plain, style=palette.text_muted)
+    _stylize_panel_title(text, plain, "Milestones")
+    _stylize_status_tokens(text, plain)
+    return text
+
+
+def info_panel_exam_session_text(
+    exam_session: ExamSession,
+    session: ChatSession,
+    *,
+    selected_index: int | None = None,
+) -> Text:
+    """Build exam-session question list content for the info panel."""
+    palette = current_palette()
+    title = session.title or "Study session"
+    total = len(exam_session.items)
+    lines = ["Exam session", title, f"{exam_session.completed_count}/{total} answered", ""]
+    if not exam_session.items:
+        lines.append("- no exam questions")
+    for index, item in enumerate(exam_session.items):
+        selected = "> " if selected_index == index else "  "
+        active = "*" if exam_session.active_index == index else " "
+        marker = _exam_session_marker(item.status)
+        marks = f" [{item.marks}]" if item.marks is not None else ""
+        prefix = f"{selected}{active}{marker} {index + 1}. "
+        lines.append(f"{prefix}{_compact_line(item.question, 29)}{marks}")
+    lines.extend(["", "arrows move", "enter jump", "/exam next"])
+    lines = _indent_info_panel_lines(lines)
+    plain = "\n".join(lines)
+    text = require_rich_text()(plain, style=palette.text_muted)
+    _stylize_panel_title(text, plain, "Exam session")
+    _stylize_status_tokens(text, plain)
+    if exam_session.active_index is not None and 0 <= exam_session.active_index < total:
+        active_line = f"{exam_session.active_index + 1}."
+        active_start = plain.find(active_line)
+        if active_start != -1:
+            active_end = plain.find("\n", active_start)
+            if active_end == -1:
+                active_end = len(plain)
+            text.stylize(f"bold {palette.text_primary}", active_start, active_end)
+    return text
+
+
 def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
     """Build the default info panel content showing session length and material names."""
     palette = current_palette()
@@ -216,6 +295,64 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
         )
         text.stylize(style, idx, idx + len(token))
     return text
+
+
+def _milestone_marker(status: str) -> str:
+    if status == MILESTONE_PASSED:
+        return "✓"
+    if status == MILESTONE_IN_PROGRESS:
+        return "•"
+    if status == MILESTONE_FAILED:
+        return "✗"
+    if status == MILESTONE_NOT_STARTED:
+        return "-"
+    return "-"
+
+
+def _exam_session_marker(status: str) -> str:
+    if status == EXAM_SESSION_CORRECT:
+        return "✓"
+    if status == EXAM_SESSION_PARTIAL:
+        return "•"
+    if status == EXAM_SESSION_WRONG:
+        return "✗"
+    if status == EXAM_SESSION_ACTIVE:
+        return "•"
+    if status == EXAM_SESSION_PENDING:
+        return "-"
+    return "-"
+
+
+def _compact_line(value: str, width: int) -> str:
+    clean = " ".join(value.split())
+    if len(clean) <= width:
+        return clean
+    return f"{clean[: width - 1]}…"
+
+
+def _stylize_panel_title(text: Text, plain: str, title: str) -> None:
+    palette = current_palette()
+    title_start = plain.index(title)
+    text.stylize(f"bold {palette.text_primary}", title_start, title_start + len(title))
+
+
+def _stylize_status_tokens(text: Text, plain: str) -> None:
+    palette = current_palette()
+    for token, style in (
+        ("✓", palette.action_primary_bg),
+        ("•", palette.action_primary_bg),
+        ("✗", palette.status_error_text),
+        ("-", palette.text_muted),
+        (">", palette.text_secondary),
+        ("*", palette.text_secondary),
+    ):
+        start = 0
+        while True:
+            index = plain.find(token, start)
+            if index == -1:
+                break
+            text.stylize(style, index, index + len(token))
+            start = index + len(token)
 
 
 def startup_card_text() -> str:

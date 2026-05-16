@@ -81,16 +81,25 @@ def select_exam_question(
     rng: random.Random | None = None,
 ) -> ExamQuestion | None:
     """Select a random question from indexed past-exam chunks."""
-    questions = list(_iter_exam_questions(chunks))
-    if topic:
-        topic_lower = topic.lower()
-        focused = [question for question in questions if topic_lower in question.question.lower()]
-        if focused:
-            questions = focused
+    questions = select_exam_questions(chunks, topic=topic)
     if not questions:
         return None
     chooser = rng or random.SystemRandom()
     return chooser.choice(questions)
+
+
+def select_exam_questions(
+    chunks: Sequence[ExamChunk],
+    *,
+    topic: str = "",
+) -> list[ExamQuestion]:
+    """Return all extracted past-exam questions, optionally focused by topic."""
+    questions = list(_iter_exam_questions(chunks))
+    if not topic:
+        return questions
+    topic_lower = topic.lower()
+    focused = [question for question in questions if topic_lower in question.question.lower()]
+    return focused or questions
 
 
 def supporting_source_refs(

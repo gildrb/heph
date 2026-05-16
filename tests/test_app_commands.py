@@ -221,6 +221,39 @@ def test_exam_command_warns_and_resends_active_recall_prompt(
     assert "citations" in result.output
 
 
+def test_exam_session_command_populates_all_extracted_questions(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    armory = tmp_path / "exam-session-armory"
+    initialize(armory)
+    past_exam = armory / "materials" / "past-exam-2025.md"
+    past_exam.write_text(
+        "Question 1 [4 marks]: Define validation set.\n"
+        "Question 2 [10 marks]: Explain neural networks.\n",
+        encoding="utf-8",
+    )
+    session = ChatSession(
+        config=ChatConfig(api_key="test-key"),
+        conversation=Conversation(),
+        session_id="exam-session",
+        armory_path=armory,
+    )
+
+    result = commands.ExamCommand().handle(session, "session")
+
+    out = capsys.readouterr().out
+    assert result.output is None
+    assert "Exam session started with 2 questions" in out
+    assert session.study_state.exam_session is not None
+    assert len(session.study_state.exam_session.items) == 2
+    assert "validation set" in session.study_state.exam_session.items[0].question
+    assert "neural networks" in session.study_state.exam_session.items[1].question
+    assert session.study_state.exam_session.active_index == 0
+    assert session.study_state.milestone_tracker is not None
+    assert len(session.study_state.milestone_tracker.milestones) == 2
+
+
 def test_priority_command_prints_local_priority_scan(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

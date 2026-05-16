@@ -36,6 +36,14 @@ from hephaistos.study.controller import (
     plan_turn,
     recall_clarification_plan,
 )
+from hephaistos.study.exam_session import (
+    ExamSession,
+    ExamSessionItem,
+    activate_exam_session_item,
+    exam_session_from_questions,
+    next_exam_session_index,
+    update_active_exam_session_item,
+)
 from hephaistos.study.knowledge import (
     AcademicItem,
     AcademicItemKind,
@@ -46,6 +54,12 @@ from hephaistos.study.knowledge import (
     extract_academic_items,
     generate_grounded_study_questions,
     grounded_study_question_quality_issues,
+)
+from hephaistos.study.milestones import (
+    Milestone,
+    MilestoneTracker,
+    milestones_from_exam_session,
+    milestones_from_priority,
 )
 from hephaistos.study.state import (
     StudyAction,
@@ -65,10 +79,14 @@ __all__ = [
     "CourseKnowledgeGraph",
     "CourseKnowledgeNode",
     "EvidenceAssessment",
+    "ExamSession",
+    "ExamSessionItem",
     "GroundedStudyQuestion",
     "LearnerAssessment",
     "MaterialStatus",
     "MemoryState",
+    "Milestone",
+    "MilestoneTracker",
     "PedagogyValidation",
     "PolicyOutcome",
     "ReviewItem",
@@ -81,12 +99,14 @@ __all__ = [
     "StudyRecallRating",
     "StudyState",
     "StudyTurnPlan",
+    "activate_exam_session_item",
     "append_policy_prompt",
     "apply_turn_result",
     "assess_choice_response",
     "assess_evidence",
     "build_course_knowledge_graph",
     "choice_prompt",
+    "exam_session_from_questions",
     "extract_academic_items",
     "generate_grounded_study_questions",
     "grounded_study_question_quality_issues",
@@ -97,11 +117,15 @@ __all__ = [
     "material_source_qa_plan",
     "material_topic_drill_plan",
     "material_topic_presentation_plan",
+    "milestones_from_exam_session",
+    "milestones_from_priority",
     "move_for_plan",
+    "next_exam_session_index",
     "normalize_confidence_value",
     "parse_time_budget_minutes",
     "plan_turn",
     "recall_clarification_plan",
     "session_type_from_text",
+    "update_active_exam_session_item",
     "validate_pedagogy",
 ]

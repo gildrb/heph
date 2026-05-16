@@ -16,12 +16,25 @@ from hephaistos.study.autopilot import (
     move_for_plan,
     normalize_confidence_value,
 )
+from hephaistos.study.exam_session import (
+    EXAM_SESSION_CORRECT,
+    EXAM_SESSION_PARTIAL,
+    EXAM_SESSION_WRONG,
+    update_active_exam_session_item,
+)
 from hephaistos.study.intent import (
     is_material_source_request,
     is_new_material_topic_request,
     is_source_only_policy,
     is_standalone_source_only_policy,
     material_drill_query,
+)
+from hephaistos.study.milestones import (
+    MILESTONE_FAILED,
+    MILESTONE_IN_PROGRESS,
+    MILESTONE_PASSED,
+    MilestoneTracker,
+    milestones_from_exam_session,
 )
 from hephaistos.study.overview import OVERVIEW_REQUEST_RE
 from hephaistos.study.state import (
@@ -1524,6 +1537,7 @@ def apply_turn_result(
     reply: str,
     source_refs: list[str],
     *,
+    learner_answer: str = "",
     now: datetime | None = None,
 ) -> tuple[StudyState, str]:
     """Advance the state machine after a successful model reply."""
@@ -1699,9 +1713,83 @@ def apply_turn_result(
                 _set_autopilot_stop_reason(next_state, "learner fatigue or frustration detected")
         if not source_refs:
             _set_autopilot_stop_reason(next_state, "evidence is insufficient")
+        next_state, cleaned_reply = _update_assessment_progress(
+            next_state,
+            feedback,
+            cleaned_reply,
+            learner_answer=learner_answer,
+        )
         return next_state, cleaned_reply
 
     return next_state, reply
+
+
+def _update_assessment_progress(
+    state: StudyState,
+    feedback: StudyFeedbackType,
+    reply: str,
+    *,
+    learner_answer: str,
+) -> tuple[StudyState, str]:
+    exam_status = _exam_status_from_feedback(feedback)
+    if state.exam_session is not None:
+        state.exam_session = update_active_exam_session_item(
+            state.exam_session,
+            status=exam_status,
+            answer=learner_answer,
+            feedback=reply,
+        )
+        state.milestone_tracker = MilestoneTracker(
+            milestones=milestones_from_exam_session(state.exam_session)
+        )
+        if state.exam_session.completed_count == len(state.exam_session.items):
+            reply = f"{reply}\n\n{_exam_session_gap_report(state)}"
+        return state, reply
+    milestone_tracker = state.milestone_tracker
+    if milestone_tracker is not None:
+        state.milestone_tracker = milestone_tracker.update_for_assessment(
+            state.retrieval_query or state.current_item,
+            _milestone_status_from_feedback(feedback),
+        )
+    return state, reply
+
+
+def _exam_status_from_feedback(feedback: StudyFeedbackType) -> str:
+    if feedback is StudyFeedbackType.CORRECT:
+        return EXAM_SESSION_CORRECT
+    if feedback is StudyFeedbackType.WRONG:
+        return EXAM_SESSION_WRONG
+    return EXAM_SESSION_PARTIAL
+
+
+def _milestone_status_from_feedback(feedback: StudyFeedbackType) -> str:
+    if feedback is StudyFeedbackType.CORRECT:
+        return MILESTONE_PASSED
+    if feedback is StudyFeedbackType.WRONG:
+        return MILESTONE_FAILED
+    return MILESTONE_IN_PROGRESS
+
+
+def _exam_session_gap_report(state: StudyState) -> str:
+    exam_session = state.exam_session
+    if exam_session is None:
+        return "Exam session summary unavailable."
+    correct = sum(1 for item in exam_session.items if item.status == EXAM_SESSION_CORRECT)
+    lines = [
+        "Exam session summary",
+        f"Completed: {exam_session.completed_count}/{len(exam_session.items)}",
+        f"Correct: {correct}/{len(exam_session.items)}",
+    ]
+    gaps = [
+        f"Q{index}: {item.status} — {item.question[:80]}"
+        for index, item in enumerate(exam_session.items, start=1)
+        if item.status != EXAM_SESSION_CORRECT
+    ]
+    if gaps:
+        lines.extend(["", "Gap report:", *gaps])
+    else:
+        lines.append("No gaps recorded.")
+    return "\n".join(lines)
 
 
 def _set_autopilot_stop_reason(state: StudyState, reason: str) -> None:
