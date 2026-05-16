@@ -31,6 +31,7 @@ _LATEX_COMMAND_REPLACEMENTS = {
     r"\:": " ",
     r"\!": "",
 }
+_MARKDOWN_CODE_RE = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]+`", re.DOTALL)
 _MAX_VISIBLE_SOURCE_ITEMS = 3
 
 
@@ -75,7 +76,16 @@ def _normalize_latex_delimiters(text: str) -> str:
 
 
 def normalize_math_output(text: str) -> str:
-    return _replace_latex_commands(_normalize_latex_delimiters(text))
+    pieces: list[str] = []
+    last_end = 0
+    for match in _MARKDOWN_CODE_RE.finditer(text):
+        pieces.append(
+            _replace_latex_commands(_normalize_latex_delimiters(text[last_end : match.start()]))
+        )
+        pieces.append(match.group(0))
+        last_end = match.end()
+    pieces.append(_replace_latex_commands(_normalize_latex_delimiters(text[last_end:])))
+    return "".join(pieces)
 
 
 def _render_evidence_panel(evidence: TurnEvidence, cited_ids: list[str]) -> str:

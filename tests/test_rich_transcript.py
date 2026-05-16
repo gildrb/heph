@@ -243,6 +243,23 @@ A demonstration uses \left.\frac{d^{2}}{dx^{2}}x^{2}\right|_{x=0}.""",
     assert "d²/dx²x²|ₓ₌₀" in result.markdown_text
 
 
+def test_enrich_reply_preserves_code_while_formatting_raw_math() -> None:
+    result = enrich_reply(
+        r"""Keep inline code `x_1 = \left` unchanged.
+
+```python
+x_1 = "\left"
+```
+
+But format math: \sum_{n=1}^{\infty}\frac{1}{n^{2}}.""",
+        None,
+    )
+
+    assert r"`x_1 = \left`" in result.markdown_text
+    assert 'x_1 = "\\left"' in result.markdown_text
+    assert "∑ₙ₌₁^∞1/n²" in result.markdown_text
+
+
 def test_evidence_footer_shows_only_cited_evidence_when_available() -> None:
     evidence = _make_evidence(
         ("E1", "source/a.md", 0, 0.5, "a"),
