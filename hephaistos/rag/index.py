@@ -429,7 +429,8 @@ class ArmoryIndex:
                     self._file_hashes[rel] = content_hash
                 previous_document = previous_documents.get(rel)
                 if (
-                    content_hash is not None
+                    previous.strategy == self.strategy
+                    and content_hash is not None
                     and previous._file_hashes.get(rel) == content_hash
                     and previous_document is not None
                 ):
@@ -841,7 +842,7 @@ def load_or_build(
     """Load existing index if fresh, otherwise rebuild."""
     index = ArmoryIndex(armory_path, strategy=strategy)
     loaded = index.load(allow_stale=True)
-    if loaded and not index.is_stale():
+    if loaded and index.strategy == strategy and not index.is_stale():
         if progress is not None:
             index_path = armory_path / ".hephaistos" / _INDEX_FILE
             progress("loaded", f"{index_path} ({index.chunk_count} chunks)")

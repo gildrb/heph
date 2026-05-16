@@ -323,6 +323,38 @@ class TestAutoCompact:
         assert cache_files[0].read_text(encoding="utf-8") == "Cached summary."
         assert any("Cached summary." in _message_text(message) for message in compressed)
 
+    def test_unavailable_summary_is_not_cached(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        messages = _build_multi_exchange(n_exchanges=5)
+        config, empty_client = self._mock_config_and_client(summary="")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: empty_client,
+        )
+
+        compressed = auto_compact(messages, config, tmp_path)
+
+        assert any("(summary unavailable)" in _message_text(message) for message in compressed)
+        cache_dir = tmp_path / ".hephaistos" / "compaction_cache"
+        assert not list(cache_dir.glob("*.txt"))
+
+        _config, retry_client = self._mock_config_and_client(summary="Recovered summary.")
+        monkeypatch.setattr(
+            "hephaistos.agent.compact.build_client",
+            lambda _c: retry_client,
+        )
+
+        retried = auto_compact(messages, config, tmp_path)
+
+        retry_client.chat.completions.create.assert_called_once()
+        assert any("Recovered summary." in _message_text(message) for message in retried)
+        cache_files = list(cache_dir.glob("*.txt"))
+        assert len(cache_files) == 1
+        assert cache_files[0].read_text(encoding="utf-8") == "Recovered summary."
+
     def test_identical_compaction_reuses_summary_cache(
         self,
         tmp_path: Path,

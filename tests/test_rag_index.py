@@ -819,6 +819,42 @@ class TestArmoryIndexStrategy:
         assert index.chunk_count > 0
         assert index.strategy == ChunkStrategy.TEXT
 
+    def test_load_or_build_rebuilds_when_strategy_changes(
+        self,
+        armory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        build_index(armory, strategy=ChunkStrategy.MARKDOWN)
+        calls: list[str] = []
+        original = rag_index._chunk_file_with_timeout
+
+        def wrapped_chunk_file(
+            file_path: Path,
+            armory_path: Path,
+            *,
+            strategy: ChunkStrategy,
+            timeout_seconds: int,
+        ) -> tuple[ChunkedDocument | None, bool]:
+            calls.append(str(file_path.relative_to(armory_path)))
+            return original(
+                file_path,
+                armory_path,
+                strategy=strategy,
+                timeout_seconds=timeout_seconds,
+            )
+
+        monkeypatch.setattr(rag_index, "_chunk_file_with_timeout", wrapped_chunk_file)
+
+        index = load_or_build(armory, strategy=ChunkStrategy.TEXT)
+
+        assert set(calls) == {
+            "materials/python.md",
+            "materials/rust.md",
+            "materials/algorithms.md",
+        }
+        assert index.strategy == ChunkStrategy.TEXT
+        assert all(chunk.heading == "" for chunk in index.all_chunks)
+
     def test_v1_index_still_loads(self, armory: Path) -> None:
         """A v1 index (without heading fields) should still load gracefully."""
         index = ArmoryIndex(armory)
