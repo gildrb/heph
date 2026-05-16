@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 from io import BytesIO
@@ -411,3 +412,92 @@ def test_materialize_corpus_cli_writes_json_report(
     assert status == 0
     assert payload["status"] == 0
     assert payload["documents"][0]["status"] == "written"
+
+
+def test_materialize_corpus_writes_offline_provenance_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = b"public academic material"
+    expected_hash = hashlib.sha256(body).hexdigest()
+    _stub_https_download(monkeypatch, body)
+    manifest = tmp_path / "manifest.json"
+    _write_manifest(
+        manifest,
+        [
+            {
+                "id": "ucb-cs188-search-agents",
+                "title": "Agents and Environments",
+                "source": "materials/uc-berkeley-cs188/search/agents.html",
+                "source_url": "https://example.edu/search/agents.html",
+                "bytes": len(body),
+                "sha256": expected_hash,
+                "source_organization": "UC Berkeley EECS CS188",
+                "license": "Public course material attribution.",
+                "license_url": "https://example.edu/license",
+                "attribution": "UC Berkeley CS188 public textbook.",
+                "domain": "artificial-intelligence",
+                "role": "textbook",
+                "document_type": "html-textbook-section",
+                "stressors": ["public-html"],
+            }
+        ],
+    )
+    armory = tmp_path / "armory"
+
+    report = materialize_public_corpus.materialize_corpus(manifest, armory)
+
+    provenance_path = armory / ".hephaistos" / "public_corpus_provenance.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    document = report.documents[0]
+    assert report.status == 0
+    assert report.benchmark_ready is True
+    assert report.provenance_path == str(provenance_path)
+    assert document.document_id == "ucb-cs188-search-agents"
+    assert document.title == "Agents and Environments"
+    assert document.expected_bytes == len(body)
+    assert document.expected_sha256 == expected_hash
+    assert provenance["benchmark_ready"] is True
+    assert provenance["document_count"] == 1
+    assert provenance["documents"][0]["id"] == "ucb-cs188-search-agents"
+    assert provenance["documents"][0]["source_organization"] == "UC Berkeley EECS CS188"
+    assert provenance["documents"][0]["sha256"] == expected_hash
+
+
+def test_materialize_corpus_failure_is_not_benchmark_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = b"changed public academic material"
+    _stub_https_download(monkeypatch, body)
+    manifest = tmp_path / "manifest.json"
+    _write_manifest(
+        manifest,
+        [
+            {
+                "id": "ucb-cs188-search-agents",
+                "title": "Agents and Environments",
+                "source": "materials/uc-berkeley-cs188/search/agents.html",
+                "source_url": "https://example.edu/search/agents.html",
+                "bytes": len(body),
+                "sha256": "0" * 64,
+                "source_organization": "UC Berkeley EECS CS188",
+                "license": "Public course material attribution.",
+                "license_url": "https://example.edu/license",
+                "attribution": "UC Berkeley CS188 public textbook.",
+                "domain": "artificial-intelligence",
+                "role": "textbook",
+                "document_type": "html-textbook-section",
+                "stressors": ["public-html"],
+            }
+        ],
+    )
+    armory = tmp_path / "armory"
+
+    report = materialize_public_corpus.materialize_corpus(manifest, armory)
+
+    assert report.status == 1
+    assert report.benchmark_ready is False
+    assert report.provenance_path == ""
+    assert "sha256 mismatch" in report.failures[0]
+    assert not (armory / ".hephaistos" / "public_corpus_provenance.json").exists()

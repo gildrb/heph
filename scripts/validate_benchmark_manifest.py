@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import urllib.parse
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -15,9 +16,13 @@ DEFAULT_MIN_ROLES = 3
 DEFAULT_MIN_DOCUMENT_TYPES = 5
 DEFAULT_MIN_STRESSORS = 8
 DEFAULT_MIN_DOCUMENTS = 1
+PUBLIC_ACADEMIC_CORPUS_KIND = "public-academic"
+_LOWER_HEX_DIGITS = frozenset("0123456789abcdef")
 
 
 class ManifestDocument(TypedDict):
+    id: str
+    title: str
     source: str
     domain: str
     role: str
@@ -25,6 +30,12 @@ class ManifestDocument(TypedDict):
     stressors: list[str]
     source_url: str
     permission_note: str
+    bytes: int
+    sha256: str
+    source_organization: str
+    license: str
+    license_url: str
+    attribution: str
 
 
 class ManifestDataset(TypedDict):
@@ -43,6 +54,7 @@ class ManifestReport:
     roles: tuple[str, ...]
     document_types: tuple[str, ...]
     stressors: tuple[str, ...]
+    source_organizations: tuple[str, ...]
     known_limits: tuple[str, ...]
 
 
@@ -84,6 +96,8 @@ def _documents(payload: Mapping[str, object]) -> list[ManifestDocument]:
         documents.append(
             {
                 "source": _as_non_empty_string(raw.get("source"), f"document {idx} source"),
+                "id": _optional_string(raw.get("id")),
+                "title": _optional_string(raw.get("title")),
                 "domain": _as_non_empty_string(raw.get("domain"), f"document {idx} domain"),
                 "role": _as_non_empty_string(raw.get("role"), f"document {idx} role"),
                 "document_type": _as_non_empty_string(
@@ -92,6 +106,12 @@ def _documents(payload: Mapping[str, object]) -> list[ManifestDocument]:
                 "stressors": _as_string_list(raw.get("stressors"), f"document {idx} stressors"),
                 "source_url": _optional_string(raw.get("source_url")),
                 "permission_note": _optional_string(raw.get("permission_note")),
+                "bytes": _optional_positive_int(raw.get("bytes")),
+                "sha256": _optional_string(raw.get("sha256")),
+                "source_organization": _optional_string(raw.get("source_organization")),
+                "license": _optional_string(raw.get("license")),
+                "license_url": _optional_string(raw.get("license_url")),
+                "attribution": _optional_string(raw.get("attribution")),
             }
         )
     return documents
@@ -103,9 +123,25 @@ def _optional_string(value: object) -> str:
     return ""
 
 
-def _datasets(payload: Mapping[str, object]) -> list[ManifestDataset]:
+def _optional_positive_int(value: object) -> int:
+    if isinstance(value, int) and value > 0:
+        return value
+    return 0
+
+
+def _datasets(
+    payload: Mapping[str, object],
+    *,
+    allow_empty: bool = False,
+) -> list[ManifestDataset]:
     raw_datasets = payload.get("datasets")
-    if not isinstance(raw_datasets, list) or not raw_datasets:
+    if raw_datasets is None and allow_empty:
+        return []
+    if not isinstance(raw_datasets, list):
+        raise TypeError("benchmark manifest must include datasets as a list")
+    if not raw_datasets:
+        if allow_empty:
+            return []
         raise ValueError("benchmark manifest must include non-empty datasets")
     datasets: list[ManifestDataset] = []
     for idx, raw in enumerate(raw_datasets, start=1):
@@ -143,13 +179,16 @@ def validate_manifest(
     suite_path = manifest_path.parent
     payload = _load_json_object(manifest_path)
     corpus_kind = _as_non_empty_string(payload.get("corpus_kind"), "corpus_kind")
+    is_public_academic = corpus_kind == PUBLIC_ACADEMIC_CORPUS_KIND
     documents = _documents(payload)
-    datasets = _datasets(payload)
+    if is_public_academic:
+        _validate_public_academic_documents(documents)
+    datasets = _datasets(payload, allow_empty=is_public_academic)
     known_limits = tuple(_as_string_list(payload.get("known_limits", []), "known_limits"))
 
     for document in documents:
         source_path = suite_path / "armory" / document["source"]
-        if not source_path.is_file():
+        if not is_public_academic and not source_path.is_file():
             raise ValueError(f"manifest document source does not exist: {document['source']}")
         if (
             require_document_provenance
@@ -170,6 +209,15 @@ def validate_manifest(
     document_types = tuple(sorted({document["document_type"] for document in documents}))
     stressors = tuple(
         sorted({stressor for document in documents for stressor in document["stressors"]})
+    )
+    source_organizations = tuple(
+        sorted(
+            {
+                document["source_organization"]
+                for document in documents
+                if document["source_organization"]
+            }
+        )
     )
 
     if len(documents) < min_documents:
@@ -224,6 +272,7 @@ def validate_manifest(
         roles=roles,
         document_types=document_types,
         stressors=stressors,
+        source_organizations=source_organizations,
         known_limits=known_limits,
     )
 
@@ -237,8 +286,77 @@ def print_text_report(report: ManifestReport) -> None:
     print(f"roles={len(report.roles)} ({', '.join(report.roles)})")
     print(f"document_types={len(report.document_types)} ({', '.join(report.document_types)})")
     print(f"stressors={len(report.stressors)} ({', '.join(report.stressors)})")
+    if report.source_organizations:
+        print(
+            "source_organizations="
+            f"{len(report.source_organizations)} ({', '.join(report.source_organizations)})"
+        )
     if report.known_limits:
         print(f"known_limits={len(report.known_limits)}")
+
+
+def _validate_public_academic_documents(documents: Sequence[ManifestDocument]) -> None:
+    seen_ids: set[str] = set()
+    seen_sources: set[str] = set()
+    seen_urls: set[str] = set()
+    for idx, document in enumerate(documents, start=1):
+        document_id = document["id"]
+        if not document_id:
+            raise ValueError(f"document {idx} id must be a non-empty string")
+        if document_id in seen_ids:
+            raise ValueError(f"duplicate document id: {document_id}")
+        seen_ids.add(document_id)
+
+        source = document["source"]
+        _validate_material_source(source, idx)
+        if source in seen_sources:
+            raise ValueError(f"duplicate document source: {source}")
+        if document_id == source:
+            raise ValueError(f"document {idx} id must be distinct from source path")
+        seen_sources.add(source)
+
+        if not document["title"]:
+            raise ValueError(f"document {idx} title must be a non-empty string")
+        if not document["source_organization"]:
+            raise ValueError(f"document {idx} source_organization must be a non-empty string")
+        if not document["license"] and not document["permission_note"]:
+            raise ValueError(
+                f"document {idx} license or permission_note must provide public-use attribution"
+            )
+        if document["bytes"] <= 0:
+            raise ValueError(f"document {idx} bytes must be a positive integer")
+        if not _is_lowercase_sha256(document["sha256"]):
+            raise ValueError(f"document {idx} sha256 must be a lowercase 64-character hex digest")
+        _validate_public_source_url(document["source_url"], idx)
+        if document["source_url"] in seen_urls:
+            raise ValueError(f"duplicate document source_url: {document['source_url']}")
+        seen_urls.add(document["source_url"])
+
+
+def _validate_material_source(source: str, document_index: int) -> None:
+    rel_path = Path(source)
+    if rel_path.is_absolute() or not rel_path.parts or rel_path.parts[0] != "materials":
+        raise ValueError(f"document {document_index} source must be a relative materials/ path")
+    if any(part in ("", ".", "..") for part in rel_path.parts):
+        raise ValueError(f"document {document_index} source contains unsafe path segments")
+
+
+def _is_lowercase_sha256(value: str) -> bool:
+    return len(value) == 64 and all(char in _LOWER_HEX_DIGITS for char in value)
+
+
+def _validate_public_source_url(source_url: str, document_index: int) -> None:
+    if not source_url:
+        raise ValueError(f"document {document_index} source_url must be a non-empty string")
+    parsed = urllib.parse.urlparse(source_url)
+    if parsed.scheme != "https":
+        raise ValueError(f"document {document_index} source_url must use https")
+    if not parsed.hostname:
+        raise ValueError(f"document {document_index} source_url must include a hostname")
+    if parsed.username or parsed.password:
+        raise ValueError(f"document {document_index} source_url must not include credentials")
+    if parsed.fragment:
+        raise ValueError(f"document {document_index} source_url must not include a fragment")
 
 
 def _matching_known_limits(

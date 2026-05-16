@@ -29,6 +29,7 @@ _ALLOWED_URL_SCHEMES = frozenset({"https"})
 _DOWNLOAD_TIMEOUT_SECONDS = 60
 _DEFAULT_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+_PROVENANCE_METADATA_NAME = "public_corpus_provenance.json"
 
 type _IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
@@ -50,6 +51,14 @@ class MaterializedDocument:
     bytes_written: int
     sha256: str = ""
     error: str = ""
+    document_id: str = ""
+    title: str = ""
+    source_organization: str = ""
+    license: str = ""
+    license_url: str = ""
+    attribution: str = ""
+    expected_bytes: int = 0
+    expected_sha256: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +68,8 @@ class MaterializeReport:
     armory_path: str
     documents: tuple[MaterializedDocument, ...]
     failures: tuple[str, ...]
+    benchmark_ready: bool = False
+    provenance_path: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +115,8 @@ def materialize_corpus(
             failures=(str(exc),),
         )
     try:
-        documents = _manifest_documents(manifest_path)
+        manifest_payload = _manifest_payload(manifest_path)
+        documents = _documents_from_payload(manifest_payload)
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         return MaterializeReport(
             status=2,
@@ -145,10 +157,11 @@ def materialize_corpus(
                 download_path.unlink(missing_ok=True)
                 raise
             materialized.append(
-                MaterializedDocument(
+                _materialized_document(
+                    raw_document,
                     source=source,
                     source_url=source_url,
-                    output_path=str(output_path),
+                    output_path=output_path,
                     status="written",
                     bytes_written=bytes_written,
                     sha256=sha256,
@@ -157,28 +170,51 @@ def materialize_corpus(
         except (OSError, ValueError, urllib.error.URLError) as exc:
             failures.append(f"{source}: {exc}")
             materialized.append(
-                MaterializedDocument(
+                _materialized_document(
+                    raw_document,
                     source=source,
                     source_url=source_url,
-                    output_path=str(armory_path / source),
+                    output_path=armory_path / source,
                     status="failed",
                     bytes_written=0,
                     error=str(exc),
                 )
             )
+    provenance_path = ""
+    if not failures:
+        try:
+            provenance_path = str(
+                _write_provenance_metadata(
+                    manifest_payload,
+                    documents,
+                    tuple(materialized),
+                    manifest_path=manifest_path,
+                    armory_path=armory_path,
+                    overwrite=overwrite,
+                )
+            )
+        except (OSError, ValueError) as exc:
+            failures.append(f"provenance metadata: {exc}")
+            provenance_path = ""
     return MaterializeReport(
         status=1 if failures else 0,
         manifest_path=str(manifest_path),
         armory_path=str(armory_path),
         documents=tuple(materialized),
         failures=tuple(failures),
+        benchmark_ready=not failures,
+        provenance_path=provenance_path,
     )
 
 
-def _manifest_documents(manifest_path: Path) -> list[dict[str, object]]:
+def _manifest_payload(manifest_path: Path) -> dict[str, object]:
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise TypeError("manifest must be a JSON object")
+    return cast("dict[str, object]", payload)
+
+
+def _documents_from_payload(payload: dict[str, object]) -> list[dict[str, object]]:
     documents = payload.get("documents")
     if not isinstance(documents, list) or not documents:
         raise ValueError("manifest must include non-empty documents")
@@ -446,10 +482,121 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _materialized_document(
+    raw_document: dict[str, object],
+    *,
+    source: str,
+    source_url: str,
+    output_path: Path,
+    status: str,
+    bytes_written: int,
+    sha256: str = "",
+    error: str = "",
+) -> MaterializedDocument:
+    return MaterializedDocument(
+        source=source,
+        source_url=source_url,
+        output_path=str(output_path),
+        status=status,
+        bytes_written=bytes_written,
+        sha256=sha256,
+        error=error,
+        document_id=_string_field(raw_document, "id"),
+        title=_string_field(raw_document, "title"),
+        source_organization=_string_field(raw_document, "source_organization"),
+        license=_string_field(raw_document, "license"),
+        license_url=_string_field(raw_document, "license_url"),
+        attribution=_string_field(raw_document, "attribution"),
+        expected_bytes=_expected_bytes(raw_document),
+        expected_sha256=_string_field(raw_document, "sha256").lower(),
+    )
+
+
+def _write_provenance_metadata(
+    manifest_payload: dict[str, object],
+    raw_documents: list[dict[str, object]],
+    documents: tuple[MaterializedDocument, ...],
+    *,
+    manifest_path: Path,
+    armory_path: Path,
+    overwrite: bool,
+) -> Path:
+    metadata_path = armory_path / storage.INTERNAL_DIR / _PROVENANCE_METADATA_NAME
+    if metadata_path.exists() and not overwrite:
+        raise FileExistsError(f"{metadata_path} exists; pass --overwrite to replace it")
+
+    by_source = {document.source: document for document in documents}
+    metadata_documents: list[dict[str, object]] = []
+    for raw_document in raw_documents:
+        source = str(raw_document["source"])
+        document = by_source[source]
+        metadata_documents.append(
+            {
+                "id": document.document_id,
+                "title": document.title,
+                "source": document.source,
+                "source_url": document.source_url,
+                "output_path": document.output_path,
+                "bytes": document.bytes_written,
+                "sha256": document.sha256,
+                "expected_bytes": document.expected_bytes,
+                "expected_sha256": document.expected_sha256,
+                "source_organization": document.source_organization,
+                "license": document.license,
+                "license_url": document.license_url,
+                "attribution": document.attribution,
+                "domain": _string_field(raw_document, "domain"),
+                "role": _string_field(raw_document, "role"),
+                "document_type": _string_field(raw_document, "document_type"),
+                "stressors": _string_list_field(raw_document, "stressors"),
+            }
+        )
+
+    payload = {
+        "schema_version": 1,
+        "benchmark_ready": True,
+        "manifest_path": str(manifest_path),
+        "manifest_sha256": _sha256(manifest_path),
+        "armory_path": str(armory_path),
+        "corpus_kind": _string_field(manifest_payload, "corpus_kind"),
+        "document_count": len(metadata_documents),
+        "documents": metadata_documents,
+    }
+    metadata_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return metadata_path
+
+
+def _string_field(mapping: dict[str, object], key: str) -> str:
+    value = mapping.get(key)
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _string_list_field(mapping: dict[str, object], key: str) -> list[str]:
+    value = mapping.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _expected_bytes(raw_document: dict[str, object]) -> int:
+    value = raw_document.get("bytes")
+    if isinstance(value, int) and value > 0:
+        return value
+    return 0
+
+
 def print_text_report(report: MaterializeReport) -> None:
     print(f"Materialized public corpus: {report.manifest_path}")
     print(f"status={report.status}")
     print(f"armory={report.armory_path}")
+    print(f"benchmark_ready={str(report.benchmark_ready).lower()}")
+    if report.provenance_path:
+        print(f"provenance={report.provenance_path}")
     written = sum(1 for document in report.documents if document.status == "written")
     print(f"written={written}/{len(report.documents)}")
     if report.failures:
