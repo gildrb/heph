@@ -78,6 +78,13 @@ checkout.
 uv sync --group rag
 ```
 
+Optional benchmark extras are available for source checkouts:
+
+```bash
+uv sync --group beir           # BEIR external benchmark adapters
+uv sync --group visualization  # matplotlib-backed benchmark summary visuals
+```
+
 Document conversion for files such as PDF, DOCX, PPTX, and XLSX is included in
 the default install.
 
@@ -187,6 +194,59 @@ You can prebuild or refresh the index:
 ```bash
 heph index ~/armories/exams
 ```
+
+## Benchmarks
+
+Hephaistos includes deterministic benchmark harnesses for retrieval, answer
+grounding, document understanding, study state, index integrity, academic item
+extraction, model replay, and external corpus adapters. The committed academic
+suite lives under `benchmarks/academic/`; public-corpus scaffolding and the
+model evaluation prompt live under `benchmarks/public-academic/` and
+`benchmarks/model-evaluation-prompt.md`.
+
+Run the local deterministic suite from a source checkout:
+
+```bash
+uv run python -m scripts.run_benchmark_suite \
+  --json-report .artifacts/benchmark-suite.json \
+  --min-evidence-coverage 1.0
+```
+
+Run the comprehensive external workflow, including optional BEIR, standard RAG,
+native, public-academic, and summary phases:
+
+```bash
+scripts/comprehensive_benchmark_run.sh \
+  --output-dir .artifacts/comprehensive-benchmark \
+  --fixture-mode
+```
+
+Use `--offline` to forbid network materialization, local `--beir-source-dir` or
+`--beir-source-zip` inputs for BEIR runs, and `--require-beir-extra` or
+`--require-visualization-extra` to fail early when optional extras are missing.
+External runners write JSON reports with fixed retrieval parameters and redact
+secret-like environment values before logs or Markdown summaries are written.
+
+To run already materialized external inputs directly:
+
+```bash
+uv run python -m scripts.run_external_benchmarks \
+  public-academic \
+  public-academic \
+  --suite path/to/materialized-suite \
+  --json-report .artifacts/public-academic.report.json
+```
+
+Generate a human-readable summary from runner reports:
+
+```bash
+uv run python -m scripts.generate_benchmark_summary \
+  .artifacts/public-academic.report.json \
+  --output .artifacts/benchmark-summary.md
+```
+
+See `benchmarks/README.md` for dataset schemas, public/permissioned corpus
+materialization, model-matrix evaluation, and strict completion-audit gates.
 
 ## Bring Your Own Model
 
