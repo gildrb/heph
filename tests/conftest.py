@@ -25,6 +25,8 @@ import hephaistos.providers.catalog as _provider_catalog_mod
 import hephaistos.providers.config as _provider_config_mod
 import hephaistos.providers.keyring_store as _ks
 import hephaistos.providers.oauth as _oauth_mod
+import hephaistos.rag.chunker as _rag_chunker_mod
+import hephaistos.rag.optional_backends as _rag_optional_mod
 from hephaistos.agent.tools import ToolHandlerResult, ToolSpec
 from hephaistos.armory.storage import initialize
 from hephaistos.chat._api_types import ApiMessage
@@ -61,6 +63,17 @@ def _reset_diagnostics_module_objects() -> None:
     _orch_mod._rag_duration_hist = _NOOP_HISTOGRAM
 
 
+def _pin_optional_rag_backends_off() -> None:
+    """Keep tests deterministic when optional retrieval extras are installed."""
+    _rag_optional_mod.HAS_SKLEARN = False
+    _rag_optional_mod.SKLEARN_TFIDF_VECTORIZER = None
+    _rag_optional_mod.BM25_CLASS = None
+    _rag_optional_mod.SENTENCE_TRANSFORMER = None
+    _rag_optional_mod.CROSS_ENCODER = None
+    _rag_optional_mod._sentence_transformers_available = False
+    _rag_chunker_mod._SentenceTransformer = None
+
+
 @pytest.fixture(autouse=True)
 def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Reset mutable module-level globals between tests."""
@@ -77,6 +90,7 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     _provider_catalog_mod.invalidate_catalog_cache()
     _oauth_mod._creds_cache.clear()
     _reset_diagnostics_module_objects()
+    _pin_optional_rag_backends_off()
     _obs_mod.reset_state()
     set_theme("forge")
     monkeypatch.setattr(_settings_mod, "_USER_CONFIG_DIR", config_dir)
@@ -107,6 +121,7 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     _provider_catalog_mod.invalidate_catalog_cache()
     _oauth_mod._creds_cache.clear()
     _reset_diagnostics_module_objects()
+    _pin_optional_rag_backends_off()
     _obs_mod.reset_state()
     set_theme("forge")
     root.handlers.clear()
