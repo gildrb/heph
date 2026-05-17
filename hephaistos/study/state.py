@@ -19,7 +19,7 @@ class StudyPhase(StrEnum):
 
 
 class StudyAutonomyMode(StrEnum):
-    """How strongly Hephaistos should steer the study session."""
+    """How strongly Hephaistos should steer the session."""
 
     MANUAL = "manual"
     GUIDED = "guided"

@@ -124,7 +124,7 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HEPHAISTOS_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
     "OPENAI_API_KEY": "API key for the OpenAI API provider.",
     "OPENROUTER_API_KEY": "API key for OpenRouter.",
-    "SUPERMEMORY_API_KEY": "API key for Supermemory study memory.",
+    "SUPERMEMORY_API_KEY": "API key for Supermemory armory memory.",
     "SUPERMEMORY_URL": "Override the Supermemory API base URL.",
     "ZAI_API_KEY": "API key for Z.AI / GLM.",
     "CUSTOM_API_KEY": "API key for the custom provider entry.",
@@ -466,7 +466,7 @@ def render_create_armory_block(model: DocsModel) -> str:
     return (
         "```bash\n"
         f"{model.short_command} armory init ~/armories/exams\n"
-        "# Add study files to ~/armories/exams/materials\n"
+        "# Add source files to ~/armories/exams/materials\n"
         f"{model.short_command} ~/armories/exams\n"
         "```"
     )

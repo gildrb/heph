@@ -48,7 +48,7 @@ def test_study_state_benchmark_scores_transitions_and_schedule(tmp_path: Path) -
                     expected_action="present",
                     expected_phase="waiting_for_ready",
                     expected_feedback="presented",
-                    prompt_must_include=("same language as the student's request",),
+                    prompt_must_include=("same language as the user's request",),
                 ),
                 benchmark_study_state.StudyTurnCase(
                     user="ready",

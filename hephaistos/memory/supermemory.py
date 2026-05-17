@@ -1,4 +1,4 @@
-"""Opt-in Supermemory-backed study memory using the official SDK.
+"""Opt-in Supermemory-backed armory memory using the official SDK.
 
 Supermemory is a remote memory backend.  Hephaistos uses it only when the user
 has enabled Supermemory and configured a Supermemory-specific API key.  The
@@ -35,7 +35,7 @@ SUPERMEMORY_API_KEY_ENV = "SUPERMEMORY_API_KEY"
 SUPERMEMORY_URL_ENV = "SUPERMEMORY_URL"
 SUPERMEMORY_PROVIDER_SLUG = "supermemory"
 SUPERMEMORY_DEFAULT_URL = "https://api.supermemory.ai"
-SUPERMEMORY_DEFAULT_PROFILE = "heph-study"
+SUPERMEMORY_DEFAULT_PROFILE = "heph-learning"
 
 
 class SupermemoryUnavailableError(RuntimeError):
@@ -99,7 +99,7 @@ def armory_container_tag(armory_path: Path) -> str:
 
 
 def profile_container_tag(profile: str) -> str:
-    """Return a Supermemory container tag for a global study profile."""
+    """Return a Supermemory container tag for a global learning profile."""
     normalized = profile.strip() or SUPERMEMORY_DEFAULT_PROFILE
     safe = "".join(ch if ch.isalnum() or ch in "-_:" else "-" for ch in normalized)
     return f"heph:profile:{safe}"
@@ -185,7 +185,7 @@ class SupermemoryStore(MemoryStore):
         """Prime a small cache of known memory results."""
         resp = _sdk_search_memories(
             self._sdk_client,
-            query="study concepts learned by the user",
+            query="learning concepts remembered by the user",
             container_tag=self.armory_tag,
             limit=20,
         )
@@ -260,7 +260,7 @@ class SupermemoryStore(MemoryStore):
         source: str = "",
         confidence: str = "discussed",
     ) -> int:
-        """Add entries to the global cross-armory study profile."""
+        """Add entries to the global cross-armory learning profile."""
         added = 0
         for raw in entries:
             topic = raw.get("topic", "")
@@ -292,7 +292,7 @@ class SupermemoryStore(MemoryStore):
             return super().topics_covered()
         resp = _sdk_search_memories(
             self._sdk_client,
-            query="study topics learned by the user",
+            query="topics learned by the user",
             container_tag=self.armory_tag,
             limit=50,
         )
@@ -301,13 +301,13 @@ class SupermemoryStore(MemoryStore):
     def build_system_context(self, *, max_entries: int = 20, max_chars: int = 3000) -> str:
         armory_resp = _sdk_search_memories(
             self._sdk_client,
-            query="study concepts already learned by the user",
+            query="learning concepts already remembered by the user",
             container_tag=self.armory_tag,
             limit=max_entries,
         )
         profile_resp = _sdk_search_memories(
             self._sdk_client,
-            query="cross subject study concepts already learned by the user",
+            query="cross subject learning concepts already remembered by the user",
             container_tag=self.profile_tag,
             limit=max_entries,
         )

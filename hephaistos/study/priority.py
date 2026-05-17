@@ -1,4 +1,4 @@
-"""Deterministic priority analysis over indexed study materials."""
+"""Deterministic priority analysis over indexed materials."""
 
 from __future__ import annotations
 

@@ -2,16 +2,16 @@
 
 # Hephaistos
 
-**A local-first study agent that works with your files and any LLM.**
+**A local-first document workspace for grounded answers, citations, memory, and recall practice with any LLM.**
 
-Hephaistos helps you study from your own material. Create an armory, put your
-study materials inside it, and chat with an agent that retrieves the relevant
+Hephaistos helps you work with document-heavy projects. Create an armory, put your
+materials inside it, and chat with an agent that retrieves the relevant
 parts of those files before answering. After each answer, Hephaistos checks that the
-citations point to evidence it actually retrieved, then stores study memory for
+citations point to evidence it actually retrieved, then stores armory memory for
 that armory so you can continue where you left off.
 
 Your workspace is just a folder on disk. Your materials, notes, saved chats,
-retrieval index, and study memory stay with the armory instead of being locked
+retrieval index, and armory memory stay with the armory instead of being locked
 inside one model vendor's project format. Use Pollinations AI (free, zero-config),
 OpenRouter, OpenAI, Z.AI, or any OpenAI-compatible endpoint you configure.
 
@@ -48,7 +48,7 @@ winget install MiKTeX.MiKTeX
 Without LaTeX, `/priority` saves a `.tex` draft and prints install guidance.
 
 > **Zero-config**: Hephaistos uses Pollinations AI by default -- no API key
-> or account needed. Just run `heph` and start studying.
+> or account needed. Just run `heph` and start working with your documents.
 
 Upgrade later with:
 
@@ -100,7 +100,7 @@ the default install.
 
 ```bash
 heph armory init ~/armories/exams
-# Add study files to ~/armories/exams/materials
+# Add source files to ~/armories/exams/materials
 heph ~/armories/exams
 ```
 
@@ -142,8 +142,8 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 
 ## Why Hephaistos
 
-- **Armories are portable study workspaces.** An armory is a normal directory
-  with study materials, saved chats, retrieval state, and memory for that
+- **Armories are portable document workspaces.** An armory is a normal directory
+  with materials, saved chats, retrieval state, and memory for that
   subject.
 - **Answers are grounded in your files.** Hephaistos indexes `materials/`,
   retrieves relevant chunks for each question, and gives the model
@@ -151,10 +151,10 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 - **Citations are checked after every answer.** The model must cite retrieved
   evidence like `[E1]`. Hephaistos verifies those IDs against the evidence from
   that exact turn and warns when citations are missing or invented.
-- **Each armory remembers what you studied.** After substantive exchanges,
+- **Each armory remembers useful context.** After substantive exchanges,
   Hephaistos extracts learned concepts into `.hephaistos/memory.json` and uses
   that memory in future sessions for the same armory.
-- **The study loop is recall-first.** Hephaistos can present a material-backed
+- **Guided learning is recall-first.** Hephaistos can present a material-backed
   solution, ask you to recall it, assess your attempt against the retrieved
   material, and give small hints instead of dumping the answer again. Material-
   backed reviews are scheduled with an FSRS-style stability/difficulty model
@@ -165,7 +165,7 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 
 ## How It Works
 
-1. Put study files in `materials/`.
+1. Put source files in `materials/`.
 2. Start a chat in the armory.
 3. For each material-backed question, Hephaistos builds or loads the local RAG
    index, retrieves relevant chunks, and passes them to the model as citable
@@ -174,17 +174,17 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 5. Useful concepts from the exchange are saved as armory memory for later
    sessions.
 
-If an armory has no study materials, `heph <name-or-path>` asks you to add material before
-starting a study session.
+If an armory has no materials, `heph <name-or-path>` asks you to add material before
+starting a session.
 
 ## Armory Layout
 
 ```text
 my-armory/
-  materials/            # user study files, indexed for retrieval
+  materials/            # user source files, indexed for retrieval
   .hephaistos/
     armory.toml         # armory marker
-    system_prompt.md    # optional custom study prompt
+    system_prompt.md    # optional custom armory prompt
     chats/              # saved chat sessions
     memory.json         # remembered concepts for this armory
     rag_index.json      # local retrieval index
@@ -215,7 +215,7 @@ heph index ~/armories/exams
 ## Benchmarks
 
 Hephaistos includes deterministic benchmark harnesses for retrieval, answer
-grounding, document understanding, study state, index integrity, academic item
+grounding, document understanding, learning state, index integrity, academic item
 extraction, model replay, and external corpus adapters. The committed academic
 suite lives under `benchmarks/academic/`; public-corpus scaffolding and the
 model evaluation prompt live under `benchmarks/public-academic/` and
@@ -289,8 +289,8 @@ heph <name-or-path>                    Open a known armory by name, e.g. `heph g
 heph armory <name> [parent]            Create a named armory in ~/Armories or in <parent>/Armories.
 heph armory init <name-or-path>        Create a new named armory folder.
 heph armory open <path>                Open and validate an armory.
-heph materials list <path>             List study material files.
-heph materials count <path>            Count study material files.
+heph materials list <path>             List material files.
+heph materials count <path>            Count material files.
 heph materials index <path>            Build or refresh the RAG index.
 heph index [path]                      Build or refresh the materials index; defaults to the current armory.
 heph health [path]                     Check indexed materials for generic extraction problems; defaults to the current armory.
@@ -318,18 +318,18 @@ Useful shell commands:
 | /evidence | Show retrieved evidence for the last turn |
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
-| /stats | Show session, armory, and study progress stats |
+| /stats | Show session, armory, and learning progress stats |
 | /priority | Generate a printable priority PDF cheat sheet |
-| /mode | Set manual, guided, or autopilot study mode |
-| /autopilot | Let Heph drive a bounded autonomous study session |
+| /mode | Set manual, guided, or autopilot learning mode |
+| /autopilot | Let Heph drive a bounded autonomous learning session |
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |
-| /remind | Show upcoming study reminders and due cards |
+| /remind | Show upcoming review reminders and due cards |
 | /edit | Edit and resend the last user message |
 | /models | Pick the active model |
-| /recommend | Recommend models for study sessions |
-| /memory | Manage study memory and Supermemory setup |
+| /recommend | Recommend models for sessions |
+| /memory | Manage armory memory and Supermemory setup |
 | /persona | Show or switch the agent persona |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |
@@ -346,9 +346,9 @@ Armory plugins in `.hephaistos/tools/*.py` are disabled by default because they
 execute Python code. Set `HEPHAISTOS_TRUST_ARMORY_PLUGINS=1` only for armories
 you control and trust.
 
-## Custom Study Prompts
+## Custom Armory Prompts
 
-Every armory can define its own study behavior with:
+Every armory can define its own assistant behavior with:
 
 ```text
 my-armory/.hephaistos/system_prompt.md

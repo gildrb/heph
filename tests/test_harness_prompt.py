@@ -10,8 +10,8 @@ from hephaistos.rag.health import ExtractionHealthIssue
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert prompt.startswith("Hephaistos. A study drill engine.")
-    assert "## Study Loop" in prompt
+    assert prompt.startswith("Hephaistos. A recall practice engine.")
+    assert "## Recall Loop" in prompt
     assert "## Accuracy Rules" in prompt
     assert "## Verification-First Operating Mode" in prompt
     assert "## Tools" in prompt
@@ -26,8 +26,8 @@ def test_custom_system_prompt_replaces_default_role_block(armory: Path) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
     assert prompt.startswith("Custom persona.")
-    assert "Hephaistos. A study drill engine." not in prompt
-    assert "## Study Loop" not in prompt
+    assert "Hephaistos. A recall practice engine." not in prompt
+    assert "## Recall Loop" not in prompt
 
 
 def test_blank_custom_system_prompt_falls_back_to_default_persona(armory: Path) -> None:
@@ -36,8 +36,8 @@ def test_blank_custom_system_prompt_falls_back_to_default_persona(armory: Path) 
 
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert prompt.startswith("Hephaistos. A study drill engine.")
-    assert "## Study Loop" in prompt
+    assert prompt.startswith("Hephaistos. A recall practice engine.")
+    assert "## Recall Loop" in prompt
 
 
 def test_build_system_prompt_truncates_material_file_list(armory: Path) -> None:
@@ -81,7 +81,7 @@ def test_build_system_prompt_without_armory_uses_persona_study_loop_and_date() -
     prompt = build_system_prompt(persona=TUTOR)
 
     assert prompt.startswith(TUTOR.role_block)
-    assert "## Study Loop" in prompt
+    assert "## Recall Loop" in prompt
     assert "Current date: " in prompt
     assert "Armory workspace:" not in prompt
 
@@ -132,7 +132,7 @@ def test_tool_docs_are_generated_from_registry_schema() -> None:
 def test_hephaistos_operations_teaches_armory_contract() -> None:
     prompt = build_system_prompt()
 
-    assert "A Hephaistos armory is a portable study workspace" in prompt
+    assert "A Hephaistos armory is a portable document workspace" in prompt
     assert "materials/" in prompt
     assert "Do not create `source/`, `library/`, or `notes/` folders" in prompt
     assert "use `create_armory` or `validate_armory`" in prompt

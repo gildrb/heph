@@ -113,10 +113,10 @@ def test_mode_autopilot_starts_immediate_session(capsys: pytest.CaptureFixture[s
     out = capsys.readouterr().out
     assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
     assert session.study_state.autopilot_session_type == "general"
-    assert session.study_state.session_goal == "autonomous study"
+    assert session.study_state.session_goal == "autonomous learning"
     assert session.study_state.autopilot_started_at is not None
     assert result.output is not None
-    assert result.output.startswith("__RESEND__:Start an autopilot study session")
+    assert result.output.startswith("__RESEND__:Start an autopilot session")
     assert "internal planning labels" not in result.output
     assert "autopilot" in out
 
@@ -134,7 +134,7 @@ def test_autopilot_exam_command_sets_bounded_session(
     assert session.study_state.time_budget_minutes == 45
     assert session.study_state.session_goal == "exam preparation"
     assert result.output is not None
-    assert result.output.startswith("__RESEND__:Start an autopilot study session")
+    assert result.output.startswith("__RESEND__:Start an autopilot session")
     assert "confidence from 0-100%" in result.output
     assert "45 minute" in out
 
@@ -149,9 +149,9 @@ def test_autopilot_without_args_starts_general_session(
     out = capsys.readouterr().out
     assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
     assert session.study_state.autopilot_session_type == "general"
-    assert session.study_state.session_goal == "autonomous study"
+    assert session.study_state.session_goal == "autonomous learning"
     assert result.output is not None
-    assert result.output.startswith("__RESEND__:Start an autopilot study session")
+    assert result.output.startswith("__RESEND__:Start an autopilot session")
     assert "confidence from 0-100%" in result.output
     assert "Drive the session yourself" in result.output
     assert "Autopilot general session started" in out
@@ -340,7 +340,7 @@ def test_recommend_command_lists_study_models(capsys: pytest.CaptureFixture[str]
     commands.RecommendCommand().handle(session, "")
 
     out = capsys.readouterr().out
-    assert "Study picks" in out
+    assert "Model picks" in out
     assert "study" in out
 
 
@@ -429,7 +429,7 @@ def test_stats_command_reports_study_recall_timing(
     commands.StatsCommand().handle(session, "")
 
     out = capsys.readouterr().out
-    assert "Study mode:" in out
+    assert "Learning mode:" in out
     assert "Recall:    1m 15s" in out
     assert "Effort:    hard" in out
     assert "Scheduled: 1 item(s)" in out
@@ -464,8 +464,8 @@ def test_remind_command_reports_due_study_items_without_vocab(
     commands.RemindCommand().handle(session, "")
 
     out = capsys.readouterr().out
-    assert "study item" in out
-    assert "due for active recall" in out
+    assert "recall item" in out
+    assert "recall item due" in out
     assert "Explain Dijkstra" in out
     assert "concept: Dijkstra shortest paths" in out
     assert "last: misconception" in out
@@ -649,7 +649,7 @@ def test_persona_command_updates_plain_chat_system_prompt(
     assert session.persona.slug == "tutor"
     assert after != before
     assert "patient tutor" in after
-    assert "No armory or study materials are attached" in after
+    assert "No armory or materials are attached" in after
 
 
 def test_models_command_reports_no_matching_model(

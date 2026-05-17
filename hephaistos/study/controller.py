@@ -1,4 +1,4 @@
-"""Deterministic controller for the study-loop state machine."""
+"""Deterministic controller for the recall-loop state machine."""
 
 from __future__ import annotations
 
@@ -217,7 +217,7 @@ _CONFIDENCE_RE = re.compile(
 _ACTIVE_RECALL_QUESTION_CONTRACT = (
     "- Use only the provided source material; do not invent facts beyond normal wording "
     "or clarification.\n"
-    "- Write learner-facing questions in the student's language while preserving source "
+    "- Write learner-facing questions in the user's language while preserving source "
     "technical terms.\n"
     "- Make active-recall questions, not passive summaries.\n"
     "- Each question must ask exactly one thing.\n"
@@ -286,7 +286,7 @@ def _calibration_prompt_for_input(user_input: str) -> str:
         return (
             f"{prompt}\n"
             "- This is an active-recall exam drill: do not show the result, answer key, "
-            "rubric, source explanation, source IDs, or citations until after the student's "
+            "rubric, source explanation, source IDs, or citations until after the user's "
             "attempt has been assessed."
         )
     return prompt
@@ -391,7 +391,7 @@ def _material_request_plan(
 ) -> StudyTurnPlan | None:
     """Return a material-backed plan for explicit new requests.
 
-    This is used when the study loop is waiting for ``ready`` but the student
+    This is used when the recall loop is waiting for ``ready`` but the user
     asks a fresh material question instead. Those requests should restart
     evidence retrieval rather than falling through to the ready reminder.
     """
@@ -440,7 +440,7 @@ def _calibration_prompt(*, user_request: str | None = None) -> str:
     request_line = ""
     if user_request:
         request_line = (
-            "Student request (language/topic signal; rules below override it): "
+            "User request (language/topic signal; rules below override it): "
             f"{_normalize(user_request)}\n"
         )
     return (
@@ -463,19 +463,19 @@ def _calibration_prompt(*, user_request: str | None = None) -> str:
         "- Instead, ask about definitions, cause-effect relationships, key steps "
         "in a procedure, comparisons between concepts, or applications of a "
         "principle.\n"
-        "- Prefer an introductory, concrete item a new student can attempt.\n"
-        "- If the student asked for an easy question, make it genuinely easy and "
+        "- Prefer an introductory, concrete item a first-time user can attempt.\n"
+        "- If the user asked for an easy question, make it genuinely easy and "
         "prerequisite-level.\n"
-        "- If the student asked for an exam-style or timed question, include one "
+        "- If the user asked for an exam-style or timed question, include one "
         "reasonable time limit and require them to reason their answer from memory.\n"
         "- Do not present the solution or method.\n"
         "- Do not include evidence IDs, citations, source labels, or answer-location hints "
         "in the question.\n"
         "- Internally preserve the source grounding for later assessment; never invent "
         "unsupported questions from general model knowledge.\n"
-        "- End with one short learner-facing instruction in the student's language asking "
+        "- End with one short learner-facing instruction in the user's language asking "
         "them to answer from memory, or ask for an easier question or material review.\n"
-        "- Do not hard-code an English closing instruction when the student wrote in another "
+        "- Do not hard-code an English closing instruction when the user wrote in another "
         "language.\n"
         "- If no retrieved source material is available, ask which material or topic "
         "to start with."
@@ -488,12 +488,12 @@ def _priority_prompt(user_request: str = "") -> str:
         "Controlled study state machine. Execute PRIORITY.\n"
         f"{request_line}"
         "Rules:\n"
-        "- Answer in the same language as the student's request when clear.\n"
+        "- Answer in the same language as the user's request when clear.\n"
         "- Analyze the retrieved materials and past exams only.\n"
         "- Identify the highest-priority topics by recurrence, exam weighting signals, "
         "and prerequisite value.\n"
         "- Separate direct evidence from inference. Cite evidence IDs for direct claims.\n"
-        "- Include missing prerequisites the student should review first.\n"
+        "- Include missing prerequisites the user should review first.\n"
         "- Do not ask a recall question and do not start an exam drill.\n"
         "- If the retrieved evidence is too thin to infer priorities, say so and list "
         "what materials are needed."
@@ -509,13 +509,13 @@ def _present_prompt(item: str, *, user_request: str | None = None) -> str:
         f"Current item: {item}\n"
         f"{request_line}"
         "Rules:\n"
-        "- Answer in the same language as the student's request.\n"
+        "- Answer in the same language as the user's request.\n"
         "- Use only the retrieved material for this item.\n"
         "- Present the complete solution or method once, concisely.\n"
         "- Cite evidence IDs whenever you state a factual step or value.\n"
-        "- End with one short learner-facing instruction in the student's language asking "
+        "- End with one short learner-facing instruction in the user's language asking "
         "them to signal when they are ready for recall.\n"
-        "- Do not require a specific English word such as `ready` when the student wrote "
+        "- Do not require a specific English word such as `ready` when the user wrote "
         "in another language.\n"
         "- If no retrieved source material is available, say no searchable armory "
         "evidence was found for this item. Do not answer from outside knowledge. "
@@ -529,16 +529,16 @@ def _overview_prompt(query: str) -> str:
         "Controlled study state machine. Execute MATERIAL_OVERVIEW.\n"
         f"User request: {query}\n"
         "Rules:\n"
-        "- Answer in the same language as the student's request.\n"
+        "- Answer in the same language as the user's request.\n"
         "- Give the big picture first: what domain the files are about, how the major "
         "topic clusters relate, and what kind of studying they support.\n"
         "- Do not organize the answer primarily by file dates, lecture dates, filenames, "
         "authors, institutions, semester labels, course logistics, or individual chunks unless "
-        "the student asks for that level of detail.\n"
+        "the user asks for that level of detail.\n"
         "- Do not mention calendar dates, semester labels, lecturer names, or course "
-        "administration metadata unless the student asks for that metadata.\n"
+        "administration metadata unless the user asks for that metadata.\n"
         "- Use the retrieved evidence to synthesize the enabled corpus, but do not explain "
-        "retrieval sampling mechanics to the student.\n"
+        "retrieval sampling mechanics to the user.\n"
         "- Identify the subject, document types, and major topic clusters only from cited "
         "evidence.\n"
         "- Mention whether the evidence appears to include lectures, exercises, exams, "
@@ -557,7 +557,7 @@ def _overview_prompt(query: str) -> str:
         "- Cite evidence IDs for every factual claim.\n"
         "- Do not ask a recall question.\n"
         "- Do not end with readiness, drill, next-step, evidence-grounding-block, or other "
-        "study-loop instructions."
+        "recall-loop instructions."
     )
 
 
@@ -668,12 +668,12 @@ def _source_qa_prompt(query: str, *, user_request: str | None = None) -> str:
         f"User question: {query}\n"
         f"{request_line}"
         "Rules:\n"
-        "- Answer in the same language as the student's request.\n"
+        "- Answer in the same language as the user's request.\n"
         "- Answer the user's question directly using only the retrieved source material.\n"
         "- If the user asks for an exact phrase, quote only the exact phrase plus citations.\n"
         "- Cite evidence IDs for claims grounded in source material.\n"
         "- Do not ask a recall question.\n"
-        "- Do not end with readiness, drill, or study-loop instructions.\n"
+        "- Do not end with readiness, drill, or recall-loop instructions.\n"
         "- If no retrieved source material answers the question, say that the armory sources "
         "do not contain the answer and ask for more specific material."
     )
@@ -705,7 +705,7 @@ def _heph_self_prompt(query: str) -> str:
         f"User request: {query}\n"
         "Rules:\n"
         "- Answer in the same language as the user's request when clear.\n"
-        "- Answer as Hephaistos about Hephaistos: the local-first study CLI, armories, "
+        "- Answer as Hephaistos about Hephaistos: the local-first document CLI, armories, "
         "materials, chat, source-grounded answers, active recall, /priority, /exam, "
         "/autopilot, /manual, /guided, /models, /login, /settings, privacy, and diagnostics.\n"
         "- Do not treat the user message as a recall attempt, even during an active drill.\n"
@@ -718,7 +718,7 @@ def _heph_self_prompt(query: str) -> str:
 
 
 def _autopilot_calibration_prompt(query: str, state: StudyState) -> str:
-    goal = state.session_goal or "autonomous study"
+    goal = state.session_goal or "autonomous learning"
     session_type = state.autopilot_session_type or "general"
     return (
         "HEPH AUTOPILOT calibration.\n"
@@ -748,9 +748,9 @@ def _source_followup_prompt(item: str, user_input: str) -> str:
     return (
         "Controlled study state machine. Execute SOURCE_FOLLOWUP.\n"
         f"Current material focus: {item}\n"
-        f"Student follow-up: {user_input}\n"
+        f"User follow-up: {user_input}\n"
         "Rules:\n"
-        "- Answer in the same language as the student's follow-up when clear.\n"
+        "- Answer in the same language as the user's follow-up when clear.\n"
         "- Treat the follow-up as a real question or reaction about the cited material, not as a "
         "readiness signal and not as a recall attempt.\n"
         "- Use the stored or retrieved material evidence before answering.\n"
@@ -758,9 +758,9 @@ def _source_followup_prompt(item: str, user_input: str) -> str:
         "specific reason grounded in the material for why it is interesting or important.\n"
         "- If the follow-up asks why, answer the why-question directly from the evidence.\n"
         "- Cite evidence IDs for claims grounded in source material.\n"
-        "- Do not assess the student.\n"
+        "- Do not assess the user.\n"
         "- Do not ask a recall question.\n"
-        "- Do not end with readiness, drill, or study-loop instructions."
+        "- Do not end with readiness, drill, or recall-loop instructions."
     )
 
 
@@ -769,9 +769,9 @@ def _waiting_prompt() -> str:
         "Controlled study state machine. Execute WAITING_FOR_READY.\n"
         "Rules:\n"
         "- Do not reveal any more of the solution.\n"
-        "- Tell the student, in their language when clear, to signal when they are ready "
+        "- Tell the user, in their language when clear, to signal when they are ready "
         "for recall.\n"
-        "- Do not require a specific English word such as `ready` when the student wrote "
+        "- Do not require a specific English word such as `ready` when the user wrote "
         "in another language.\n"
         "- Keep it to one short sentence."
     )
@@ -783,8 +783,8 @@ def _recall_prompt(item: str) -> str:
         f"Current item: {item}\n"
         "Rules:\n"
         "- Do not answer the item.\n"
-        "- Tell the student to reproduce the solution from memory now.\n"
-        "- Answer in the same language as the current item or the student's recent "
+        "- Tell the user to reproduce the solution from memory now.\n"
+        "- Answer in the same language as the current item or the user's recent "
         "request when clear.\n"
         "- Do not hard-code an English recall sentence when the study exchange is in "
         "another language.\n"
@@ -796,16 +796,16 @@ def _recall_clarification_prompt(item: str, request: str) -> str:
     return (
         "Controlled study state machine. Execute RECALL_CLARIFICATION.\n"
         f"Current item: {item}\n"
-        f"Student request: {request}\n"
+        f"User request: {request}\n"
         "Rules:\n"
-        "- The student is asking what to answer, not attempting the answer.\n"
-        "- If the student asks to repeat, rephrase, translate, or use a language, honor "
+        "- The user is asking what to answer, not attempting the answer.\n"
+        "- If the user asks to repeat, rephrase, translate, or use a language, honor "
         "that request for the prompt only.\n"
         "- Restate what they should recall from memory without revealing the solution.\n"
-        "- Do not assess the student.\n"
+        "- Do not assess the user.\n"
         "- Do not include answer content, grading, scores, or correctness labels.\n"
-        "- Answer in the same language as the student's clarification request when clear.\n"
-        "- Do not hard-code an English recall sentence when the student asked in another "
+        "- Answer in the same language as the user's clarification request when clear.\n"
+        "- Do not hard-code an English recall sentence when the user asked in another "
         "language.\n"
         "- Keep it to one or two short sentences."
     )
@@ -817,8 +817,8 @@ def _refusal_prompt(item: str) -> str:
         f"Current item: {item}\n"
         "Rules:\n"
         "- Do not reveal new solution content.\n"
-        "- Briefly refuse and tell the student to attempt recall first.\n"
-        "- Answer in the same language as the current item or the student's recent "
+        "- Briefly refuse and tell the user to attempt recall first.\n"
+        "- Answer in the same language as the current item or the user's recent "
         "request when clear.\n"
         "- Do not hard-code an English refusal when the study exchange is in another "
         "language.\n"
@@ -849,7 +849,7 @@ def _hint_prompt(item: str, hint_level: int) -> str:
         f"{level_instruction}\n"
         f"{leakage_rule}\n"
         "- If no grounded material context is available, say no grounded hint is available.\n"
-        "- Answer in the same language as the current item or the student's recent "
+        "- Answer in the same language as the current item or the user's recent "
         "request when clear.\n"
         "- Do not hard-code an English hint when the study exchange is in another language.\n"
         "- Keep it to one short sentence."
@@ -873,8 +873,8 @@ def _simplify_prompt(item: str) -> str:
         "- Do not reveal the answer to either question.\n"
         "- Do not invent prerequisite questions from general model knowledge.\n"
         "- End with one short learner-facing instruction in the same language as the question "
-        "asking the student to answer from memory or ask to review material.\n"
-        "- Do not hard-code an English closing instruction when the student wrote in another "
+        "asking the user to answer from memory or ask to review material.\n"
+        "- Do not hard-code an English closing instruction when the user wrote in another "
         "language.\n"
         "- If no grounded material context is available, say no easier grounded question "
         "is available."
@@ -896,9 +896,9 @@ def _autopilot_scaffold_prompt(item: str) -> str:
         "- Ground the scaffold in a retrieved source span, past-exam pattern, rubric "
         "point, or mark-scheme point.\n"
         "- Ask exactly one easier action the learner can complete now.\n"
-        "- End with one short learner-facing instruction in the student's language asking "
+        "- End with one short learner-facing instruction in the user's language asking "
         "them to fill the gap or continue the starter, then give confidence from 0-100%.\n"
-        "- Do not hard-code an English closing instruction when the student wrote in another "
+        "- Do not hard-code an English closing instruction when the user wrote in another "
         "language.\n"
         "- If no grounded material context is available, say no grounded scaffold is "
         "available and ask which subtopic to review first."
@@ -910,13 +910,13 @@ def _review_prompt(item: str) -> str:
         "Controlled study state machine. Execute REVIEW.\n"
         f"Current item: {item}\n"
         "Rules:\n"
-        "- The student needs to look at the material before attempting recall.\n"
+        "- The user needs to look at the material before attempting recall.\n"
         "- Use only the stored material context for this item.\n"
         "- Present the minimum cited-material explanation needed to restart.\n"
         "- Cite evidence IDs whenever you state a factual step or value.\n"
-        "- End with one short learner-facing instruction in the student's language asking "
+        "- End with one short learner-facing instruction in the user's language asking "
         "them to signal when they are ready for recall.\n"
-        "- Do not require a specific English word such as `ready` when the student wrote "
+        "- Do not require a specific English word such as `ready` when the user wrote "
         "in another language.\n"
         "- If no grounded material context is available, say no grounded review is available."
     )
@@ -928,24 +928,24 @@ def _assess_prompt(item: str, attempt_count: int) -> str:
         f"Current item: {item}\n"
         f"Attempt number: {attempt_count + 1}\n"
         "Rules:\n"
-        "- Evaluate the student's attempt against the retrieved material only.\n"
+        "- Evaluate the user's attempt against the retrieved material only.\n"
         "- Treat retrieved material, rubrics, mark schemes, and past-exam patterns as "
         "the source of truth. General model knowledge may only clarify wording; it "
         "must not add expected points or override the material.\n"
         "- Start the reply with exactly one label: CORRECT:, PARTIAL:, or WRONG:.\n"
         "- After the label, use this compact structure when evidence is available:\n"
         "  Score: <earned>/<available or expected points>.\n"
-        "  Got: <material-supported points the student included>.\n"
+        "  Got: <material-supported points the user included>.\n"
         "  Missing: <rubric or material-supported points still needed>.\n"
         "  Misconception: <incorrect idea and why the source contradicts it, or none>.\n"
         "  Correction: <minimal cited correction with evidence IDs>.\n"
         "  Try again: <one next retrieval prompt>.\n"
-        "  Confidence: <whether the student's confidence seems calibrated, if stated>.\n"
+        "  Confidence: <whether the user's confidence seems calibrated, if stated>.\n"
         "- CORRECT: keep the structure brief and do not restate a full solution.\n"
         "- PARTIAL: identify missing required points without revealing unrelated "
         "extra material.\n"
         "- WRONG: correct the misconception or first wrong step immediately, then give "
-        "one focused retrieval prompt. Do not let the student continue with a false idea.\n"
+        "one focused retrieval prompt. Do not let the user continue with a false idea.\n"
         "- Cite evidence IDs for rubric points, missing points, misconceptions, and "
         "corrections whenever IDs are available.\n"
         "- If the uploaded material does not contain enough evidence to assess "
@@ -1248,7 +1248,7 @@ def _plan_turn_autopilot(
 
 def _is_autopilot_bootstrap(text: str) -> bool:
     normalized = _normalize(text).casefold()
-    return normalized.startswith("start ") and " autopilot study session" in normalized
+    return normalized.startswith("start ") and " autopilot session" in normalized
 
 
 def _plan_turn_base(

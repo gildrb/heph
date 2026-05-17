@@ -42,7 +42,7 @@ def _supermemory_key_source() -> str:
 
 class MemoryCommand(Command):
     name = "memory"
-    description = "Manage study memory and Supermemory setup"
+    description = "Manage armory memory and Supermemory setup"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -85,16 +85,16 @@ class MemoryCommand(Command):
         ]
         print("\n".join(lines))
         if not settings.supermemory_enabled:
-            print_info("Run /memory setup to enable cross-armory semantic study memory.")
+            print_info("Run /memory setup to enable cross-armory semantic armory memory.")
         return CommandResult()
 
     @staticmethod
     def _setup(value: str) -> CommandResult:
         print_info(
-            "Supermemory stores extracted study concepts in a dedicated Hephaistos "
+            "Supermemory stores extracted learning concepts in a dedicated Hephaistos "
             "profile so they can be recalled across armories."
         )
-        print_info("Only enable it if you are comfortable sending study memory to Supermemory.")
+        print_info("Only enable it if you are comfortable sending armory memory to Supermemory.")
         raw_key = value.strip()
         if not raw_key and not resolve_supermemory_key():
             try:

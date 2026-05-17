@@ -93,7 +93,7 @@ def _cmd_tui(args: argparse.Namespace) -> None:
 
 
 def _cmd_materials_index(args: argparse.Namespace) -> None:
-    """Build or refresh the RAG index for study materials."""
+    """Build or refresh the RAG index for materials."""
     rag_index = importlib.import_module("hephaistos.rag.index")
     armory_storage = importlib.import_module("hephaistos.armory.storage")
     try:
@@ -117,7 +117,7 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
 
 
 def _cmd_health(args: argparse.Namespace) -> None:
-    """Run generic extraction health checks for indexed study materials."""
+    """Run generic extraction health checks for indexed materials."""
     armory_storage = importlib.import_module("hephaistos.armory.storage")
     rag_health = importlib.import_module("hephaistos.rag.health")
     try:
@@ -303,14 +303,14 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
     lines = [
         f"Usage: {parser.prog} [options] [command] [path]",
         "",
-        "Hephaistos opens a study armory and starts an interactive AI study session.",
+        "Hephaistos opens an armory and starts an interactive AI session.",
         _HELP_EXAMPLES_HEADER,
         f"  {parser.prog}                         Open your current armory or plain chat",
         f"  {parser.prog} gdp                     Open the known armory named gdp",
         f"  {parser.prog} ./gdp                   Open an armory by path",
         f"  {parser.prog} armory algorithms      Create ~/.armories/algorithms",
         "  cp notes.pdf ~/.armories/algorithms/materials/",
-        f"  {parser.prog} algorithms              Start studying",
+        f"  {parser.prog} algorithms              Start learning",
         "",
         _HELP_COMMANDS_HEADER,
         *_format_rows(commands),
@@ -429,7 +429,7 @@ def build_parser() -> argparse.ArgumentParser:
     prog = pathlib.Path(sys.argv[0]).name or "hephaistos"
     parser = HephaistosArgumentParser(
         prog=prog,
-        description="TUI-first study CLI.",
+        description="TUI-first document CLI.",
         compact_help=True,
     )
     parser.add_argument(

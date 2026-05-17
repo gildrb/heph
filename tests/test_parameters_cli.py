@@ -33,7 +33,7 @@ def test_config_show_uses_registered_handler(
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
             "supermemory_enabled": "false",
-            "supermemory_profile": "heph-study",
+            "supermemory_profile": "heph-learning",
         }[key],
     )
 
@@ -290,7 +290,7 @@ def test_config_show_displays_feature_flags(
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
             "supermemory_enabled": "false",
-            "supermemory_profile": "heph-study",
+            "supermemory_profile": "heph-learning",
         }[key],
     )
 
@@ -323,7 +323,7 @@ def test_config_show_displays_no_feature_flags(
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
             "supermemory_enabled": "false",
-            "supermemory_profile": "heph-study",
+            "supermemory_profile": "heph-learning",
         }[key],
     )
 

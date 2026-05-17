@@ -222,7 +222,7 @@ def test_materialize_corpus_rejects_missing_source_url(tmp_path: Path) -> None:
         [
             {
                 "source": "materials/permissioned.md",
-                "permission_note": "available to enrolled students",
+                "permission_note": "available to enrolled users",
                 "domain": "history",
                 "role": "lecture",
                 "document_type": "notes",

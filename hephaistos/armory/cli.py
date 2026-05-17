@@ -69,8 +69,8 @@ def _cmd_armory_init(args: argparse.Namespace) -> None:
     module_name = armory_path.name
     materials_path = armory_path / "materials"
     print(f"Created armory '{module_name}' at {armory_path}")
-    print(f"Add study files to: {materials_path}")
-    print(f"Then start studying: heph {module_name}")
+    print(f"Add source files to: {materials_path}")
+    print(f"Then start working with your documents: heph {module_name}")
     print("Armories are stored locally in ~/.armories/")
     analytics = importlib.import_module("hephaistos.diagnostics.events")
     analytics.capture("armory_created", {"mode": "cli"})
@@ -95,7 +95,7 @@ def register(
     """Register armory subcommands."""
     armory = subparsers.add_parser(
         "armory",
-        help="Create and inspect study armories.",
+        help="Create and inspect armories.",
         description=(
             "Create armories named after modules. "
             "Armories can only be created in the armories directory (~/.armories). "

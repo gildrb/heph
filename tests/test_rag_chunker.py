@@ -79,7 +79,7 @@ class TestChunkFile:
         armory.mkdir()
         (armory / "materials").mkdir()
         src = armory / "materials" / "notes.md"
-        src.write_text("# Notes\n\nSome study content here.\n")
+        src.write_text("# Notes\n\nSome source content here.\n")
 
         doc = chunk_file(src, armory)
         assert doc is not None

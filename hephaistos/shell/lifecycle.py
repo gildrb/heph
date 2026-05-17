@@ -32,7 +32,7 @@ def save_on_exit(session: ChatSession) -> None:
 
 
 def create_startup_session(config: ChatConfig) -> ChatSession:
-    """Create a startup study session, running onboarding when no armory is usable."""
+    """Create a startup session, running onboarding when no armory is usable."""
     armory = discover_startup_armory()
     if armory is None:
         if discover_available_armories():
@@ -43,7 +43,7 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
             and (onboarded := _support.onboard_new_armory(config)) is not None
         ):
             return onboarded
-        print_error("No study armory attached; onboarding was not completed.")
+        print_error("No armory attached; onboarding was not completed.")
         print_info("Run `heph armory init <name>`, add files to ~/.armories/<name>/materials/.")
         return create_plain_session(config)
     try:
@@ -51,12 +51,12 @@ def create_startup_session(config: ChatConfig) -> ChatSession:
         set_last_armory(armory)
         return session
     except SessionError:
-        print_error("Auto-discovered armory has no study materials.")
+        print_error("Auto-discovered armory has no materials.")
         print_info(empty_armory_guidance(armory))
         if (
             _stdio_is_interactive()
             and (resumed := _support.recover_empty_armory_session(config, armory)) is not None
         ):
             return resumed
-        print_error("No study session started because the armory still has no materials.")
+        print_error("No session started because the armory still has no materials.")
         return create_plain_session(config)

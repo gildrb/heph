@@ -186,9 +186,8 @@ Testing rules:
 
 - Do not commit secrets. Gitleaks runs in pre-commit; `.env.example`, tests, and
   `vulture-whitelist.py` are allowlisted for known false positives.
-- Added files over 500KB are blocked by pre-commit. Large binary file types belong in LFS.
-- Git LFS tracks PDFs, common images, archives, media, and model artifacts; files over
-  5MB are flagged even if not tracked by LFS.
+- Added files over 500KB are blocked by pre-commit. Keep large binary artifacts out of
+  the repository unless a future Git LFS policy is added intentionally.
 - API keys must not be written to config files; resolve them from OS keyring,
   environment variables, or the in-memory test store.
 - Logs, diagnostics, traces, and crash reports must redact secrets before writing.

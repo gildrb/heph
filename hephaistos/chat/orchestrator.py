@@ -152,10 +152,10 @@ _OVERVIEW_MIN_BULLETS = 2
 _OVERVIEW_MIN_CITED_BULLETS = 2
 _OVERVIEW_TOPIC_LIMIT = 7
 _OVERVIEW_WEB_TOPIC_SEARCH_LIMIT = 10
-_OVERVIEW_TOPIC_SECTION_HEADING = "These are the study topics I found in the material:"
+_OVERVIEW_TOPIC_SECTION_HEADING = "These are the topics I found in the material:"
 _OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 _OVERVIEW_TOPIC_MENU_PROMPT = (
-    "Choose a topic to study next. In the shell, use ↑/↓ and press Enter."
+    "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter."
 )
 _ENGLISH_GUIDED_MENU_CUE_WORDS = frozenset(
     {
@@ -362,7 +362,7 @@ _OVERVIEW_LINE_MARKER_RE = re.compile(r"^[#*\-\d.\s:;()\[\]]+")
 _OVERVIEW_TOPIC_FRAGMENT_RE = re.compile(
     r"\b(?:"
     r"achtung|defined|definiert|bezeichnet|bezeichnen|setting|setzen|question|questions|"
-    r"assessment|prompts?|exam-style|structured|readiness|recall|study\s+topic"
+    r"assessment|prompts?|exam-style|structured|readiness|recall|learning\s+topic"
     r")\b",
     re.IGNORECASE,
 )
@@ -378,7 +378,7 @@ _OVERVIEW_TOPIC_NORMALIZATION_SCHEMA = """
 {
   "topics": [
     {
-      "canonical_english": "concise English study concept",
+      "canonical_english": "concise English concept",
       "display_label": "label to show the user, matching the user's language when clear",
       "evidence_id": "E1",
       "evidence_quote": "exact phrase copied from that evidence excerpt"
@@ -387,11 +387,12 @@ _OVERVIEW_TOPIC_NORMALIZATION_SCHEMA = """
 }
 """.strip()
 _OVERVIEW_TOPIC_NORMALIZATION_SYSTEM_PROMPT = """
-You normalize study-topic menus from cited material excerpts. Use only the supplied evidence.
+You normalize topic menus from cited material excerpts. Use only the supplied evidence.
 First infer canonical topic names in English. Then choose a concise display label in the language
 of the user's request; if the request language is unclear, use the canonical English topic. Return
-actual concepts a student can study, not filenames, document roles, metadata, table-of-contents
-labels, administrative text, or generic labels such as definitions, examples, exercises, or proofs.
+actual concepts a user can learn or review, not filenames, document roles, metadata,
+table-of-contents labels, administrative text, or generic labels such as definitions, examples,
+exercises, or proofs.
 Every topic must cite exactly one supplied evidence_id and include an exact evidence_quote copied
 from that excerpt. Return JSON only, matching this schema:
 """.strip()
@@ -407,7 +408,7 @@ _STUDY_INTENT_NORMALIZATION_SCHEMA = "\n".join(
     )
 )
 _STUDY_INTENT_NORMALIZATION_SYSTEM_PROMPT = """
-Classify a user's study intent for a local source-grounded study assistant. Interpret the request
+Classify a user's learning intent for a local source-grounded assistant. Interpret the request
 in whatever language the user wrote, but return an English-first control signal. Do not answer the
 request. Use material_overview only when the user asks for the broad picture of the enabled,
 uploaded, indexed, or provided materials as a corpus. Use source_qa for a specific fact or quote
@@ -421,14 +422,14 @@ active-recall prompt from memory, and chat when the intent is unclear or not mat
 Return JSON only, matching this schema:
 """.strip()
 _OVERVIEW_LOCALIZED_FALLBACK_SYSTEM_PROMPT = """
-Write a student-facing corpus overview from cited material excerpts. Use only the supplied
+Write a user-facing corpus overview from cited material excerpts. Use only the supplied
 evidence. Answer in the same language as the user's request. Give the big picture first and avoid
 organizing primarily by dates, filenames, authors, institutions, semester labels, course logistics,
 or individual chunks unless the user asks for that metadata. Do not mention calendar dates,
 semester labels, lecturer names, or course administration metadata unless the user asks for that
 metadata. Include at least two concise bullet lines with evidence IDs such as [E1].
 Do not ask a recall question. Do not add next-step/readiness/drill instructions.
-Do not mention internal evidence-grounding blocks, and do not include an English study menu unless
+Do not mention internal evidence-grounding blocks, and do not include an English topic menu unless
 the user wrote in English. Do not end with a caveat about sampling, orientation, partial inventory,
 or non-exhaustive coverage.
 """.strip()
@@ -437,7 +438,7 @@ Rewrite an internal English fallback message for the user. Use the same language
 request when clear. If the request is English or the language is unclear, return the original
 English message. Preserve command literals, slash commands, paths, and quoted phrases exactly.
 Preserve any leading CORRECT:, PARTIAL:, or WRONG: assessment label exactly.
-Do not add facts, citations, source claims, apologies, next actions, or study-loop instructions.
+Do not add facts, citations, source claims, apologies, next actions, or recall-loop instructions.
 Return plain text only.
 """.strip()
 _OVERVIEW_ROLE_LABELS = {
@@ -903,7 +904,7 @@ def _writing_notice(plan: StudyTurnPlan) -> str:
     return "Writing a grounded response."
 
 
-def _student_visible_reply(plan: StudyTurnPlan, reply: str) -> str:
+def _user_visible_reply(plan: StudyTurnPlan, reply: str) -> str:
     cleaned = _strip_tool_call_markup(reply).strip()
     if _overview_turn(plan) or plan.action is StudyAction.SOURCE_QA:
         cleaned = _strip_study_loop_footer(cleaned)
@@ -1024,9 +1025,9 @@ def _insufficient_evidence_reply(
         and (resolved.turn_evidence is None or not resolved.turn_evidence.items)
     ):
         return (
-            "I could not find indexed evidence for that broad study request. "
+            "I could not find indexed evidence for that broad material request. "
             "Start with a material overview first so you can pick one source-backed topic "
-            "to study."
+            "to review."
         )
     if (
         action == "retrieve_more"
@@ -1363,7 +1364,7 @@ def _overview_fallback_reply(
                     evidence,
                 )
             return ""
-        lines = ["I could not identify precise study topics from the sampled material yet."]
+        lines = ["I could not identify precise topics from the sampled material yet."]
         content_clues = _overview_content_clues(evidence, limit=3)
         if content_clues:
             lines.append("")
@@ -1439,11 +1440,11 @@ def _large_corpus_local_overview_reply(
         evidence_id for _label, evidence_id in role_items
     )
     if not role_labels:
-        role_labels = ["searchable study material"]
+        role_labels = ["searchable material"]
         role_citations = opening_citations
 
     return (
-        f"The material is a broad academic study corpus for concept review and practice. "
+        f"The material is a broad academic corpus for concept review and practice. "
         f"{opening_citations}\n\n"
         f"- Major topic clusters include {_overview_join_labels(topic_labels)}. "
         f"{topic_citations or opening_citations}\n"
@@ -1537,7 +1538,7 @@ def _append_guided_choice_menu(
     user_input: str = "",
     config: ChatConfig | None = None,
 ) -> str:
-    """Append selectable study options while preserving a good model-written summary."""
+    """Append selectable topic options while preserving a good model-written summary."""
     if (
         plan.autonomy_mode is not StudyAutonomyMode.GUIDED
         or plan.action is not StudyAction.PRESENT
@@ -2186,7 +2187,7 @@ def _overview_recommendation_items(
     if len(clean_topics) >= 3:
         citation = _overview_first_citation(cited_topics[2])
         recommendations.append(
-            f"Make a short study order for {', '.join(clean_topics[:3])} {citation}."
+            f"Make a short learning order for {', '.join(clean_topics[:3])} {citation}."
         )
     recommendations.append("Turn the selected topic into a quick recall drill.")
     return _dedupe_overview_recommendations(recommendations)[:3]
@@ -2793,7 +2794,7 @@ class TurnOrchestrator:
         raw_reply = streamed_reply
         if not raw_reply and completion_event is not None:
             raw_reply = completion_event.full_text
-        visible_reply = _student_visible_reply(plan, raw_reply)
+        visible_reply = _user_visible_reply(plan, raw_reply)
         if _overview_turn(plan):
             raw_reply = visible_reply
         if last_reply_parts:
@@ -2813,7 +2814,7 @@ class TurnOrchestrator:
                 fallback_reply = (
                     "PARTIAL: I could not generate a grounded assessment. Please try again."
                     if plan.action is StudyAction.ASSESS
-                    else "I could not generate a study prompt. Please try again."
+                    else "I could not generate a prompt. Please try again."
                 )
             fallback_reply = _localize_deterministic_reply(
                 fallback_reply,

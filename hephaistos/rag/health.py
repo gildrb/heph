@@ -1,4 +1,4 @@
-"""Generic health checks for indexed study material text."""
+"""Generic health checks for indexed material text."""
 
 from __future__ import annotations
 

@@ -23,12 +23,12 @@ def _request(messages: list[ApiMessage]) -> PromptCacheRequest:
 
 def test_stable_prefix_hash_ignores_dynamic_tail_changes() -> None:
     base: list[ApiMessage] = [
-        {"role": "system", "content": "You are a grounded study assistant."},
+        {"role": "system", "content": "You are a grounded source-grounded assistant."},
         {"role": "system", "content": "Use citations from the provided material."},
         {"role": "user", "content": "Explain integration by parts."},
     ]
     changed_tail: list[ApiMessage] = [
-        {"role": "system", "content": "You are a grounded study assistant."},
+        {"role": "system", "content": "You are a grounded source-grounded assistant."},
         {"role": "system", "content": "Use citations from the provided material."},
         {"role": "user", "content": "Explain Dijkstra's algorithm."},
         {"role": "assistant", "content": "Dijkstra uses a priority queue [E1]."},

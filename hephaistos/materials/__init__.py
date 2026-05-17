@@ -1,6 +1,6 @@
 """Study material discovery for armories.
 
-User study files live under ``materials/``. Hephaistos infers the role of files
+User source files live under ``materials/``. Hephaistos infers the role of files
 inside that folder instead of requiring users to classify them into separate
 buckets.
 """
@@ -88,7 +88,7 @@ _LECTURE_STRUCTURE_RE = re.compile(
 
 @dataclass(frozen=True, slots=True)
 class MaterialFile:
-    """A study material file discovered inside an armory."""
+    """A material file discovered inside an armory."""
 
     path: Path
     rel_path: str
@@ -107,7 +107,7 @@ def material_kind(rel_path: str | Path) -> MaterialKind | None:
 
 
 def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]:
-    """Infer a study material role from its path.
+    """Infer a material role from its path.
 
     This keeps the filesystem simple for users while giving Hephaistos useful
     retrieval/study hints. The heuristic is intentionally transparent and cheap;
@@ -262,18 +262,18 @@ def iter_materials(armory_path: Path) -> Iterator[MaterialFile]:
 
 
 def iter_material_files(armory_path: Path) -> Iterator[Path]:
-    """Yield visible study material paths in stable order."""
+    """Yield visible material paths in stable order."""
     for material in iter_materials(armory_path):
         yield material.path
 
 
 def count_material_files(armory_path: Path) -> int:
-    """Return the number of visible study material files in an armory."""
+    """Return the number of visible material files in an armory."""
     return sum(1 for _material in iter_materials(armory_path))
 
 
 def material_manifest(armory_path: Path) -> tuple[MaterialFile, ...]:
-    """Return all visible study materials with classification metadata."""
+    """Return all visible materials with classification metadata."""
     return tuple(iter_materials(armory_path))
 
 

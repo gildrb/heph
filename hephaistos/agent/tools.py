@@ -284,7 +284,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
         "create_armory",
         (
             "Create or repair a Hephaistos armory with the canonical layout: "
-            "materials/ for user study files and .hephaistos/ for internal state."
+            "materials/ for user source files and .hephaistos/ for internal state."
         ),
         {
             "path": _string("Relative path from workspace root for the armory folder."),
@@ -320,7 +320,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     _tool(
         "search_materials",
         (
-            "Search the armory's indexed study materials, including converted PDFs and "
+            "Search the armory's indexed materials, including converted PDFs and "
             "slides. Use this before answering when the initial evidence is thin, broad, "
             "or ambiguous. Returns ranked material excerpts with source names and chunk "
             "numbers for citation and follow-up reading."
@@ -334,7 +334,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     _tool(
         "open_material",
         (
-            "Open indexed study-material text around a source or chunk returned by "
+            "Open indexed material text around a source or chunk returned by "
             "search_materials. Use this to read enough local context before synthesizing "
             "an answer instead of pasting isolated passages."
         ),
@@ -682,7 +682,7 @@ def run_create_armory(
     marker_rel = str(MARKER_FILE)
     lines = [
         f"Armory ready: {target}",
-        "User study files belong in materials/.",
+        "User source files belong in materials/.",
         "Internal Hephaistos state belongs in .hephaistos/.",
         "Required layout:",
         *(f"  - {dirname}/" for dirname in created_paths),
@@ -723,7 +723,7 @@ def run_validate_armory(
         success=True,
         content=(
             f"Valid Hephaistos armory: {target}\n"
-            "Use materials/ for user study files. .hephaistos/ is internal state."
+            "Use materials/ for user source files. .hephaistos/ is internal state."
         ),
         metadata={
             "path": str(target),

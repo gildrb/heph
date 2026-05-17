@@ -1,7 +1,7 @@
 # Agent Harness Roadmap
 
 Hephaistos should treat agent quality as an evaluated product surface, not as a
-side effect of adding a framework. The target is a study agent that can prove
+side effect of adding a framework. The target is a document workspace that can prove
 retrieval accuracy, grounded answering, citation faithfulness, and study-loop
 control across repeatable academic tasks.
 

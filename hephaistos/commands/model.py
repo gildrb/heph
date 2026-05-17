@@ -75,16 +75,16 @@ class ModelsCommand(Command):
 
 class RecommendCommand(Command):
     name = "recommend"
-    description = "Recommend models for study sessions"
+    description = "Recommend models for sessions"
 
     def handle(self, session: object, args: str) -> CommandResult:
         registry = get_provider_registry()
         models = [model for model in registry.list_models() if "study" in model.tags]
         if not models:
-            print_info("No study models in registry.")
+            print_info("No recommended models in registry.")
             return CommandResult()
         print_info(
-            "Study picks favor low cost, speed, and instruction following because "
+            "Model picks favor low cost, speed, and instruction following because "
             "Hephaistos handles RAG retrieval and citation checks."
         )
         for model in models:

@@ -54,7 +54,7 @@ def test_source_list_empty_armory(tmp_path: Path, capsys: pytest.CaptureFixture[
     run_argv(parser, ["source", "list", str(armory_path)])
 
     out = capsys.readouterr().out
-    assert "No study materials found." in out
+    assert "No materials found." in out
 
 
 def test_source_count_returns_file_count(

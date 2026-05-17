@@ -584,7 +584,8 @@ def _codex_payload(
             inputs.append(_codex_input_item("user", f"{role} result:\n{text}"))
     return {
         "model": config.model,
-        "instructions": "\n\n".join(instructions) or "You are a concise study assistant.",
+        "instructions": "\n\n".join(instructions)
+        or "You are a concise source-grounded assistant.",
         "input": inputs,
         "store": False,
         "stream": True,

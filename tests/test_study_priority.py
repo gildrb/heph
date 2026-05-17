@@ -585,7 +585,7 @@ def test_priority_analysis_filters_generic_course_boilerplate(tmp_path: Path) ->
     assert "administrative line" not in topics
     assert "administrative block" not in topics
     assert "administrative unit" not in topics
-    assert "student name student id" not in topics
+    assert "user name user id" not in topics
     assert "enzyme kinetics" in topics
     assert "protein folding" in topics
     assert topics["enzyme kinetics"].exam_marks == 12

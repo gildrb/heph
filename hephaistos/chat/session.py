@@ -107,17 +107,17 @@ class SessionError(Exception):
 
 
 _SYSTEM_PROMPT_FALLBACK = (
-    "Hephaistos. A study drill engine.\n"
-    "You need an armory with study materials to study. No armory is attached.\n"
+    "Hephaistos. A recall practice engine.\n"
+    "You need an armory with materials for source-grounded answers. No armory is attached.\n"
     "Tell the user to create one: run `heph armory init <path>` or type /armory "
     "in the shell. Say nothing else."
 )
 
 _PLAIN_CHAT_CONTEXT = (
-    "No armory or study materials are attached. Workspace tools are unavailable.\n"
+    "No armory or materials are attached. Workspace tools are unavailable.\n"
     "Do not answer general-knowledge questions or chat. Do not fabricate evidence.\n"
     "Tell the user to create an armory (`heph armory init <path>` or /armory) and "
-    "add study materials to begin studying. Be terse."
+    "add materials to begin. Be terse."
 )
 
 ARMORY_PLUGINS_TRUST_ENV = "HEPHAISTOS_TRUST_ARMORY_PLUGINS"
@@ -127,7 +127,7 @@ _TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on", "enabled"})
 def no_armory_guidance_reply() -> str:
     """Return the local guardrail reply for study prompts without an armory."""
     return (
-        "No armory is attached. Open or create an armory with /armory, then add study "
+        "No armory is attached. Open or create an armory with /armory, then add "
         "materials so I can answer from your sources."
     )
 
@@ -174,13 +174,13 @@ def empty_armory_guidance(armory_path: Path) -> str:
     materials_path = armory_path / "materials"
     return "\n".join(
         (
-            f"Armory '{module_name}' has no study materials yet.",
+            f"Armory '{module_name}' has no materials yet.",
             f"Add files to: {materials_path}",
             "",
             "Armories are saved locally in ~/.armories/",
             "Add PDFs, Markdown, notes, or text files to:",
             f"  ~/.armories/{module_name}/materials/",
-            f"Then start studying: heph {module_name}",
+            f"Then start working with your documents: heph {module_name}",
         )
     )
 

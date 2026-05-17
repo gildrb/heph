@@ -188,7 +188,7 @@ class VocabCommand(Command):
 
 class RemindCommand(Command):
     name = "remind"
-    description = "Show upcoming study reminders and due cards"
+    description = "Show upcoming review reminders and due cards"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -218,18 +218,16 @@ class RemindCommand(Command):
 
         if due:
             lines.append(f"You have {len(due)} card{'s' if len(due) != 1 else ''} due for review.")
-            lines.append(f"  Run {styled('/vocab drill', STYLE_ACCENT)} to study them now.")
+            lines.append(f"  Run {styled('/vocab drill', STYLE_ACCENT)} to review them now.")
         elif all_cards:
             lines.append(styled("Vocabulary is caught up.", STYLE_SUCCESS))
 
         if due_study_items:
             item_plural = "s" if len(due_study_items) != 1 else ""
-            lines.append(
-                f"You have {len(due_study_items)} study item{item_plural} due for active recall."
-            )
+            lines.append(f"You have {len(due_study_items)} recall item{item_plural} due.")
             lines.append(f"  Run {styled('/exam', STYLE_ACCENT)} or ask to review a due item.")
         elif study_store.item_list:
-            lines.append(styled("Material-backed study items are caught up.", STYLE_SUCCESS))
+            lines.append(styled("Material-backed recall items are caught up.", STYLE_SUCCESS))
 
         if not lines:
             lines.append("No vocabulary cards yet, but you can start with /exam or /priority.")
@@ -242,13 +240,13 @@ class RemindCommand(Command):
             secs = float(delta.total_seconds())
             if secs > 0:
                 lines.append(
-                    f"  Next study item in {_format_relative_seconds(secs)} "
+                    f"  Next recall item in {_format_relative_seconds(secs)} "
                     f"({len(scheduled_study)} item(s) scheduled)."
                 )
 
         if due_study_items:
             lines.append("")
-            lines.append("Due study items:")
+            lines.append("Due recall items:")
             for item in due_study_items[:10]:
                 label = item.item or item.retrieval_query
                 lines.append(f"  {styled(label[:60], STYLE_DIM)}")
@@ -291,7 +289,7 @@ class RemindCommand(Command):
 
 class ModeCommand(Command):
     name = "mode"
-    description = "Set manual, guided, or autopilot study mode"
+    description = "Set manual, guided, or autopilot learning mode"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -306,17 +304,17 @@ class ModeCommand(Command):
         if mode is StudyAutonomyMode.AUTOPILOT:
             session_type = AutopilotSessionType.GENERAL
             _start_autopilot_session(s, session_type, None, requested)
-            print_success(f"Study mode set to {mode.value}.")
+            print_success(f"Learning mode set to {mode.value}.")
             prompt = _autopilot_start_prompt(session_type, None)
             return CommandResult(output=f"__RESEND__:{prompt}")
         _set_study_mode(s, mode)
-        print_success(f"Study mode set to {mode.value}.")
+        print_success(f"Learning mode set to {mode.value}.")
         return CommandResult()
 
 
 class AutopilotCommand(Command):
     name = "autopilot"
-    description = "Let Heph drive a bounded autonomous study session"
+    description = "Let Heph drive a bounded autonomous learning session"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -331,12 +329,12 @@ class AutopilotCommand(Command):
         if normalized in {"off", "manual"}:
             _set_study_mode(s, StudyAutonomyMode.MANUAL)
             _clear_autopilot_session(s)
-            print_success("Autopilot off. Manual study mode is active.")
+            print_success("Autopilot off. Manual learning mode is active.")
             return CommandResult()
         if normalized == "guided":
             _set_study_mode(s, StudyAutonomyMode.GUIDED)
             _clear_autopilot_session(s)
-            print_success("Guided study mode is active.")
+            print_success("Guided learning mode is active.")
             return CommandResult()
 
         session_type = session_type_from_text(requested)
@@ -528,15 +526,15 @@ def _autopilot_goal(session_type: AutopilotSessionType, raw_request: str) -> str
     if session_type is AutopilotSessionType.REVIEW:
         return "due review"
     if session_type is AutopilotSessionType.SOCRATIC:
-        return "Socratic study"
+        return "Socratic learning"
     if session_type is AutopilotSessionType.CRAM:
         return "cram session"
     if session_type is AutopilotSessionType.DEEP:
         return "deep understanding"
     normalized = raw_request.strip().casefold()
     if normalized in {"", "on", "autopilot"}:
-        return "autonomous study"
-    return raw_request or "autonomous study"
+        return "autonomous learning"
+    return raw_request or "autonomous learning"
 
 
 def _autopilot_status_line(
@@ -554,7 +552,7 @@ def _autopilot_start_prompt(
     budget = f"I have {time_budget_minutes} minutes. " if time_budget_minutes is not None else ""
     goal = _autopilot_goal(session_type, "")
     return (
-        f"Start an autopilot study session from my materials using the "
+        f"Start an autopilot session from my materials using the "
         f"{session_type.value} profile. {budget}"
         f"Use {goal} as the session goal. "
         "Drive the session yourself, start with active recall when appropriate, ask one "
@@ -565,7 +563,7 @@ def _autopilot_start_prompt(
 
 def _print_mode_status(session: ChatSession) -> None:
     study = session.study_state
-    lines: list[str] = [f"Study mode: {study.autonomy_mode.value}"]
+    lines: list[str] = [f"Learning mode: {study.autonomy_mode.value}"]
     if study.autopilot_session_type:
         lines.append(f"Autopilot type: {study.autopilot_session_type}")
     if study.session_goal:

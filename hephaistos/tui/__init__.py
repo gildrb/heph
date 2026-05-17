@@ -749,7 +749,7 @@ class HephaistosTui(
 
     def _set_autopilot_cycle_mode(self) -> None:
         self.session.study_state.autonomy_mode = StudyAutonomyMode.AUTOPILOT
-        self.session.study_state.session_goal = "autonomous study"
+        self.session.study_state.session_goal = "autonomous learning"
         self.session.study_state.time_budget_minutes = None
         self.session.study_state.autopilot_session_type = AutopilotSessionType.GENERAL.value
         self.session.study_state.autopilot_started_at = datetime.now(UTC)

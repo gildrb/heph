@@ -69,7 +69,7 @@ def _store(tmp_path: Path) -> tuple[SupermemoryStore, MagicMock]:
         config=SupermemoryConfig(
             api_key="test-key",
             base_url="https://api.supermemory.ai",
-            profile="heph-study",
+            profile="heph-learning",
         ),
     )
     return store, sdk_client
@@ -78,7 +78,7 @@ def _store(tmp_path: Path) -> tuple[SupermemoryStore, MagicMock]:
 def test_container_tags_are_stable(tmp_path: Path) -> None:
     assert armory_container_tag(tmp_path) == armory_container_tag(tmp_path)
     assert armory_container_tag(tmp_path).startswith("heph:armory:")
-    assert profile_container_tag("My Study Profile") == "heph:profile:My-Study-Profile"
+    assert profile_container_tag("My Learning Profile") == "heph:profile:My-Learning-Profile"
 
 
 def test_add_batch_writes_armory_documents(tmp_path: Path) -> None:
@@ -105,7 +105,7 @@ def test_add_batch_to_profile_writes_global_profile(tmp_path: Path) -> None:
     metadata = call_kwargs["metadata"]
     assert isinstance(metadata, dict)
     assert metadata["topic"] == "DNS"  # ty:ignore[invalid-argument-type]
-    assert metadata["profile"] == "heph-study"  # ty:ignore[invalid-argument-type]
+    assert metadata["profile"] == "heph-learning"  # ty:ignore[invalid-argument-type]
     assert metadata["scope"] == "profile"  # ty:ignore[invalid-argument-type]
 
 

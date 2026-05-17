@@ -231,21 +231,21 @@ def test_distinct_source_shape_counts_cited_sources_not_retrieved_sources() -> N
             EvidenceChunk(
                 evidence_id="E2",
                 chunk=Chunk(
-                    text="The exercise sheet asks students to apply the invariant.",
+                    text="The exercise sheet asks users to apply the invariant.",
                     source="materials/exercise.md",
                     index=0,
                     char_start=0,
                     char_end=58,
                 ),
                 score=0.8,
-                content="The exercise sheet asks students to apply the invariant.",
+                content="The exercise sheet asks users to apply the invariant.",
             ),
         )
     )
     case = benchmark_answers.AnswerCase(
         case_id="single-cited-source",
         answer=(
-            "The material explains a graph traversal invariant and gives students "
+            "The material explains a graph traversal invariant and gives users "
             "practice applying it in exercises [E1]."
         ),
         evidence=evidence,

@@ -152,7 +152,7 @@ The following packages cannot import anything from adapter packages:
 
 ### Independent: materials
 
-`hephaistos.materials` owns study material discovery and ignore-policy parsing.
+`hephaistos.materials` owns material discovery and ignore-policy parsing.
 It must not import `hephaistos.chat`, `hephaistos.agent`, or `hephaistos.rag`.
 `hephaistos.rag` may import `materials`, but that dependency
 is one-way.
@@ -187,7 +187,7 @@ my-armory/
     armory.toml         # armory marker and metadata
     system_prompt.md    # optional custom system prompt (replaces default persona)
     history             # shell history for this armory (created on use)
-    memory.json         # extracted study memory
+    memory.json         # extracted armory memory
     rag_index.json      # persisted retrieval index
     traces/             # per-session JSONL traces
     usage/              # per-session usage/cost snapshots
@@ -207,7 +207,7 @@ assistant can avoid repeating material the user already covered.
 
 Users can opt in to Supermemory through `/memory setup`. When enabled,
 Hephaistos writes extracted concepts to an armory-specific Supermemory
-container tag and to a dedicated global study profile tag. This gives semantic
+container tag and to a dedicated global learning profile tag. This gives semantic
 recall across armories while keeping setup explicit and reversible. If
 Supermemory is disabled, unconfigured, or unavailable, session creation falls
 back to the local JSON memory store.

@@ -247,23 +247,23 @@ class SlashCompletionEngine:
         if cmd_name == "memory":
             return [
                 ("status", "Show memory backend and Supermemory setup"),
-                ("setup", "Connect Supermemory for cross-armory study memory"),
+                ("setup", "Connect Supermemory for cross-armory armory memory"),
                 ("profile", "View or change the Supermemory profile"),
                 ("disable", "Use local memory only"),
             ]
 
         if cmd_name == "sessions":
             return [
-                ("list", "List saved study sessions in this armory"),
+                ("list", "List saved sessions in this armory"),
                 ("browse", "Choose a saved session to resume"),
                 ("resume", "Resume the latest saved session"),
             ]
 
         if cmd_name == "mode":
             return [
-                ("manual", "Set manual study mode"),
-                ("guided", "Set guided study mode"),
-                ("autopilot", "Set bounded autopilot study mode"),
+                ("manual", "Set manual learning mode"),
+                ("guided", "Set guided learning mode"),
+                ("autopilot", "Set bounded autopilot learning mode"),
             ]
 
         if cmd_name == "persona":

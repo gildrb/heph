@@ -78,9 +78,9 @@ _ACTIVITY_TRACE_DESCRIPTIONS = {
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "hide internal activity lines",
 }
 _ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in _ACTIVITY_TRACE_LABELS.items()}
-_OVERVIEW_TOPIC_SECTION_HEADING = "These are the study topics I found in the material:"
+_OVERVIEW_TOPIC_SECTION_HEADING = "These are the topics I found in the material:"
 _OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
-_OVERVIEW_TOPIC_PROMPT = "Choose a topic to study next. In the shell, use ↑/↓"
+_OVERVIEW_TOPIC_PROMPT = "Choose a topic to explore next. In the shell, use ↑/↓"
 _OVERVIEW_RECOMMENDATION_LINE_RE = re.compile(r"^- (?P<label>.+?)\.?$")
 _OVERVIEW_RECOMMENDATION_HEADING_RE = re.compile(
     r"^Recommended options:?\s*$",
@@ -102,8 +102,8 @@ _LANGUAGE_PRESERVING_TOPIC_PROMPT = (
     " Answer in the same language as the selected topic when that language is clear."
 )
 _CUSTOM_STUDY_PROMPT_LABEL = "Ask something else"
-_CUSTOM_STUDY_PROMPT_DESCRIPTION = "custom study prompt"
-_CUSTOM_STUDY_PROMPT_PLACEHOLDER = "What would you like to study or ask?"
+_CUSTOM_STUDY_PROMPT_DESCRIPTION = "custom armory prompt"
+_CUSTOM_STUDY_PROMPT_PLACEHOLDER = "What would you like to learn or ask?"
 
 
 @dataclass(frozen=True)
@@ -871,7 +871,7 @@ class TuiInlineFlowMixin:
         self._open_inline_menu(
             name="study_topic",
             step="topic",
-            title="Choose a topic to study",
+            title="Choose a topic to explore",
             options=_study_topic_menu_options(options),
             prompts=prompts,
         )
@@ -1297,7 +1297,7 @@ def _overview_recommendation_prompt(recommendation: str) -> str:
             f"Compare {left} and {right}, grounded in the evidence for these topics."
             f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
         )
-    if clean.startswith("Make a short study order"):
+    if clean.startswith("Make a short learning order"):
         return f"{clean}, grounded in the source material.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
     return f"{clean}.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
 
@@ -1321,8 +1321,8 @@ def _overview_recommendation_label(recommendation: str) -> str:
         return f"Compare {compare.group('left')} and {compare.group('right')}"
     if "contrastive question" in clean.casefold():
         return "Ask a contrastive question"
-    if clean.startswith("Make a short study order"):
-        return "Make a study order"
+    if clean.startswith("Make a short learning order"):
+        return "Make a learning order"
     return _trim_inline_option_label(clean)
 
 

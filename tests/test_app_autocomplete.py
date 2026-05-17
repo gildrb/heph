@@ -40,7 +40,7 @@ def test_slash_completion_picks_closest_command_match() -> None:
         CommandSuggestion(name="help", description="Show help"),
         CommandSuggestion(name="index", description="Build the search index"),
         CommandSuggestion(name="models", description="Pick the active model"),
-        CommandSuggestion(name="memory", description="Manage study memory"),
+        CommandSuggestion(name="memory", description="Manage armory memory"),
     ]
 
     for query in ("/del", "/odel", "/mdel"):

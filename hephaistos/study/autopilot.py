@@ -1,7 +1,7 @@
 """Autonomous study policy primitives.
 
 The policy in this module is intentionally deterministic. It gives the chat
-orchestrator a small, inspectable study move instead of relying on a single
+orchestrator a small, inspectable learning move instead of relying on a single
 large prompt to decide how a learning session should proceed.
 """
 
@@ -103,7 +103,7 @@ class MaterialStatus:
 
 @dataclass(frozen=True, slots=True)
 class AutopilotInput:
-    """Inputs used by the policy to choose one study move."""
+    """Inputs used by the policy to choose one learning move."""
 
     user_message: str
     mode: StudyAutonomyMode
@@ -168,7 +168,7 @@ class PedagogyValidation:
 
 @dataclass(frozen=True, slots=True)
 class ChoiceAssessment:
-    """Assessment of a learner's study-path choice and self-diagnosis."""
+    """Assessment of a learner's learning-path choice and self-diagnosis."""
 
     selected_option: str | None
     has_reason: bool
@@ -242,7 +242,7 @@ class StudyAutopilot:
     """Deterministic next-move policy for manual, guided, and autopilot modes."""
 
     def next_turn(self, input_data: AutopilotInput) -> StudyMove:
-        """Choose the next useful study move."""
+        """Choose the next useful learning move."""
         mode = input_data.mode
         if mode is StudyAutonomyMode.MANUAL:
             return _manual_move(input_data)
@@ -339,7 +339,7 @@ def learner_assessment_from_state(
 
 
 def validate_pedagogy(reply: str, move: StudyMove, mode: StudyAutonomyMode) -> PedagogyValidation:
-    """Check basic response-shape requirements for the selected study move."""
+    """Check basic response-shape requirements for the selected learning move."""
     issues: list[str] = []
     normalized = reply.casefold()
     if move.requires_user_commitment and "confidence" not in normalized:
@@ -378,7 +378,7 @@ def move_for_plan(
     due_reviews: tuple[ReviewItem, ...] = (),
     memory_state: MemoryState | None = None,
 ) -> StudyMove:
-    """Select a study move using a controller action as the strongest signal."""
+    """Select a learning move using a controller action as the strongest signal."""
     material_status = MaterialStatus(
         has_materials=bool(evidence_refs),
         has_indexed_evidence=bool(evidence_refs),
@@ -418,14 +418,14 @@ def append_policy_prompt(
         "",
         "Autonomous study policy:",
         f"- Mode: {mode.value}.",
-        f"- Selected study move: {move.kind}.",
+        f"- Selected learning move: {move.kind}.",
         f"- Reason: {move.reason}",
     ]
     if mode is StudyAutonomyMode.GUIDED:
         lines.extend(
             [
                 "- Guided mode should leave the learner in control while recommending "
-                "the next useful study step.",
+                "the next useful learning step.",
                 "- Include a short reason why the recommendation is beneficial.",
                 "- Do not require extra commands when one clear recommendation is enough.",
             ]
@@ -433,7 +433,7 @@ def append_policy_prompt(
     if mode is StudyAutonomyMode.AUTOPILOT:
         lines.extend(
             [
-                "- You are HEPH AUTOPILOT: drive the study workflow while the learner "
+                "- You are HEPH AUTOPILOT: drive the learning workflow while the learner "
                 "does the thinking.",
                 "- Choose the next best academic action yourself unless one concise "
                 "clarification is essential.",
@@ -467,7 +467,7 @@ def append_policy_prompt(
             ]
         )
     if action is StudyAction.SOURCE_QA:
-        lines.append("- Source-only answer: do not add a study-choice block after the answer.")
+        lines.append("- Source-only answer: do not add a learning-choice block after the answer.")
     if action is StudyAction.CALIBRATE:
         lines.append("- The whole response is the recall task; do not reveal the answer.")
         if mode is StudyAutonomyMode.AUTOPILOT:
@@ -660,7 +660,7 @@ def _guided_move(input_data: AutopilotInput) -> StudyMove:
                 return _move_for_choice_option(
                     input_data,
                     choice_assessment.selected_option,
-                    reason="guided mode follows the learner's justified study-path choice",
+                    reason="guided mode follows the learner's justified learning-path choice",
                 )
             issues = ", ".join(choice_assessment.issues)
             return _move(
@@ -1032,7 +1032,7 @@ def _has_recommendation_rationale(reply: str) -> bool:
 def _rewrite_instruction(move: StudyMove) -> str:
     if move.requires_user_commitment:
         return "Rewrite to require an attempt and confidence before revealing more."
-    return "Rewrite to match the selected study move and include one clear next step."
+    return "Rewrite to match the selected learning move and include one clear next step."
 
 
 def _high_confidence_gap_from_move(move: StudyMove) -> bool:

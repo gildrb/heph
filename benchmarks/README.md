@@ -183,7 +183,7 @@ uv run python -m scripts.benchmark_document_understanding path/to/armory \
   --json-report .artifacts/document-understanding.json
 ```
 
-Use this as a preflight for arbitrary student material. It does not replace
+Use this as a preflight for arbitrary user material. It does not replace
 labelled benchmarks, but it catches the common "the corpus indexed as vague
 references" failure before RAG answers or priority reports are trusted.
 Required roles are checked against indexed documents, so an unreadable file or
@@ -857,5 +857,5 @@ Prefer small, labelled cases that catch real failures:
   `PARTIAL:`, or `WRONG:`.
 
 Benchmarks should stay local-first. Do not commit private study material,
-student data, API responses with secrets, or copyrighted source text beyond
+user data, API responses with secrets, or copyrighted source text beyond
 short fair-use snippets needed to validate behavior.

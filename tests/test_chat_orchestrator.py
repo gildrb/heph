@@ -58,8 +58,8 @@ from hephaistos.chat.orchestrator import (
     _overview_topic_looks_like_metadata,
     _repair_pedagogy_shape,
     _run_bounded_internal_repairs,
-    _student_visible_reply,
     _study_autopilot_context,
+    _user_visible_reply,
 )
 from hephaistos.chat.session import ChatSession
 from hephaistos.rag import ArmoryIndex, ScoredChunk, TurnEvidence
@@ -223,19 +223,19 @@ def test_repair_pedagogy_shape_does_not_append_english_recommendation_reason() -
     assert "Why this helps:" not in repaired
 
 
-def test_student_visible_reply_strips_inline_tool_call_markup() -> None:
+def test_user_visible_reply_strips_inline_tool_call_markup() -> None:
     plan = _make_study_plan(action=StudyAction.PRESENT)
     raw = (
         '<tool_call name="search_materials">{"query":"what can i use this for","top_k":5}'
         "</tool_call>No searchable armory evidence was found."
     )
 
-    cleaned = _student_visible_reply(plan, raw)
+    cleaned = _user_visible_reply(plan, raw)
 
     assert cleaned == "No searchable armory evidence was found."
 
 
-def test_overview_student_visible_reply_strips_trailing_study_loop_boilerplate() -> None:
+def test_overview_user_visible_reply_strips_trailing_study_loop_boilerplate() -> None:
     plan = material_overview_plan("um was geht es in den dateien")
     raw = (
         "Die Dateien behandeln Mathematik fuer Informatiker [E1][E2].\n"
@@ -246,7 +246,7 @@ def test_overview_student_visible_reply_strips_trailing_study_loop_boilerplate()
         "Next action: Review the smallest source-backed piece, then ask for recall."
     )
 
-    cleaned = _student_visible_reply(plan, raw)
+    cleaned = _user_visible_reply(plan, raw)
 
     assert "Die Dateien behandeln Mathematik" in cleaned
     assert "Taylor-Polynome" in cleaned
@@ -255,7 +255,7 @@ def test_overview_student_visible_reply_strips_trailing_study_loop_boilerplate()
     assert "source-backed" not in cleaned
 
 
-def test_overview_student_visible_reply_strips_short_uncited_recall_footer() -> None:
+def test_overview_user_visible_reply_strips_short_uncited_recall_footer() -> None:
     plan = material_overview_plan("um was geht es in den dateien")
     raw = (
         "Der Korpus gibt eine quellenbelegte Orientierung zu Mathematik [E1][E2].\n"
@@ -264,14 +264,14 @@ def test_overview_student_visible_reply_strips_short_uncited_recall_footer() -> 
         "Danach Recall."
     )
 
-    cleaned = _student_visible_reply(plan, raw)
+    cleaned = _user_visible_reply(plan, raw)
 
     assert "Der Korpus gibt" in cleaned
     assert "Approximationen" in cleaned
     assert "Danach Recall" not in cleaned
 
 
-def test_source_qa_student_visible_reply_strips_trailing_study_loop_footer() -> None:
+def test_source_qa_user_visible_reply_strips_trailing_study_loop_footer() -> None:
     plan = _make_study_plan(action=StudyAction.SOURCE_QA)
     raw = (
         "Die Quelle verbindet Enzymkinetik mit Substratkonzentration und "
@@ -279,34 +279,34 @@ def test_source_qa_student_visible_reply_strips_trailing_study_loop_footer() -> 
         "Next action: Review the smallest source-backed piece, then ask for recall."
     )
 
-    cleaned = _student_visible_reply(plan, raw)
+    cleaned = _user_visible_reply(plan, raw)
 
     assert "Enzymkinetik" in cleaned
     assert "Next action" not in cleaned
     assert "source-backed" not in cleaned
 
 
-def test_source_qa_student_visible_reply_strips_inline_say_ready_footer() -> None:
+def test_source_qa_user_visible_reply_strips_inline_say_ready_footer() -> None:
     plan = _make_study_plan(action=StudyAction.SOURCE_QA)
     raw = (
         "Die Graphs-Vorlesung gehoert zu Algorithms, AI & Data Science II [E7]. "
         "Say ready when you want recall."
     )
 
-    cleaned = _student_visible_reply(plan, raw)
+    cleaned = _user_visible_reply(plan, raw)
 
     assert cleaned == "Die Graphs-Vorlesung gehoert zu Algorithms, AI & Data Science II [E7]."
     assert "Say ready" not in cleaned
 
 
-def test_source_qa_student_visible_reply_keeps_cited_active_recall_content() -> None:
+def test_source_qa_user_visible_reply_keeps_cited_active_recall_content() -> None:
     plan = _make_study_plan(action=StudyAction.SOURCE_QA)
     raw = (
         "Die Quelle beschreibt Lernmethoden [E1].\n"
-        "- Active recall asks the student to produce an answer from memory [E1]."
+        "- Active recall asks the user to produce an answer from memory [E1]."
     )
 
-    cleaned = _student_visible_reply(plan, raw)
+    cleaned = _user_visible_reply(plan, raw)
 
     assert cleaned == raw
 
@@ -438,8 +438,8 @@ def test_deterministic_fallback_localization_preserves_assessment_labels(
             True,
             (
                 "Execute CALIBRATE",
-                "Student request (language/topic signal",
-                "student's language",
+                "User request (language/topic signal",
+                "user's language",
                 "active-recall",
             ),
         ),
@@ -452,8 +452,8 @@ def test_deterministic_fallback_localization_preserves_assessment_labels(
             True,
             (
                 "Execute CALIBRATE",
-                "Student request (language/topic signal",
-                "student's language",
+                "User request (language/topic signal",
+                "user's language",
                 "active-recall",
             ),
         ),
@@ -766,8 +766,8 @@ def test_model_normalized_study_plan_reclassifies_recall_clarification(
     assert normalized_plan.retrieval_query is None
     assert normalized_plan.allow_tools is False
     assert "Execute RECALL_CLARIFICATION" in normalized_plan.prompt
-    assert "Student request: frag mich nochmal auf deutsch" in normalized_plan.prompt
-    assert "Do not assess the student" in normalized_plan.prompt
+    assert "User request: frag mich nochmal auf deutsch" in normalized_plan.prompt
+    assert "Do not assess the user" in normalized_plan.prompt
 
 
 @patch("hephaistos.chat.orchestrator.stream_completion")
@@ -1132,7 +1132,7 @@ def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
 
     reply = _overview_fallback_reply(plan, evidence)
 
-    assert "These are the study topics I found in the material:" in reply
+    assert "These are the topics I found in the material:" in reply
     assert "Retrieved overview sample" not in reply
     assert "not an exhaustive summary" not in reply
     assert "indexed sources" not in reply
@@ -1140,7 +1140,7 @@ def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
     assert "document signal" not in reply.casefold()
     assert "Other material signals" not in reply
     assert "sampled" not in reply.casefold()
-    assert "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in reply
+    assert "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter." in reply
     assert "Recommended options:" in reply
     assert "graph algorithms [e1]" in reply.casefold()
     assert "recurrence [e1]" in reply.casefold()
@@ -1198,8 +1198,8 @@ def test_overview_fallback_does_not_append_english_menu_for_non_latin_request() 
 
     assert "[E1]" in reply
     assert "[E2]" in reply
-    assert "These are the study topics" not in reply
-    assert "Choose a topic to study next" not in reply
+    assert "These are the topics" not in reply
+    assert "Choose a topic to explore next" not in reply
     assert "Recommended options" not in reply
 
 
@@ -1228,7 +1228,7 @@ def test_overview_fallback_satisfies_answer_shape_contract() -> None:
         answer=reply,
         evidence=evidence,
         expected_citations=("E1", "E2"),
-        must_include=("study topics", "Choose a topic"),
+        must_include=("topics", "Choose a topic"),
         must_not_include=("the files cover", "no evidence citations", "sampled orientation"),
         min_words=24,
         max_words=190,
@@ -1272,11 +1272,11 @@ def test_overview_fallback_needed_for_vague_or_range_cited_answer() -> None:
     assert not _needs_overview_fallback(
         plan,
         (
-            "These are the study topics I found in the material [E1][E2].\n"
+            "These are the topics I found in the material [E1][E2].\n"
             "- Graph algorithms [E1].\n"
             "- Recurrence relations [E2].\n"
             "- Bayes theorem [E1].\n"
-            "Use the shell menu to choose one cited topic for guided study next."
+            "Use the shell menu to choose one cited topic for guided learning next."
         ),
         evidence,
     )
@@ -1289,14 +1289,14 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
     )
 
     assert _overview_answer_has_bad_shape(
-        "These are the study topics I found in the material [E1].",
+        "These are the topics I found in the material [E1].",
         evidence,
     )
     assert _overview_answer_has_bad_shape(
-        "These are the study topics I found in the material [E1][E2].\n"
+        "These are the topics I found in the material [E1][E2].\n"
         "- Lecture material appears in the material.\n"
         "- Exam material appears in the material.\n"
-        "- Choose a topic to study next.",
+        "- Choose a topic to explore next.",
         evidence,
     )
     assert _overview_answer_has_bad_shape(
@@ -1321,11 +1321,11 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
         evidence,
     )
     assert not _overview_answer_has_bad_shape(
-        "These are the study topics I found in the material [E1][E2].\n"
+        "These are the topics I found in the material [E1][E2].\n"
         "- Graph algorithms [E1].\n"
         "- Recurrence relations [E2].\n"
         "- Bayes theorem [E1].\n"
-        "Use the shell menu to choose one cited topic for guided study next.",
+        "Use the shell menu to choose one cited topic for guided learning next.",
         evidence,
     )
     assert not _overview_answer_has_bad_shape(
@@ -1387,11 +1387,11 @@ def test_overview_shape_rejects_non_topic_menu_labels() -> None:
     )
 
     assert _overview_answer_has_bad_shape(
-        "These are the study topics I found in the material [E1][E2].\n"
+        "These are the topics I found in the material [E1][E2].\n"
         "- Definition only [E1].\n"
         "- Administrative Header 2 [E1].\n"
         "- exam-style questions or structured assessment prompts [E2].\n"
-        "Use the shell menu to choose one cited topic for guided study next.",
+        "Use the shell menu to choose one cited topic for guided learning next.",
         evidence,
     )
 
@@ -2055,7 +2055,7 @@ class TestTurnOrchestratorStudy:
         agent_conversation = mock_iter_agent.call_args.args[1]
         assert deltas == ["Erklaere die Aufgabe noch einmal aus dem Gedaechtnis."]
         assert "Execute RECALL_CLARIFICATION" in extra_prompt
-        assert "Student request: ask me again in German" in extra_prompt
+        assert "User request: ask me again in German" in extra_prompt
         assert "Execute ASSESS" not in extra_prompt
         assert mock_iter_agent.call_args.kwargs["turn_evidence"] is None
         assert mock_iter_agent.call_args.kwargs["tool_schemas"] == []
@@ -2113,7 +2113,7 @@ class TestTurnOrchestratorStudy:
         assert resolved_plan.action is StudyAction.PROMPT_RECALL
         assert resolved_plan.phase is StudyPhase.RECALL
         assert "Execute RECALL_CLARIFICATION" in extra_prompt
-        assert "Student request: frag mich nochmal auf deutsch" in extra_prompt
+        assert "User request: frag mich nochmal auf deutsch" in extra_prompt
         assert "Execute ASSESS" not in extra_prompt
         assert session.study_state.phase is StudyPhase.RECALL
         assert session.study_state.attempt_count == 1
@@ -2902,11 +2902,11 @@ class TestTurnOrchestratorStudy:
         )
         mock_overview_context.return_value = "Deterministic local corpus overview."
         model_reply = (
-            "These are the study topics I found in the material [E1] [E2].\n"
+            "These are the topics I found in the material [E1] [E2].\n"
             "- Graph algorithms [E1].\n"
             "- Recurrence relations [E2].\n"
             "- Bayes theorem [E1].\n"
-            "Use the shell menu to choose one cited topic for guided study next."
+            "Use the shell menu to choose one cited topic for guided learning next."
         )
         mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
 
@@ -2974,15 +2974,15 @@ class TestTurnOrchestratorStudy:
         final_reply = deltas[0]
         assert final_reply.startswith("The indexed materials are course slides and notes")
         assert "Recommendation: ask a contrastive question next" in final_reply
-        assert "These are the study topics I found in the material:" in final_reply
+        assert "These are the topics I found in the material:" in final_reply
         assert (
-            "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in final_reply
+            "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter." in final_reply
         )
         assert "Recommended options:" in final_reply
         assert "Signal entropy [E1]" in final_reply
         assert "Carrier waves [E2]" in final_reply
         assert "Protein folding [E3]" in final_reply
-        assert "I could not identify precise study topics" not in final_reply
+        assert "I could not identify precise topics" not in final_reply
         assert orch.last_reply == final_reply
 
     @patch("hephaistos.chat.orchestrator._build_overview_context")
@@ -3011,7 +3011,7 @@ class TestTurnOrchestratorStudy:
         mock_resolve_evidence.return_value = evidence
         mock_overview_context.return_value = ""
         mock_iter_agent.return_value = iter(
-            [AssistantDeltaEvent("The materials cover core study topics [E1][E2].")]
+            [AssistantDeltaEvent("The materials cover core topics [E1][E2].")]
         )
 
         session = _make_study_session()
@@ -3022,10 +3022,10 @@ class TestTurnOrchestratorStudy:
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
         final_reply = deltas[0]
-        assert "The materials cover core study topics" not in final_reply
-        assert "These are the study topics I found in the material:" in final_reply
+        assert "The materials cover core topics" not in final_reply
+        assert "These are the topics I found in the material:" in final_reply
         assert (
-            "Choose a topic to study next. In the shell, use ↑/↓ and press Enter." in final_reply
+            "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter." in final_reply
         )
         assert "Signal entropy [E1]" in final_reply
         assert "Carrier waves [E2]" in final_reply
@@ -3070,10 +3070,10 @@ class TestTurnOrchestratorStudy:
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
         final_reply = deltas[0]
-        assert "I could not identify precise study topics" in final_reply
+        assert "I could not identify precise topics" in final_reply
         assert "What the sample does show:" in final_reply
-        assert "These are the study topics I found in the material:" not in final_reply
-        assert "Choose a topic to study next" not in final_reply
+        assert "These are the topics I found in the material:" not in final_reply
+        assert "Choose a topic to explore next" not in final_reply
         assert orch.last_reply == final_reply
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
@@ -3113,7 +3113,7 @@ class TestTurnOrchestratorStudy:
         assert len(deltas) == 1
         assert deltas[0] != "The course is about computer science."
         assert orch.last_reply == deltas[0]
-        assert "These are the study topics I found" in orch.last_reply
+        assert "These are the topics I found" in orch.last_reply
         assert "[E1]" in orch.last_reply
         assert session.conversation.messages[-1].content == orch.last_reply
         trace = cast("MagicMock", session.trace)
@@ -3170,8 +3170,8 @@ class TestTurnOrchestratorStudy:
         assert len(deltas) == 1
         assert "The files cover" not in deltas[0]
         assert "Say ready when you want recall" not in deltas[0]
-        assert "I could not identify precise study topics" in deltas[0]
-        assert "Choose a topic to study next" not in deltas[0]
+        assert "I could not identify precise topics" in deltas[0]
+        assert "Choose a topic to explore next" not in deltas[0]
         assert "not an exhaustive summary" not in deltas[0]
         assert "[E1]" in deltas[0]
         assert "[E2]" in deltas[0]
@@ -3308,7 +3308,7 @@ class TestTurnOrchestratorStudy:
         final_reply = deltas[0]
         assert final_reply == repaired_reply
         assert "The files cover" not in final_reply
-        assert "These are the study topics" not in final_reply
+        assert "These are the topics" not in final_reply
         assert "Choose a topic" not in final_reply
         assert "Say ready" not in final_reply
         assert "Next action" not in final_reply
@@ -3371,8 +3371,8 @@ class TestTurnOrchestratorStudy:
         completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
         assert len(deltas) == 1
         assert len(completions) == 1
-        assert "I could not identify precise study topics" in deltas[0]
-        assert "Choose a topic to study next" not in deltas[0]
+        assert "I could not identify precise topics" in deltas[0]
+        assert "Choose a topic to explore next" not in deltas[0]
         assert completions[0].full_text == deltas[0]
         assert "The files cover" not in completions[0].full_text
         assert completions[0].turn_index == 3
@@ -3410,10 +3410,10 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.return_value = iter(
             [
                 AssistantDeltaEvent(
-                    "These are the study topics I found in the material [E1] [E2].\n"
+                    "These are the topics I found in the material [E1] [E2].\n"
                     "- Definitions and examples [E1].\n"
                     "- Exam-style method questions [E2].\n"
-                    "- Choose a topic to study next with the menu [E1]."
+                    "- Choose a topic to explore next with the menu [E1]."
                 )
             ]
         )
@@ -3455,8 +3455,8 @@ class TestTurnOrchestratorStudy:
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
-        assert "I could not identify precise study topics" in deltas[0]
-        assert "Choose a topic to study next" not in deltas[0]
+        assert "I could not identify precise topics" in deltas[0]
+        assert "Choose a topic to explore next" not in deltas[0]
         assert "exam-style questions or structured assessment prompts [E1]" in deltas[0]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
@@ -3502,8 +3502,8 @@ class TestTurnOrchestratorStudy:
         events = list(orch.iter_events("Can you ask me a really easy question"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
-        assert deltas == ["I could not generate a study prompt. Please try again."]
-        assert orch.last_reply == "I could not generate a study prompt. Please try again."
+        assert deltas == ["I could not generate a prompt. Please try again."]
+        assert orch.last_reply == "I could not generate a prompt. Please try again."
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -3740,7 +3740,7 @@ class TestTurnOrchestratorStudy:
         assert len(deltas) == 1
         assert "enabled armory sources do not contain an answer" in deltas[0]
         assert "/materials" in deltas[0]
-        assert "study prompt" not in deltas[0]
+        assert "prompt" not in deltas[0]
         mock_iter_agent.assert_not_called()
 
     @patch("hephaistos.chat.orchestrator.stream_completion")

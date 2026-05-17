@@ -1,7 +1,7 @@
 [project]
 name = "hephaistos"
 version = "0.1.0"
-description = "Local-first study agent for your files and any LLM"
+description = "Local-first document workspace for grounded answers, citations, memory, and recall practice with any LLM"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -9,17 +9,15 @@ authors = [
     { name = "Gil", email = "hi@gildrb.com" }
 ]
 requires-python = ">=3.13"
-keywords = ["cli", "education", "llm", "rag", "study"]
+keywords = ["cli", "documents", "llm", "rag", "retrieval", "learning"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
-    "Intended Audience :: Education",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Education",
     "Topic :: Utilities",
     "Typing :: Typed",
 ]

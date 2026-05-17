@@ -172,7 +172,7 @@ def _indent_info_panel_lines(lines: list[str]) -> list[str]:
 def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -> Text:
     """Build the default info panel content showing session length and material names."""
     palette = current_palette()
-    title = session.title or "Study session"
+    title = session.title or "Session"
 
     lines: list[str] = [
         title,

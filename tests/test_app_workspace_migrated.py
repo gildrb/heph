@@ -42,7 +42,7 @@ def initialized_armory(tmp_path: Path) -> Path:
     armory_path = tmp_path / "test-armory"
     initialize(armory_path)
     # Add a material file so create_session() doesn't reject the armory
-    (armory_path / "materials" / "notes.md").write_text("# Notes\nSome study content.\n")
+    (armory_path / "materials" / "notes.md").write_text("# Notes\nSome source content.\n")
     return armory_path
 
 
@@ -351,10 +351,10 @@ class TestCreateStartupSession:
 
         captured = capsys.readouterr()
         assert session.armory_path is None
-        assert "no study materials" in captured.out.lower()
+        assert "no materials" in captured.out.lower()
         assert f"Add files to: {armory_path / 'materials'}" in captured.out
         assert "~/.armories/" in captured.out
-        assert "No study session started because the armory still has no materials" in captured.out
+        assert "No session started because the armory still has no materials" in captured.out
 
     def test_creates_armory_session_when_armory_found(
         self, initialized_armory: Path, monkeypatch: pytest.MonkeyPatch

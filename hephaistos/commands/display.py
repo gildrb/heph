@@ -222,7 +222,7 @@ class CostCommand(Command):
 
 class StatsCommand(Command):
     name = "stats"
-    description = "Show session, armory, and study progress stats"
+    description = "Show session, armory, and learning progress stats"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -316,7 +316,7 @@ class StatsCommand(Command):
             return []
         lines = [
             "",
-            "Study mode:",
+            "Learning mode:",
             f"  Mode:      {study.autonomy_mode.value}",
             f"  Phase:     {study.phase.value}",
         ]

@@ -19,7 +19,7 @@ from hephaistos.terminal import MenuOption, browse_directory, select_option
 from hephaistos.terminal.display import print_error, print_info, print_success
 
 ARMORY_MENU_OPTIONS = [
-    MenuOption("Open existing armory", "Attach a workspace and load its study context."),
+    MenuOption("Open existing armory", "Attach a workspace and load its context."),
     MenuOption("Create new armory", "Initialize a new workspace and start chatting in it."),
     MenuOption("Detach armory", "Switch to plain chat without workspace tools."),
     MenuOption("Resume saved chat", "Pick a saved conversation from an armory."),
@@ -99,7 +99,7 @@ def create_armory(session: ChatSession) -> ChatSession:
         return start_fresh_session(session, armory_path)
     except SessionError as exc:
         print_error(str(exc))
-        print_info(f"Add study files to ~/.armories/{armory_path.name}/materials/")
+        print_info(f"Add source files to ~/.armories/{armory_path.name}/materials/")
         return session
 
 

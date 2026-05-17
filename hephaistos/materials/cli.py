@@ -1,4 +1,4 @@
-"""CLI commands for study material management."""
+"""CLI commands for material management."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _validate_armory(args: argparse.Namespace) -> Path:
 
 
 def _cmd_materials_list(args: argparse.Namespace) -> None:
-    """List study material files in an armory."""
+    """List material files in an armory."""
     try:
         armory_path = _validate_armory(args)
     except (ArmoryError, OSError) as exc:
@@ -35,7 +35,7 @@ def _cmd_materials_list(args: argparse.Namespace) -> None:
     _materials = importlib.import_module("hephaistos.materials")
     files = list(_materials.iter_material_files(armory_path))
     if not files:
-        print("No study materials found.")
+        print("No materials found.")
         return
 
     for file_path in files:
@@ -43,7 +43,7 @@ def _cmd_materials_list(args: argparse.Namespace) -> None:
 
 
 def _cmd_materials_count(args: argparse.Namespace) -> None:
-    """Show the count of study material files in an armory."""
+    """Show the count of material files in an armory."""
     try:
         armory_path = _validate_armory(args)
     except (ArmoryError, OSError) as exc:
@@ -70,11 +70,11 @@ def _register_material_commands(
     materials = subparsers.add_parser(name, help=help_text)
     materials_sub = materials.add_subparsers(dest=f"{name}_command", required=True)
 
-    list_cmd = materials_sub.add_parser("list", help="List study material files.")
+    list_cmd = materials_sub.add_parser("list", help="List material files.")
     list_cmd.add_argument("path", help="Path to the armory folder.")
     list_cmd.set_defaults(handler=_cmd_materials_list)
 
-    count_cmd = materials_sub.add_parser("count", help="Count study material files.")
+    count_cmd = materials_sub.add_parser("count", help="Count material files.")
     count_cmd.add_argument("path", help="Path to the armory folder.")
     count_cmd.set_defaults(handler=_cmd_materials_count)
 
@@ -92,7 +92,7 @@ def register(
     _register_material_commands(
         subparsers,
         name="materials",
-        help_text="Manage study materials in an armory.",
+        help_text="Manage materials in an armory.",
         index_handler=index_handler,
     )
 
@@ -106,7 +106,7 @@ def register_source_alias(
     _register_material_commands(
         subparsers,
         name="source",
-        help_text="Manage study materials in an armory.",
+        help_text="Manage materials in an armory.",
         index_handler=index_handler,
     )
 

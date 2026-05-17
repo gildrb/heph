@@ -188,8 +188,8 @@ def test_run_argv_dispatches_armory_init(
 
     out = capsys.readouterr().out
     assert "Created armory" in out
-    assert f"Add study files to: {armory_path / 'materials'}" in out
-    assert f"Then start studying: heph {armory_path.name}" in out
+    assert f"Add source files to: {armory_path / 'materials'}" in out
+    assert f"Then start working with your documents: heph {armory_path.name}" in out
     assert "~/.armories/" in out
     assert armory_path.is_dir()
 

@@ -12,8 +12,8 @@
 | `heph armory <name> [parent]` | Create a named armory in ~/Armories or in <parent>/Armories. |
 | `heph armory init <name-or-path>` | Create a new named armory folder. |
 | `heph armory open <path>` | Open and validate an armory. |
-| `heph materials list <path>` | List study material files. |
-| `heph materials count <path>` | Count study material files. |
+| `heph materials list <path>` | List material files. |
+| `heph materials count <path>` | Count material files. |
 | `heph materials index <path>` | Build or refresh the RAG index. |
 | `heph index [path]` | Build or refresh the materials index; defaults to the current armory. |
 | `heph health [path]` | Check indexed materials for generic extraction problems; defaults to the current armory. |
@@ -51,18 +51,18 @@ new docs.
 | /evidence | Show retrieved evidence for the last turn |
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
-| /stats | Show session, armory, and study progress stats |
+| /stats | Show session, armory, and learning progress stats |
 | /priority | Generate a printable priority PDF cheat sheet |
-| /mode | Set manual, guided, or autopilot study mode |
-| /autopilot | Let Heph drive a bounded autonomous study session |
+| /mode | Set manual, guided, or autopilot learning mode |
+| /autopilot | Let Heph drive a bounded autonomous learning session |
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |
-| /remind | Show upcoming study reminders and due cards |
+| /remind | Show upcoming review reminders and due cards |
 | /edit | Edit and resend the last user message |
 | /models | Pick the active model |
-| /recommend | Recommend models for study sessions |
-| /memory | Manage study memory and Supermemory setup |
+| /recommend | Recommend models for sessions |
+| /memory | Manage armory memory and Supermemory setup |
 | /persona | Show or switch the agent persona |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |
@@ -95,6 +95,6 @@ new docs.
 | `HEPHAISTOS_TRUST_ARMORY_PLUGINS` | Allow trusted armories to load `.hephaistos/tools/*.py` plugins. |
 | `OPENAI_API_KEY` | API key for the OpenAI API provider. |
 | `OPENROUTER_API_KEY` | API key for OpenRouter. |
-| `SUPERMEMORY_API_KEY` | API key for Supermemory study memory. |
+| `SUPERMEMORY_API_KEY` | API key for Supermemory armory memory. |
 | `SUPERMEMORY_URL` | Override the Supermemory API base URL. |
 | `ZAI_API_KEY` | API key for Z.AI / GLM. |

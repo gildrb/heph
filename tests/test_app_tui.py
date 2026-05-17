@@ -362,11 +362,11 @@ def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
             for span in hints.spans
             if span.start <= shortcut_start and span.end >= shortcut_start + len("ctrl+p")
         ]
-        title_start = panel.plain.index("Study session")
+        title_start = panel.plain.index("Session")
         title_styles = [
             str(span.style)
             for span in panel.spans
-            if span.start <= title_start and span.end >= title_start + len("Study session")
+            if span.start <= title_start and span.end >= title_start + len("Session")
         ]
 
         for styles in (mode_styles, title_styles):
@@ -1370,7 +1370,7 @@ def test_transcript_overflow_scrolls_without_moving_composer() -> None:
                 app._append_user(f"stress history message {index}", mark_working=False)
                 app._append_assistant_reply(
                     "No armory is attached. Open or create an armory with /armory, "
-                    "then add study materials so I can answer from your sources."
+                    "then add materials so I can answer from your sources."
                 )
             await pilot.pause()
 
@@ -1437,7 +1437,7 @@ def test_tui_layout_blanks_do_not_paint_black_background() -> None:
                 yield static_class("", id="thinking-indicator")
                 with vertical_class(id="composer-frame"):
                     yield input_class(
-                        placeholder='Ask anything... "What do I need to study next?"',
+                        placeholder='Ask anything... "What should I review next?"',
                         id="composer",
                     )
                     yield static_class(
@@ -1647,7 +1647,7 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
     )
 
     lines = panel.plain.splitlines()
-    assert lines[0].startswith("  Study session")
+    assert lines[0].startswith("  Session")
     assert lines[1].startswith("  time 2m 05s")
     assert "\u2500" not in panel.plain
     assert all(line.startswith("  ") for line in lines if line)
@@ -2105,10 +2105,10 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
     async def check_topic_flow() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
             app._append_assistant_reply(
-                "These are the study topics I found in the material:\n"
+                "These are the topics I found in the material:\n"
                 "- Enzyme Kinetics [E1]\n"
                 "- Protein Folding [E2]\n\n"
-                "Choose a topic to study next. In the shell, use ↑/↓ and press Enter.\n\n"
+                "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter.\n\n"
                 "Recommended options:\n"
                 "- Start with a guided explanation of Enzyme Kinetics [E1].\n"
                 "- Practice one exam-style or exercise question on Protein Folding [E2].\n"
@@ -2126,7 +2126,7 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
             assert app._inline_flow.step == "topic"
             assert app._inline_flow.options[-1] == (
                 "Ask something else",
-                "custom study prompt",
+                "custom armory prompt",
             )
             suggestions = cast(
                 "TextualOptionList",
@@ -2248,7 +2248,7 @@ def test_study_topic_menu_custom_prompt_submits_user_text(
 
             assert app._inline_flow.options[-1] == (
                 "Ask something else",
-                "custom study prompt",
+                "custom armory prompt",
             )
 
             await pilot.press("down")
@@ -2320,10 +2320,10 @@ def test_inline_study_menu_ignores_stale_completion_candidates(
 
 def test_overview_topic_options_parse_only_actual_topic_section() -> None:
     reply = (
-        "These are the study topics I found in the material [E1][E2].\n"
+        "These are the topics I found in the material [E1][E2].\n"
         "- Matrix multiplication [E1].\n"
         "- Eigenvalues [E2].\n\n"
-        "Choose a topic to study next. In the shell, use ↑/↓ and press Enter.\n\n"
+        "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter.\n\n"
         "Recommended options:\n"
         "- Start with a guided explanation of Matrix multiplication [E1]."
     )
@@ -2332,22 +2332,22 @@ def test_overview_topic_options_parse_only_actual_topic_section() -> None:
         ("Matrix multiplication", "combining matrices"),
         ("Eigenvalues", "matrix scaling factors"),
         ("Explain Matrix multiplication", "recommended"),
-        ("Ask something else", "custom study prompt"),
+        ("Ask something else", "custom armory prompt"),
     ]
 
 
 def test_overview_topic_options_accepts_shell_menu_hint() -> None:
     reply = (
-        "These are the study topics I found in the material [E1][E2].\n"
+        "These are the topics I found in the material [E1][E2].\n"
         "- Signal entropy [E1].\n"
         "- Carrier waves [E2].\n"
-        "Use the shell menu to choose one cited topic for guided study next."
+        "Use the shell menu to choose one cited topic for guided learning next."
     )
 
     assert overview_topic_options(reply) == [
         ("Signal entropy", "uncertainty in signals"),
         ("Carrier waves", "signals carrying information"),
-        ("Ask something else", "custom study prompt"),
+        ("Ask something else", "custom armory prompt"),
     ]
 
 
@@ -2364,7 +2364,7 @@ def test_overview_topic_menu_ignores_recommendations_without_overview_context() 
 
 def test_overview_topic_menu_accepts_recommendations_with_topic_heading() -> None:
     reply = (
-        "These are the study topics I found in the material [E1][E2].\n"
+        "These are the topics I found in the material [E1][E2].\n"
         "- Graph algorithms [E1].\n"
         "- Recurrence relations [E2].\n\n"
         "Recommended options:\n"
@@ -2378,7 +2378,7 @@ def test_overview_topic_menu_accepts_recommendations_with_topic_heading() -> Non
         ("Graph algorithms", "network problem solving"),
         ("Recurrence relations", "recursive sequence rules"),
         ("Explain Graph algorithms", "recommended"),
-        ("Ask something else", "custom study prompt"),
+        ("Ask something else", "custom armory prompt"),
     ]
 
 
@@ -2387,9 +2387,9 @@ def test_overview_topic_menu_converts_recommendation_to_direct_prompt() -> None:
         "Recommendation: ask a contrastive question next, such as "
         '"Which topic is different between sequences and series?" This is beneficial '
         "because it separates closely related ideas.\n\n"
-        "These are the study topics I found in the material:\n"
+        "These are the topics I found in the material:\n"
         "- Sequences [E1]\n\n"
-        "Choose a topic to study next. In the shell, use ↑/↓ and press Enter."
+        "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter."
     )
 
     menu = overview_topic_menu(reply)
@@ -2398,7 +2398,7 @@ def test_overview_topic_menu_converts_recommendation_to_direct_prompt() -> None:
     assert menu.options == [
         ("Sequences", "ordered value patterns"),
         ("Ask a contrastive question", "recommended"),
-        ("Ask something else", "custom study prompt"),
+        ("Ask something else", "custom armory prompt"),
     ]
     assert menu.prompts == {
         "Ask a contrastive question": "Which topic is different between sequences and series?"
@@ -2407,10 +2407,10 @@ def test_overview_topic_menu_converts_recommendation_to_direct_prompt() -> None:
 
 def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> None:
     reply = (
-        "These are the study topics I found in the material:\n"
+        "These are the topics I found in the material:\n"
         "- Signal Entropy [E11]\n"
         "- Carrier Waves [E13]\n\n"
-        "Choose a topic to study next. In the shell, use ↑/↓ and press Enter.\n\n"
+        "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter.\n\n"
         "Recommended options:\n"
         "- Start with a guided explanation of Signal Entropy [E11].\n"
         "- Practice one exam-style or exercise question on Carrier Waves [E13].\n"
@@ -2426,7 +2426,7 @@ def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> Non
         ("Explain Signal Entropy", "recommended"),
         ("Practice Carrier Waves", "recommended"),
         ("Compare Signal Entropy and Carrier Waves", "recommended"),
-        ("Ask something else", "custom study prompt"),
+        ("Ask something else", "custom armory prompt"),
     ]
     assert menu.prompts["Explain Signal Entropy"] == (
         "Teach me Signal Entropy in simple terms, grounded in the evidence for this topic. "
@@ -2444,23 +2444,23 @@ def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> Non
 
 def test_overview_topic_options_uses_specific_fallback_descriptions() -> None:
     reply = (
-        "These are the study topics I found in the material:\n"
+        "These are the topics I found in the material:\n"
         "- Byzantine Consensus [E1].\n"
-        "Use the shell menu to choose one cited topic for guided study next."
+        "Use the shell menu to choose one cited topic for guided learning next."
     )
 
     assert overview_topic_options(reply) == [
         ("Byzantine Consensus", "what Byzantine Consensus means"),
-        ("Ask something else", "custom study prompt"),
+        ("Ask something else", "custom armory prompt"),
     ]
 
 
 def test_overview_topic_options_limits_to_seven_topics() -> None:
     topics = "\n".join(f"- Topic {index} [E1]" for index in range(1, 9))
     reply = (
-        "These are the study topics I found in the material:\n"
+        "These are the topics I found in the material:\n"
         f"{topics}\n\n"
-        "Choose a topic to study next. In the shell, use ↑/↓ and press Enter."
+        "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter."
     )
 
     assert [label for label, _description in overview_topic_options(reply)] == [
@@ -2907,8 +2907,8 @@ def test_sessions_command_lists_saved_sessions_inline(tmp_path: Path) -> None:
     armory = tmp_path / "module"
     initialize(armory)
     saved_conversation = Conversation()
-    saved_conversation.add("user", "What did I study?")
-    chat_storage.save(armory, "abc123", saved_conversation, title="Study recap")
+    saved_conversation.add("user", "What did I review?")
+    chat_storage.save(armory, "abc123", saved_conversation, title="Session recap")
 
     session = _plain_session()
     session.armory_path = armory
@@ -2928,7 +2928,7 @@ def test_sessions_command_lists_saved_sessions_inline(tmp_path: Path) -> None:
 
             assert any("Saved sessions for" in entry.content for entry in app.state.transcript)
             assert any("abc123" in entry.content for entry in app.state.transcript)
-            assert any("Study recap" in entry.content for entry in app.state.transcript)
+            assert any("Session recap" in entry.content for entry in app.state.transcript)
             assert app.state.pending_input is None
 
     asyncio.run(check_sessions_listing())
@@ -2941,7 +2941,7 @@ def test_sessions_command_defaults_to_filtered_resume_menu(tmp_path: Path) -> No
     armory = tmp_path / "module"
     initialize(armory)
     first_conversation = Conversation()
-    first_conversation.add("user", "What did I study?")
+    first_conversation.add("user", "What did I review?")
     first_conversation.add("assistant", "You reviewed modal logic.")
     chat_storage.save(armory, "logic123", first_conversation, title="Modal logic recap")
     second_conversation = Conversation()
@@ -2991,9 +2991,9 @@ def test_sessions_command_browses_and_resumes_saved_session_inline(tmp_path: Pat
     armory = tmp_path / "module"
     initialize(armory)
     saved_conversation = Conversation()
-    saved_conversation.add("user", "What did I study?")
+    saved_conversation.add("user", "What did I review?")
     saved_conversation.add("assistant", "You reviewed modal logic.")
-    chat_storage.save(armory, "abc123", saved_conversation, title="Study recap")
+    chat_storage.save(armory, "abc123", saved_conversation, title="Session recap")
 
     session = _plain_session()
     session.armory_path = armory
@@ -3015,7 +3015,7 @@ def test_sessions_command_browses_and_resumes_saved_session_inline(tmp_path: Pat
             app._submit_inline_flow("abc123")
 
             assert app.session.session_id == "abc123"
-            assert any("What did I study?" in entry.content for entry in app.state.transcript)
+            assert any("What did I review?" in entry.content for entry in app.state.transcript)
             assert any(
                 "You reviewed modal logic." in entry.content for entry in app.state.transcript
             )
@@ -5007,5 +5007,5 @@ def test_autopilot_command_resend_renders_reply_as_assistant(
     replies = [args[0] for name, args in calls if name == "_append_assistant_reply"]
     assert any("Autopilot general session started" in str(notice) for notice in notices)
     assert replies == ["State the definition of a sequence."]
-    assert seen["user_input"].startswith("Start an autopilot study session")
+    assert seen["user_input"].startswith("Start an autopilot session")
     assert all("Hephaistos:" not in str(args) for _, args in calls)

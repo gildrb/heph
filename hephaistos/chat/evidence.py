@@ -215,7 +215,7 @@ def assess_turn_evidence(
     elif plan.action is StudyAction.ASSESS:
         missing_hint = "rubric, mark scheme, or source span for grounded assessment"
     else:
-        missing_hint = "source span that supports the requested study response"
+        missing_hint = "source span that supports the requested response"
     assessment = assess_evidence(
         tuple(evidence_refs(turn_evidence)),
         source_only=source_only,

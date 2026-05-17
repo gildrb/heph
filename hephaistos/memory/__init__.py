@@ -21,7 +21,7 @@ carry:
 - ``access_count``: how many times it's been referenced (for relevance decay)
 
 This is NOT a vector store — it's a structured knowledge base optimized
-for a study agent that needs to know what the user already understands.
+for a document workspace that needs to know what the user already understands.
 """
 
 from __future__ import annotations

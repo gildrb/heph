@@ -101,7 +101,7 @@ class AppSettings:
     analytics_enabled: bool = False
     crash_reports_enabled: bool = False
     supermemory_enabled: bool = False
-    supermemory_profile: str = "heph-study"
+    supermemory_profile: str = "heph-learning"
     supermemory_onboarding_seen: bool = False
     privacy_notice_seen: bool = False
     session_count: int = 0
@@ -210,7 +210,7 @@ def normalize_setting_value(key: str, value: object) -> object:
         return ",".join(sorted(flags))
     if key == "supermemory_profile":
         profile = str(value).strip()
-        return profile or "heph-study"
+        return profile or "heph-learning"
     if key in STRING_KEYS:
         return str(value)
     if key in ("known_armories", "recent_armories"):
@@ -299,8 +299,8 @@ def load_app_settings() -> AppSettings:
         analytics_enabled=_coerce_bool(raw.get("analytics_enabled"), default=False),
         crash_reports_enabled=_coerce_bool(raw.get("crash_reports_enabled"), default=False),
         supermemory_enabled=_coerce_bool(raw.get("supermemory_enabled"), default=False),
-        supermemory_profile=str(raw.get("supermemory_profile", "heph-study")).strip()
-        or "heph-study",
+        supermemory_profile=str(raw.get("supermemory_profile", "heph-learning")).strip()
+        or "heph-learning",
         supermemory_onboarding_seen=_coerce_bool(
             raw.get("supermemory_onboarding_seen"), default=False
         ),

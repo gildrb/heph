@@ -39,7 +39,10 @@ def _module_name_error(name: str) -> str | None:
 
 
 def _prompt_module_name() -> str | None:
-    print_info("What module or topic are you studying for? (e.g. 'gdp', 'algorithms', 'biology')")
+    print_info(
+        "What module, project, or topic should this armory cover? "
+        "(e.g. 'gdp', 'algorithms', 'biology')"
+    )
     armory_home = _onboarding_armory_home()
     print_info(f"Armories are saved in {armory_home}. You can create as many as you like.")
     while True:
@@ -72,7 +75,7 @@ def onboard_new_armory(config: ChatConfig) -> ChatSession | None:
     module_name = armory_path.name
     materials_path = armory_path / "materials"
     print_success(f"Created armory '{module_name}' at {armory_path}")
-    print_info(f"Add your study materials to {materials_path}")
+    print_info(f"Add your materials to {materials_path}")
     print_info("You can create as many armories as you like for different modules.")
     while count_material_files(armory_path) == 0:
         try:

@@ -58,7 +58,7 @@ def vocab_armory(tmp_path: Path) -> Path:
 
     # A non-vocab file (no matching table headers).
     (arm / "materials" / "notes.md").write_text(
-        "# Study Notes\n\n| topic | detail |\n|-------|--------|\n| Math | Algebra |\n",
+        "# Notes\n\n| topic | detail |\n|-------|--------|\n| Math | Algebra |\n",
         encoding="utf-8",
     )
 
