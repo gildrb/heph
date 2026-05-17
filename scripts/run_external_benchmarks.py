@@ -9,6 +9,7 @@ writes an auditable JSON report.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import tempfile
@@ -102,6 +103,14 @@ class RunnerParameters:
     top_k: int
     min_score: float
     transform_strategy: TransformStrategy
+
+
+@dataclass(frozen=True, slots=True)
+class PromptIdentity:
+    path: Path
+    sha256: str
+    title: str
+    version: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +219,46 @@ def _validate_dataset(benchmark_type: str, dataset: str) -> None:
         f"unsupported {benchmark_type} dataset: {dataset}",
         f"Use one of: {supported_list}.",
     )
+
+
+def _prompt_identity(prompt_path: Path | None) -> PromptIdentity | None:
+    if prompt_path is None:
+        return None
+    path = prompt_path.expanduser().resolve()
+    if not path.is_file():
+        raise RunnerError(
+            "prompt_not_found",
+            f"benchmark evaluation prompt does not exist: {path}",
+            "Pass --prompt pointing to benchmarks/model-evaluation-prompt.md.",
+        )
+    try:
+        content = path.read_bytes()
+        text = content.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RunnerError(
+            "malformed_prompt",
+            f"benchmark evaluation prompt could not be read as UTF-8: {path}",
+            "Use a readable Markdown prompt file.",
+        ) from exc
+    title, version = _prompt_title_and_version(text, path)
+    return PromptIdentity(
+        path=path,
+        sha256=hashlib.sha256(content).hexdigest(),
+        title=title,
+        version=version,
+    )
+
+
+def _prompt_title_and_version(text: str, path: Path) -> tuple[str, str]:
+    title = path.stem
+    version = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            title = stripped.removeprefix("# ").strip() or title
+        if stripped.startswith("Prompt-Version:"):
+            version = stripped.removeprefix("Prompt-Version:").strip()
+    return title, version
 
 
 def _resolve_external_inputs(
@@ -471,6 +520,8 @@ def _run_rag_flow(
     *,
     validate_reproducibility: bool,
     report_path: Path | None,
+    prompt_identity: PromptIdentity | None,
+    model_label: str,
 ) -> tuple[dict[str, object], int]:
     cases = _load_and_validate_cases(
         inputs.cases_path,
@@ -512,6 +563,8 @@ def _run_rag_flow(
             cases_path=inputs.cases_path,
             readiness_report_path=inputs.readiness_report_path,
             report_path=report_path,
+            prompt_identity=prompt_identity,
+            model_label=model_label,
         ),
         benchmarks=[benchmark_payload],
         aggregate_metrics=metrics,
@@ -664,6 +717,8 @@ def _run_native_flow(
     *,
     validate_reproducibility: bool,
     report_path: Path | None,
+    prompt_identity: PromptIdentity | None,
+    model_label: str,
 ) -> tuple[dict[str, object], int]:
     raw_suite = cast("Path | None", args.suite)
     suite_path = (
@@ -712,6 +767,8 @@ def _run_native_flow(
             cases_path=None,
             readiness_report_path=None,
             report_path=report_path,
+            prompt_identity=prompt_identity,
+            model_label=model_label,
         ),
         benchmarks=[benchmark_payload],
         aggregate_metrics=metrics,
@@ -887,6 +944,8 @@ def _metadata(
     cases_path: Path | None,
     readiness_report_path: Path | None,
     report_path: Path | None,
+    prompt_identity: PromptIdentity | None,
+    model_label: str,
 ) -> dict[str, object]:
     metadata: dict[str, object] = {
         "runner": RUNNER_ID,
@@ -916,6 +975,13 @@ def _metadata(
         metadata["readiness_report_path"] = str(readiness_report_path.resolve())
     if report_path is not None:
         metadata["report_path"] = str(report_path.expanduser().resolve())
+    if prompt_identity is not None:
+        metadata["prompt_path"] = str(prompt_identity.path)
+        metadata["prompt_hash"] = prompt_identity.sha256
+        metadata["prompt_title"] = prompt_identity.title
+        metadata["prompt_version"] = prompt_identity.version
+    if model_label.strip():
+        metadata["model"] = model_label.strip()
     return metadata
 
 
@@ -979,36 +1045,43 @@ def _error_report(
     thresholds: Thresholds,
     parameters: RunnerParameters,
     report_path: Path | None,
+    prompt_identity: PromptIdentity | None,
+    model_label: str,
     error: RunnerError,
 ) -> dict[str, object]:
     suite_path = Path()
+    metadata: dict[str, object] = {
+        "runner": RUNNER_ID,
+        "benchmark_type": benchmark_type,
+        "dataset": dataset,
+        "suite_path": str(suite_path),
+        "fixed_parameters": {
+            "top_k": parameters.top_k,
+            "min_score": parameters.min_score,
+            "transform_strategy": parameters.transform_strategy.value,
+            "query_order": "case-file-order",
+            "result_order": "retrieval-rank-order",
+            "random_seed": 0,
+            "randomness": "not-used",
+            "network_access": "disabled-after-materialization",
+        },
+        "metric_formulas": dict(_METRIC_FORMULAS),
+        "latency_scope": _METRIC_FORMULAS["latency"],
+        "timestamp_policy": "no wall-clock timestamp is included in deterministic reports",
+        "runtime_only_fields": list(_RUNTIME_ONLY_FIELDS),
+    }
+    if report_path is not None:
+        metadata["report_path"] = str(report_path.expanduser().resolve())
+    if prompt_identity is not None:
+        metadata["prompt_path"] = str(prompt_identity.path)
+        metadata["prompt_hash"] = prompt_identity.sha256
+        metadata["prompt_title"] = prompt_identity.title
+        metadata["prompt_version"] = prompt_identity.version
+    if model_label.strip():
+        metadata["model"] = model_label.strip()
     return _base_report(
         status="error",
-        metadata={
-            "runner": RUNNER_ID,
-            "benchmark_type": benchmark_type,
-            "dataset": dataset,
-            "suite_path": str(suite_path),
-            "fixed_parameters": {
-                "top_k": parameters.top_k,
-                "min_score": parameters.min_score,
-                "transform_strategy": parameters.transform_strategy.value,
-                "query_order": "case-file-order",
-                "result_order": "retrieval-rank-order",
-                "random_seed": 0,
-                "randomness": "not-used",
-                "network_access": "disabled-after-materialization",
-            },
-            "metric_formulas": dict(_METRIC_FORMULAS),
-            "latency_scope": _METRIC_FORMULAS["latency"],
-            "timestamp_policy": "no wall-clock timestamp is included in deterministic reports",
-            "runtime_only_fields": list(_RUNTIME_ONLY_FIELDS),
-            **(
-                {"report_path": str(report_path.expanduser().resolve())}
-                if report_path is not None
-                else {}
-            ),
-        },
+        metadata=metadata,
         benchmarks=[],
         aggregate_metrics={
             "hit_rate": 0.0,
@@ -1107,6 +1180,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-hit-rate", type=float, default=0.0)
     parser.add_argument("--min-mrr", type=float, default=0.0)
     parser.add_argument("--min-expected-recall", type=float, default=0.0)
+    parser.add_argument(
+        "--prompt",
+        type=Path,
+        help="Benchmark evaluation prompt whose path/hash should be recorded in reports",
+    )
+    parser.add_argument(
+        "--model-label",
+        default="",
+        help="Optional model or evaluation configuration label to record in reports",
+    )
     parser.add_argument("--json-report", type=Path, help="Write a versioned JSON report")
     return parser
 
@@ -1119,8 +1202,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     report_path = cast("Path | None", args.json_report)
     thresholds = _rate_thresholds(args)
     parameters = _parameters(args)
+    prompt_identity: PromptIdentity | None = None
+    model_label = cast("str", args.model_label)
 
     try:
+        prompt_identity = _prompt_identity(cast("Path | None", args.prompt))
         _validate_cli_values(parameters, thresholds)
         _validate_dataset(benchmark_type, dataset)
         if benchmark_type == "heph-native":
@@ -1131,6 +1217,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 parameters,
                 validate_reproducibility=cast("bool", args.validate_reproducibility),
                 report_path=report_path,
+                prompt_identity=prompt_identity,
+                model_label=model_label,
             )
         else:
             inputs = _resolve_external_inputs(benchmark_type, dataset, args)
@@ -1139,10 +1227,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 parameters,
                 thresholds,
                 validate_reproducibility=cast("bool", args.validate_reproducibility),
+                prompt_identity=prompt_identity,
+                model_label=model_label,
                 report_path=report_path,
             )
     except RunnerError as exc:
-        report = _error_report(benchmark_type, dataset, thresholds, parameters, report_path, exc)
+        report = _error_report(
+            benchmark_type,
+            dataset,
+            thresholds,
+            parameters,
+            report_path,
+            prompt_identity,
+            model_label,
+            exc,
+        )
         _write_json_report(report_path, report)
         _print_status(report, error=True)
         return 2
@@ -1152,7 +1251,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"benchmark execution failed: {exc}",
             "Check local materialized inputs and rerun with a small fixture.",
         )
-        report = _error_report(benchmark_type, dataset, thresholds, parameters, report_path, error)
+        report = _error_report(
+            benchmark_type,
+            dataset,
+            thresholds,
+            parameters,
+            report_path,
+            prompt_identity,
+            model_label,
+            error,
+        )
         _write_json_report(report_path, report)
         _print_status(report, error=True)
         return 2

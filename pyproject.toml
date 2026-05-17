@@ -53,6 +53,12 @@ rag = [
 fuzzy = [
     "rapidfuzz>=3.14.0",
 ]
+beir = [
+    "beir>=2.2.0",
+]
+visualization = [
+    "matplotlib>=3.10.0",
+]
 
 [project.scripts]
 hephaistos = "hephaistos.cli.main:main"
@@ -348,7 +354,7 @@ extend_exclude = ["tests"]
 # direct dependency so deptry should not flag it as merely transitive.
 # DEP001 on nltk/numpy/sklearn — transitive deps of optional RAG extras.
 # DEP004 on bm25s — optional runtime RAG backend installed through the rag group.
-per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
+per_rule_ignores = { DEP002 = ["sentence-transformers", "scikit-learn", "docling", "py-spy", "pathspec", "rapidfuzz", "beir", "matplotlib"], DEP003 = ["hephaistos", "certifi"], DEP001 = ["nltk", "numpy", "sklearn"], DEP004 = ["bm25s", "pathspec", "rapidfuzz"] }
 
 [tool.pytest.ini_options]
 addopts = "--tb=short -q --durations=10 --strict-markers -n auto --dist worksteal --cov=hephaistos --cov-report=term-missing --cov-fail-under=75"
