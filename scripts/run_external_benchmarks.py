@@ -50,12 +50,17 @@ _METRIC_FORMULAS = {
 }
 
 _RUNTIME_ONLY_FIELDS = (
+    "metadata.suite_path",
+    "metadata.armory_path",
+    "metadata.cases_path",
+    "metadata.readiness_report_path",
     "metadata.report_path",
     "benchmarks[].metrics.mean_latency_ms",
     "benchmarks[].metrics.latency.mean_ms",
     "benchmarks[].per_query_results[].latency_ms",
     "benchmarks[].rag_report.mean_latency_ms",
     "benchmarks[].rag_report.results[].elapsed_ms",
+    "benchmarks[].native_suite_report.suite",
     "benchmarks[].native_suite_report.report_path",
     "aggregate_metrics.mean_latency_ms",
     "aggregate_metrics.latency.mean_ms",
@@ -816,14 +821,36 @@ def _native_reproducibility(
 
 
 def _strip_runtime_fields(value: object, *, key_name: str = "") -> object:
-    if key_name in {"elapsed_ms", "mean_latency_ms", "report_path"}:
+    if key_name in {
+        "armory_path",
+        "cases_path",
+        "elapsed_ms",
+        "latency_ms",
+        "mean_latency_ms",
+        "mean_ms",
+        "readiness_report_path",
+        "report_path",
+        "suite",
+        "suite_path",
+    }:
         return None
     if isinstance(value, dict):
         normalized: dict[str, object] = {}
         for raw_key, raw_child in sorted(value.items(), key=lambda item: str(item[0])):
             if not isinstance(raw_key, str):
                 continue
-            if raw_key in {"elapsed_ms", "mean_latency_ms", "report_path"}:
+            if raw_key in {
+                "armory_path",
+                "cases_path",
+                "elapsed_ms",
+                "latency_ms",
+                "mean_latency_ms",
+                "mean_ms",
+                "readiness_report_path",
+                "report_path",
+                "suite",
+                "suite_path",
+            }:
                 continue
             normalized[raw_key] = _strip_runtime_fields(raw_child, key_name=raw_key)
         return normalized
@@ -832,6 +859,11 @@ def _strip_runtime_fields(value: object, *, key_name: str = "") -> object:
     if isinstance(value, tuple):
         return [_strip_runtime_fields(item) for item in value]
     return value
+
+
+def deterministic_report_projection(report: Mapping[str, object]) -> object:
+    """Return report content with enumerated runtime-only fields removed."""
+    return _strip_runtime_fields(report)
 
 
 def _status_and_exit_code(
@@ -901,6 +933,7 @@ def _base_report(
 ) -> dict[str, object]:
     return {
         "schema_version": SCHEMA_VERSION,
+        "report_id": _report_id(metadata),
         "status": status,
         "metadata": metadata,
         "benchmarks": benchmarks,
@@ -911,6 +944,14 @@ def _base_report(
         "errors": errors,
         "reproducibility": reproducibility,
     }
+
+
+def _report_id(metadata: Mapping[str, object]) -> str:
+    raw_benchmark_type = metadata.get("benchmark_type")
+    raw_dataset = metadata.get("dataset")
+    benchmark_type = raw_benchmark_type if isinstance(raw_benchmark_type, str) else "unknown"
+    dataset = raw_dataset if isinstance(raw_dataset, str) else "unknown"
+    return f"{benchmark_type}:{dataset}"
 
 
 def _skipped_reproducibility() -> dict[str, object]:

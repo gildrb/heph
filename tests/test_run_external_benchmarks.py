@@ -107,6 +107,7 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
 
     assert status == 0
     assert report["schema_version"] == "external-runner-report-v1"
+    assert report["report_id"] == "beir:beir/fixture"
     assert report["status"] == "success"
     assert metadata["benchmark_type"] == "beir"
     assert metadata["dataset"] == "beir/fixture"
@@ -122,6 +123,60 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
     assert benchmark["status"] == "success"
     assert any("top_k=9" in str(warning) for warning in warnings)
     assert "sentinel-secret-value" not in json.dumps(report)
+
+
+def test_runner_report_projection_is_deterministic_across_runtime_paths(
+    tmp_path: Path,
+) -> None:
+    first_suite = _make_external_suite(tmp_path / "first", _passing_cases())
+    second_suite = _make_external_suite(tmp_path / "second", _passing_cases())
+    first_report_path = tmp_path / "reports" / "first.json"
+    second_report_path = tmp_path / "reports" / "second.json"
+
+    first_status = run_external_benchmarks.main(
+        [
+            "beir",
+            "beir/fixture",
+            "--suite",
+            str(first_suite),
+            "--top-k",
+            "9",
+            "--min-score",
+            "0.0",
+            "--json-report",
+            str(first_report_path),
+        ]
+    )
+    second_status = run_external_benchmarks.main(
+        [
+            "beir",
+            "beir/fixture",
+            "--suite",
+            str(second_suite),
+            "--top-k",
+            "9",
+            "--min-score",
+            "0.0",
+            "--json-report",
+            str(second_report_path),
+        ]
+    )
+
+    first_report = _read_report(first_report_path)
+    second_report = _read_report(second_report_path)
+    metadata = _as_dict(first_report["metadata"])
+    reproducibility = _as_dict(first_report["reproducibility"])
+    runtime_only_fields = _as_list(metadata["runtime_only_fields"])
+
+    assert first_status == 0
+    assert second_status == 0
+    assert "metadata.suite_path" in runtime_only_fields
+    assert "metadata.armory_path" in runtime_only_fields
+    assert "metadata.cases_path" in runtime_only_fields
+    assert reproducibility["runtime_only_fields"] == runtime_only_fields
+    assert run_external_benchmarks.deterministic_report_projection(
+        first_report
+    ) == run_external_benchmarks.deterministic_report_projection(second_report)
 
 
 def test_runner_validates_reproducibility_without_network(
