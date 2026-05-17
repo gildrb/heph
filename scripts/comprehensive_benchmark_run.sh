@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 
 UV_BIN="${HEPH_BENCHMARK_UV:-uv}"
-PYTHON_BIN="${HEPH_BENCHMARK_PYTHON:-python3}"
+PYTHON_BIN="${HEPH_BENCHMARK_PYTHON:-}"
 
 OUTPUT_DIR="${HEPH_BENCHMARK_OUTPUT_DIR:-${REPO_ROOT}/.artifacts/comprehensive-benchmark}"
 PROMPT_PATH="${REPO_ROOT}/benchmarks/model-evaluation-prompt.md"
@@ -106,6 +106,11 @@ Fixture public-academic minimum overrides:
 
 Generated artifacts are contained under the configured output directory. The script snapshots
 repository status before and after the run and fails if generated files pollute the repository.
+
+Environment overrides:
+  HEPH_BENCHMARK_UV PATH         uv executable to use; defaults to uv
+  HEPH_BENCHMARK_PYTHON PATH     Explicit Python executable for helper and dependency checks;
+                                 unset uses uv run python from the project environment
 USAGE
 }
 
@@ -180,6 +185,14 @@ resolve_existing_file() {
   printf '%s/%s\n' "$(cd "${parent}" && pwd -P)" "${base}"
 }
 
+run_python() {
+  if [[ -n "${PYTHON_BIN}" ]]; then
+    "${PYTHON_BIN}" "$@"
+  else
+    "${UV_BIN}" run python "$@"
+  fi
+}
+
 prepare_output_dir() {
   local raw
   raw="$(absolute_path "${OUTPUT_DIR}")"
@@ -210,7 +223,7 @@ prepare_output_dir() {
 }
 
 prompt_hash() {
-  "${PYTHON_BIN}" -c \
+  run_python -c \
     'from pathlib import Path; import hashlib; import sys; print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())' \
     "$1"
 }
@@ -224,7 +237,7 @@ check_optional_module() {
   local output
   local status
   set +e
-  output="$("${PYTHON_BIN}" -c \
+  output="$(run_python -c \
     "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('${module}') is not None else 1)" \
     2>&1)"
   status=$?
@@ -675,9 +688,8 @@ if [[ "${DEPENDENCY_CHECK_ONLY}" -eq 1 ]]; then
 fi
 
 PROMPT_PATH="$(resolve_existing_file "${PROMPT_PATH}")"
-PROMPT_HASH="$(prompt_hash "${PROMPT_PATH}")"
-
 prepare_output_dir
+PROMPT_HASH="$(prompt_hash "${PROMPT_PATH}")"
 snapshot_git_status
 mkdir -p "${OUTPUT_DIR}/reports" "${OUTPUT_DIR}/suites"
 

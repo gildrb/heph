@@ -41,6 +41,15 @@ log_path.parent.mkdir(parents=True, exist_ok=True)
 with log_path.open("a", encoding="utf-8") as log:
     log.write(" ".join(args) + "\\n")
 
+if len(args) >= 4 and args[:3] == ["run", "python", "-c"]:
+    code = args[3]
+    if os.environ.get("FAKE_UV_PYTHON_FAIL") == "1":
+        print("simulated uv python failure", file=sys.stderr)
+        raise SystemExit(1)
+    if "hashlib.sha256" in code:
+        print("fake-prompt-hash")
+    raise SystemExit(0)
+
 module = args[args.index("-m") + 1] if "-m" in args else ""
 if os.environ.get("FAKE_UV_FAIL_MODULE") == module:
     secret = os.environ.get("HEPHAISTOS_TEST_SECRET_COMPREHENSIVE", "")
@@ -170,8 +179,70 @@ def test_comprehensive_script_help_documents_required_interface() -> None:
         "--validate-reproducibility",
         "--visualize",
         "--require-beir-extra",
+        "HEPH_BENCHMARK_PYTHON",
     ):
         assert option in result.stdout
+
+
+def test_comprehensive_script_dependency_checks_use_uv_project_python_by_default(
+    tmp_path: Path,
+) -> None:
+    fake_uv = tmp_path / "fake-uv"
+    _write_fake_uv(fake_uv)
+    env = _base_env(tmp_path, fake_uv)
+
+    with tempfile.TemporaryDirectory(prefix="heph-comprehensive-", dir="/tmp") as temp_root:
+        result = _run_script(
+            [
+                "--output-dir",
+                str(Path(temp_root) / "artifacts"),
+                "--require-beir-extra",
+                "--require-visualization-extra",
+                "--dependency-check-only",
+            ],
+            env=env,
+        )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    uv_log = (tmp_path / "fake-uv.log").read_text(encoding="utf-8")
+    assert "run python -c" in uv_log
+    assert "find_spec('beir')" in uv_log
+    assert "find_spec('matplotlib')" in uv_log
+
+
+def test_comprehensive_script_python_override_bypasses_uv_dependency_checks(
+    tmp_path: Path,
+) -> None:
+    fake_uv = tmp_path / "fake-uv"
+    _write_fake_uv(fake_uv)
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$FAKE_PYTHON_LOG"\nexit 0\n',
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = _base_env(tmp_path, fake_uv)
+    env["HEPH_BENCHMARK_PYTHON"] = str(fake_python)
+    env["FAKE_PYTHON_LOG"] = str(tmp_path / "fake-python.log")
+
+    with tempfile.TemporaryDirectory(prefix="heph-comprehensive-", dir="/tmp") as temp_root:
+        result = _run_script(
+            [
+                "--output-dir",
+                str(Path(temp_root) / "artifacts"),
+                "--require-beir-extra",
+                "--dependency-check-only",
+            ],
+            env=env,
+        )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert not (tmp_path / "fake-uv.log").exists()
+    python_log = (tmp_path / "fake-python.log").read_text(encoding="utf-8")
+    assert "-c" in python_log
+    assert "find_spec('beir')" in python_log
 
 
 def test_comprehensive_script_runs_ordered_fixture_phases_with_quoted_paths(
