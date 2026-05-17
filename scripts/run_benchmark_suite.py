@@ -133,6 +133,8 @@ DEFAULT_OVERVIEW_FORBIDDEN_PHRASES = (
     "only a sample",
     "partial inventory",
 )
+GENERATED_ARMORY_INDEX_ARTIFACTS = frozenset(("rag_index.json",))
+GENERATED_ARMORY_INDEX_ARTIFACT_PREFIXES = frozenset(("embeddings_", "retriever_"))
 
 
 class BenchmarkSuiteSummary(TypedDict):
@@ -167,12 +169,25 @@ class StudyIntentContractReport:
     failures: tuple[str, ...]
 
 
+def _is_generated_armory_index_artifact(name: str) -> bool:
+    return name in GENERATED_ARMORY_INDEX_ARTIFACTS or (
+        name.endswith(".json")
+        and any(name.startswith(prefix) for prefix in GENERATED_ARMORY_INDEX_ARTIFACT_PREFIXES)
+    )
+
+
+def _ignore_generated_armory_index_artifacts(directory: str, names: list[str]) -> set[str]:
+    if Path(directory).name != ".hephaistos":
+        return set()
+    return {name for name in names if _is_generated_armory_index_artifact(name)}
+
+
 def _copy_suite_armory(suite_path: Path, destination: Path) -> Path:
     source = suite_path / "armory"
     if not source.is_dir():
         raise ValueError(f"benchmark suite is missing armory fixture: {source}")
     target = destination / "armory"
-    shutil.copytree(source, target)
+    shutil.copytree(source, target, ignore=_ignore_generated_armory_index_artifacts)
     return target
 
 

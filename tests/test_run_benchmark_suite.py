@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -8,13 +9,67 @@ from hephaistos.chat import orchestrator as chat_orchestrator
 from scripts import run_benchmark_suite
 
 
+def _fixture_hephaistos_snapshot(
+    suite_path: Path,
+) -> dict[str, tuple[int, int, str]]:
+    hephaistos_dir = suite_path / "armory" / ".hephaistos"
+    if not hephaistos_dir.exists():
+        return {}
+    snapshot: dict[str, tuple[int, int, str]] = {}
+    for path in sorted(hephaistos_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        stat = path.stat()
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        snapshot[str(path.relative_to(hephaistos_dir))] = (
+            stat.st_size,
+            stat.st_mtime_ns,
+            digest,
+        )
+    return snapshot
+
+
 def test_default_suite_passes_and_does_not_write_index_to_fixture() -> None:
+    before = _fixture_hephaistos_snapshot(run_benchmark_suite.DEFAULT_SUITE)
+
     status = run_benchmark_suite.run_suite()
 
     assert status == 0
-    assert not (
-        run_benchmark_suite.DEFAULT_SUITE / "armory" / ".hephaistos" / "rag_index.json"
-    ).exists()
+    assert _fixture_hephaistos_snapshot(run_benchmark_suite.DEFAULT_SUITE) == before
+
+
+def test_copy_suite_armory_ignores_existing_fixture_index_artifacts(
+    tmp_path: Path,
+) -> None:
+    suite = tmp_path / "suite"
+    shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
+    hephaistos_dir = suite / "armory" / ".hephaistos"
+    hephaistos_dir.mkdir(parents=True, exist_ok=True)
+    (hephaistos_dir / "rag_index.json").write_text(
+        '{"preexisting": "ignored"}\n',
+        encoding="utf-8",
+    )
+    (hephaistos_dir / "retriever_deadbeef_tfidf.json").write_text(
+        '{"preexisting": "ignored"}\n',
+        encoding="utf-8",
+    )
+    (hephaistos_dir / "embeddings_deadbeef_tfidf.json").write_text(
+        '{"preexisting": "ignored"}\n',
+        encoding="utf-8",
+    )
+    (hephaistos_dir / "system_prompt.md").write_text(
+        "Use the benchmark fixture instructions.\n",
+        encoding="utf-8",
+    )
+
+    armory = run_benchmark_suite._copy_suite_armory(suite, tmp_path / "copied")
+
+    assert not (armory / ".hephaistos" / "rag_index.json").exists()
+    assert not (armory / ".hephaistos" / "retriever_deadbeef_tfidf.json").exists()
+    assert not (armory / ".hephaistos" / "embeddings_deadbeef_tfidf.json").exists()
+    assert (armory / ".hephaistos" / "system_prompt.md").read_text(
+        encoding="utf-8"
+    ) == "Use the benchmark fixture instructions.\n"
 
 
 def test_suite_fails_when_threshold_is_too_high() -> None:
