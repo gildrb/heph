@@ -4,22 +4,23 @@ This document describes how AI coding agents are used in the Hephaistos project.
 
 ## Shared Project Skills
 
-Hephaistos keeps shared, repo-level agent context in a single vendor-neutral directory:
+Hephaistos keeps shared, repo-level agent context in vendor-neutral committed docs and local,
+ignored agent directories:
 
 | Location | Purpose |
 |---|---|
-| `.agents/skills/hephaistos/SKILL.md` | Thin pointer back to the repo-native docs |
-| `.agents/skills/qa/` | QA orchestrator skill and config |
-| `.agents/skills/qa-cli/` | Full regression test suite for TUI |
+| `AGENTS.md` | Canonical agent guide with commands, conventions, validation, and safety policy |
+| `docs/architecture.md` | Package boundaries, data flow, armory layout, and diagnostics design |
+| `.factory/skills/` | Local Factory/Droid skills; keep ignored and install/update outside Git |
 | personal agent home directories | Personal prompts, helpers, or local agent config that should not be committed |
 
 ## Conventions
 
-- Shared skills belong in the repository when they help contributors and agents understand the project.
-- Personal agent config belongs outside the repository.
+- Shared agent readiness belongs in committed docs, not in checked-in vendor skill folders.
+- Personal or vendor-specific agent config belongs outside the repository or in ignored local folders.
 - Maintainer-only diagnostics or vendor-specific setup should stay out of shared skills.
 - `AGENTS.md` and `docs/architecture.md` are the authoritative agent-facing surfaces.
-- Repo-local skill files should stay thin and point back to those repo-native docs.
+- Local skill files should stay thin and point back to those repo-native docs.
 - When CLI or privacy/diagnostics docs change, run `uv run python -m scripts.sync_docs`.
 - Before opening a PR, run `uv run python -m scripts.check_repo_policies` to catch explicit `Any` usage and unapproved deferred imports.
 

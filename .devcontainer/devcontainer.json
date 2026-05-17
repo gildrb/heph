@@ -4,7 +4,7 @@
   "features": {
     "ghcr.io/astral-sh/devcontainer-features/uv:latest": {}
   },
-  "postCreateCommand": "uv sync --group dev --group docs",
+  "postCreateCommand": "uv sync --group dev",
   "forwardPorts": [],
   "customizations": {
     "vscode": {

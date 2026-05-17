@@ -38,7 +38,6 @@ dependencies = [
 Homepage = "https://github.com/gildrb/hephaistos"
 Repository = "https://github.com/gildrb/hephaistos"
 Issues = "https://github.com/gildrb/hephaistos/issues"
-Changelog = "https://github.com/gildrb/hephaistos/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 embeddings = [
@@ -395,9 +394,3 @@ rag = [
     "scikit-learn>=1.0.0",
 ]
 docling = []
-docs = [
-    "mkdocs>=1.6.0",
-    "mkdocs-material>=9.5.0",
-    "mkdocstrings[python]>=0.27.0",
-    "mkdocs-autorefs>=1.2.0",
-]

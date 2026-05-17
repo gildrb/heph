@@ -1,8 +1,0 @@
-{
-  "status": 0,
-  "armory_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/armory",
-  "manifest_path": "/Users/gilrodrigues/Code/Hephaistos/.artifacts/real-corpus-evidence/real-corpus-manifest.json",
-  "copied_documents": 382,
-  "skipped_documents": 11905,
-  "failures": []
-}

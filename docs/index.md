@@ -361,6 +361,6 @@ citation rules around the custom prompt.
 ## Next Steps
 
 - Read the [CLI reference](cli-reference.md) for commands and keyboard shortcuts.
-- Read the [Agent API docs](api/agent.md) for dispatch, tools, and citation modules.
-- Read the [RAG API docs](api/rag.md) for retrieval, indexing, and chunking modules.
-- Read the [memory API docs](api/memory.md) for per-armory study memory.
+- Read the [architecture guide](architecture.md) for package boundaries and data flow.
+- Read [agentic development](agentic-development.md) for agent-readiness conventions.
+- Read the [runbooks](runbooks/index.md) for operational debugging.

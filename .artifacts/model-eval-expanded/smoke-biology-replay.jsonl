@@ -1,1 +1,0 @@
-{"id":"smoke-biology","domain":"biology","task":"exam-understanding","prompt":"Using the indexed sources, what kind of assessment material is the biology practice final, and name two topic areas it tests? Cite the evidence.","require_citations":true,"must_include":["practice final","genetics","cancer"],"must_not_include":["computer science"],"min_citation_count":1}

@@ -18,7 +18,6 @@ uv sync --frozen           # install all dependencies
 uv sync --group dev        # install dev tools (lint, type-check, test)
 uv sync --group rag        # install optional RAG backends
 uv sync --group docling    # install optional document extraction extras
-uv sync --group docs       # install doc-building tools
 ```
 
 ## Run

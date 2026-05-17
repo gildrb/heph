@@ -52,13 +52,12 @@ node_modules/
 # Agent tooling
 .claude/
 .superset/
+.devin/
 .factory/
 .codex/
 .pi/
 .deepsec/
-.agents/*
-!.agents/skills/
-!.agents/skills/**
+.agents/
 
 # Generated artifacts
 .artifacts/

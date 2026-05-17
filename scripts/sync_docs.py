@@ -487,11 +487,11 @@ def render_home_footer(*, docs_index: bool) -> str:
         return (
             "## Next Steps\n\n"
             "- Read the [CLI reference](cli-reference.md) for commands and keyboard shortcuts.\n"
-            "- Read the [Agent API docs](api/agent.md) for dispatch, tools, and citation"
-            " modules.\n"
-            "- Read the [RAG API docs](api/rag.md) for retrieval, indexing, and chunking"
-            " modules.\n"
-            "- Read the [memory API docs](api/memory.md) for per-armory study memory.\n"
+            "- Read the [architecture guide](architecture.md) for package boundaries"
+            " and data flow.\n"
+            "- Read [agentic development](agentic-development.md) for agent-readiness"
+            " conventions.\n"
+            "- Read the [runbooks](runbooks/index.md) for operational debugging.\n"
         )
     return "## License\n\nThis project is licensed under the [MIT License](LICENSE).\n"
 
