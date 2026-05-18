@@ -7,6 +7,7 @@ import csv
 import hashlib
 import json
 import math
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -43,6 +44,10 @@ _MATCHED_METADATA_FIELDS = (
     "permission_scope",
 )
 _SNAPSHOT_COLUMN_MAPPING_FIELDS = ("system_label", "rank_metric", "dataset", "split", "scope")
+_STATISTICAL_UNCERTAINTY_TOKENS = frozenset(
+    {"bootstrap", "confidence", "ci", "mcnemar", "permutation", "randomization"}
+)
+_WITHIN_NOISE_TOKENS = frozenset({"within", "noise"})
 
 
 class PublicTargetError(Exception):
@@ -1086,22 +1091,24 @@ def load_evaluation_plan(path: Path) -> EvaluationPlan:
     )
 
 
+def _statistical_method_tokens(statistical_method: str) -> frozenset[str]:
+    return frozenset(re.findall(r"[a-z0-9]+", statistical_method.casefold()))
+
+
 def _validate_statistical_method(statistical_method: str) -> None:
     normalized = statistical_method.casefold()
-    has_pairing = "paired" in normalized or "unpaired" in normalized
-    has_uncertainty = any(
-        term in normalized
-        for term in (
-            "bootstrap",
-            "confidence",
-            "ci",
-            "mcnemar",
-            "permutation",
-            "randomization",
-            "within noise",
+    tokens = _statistical_method_tokens(statistical_method)
+    if "unpaired" in tokens or "paired" not in tokens:
+        raise PublicTargetError(
+            "evaluation_plan_invalid",
+            "evaluation plan statistical_method must declare a paired method, not unpaired",
+            "Use paired bootstrap/McNemar/randomization wording backed by matched "
+            "per-query evidence.",
         )
+    has_uncertainty = bool(tokens & _STATISTICAL_UNCERTAINTY_TOKENS) or tokens.issuperset(
+        _WITHIN_NOISE_TOKENS
     )
-    if not has_pairing or not has_uncertainty:
+    if not has_uncertainty:
         raise PublicTargetError(
             "evaluation_plan_invalid",
             "evaluation plan statistical_method must declare pairing and uncertainty method",

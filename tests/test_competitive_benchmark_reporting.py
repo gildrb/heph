@@ -924,6 +924,38 @@ def test_public_target_claim_gate_rejects_incompatible_statistical_method(
     assert "paired" in captured.err
 
 
+def test_public_target_claim_gate_rejects_unpaired_statistical_method(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    plan = json.loads(paths["evaluation_plan"].read_text(encoding="utf-8"))
+    plan["statistical_method"] = "unpaired bootstrap confidence interval"
+    _write_report(paths["evaluation_plan"], plan)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "statistical_method" in captured.err
+    assert "unpaired" in captured.err
+    assert "paired" in captured.err
+
+
 def test_public_target_claim_gate_rejects_missing_matched_prompt_metadata(
     tmp_path: Path,
     capsys,
