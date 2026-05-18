@@ -116,7 +116,14 @@ class _MaterialRecord:
 
 def ensure_output_available(output_dir: Path, *, overwrite: bool) -> Path:
     """Resolve and validate an output directory before conversion starts."""
-    output = output_dir.expanduser().resolve()
+    raw_output = output_dir.expanduser()
+    if raw_output.is_symlink():
+        raise AdapterError(
+            "unsafe_output_path",
+            f"refusing to write through symlinked output directory: {raw_output}",
+            "Choose a real directory path, not a symlink.",
+        )
+    output = raw_output.resolve()
     if output == output.parent:
         raise AdapterError(
             "unsafe_output_path",

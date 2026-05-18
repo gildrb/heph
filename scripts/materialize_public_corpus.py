@@ -98,7 +98,16 @@ def materialize_corpus(
 ) -> MaterializeReport:
     """Download/copy manifest documents with ``source_url`` into an armory."""
     manifest_path = manifest_path.expanduser().resolve()
-    armory_path = armory_path.expanduser().resolve()
+    raw_armory_path = armory_path.expanduser()
+    if raw_armory_path.is_symlink():
+        return MaterializeReport(
+            status=2,
+            manifest_path=str(manifest_path),
+            armory_path=str(raw_armory_path),
+            documents=(),
+            failures=(f"armory path must not be a symlink: {raw_armory_path}",),
+        )
+    armory_path = raw_armory_path.resolve()
     failures: list[str] = []
     materialized: list[MaterializedDocument] = []
     try:

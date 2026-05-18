@@ -341,6 +341,62 @@ def test_materialize_corpus_rejects_file_urls(tmp_path: Path) -> None:
     assert "unsupported source_url scheme: file" in report.failures[0]
 
 
+def test_materialize_corpus_rejects_http_urls(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.json"
+    _write_manifest(
+        manifest,
+        [
+            {
+                "source": "materials/source.md",
+                "source_url": "http://example.edu/source.md",
+                "domain": "general",
+                "role": "reference",
+                "document_type": "notes",
+                "stressors": ["unicode"],
+            }
+        ],
+    )
+
+    report = materialize_public_corpus.materialize_corpus(manifest, tmp_path / "armory")
+
+    assert report.status == 1
+    assert "unsupported source_url scheme: http" in report.failures[0]
+
+
+def test_materialize_corpus_rejects_symlinked_armory_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_https_download(monkeypatch, b"public material")
+    outside = tmp_path / "outside-armory-target"
+    outside.mkdir()
+    armory = tmp_path / "armory-link"
+    try:
+        armory.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not supported on this filesystem")
+    manifest = tmp_path / "manifest.json"
+    _write_manifest(
+        manifest,
+        [
+            {
+                "source": "materials/source.md",
+                "source_url": "https://example.edu/source.md",
+                "domain": "general",
+                "role": "reference",
+                "document_type": "notes",
+                "stressors": ["unicode"],
+            }
+        ],
+    )
+
+    report = materialize_public_corpus.materialize_corpus(manifest, armory)
+
+    assert report.status == 2
+    assert "armory path must not be a symlink" in report.failures[0]
+    assert list(outside.iterdir()) == []
+
+
 def test_materialize_corpus_rejects_private_https_hosts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
