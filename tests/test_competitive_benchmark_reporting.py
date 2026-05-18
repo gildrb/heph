@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import cast
 
-from scripts import generate_benchmark_summary
+from scripts import benchmark_public_targets, generate_benchmark_summary
 
 ROOT = Path(__file__).resolve().parent.parent
 PROMPT_PATH = ROOT / "benchmarks" / "model-evaluation-prompt.md"
@@ -15,6 +16,10 @@ def _write_report(path: Path, payload: dict[str, object]) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _retrieval_report(
@@ -384,3 +389,519 @@ def test_summary_mentions_enterprise_rag_leaderboard_csv_when_missing(
     summary = output.read_text(encoding="utf-8")
     assert status == 0
     assert "Pass `--enterprise-rag-leaderboard-csv`" in summary
+
+
+def _enterprise_rag_report(
+    *,
+    report_id: str,
+    mode: str,
+    hit_rate: float,
+    mrr: float,
+    expected_recall: float,
+) -> dict[str, object]:
+    report = _retrieval_report(
+        report_id=report_id,
+        mode=mode,
+        hit_rate=hit_rate,
+        mrr=mrr,
+        expected_recall=expected_recall,
+        document_prefix="",
+    )
+    metadata = cast("dict[str, object]", report["metadata"])
+    metadata.update(
+        {
+            "benchmark_type": "enterprise-rag",
+            "dataset": "enterprise-rag-bench",
+            "cases_sha256": "a" * 64,
+            "manifest_sha256": "b" * 64,
+            "qrels_sha256": "c" * 64,
+            "corpus_sha256": "d" * 64,
+            "scoring_protocol_version": "enterprise-rag-document-recall-v1",
+            "dependency_lock_sha256": "e" * 64,
+            "latency_scope": "retrieval_only_per_query",
+            "command_invocation": (
+                "uv run python -m scripts.run_external_benchmarks enterprise-rag "
+                "enterprise-rag-bench --retrieval-mode " + mode
+            ),
+            "model": "fixture-retrieval-only",
+            "network_state": "disabled-after-materialization",
+            "cache_state": "warm-local-cache",
+        }
+    )
+    fixed_parameters = cast("dict[str, object]", metadata["fixed_parameters"])
+    fixed_parameters["top_k"] = 10
+    fixed_parameters["retrieval_mode"] = mode
+    aggregate_metrics = cast("dict[str, object]", report["aggregate_metrics"])
+    aggregate_metrics["query_count"] = 2
+    benchmark = cast("list[dict[str, object]]", report["benchmarks"])[0]
+    benchmark["benchmark_type"] = "enterprise-rag"
+    benchmark["dataset"] = "enterprise-rag-bench"
+    benchmark["per_query_results"] = [
+        {"case_id": "alpha", "hit": True, "rank": 1, "expected_recall": 1.0},
+        {"case_id": "beta", "hit": True, "rank": 1, "expected_recall": 1.0},
+    ]
+    benchmark_metrics = cast("dict[str, object]", benchmark["metrics"])
+    benchmark_metrics["query_count"] = 2
+    return report
+
+
+def _write_public_target_inputs(
+    tmp_path: Path,
+    *,
+    current_expected_recall: float = 0.695,
+) -> dict[str, Path]:
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    raw_snapshot = tmp_path / "enterprise-rag-leaderboard.csv"
+    snapshot = tmp_path / "snapshot.json"
+    baseline_ledger = tmp_path / "baseline-ledger.json"
+    dataset_ledger = tmp_path / "dataset-ledger.json"
+    evaluation_plan = tmp_path / "evaluation-plan.json"
+    output = tmp_path / "claim-gate.json"
+
+    _write_report(
+        baseline,
+        _enterprise_rag_report(
+            report_id="enterprise-rag-bm25-document-baseline",
+            mode="bm25-document",
+            hit_rate=0.74,
+            mrr=0.58,
+            expected_recall=0.684,
+        ),
+    )
+    _write_report(
+        current,
+        _enterprise_rag_report(
+            report_id="enterprise-rag-hybrid-document-current",
+            mode="hybrid-document",
+            hit_rate=0.75,
+            mrr=0.59,
+            expected_recall=current_expected_recall,
+        ),
+    )
+    raw_snapshot.write_text(
+        "\n".join(
+            [
+                "model,recall,overall_score,dataset,split,scope",
+                "OpenClaw,79.02,68.22,enterprise-rag-bench,test,document-retrieval",
+                "BM25 + GPT-5.4,68.41,50.6,enterprise-rag-bench,test,document-retrieval",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_report(
+        snapshot,
+        {
+            "schema_version": "enterprise-rag-public-snapshot-v1",
+            "snapshot_id": "enterprise-rag-bench-leaderboard-2026-05-18",
+            "target_role": "primary",
+            "benchmark_type": "enterprise-rag",
+            "dataset": "enterprise-rag-bench",
+            "split": "test",
+            "scope": "document-retrieval",
+            "source_url": "https://example.org/enterprise-rag/leaderboard.csv",
+            "request_command": (
+                "curl -fL https://example.org/enterprise-rag/leaderboard.csv "
+                "-o enterprise-rag-leaderboard.csv"
+            ),
+            "retrieved_at": "2026-05-18T00:00:00Z",
+            "http_status": 200,
+            "raw_path": raw_snapshot.name,
+            "raw_sha256": _sha256(raw_snapshot),
+            "byte_count": raw_snapshot.stat().st_size,
+            "row_count": 2,
+            "source_schema_version": "enterprise-rag-leaderboard-csv-v1",
+            "rank_metric": "recall",
+            "rank_order": "descending",
+            "metric_units": {"recall": "percent"},
+            "column_mapping": {
+                "system_label": "model",
+                "rank_metric": "recall",
+                "dataset": "dataset",
+                "split": "split",
+                "scope": "scope",
+            },
+            "required_columns": [
+                "model",
+                "recall",
+                "dataset",
+                "split",
+                "scope",
+            ],
+        },
+    )
+    matched_metadata = {
+        "benchmark_type": "enterprise-rag",
+        "dataset": "enterprise-rag-bench",
+        "cases_sha256": "a" * 64,
+        "manifest_sha256": "b" * 64,
+        "qrels_sha256": "c" * 64,
+        "corpus_sha256": "d" * 64,
+        "scoring_protocol_version": "enterprise-rag-document-recall-v1",
+        "top_k": 10,
+        "candidate_multiplier": 2,
+        "candidate_depth": 20,
+        "latency_scope": "retrieval_only_per_query",
+        "dependency_lock_sha256": "e" * 64,
+    }
+    _write_report(
+        baseline_ledger,
+        {
+            "schema_version": "baseline-ledger-v1",
+            "baseline_id": "enterprise-rag-bm25-document",
+            "baseline_version": "enterprise-rag-bm25-document-v1",
+            "target_role": "primary",
+            "artifact_path": baseline.name,
+            "artifact_sha256": _sha256(baseline),
+            "frozen": True,
+            "benchmark_type": "enterprise-rag",
+            "dataset": "enterprise-rag-bench",
+            "retrieval_mode": "bm25-document",
+            "selected_metrics": [
+                "aggregate_metrics.expected_recall",
+                "aggregate_metrics.hit_rate",
+                "aggregate_metrics.mrr",
+            ],
+            "matched_metadata": matched_metadata,
+        },
+    )
+    _write_report(
+        dataset_ledger,
+        {
+            "schema_version": "dataset-version-ledger-v1",
+            "dataset_id": "enterprise-rag-bench",
+            "current_version": "enterprise-rag-bench-v2026-05-18",
+            "entries": [
+                {
+                    "version": "enterprise-rag-bench-v2026-05-18",
+                    "role": "final_evaluation",
+                    "manifest_sha256": "b" * 64,
+                    "cases_sha256": "a" * 64,
+                    "qrels_sha256": "c" * 64,
+                    "corpus_sha256": "d" * 64,
+                    "diff_summary": "Initial frozen public target fixture.",
+                    "edit_rationale": "Establish the primary public target before claims.",
+                    "recorded_before_claim": True,
+                }
+            ],
+        },
+    )
+    _write_report(
+        evaluation_plan,
+        {
+            "schema_version": "evaluation-plan-v1",
+            "plan_id": "enterprise-rag-top10-plan-v1",
+            "primary_target": "enterprise-rag-bench",
+            "target_role": "primary",
+            "declared_before_results": True,
+            "primary_metrics": ["aggregate_metrics.expected_recall"],
+            "secondary_metrics": ["aggregate_metrics.hit_rate", "aggregate_metrics.mrr"],
+            "top_k_values": [10],
+            "candidate_depth_values": [20],
+            "statistical_method": "paired bootstrap over per-query rows when available",
+            "run_policy": "single deterministic run over frozen inputs",
+            "seed_policy": [0],
+            "mode_selection_policy": "mode must be selected before final claim generation",
+            "failure_handling": "regressions beyond tolerance block claim generation",
+            "known_public_target": {
+                "optimized_against_public_target": True,
+                "limitation": (
+                    "EnterpriseRAG-Bench is a known public target; this is not evidence "
+                    "of broad retrieval generalization without secondary gates."
+                ),
+            },
+            "baseline_improvement": {
+                "baseline_id": "enterprise-rag-bm25-document",
+                "primary_metric": "aggregate_metrics.expected_recall",
+                "minimum_delta": 0.001,
+                "tolerance": 0.0,
+                "guardrail_metrics": [
+                    {"metric": "aggregate_metrics.hit_rate", "tolerance": 0.0},
+                    {"metric": "aggregate_metrics.mrr", "tolerance": 0.0},
+                ],
+            },
+        },
+    )
+    return {
+        "baseline": baseline,
+        "current": current,
+        "raw_snapshot": raw_snapshot,
+        "snapshot": snapshot,
+        "baseline_ledger": baseline_ledger,
+        "dataset_ledger": dataset_ledger,
+        "evaluation_plan": evaluation_plan,
+        "output": output,
+    }
+
+
+def test_public_target_claim_gate_records_baseline_snapshot_and_plan_evidence(
+    tmp_path: Path,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+            "--output",
+            str(paths["output"]),
+        ]
+    )
+
+    payload = json.loads(paths["output"].read_text(encoding="utf-8"))
+    baseline_sha = _sha256(paths["baseline"])
+    snapshot_sha = _sha256(paths["raw_snapshot"])
+    assert status == 0
+    assert payload["schema_version"] == "public-target-claim-gate-v1"
+    assert payload["status"] == "passed"
+    assert payload["baseline"]["pre_sha256"] == baseline_sha
+    assert payload["baseline"]["post_sha256"] == baseline_sha
+    assert payload["baseline"]["immutable"] is True
+    assert payload["public_snapshot"]["raw_sha256"] == snapshot_sha
+    assert payload["public_snapshot"]["target_role"] == "primary"
+    assert payload["public_snapshot"]["source_schema_version"] == (
+        "enterprise-rag-leaderboard-csv-v1"
+    )
+    assert payload["public_snapshot"]["rank_metric"] == "recall"
+    assert payload["dataset_version"]["version"] == "enterprise-rag-bench-v2026-05-18"
+    assert payload["evaluation_plan"]["predeclared"] is True
+    assert payload["baseline_improvement"]["primary_metric_delta"] > 0
+    assert payload["known_public_target"]["optimized_against_public_target"] is True
+    assert (
+        "not evidence of broad retrieval generalization"
+        in payload["known_public_target"]["limitation"]
+    )
+
+
+def test_public_target_claim_gate_rejects_changed_frozen_baseline(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    paths["baseline"].write_text(
+        paths["baseline"].read_text(encoding="utf-8").replace("0.684", "0.650"),
+        encoding="utf-8",
+    )
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "baseline_hash_mismatch" in captured.err
+
+
+def test_public_target_claim_gate_rejects_snapshot_without_rank_mapping(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    snapshot = json.loads(paths["snapshot"].read_text(encoding="utf-8"))
+    column_mapping = cast("dict[str, object]", snapshot["column_mapping"])
+    del column_mapping["rank_metric"]
+    _write_report(paths["snapshot"], snapshot)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "snapshot_schema_invalid" in captured.err
+
+
+def test_public_target_claim_gate_rejects_missing_baseline_improvement(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path, current_expected_recall=0.684)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert "primary improvement did not meet the predeclared minimum delta" in captured.err
+
+
+def test_public_target_claim_gate_rejects_dataset_ledger_hash_mismatch(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    dataset_ledger = json.loads(paths["dataset_ledger"].read_text(encoding="utf-8"))
+    entry = cast("dict[str, object]", cast("list[object]", dataset_ledger["entries"])[0])
+    entry["cases_sha256"] = "f" * 64
+    _write_report(paths["dataset_ledger"], dataset_ledger)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert "matched metadata did not match baseline/dataset ledger" in captured.err
+
+
+def test_public_target_claim_gate_rejects_snapshot_row_scope_mismatch(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    paths["raw_snapshot"].write_text(
+        "\n".join(
+            [
+                "model,recall,overall_score,dataset,split,scope",
+                "OpenClaw,79.02,68.22,enterprise-rag-bench,test,answer-generation",
+                "BM25 + GPT-5.4,68.41,50.6,enterprise-rag-bench,test,answer-generation",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    snapshot = json.loads(paths["snapshot"].read_text(encoding="utf-8"))
+    snapshot["raw_sha256"] = _sha256(paths["raw_snapshot"])
+    snapshot["byte_count"] = paths["raw_snapshot"].stat().st_size
+    _write_report(paths["snapshot"], snapshot)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "snapshot_row_mismatch" in captured.err
+
+
+def test_public_target_claim_gate_rejects_failed_current_report(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    current_report = json.loads(paths["current"].read_text(encoding="utf-8"))
+    current_report["status"] = "error"
+    _write_report(paths["current"], current_report)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "claim_report_not_success" in captured.err
+
+
+def test_public_target_claim_gate_rejects_unplanned_candidate_depth(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    current_report = json.loads(paths["current"].read_text(encoding="utf-8"))
+    metadata = cast("dict[str, object]", current_report["metadata"])
+    fixed_parameters = cast("dict[str, object]", metadata["fixed_parameters"])
+    fixed_parameters["candidate_multiplier"] = 3
+    _write_report(paths["current"], current_report)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert "current run used an unplanned top-k or candidate-depth value" in captured.err
