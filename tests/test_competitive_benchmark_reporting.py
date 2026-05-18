@@ -654,6 +654,11 @@ def _write_public_target_inputs(
             "seed_policy": [0],
             "mode_selection_policy": "mode must be selected before final claim generation",
             "failure_handling": "regressions beyond tolerance block claim generation",
+            "public_rank_target": {
+                "metric": "aggregate_metrics.expected_recall",
+                "rank_metric": "recall",
+                "max_rank_in_snapshot": 10,
+            },
             "known_public_target": {
                 "optimized_against_public_target": True,
                 "limitation": (
@@ -725,6 +730,7 @@ def test_public_target_claim_gate_records_baseline_snapshot_and_plan_evidence(
     assert payload["public_snapshot"]["rank_metric"] == "recall"
     assert payload["dataset_version"]["version"] == "enterprise-rag-bench-v2026-05-18"
     assert payload["evaluation_plan"]["predeclared"] is True
+    assert payload["evaluation_plan"]["public_rank_target"]["max_rank_in_snapshot"] == 10
     assert payload["baseline_improvement"]["primary_metric_delta"] > 0
     assert payload["statistical_evidence"]["status"] == "passed"
     assert payload["statistical_evidence"]["pairing"] == "paired"
@@ -741,6 +747,79 @@ def test_public_target_claim_gate_records_baseline_snapshot_and_plan_evidence(
         "not evidence of broad retrieval generalization"
         in payload["known_public_target"]["limitation"]
     )
+    public_summary = cast("dict[str, object]", payload["public_comparison_summary"])
+    current_rank = public_summary["current_rank_in_snapshot"]
+    assert isinstance(current_rank, int)
+    assert current_rank <= 10
+    assert public_summary["rank_passed"] is True
+    assert public_summary["rank_target"] == {
+        "metric": "aggregate_metrics.expected_recall",
+        "rank_metric": "recall",
+        "max_rank_in_snapshot": 10,
+    }
+
+
+def test_public_target_claim_gate_rejects_rank_outside_top10_target(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    paths["raw_snapshot"].write_text(
+        "\n".join(
+            [
+                "model,recall,overall_score,dataset,split,scope",
+                "Rank 1,90.00,90.00,enterprise-rag-bench,test,document-retrieval",
+                "Rank 2,88.00,88.00,enterprise-rag-bench,test,document-retrieval",
+                "Rank 3,86.00,86.00,enterprise-rag-bench,test,document-retrieval",
+                "Rank 4,84.00,84.00,enterprise-rag-bench,test,document-retrieval",
+                "Rank 5,82.00,82.00,enterprise-rag-bench,test,document-retrieval",
+                "Rank 6,80.00,80.00,enterprise-rag-bench,test,document-retrieval",
+                "Rank 7,78.00,78.00,enterprise-rag-bench,test,document-retrieval",
+                "Rank 8,76.00,76.00,enterprise-rag-bench,test,document-retrieval",
+                "Rank 9,74.00,74.00,enterprise-rag-bench,test,document-retrieval",
+                "Rank 10,70.00,70.00,enterprise-rag-bench,test,document-retrieval",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    snapshot = json.loads(paths["snapshot"].read_text(encoding="utf-8"))
+    snapshot["raw_sha256"] = _sha256(paths["raw_snapshot"])
+    snapshot["byte_count"] = paths["raw_snapshot"].stat().st_size
+    snapshot["row_count"] = 10
+    _write_report(paths["snapshot"], snapshot)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+            "--output",
+            str(paths["output"]),
+        ]
+    )
+
+    payload = json.loads(paths["output"].read_text(encoding="utf-8"))
+    captured = capsys.readouterr()
+    public_summary = cast("dict[str, object]", payload["public_comparison_summary"])
+    assert status == 1
+    assert payload["status"] == "failed"
+    assert public_summary["current_rank_in_snapshot"] == 11
+    assert public_summary["rank_passed"] is False
+    assert public_summary["rank_target"] == {
+        "metric": "aggregate_metrics.expected_recall",
+        "rank_metric": "recall",
+        "max_rank_in_snapshot": 10,
+    }
+    assert "current rank 11 exceeds the predeclared public rank target of top 10" in captured.err
 
 
 def test_public_target_claim_gate_rejects_unsupported_superiority_claim_text(

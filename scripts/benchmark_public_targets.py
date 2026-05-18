@@ -112,6 +112,7 @@ class EvaluationPlan:
     run_policy: str
     seed_policy: tuple[int, ...]
     failure_handling: str
+    public_rank_target: dict[str, object]
     baseline_improvement: dict[str, object]
     known_public_target: dict[str, object]
 
@@ -1010,6 +1011,53 @@ def load_evaluation_plan(path: Path) -> EvaluationPlan:
                 f"guardrail metric {metric!r} is not predeclared",
                 "List guardrails in primary_metrics or secondary_metrics before use.",
             )
+    public_rank_target = _required_mapping(
+        plan,
+        "public_rank_target",
+        code="evaluation_plan_invalid",
+        label="evaluation plan",
+    )
+    rank_target_metric = _required_string(
+        public_rank_target,
+        "metric",
+        code="evaluation_plan_invalid",
+        label="evaluation plan public_rank_target",
+    )
+    rank_metric = _required_string(
+        public_rank_target,
+        "rank_metric",
+        code="evaluation_plan_invalid",
+        label="evaluation plan public_rank_target",
+    )
+    max_rank_in_snapshot = _required_int(
+        public_rank_target,
+        "max_rank_in_snapshot",
+        code="evaluation_plan_invalid",
+        label="evaluation plan public_rank_target",
+    )
+    if rank_target_metric not in declared_metrics:
+        raise PublicTargetError(
+            "evaluation_plan_invalid",
+            f"public rank target metric {rank_target_metric!r} is not predeclared",
+            "List the public rank target metric in primary_metrics or secondary_metrics.",
+        )
+    if rank_target_metric != primary_metric:
+        raise PublicTargetError(
+            "evaluation_plan_invalid",
+            "public rank target metric must match the baseline improvement primary metric",
+            "Use the same metric for improvement and public snapshot rank evidence.",
+        )
+    if not 1 <= max_rank_in_snapshot <= 10:
+        raise PublicTargetError(
+            "evaluation_plan_invalid",
+            "public_rank_target max_rank_in_snapshot must declare a top-10 threshold",
+            "Set max_rank_in_snapshot to an integer from 1 through 10.",
+        )
+    normalized_public_rank_target: dict[str, object] = {
+        "metric": rank_target_metric,
+        "rank_metric": rank_metric,
+        "max_rank_in_snapshot": max_rank_in_snapshot,
+    }
     return EvaluationPlan(
         path=plan_path,
         plan_id=_required_string(
@@ -1032,6 +1080,7 @@ def load_evaluation_plan(path: Path) -> EvaluationPlan:
         run_policy=run_policy,
         seed_policy=seed_policy,
         failure_handling=failure_handling,
+        public_rank_target=normalized_public_rank_target,
         baseline_improvement=baseline_improvement,
         known_public_target=known_public_target,
     )
@@ -1788,6 +1837,38 @@ def run_claim_gate(
         primary_metric=primary_metric,
     )
     claim_language = _claim_language_result(claim_text)
+    rank_target_metric = _required_string(
+        plan.public_rank_target,
+        "metric",
+        code="evaluation_plan_invalid",
+        label="evaluation plan public_rank_target",
+    )
+    rank_target_rank_metric = _required_string(
+        plan.public_rank_target,
+        "rank_metric",
+        code="evaluation_plan_invalid",
+        label="evaluation plan public_rank_target",
+    )
+    rank_target_max = _required_int(
+        plan.public_rank_target,
+        "max_rank_in_snapshot",
+        code="evaluation_plan_invalid",
+        label="evaluation plan public_rank_target",
+    )
+    if rank_target_metric != primary_metric:
+        raise PublicTargetError(
+            "evaluation_plan_invalid",
+            "public rank target metric does not match the current claim primary metric",
+            "Regenerate the evaluation plan with a rank target for the claim primary metric.",
+        )
+    if rank_target_rank_metric != snapshot.rank_metric:
+        raise PublicTargetError(
+            "evaluation_plan_invalid",
+            "public rank target rank_metric does not match the public snapshot rank metric",
+            "Regenerate the evaluation plan or snapshot sidecar with matching rank metrics.",
+        )
+    rank, total = _public_rank(snapshot, current_value=primary_current)
+    rank_passed = rank <= rank_target_max
 
     failures: list[str] = []
     if metadata_mismatches:
@@ -1800,6 +1881,11 @@ def run_claim_gate(
         failures.append("unsupported competitive language in proposed claim text")
     if not primary_passed:
         failures.append("primary improvement did not meet the predeclared minimum delta")
+    if not rank_passed:
+        failures.append(
+            f"current rank {rank} exceeds the predeclared public rank target "
+            f"of top {rank_target_max}"
+        )
     failures.extend(
         f"guardrail metric {guardrail.metric} regressed beyond tolerance"
         for guardrail in guardrails
@@ -1814,7 +1900,6 @@ def run_claim_gate(
             "Do not regenerate or edit the frozen baseline during comparison.",
         )
 
-    rank, total = _public_rank(snapshot, current_value=primary_current)
     status = "passed" if not failures else "failed"
     payload: dict[str, object] = {
         "schema_version": CLAIM_GATE_SCHEMA_VERSION,
@@ -1877,6 +1962,7 @@ def run_claim_gate(
             "secondary_metrics": list(plan.secondary_metrics),
             "top_k_values": list(plan.top_k_values),
             "candidate_depth_values": list(plan.candidate_depth_values),
+            "public_rank_target": dict(plan.public_rank_target),
         },
         "known_public_target": dict(plan.known_public_target),
         "matched_metadata": {
@@ -1921,6 +2007,8 @@ def run_claim_gate(
             "current_metric_value": primary_current,
             "current_rank_in_snapshot": rank,
             "snapshot_rank_denominator": total,
+            "rank_target": dict(plan.public_rank_target),
+            "rank_passed": rank_passed,
             "uncertainty": statistical_evidence,
             "limitations": _required_string(
                 plan.known_public_target,
