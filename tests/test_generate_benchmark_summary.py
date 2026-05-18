@@ -31,11 +31,17 @@ def _external_report(
     hit_rate: float = 1.0,
     mrr: float = 1.0,
     expected_recall: float = 1.0,
+    precision_at_k: float | None = None,
+    map_at_k: float | None = None,
+    ndcg_at_k: float | None = None,
+    graded_ndcg_at_k: float | None = None,
     latency_ms: float | None = 2.5,
     warnings: list[str] | None = None,
     errors: list[dict[str, object]] | None = None,
     threshold_failures: list[dict[str, object]] | None = None,
     schema_version: str = "external-runner-report-v1",
+    cases_sha256: str | None = None,
+    retrieval_mode: str | None = None,
 ) -> dict[str, object]:
     aggregate_metrics: dict[str, object] = {
         "hit_rate": hit_rate,
@@ -43,6 +49,16 @@ def _external_report(
         "expected_recall": expected_recall,
     }
     benchmark_metrics = dict(aggregate_metrics)
+    optional_metrics = {
+        "precision_at_k": precision_at_k,
+        "map_at_k": map_at_k,
+        "ndcg_at_k": ndcg_at_k,
+        "graded_ndcg_at_k": graded_ndcg_at_k,
+    }
+    for name, value in optional_metrics.items():
+        if value is not None:
+            aggregate_metrics[name] = value
+            benchmark_metrics[name] = value
     if latency_ms is not None:
         aggregate_metrics["mean_latency_ms"] = latency_ms
         aggregate_metrics["latency"] = {
@@ -56,32 +72,42 @@ def _external_report(
             "scope": "retrieval_only_per_query",
             "unit": "milliseconds",
         }
+    fixed_parameters: dict[str, object] = {
+        "top_k": 5,
+        "min_score": 0.1,
+        "query_order": "case-file-order",
+        "network_access": "disabled-after-materialization",
+    }
+    if retrieval_mode is not None:
+        fixed_parameters["retrieval_mode"] = retrieval_mode
+    metadata: dict[str, object] = {
+        "runner": "scripts.run_external_benchmarks",
+        "benchmark_type": benchmark_type,
+        "dataset": dataset,
+        "suite_path": "/tmp/fixture-suite",
+        "fixed_parameters": fixed_parameters,
+        "metric_formulas": {
+            "hit_rate": "fraction of queries with an expected reference in top-k",
+            "mrr": "mean reciprocal rank of the first expected reference",
+            "expected_recall": "average retrieved expected references per query",
+            "precision_at_k": "average binary precision@k",
+            "map_at_k": "mean average precision@k",
+            "ndcg_at_k": "mean normalized discounted cumulative gain@k",
+            "graded_ndcg_at_k": "mean graded normalized discounted cumulative gain@k",
+            "latency": "retrieval-only wall-clock milliseconds per query",
+        },
+        "runtime_only_fields": ["metadata.report_path", "aggregate_metrics.mean_latency_ms"],
+        "prompt_path": "benchmarks/model-evaluation-prompt.md",
+        "prompt_hash": "abc123",
+        "model": "fixture-model",
+    }
+    if cases_sha256 is not None:
+        metadata["cases_sha256"] = cases_sha256
     return {
         "schema_version": schema_version,
         "report_id": report_id,
         "status": status,
-        "metadata": {
-            "runner": "scripts.run_external_benchmarks",
-            "benchmark_type": benchmark_type,
-            "dataset": dataset,
-            "suite_path": "/tmp/fixture-suite",
-            "fixed_parameters": {
-                "top_k": 5,
-                "min_score": 0.1,
-                "query_order": "case-file-order",
-                "network_access": "disabled-after-materialization",
-            },
-            "metric_formulas": {
-                "hit_rate": "fraction of queries with an expected reference in top-k",
-                "mrr": "mean reciprocal rank of the first expected reference",
-                "expected_recall": "average retrieved expected references per query",
-                "latency": "retrieval-only wall-clock milliseconds per query",
-            },
-            "runtime_only_fields": ["metadata.report_path", "aggregate_metrics.mean_latency_ms"],
-            "prompt_path": "benchmarks/model-evaluation-prompt.md",
-            "prompt_hash": "abc123",
-            "model": "fixture-model",
-        },
+        "metadata": metadata,
         "benchmarks": [
             {
                 "id": f"{benchmark_type}:{dataset}:rag",
@@ -165,15 +191,61 @@ def test_summary_aggregates_reports_without_mutating_sources(
     assert "## Recommendations" in summary
     assert (
         "| 1 | `beir:beir/fixture` | success | beir | beir/fixture | "
-        "1.000 | 1.000 | 1.000 | 2.500 | passed |"
+        "1.000 | 1.000 | 1.000 | n/a | n/a | n/a | n/a | 2.500 | passed |"
     ) in summary
     assert (
         "| 2 | `standard-rag:ms-marco` | threshold_failed | standard-rag | ms-marco | "
-        "0.500 | 0.250 | 0.750 | 10.000 | passed |"
+        "0.500 | 0.250 | 0.750 | n/a | n/a | n/a | n/a | 10.000 | passed |"
     ) in summary
     assert "Prompt/model metadata: `benchmarks/model-evaluation-prompt.md`" in summary
     assert "summary-secret-token" not in summary
     assert "[REDACTED]" in summary
+
+
+def test_summary_includes_matched_local_baseline_comparisons(tmp_path: Path) -> None:
+    dense = tmp_path / "dense.json"
+    hybrid = tmp_path / "hybrid.json"
+    output = tmp_path / "summary.md"
+    cases_sha256 = "a" * 64
+    _write_report(
+        dense,
+        _external_report(
+            "public-academic:dense",
+            benchmark_type="public-academic",
+            dataset="public-academic",
+            hit_rate=0.8,
+            mrr=0.7,
+            expected_recall=0.8,
+            ndcg_at_k=0.6,
+            cases_sha256=cases_sha256,
+            retrieval_mode="dense",
+        ),
+    )
+    _write_report(
+        hybrid,
+        _external_report(
+            "public-academic:hybrid",
+            benchmark_type="public-academic",
+            dataset="public-academic",
+            hit_rate=1.0,
+            mrr=0.95,
+            expected_recall=1.0,
+            ndcg_at_k=0.9,
+            cases_sha256=cases_sha256,
+            retrieval_mode="hybrid",
+        ),
+    )
+
+    status = generate_benchmark_summary.main([str(dense), str(hybrid), "--output", str(output)])
+
+    summary = output.read_text(encoding="utf-8")
+    assert status == 0
+    assert "## Matched Local Baseline Comparisons" in summary
+    assert "local retrieval-mode comparisons only" in summary
+    assert "| public-academic | `aaaaaaaaaaaa` | `dense` (0.800 hit, 0.700 MRR) |" in summary
+    assert (
+        "| `hybrid` (1.000 hit, 0.950 MRR) | +0.200 | +0.250 | +0.200 | +0.300 | n/a |"
+    ) in summary
 
 
 def test_summary_includes_valid_failed_report_errors(tmp_path: Path) -> None:
@@ -207,6 +279,121 @@ def test_summary_includes_valid_failed_report_errors(tmp_path: Path) -> None:
     assert "benchmark cases file does not exist" in summary
 
 
+def test_summary_excludes_zero_query_reports_from_aggregate_means(
+    tmp_path: Path,
+) -> None:
+    measured_report = tmp_path / "measured.json"
+    zero_query_report = tmp_path / "zero-query.json"
+    output = tmp_path / "summary.md"
+    _write_report(
+        measured_report,
+        _external_report(
+            "beir:measured",
+            hit_rate=0.8,
+            mrr=0.6,
+            expected_recall=0.7,
+            latency_ms=5.0,
+        ),
+    )
+    zero_payload = _external_report(
+        "standard-rag:zero-query",
+        benchmark_type="standard-rag",
+        dataset="ms-marco",
+        hit_rate=1.0,
+        mrr=1.0,
+        expected_recall=1.0,
+        latency_ms=0.0,
+    )
+    zero_payload["benchmarks"] = [
+        {
+            "id": "standard-rag:zero-query:rag",
+            "benchmark_type": "standard-rag",
+            "dataset": "ms-marco",
+            "status": "success",
+            "metrics": {
+                "hit_rate": 1.0,
+                "mrr": 1.0,
+                "expected_recall": 1.0,
+                "mean_latency_ms": 0.0,
+            },
+            "per_query_results": [],
+        }
+    ]
+    _write_report(zero_query_report, zero_payload)
+
+    status = generate_benchmark_summary.main(
+        [str(measured_report), str(zero_query_report), "--output", str(output)]
+    )
+
+    summary = output.read_text(encoding="utf-8")
+    assert status == 0
+    assert (
+        "- Mean hit rate across aggregate-eligible reports (denominator 1/2): 0.800"
+    ) in summary
+    assert (
+        "- Aggregate statistics denominator: 1 eligible report(s) out of 2 supplied report(s)."
+    ) in summary
+    assert (
+        "| 2 | `standard-rag:zero-query` | success | standard-rag | ms-marco | "
+        "n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | passed | 0 | "
+        "excluded: zero measured queries |"
+    ) in summary
+    assert ("| `standard-rag:zero-query` | success | 0 | zero measured queries |") in summary
+    assert "| Hit Rate | 1 | 0.800 | 0.800 | 0.800 | 0.800 |" in summary
+
+
+def test_summary_infers_native_query_count_from_wrapped_rag_report(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "native.json"
+    output = tmp_path / "summary.md"
+    native_payload = _external_report(
+        "heph-native:academic",
+        benchmark_type="heph-native",
+        dataset="academic",
+        hit_rate=0.75,
+        mrr=0.5,
+        expected_recall=0.875,
+        latency_ms=3.0,
+    )
+    native_payload["benchmarks"] = [
+        {
+            "id": "heph-native:academic",
+            "benchmark_type": "heph-native",
+            "dataset": "academic",
+            "status": "success",
+            "metrics": {
+                "hit_rate": 0.75,
+                "mrr": 0.5,
+                "expected_recall": 0.875,
+                "mean_latency_ms": 3.0,
+            },
+            "native_suite_report": {
+                "rag": {
+                    "cases": 4,
+                    "hit_rate": 0.75,
+                    "mean_reciprocal_rank": 0.5,
+                    "mean_expected_recall": 0.875,
+                    "mean_latency_ms": 3.0,
+                }
+            },
+        }
+    ]
+    _write_report(report_path, native_payload)
+
+    status = generate_benchmark_summary.main([str(report_path), "--output", str(output)])
+
+    summary = output.read_text(encoding="utf-8")
+    assert status == 0
+    assert (
+        "- Mean hit rate across aggregate-eligible reports (denominator 1/1): 0.750"
+    ) in summary
+    assert (
+        "| 1 | `heph-native:academic` | success | heph-native | academic | "
+        "0.750 | 0.500 | 0.875 | n/a | n/a | n/a | n/a | 3.000 | passed | 4 | eligible |"
+    ) in summary
+
+
 def test_summary_warns_for_missing_optional_latency(tmp_path: Path) -> None:
     report_path = tmp_path / "partial.json"
     output = tmp_path / "summary.md"
@@ -218,7 +405,7 @@ def test_summary_warns_for_missing_optional_latency(tmp_path: Path) -> None:
     assert status == 0
     assert (
         "| 1 | `beir:beir/fixture` | success | beir | beir/fixture | "
-        "1.000 | 1.000 | 1.000 | n/a | passed |"
+        "1.000 | 1.000 | 1.000 | n/a | n/a | n/a | n/a | n/a | passed |"
     ) in summary
     assert "missing optional latency metric" in summary
 

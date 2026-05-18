@@ -118,7 +118,26 @@ class ToListProtocol(Protocol):
 
 def tokenize(text: str) -> list[str]:
     tokens = _WORD_RE.findall(text.lower())
-    return [token for token in tokens if token not in _STOP_WORDS and len(token) > 1]
+    normalized: list[str] = []
+    for token in tokens:
+        if token in _STOP_WORDS or (len(token) <= 1 and not token.isdigit()):
+            continue
+        normalized.append(token)
+        stem = _light_stem(token)
+        if stem != token and stem not in _STOP_WORDS and len(stem) > 1:
+            normalized.append(stem)
+    return normalized
+
+
+def _light_stem(token: str) -> str:
+    """Conservative suffix normalization for sparse retrieval recall."""
+    if len(token) > 5 and token.endswith("ies"):
+        return token[:-3] + "y"
+    if len(token) > 5 and token.endswith(("sses", "shes", "ches", "xes", "zes")):
+        return token[:-2]
+    if len(token) > 4 and token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
 
 
 def float_list(values: object) -> list[float]:
@@ -188,14 +207,20 @@ def reciprocal_rank_fusion(
     ranked_lists: list[list[ScoredChunk]],
     *,
     k: int = 60,
+    weights: Sequence[float] | None = None,
 ) -> list[ScoredChunk]:
     """Merge multiple ranked lists using Reciprocal Rank Fusion (RRF)."""
+    if weights is not None and len(weights) != len(ranked_lists):
+        raise ValueError("RRF weights must match the number of ranked lists")
     merged: dict[tuple[str, int], tuple[float, ScoredChunk]] = {}
 
-    for ranked in ranked_lists:
+    for list_index, ranked in enumerate(ranked_lists):
+        weight = 1.0 if weights is None else max(0.0, float(weights[list_index]))
+        if weight == 0.0:
+            continue
         for rank, scored_chunk in enumerate(ranked):
             key = (scored_chunk.chunk.source, scored_chunk.chunk.index)
-            rrf_delta = 1.0 / (k + rank + 1)
+            rrf_delta = weight / (k + rank + 1)
             if key in merged:
                 current_score, best_scored_chunk = merged[key]
                 merged[key] = (current_score + rrf_delta, best_scored_chunk)

@@ -29,7 +29,7 @@ gracefully to identity (returning the original query unchanged).
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from enum import Enum
 from typing import Protocol, cast, runtime_checkable
 
@@ -57,6 +57,7 @@ class TransformStrategy(Enum):
     HYDE = "hyde"  # Hypothetical Document Embeddings
     MULTI_QUERY = "multi_query"  # multi-query reformulation
     EXPANSION = "expansion"  # keyword expansion (no LLM needed)
+    MODE_SPECIFIC = "mode_specific"  # sparse keyword bag + dense semantic description
 
 
 @runtime_checkable
@@ -70,6 +71,19 @@ class QueryTransformerProtocol(Protocol):
         original query may or may not be included depending on the
         strategy.
         """
+        ...
+
+
+@runtime_checkable
+class ModeSpecificQueryTransformerProtocol(QueryTransformerProtocol, Protocol):
+    """Query transformer that can tailor formulations per retrieval mode."""
+
+    def transform_sparse(self, query: str) -> list[str]:
+        """Return sparse-retrieval formulations such as keyword bags."""
+        ...
+
+    def transform_dense(self, query: str) -> list[str]:
+        """Return dense-retrieval formulations such as semantic descriptions."""
         ...
 
 
@@ -202,6 +216,77 @@ class QueryExpander:
         )
 
         return [query, expanded_query]
+
+
+_MODE_SPECIFIC_PROMPT = (
+    "Rewrite the search query for a hybrid retriever.\n"
+    "Return exactly two lines:\n"
+    "SPARSE: a compact keyword bag with synonyms, abbreviations, and domain terms\n"
+    "DENSE: a fluent natural-language description of the same information need\n\n"
+    "Do not add commentary or change the user's intent."
+)
+
+
+class ModeSpecificQueryPlanner:
+    """Sparse/dense query planner for hybrid retrieval.
+
+    Sparse retrieval benefits from compact keyword bags.  Dense retrieval
+    benefits from natural-language descriptions that make implicit document
+    intent explicit.  Without an LLM prompt function this planner stays
+    conservative and returns the original query only; deterministic domain
+    expansion was measured as too noisy on NFCorpus.
+    """
+
+    def __init__(self, prompt_fn: PromptFn | None = None) -> None:
+        self._prompt_fn = prompt_fn
+
+    def transform(self, query: str) -> list[str]:
+        return _dedupe_queries([*self.transform_sparse(query), *self.transform_dense(query)])
+
+    def transform_sparse(self, query: str) -> list[str]:
+        sparse_query, _dense_query = self._planned_queries(query)
+        return _dedupe_queries([query, sparse_query])
+
+    def transform_dense(self, query: str) -> list[str]:
+        _sparse_query, dense_query = self._planned_queries(query)
+        return _dedupe_queries([query, dense_query])
+
+    def _planned_queries(self, query: str) -> tuple[str, str]:
+        if self._prompt_fn is None:
+            return query, query
+        prompt = f"{_MODE_SPECIFIC_PROMPT}\n\nOriginal query: {query}"
+        try:
+            response = self._prompt_fn(prompt)
+        except Exception as exc:
+            _log.warning(
+                "mode-specific query planning failed, falling back to original query",
+                extra={"fields": {"error": str(exc)}},
+            )
+            return query, query
+        sparse_query = ""
+        dense_query = ""
+        for line in response.splitlines():
+            label, separator, value = line.partition(":")
+            if not separator:
+                continue
+            normalized_label = label.strip().lower()
+            if normalized_label == "sparse":
+                sparse_query = value.strip()
+            elif normalized_label == "dense":
+                dense_query = value.strip()
+        return sparse_query or query, dense_query or query
+
+
+def _dedupe_queries(queries: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for query in queries:
+        normalized = " ".join(query.split())
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
 
 
 _HYDE_SYSTEM_PROMPT = (
@@ -384,6 +469,8 @@ def create_transformer(
         return IdentityTransformer()
     if strategy == TransformStrategy.EXPANSION:
         return QueryExpander(use_wordnet=use_wordnet)
+    if strategy == TransformStrategy.MODE_SPECIFIC:
+        return ModeSpecificQueryPlanner(prompt_fn=prompt_fn)
     if strategy == TransformStrategy.HYDE:
         return HyDETransformer(prompt_fn=prompt_fn)
     if strategy == TransformStrategy.MULTI_QUERY:

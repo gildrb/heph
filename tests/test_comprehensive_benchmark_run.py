@@ -179,6 +179,10 @@ def test_comprehensive_script_help_documents_required_interface() -> None:
         "--validate-reproducibility",
         "--visualize",
         "--require-beir-extra",
+        "--competitive-preset",
+        "--hybrid-dense-weight",
+        "--embedding-query-prefix",
+        "--embedding-document-prefix",
         "HEPH_BENCHMARK_PYTHON",
     ):
         assert option in result.stdout
@@ -283,6 +287,94 @@ def test_comprehensive_script_runs_ordered_fixture_phases_with_quoted_paths(
         assert (output_dir / "reports" / "heph-native-runner.json").is_file()
         assert (output_dir / "reports" / "public-academic-runner.json").is_file()
         assert "status=success" in (output_dir / "run-status.txt").read_text(encoding="utf-8")
+
+
+def test_comprehensive_script_supports_per_external_runner_retrieval_modes(
+    tmp_path: Path,
+) -> None:
+    fake_uv = tmp_path / "fake-uv"
+    _write_fake_uv(fake_uv)
+    env = _base_env(tmp_path, fake_uv)
+
+    with tempfile.TemporaryDirectory(prefix="heph-comprehensive-", dir="/tmp") as temp_root:
+        output_dir = Path(temp_root) / "artifacts"
+        result = _run_script(
+            [
+                "--output-dir",
+                str(output_dir),
+                "--fixture-mode",
+                "--skip-dependency-checks",
+                "--skip-native",
+                "--skip-public-academic",
+                "--beir-retrieval-mode",
+                "hybrid",
+                "--beir-candidate-multiplier",
+                "2",
+                "--beir-embedding-model",
+                "all-mpnet-base-v2",
+                "--beir-embedding-document-prefix",
+                "passage: ",
+                "--standard-rag-retrieval-mode",
+                "hybrid-rerank",
+                "--standard-rag-candidate-multiplier",
+                "2",
+                "--standard-rag-embedding-model",
+                "all-mpnet-base-v2",
+                "--standard-rag-embedding-document-prefix",
+                "doc: ",
+                "--standard-rag-rerank-model",
+                "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            ],
+            env=env,
+        )
+
+    output = result.stdout + result.stderr
+    uv_log = (tmp_path / "fake-uv.log").read_text(encoding="utf-8")
+    assert result.returncode == 0, output
+    assert ("scripts.run_external_benchmarks beir beir/fixture --suite") in uv_log
+    assert "--retrieval-mode hybrid --candidate-multiplier 2" in uv_log
+    assert "--embedding-model all-mpnet-base-v2" in uv_log
+    assert "--embedding-document-prefix passage: " in uv_log
+    assert ("scripts.run_external_benchmarks standard-rag fixture-standard-rag --suite") in uv_log
+    assert "--retrieval-mode hybrid-rerank --candidate-multiplier 2" in uv_log
+    assert "--embedding-document-prefix doc: " in uv_log
+    assert "--rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2" in uv_log
+
+
+def test_comprehensive_script_competitive_preset_uses_measured_models(
+    tmp_path: Path,
+) -> None:
+    fake_uv = tmp_path / "fake-uv"
+    _write_fake_uv(fake_uv)
+    env = _base_env(tmp_path, fake_uv)
+
+    with tempfile.TemporaryDirectory(prefix="heph-comprehensive-", dir="/tmp") as temp_root:
+        output_dir = Path(temp_root) / "artifacts"
+        result = _run_script(
+            [
+                "--output-dir",
+                str(output_dir),
+                "--fixture-mode",
+                "--skip-dependency-checks",
+                "--skip-native",
+                "--skip-public-academic",
+                "--competitive-preset",
+            ],
+            env=env,
+        )
+
+    output = result.stdout + result.stderr
+    uv_log = (tmp_path / "fake-uv.log").read_text(encoding="utf-8")
+    assert result.returncode == 0, output
+    assert "--retrieval-mode hybrid-prf --candidate-multiplier 2" in uv_log
+    assert "--retrieval-mode hybrid-rerank --candidate-multiplier 2" in uv_log
+    assert "--embedding-model BAAI/bge-large-en-v1.5" in uv_log
+    assert "--embedding-model BAAI/bge-base-en-v1.5" in uv_log
+    assert (
+        "--embedding-query-prefix Represent this sentence for searching relevant passages: "
+        in uv_log
+    )
+    assert "--hybrid-dense-weight 1.25" in uv_log
 
 
 def test_comprehensive_script_rejects_symlinked_output_before_writes(

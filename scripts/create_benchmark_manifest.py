@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -59,6 +60,13 @@ _DEFAULT_DATASETS: tuple[ManifestDataset, ...] = (
     {"path": "replay.jsonl", "kind": "model-replay-prompts"},
     {"path": "study_state.jsonl", "kind": "study-state"},
 )
+_TABLE_ROW_RE = re.compile(r"(?:^|\n)\s*\S+(?:\s{2,}|\t|\|)\S+(?:\s{2,}|\t|\|)\S+")
+_EXTRACTION_NOISE_RE = re.compile(r"\w[\u00a8\u00b4\u02c6`]\w|\ufffd|[|Il1]{6,}")
+_MATH_NOTATION_RE = re.compile(r"[∑∫√∞≤≥≈≠→↔]|\\(?:sum|int|frac|sqrt|begin)\b")
+_GERMAN_ACADEMIC_RE = re.compile(
+    r"\b(?:aufgabe|übung|uebung|klausur|vorlesung|beweis|satz|lösung|loesung)\b",
+    re.IGNORECASE,
+)
 
 
 def create_manifest(
@@ -79,6 +87,7 @@ def create_manifest(
             material,
             default_domain=domain,
             inferred_role=_content_role(material, indexed_text),
+            indexed_text=indexed_text.get(material.rel_path, ""),
         )
         for material in material_manifest(armory_path)
     ]
@@ -130,19 +139,25 @@ def _document_entry(
     *,
     default_domain: str,
     inferred_role: MaterialRole,
+    indexed_text: str = "",
 ) -> ManifestDocument:
     return {
         "source": material.rel_path,
         "domain": default_domain,
         "role": inferred_role,
-        "document_type": _document_type(material, role=inferred_role),
-        "stressors": _stressors(material, role=inferred_role),
+        "document_type": _document_type(material, role=inferred_role, indexed_text=indexed_text),
+        "stressors": _stressors(material, role=inferred_role, indexed_text=indexed_text),
         "source_url": "",
         "permission_note": "",
     }
 
 
-def _document_type(material: MaterialFile, *, role: MaterialRole) -> str:
+def _document_type(
+    material: MaterialFile,
+    *,
+    role: MaterialRole,
+    indexed_text: str = "",
+) -> str:
     suffix = material.path.suffix.lower()
     rel_lower = material.rel_path.lower()
     if role == "past_exam":
@@ -161,6 +176,8 @@ def _document_type(material: MaterialFile, *, role: MaterialRole) -> str:
         return "syllabus"
     if role == "slides":
         return "slide-deck" if suffix in (".ppt", ".pptx") else "lecture-slides"
+    if suffix == ".pdf" and _has_table_like_text(indexed_text):
+        return "table-heavy-pdf"
     if suffix == ".pdf":
         return "pdf"
     if suffix in (".md", ".txt", ".rst"):
@@ -172,10 +189,16 @@ def _document_type(material: MaterialFile, *, role: MaterialRole) -> str:
     return suffix.lstrip(".") or "unknown"
 
 
-def _stressors(material: MaterialFile, *, role: MaterialRole) -> list[str]:
+def _stressors(
+    material: MaterialFile,
+    *,
+    role: MaterialRole,
+    indexed_text: str = "",
+) -> list[str]:
     stressors: set[str] = {role}
     suffix = material.path.suffix.lower()
     rel_lower = material.rel_path.lower()
+    text_sample = indexed_text[:20_000]
     if suffix == ".pdf":
         stressors.add("real-pdf")
     if suffix in (".png", ".jpg", ".jpeg", ".tif", ".tiff"):
@@ -202,11 +225,36 @@ def _stressors(material: MaterialFile, *, role: MaterialRole) -> list[str]:
         stressors.add("syllabus")
     if any(ord(char) > 127 for char in material.rel_path):
         stressors.update(("unicode", "multilingual"))
+    if text_sample:
+        if _has_table_like_text(text_sample):
+            stressors.update(("table-heavy", "tabular-text"))
+        if _has_multilingual_text(text_sample):
+            stressors.update(("unicode", "multilingual"))
+        if _has_extraction_noise(text_sample):
+            stressors.update(("ocr-noise", "noisy-text-extraction"))
+        if _has_math_notation(text_sample):
+            stressors.update(("formula-language", "math-notation"))
     if any(token in rel_lower for token in ("scan", "ocr")):
         stressors.add("ocr-noise")
     if any(token in rel_lower for token in ("multi-column", "multicolumn", "zweispaltig")):
         stressors.add("multi-column")
     return sorted(stressors)
+
+
+def _has_table_like_text(text: str) -> bool:
+    return len(_TABLE_ROW_RE.findall(text)) >= 3
+
+
+def _has_multilingual_text(text: str) -> bool:
+    return any(ord(char) > 127 for char in text) or bool(_GERMAN_ACADEMIC_RE.search(text))
+
+
+def _has_extraction_noise(text: str) -> bool:
+    return bool(_EXTRACTION_NOISE_RE.search(text))
+
+
+def _has_math_notation(text: str) -> bool:
+    return bool(_MATH_NOTATION_RE.search(text))
 
 
 def _has_any(text: str, needles: tuple[str, ...]) -> bool:

@@ -21,13 +21,33 @@ _RERANK_MODEL_ENV = "HEPHAISTOS_RERANK_MODEL"
 _RERANK_MODEL_DEFAULT = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 
+def _chunk_model_text(source: str, heading: str, text: str) -> str:
+    parts = [part for part in (heading, text, source) if part]
+    return "\n".join(parts)
+
+
+def _embedding_cache_key(model_name: str, document_prefix: str) -> str | None:
+    if not document_prefix:
+        return None
+    return f"{model_name}\ndocument_prefix={document_prefix}"
+
+
 class EmbeddingRetriever:
     """Dense vector retriever using sentence-transformers embeddings."""
 
-    def __init__(self, index: ArmoryIndex, model_name: str | None = None) -> None:
+    def __init__(
+        self,
+        index: ArmoryIndex,
+        model_name: str | None = None,
+        *,
+        query_prefix: str = "",
+        document_prefix: str = "",
+    ) -> None:
         self._index = index
         self._chunks = index.all_chunks
         self._model_name = model_name or os.environ.get(_EMBED_MODEL_ENV, _EMBED_MODEL_DEFAULT)
+        self._query_prefix = query_prefix
+        self._document_prefix = document_prefix
         self._embeddings: list[list[float]] | None = None
         self._model: SentenceTransformerProtocol | None = None
 
@@ -50,20 +70,28 @@ class EmbeddingRetriever:
             self._embeddings = []
             return self._embeddings
 
-        cached = self._index.load_embeddings(self._model_name)
+        cache_key = _embedding_cache_key(self._model_name, self._document_prefix)
+        cached = self._index.load_embeddings(self._model_name, cache_key=cache_key)
         if cached is not None and len(cached) == len(self._chunks):
             self._embeddings = cached
             return self._embeddings
 
         model = self._ensure_model()
-        texts = [chunk.text for chunk in self._chunks]
+        texts = [
+            f"{self._document_prefix}{_chunk_model_text(chunk.source, chunk.heading, chunk.text)}"
+            for chunk in self._chunks
+        ]
         self._embeddings = embedding_rows(
             model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
         )
 
         if self._embeddings:
             with contextlib.suppress(Exception):
-                self._index.save_embeddings(self._embeddings, self._model_name)
+                self._index.save_embeddings(
+                    self._embeddings,
+                    self._model_name,
+                    cache_key=cache_key,
+                )
 
         return self._embeddings
 
@@ -74,8 +102,9 @@ class EmbeddingRetriever:
 
         embeddings = self._ensure_embeddings()
         model = self._ensure_model()
+        search_query = f"{self._query_prefix}{query}" if self._query_prefix else query
         query_rows = embedding_rows(
-            model.encode([query], convert_to_numpy=True, show_progress_bar=False)
+            model.encode([search_query], convert_to_numpy=True, show_progress_bar=False)
         )
         if not query_rows:
             return []
@@ -123,7 +152,17 @@ class CrossEncoderReranker:
             return []
 
         model = self._ensure_model()
-        pairs = [(query, scored_chunk.chunk.text) for scored_chunk in candidates]
+        pairs = [
+            (
+                query,
+                _chunk_model_text(
+                    scored_chunk.chunk.source,
+                    scored_chunk.chunk.heading,
+                    scored_chunk.chunk.text,
+                ),
+            )
+            for scored_chunk in candidates
+        ]
         scores = float_list(model.predict(pairs))
         scored = [
             ScoredChunk(chunk=candidates[i].chunk, score=float(scores[i]))

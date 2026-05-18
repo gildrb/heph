@@ -16,9 +16,11 @@ from hephaistos.rag.query_transform import TransformStrategy
 from hephaistos.rag.retrieve import (
     Bm25Retriever,
     CrossEncoderReranker,
+    DocumentBm25Retriever,
     EmbeddingRetriever,
     HybridRetriever,
     RerankerProtocol,
+    RetrievalMode,
     RetrieverProtocol,
     ScoredChunk,
     TfidfRetriever,
@@ -127,6 +129,25 @@ def test_negation_precision_penalty_keeps_negated_queries_in_order() -> None:
     assert [result.chunk.source for result in reranked] == ["negative.md", "positive.md"]
 
 
+def test_retrieve_can_diversify_duplicate_source_chunks() -> None:
+    chunks = [
+        _make_chunk("alpha topic repeated", "same.md", 0),
+        _make_chunk("alpha topic repeated again", "same.md", 1),
+        _make_chunk("alpha topic target", "other.md", 0),
+    ]
+    index = _make_index_with_chunks(chunks)
+
+    results = retrieve(
+        "alpha topic",
+        index,
+        top_k=2,
+        candidate_multiplier=3,
+        diversify_sources=True,
+    )
+
+    assert {result.chunk.source for result in results} == {"same.md", "other.md"}
+
+
 # ---------------------------------------------------------------------------
 # RetrieverProtocol
 # ---------------------------------------------------------------------------
@@ -136,6 +157,10 @@ class TestRetrieverProtocol:
     def test_tfidf_satisfies_protocol(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello world")])
         assert isinstance(TfidfRetriever(index), RetrieverProtocol)
+
+    def test_document_bm25_satisfies_protocol(self) -> None:
+        index = _make_index_with_chunks([_make_chunk("hello world")])
+        assert isinstance(DocumentBm25Retriever(index), RetrieverProtocol)
 
     def test_embedding_satisfies_protocol(self) -> None:
         index = _make_index_with_chunks([_make_chunk("hello world")])
@@ -293,7 +318,7 @@ class TestTfidfRetriever:
         monkeypatch.setattr(retrieve_module, "HAS_SKLEARN", False)
 
         TfidfRetriever(index)
-        state_path = tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_tfidf.json"
+        state_path = tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_tfidf_v7.json"
 
         assert state_path.is_file()
         with patch.object(
@@ -352,6 +377,23 @@ class TestBm25Retriever:
         assert not retriever.available
         assert retriever.retrieve("anything") == []
 
+    def test_stdlib_bm25_available_without_optional_backend(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chunks = [
+            _make_chunk("alpha receptor binding", "alpha.md", 0),
+            _make_chunk("beta cache invalidation", "beta.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
+
+        retriever = Bm25Retriever(index)
+        results = retriever.retrieve("receptor binding", top_k=2)
+
+        assert retriever.available
+        assert results[0].chunk.source == "alpha.md"
+
     def test_build_failure_falls_back_to_unavailable(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -365,7 +407,7 @@ class TestBm25Retriever:
 
         retriever = Bm25Retriever(index)
 
-        assert not retriever.available
+        assert retriever.available
 
     def test_corpus_tokens_state_saved_and_reused(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -390,7 +432,9 @@ class TestBm25Retriever:
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
 
         Bm25Retriever(index)
-        state_path = tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_bm25_tokens.json"
+        state_path = (
+            tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_bm25_tokens_v7.json"
+        )
 
         assert state_path.is_file()
 
@@ -401,6 +445,112 @@ class TestBm25Retriever:
         retriever = Bm25Retriever(index)
 
         assert retriever.available
+
+    def test_source_section_query_can_break_repeated_title_tie(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chunks = [
+            _make_chunk(
+                "CS231n Deep Learning for Computer Vision Course Website",
+                "materials/public-academic/stanford-cs231n/classification/index.html",
+                0,
+            ),
+            _make_chunk(
+                "CS231n Deep Learning for Computer Vision Course Website",
+                "materials/public-academic/stanford-cs231n/neural-networks-1/index.html",
+                0,
+            ),
+        ]
+        index = _make_index_with_chunks(chunks)
+        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
+
+        retriever = Bm25Retriever(index)
+        results = retriever.retrieve(
+            "CS231n Deep Learning for Computer Vision at source section "
+            '"stanford-cs231n/neural-networks-1"',
+            top_k=2,
+        )
+
+        assert results[0].chunk.source.endswith("neural-networks-1/index.html")
+
+
+class TestDocumentBm25Retriever:
+    def test_ranks_whole_documents_not_individual_chunks(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chunks = [
+            _make_chunk("alpha project overview", "target.md", 0),
+            _make_chunk("beta release details", "target.md", 1),
+            _make_chunk("alpha only", "other.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
+
+        retriever = DocumentBm25Retriever(index)
+        results = retriever.retrieve("alpha beta", top_k=2)
+
+        assert retriever.available
+        assert results[0].chunk.source == "target.md"
+        assert [result.chunk.source for result in results].count("target.md") == 1
+
+    def test_reads_material_file_text_when_available(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        material = tmp_path / "materials" / "doc.md"
+        material.parent.mkdir(parents=True)
+        material.write_text(
+            "# Official title\n\nfull document sentinel phrase\n",
+            encoding="utf-8",
+        )
+        chunk = _make_chunk("chunk text without sentinel", "materials/doc.md", 0)
+        index = _make_index_with_chunks_at(tmp_path, [chunk])
+        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
+
+        retriever = DocumentBm25Retriever(index)
+
+        assert retriever.retrieve("sentinel phrase")[0].chunk.source == "materials/doc.md"
+
+    def test_uses_bm25_backend_cache_without_tokenizing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class FakeBm25:
+            @classmethod
+            def load(cls, _cache_dir: Path, *, load_corpus: bool, mmap: bool) -> FakeBm25:
+                assert load_corpus is False
+                assert mmap is True
+                return cls()
+
+            def retrieve(
+                self,
+                _query_tokens: list[list[str]],
+                *,
+                k: int,
+                show_progress: bool,
+            ) -> tuple[object, object]:
+                assert k == 1
+                assert show_progress is False
+                return [[0]], [[2.0]]
+
+        chunk = _make_chunk("alpha beta", "materials/doc.md", 0)
+        index = _make_index_with_chunks_at(tmp_path, [chunk])
+        cache_dir = tmp_path / ".hephaistos" / f"retriever_{index.content_hash}_bm25s_document_v1"
+        cache_dir.mkdir(parents=True)
+        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
+        original_tokenize = sparse_module.tokenize
+
+        def fail_tokenize(_text: str) -> list[str]:
+            raise AssertionError("backend cache should avoid rebuilding document tokens")
+
+        monkeypatch.setattr(sparse_module, "tokenize", fail_tokenize)
+        retriever = DocumentBm25Retriever(index)
+        monkeypatch.setattr(sparse_module, "tokenize", original_tokenize)
+
+        assert retriever.available
+        assert retriever.retrieve("alpha")[0].chunk.source == "materials/doc.md"
 
 
 # ---------------------------------------------------------------------------
@@ -424,9 +574,19 @@ class TestTokenize:
         assert "c" not in tokens
         assert "big" in tokens
 
+    def test_keeps_single_digit_section_tokens(self) -> None:
+        tokens = _tokenize("neural-networks-1 neural-networks-3")
+        assert "1" in tokens
+        assert "3" in tokens
+
     def test_lowercase(self) -> None:
         tokens = _tokenize("Python PYTHON python")
         assert tokens == ["python", "python", "python"]
+
+    def test_adds_conservative_plural_variants(self) -> None:
+        tokens = _tokenize("therapies receptors")
+        assert "therapy" in tokens
+        assert "receptor" in tokens
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +699,20 @@ class TestReciprocalRankFusion:
         gap2 = r2[0].score - r2[1].score
         assert gap1 > gap2
 
+    def test_weights_change_fusion_order(self) -> None:
+        c_sparse = _make_chunk("sparse top", "sparse.md", 0)
+        c_dense = _make_chunk("dense top", "dense.md", 0)
+        sparse = [ScoredChunk(chunk=c_sparse, score=1.0)]
+        dense = [ScoredChunk(chunk=c_dense, score=1.0)]
+
+        result = _reciprocal_rank_fusion([sparse, dense], weights=[1.0, 2.0])
+
+        assert result[0].chunk.source == "dense.md"
+
+    def test_weights_must_match_ranked_lists(self) -> None:
+        with pytest.raises(ValueError, match="weights"):
+            _reciprocal_rank_fusion([[]], weights=[1.0, 1.0])
+
 
 # ---------------------------------------------------------------------------
 # Embedding retriever (mocked — no real model download)
@@ -629,6 +803,82 @@ class TestEmbeddingRetriever:
         index = ArmoryIndex(Path("/fake"))
         retriever = EmbeddingRetriever(index, model_name="my-model")
         assert retriever._model_name == "my-model"
+
+    def test_query_prefix_applied_to_query_embedding(self) -> None:
+        c_a = _make_chunk("hello", "a.md", 0)
+        index = _make_index_with_chunks([c_a])
+        retriever = EmbeddingRetriever(index, query_prefix="query: ")
+
+        mock_model = MagicMock()
+        mock_model.encode.side_effect = [
+            _MockArray([[1.0, 0.0]]),
+            _MockArray([[1.0, 0.0]]),
+        ]
+        retriever._model = mock_model
+
+        retriever.retrieve("hello")
+
+        assert mock_model.encode.call_args_list[1].args[0] == ["query: hello"]
+
+    def test_document_prefix_applied_to_chunk_embeddings(self) -> None:
+        c_a = _make_chunk("hello", "a.md", 0)
+        index = _make_index_with_chunks([c_a])
+        retriever = EmbeddingRetriever(index, document_prefix="passage: ")
+
+        mock_model = MagicMock()
+        mock_model.encode.side_effect = [
+            _MockArray([[1.0, 0.0]]),
+            _MockArray([[1.0, 0.0]]),
+        ]
+        retriever._model = mock_model
+
+        retriever.retrieve("hello")
+
+        assert mock_model.encode.call_args_list[0].args[0] == ["passage: hello\na.md"]
+        assert mock_model.encode.call_args_list[1].args[0] == ["hello"]
+
+    def test_document_prefix_changes_embedding_cache_key(self) -> None:
+        c_a = _make_chunk("hello", "a.md", 0)
+        index = _make_index_with_chunks([c_a])
+        retriever = EmbeddingRetriever(
+            index,
+            model_name="fixture-embed-model",
+            document_prefix="passage: ",
+        )
+
+        mock_model = MagicMock()
+        mock_model.encode.return_value = _MockArray([[0.1, 0.2, 0.3]])
+        retriever._model = mock_model
+
+        expected_cache_key = "fixture-embed-model\ndocument_prefix=passage: "
+        with (
+            patch.object(index, "load_embeddings", return_value=None) as load_embeddings,
+            patch.object(index, "save_embeddings") as save_embeddings,
+        ):
+            retriever._ensure_embeddings()
+
+        assert load_embeddings.call_args.kwargs["cache_key"] == expected_cache_key
+        assert save_embeddings.call_args.kwargs["cache_key"] == expected_cache_key
+
+    def test_embedding_cache_separates_document_prefixes(self, tmp_path: Path) -> None:
+        c_a = _make_chunk("hello", "a.md", 0)
+        index = _make_index_with_chunks_at(tmp_path, [c_a])
+
+        default_path = index.save_embeddings([[1.0, 0.0]], "fixture-embed-model")
+        prefixed_path = index.save_embeddings(
+            [[0.0, 1.0]],
+            "fixture-embed-model",
+            cache_key="fixture-embed-model\ndocument_prefix=passage: ",
+        )
+
+        assert default_path is not None
+        assert prefixed_path is not None
+        assert default_path != prefixed_path
+        assert index.load_embeddings("fixture-embed-model") == [[1.0, 0.0]]
+        assert index.load_embeddings(
+            "fixture-embed-model",
+            cache_key="fixture-embed-model\ndocument_prefix=passage: ",
+        ) == [[0.0, 1.0]]
 
     def test_embeddings_cached(self) -> None:
         c_a = _make_chunk("hello", "a.md", 0)
@@ -767,6 +1017,75 @@ class TestHybridRetriever:
             assert len(results) > 0
             # a.md should rank highest (it's top in both TF-IDF and embeddings)
             assert results[0].chunk.source == "a.md"
+
+    def test_mode_specific_transformer_routes_sparse_and_dense_queries(self) -> None:
+        chunks = [
+            _make_chunk("sparse match", "sparse.md", 0),
+            _make_chunk("dense match", "dense.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+
+        class StubModeSpecificTransformer:
+            def transform(self, query: str) -> list[str]:
+                return [query]
+
+            def transform_sparse(self, _query: str) -> list[str]:
+                return ["keyword bag", "expanded keyword bag"]
+
+            def transform_dense(self, _query: str) -> list[str]:
+                return ["natural language description"]
+
+        hybrid = HybridRetriever(
+            index,
+            candidate_multiplier=3,
+            query_transformer=StubModeSpecificTransformer(),
+        )
+        sparse = MagicMock()
+        sparse.retrieve.side_effect = [
+            [ScoredChunk(chunk=chunks[0], score=1.0)],
+            [ScoredChunk(chunk=chunks[1], score=0.5)],
+        ]
+        dense = MagicMock()
+        dense.retrieve.return_value = [ScoredChunk(chunk=chunks[1], score=1.0)]
+        hybrid._sparse = sparse
+        hybrid._embedding = dense
+
+        results = hybrid.retrieve("original query", top_k=2)
+
+        assert [call.args for call in sparse.retrieve.call_args_list] == [
+            ("keyword bag", 6),
+            ("expanded keyword bag", 6),
+        ]
+        dense.retrieve.assert_called_once_with("natural language description", top_k=6)
+        assert {result.chunk.source for result in results} == {"sparse.md", "dense.md"}
+
+    def test_pseudo_feedback_adds_expanded_sparse_list(self) -> None:
+        chunks = [
+            _make_chunk("alpha rareterm citation clue", "seed.md", 0),
+            _make_chunk("rareterm answer", "target.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+        hybrid = HybridRetriever(index, pseudo_feedback=True)
+        hybrid._embedding = None
+
+        sparse = MagicMock()
+
+        def fake_sparse_retrieve(query: str, top_k: int = 5) -> list[ScoredChunk]:
+            del top_k
+            if "rareterm" in query and query != "alpha":
+                return [ScoredChunk(chunk=chunks[1], score=2.0)]
+            return [ScoredChunk(chunk=chunks[0], score=1.0)]
+
+        sparse.retrieve.side_effect = fake_sparse_retrieve
+        hybrid._sparse = sparse
+
+        results = hybrid.retrieve("alpha", top_k=2)
+
+        assert {result.chunk.source for result in results} == {"seed.md", "target.md"}
+        assert sparse.retrieve.call_count == 2
+        feedback_query = sparse.retrieve.call_args_list[1].args[0]
+        assert feedback_query.startswith("alpha ")
+        assert "rareterm" in feedback_query
 
     def test_empty_results_from_both(self) -> None:
         chunks = [_make_chunk("unrelated", "a.md", 0)]
@@ -938,8 +1257,8 @@ class TestCrossEncoderReranker:
         reranker.rerank("programming", candidates)
         call_args = mock_model.predict.call_args[0][0]
         assert call_args == [
-            ("programming", "Python code"),
-            ("programming", "Rust code"),
+            ("programming", "Python code\na.md"),
+            ("programming", "Rust code\nb.md"),
         ]
 
 
@@ -1118,6 +1437,42 @@ class TestCreateRetriever:
             assert isinstance(r, HybridRetriever)
             assert r.has_embeddings
 
+    def test_hybrid_prf_mode_enables_pseudo_feedback(self) -> None:
+        index = _make_index_with_chunks([_make_chunk("hello")])
+        with patch(
+            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            return_value=True,
+        ):
+            r = _create_retriever(index, retrieval_mode=RetrievalMode.HYBRID_PRF)
+            assert isinstance(r, HybridRetriever)
+            assert r._pseudo_feedback is True
+
+    def test_hybrid_prf_can_run_sparse_only(self) -> None:
+        index = _make_index_with_chunks([_make_chunk("hello")])
+        with patch(
+            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            return_value=True,
+        ):
+            r = _create_retriever(
+                index,
+                retrieval_mode=RetrievalMode.HYBRID_PRF,
+                hybrid_dense_weight=0.0,
+            )
+            assert isinstance(r, HybridRetriever)
+            assert r._pseudo_feedback is True
+            assert r.has_embeddings is False
+
+    def test_returns_document_bm25_for_document_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        index = _make_index_with_chunks([_make_chunk("hello world", "doc.md", 0)])
+        retrieve_module = import_module("hephaistos.rag.optional_backends")
+        monkeypatch.setattr(retrieve_module, "BM25_CLASS", None)
+
+        r = _create_retriever(index, retrieval_mode=RetrievalMode.BM25_DOCUMENT)
+
+        assert isinstance(r, DocumentBm25Retriever)
+
     def test_reranker_creation_failure_still_returns_hybrid(self) -> None:
         """If CrossEncoderReranker fails, hybrid still works without it."""
         index = _make_index_with_chunks([_make_chunk("hello")])
@@ -1233,10 +1588,32 @@ class TestRetrieveConvenience:
         def fake_create_retriever(
             armory_index: ArmoryIndex,
             embed_model: str | None = None,
+            embed_query_prefix: str = "",
+            embed_document_prefix: str = "",
             rerank_model: str | None = None,
             query_transformer: object | None = None,
+            retrieval_mode: object | None = None,
+            candidate_multiplier: int = 3,
+            hybrid_sparse_weight: float = 1.0,
+            hybrid_dense_weight: float = 1.0,
+            pseudo_feedback_docs: int = 3,
+            pseudo_feedback_terms: int = 6,
+            pseudo_feedback_weight: float = 0.2,
         ) -> _StubRetriever:
-            del armory_index, embed_model, rerank_model
+            del (
+                armory_index,
+                embed_model,
+                embed_query_prefix,
+                embed_document_prefix,
+                rerank_model,
+                retrieval_mode,
+                candidate_multiplier,
+                hybrid_sparse_weight,
+                hybrid_dense_weight,
+                pseudo_feedback_docs,
+                pseudo_feedback_terms,
+                pseudo_feedback_weight,
+            )
             return _StubRetriever(query_transformer)
 
         with (
@@ -1356,3 +1733,57 @@ class TestMinScoreThreshold:
 
         assert results
         assert results[0].chunk.source == "materials/mit-ocw-digital-systems-project-howto.pdf"
+
+    def test_quoted_title_hint_breaks_repeated_navigation_tie(self) -> None:
+        chunks = [
+            _make_chunk(
+                "1.5 Local Search | Introduction to Artificial Intelligence",
+                "materials/public-academic/uc-berkeley-cs188/search/local.html",
+                0,
+            ),
+            _make_chunk(
+                "2.5 Local Search | Introduction to Artificial Intelligence",
+                "materials/public-academic/uc-berkeley-cs188/csp/local-search.html",
+                0,
+            ),
+        ]
+        index = _make_index_with_chunks(chunks)
+        with patch(
+            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            return_value=False,
+        ):
+            results = retrieve(
+                'Which material titled "2.5 Local Search | Introduction to Artificial '
+                'Intelligence" covers constraint satisfaction?',
+                index,
+                top_k=2,
+            )
+
+        assert results[0].chunk.source.endswith("csp/local-search.html")
+
+    def test_source_section_hint_breaks_repeated_title_tie(self) -> None:
+        chunks = [
+            _make_chunk(
+                "CS231n Deep Learning for Computer Vision Course Website",
+                "materials/public-academic/stanford-cs231n/neural-networks-2/index.html",
+                0,
+            ),
+            _make_chunk(
+                "CS231n Deep Learning for Computer Vision Course Website",
+                "materials/public-academic/stanford-cs231n/neural-networks-1/index.html",
+                0,
+            ),
+        ]
+        index = _make_index_with_chunks(chunks)
+        with patch(
+            "hephaistos.rag.optional_backends.sentence_transformers_available",
+            return_value=False,
+        ):
+            results = retrieve(
+                'Which material titled "CS231n Deep Learning for Computer Vision" '
+                'at source section "stanford-cs231n/neural-networks-1" covers computer vision?',
+                index,
+                top_k=2,
+            )
+
+        assert results[0].chunk.source.endswith("neural-networks-1/index.html")

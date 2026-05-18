@@ -10,6 +10,32 @@ PYTHON_BIN="${HEPH_BENCHMARK_PYTHON:-}"
 OUTPUT_DIR="${HEPH_BENCHMARK_OUTPUT_DIR:-${REPO_ROOT}/.artifacts/comprehensive-benchmark}"
 PROMPT_PATH="${REPO_ROOT}/benchmarks/model-evaluation-prompt.md"
 MODEL_LABEL="comprehensive-benchmark"
+RETRIEVAL_MODE="bm25"
+CANDIDATE_MULTIPLIER=2
+MIN_SCORE=0.0
+BEIR_RETRIEVAL_MODE=""
+BEIR_CANDIDATE_MULTIPLIER=""
+STANDARD_RAG_RETRIEVAL_MODE=""
+STANDARD_RAG_CANDIDATE_MULTIPLIER=""
+EMBEDDING_MODEL=""
+EMBEDDING_QUERY_PREFIX=""
+EMBEDDING_DOCUMENT_PREFIX=""
+RERANK_MODEL=""
+BEIR_EMBEDDING_MODEL=""
+BEIR_EMBEDDING_QUERY_PREFIX=""
+BEIR_EMBEDDING_DOCUMENT_PREFIX=""
+BEIR_RERANK_MODEL=""
+STANDARD_RAG_EMBEDDING_MODEL=""
+STANDARD_RAG_EMBEDDING_QUERY_PREFIX=""
+STANDARD_RAG_EMBEDDING_DOCUMENT_PREFIX=""
+STANDARD_RAG_RERANK_MODEL=""
+HYBRID_SPARSE_WEIGHT=1.0
+HYBRID_DENSE_WEIGHT=1.0
+BEIR_HYBRID_SPARSE_WEIGHT=""
+BEIR_HYBRID_DENSE_WEIGHT=""
+STANDARD_RAG_HYBRID_SPARSE_WEIGHT=""
+STANDARD_RAG_HYBRID_DENSE_WEIGHT=""
+COMPETITIVE_PRESET=0
 
 FIXTURE_MODE=0
 OFFLINE=0
@@ -32,6 +58,7 @@ BEIR_SOURCE_ZIP=""
 BEIR_DOWNLOAD_URL=""
 STANDARD_RAG_DATASET="ms-marco"
 STANDARD_RAG_MANIFEST=""
+MS_MARCO_SOURCE_DIR=""
 NATIVE_SUITE="${REPO_ROOT}/benchmarks/academic"
 PUBLIC_ACADEMIC_MANIFEST="${REPO_ROOT}/benchmarks/public-academic/manifest.json"
 PUBLIC_ACADEMIC_SUITE=""
@@ -62,6 +89,50 @@ Core options:
   --output-dir PATH             Run-scoped artifact directory under /tmp or .artifacts
   --prompt PATH                 Model evaluation prompt to record by path and SHA-256 hash
   --model-label LABEL           Optional model/evaluation label recorded in runner reports
+  --retrieval-mode MODE         Retrieval mode: auto, bm25, dense, hybrid,
+                                hybrid-prf, hybrid-rerank, tfidf
+  --candidate-multiplier N      Hybrid candidate over-retrieval multiplier
+  --beir-retrieval-mode MODE    Override retrieval mode for BEIR runner only
+  --beir-candidate-multiplier N Override candidate multiplier for BEIR runner only
+  --standard-rag-retrieval-mode MODE
+                                Override retrieval mode for standard-RAG runner only
+  --standard-rag-candidate-multiplier N
+                                Override candidate multiplier for standard-RAG runner only
+  --embedding-model MODEL       Embedding model for external benchmark runners
+  --embedding-query-prefix TEXT Prefix applied to embedding queries
+  --embedding-document-prefix TEXT
+                                Prefix applied to embedded documents
+  --rerank-model MODEL          Cross-encoder rerank model for external benchmark runners
+  --beir-embedding-model MODEL  Override embedding model for BEIR runner only
+  --beir-embedding-query-prefix TEXT
+                                Override embedding query prefix for BEIR runner only
+  --beir-embedding-document-prefix TEXT
+                                Override embedding document prefix for BEIR runner only
+  --beir-rerank-model MODEL     Override rerank model for BEIR runner only
+  --standard-rag-embedding-model MODEL
+                                Override embedding model for standard-RAG runner only
+  --standard-rag-embedding-query-prefix TEXT
+                                Override embedding query prefix for standard-RAG runner only
+  --standard-rag-embedding-document-prefix TEXT
+                                Override embedding document prefix for standard-RAG runner only
+  --standard-rag-rerank-model MODEL
+                                Override rerank model for standard-RAG runner only
+  --competitive-preset          Use the strongest measured external-runner preset:
+                                BEIR hybrid-prf cm2 + standard-RAG hybrid-rerank cm2
+                                with BGE embeddings; BEIR uses bge-large plus
+                                sparse pseudo-relevance feedback to reduce misses
+                                on NFCorpus
+  --hybrid-sparse-weight VALUE  Sparse RRF weight for hybrid retrieval
+  --hybrid-dense-weight VALUE   Dense RRF weight for hybrid retrieval
+  --beir-hybrid-sparse-weight VALUE
+                                Override sparse RRF weight for BEIR runner only
+  --beir-hybrid-dense-weight VALUE
+                                Override dense RRF weight for BEIR runner only
+  --standard-rag-hybrid-sparse-weight VALUE
+                                Override sparse RRF weight for standard-RAG runner only
+  --standard-rag-hybrid-dense-weight VALUE
+                                Override dense RRF weight for standard-RAG runner only
+  --min-score VALUE             Retrieval score threshold; defaults to 0.0 for recall benchmarks
   --fixture-mode                Generate small local fixtures under --output-dir; no downloads
   --offline                     Forbid download/materialization phases that require network access
   --skip-downloads              Alias for --offline
@@ -81,6 +152,7 @@ Dataset selection:
   --beir-download-url URL       Explicit HTTPS BEIR dataset zip URL
   --standard-rag-dataset ID     Standard RAG dataset id, e.g. ms-marco
   --standard-rag-manifest PATH  Local standard RAG manifest
+  --ms-marco-source-dir PATH    Local MS MARCO directory with collection, queries, and qrels files
   --native-suite PATH           Hephaistos native benchmark suite path
   --public-academic-manifest PATH
                                 Public academic manifest for materialization
@@ -420,8 +492,15 @@ run_external_adapter_phase() {
   fi
 
   if [[ "${SKIP_STANDARD_RAG}" -eq 0 ]]; then
+    if [[ -z "${STANDARD_RAG_MANIFEST}" && -n "${MS_MARCO_SOURCE_DIR}" ]]; then
+      STANDARD_RAG_MANIFEST="${OUTPUT_DIR}/suites/ms-marco-manifest.json"
+      run_command "${UV_BIN}" run python -m scripts.build_ms_marco_manifest \
+        "${MS_MARCO_SOURCE_DIR}" \
+        "${STANDARD_RAG_MANIFEST}" \
+        --json-report "${OUTPUT_DIR}/reports/ms-marco-manifest.json"
+    fi
     if [[ -z "${STANDARD_RAG_MANIFEST}" ]]; then
-      fail "standard RAG phase requires --standard-rag-manifest or --fixture-mode"
+      fail "standard RAG phase requires --standard-rag-manifest, --ms-marco-source-dir, or --fixture-mode"
     fi
     local standard_suite="${OUTPUT_DIR}/suites/standard-rag"
     run_command "${UV_BIN}" run python -m scripts.external_benchmarks.standard_rag_adapter \
@@ -438,22 +517,43 @@ run_benchmark_runner() {
   local dataset="$2"
   local suite="$3"
   local report_path="$4"
-  if [[ "${VALIDATE_REPRODUCIBILITY}" -eq 1 ]]; then
-    run_command "${UV_BIN}" run python -m scripts.run_external_benchmarks \
-      "${benchmark_type}" "${dataset}" \
-      --suite "${suite}" \
-      --prompt "${PROMPT_PATH}" \
-      --model-label "${MODEL_LABEL}" \
-      --validate-reproducibility \
-      --json-report "${report_path}"
-  else
-    run_command "${UV_BIN}" run python -m scripts.run_external_benchmarks \
-      "${benchmark_type}" "${dataset}" \
-      --suite "${suite}" \
-      --prompt "${PROMPT_PATH}" \
-      --model-label "${MODEL_LABEL}" \
-      --json-report "${report_path}"
+  local retrieval_mode="${5:-${RETRIEVAL_MODE}}"
+  local candidate_multiplier="${6:-${CANDIDATE_MULTIPLIER}}"
+  local embedding_model="${7:-${EMBEDDING_MODEL}}"
+  local embedding_query_prefix="${8:-${EMBEDDING_QUERY_PREFIX}}"
+  local embedding_document_prefix="${9:-${EMBEDDING_DOCUMENT_PREFIX}}"
+  local rerank_model="${10:-${RERANK_MODEL}}"
+  local hybrid_sparse_weight="${11:-${HYBRID_SPARSE_WEIGHT}}"
+  local hybrid_dense_weight="${12:-${HYBRID_DENSE_WEIGHT}}"
+  local runner_command=(
+    "${UV_BIN}" run python -m scripts.run_external_benchmarks
+    "${benchmark_type}" "${dataset}"
+    --suite "${suite}"
+    --prompt "${PROMPT_PATH}"
+    --model-label "${MODEL_LABEL}"
+    --retrieval-mode "${retrieval_mode}"
+    --candidate-multiplier "${candidate_multiplier}"
+    --hybrid-sparse-weight "${hybrid_sparse_weight}"
+    --hybrid-dense-weight "${hybrid_dense_weight}"
+  )
+  if [[ -n "${embedding_model}" ]]; then
+    runner_command+=(--embedding-model "${embedding_model}")
   fi
+  if [[ -n "${embedding_query_prefix}" ]]; then
+    runner_command+=(--embedding-query-prefix "${embedding_query_prefix}")
+  fi
+  if [[ -n "${embedding_document_prefix}" ]]; then
+    runner_command+=(--embedding-document-prefix "${embedding_document_prefix}")
+  fi
+  if [[ -n "${rerank_model}" ]]; then
+    runner_command+=(--rerank-model "${rerank_model}")
+  fi
+  runner_command+=(--min-score "${MIN_SCORE}")
+  if [[ "${VALIDATE_REPRODUCIBILITY}" -eq 1 ]]; then
+    runner_command+=(--validate-reproducibility)
+  fi
+  runner_command+=(--json-report "${report_path}")
+  run_command "${runner_command[@]}"
 }
 
 run_external_runner_phase() {
@@ -462,7 +562,15 @@ run_external_runner_phase() {
       "beir" \
       "${BEIR_DATASET}" \
       "${BEIR_SUITE}" \
-      "${OUTPUT_DIR}/reports/beir-runner.json"
+      "${OUTPUT_DIR}/reports/beir-runner.json" \
+      "${BEIR_RETRIEVAL_MODE:-${RETRIEVAL_MODE}}" \
+      "${BEIR_CANDIDATE_MULTIPLIER:-${CANDIDATE_MULTIPLIER}}" \
+      "${BEIR_EMBEDDING_MODEL:-${EMBEDDING_MODEL}}" \
+      "${BEIR_EMBEDDING_QUERY_PREFIX:-${EMBEDDING_QUERY_PREFIX}}" \
+      "${BEIR_EMBEDDING_DOCUMENT_PREFIX:-${EMBEDDING_DOCUMENT_PREFIX}}" \
+      "${BEIR_RERANK_MODEL:-${RERANK_MODEL}}" \
+      "${BEIR_HYBRID_SPARSE_WEIGHT:-${HYBRID_SPARSE_WEIGHT}}" \
+      "${BEIR_HYBRID_DENSE_WEIGHT:-${HYBRID_DENSE_WEIGHT}}"
     RUNNER_REPORTS+=("${OUTPUT_DIR}/reports/beir-runner.json")
   fi
 
@@ -471,7 +579,15 @@ run_external_runner_phase() {
       "standard-rag" \
       "${STANDARD_RAG_DATASET}" \
       "${STANDARD_RAG_SUITE}" \
-      "${OUTPUT_DIR}/reports/standard-rag-runner.json"
+      "${OUTPUT_DIR}/reports/standard-rag-runner.json" \
+      "${STANDARD_RAG_RETRIEVAL_MODE:-${RETRIEVAL_MODE}}" \
+      "${STANDARD_RAG_CANDIDATE_MULTIPLIER:-${CANDIDATE_MULTIPLIER}}" \
+      "${STANDARD_RAG_EMBEDDING_MODEL:-${EMBEDDING_MODEL}}" \
+      "${STANDARD_RAG_EMBEDDING_QUERY_PREFIX:-${EMBEDDING_QUERY_PREFIX}}" \
+      "${STANDARD_RAG_EMBEDDING_DOCUMENT_PREFIX:-${EMBEDDING_DOCUMENT_PREFIX}}" \
+      "${STANDARD_RAG_RERANK_MODEL:-${RERANK_MODEL}}" \
+      "${STANDARD_RAG_HYBRID_SPARSE_WEIGHT:-${HYBRID_SPARSE_WEIGHT}}" \
+      "${STANDARD_RAG_HYBRID_DENSE_WEIGHT:-${HYBRID_DENSE_WEIGHT}}"
     RUNNER_REPORTS+=("${OUTPUT_DIR}/reports/standard-rag-runner.json")
   fi
 }
@@ -556,6 +672,123 @@ while [[ "$#" -gt 0 ]]; do
       MODEL_LABEL="$2"
       shift 2
       ;;
+    --retrieval-mode)
+      RETRIEVAL_MODE="$2"
+      shift 2
+      ;;
+    --candidate-multiplier)
+      CANDIDATE_MULTIPLIER="$2"
+      shift 2
+      ;;
+    --beir-retrieval-mode)
+      BEIR_RETRIEVAL_MODE="$2"
+      shift 2
+      ;;
+    --beir-candidate-multiplier)
+      BEIR_CANDIDATE_MULTIPLIER="$2"
+      shift 2
+      ;;
+    --standard-rag-retrieval-mode)
+      STANDARD_RAG_RETRIEVAL_MODE="$2"
+      shift 2
+      ;;
+    --standard-rag-candidate-multiplier)
+      STANDARD_RAG_CANDIDATE_MULTIPLIER="$2"
+      shift 2
+      ;;
+    --embedding-model)
+      EMBEDDING_MODEL="$2"
+      shift 2
+      ;;
+    --embedding-query-prefix)
+      EMBEDDING_QUERY_PREFIX="$2"
+      shift 2
+      ;;
+    --embedding-document-prefix)
+      EMBEDDING_DOCUMENT_PREFIX="$2"
+      shift 2
+      ;;
+    --rerank-model)
+      RERANK_MODEL="$2"
+      shift 2
+      ;;
+    --beir-embedding-model)
+      BEIR_EMBEDDING_MODEL="$2"
+      shift 2
+      ;;
+    --beir-embedding-query-prefix)
+      BEIR_EMBEDDING_QUERY_PREFIX="$2"
+      shift 2
+      ;;
+    --beir-embedding-document-prefix)
+      BEIR_EMBEDDING_DOCUMENT_PREFIX="$2"
+      shift 2
+      ;;
+    --beir-rerank-model)
+      BEIR_RERANK_MODEL="$2"
+      shift 2
+      ;;
+    --standard-rag-embedding-model)
+      STANDARD_RAG_EMBEDDING_MODEL="$2"
+      shift 2
+      ;;
+    --standard-rag-embedding-query-prefix)
+      STANDARD_RAG_EMBEDDING_QUERY_PREFIX="$2"
+      shift 2
+      ;;
+    --standard-rag-embedding-document-prefix)
+      STANDARD_RAG_EMBEDDING_DOCUMENT_PREFIX="$2"
+      shift 2
+      ;;
+    --standard-rag-rerank-model)
+      STANDARD_RAG_RERANK_MODEL="$2"
+      shift 2
+      ;;
+    --hybrid-sparse-weight)
+      HYBRID_SPARSE_WEIGHT="$2"
+      shift 2
+      ;;
+    --hybrid-dense-weight)
+      HYBRID_DENSE_WEIGHT="$2"
+      shift 2
+      ;;
+    --beir-hybrid-sparse-weight)
+      BEIR_HYBRID_SPARSE_WEIGHT="$2"
+      shift 2
+      ;;
+    --beir-hybrid-dense-weight)
+      BEIR_HYBRID_DENSE_WEIGHT="$2"
+      shift 2
+      ;;
+    --standard-rag-hybrid-sparse-weight)
+      STANDARD_RAG_HYBRID_SPARSE_WEIGHT="$2"
+      shift 2
+      ;;
+    --standard-rag-hybrid-dense-weight)
+      STANDARD_RAG_HYBRID_DENSE_WEIGHT="$2"
+      shift 2
+      ;;
+    --competitive-preset)
+      COMPETITIVE_PRESET=1
+      BEIR_RETRIEVAL_MODE="hybrid-prf"
+      BEIR_CANDIDATE_MULTIPLIER=2
+      BEIR_EMBEDDING_MODEL="BAAI/bge-large-en-v1.5"
+      BEIR_EMBEDDING_QUERY_PREFIX="Represent this sentence for searching relevant passages: "
+      BEIR_HYBRID_SPARSE_WEIGHT=1.0
+      BEIR_HYBRID_DENSE_WEIGHT=1.25
+      STANDARD_RAG_RETRIEVAL_MODE="hybrid-rerank"
+      STANDARD_RAG_CANDIDATE_MULTIPLIER=2
+      STANDARD_RAG_EMBEDDING_MODEL="BAAI/bge-base-en-v1.5"
+      STANDARD_RAG_EMBEDDING_QUERY_PREFIX=""
+      STANDARD_RAG_HYBRID_SPARSE_WEIGHT=1.0
+      STANDARD_RAG_HYBRID_DENSE_WEIGHT=1.0
+      MIN_SCORE=0.0
+      shift
+      ;;
+    --min-score)
+      MIN_SCORE="$2"
+      shift 2
+      ;;
     --fixture-mode)
       FIXTURE_MODE=1
       shift
@@ -610,6 +843,10 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --standard-rag-manifest)
       STANDARD_RAG_MANIFEST="$(absolute_path "$2")"
+      shift 2
+      ;;
+    --ms-marco-source-dir)
+      MS_MARCO_SOURCE_DIR="$(absolute_path "$2")"
       shift 2
       ;;
     --native-suite)

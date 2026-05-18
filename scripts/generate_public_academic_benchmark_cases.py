@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import sys
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
@@ -356,8 +357,16 @@ def _safe_material_path(armory_path: Path, source: str) -> Path:
 
 def _generate_cases(documents: Sequence[PublicAcademicDocument]) -> GeneratedCases:
     ordered_documents = tuple(documents)
+    title_counts = Counter(
+        (document.source_organization, document.title) for document in ordered_documents
+    )
     retrieval_cases = tuple(
-        _retrieval_case(document, ordered_documents) for document in ordered_documents
+        _retrieval_case(
+            document,
+            ordered_documents,
+            include_source_hint=title_counts[(document.source_organization, document.title)] > 1,
+        )
+        for document in ordered_documents
     )
     material_role_cases = tuple(_material_role_case(document) for document in ordered_documents)
     document_understanding_cases = tuple(
@@ -373,6 +382,8 @@ def _generate_cases(documents: Sequence[PublicAcademicDocument]) -> GeneratedCas
 def _retrieval_case(
     document: PublicAcademicDocument,
     documents: Sequence[PublicAcademicDocument],
+    *,
+    include_source_hint: bool,
 ) -> RetrievalCase:
     near_miss = _near_miss_document(document, documents)
     forbidden_before_expected = (near_miss.source,) if near_miss is not None else ()
@@ -381,7 +392,7 @@ def _retrieval_case(
         id=f"public-academic-retrieval-{document.document_id}",
         domain=document.domain,
         task="near-miss-negative" if near_miss is not None else "single-source-title",
-        query=_retrieval_query(document),
+        query=_retrieval_query(document, include_source_hint=include_source_hint),
         expected=(document.source,),
         forbidden_before_expected=forbidden_before_expected,
         top_k=_DEFAULT_TOP_K,
@@ -412,12 +423,26 @@ def _near_miss_document(
     return None
 
 
-def _retrieval_query(document: PublicAcademicDocument) -> str:
+def _retrieval_query(document: PublicAcademicDocument, *, include_source_hint: bool) -> str:
     domain = document.domain.replace("-", " ")
+    source_hint = ""
+    if include_source_hint:
+        source_hint = f' at source section "{_source_section_hint(document.source)}"'
     return (
         "Which public academic material titled "
-        f'"{document.title}" from {document.source_organization} covers {domain}?'
+        f'"{document.title}" from {document.source_organization}{source_hint} '
+        f"covers {domain}?"
     )
+
+
+def _source_section_hint(source: str) -> str:
+    path = Path(source)
+    parts = list(path.with_suffix("").parts)
+    if parts and parts[-1] == "index":
+        parts.pop()
+    if len(parts) >= 3 and parts[0] == storage.MATERIALS_DIR:
+        parts = parts[2:]
+    return "/".join(parts[-2:]) if len(parts) >= 2 else "/".join(parts)
 
 
 def _material_role_case(document: PublicAcademicDocument) -> MaterialRoleCase:

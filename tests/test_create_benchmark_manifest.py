@@ -94,6 +94,33 @@ def test_create_manifest_can_infer_roles_from_indexed_content(tmp_path: Path) ->
     assert by_source["materials/document-b.md"]["document_type"] == "lecture-slides"
 
 
+def test_create_manifest_uses_indexed_content_for_stressors(tmp_path: Path) -> None:
+    armory = _make_armory(tmp_path)
+    (armory / "materials" / "generic.md").write_text(
+        "\n".join(
+            [
+                "Aufgabe 1: Berechnen Sie die Summe ∑.",
+                "Name  Score  Grade",
+                "Ada   12     A",
+                "Ben   10     B",
+                "fur fu¨r noisy extraction",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = create_benchmark_manifest.create_manifest(
+        armory,
+        infer_roles_from_index=True,
+    )
+
+    stressors = set(manifest["documents"][0]["stressors"])
+    assert "multilingual" in stressors
+    assert "table-heavy" in stressors
+    assert "ocr-noise" in stressors
+    assert "math-notation" in stressors
+
+
 def test_create_manifest_scaffolds_academic_file_shape_hints(tmp_path: Path) -> None:
     armory = _make_armory(tmp_path)
     filenames = [

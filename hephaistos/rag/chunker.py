@@ -176,6 +176,8 @@ class _SentenceTransformerFactory(Protocol):
 _OPTIONAL_BACKEND_UNSET = object()
 _DocumentConverter: type[_DoclingConverterProtocol] | None | object = _OPTIONAL_BACKEND_UNSET
 _SentenceTransformer: _SentenceTransformerFactory | None | object = _OPTIONAL_BACKEND_UNSET
+_SentenceTransformerModel: _SentenceEncoderProtocol | None | object = _OPTIONAL_BACKEND_UNSET
+_SEMANTIC_CHUNKING_MODEL = "all-MiniLM-L6-v2"
 
 
 class ChunkStrategy(Enum):
@@ -753,6 +755,18 @@ def _sentence_transformer_factory() -> _SentenceTransformerFactory | None:
     return cast("_SentenceTransformerFactory", _SentenceTransformer)
 
 
+def _sentence_transformer_model() -> _SentenceEncoderProtocol | None:
+    global _SentenceTransformerModel  # noqa: PLW0603
+    if _SentenceTransformerModel is _OPTIONAL_BACKEND_UNSET:
+        transformer_factory = _sentence_transformer_factory()
+        _SentenceTransformerModel = (
+            None if transformer_factory is None else transformer_factory(_SEMANTIC_CHUNKING_MODEL)
+        )
+    if _SentenceTransformerModel is None:
+        return None
+    return cast("_SentenceEncoderProtocol", _SentenceTransformerModel)
+
+
 def _embedding_row(row: object) -> list[float] | None:
     if isinstance(row, _ToListProtocol):
         row = row.tolist()
@@ -811,14 +825,13 @@ def chunk_semantic(
     if not text or not text.strip():
         return []
 
-    transformer_factory = _sentence_transformer_factory()
-    if transformer_factory is None:
+    model = _sentence_transformer_model()
+    if model is None:
         return chunk_text(text, source, chunk_size, overlap)
 
     sentences = _split_sentences(text)
     if len(sentences) <= 1:
         return [Chunk(text=text.strip(), source=source, index=0, char_start=0, char_end=len(text))]
-    model = transformer_factory("all-MiniLM-L6-v2")
     emb_lists = _embedding_rows(
         model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
     )

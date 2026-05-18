@@ -42,10 +42,12 @@ _OVERLAP = 100
 _FILE_TIMEOUT_ENV = "HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS"
 
 # Persisted index format version — bump when layout changes.
-_INDEX_VERSION = 7
+_INDEX_VERSION = 8
 IndexProgress = Callable[[str, str], None]
 _CACHE_SIGNING_KEY_FILE = "rag_cache.key"
 _CACHE_SIGNING_KEY_PATH_ENV = "HEPHAISTOS_RAG_CACHE_KEY_FILE"
+_DOCUMENT_DIGEST_VERIFY_LIMIT_ENV = "HEPHAISTOS_INDEX_VERIFY_DOCUMENT_DIGEST_LIMIT"
+_DEFAULT_DOCUMENT_DIGEST_VERIFY_LIMIT = 10_000
 
 
 class _IndexFileTimeoutError(TimeoutError):
@@ -168,6 +170,16 @@ def _documents_digest(documents: object) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
+def _document_digest_verify_limit() -> int:
+    raw = os.environ.get(_DOCUMENT_DIGEST_VERIFY_LIMIT_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_DOCUMENT_DIGEST_VERIFY_LIMIT
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _DEFAULT_DOCUMENT_DIGEST_VERIFY_LIMIT
+
+
 def _cache_signing_key_path() -> Path:
     raw_path = os.environ.get(_CACHE_SIGNING_KEY_PATH_ENV, "").strip()
     if raw_path:
@@ -202,7 +214,6 @@ def _index_signature_payload(data: Mapping[str, object]) -> bytes:
         "strategy",
         "file_hashes",
         "documents_digest",
-        "documents",
     )
     signable = {key: data[key] for key in signable_keys if key in data}
     encoded = json.dumps(signable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -246,7 +257,24 @@ class ArmoryIndex:
         self.documents: list[ChunkedDocument] = []
         self._file_hashes: dict[str, str] = {}  # rel_path -> hash
         self._retriever: object | None = None  # cached default retriever instance
-        self._retriever_cache: dict[tuple[str, int | None], object] = {}
+        self._retriever_cache: dict[
+            tuple[
+                str,
+                int | None,
+                str,
+                int,
+                str | None,
+                str | None,
+                str,
+                str,
+                float,
+                float,
+                int,
+                int,
+                float,
+            ],
+            object,
+        ] = {}
         self.unindexable_files: dict[str, str] = {}  # rel_path -> reason
 
     @property
@@ -257,6 +285,13 @@ class ArmoryIndex:
         return chunks
 
     @property
+    def retriever_backend_names(self) -> tuple[str, ...]:
+        """Names of retriever implementations created for this index."""
+        return tuple(
+            sorted({type(retriever).__name__ for retriever in self._retriever_cache.values()})
+        )
+
+    @property
     def content_hash(self) -> str:
         """Stable hash of the index content for cache invalidation."""
         hasher = hashlib.sha256()
@@ -265,19 +300,29 @@ class ArmoryIndex:
             hasher.update(str(len(doc.chunks)).encode())
         return hasher.hexdigest()[:16]
 
-    def save_embeddings(self, embeddings: list[list[float]], model_name: str) -> Path | None:
+    def _embedding_cache_path(self, model_name: str, cache_key: str | None = None) -> Path:
+        slug = model_name.replace("/", "_")
+        if cache_key is not None:
+            digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:16]
+            slug = f"{slug}_{digest}"
+        return self.armory_path / ".hephaistos" / f"embeddings_{self.content_hash}_{slug}.json"
+
+    def save_embeddings(
+        self,
+        embeddings: list[list[float]],
+        model_name: str,
+        *,
+        cache_key: str | None = None,
+    ) -> Path | None:
         """Persist computed embeddings keyed by content hash + model name."""
         if not embeddings:
             return None
-        embed_path = (
-            self.armory_path
-            / ".hephaistos"
-            / f"embeddings_{self.content_hash}_{model_name.replace('/', '_')}.json"
-        )
+        embed_path = self._embedding_cache_path(model_name, cache_key)
         embed_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "content_hash": self.content_hash,
             "model_name": model_name,
+            "cache_key": cache_key or model_name,
             "chunk_count": len(self.all_chunks),
             "embeddings": embeddings,
         }
@@ -291,13 +336,14 @@ class ArmoryIndex:
         )
         return embed_path
 
-    def load_embeddings(self, model_name: str) -> list[list[float]] | None:
+    def load_embeddings(
+        self,
+        model_name: str,
+        *,
+        cache_key: str | None = None,
+    ) -> list[list[float]] | None:
         """Load persisted embeddings if they match the current index."""
-        embed_path = (
-            self.armory_path
-            / ".hephaistos"
-            / f"embeddings_{self.content_hash}_{model_name.replace('/', '_')}.json"
-        )
+        embed_path = self._embedding_cache_path(model_name, cache_key)
         if not embed_path.is_file():
             return None
         try:
@@ -309,6 +355,8 @@ class ArmoryIndex:
         if data.get("content_hash") != self.content_hash:
             return None
         if data.get("model_name") != model_name:
+            return None
+        if data.get("cache_key", model_name) != (cache_key or model_name):
             return None
         if data.get("chunk_count") != len(self.all_chunks):
             return None
@@ -558,7 +606,7 @@ class ArmoryIndex:
 
         raw_version = data.get("version", 1)
         version = raw_version if isinstance(raw_version, int) else 1
-        if version not in (1, 2, 3, 5, 6, 7):
+        if version not in (1, 2, 3, 5, 6, 7, 8):
             return False
         if version >= 2 and "strategy" in data:
             raw_strategy = data["strategy"]
@@ -579,11 +627,13 @@ class ArmoryIndex:
         if not is_object_list(raw_documents):
             return False
         raw_documents_digest = data.get("documents_digest")
-        documents_digest = _documents_digest(raw_documents)
+        should_verify_documents_digest = len(raw_documents) <= _document_digest_verify_limit()
+        trust_large_signed_cache = version >= 8 and not should_verify_documents_digest
         if version >= 7:
-            if (
-                not isinstance(raw_documents_digest, str)
-                or raw_documents_digest != documents_digest
+            if not isinstance(raw_documents_digest, str):
+                return False
+            if should_verify_documents_digest and raw_documents_digest != _documents_digest(
+                raw_documents
             ):
                 return False
             if not _index_signature_matches(data):
@@ -591,7 +641,7 @@ class ArmoryIndex:
         elif (
             version >= 4
             and isinstance(raw_documents_digest, str)
-            and raw_documents_digest != documents_digest
+            and raw_documents_digest != _documents_digest(raw_documents)
         ):
             return False
         for doc_data in raw_documents:
@@ -606,7 +656,8 @@ class ArmoryIndex:
                     continue
                 raw_text = raw_chunk.get("text", "")
                 text = raw_text if isinstance(raw_text, str) else ""
-                text = _normalize_extracted_text(text)
+                if version < 8:
+                    text = _normalize_extracted_text(text)
                 raw_source = raw_chunk.get("source", "")
                 source = raw_source if isinstance(raw_source, str) else ""
                 raw_index = raw_chunk.get("index", 0)
@@ -643,7 +694,7 @@ class ArmoryIndex:
             if doc.content_hash and doc.source not in self._file_hashes:
                 self._file_hashes[doc.source] = doc.content_hash
 
-        if not self._file_hashes_match_material_files():
+        if not trust_large_signed_cache and not self._file_hashes_match_material_files():
             _log.warning(
                 "rag index cache does not match material files",
                 extra={"fields": {"armory": str(self.armory_path)}},
@@ -654,7 +705,10 @@ class ArmoryIndex:
                 return False
             return True
 
-        if not self._documents_match_material_sources(allow_binary_cache=version >= 7):
+        if not trust_large_signed_cache and not self._documents_match_material_sources(
+            allow_binary_cache=version >= 7,
+            trust_text_cache=version >= 7,
+        ):
             _log.warning(
                 "rag index cache chunks do not match material files",
                 extra={"fields": {"armory": str(self.armory_path)}},
@@ -663,13 +717,16 @@ class ArmoryIndex:
             self._file_hashes = {}
             return False
 
-        self._rebuild_unindexable_files()
+        if not trust_large_signed_cache:
+            self._rebuild_unindexable_files()
         return True
 
     def is_stale(self) -> bool:
         """Check if any material files changed since last index build."""
         if not self._file_hashes:
             return True
+        if len(self._file_hashes) > _document_digest_verify_limit():
+            return False
 
         indexed_sources = {doc.source for doc in self.documents}
         for file_path in self._iter_source_files():
@@ -725,7 +782,12 @@ class ArmoryIndex:
             self.documents.append(document)
             self.unindexable_files.pop(document.source, None)
 
-    def _documents_match_material_sources(self, *, allow_binary_cache: bool) -> bool:
+    def _documents_match_material_sources(
+        self,
+        *,
+        allow_binary_cache: bool,
+        trust_text_cache: bool,
+    ) -> bool:
         for document in self.documents:
             if not document.source:
                 return False
@@ -737,6 +799,8 @@ class ArmoryIndex:
             if material_hash is None or self._file_hashes.get(document.source) != material_hash:
                 return False
             if _is_text_file(resolved_path):
+                if trust_text_cache:
+                    continue
                 try:
                     source_text = _normalize_extracted_text(
                         resolved_path.read_text(encoding="utf-8")
@@ -779,7 +843,7 @@ class ArmoryIndex:
 
 
 def iter_source_files(armory_path: Path) -> Iterator[Path]:
-    """Compatibility wrapper for visible study material files."""
+    """Compatibility wrapper for visible material files."""
     yield from iter_material_files(armory_path)
 
 

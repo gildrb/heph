@@ -112,6 +112,49 @@ def test_public_academic_case_generation_does_not_use_network(
     assert report.status == "passed"
 
 
+def test_public_academic_duplicate_titles_include_source_hint() -> None:
+    documents = (
+        generate_public_academic_benchmark_cases.PublicAcademicDocument(
+            document_id="stanford-optimization",
+            title="CS231n Deep Learning for Computer Vision",
+            source="materials/public-academic/stanford-cs231n/optimization-1/index.html",
+            source_url="https://cs231n.example/optimization-1/",
+            bytes=100,
+            sha256="0" * 64,
+            source_organization="Stanford CS231n",
+            license="fixture",
+            license_url="https://example.edu/license",
+            attribution="fixture",
+            domain="computer-vision",
+            role="lecture-notes",
+            document_type="html-course-notes",
+            stressors=("public-html",),
+        ),
+        generate_public_academic_benchmark_cases.PublicAcademicDocument(
+            document_id="stanford-neural-networks",
+            title="CS231n Deep Learning for Computer Vision",
+            source="materials/public-academic/stanford-cs231n/neural-networks-1/index.html",
+            source_url="https://cs231n.example/neural-networks-1/",
+            bytes=100,
+            sha256="1" * 64,
+            source_organization="Stanford CS231n",
+            license="fixture",
+            license_url="https://example.edu/license",
+            attribution="fixture",
+            domain="computer-vision",
+            role="lecture-notes",
+            document_type="html-course-notes",
+            stressors=("public-html",),
+        ),
+    )
+
+    cases = generate_public_academic_benchmark_cases._generate_cases(documents)
+
+    queries = [case.query for case in cases.retrieval]
+    assert 'source section "stanford-cs231n/optimization-1"' in queries[0]
+    assert 'source section "stanford-cs231n/neural-networks-1"' in queries[1]
+
+
 def test_public_academic_case_generation_rejects_missing_provenance(
     tmp_path: Path,
 ) -> None:

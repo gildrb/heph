@@ -46,6 +46,7 @@ class ExternalDocument:
     title: str = ""
     metadata: dict[str, object] = field(default_factory=dict)
     source_url: str | None = None
+    source_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,7 +414,7 @@ def _material_source_map(documents: tuple[ExternalDocument, ...]) -> dict[str, s
     source_by_document_id: dict[str, str] = {}
     used_sources: dict[str, str] = {}
     for document in sorted(documents, key=lambda item: item.original_id):
-        source_id = _stable_material_source(document.original_id, used_sources)
+        source_id = _stable_material_source(document, used_sources)
         used_sources[source_id] = document.original_id
         source_by_document_id[document.original_id] = source_id
     return source_by_document_id
@@ -455,20 +456,42 @@ def _write_materials_with_sources(
     return material_records
 
 
-def _stable_material_source(original_id: str, used_sources: dict[str, str]) -> str:
-    base = slug(original_id, fallback="document")
-    source_id = f"{storage.MATERIALS_DIR}/{base}.md"
+def _stable_material_source(
+    document: ExternalDocument,
+    used_sources: dict[str, str],
+) -> str:
+    if document.source_path:
+        source_id = _stable_material_path(document.source_path)
+    else:
+        base = slug(document.original_id, fallback="document")
+        source_id = f"{storage.MATERIALS_DIR}/{base}.md"
     if source_id not in used_sources:
         return source_id
-    suffix = _short_hash(original_id)
-    candidate = f"{storage.MATERIALS_DIR}/{base}-{suffix}.md"
+    suffix = _short_hash(document.original_id)
+    path = Path(source_id)
+    candidate = path.with_name(f"{path.stem}-{suffix}{path.suffix}").as_posix()
     if candidate in used_sources:
         raise AdapterError(
             "duplicate_source_id",
-            f"document identifier maps to duplicate source id: {original_id}",
+            f"document identifier maps to duplicate source id: {document.original_id}",
             "Use unique document identifiers that sanitize to stable material paths.",
         )
     return candidate
+
+
+def _stable_material_path(source_path: str) -> str:
+    raw_parts = [
+        part
+        for part in source_path.replace("\\", "/").split("/")
+        if part and part not in {".", ".."}
+    ]
+    if not raw_parts:
+        return f"{storage.MATERIALS_DIR}/document.md"
+    sanitized_parts = [slug(part, fallback="part") for part in raw_parts]
+    leaf = sanitized_parts[-1]
+    leaf = f"{leaf}.md" if not Path(leaf).suffix else f"{Path(leaf).stem}.md"
+    sanitized_parts[-1] = leaf
+    return f"{storage.MATERIALS_DIR}/{'/'.join(sanitized_parts)}"
 
 
 def _short_hash(value: str) -> str:

@@ -9,8 +9,10 @@ writes an auditable JSON report.
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
+import os
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
@@ -19,22 +21,38 @@ from pathlib import Path
 from typing import cast
 
 from hephaistos.armory import storage
-from hephaistos.rag import TransformStrategy
+from hephaistos.rag import RetrievalMode, TransformStrategy
+from hephaistos.rag.hybrid import (
+    DEFAULT_PSEUDO_FEEDBACK_DOCS,
+    DEFAULT_PSEUDO_FEEDBACK_TERMS,
+    DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
+)
 from scripts import benchmark_rag, run_benchmark_suite
 
 SCHEMA_VERSION = "external-runner-report-v1"
 RUNNER_ID = "scripts.run_external_benchmarks"
 
 _DEFAULT_TOP_K = 5
-_DEFAULT_MIN_SCORE = 0.1
+_DEFAULT_MIN_SCORE = 0.0
+_DEFAULT_RETRIEVAL_MODE = RetrievalMode.BM25
+_DEFAULT_CANDIDATE_MULTIPLIER = 2
+_DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+_DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 _PUBLIC_ACADEMIC_READINESS_REPORT = "readiness_report.json"
 
-_BENCHMARK_TYPES = ("beir", "standard-rag", "heph-native", "public-academic")
+_BENCHMARK_TYPES = (
+    "beir",
+    "standard-rag",
+    "heph-native",
+    "public-academic",
+    "enterprise-rag",
+)
 _SUPPORTED_DATASETS = {
     "beir": frozenset({"beir/nfcorpus", "beir/scidocs", "beir/trec-covid", "beir/fixture"}),
     "standard-rag": frozenset({"ms-marco", "natural-questions", "fixture-standard-rag"}),
     "public-academic": frozenset({"public-academic"}),
     "heph-native": frozenset({"academic", "heph-native"}),
+    "enterprise-rag": frozenset({"enterprise-rag-bench"}),
 }
 
 _METRIC_FORMULAS = {
@@ -44,6 +62,13 @@ _METRIC_FORMULAS = {
     "mrr": "mean reciprocal rank of the first retrieved expected reference",
     "expected_recall": (
         "average retrieved expected references divided by total expected references per query"
+    ),
+    "precision_at_k": ("average binary precision@k over retrieved expected references per query"),
+    "map_at_k": "mean average precision@k over binary expected-reference relevance",
+    "ndcg_at_k": "mean normalized discounted cumulative gain@k with binary relevance",
+    "graded_ndcg_at_k": (
+        "mean normalized discounted cumulative gain@k using supplied relevance grades, "
+        "falling back to binary grades when labels are ungraded"
     ),
     "latency": (
         "retrieval-only wall-clock milliseconds measured per query; aggregate reports the mean"
@@ -74,10 +99,20 @@ _DETERMINISTIC_FIELDS_COMPARED = (
     "benchmarks[].metrics.hit_rate",
     "benchmarks[].metrics.mrr",
     "benchmarks[].metrics.expected_recall",
+    "benchmarks[].metrics.precision_at_k",
+    "benchmarks[].metrics.map_at_k",
+    "benchmarks[].metrics.ndcg_at_k",
+    "benchmarks[].metrics.graded_ndcg_at_k",
+    "benchmarks[].metrics.query_count",
+    "aggregate_metrics.query_count",
     "benchmarks[].per_query_results[].case_id",
     "benchmarks[].per_query_results[].retrieved",
     "benchmarks[].per_query_results[].hit",
     "benchmarks[].per_query_results[].rank",
+    "benchmarks[].per_query_results[].precision_at_k",
+    "benchmarks[].per_query_results[].average_precision_at_k",
+    "benchmarks[].per_query_results[].ndcg_at_k",
+    "benchmarks[].per_query_results[].graded_ndcg_at_k",
 )
 
 
@@ -103,6 +138,17 @@ class RunnerParameters:
     top_k: int
     min_score: float
     transform_strategy: TransformStrategy
+    retrieval_mode: RetrievalMode
+    candidate_multiplier: int
+    embedding_model: str | None
+    embedding_query_prefix: str
+    embedding_document_prefix: str
+    rerank_model: str | None
+    hybrid_sparse_weight: float
+    hybrid_dense_weight: float
+    pseudo_feedback_docs: int
+    pseudo_feedback_terms: int
+    pseudo_feedback_weight: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +193,10 @@ def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
     return cast("dict[str, object]", raw)
 
 
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _write_json_report(path: Path | None, report: Mapping[str, object]) -> None:
     if path is None:
         return
@@ -171,7 +221,25 @@ def _parameters(args: argparse.Namespace) -> RunnerParameters:
         top_k=cast("int", args.top_k),
         min_score=cast("float", args.min_score),
         transform_strategy=TransformStrategy(cast("str", args.strategy)),
+        retrieval_mode=RetrievalMode(cast("str", args.retrieval_mode)),
+        candidate_multiplier=cast("int", args.candidate_multiplier),
+        embedding_model=_optional_cli_string(cast("str | None", args.embedding_model)),
+        embedding_query_prefix=cast("str", args.embedding_query_prefix),
+        embedding_document_prefix=cast("str", args.embedding_document_prefix),
+        rerank_model=_optional_cli_string(cast("str | None", args.rerank_model)),
+        hybrid_sparse_weight=cast("float", args.hybrid_sparse_weight),
+        hybrid_dense_weight=cast("float", args.hybrid_dense_weight),
+        pseudo_feedback_docs=cast("int", args.pseudo_feedback_docs),
+        pseudo_feedback_terms=cast("int", args.pseudo_feedback_terms),
+        pseudo_feedback_weight=cast("float", args.pseudo_feedback_weight),
     )
+
+
+def _optional_cli_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _threshold_payload(thresholds: Thresholds) -> dict[str, float]:
@@ -194,6 +262,30 @@ def _validate_cli_values(parameters: RunnerParameters, thresholds: Thresholds) -
             "invalid_min_score",
             f"--min-score must be non-negative; got {parameters.min_score}",
             "Pass a non-negative retrieval score threshold.",
+        )
+    if parameters.candidate_multiplier <= 0:
+        raise RunnerError(
+            "invalid_candidate_multiplier",
+            f"--candidate-multiplier must be positive; got {parameters.candidate_multiplier}",
+            "Pass a positive integer candidate multiplier.",
+        )
+    if parameters.hybrid_sparse_weight < 0 or parameters.hybrid_dense_weight < 0:
+        raise RunnerError(
+            "invalid_hybrid_weight",
+            "--hybrid-sparse-weight and --hybrid-dense-weight must be non-negative",
+            "Pass non-negative fusion weights.",
+        )
+    if parameters.pseudo_feedback_docs <= 0 or parameters.pseudo_feedback_terms <= 0:
+        raise RunnerError(
+            "invalid_pseudo_feedback_budget",
+            "--pseudo-feedback-docs and --pseudo-feedback-terms must be positive",
+            "Use positive pseudo-relevance-feedback budgets.",
+        )
+    if parameters.pseudo_feedback_weight < 0:
+        raise RunnerError(
+            "invalid_pseudo_feedback_weight",
+            "--pseudo-feedback-weight must be non-negative",
+            "Pass a non-negative pseudo-relevance-feedback fusion weight.",
         )
     invalid_thresholds = [
         (name, value)
@@ -529,12 +621,24 @@ def _run_rag_flow(
         default_top_k=parameters.top_k,
     )
     warnings = _input_warnings(inputs.armory_path, parameters.top_k)
-    first_report = benchmark_rag.run_benchmark(
+    first_report = _run_rag_benchmark_with_gc_paused(
         inputs.armory_path,
         cases,
         top_k=parameters.top_k,
         min_score=parameters.min_score,
         transform_strategy=parameters.transform_strategy,
+        retrieval_mode=parameters.retrieval_mode,
+        candidate_multiplier=parameters.candidate_multiplier,
+        embed_model=parameters.embedding_model,
+        embed_query_prefix=parameters.embedding_query_prefix,
+        embed_document_prefix=parameters.embedding_document_prefix,
+        rerank_model=parameters.rerank_model,
+        hybrid_sparse_weight=parameters.hybrid_sparse_weight,
+        hybrid_dense_weight=parameters.hybrid_dense_weight,
+        pseudo_feedback_docs=parameters.pseudo_feedback_docs,
+        pseudo_feedback_terms=parameters.pseudo_feedback_terms,
+        pseudo_feedback_weight=parameters.pseudo_feedback_weight,
+        use_case_top_k=False,
     )
     benchmark_payload = _rag_benchmark_payload(inputs, first_report)
     metrics = _metrics_from_rag_report(first_report)
@@ -542,12 +646,24 @@ def _run_rag_flow(
     reproducibility = _skipped_reproducibility()
 
     if validate_reproducibility:
-        second_report = benchmark_rag.run_benchmark(
+        second_report = _run_rag_benchmark_with_gc_paused(
             inputs.armory_path,
             cases,
             top_k=parameters.top_k,
             min_score=parameters.min_score,
             transform_strategy=parameters.transform_strategy,
+            retrieval_mode=parameters.retrieval_mode,
+            candidate_multiplier=parameters.candidate_multiplier,
+            embed_model=parameters.embedding_model,
+            embed_query_prefix=parameters.embedding_query_prefix,
+            embed_document_prefix=parameters.embedding_document_prefix,
+            rerank_model=parameters.rerank_model,
+            hybrid_sparse_weight=parameters.hybrid_sparse_weight,
+            hybrid_dense_weight=parameters.hybrid_dense_weight,
+            pseudo_feedback_docs=parameters.pseudo_feedback_docs,
+            pseudo_feedback_terms=parameters.pseudo_feedback_terms,
+            pseudo_feedback_weight=parameters.pseudo_feedback_weight,
+            use_case_top_k=False,
         )
         reproducibility = _rag_reproducibility(first_report, second_report)
 
@@ -577,6 +693,54 @@ def _run_rag_flow(
     return report, exit_code
 
 
+def _run_rag_benchmark_with_gc_paused(
+    armory_path: Path,
+    cases: Sequence[benchmark_rag.BenchmarkCase],
+    *,
+    top_k: int,
+    min_score: float,
+    transform_strategy: TransformStrategy,
+    retrieval_mode: RetrievalMode,
+    candidate_multiplier: int,
+    embed_model: str | None,
+    embed_query_prefix: str,
+    embed_document_prefix: str,
+    rerank_model: str | None,
+    hybrid_sparse_weight: float,
+    hybrid_dense_weight: float,
+    pseudo_feedback_docs: int,
+    pseudo_feedback_terms: int,
+    pseudo_feedback_weight: float,
+    use_case_top_k: bool,
+) -> benchmark_rag.BenchmarkReport:
+    gc_was_enabled = gc.isenabled()
+    if gc_was_enabled:
+        gc.disable()
+    try:
+        return benchmark_rag.run_benchmark(
+            armory_path,
+            cases,
+            top_k=top_k,
+            min_score=min_score,
+            transform_strategy=transform_strategy,
+            retrieval_mode=retrieval_mode,
+            candidate_multiplier=candidate_multiplier,
+            embed_model=embed_model,
+            embed_query_prefix=embed_query_prefix,
+            embed_document_prefix=embed_document_prefix,
+            rerank_model=rerank_model,
+            hybrid_sparse_weight=hybrid_sparse_weight,
+            hybrid_dense_weight=hybrid_dense_weight,
+            pseudo_feedback_docs=pseudo_feedback_docs,
+            pseudo_feedback_terms=pseudo_feedback_terms,
+            pseudo_feedback_weight=pseudo_feedback_weight,
+            use_case_top_k=use_case_top_k,
+        )
+    finally:
+        if gc_was_enabled:
+            gc.enable()
+
+
 def _input_warnings(armory_path: Path, top_k: int) -> list[str]:
     material_count = _material_file_count(armory_path)
     if top_k > material_count:
@@ -598,8 +762,28 @@ def _rag_benchmark_payload(
         "status": "success",
         "metrics": _metrics_from_rag_report(report),
         "per_query_results": [_case_result_payload(result) for result in report.results],
+        "miss_diagnostics": _miss_diagnostics(report),
         "rag_report": asdict(report),
     }
+
+
+def _miss_diagnostics(report: benchmark_rag.BenchmarkReport) -> list[dict[str, object]]:
+    diagnostics: list[dict[str, object]] = []
+    for result in report.results:
+        if result.hit:
+            continue
+        bucket = "no_retrieved_candidates" if not result.retrieved else "top_k_or_ranking_miss"
+        diagnostics.append(
+            {
+                "case_id": result.case_id,
+                "bucket": bucket,
+                "query": result.query,
+                "expected_count": len(result.expected),
+                "retrieved_count": len(result.retrieved),
+                "top_retrieved": list(result.retrieved[:3]),
+            }
+        )
+    return diagnostics[:30]
 
 
 def _metrics_from_rag_report(report: benchmark_rag.BenchmarkReport) -> dict[str, object]:
@@ -607,6 +791,13 @@ def _metrics_from_rag_report(report: benchmark_rag.BenchmarkReport) -> dict[str,
         "hit_rate": report.hit_rate,
         "mrr": report.mean_reciprocal_rank,
         "expected_recall": report.mean_expected_recall,
+        "recall_at_k": report.mean_expected_recall,
+        "precision_at_k": report.mean_precision_at_k,
+        "map_at_k": report.mean_average_precision_at_k,
+        "ndcg_at_k": report.mean_ndcg_at_k,
+        "graded_ndcg_at_k": report.mean_graded_ndcg_at_k,
+        "query_count": report.cases,
+        "sample_size": report.cases,
         "forbidden_before_expected_avoidance": report.forbidden_before_expected_avoidance,
         "mean_latency_ms": report.mean_latency_ms,
         "latency": {
@@ -623,12 +814,18 @@ def _case_result_payload(result: benchmark_rag.CaseResult) -> dict[str, object]:
         "case_id": result.case_id,
         "query": result.query,
         "expected": list(result.expected),
+        "relevance_grades": dict(sorted(result.relevance_grades.items())),
         "forbidden_before_expected": list(result.forbidden_before_expected),
         "retrieved": list(result.retrieved),
         "hit": result.hit,
         "rank": result.rank,
         "reciprocal_rank": reciprocal_rank,
         "expected_recall": result.recall,
+        "recall_at_k": result.recall,
+        "precision_at_k": result.precision_at_k,
+        "average_precision_at_k": result.average_precision_at_k,
+        "ndcg_at_k": result.ndcg_at_k,
+        "graded_ndcg_at_k": result.graded_ndcg_at_k,
         "first_forbidden_rank": result.first_forbidden_rank,
         "forbidden_before_expected_ok": result.forbidden_before_expected_ok,
         "latency_ms": result.elapsed_ms,
@@ -685,11 +882,21 @@ def _rag_reproducibility_projection(
         "tasks": list(report.tasks),
         "top_k": report.top_k,
         "min_score": report.min_score,
+        "retrieval_mode": report.retrieval_mode,
+        "candidate_multiplier": report.candidate_multiplier,
+        "pseudo_feedback_docs": report.pseudo_feedback_docs,
+        "pseudo_feedback_terms": report.pseudo_feedback_terms,
+        "pseudo_feedback_weight": report.pseudo_feedback_weight,
+        "retriever_backends": list(report.retriever_backends),
         "transform_strategy": report.transform_strategy,
         "metrics": {
             "hit_rate": report.hit_rate,
             "mrr": report.mean_reciprocal_rank,
             "expected_recall": report.mean_expected_recall,
+            "precision_at_k": report.mean_precision_at_k,
+            "map_at_k": report.mean_average_precision_at_k,
+            "ndcg_at_k": report.mean_ndcg_at_k,
+            "graded_ndcg_at_k": report.mean_graded_ndcg_at_k,
             "forbidden_before_expected_avoidance": report.forbidden_before_expected_avoidance,
         },
         "results": [
@@ -703,6 +910,10 @@ def _rag_reproducibility_projection(
                 "first_forbidden_rank": result.first_forbidden_rank,
                 "forbidden_before_expected_ok": result.forbidden_before_expected_ok,
                 "expected_recall": result.recall,
+                "precision_at_k": result.precision_at_k,
+                "average_precision_at_k": result.average_precision_at_k,
+                "ndcg_at_k": result.ndcg_at_k,
+                "graded_ndcg_at_k": result.graded_ndcg_at_k,
             }
             for result in report.results
         ],
@@ -820,6 +1031,12 @@ def _metrics_from_native_report(native_report: Mapping[str, object]) -> dict[str
             "hit_rate": 0.0,
             "mrr": 0.0,
             "expected_recall": 0.0,
+            "recall_at_k": 0.0,
+            "precision_at_k": 0.0,
+            "map_at_k": 0.0,
+            "ndcg_at_k": 0.0,
+            "query_count": 0,
+            "sample_size": 0,
             "mean_latency_ms": 0.0,
             "latency": {
                 "mean_ms": 0.0,
@@ -831,6 +1048,12 @@ def _metrics_from_native_report(native_report: Mapping[str, object]) -> dict[str
         "hit_rate": _number_field(rag, "hit_rate"),
         "mrr": _number_field(rag, "mean_reciprocal_rank"),
         "expected_recall": _number_field(rag, "mean_expected_recall"),
+        "recall_at_k": _number_field(rag, "mean_expected_recall"),
+        "precision_at_k": _number_field(rag, "mean_precision_at_k"),
+        "map_at_k": _number_field(rag, "mean_average_precision_at_k"),
+        "ndcg_at_k": _number_field(rag, "mean_ndcg_at_k"),
+        "query_count": _int_field(rag, "cases"),
+        "sample_size": _int_field(rag, "cases"),
         "mean_latency_ms": _number_field(rag, "mean_latency_ms"),
         "latency": {
             "mean_ms": _number_field(rag, "mean_latency_ms"),
@@ -845,6 +1068,17 @@ def _number_field(payload: Mapping[object, object], field_name: str) -> float:
     if isinstance(value, int | float):
         return float(value)
     return 0.0
+
+
+def _int_field(payload: Mapping[object, object], field_name: str) -> int:
+    value = payload.get(field_name)
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return 0
 
 
 def _native_reproducibility(
@@ -955,12 +1189,25 @@ def _metadata(
         "fixed_parameters": {
             "top_k": parameters.top_k,
             "min_score": parameters.min_score,
+            "retrieval_mode": parameters.retrieval_mode.value,
+            "candidate_multiplier": parameters.candidate_multiplier,
+            "hybrid_sparse_weight": parameters.hybrid_sparse_weight,
+            "hybrid_dense_weight": parameters.hybrid_dense_weight,
+            "pseudo_feedback_docs": parameters.pseudo_feedback_docs,
+            "pseudo_feedback_terms": parameters.pseudo_feedback_terms,
+            "pseudo_feedback_weight": parameters.pseudo_feedback_weight,
             "transform_strategy": parameters.transform_strategy.value,
             "query_order": "case-file-order",
             "result_order": "retrieval-rank-order",
             "random_seed": 0,
             "randomness": "not-used",
             "network_access": "disabled-after-materialization",
+            "embedding_model": parameters.embedding_model
+            or os.environ.get("HEPHAISTOS_EMBED_MODEL", _DEFAULT_EMBEDDING_MODEL),
+            "embedding_query_prefix": parameters.embedding_query_prefix,
+            "embedding_document_prefix": parameters.embedding_document_prefix,
+            "rerank_model": parameters.rerank_model
+            or os.environ.get("HEPHAISTOS_RERANK_MODEL", _DEFAULT_RERANK_MODEL),
         },
         "metric_formulas": dict(_METRIC_FORMULAS),
         "latency_scope": _METRIC_FORMULAS["latency"],
@@ -971,6 +1218,11 @@ def _metadata(
         metadata["armory_path"] = str(armory_path)
     if cases_path is not None:
         metadata["cases_path"] = str(cases_path)
+        metadata["cases_sha256"] = _sha256_file(cases_path)
+    conversion_manifest = suite_path / "conversion_manifest.json"
+    if conversion_manifest.is_file():
+        metadata["conversion_manifest_path"] = str(conversion_manifest)
+        metadata["conversion_manifest_sha256"] = _sha256_file(conversion_manifest)
     if readiness_report_path is not None:
         metadata["readiness_report_path"] = str(readiness_report_path.resolve())
     if report_path is not None:
@@ -1017,7 +1269,73 @@ def _report_id(metadata: Mapping[str, object]) -> str:
     raw_dataset = metadata.get("dataset")
     benchmark_type = raw_benchmark_type if isinstance(raw_benchmark_type, str) else "unknown"
     dataset = raw_dataset if isinstance(raw_dataset, str) else "unknown"
-    return f"{benchmark_type}:{dataset}"
+    fixed_parameters = metadata.get("fixed_parameters")
+    if not isinstance(fixed_parameters, dict):
+        return f"{benchmark_type}:{dataset}"
+    parameters = cast("dict[str, object]", fixed_parameters)
+    mode = _report_id_part(parameters.get("retrieval_mode"), default="unknown")
+    strategy = _report_id_part(parameters.get("transform_strategy"), default="unknown")
+    top_k = _report_id_part(parameters.get("top_k"), default="na")
+    min_score = _report_id_part(parameters.get("min_score"), default="na")
+    candidate_multiplier = _report_id_part(
+        parameters.get("candidate_multiplier"),
+        default="na",
+    )
+    suffix = ""
+    embedding_model = parameters.get("embedding_model")
+    if isinstance(embedding_model, str) and embedding_model != _DEFAULT_EMBEDDING_MODEL:
+        suffix += f":embedding_model={_report_id_part(embedding_model, default='unknown')}"
+    embedding_query_prefix = parameters.get("embedding_query_prefix")
+    if isinstance(embedding_query_prefix, str) and embedding_query_prefix:
+        suffix += (
+            f":embedding_query_prefix={_report_id_part(embedding_query_prefix, default='unknown')}"
+        )
+    embedding_document_prefix = parameters.get("embedding_document_prefix")
+    if isinstance(embedding_document_prefix, str) and embedding_document_prefix:
+        suffix += (
+            ":embedding_document_prefix="
+            f"{_report_id_part(embedding_document_prefix, default='unknown')}"
+        )
+    rerank_model = parameters.get("rerank_model")
+    if isinstance(rerank_model, str) and rerank_model != _DEFAULT_RERANK_MODEL:
+        suffix += f":rerank_model={_report_id_part(rerank_model, default='unknown')}"
+    sparse_weight = parameters.get("hybrid_sparse_weight")
+    if isinstance(sparse_weight, int | float) and float(sparse_weight) != 1.0:
+        suffix += f":sparse_weight={_report_id_part(sparse_weight, default='unknown')}"
+    dense_weight = parameters.get("hybrid_dense_weight")
+    if isinstance(dense_weight, int | float) and float(dense_weight) != 1.0:
+        suffix += f":dense_weight={_report_id_part(dense_weight, default='unknown')}"
+    if parameters.get("retrieval_mode") == RetrievalMode.HYBRID_PRF.value:
+        feedback_docs = _report_id_part(
+            parameters.get("pseudo_feedback_docs"),
+            default="unknown",
+        )
+        feedback_terms = _report_id_part(
+            parameters.get("pseudo_feedback_terms"),
+            default="unknown",
+        )
+        feedback_weight = _report_id_part(
+            parameters.get("pseudo_feedback_weight"),
+            default="unknown",
+        )
+        suffix += (
+            f":prf_docs={feedback_docs}:prf_terms={feedback_terms}:prf_weight={feedback_weight}"
+        )
+    return (
+        f"{benchmark_type}:{dataset}:mode={mode}:strategy={strategy}:"
+        f"top_k={top_k}:min_score={min_score}:candidate_multiplier={candidate_multiplier}"
+        f"{suffix}"
+    )
+
+
+def _report_id_part(value: object, *, default: str) -> str:
+    if isinstance(value, bool):
+        return default
+    text = str(value) if isinstance(value, int | float | str) else default
+    return (
+        text.replace(" ", "-").replace("/", "-").replace(":", "-").replace("=", "-").strip()
+        or default
+    )
 
 
 def _skipped_reproducibility() -> dict[str, object]:
@@ -1058,12 +1376,25 @@ def _error_report(
         "fixed_parameters": {
             "top_k": parameters.top_k,
             "min_score": parameters.min_score,
+            "retrieval_mode": parameters.retrieval_mode.value,
+            "candidate_multiplier": parameters.candidate_multiplier,
+            "hybrid_sparse_weight": parameters.hybrid_sparse_weight,
+            "hybrid_dense_weight": parameters.hybrid_dense_weight,
+            "pseudo_feedback_docs": parameters.pseudo_feedback_docs,
+            "pseudo_feedback_terms": parameters.pseudo_feedback_terms,
+            "pseudo_feedback_weight": parameters.pseudo_feedback_weight,
             "transform_strategy": parameters.transform_strategy.value,
             "query_order": "case-file-order",
             "result_order": "retrieval-rank-order",
             "random_seed": 0,
             "randomness": "not-used",
             "network_access": "disabled-after-materialization",
+            "embedding_model": parameters.embedding_model
+            or os.environ.get("HEPHAISTOS_EMBED_MODEL", _DEFAULT_EMBEDDING_MODEL),
+            "embedding_query_prefix": parameters.embedding_query_prefix,
+            "embedding_document_prefix": parameters.embedding_document_prefix,
+            "rerank_model": parameters.rerank_model
+            or os.environ.get("HEPHAISTOS_RERANK_MODEL", _DEFAULT_RERANK_MODEL),
         },
         "metric_formulas": dict(_METRIC_FORMULAS),
         "latency_scope": _METRIC_FORMULAS["latency"],
@@ -1087,6 +1418,12 @@ def _error_report(
             "hit_rate": 0.0,
             "mrr": 0.0,
             "expected_recall": 0.0,
+            "recall_at_k": 0.0,
+            "precision_at_k": 0.0,
+            "map_at_k": 0.0,
+            "ndcg_at_k": 0.0,
+            "query_count": 0,
+            "sample_size": 0,
             "mean_latency_ms": 0.0,
             "latency": {
                 "mean_ms": 0.0,
@@ -1167,10 +1504,76 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-k", type=int, default=_DEFAULT_TOP_K)
     parser.add_argument("--min-score", type=float, default=_DEFAULT_MIN_SCORE)
     parser.add_argument(
+        "--retrieval-mode",
+        choices=[mode.value for mode in RetrievalMode],
+        default=_DEFAULT_RETRIEVAL_MODE.value,
+        help="Retriever pipeline to run with fixed inputs",
+    )
+    parser.add_argument(
+        "--candidate-multiplier",
+        type=int,
+        default=_DEFAULT_CANDIDATE_MULTIPLIER,
+        help="Hybrid over-retrieval multiplier before final top-k/reranking",
+    )
+    parser.add_argument(
         "--strategy",
         choices=[strategy.value for strategy in TransformStrategy],
         default=TransformStrategy.IDENTITY.value,
         help="RAG query transformation strategy",
+    )
+    parser.add_argument(
+        "--embedding-model",
+        help=(
+            "Sentence-transformers embedding model. Defaults to HEPHAISTOS_EMBED_MODEL "
+            f"or {_DEFAULT_EMBEDDING_MODEL}."
+        ),
+    )
+    parser.add_argument(
+        "--embedding-query-prefix",
+        default="",
+        help="Prefix applied to embedding queries, for instruction-tuned retrievers",
+    )
+    parser.add_argument(
+        "--embedding-document-prefix",
+        default="",
+        help="Prefix applied to embedded documents, for asymmetric retrievers",
+    )
+    parser.add_argument(
+        "--rerank-model",
+        help=(
+            "Cross-encoder reranking model. Defaults to HEPHAISTOS_RERANK_MODEL "
+            f"or {_DEFAULT_RERANK_MODEL}."
+        ),
+    )
+    parser.add_argument(
+        "--hybrid-sparse-weight",
+        type=float,
+        default=1.0,
+        help="Sparse retriever weight for hybrid reciprocal-rank fusion",
+    )
+    parser.add_argument(
+        "--hybrid-dense-weight",
+        type=float,
+        default=1.0,
+        help="Dense retriever weight for hybrid reciprocal-rank fusion",
+    )
+    parser.add_argument(
+        "--pseudo-feedback-docs",
+        type=int,
+        default=DEFAULT_PSEUDO_FEEDBACK_DOCS,
+        help="Number of top sparse results used for hybrid-prf query feedback",
+    )
+    parser.add_argument(
+        "--pseudo-feedback-terms",
+        type=int,
+        default=DEFAULT_PSEUDO_FEEDBACK_TERMS,
+        help="Number of expansion terms added for hybrid-prf sparse feedback",
+    )
+    parser.add_argument(
+        "--pseudo-feedback-weight",
+        type=float,
+        default=DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
+        help="Sparse feedback RRF weight for hybrid-prf retrieval",
     )
     parser.add_argument(
         "--validate-reproducibility",

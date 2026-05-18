@@ -74,6 +74,35 @@ def _passing_cases() -> list[dict[str, object]]:
     ]
 
 
+def test_report_id_records_hybrid_prf_parameters() -> None:
+    report_id = run_external_benchmarks._report_id(
+        {
+            "benchmark_type": "beir",
+            "dataset": "beir/fixture",
+            "fixed_parameters": {
+                "retrieval_mode": "hybrid-prf",
+                "transform_strategy": "identity",
+                "top_k": 5,
+                "min_score": 0.0,
+                "candidate_multiplier": 2,
+                "embedding_model": "BAAI/bge-large-en-v1.5",
+                "embedding_query_prefix": (
+                    "Represent this sentence for searching relevant passages: "
+                ),
+                "embedding_document_prefix": "",
+                "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                "hybrid_sparse_weight": 1.0,
+                "hybrid_dense_weight": 1.5,
+                "pseudo_feedback_docs": 3,
+                "pseudo_feedback_terms": 6,
+                "pseudo_feedback_weight": 0.1,
+            },
+        }
+    )
+
+    assert ":prf_docs=3:prf_terms=6:prf_weight=0.1" in report_id
+
+
 def test_runner_executes_materialized_beir_suite_with_required_metrics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -92,6 +121,12 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
             "9",
             "--min-score",
             "0.0",
+            "--embedding-model",
+            "fixture-embed-model",
+            "--embedding-document-prefix",
+            "passage: ",
+            "--rerank-model",
+            "fixture-rerank-model",
             "--json-report",
             str(report_path),
         ]
@@ -107,22 +142,111 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
 
     assert status == 0
     assert report["schema_version"] == "external-runner-report-v1"
-    assert report["report_id"] == "beir:beir/fixture"
+    assert report["report_id"] == (
+        "beir:beir/fixture:mode=bm25:strategy=identity:top_k=9:"
+        "min_score=0.0:candidate_multiplier=2:"
+        "embedding_model=fixture-embed-model:embedding_document_prefix=passage--:"
+        "rerank_model=fixture-rerank-model"
+    )
     assert report["status"] == "success"
     assert metadata["benchmark_type"] == "beir"
     assert metadata["dataset"] == "beir/fixture"
     assert parameters["top_k"] == 9
+    assert parameters["min_score"] == 0.0
+    assert parameters["retrieval_mode"] == "bm25"
+    assert parameters["candidate_multiplier"] == 2
+    assert parameters["embedding_model"] == "fixture-embed-model"
+    assert parameters["embedding_document_prefix"] == "passage: "
+    assert parameters["rerank_model"] == "fixture-rerank-model"
+    assert "cases_sha256" in metadata
     assert parameters["query_order"] == "case-file-order"
     assert _as_str(formulas["hit_rate"]).startswith("fraction of queries")
     assert _as_str(formulas["mrr"]).startswith("mean reciprocal rank")
     assert _as_str(formulas["expected_recall"]).startswith("average retrieved expected references")
+    assert _as_str(formulas["ndcg_at_k"]).startswith("mean normalized")
+    assert _as_str(formulas["graded_ndcg_at_k"]).startswith("mean normalized")
     assert metrics["hit_rate"] == 1.0
     assert metrics["mrr"] == 1.0
     assert metrics["expected_recall"] == 1.0
+    assert metrics["recall_at_k"] == 1.0
+    assert metrics["precision_at_k"] == 1 / 9
+    assert metrics["map_at_k"] == 1.0
+    assert metrics["ndcg_at_k"] == 1.0
+    assert metrics["graded_ndcg_at_k"] == 1.0
     assert isinstance(metrics["mean_latency_ms"], float)
     assert benchmark["status"] == "success"
+    assert "miss_diagnostics" in benchmark
     assert any("top_k=9" in str(warning) for warning in warnings)
     assert "sentinel-secret-value" not in json.dumps(report)
+
+
+def test_runner_executes_materialized_enterprise_rag_suite(tmp_path: Path) -> None:
+    suite = _make_external_suite(tmp_path, _passing_cases())
+    report_path = tmp_path / "reports" / "enterprise-rag.json"
+
+    status = run_external_benchmarks.main(
+        [
+            "enterprise-rag",
+            "enterprise-rag-bench",
+            "--suite",
+            str(suite),
+            "--top-k",
+            "3",
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = _read_report(report_path)
+    metadata = _as_dict(report["metadata"])
+    benchmark = _as_dict(_as_list(report["benchmarks"])[0])
+
+    assert status == 0
+    assert report["status"] == "success"
+    assert metadata["benchmark_type"] == "enterprise-rag"
+    assert metadata["dataset"] == "enterprise-rag-bench"
+    assert benchmark["id"] == "enterprise-rag:enterprise-rag-bench"
+    assert _as_dict(report["aggregate_metrics"])["hit_rate"] == 1.0
+
+
+def test_runner_cli_top_k_overrides_case_top_k(tmp_path: Path) -> None:
+    suite = _make_external_suite(
+        tmp_path,
+        [
+            {
+                "id": "alpha",
+                "domain": "fixture",
+                "task": "single-source-retrieval",
+                "query": "alpha beta material",
+                "expected": ["materials/alpha.md"],
+                "top_k": 1,
+            }
+        ],
+    )
+    report_path = tmp_path / "reports" / "external.json"
+
+    status = run_external_benchmarks.main(
+        [
+            "beir",
+            "beir/fixture",
+            "--suite",
+            str(suite),
+            "--top-k",
+            "2",
+            "--retrieval-mode",
+            "bm25",
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = _read_report(report_path)
+    benchmark = _as_dict(_as_list(report["benchmarks"])[0])
+    result = _as_dict(_as_list(benchmark["per_query_results"])[0])
+    rag_report = _as_dict(benchmark["rag_report"])
+    assert status == 0
+    assert rag_report["top_k"] == 2
+    assert len(_as_list(result["retrieved"])) == 2
 
 
 def test_runner_report_projection_is_deterministic_across_runtime_paths(

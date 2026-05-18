@@ -57,9 +57,19 @@ class Bm25Protocol(Protocol):
         show_progress: bool,
     ) -> tuple[object, object]: ...
 
+    def save(self, _path: object, **_kwargs: object) -> object: ...
+
 
 class Bm25Factory(Protocol):
     def __call__(self) -> Bm25Protocol: ...
+
+    def load(
+        self,
+        path: object,
+        *,
+        load_corpus: bool,
+        mmap: bool,
+    ) -> Bm25Protocol: ...
 
 
 _UNSET = object()

@@ -622,7 +622,7 @@ def run_suite(
             armory,
             benchmark_rag.load_cases(rag_dataset),
             top_k=3,
-            min_score=0.1,
+            min_score=0.0,
         )
         _validate_rag_suite_integrity(rag_report)
         benchmark_rag.print_text_report(rag_report)
