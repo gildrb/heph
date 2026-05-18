@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -34,6 +35,12 @@ _MATCHED_METADATA_FIELDS = (
     "candidate_depth",
     "latency_scope",
     "dependency_lock_sha256",
+    "model",
+    "prompt_hash",
+    "metric_formulas_sha256",
+    "cache_state",
+    "network_state",
+    "permission_scope",
 )
 _SNAPSHOT_COLUMN_MAPPING_FIELDS = ("system_label", "rank_metric", "dataset", "split", "scope")
 
@@ -101,6 +108,10 @@ class EvaluationPlan:
     secondary_metrics: tuple[str, ...]
     top_k_values: tuple[int, ...]
     candidate_depth_values: tuple[int, ...]
+    statistical_method: str
+    run_policy: str
+    seed_policy: tuple[int, ...]
+    failure_handling: str
     baseline_improvement: dict[str, object]
     known_public_target: dict[str, object]
 
@@ -159,6 +170,18 @@ def _sha256_file(path: Path) -> str:
             f"could not read file for SHA-256: {path}",
             "Ensure every ledger path points to an existing immutable artifact.",
         ) from exc
+
+
+def metric_formulas_sha256(report: Mapping[str, object]) -> str:
+    """Return a stable SHA-256 over report metric formula metadata."""
+    metadata = report.get("metadata")
+    formulas: object = {}
+    if isinstance(metadata, dict):
+        raw_formulas = cast("dict[str, object]", metadata).get("metric_formulas")
+        if isinstance(raw_formulas, dict):
+            formulas = raw_formulas
+    serialized = json.dumps(formulas, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _resolve_relative_path(raw_path: str, owner_path: Path) -> Path:
@@ -424,6 +447,12 @@ def load_baseline_ledger(path: Path) -> BaselineLedger:
     _validate_hash(
         matched_metadata.get("dependency_lock_sha256"),
         field_name="dependency_lock_sha256",
+        code="baseline_ledger_invalid",
+        label="baseline ledger matched_metadata",
+    )
+    _validate_hash(
+        matched_metadata.get("metric_formulas_sha256"),
+        field_name="metric_formulas_sha256",
         code="baseline_ledger_invalid",
         label="baseline ledger matched_metadata",
     )
@@ -874,24 +903,44 @@ def load_evaluation_plan(path: Path) -> EvaluationPlan:
         code="evaluation_plan_invalid",
         label="evaluation plan",
     )
-    for field_name in (
+    statistical_method = _required_string(
+        plan,
         "statistical_method",
+        code="evaluation_plan_invalid",
+        label="evaluation plan",
+    )
+    _validate_statistical_method(statistical_method)
+    run_policy = _required_string(
+        plan,
         "run_policy",
+        code="evaluation_plan_invalid",
+        label="evaluation plan",
+    )
+    _required_string(
+        plan,
         "mode_selection_policy",
+        code="evaluation_plan_invalid",
+        label="evaluation plan",
+    )
+    failure_handling = _required_string(
+        plan,
         "failure_handling",
-    ):
-        _required_string(
-            plan,
-            field_name,
-            code="evaluation_plan_invalid",
-            label="evaluation plan",
-        )
-    _required_list(
+        code="evaluation_plan_invalid",
+        label="evaluation plan",
+    )
+    raw_seed_policy = _required_list(
         plan,
         "seed_policy",
         code="evaluation_plan_invalid",
         label="evaluation plan",
     )
+    seed_policy = tuple(item for item in raw_seed_policy if isinstance(item, int))
+    if len(seed_policy) != len(raw_seed_policy):
+        raise PublicTargetError(
+            "evaluation_plan_invalid",
+            "evaluation plan seed_policy must contain integer seed values",
+            "Record every attempted run seed as an integer.",
+        )
     baseline_improvement = _required_mapping(
         plan,
         "baseline_improvement",
@@ -979,9 +1028,43 @@ def load_evaluation_plan(path: Path) -> EvaluationPlan:
         secondary_metrics=secondary_metrics,
         top_k_values=top_k_values,
         candidate_depth_values=candidate_depth_values,
+        statistical_method=statistical_method,
+        run_policy=run_policy,
+        seed_policy=seed_policy,
+        failure_handling=failure_handling,
         baseline_improvement=baseline_improvement,
         known_public_target=known_public_target,
     )
+
+
+def _validate_statistical_method(statistical_method: str) -> None:
+    normalized = statistical_method.casefold()
+    has_pairing = "paired" in normalized or "unpaired" in normalized
+    has_uncertainty = any(
+        term in normalized
+        for term in (
+            "bootstrap",
+            "confidence",
+            "ci",
+            "mcnemar",
+            "permutation",
+            "randomization",
+            "within noise",
+        )
+    )
+    if not has_pairing or not has_uncertainty:
+        raise PublicTargetError(
+            "evaluation_plan_invalid",
+            "evaluation plan statistical_method must declare pairing and uncertainty method",
+            "Use paired bootstrap/McNemar/randomization wording or an explicit "
+            "aggregate-only limitation.",
+        )
+    if "aggregate percentages only" in normalized:
+        raise PublicTargetError(
+            "evaluation_plan_invalid",
+            "evaluation plan statistical_method cannot rely on aggregate percentages only",
+            "Use per-query paired evidence for direct improvement, rank, or superiority claims.",
+        )
 
 
 def _metric_value(report: Mapping[str, object], metric_path: str) -> float:
@@ -1014,12 +1097,18 @@ def _report_metadata_value(report: Mapping[str, object], field_name: str) -> obj
             )
         except PublicTargetError:
             return None
+    if field_name == "metric_formulas_sha256":
+        return metric_formulas_sha256(report)
     metadata = report.get("metadata")
     if not isinstance(metadata, dict):
         return None
     typed_metadata = cast("dict[str, object]", metadata)
     if field_name in typed_metadata:
         return typed_metadata[field_name]
+    if field_name == "prompt_hash":
+        return "retrieval-only-no-prompt"
+    if field_name == "permission_scope":
+        return "public-benchmark-materials"
     fixed_parameters = typed_metadata.get("fixed_parameters")
     if isinstance(fixed_parameters, dict):
         return cast("dict[str, object]", fixed_parameters).get(field_name)
@@ -1083,18 +1172,12 @@ def _validate_claim_report(report: Mapping[str, object], *, label: str) -> None:
             f"{label} report query_count must be positive",
             "Run the benchmark over a non-empty public target case set.",
         )
-    if _per_query_row_count(report) not in {None, query_count}:
+    per_query_count = _per_query_row_count(report)
+    if per_query_count != query_count:
         raise PublicTargetError(
             "claim_report_incomplete",
             f"{label} report per-query rows do not reconcile with query_count={query_count}",
-            "Regenerate the report with complete per-query rows or artifact hash metadata.",
-        )
-    if _per_query_row_count(report) is None:
-        _validate_hash(
-            metadata.get("per_query_artifact_sha256"),
-            field_name="per_query_artifact_sha256",
-            code="claim_report_incomplete",
-            label=f"{label} report metadata",
+            "Regenerate the report with complete per-query rows for paired claim evidence.",
         )
     envelope_result = claim_report_envelope.validate_claim_report_envelope(
         report,
@@ -1124,6 +1207,231 @@ def _per_query_row_count(report: Mapping[str, object]) -> int | None:
             saw_rows = True
             row_count += len(per_query_results)
     return row_count if saw_rows else None
+
+
+def _per_query_rows(report: Mapping[str, object]) -> tuple[dict[str, object], ...]:
+    raw_benchmarks = report.get("benchmarks")
+    if not isinstance(raw_benchmarks, list):
+        return ()
+    rows: list[dict[str, object]] = []
+    for raw_benchmark in raw_benchmarks:
+        if not isinstance(raw_benchmark, dict):
+            continue
+        benchmark = cast("dict[str, object]", raw_benchmark)
+        per_query_results = benchmark.get("per_query_results")
+        if not isinstance(per_query_results, list):
+            continue
+        rows.extend(
+            cast("dict[str, object]", raw_result)
+            for raw_result in per_query_results
+            if isinstance(raw_result, dict)
+        )
+    return tuple(rows)
+
+
+def _per_query_hash(rows: Sequence[Mapping[str, object]]) -> str:
+    serialized = json.dumps(rows, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _paired_rows(
+    baseline_report: Mapping[str, object],
+    current_report: Mapping[str, object],
+) -> tuple[tuple[tuple[dict[str, object], dict[str, object]], ...], list[str]]:
+    baseline_rows = _per_query_rows(baseline_report)
+    current_rows = _per_query_rows(current_report)
+    failures: list[str] = []
+    if not baseline_rows or not current_rows:
+        return (), ["statistical evidence missing per-query rows"]
+    baseline_by_id = _rows_by_case_id(baseline_rows, label="baseline", failures=failures)
+    current_by_id = _rows_by_case_id(current_rows, label="current", failures=failures)
+    if failures:
+        return (), failures
+    baseline_ids = set(baseline_by_id)
+    current_ids = set(current_by_id)
+    if baseline_ids != current_ids:
+        failures.append("statistical evidence missing paired per-query rows")
+        return (), failures
+    paired = tuple(
+        (baseline_by_id[case_id], current_by_id[case_id]) for case_id in sorted(baseline_ids)
+    )
+    return paired, []
+
+
+def _rows_by_case_id(
+    rows: Sequence[dict[str, object]],
+    *,
+    label: str,
+    failures: list[str],
+) -> dict[str, dict[str, object]]:
+    by_id: dict[str, dict[str, object]] = {}
+    for index, row in enumerate(rows, start=1):
+        case_id = row.get("case_id")
+        if not isinstance(case_id, str) or not case_id.strip():
+            failures.append(f"{label} per-query row {index} is missing case_id")
+            continue
+        if case_id in by_id:
+            failures.append(f"{label} per-query rows contain duplicate case_id {case_id!r}")
+            continue
+        by_id[case_id] = row
+    return by_id
+
+
+def _statistical_evidence(
+    plan: EvaluationPlan,
+    baseline_report: Mapping[str, object],
+    current_report: Mapping[str, object],
+    *,
+    metric_paths: Sequence[str],
+    primary_metric: str,
+) -> dict[str, object]:
+    paired, failures = _paired_rows(baseline_report, current_report)
+    baseline_rows = _per_query_rows(baseline_report)
+    current_rows = _per_query_rows(current_report)
+    if failures:
+        return {
+            "status": "failed",
+            "pairing": "unpaired",
+            "failures": failures,
+            "sample_size": 0,
+            "baseline_per_query_sha256": _per_query_hash(baseline_rows),
+            "current_per_query_sha256": _per_query_hash(current_rows),
+            "method_policy": plan.statistical_method,
+        }
+
+    methods: dict[str, object] = {}
+    uncertainty: dict[str, object] = {}
+    metric_failures: list[str] = []
+    for metric_path in metric_paths:
+        deltas = _paired_metric_deltas(paired, metric_path)
+        if not deltas:
+            metric_failures.append(f"missing per-query metric values for {metric_path}")
+            continue
+        lower, upper = _empirical_interval(deltas)
+        methods[metric_path] = {
+            "method": _metric_method(metric_path),
+            "paired": True,
+            "sample_size": len(deltas),
+        }
+        uncertainty[metric_path] = {
+            "mean_delta": sum(deltas) / len(deltas),
+            "confidence_interval": [lower, upper],
+            "within_noise": lower <= 0.0 <= upper,
+        }
+
+    primary_deltas = _paired_metric_deltas(paired, primary_metric)
+    wins = sum(1 for delta in primary_deltas if delta > 0)
+    losses = sum(1 for delta in primary_deltas if delta < 0)
+    ties = sum(1 for delta in primary_deltas if delta == 0)
+    hit_miss = _hit_miss_counts(paired)
+    return {
+        "status": "passed" if not metric_failures else "failed",
+        "pairing": "paired",
+        "method_policy": plan.statistical_method,
+        "sample_size": len(paired),
+        "baseline_per_query_sha256": _per_query_hash(baseline_rows),
+        "current_per_query_sha256": _per_query_hash(current_rows),
+        "methods": methods,
+        "uncertainty": uncertainty,
+        "win_loss_tie": {"wins": wins, "losses": losses, "ties": ties},
+        "hit_miss_table": hit_miss,
+        "claim_wording": (
+            "within noise"
+            if any(
+                isinstance(item, dict) and item.get("within_noise") is True
+                for item in uncertainty.values()
+            )
+            else "paired directional delta with uncertainty"
+        ),
+        "failures": metric_failures,
+    }
+
+
+def _paired_metric_deltas(
+    paired_rows: Sequence[tuple[dict[str, object], dict[str, object]]],
+    metric_path: str,
+) -> list[float]:
+    deltas: list[float] = []
+    for baseline_row, current_row in paired_rows:
+        baseline_value = _per_query_metric_value(baseline_row, metric_path)
+        current_value = _per_query_metric_value(current_row, metric_path)
+        if baseline_value is None or current_value is None:
+            continue
+        deltas.append(current_value - baseline_value)
+    return deltas
+
+
+def _per_query_metric_value(row: Mapping[str, object], metric_path: str) -> float | None:
+    metric_name = metric_path.rsplit(".", 1)[-1]
+    if metric_name == "hit_rate":
+        return 1.0 if row.get("hit") is True else 0.0
+    if metric_name == "mrr":
+        reciprocal_rank = _number_or_none(row.get("reciprocal_rank"))
+        if reciprocal_rank is not None:
+            return reciprocal_rank
+        rank = _number_or_none(row.get("rank"))
+        if rank is not None and rank > 0:
+            return 1.0 / rank
+        return 0.0
+    value = _number_or_none(row.get(metric_name))
+    if value is not None:
+        return value
+    if metric_name == "expected_recall":
+        return _number_or_none(row.get("recall_at_k"))
+    return None
+
+
+def _metric_method(metric_path: str) -> str:
+    metric_name = metric_path.rsplit(".", 1)[-1]
+    if metric_name == "hit_rate":
+        return "paired_hit_miss_mcnemar_inputs"
+    return "paired_empirical_ci"
+
+
+def _empirical_interval(values: Sequence[float]) -> tuple[float, float]:
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0, 0.0
+    lower_index = math.floor(0.025 * (len(ordered) - 1))
+    upper_index = math.ceil(0.975 * (len(ordered) - 1))
+    return ordered[lower_index], ordered[upper_index]
+
+
+def _hit_miss_counts(
+    paired_rows: Sequence[tuple[dict[str, object], dict[str, object]]],
+) -> dict[str, int]:
+    both_hit = baseline_only = current_only = both_miss = 0
+    for baseline_row, current_row in paired_rows:
+        baseline_hit = baseline_row.get("hit") is True
+        current_hit = current_row.get("hit") is True
+        if baseline_hit and current_hit:
+            both_hit += 1
+        elif baseline_hit:
+            baseline_only += 1
+        elif current_hit:
+            current_only += 1
+        else:
+            both_miss += 1
+    return {
+        "both_hit": both_hit,
+        "baseline_only": baseline_only,
+        "current_only": current_only,
+        "both_miss": both_miss,
+    }
+
+
+def _number_or_none(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _object_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return value
+    return []
 
 
 def _validate_report_metadata(
@@ -1210,6 +1518,98 @@ def _guardrail_results(
     return tuple(results)
 
 
+def _run_disclosure(
+    plan: EvaluationPlan,
+    baseline_report: Mapping[str, object],
+    current_report: Mapping[str, object],
+    *,
+    primary_metric: str,
+) -> dict[str, object]:
+    attempts = [
+        _attempt_disclosure("baseline", baseline_report),
+        _attempt_disclosure("current", current_report),
+    ]
+    failed_count = sum(1 for attempt in attempts if attempt["status"] != "success")
+    primary_values = [
+        value
+        for row in _per_query_rows(current_report)
+        if (value := _per_query_metric_value(row, primary_metric)) is not None
+    ]
+    return {
+        "status": "passed",
+        "run_count": len(attempts),
+        "successful_count": len(attempts) - failed_count,
+        "failed_count": failed_count,
+        "denominator": len(attempts),
+        "seed_policy": list(plan.seed_policy),
+        "run_policy": plan.run_policy,
+        "failure_handling": plan.failure_handling,
+        "attempts": attempts,
+        "variance": {
+            "metric": primary_metric,
+            "sample_size": len(primary_values),
+            "value": _variance(primary_values),
+        },
+    }
+
+
+def _attempt_disclosure(label: str, report: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "label": label,
+        "report_id": _report_id(report),
+        "status": report.get("status", "unknown"),
+        "random_seed": _report_seed(report),
+        "query_count": _report_query_count(report),
+        "claim_eligible": _report_claim_eligible(report),
+    }
+
+
+def _report_seed(report: Mapping[str, object]) -> object:
+    metadata = report.get("metadata")
+    if isinstance(metadata, dict):
+        fixed_parameters = cast("dict[str, object]", metadata).get("fixed_parameters")
+        if isinstance(fixed_parameters, dict):
+            return cast("dict[str, object]", fixed_parameters).get("random_seed", "unknown")
+    return "unknown"
+
+
+def _report_query_count(report: Mapping[str, object]) -> int:
+    aggregate_metrics = report.get("aggregate_metrics")
+    if isinstance(aggregate_metrics, dict):
+        value = cast("dict[str, object]", aggregate_metrics).get("query_count")
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return len(_per_query_rows(report))
+
+
+def _report_claim_eligible(report: Mapping[str, object]) -> bool:
+    claim_envelope = report.get("claim_envelope")
+    if isinstance(claim_envelope, dict):
+        return cast("dict[str, object]", claim_envelope).get("claim_eligible") is True
+    return False
+
+
+def _variance(values: Sequence[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    return sum((value - mean) ** 2 for value in values) / (len(values) - 1)
+
+
+def _claim_language_result(claim_text: str | None) -> dict[str, object]:
+    text = claim_text or ""
+    findings = claim_report_envelope.claim_language_findings(text, path="claim_text")
+    return {
+        "status": "passed" if not findings else "failed",
+        "checked": bool(text),
+        "findings": list(findings),
+        "policy": (
+            "Use scoped matched-comparison wording; avoid unsupported beats/wins/"
+            "outperforms/best/superiority language."
+        ),
+    }
+
+
 def _public_rank(
     snapshot: PublicSnapshot,
     *,
@@ -1252,6 +1652,7 @@ def run_claim_gate(
     public_snapshot_path: Path,
     dataset_ledger_path: Path,
     evaluation_plan_path: Path,
+    claim_text: str | None = None,
 ) -> tuple[dict[str, object], int]:
     """Run the baseline/public-target claim gate and return payload plus exit code."""
     baseline = load_baseline_ledger(baseline_ledger_path)
@@ -1372,12 +1773,31 @@ def run_claim_gate(
     primary_delta = primary_current - primary_baseline
     primary_passed = primary_delta + tolerance >= minimum_delta
     guardrails = _guardrail_results(plan, baseline.baseline_report, current_report)
+    metric_paths = tuple(dict.fromkeys((*baseline.selected_metrics, primary_metric)))
+    statistical_evidence = _statistical_evidence(
+        plan,
+        baseline.baseline_report,
+        current_report,
+        metric_paths=metric_paths,
+        primary_metric=primary_metric,
+    )
+    run_disclosure = _run_disclosure(
+        plan,
+        baseline.baseline_report,
+        current_report,
+        primary_metric=primary_metric,
+    )
+    claim_language = _claim_language_result(claim_text)
 
     failures: list[str] = []
     if metadata_mismatches:
         failures.append("matched metadata did not match baseline/dataset ledger")
     if plan_mismatches:
         failures.append("current run used an unplanned top-k or candidate-depth value")
+    if statistical_evidence["status"] != "passed":
+        failures.extend(str(item) for item in _object_list(statistical_evidence.get("failures")))
+    if claim_language["status"] != "passed":
+        failures.append("unsupported competitive language in proposed claim text")
     if not primary_passed:
         failures.append("primary improvement did not meet the predeclared minimum delta")
     failures.extend(
@@ -1489,6 +1909,9 @@ def run_claim_gate(
                 for guardrail in guardrails
             ],
         },
+        "statistical_evidence": statistical_evidence,
+        "run_disclosure": run_disclosure,
+        "claim_language": claim_language,
         "public_comparison_summary": {
             "snapshot_source": snapshot.source_url,
             "snapshot_date": snapshot.retrieved_at,
@@ -1498,6 +1921,7 @@ def run_claim_gate(
             "current_metric_value": primary_current,
             "current_rank_in_snapshot": rank,
             "snapshot_rank_denominator": total,
+            "uncertainty": statistical_evidence,
             "limitations": _required_string(
                 plan.known_public_target,
                 "limitation",
@@ -1529,6 +1953,10 @@ def _build_parser() -> argparse.ArgumentParser:
     claim_gate.add_argument("--public-snapshot", required=True, type=Path)
     claim_gate.add_argument("--dataset-ledger", required=True, type=Path)
     claim_gate.add_argument("--evaluation-plan", required=True, type=Path)
+    claim_gate.add_argument(
+        "--claim-text",
+        help="Optional proposed public claim text to scan before emitting gate evidence.",
+    )
     claim_gate.add_argument("--output", type=Path, help="Write claim-gate evidence JSON")
     verify_report = subparsers.add_parser(
         "verify-report",
@@ -1555,6 +1983,7 @@ def _run_claim_gate_command(args: argparse.Namespace) -> int:
         public_snapshot_path=cast("Path", args.public_snapshot),
         dataset_ledger_path=cast("Path", args.dataset_ledger),
         evaluation_plan_path=cast("Path", args.evaluation_plan),
+        claim_text=cast("str | None", args.claim_text),
     )
     _write_json(cast("Path | None", args.output), payload)
     if status == 0:

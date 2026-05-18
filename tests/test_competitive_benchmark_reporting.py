@@ -306,10 +306,11 @@ def test_summary_includes_same_case_frontier_across_tuning_knobs(tmp_path: Path)
     summary = output.read_text(encoding="utf-8")
     assert status == 0
     assert "## Same-Case Frontier Comparisons" in summary
-    assert "Best Primitive Baseline" in summary
+    assert "Selected Primitive Baseline" in summary
     assert "`hybrid-prf` cm=2 dense=1.25 prf=0.1 hit=0.770 MRR=0.590" in summary
     assert "| +0.080 | +0.030 | +0.050 | +0.050 | n/a | 10 |" in summary
     assert "not a Codex or Factory Droid head-to-head result" in summary
+    assert "Best " not in summary
 
 
 def test_summary_compares_enterprise_rag_recall_to_official_snapshot(
@@ -435,6 +436,8 @@ def _enterprise_rag_report(
             "model": "fixture-retrieval-only",
             "network_state": "disabled-after-materialization",
             "cache_state": "warm-local-cache",
+            "prompt_hash": "retrieval-only-no-prompt",
+            "permission_scope": "public-benchmark-materials",
         }
     )
     fixed_parameters = cast("dict[str, object]", metadata["fixed_parameters"])
@@ -446,8 +449,20 @@ def _enterprise_rag_report(
     benchmark["benchmark_type"] = "enterprise-rag"
     benchmark["dataset"] = "enterprise-rag-bench"
     benchmark["per_query_results"] = [
-        {"case_id": "alpha", "hit": True, "rank": 1, "expected_recall": 1.0},
-        {"case_id": "beta", "hit": True, "rank": 1, "expected_recall": 1.0},
+        {
+            "case_id": "alpha",
+            "hit": True,
+            "rank": 1,
+            "reciprocal_rank": 1.0,
+            "expected_recall": 1.0,
+        },
+        {
+            "case_id": "beta",
+            "hit": True,
+            "rank": 1,
+            "reciprocal_rank": 1.0,
+            "expected_recall": 1.0,
+        },
     ]
     benchmark_metrics = cast("dict[str, object]", benchmark["metrics"])
     benchmark_metrics["query_count"] = 2
@@ -573,6 +588,12 @@ def _write_public_target_inputs(
         ),
         "latency_scope": baseline_metadata["latency_scope"],
         "dependency_lock_sha256": baseline_metadata["dependency_lock_sha256"],
+        "model": baseline_metadata["model"],
+        "prompt_hash": baseline_metadata["prompt_hash"],
+        "metric_formulas_sha256": benchmark_public_targets.metric_formulas_sha256(baseline_report),
+        "cache_state": baseline_metadata["cache_state"],
+        "network_state": baseline_metadata["network_state"],
+        "permission_scope": baseline_metadata["permission_scope"],
     }
     _write_report(
         baseline_ledger,
@@ -705,11 +726,154 @@ def test_public_target_claim_gate_records_baseline_snapshot_and_plan_evidence(
     assert payload["dataset_version"]["version"] == "enterprise-rag-bench-v2026-05-18"
     assert payload["evaluation_plan"]["predeclared"] is True
     assert payload["baseline_improvement"]["primary_metric_delta"] > 0
+    assert payload["statistical_evidence"]["status"] == "passed"
+    assert payload["statistical_evidence"]["pairing"] == "paired"
+    assert payload["statistical_evidence"]["sample_size"] == 2
+    assert (
+        payload["statistical_evidence"]["methods"]["aggregate_metrics.expected_recall"]["method"]
+        == "paired_empirical_ci"
+    )
+    assert payload["run_disclosure"]["run_count"] == 2
+    assert payload["run_disclosure"]["failed_count"] == 0
+    assert payload["claim_language"]["status"] == "passed"
     assert payload["known_public_target"]["optimized_against_public_target"] is True
     assert (
         "not evidence of broad retrieval generalization"
         in payload["known_public_target"]["limitation"]
     )
+
+
+def test_public_target_claim_gate_rejects_unsupported_superiority_claim_text(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+            "--claim-text",
+            "Hephaistos beats Codex and is the best system.",
+            "--output",
+            str(paths["output"]),
+        ]
+    )
+
+    payload = json.loads(paths["output"].read_text(encoding="utf-8"))
+    captured = capsys.readouterr()
+    assert status == 1
+    assert payload["claim_language"]["status"] == "failed"
+    assert payload["claim_language"]["findings"][0]["term"] == "beats"
+    assert "unsupported competitive language" in captured.err
+
+
+def test_public_target_claim_gate_rejects_unpaired_per_query_rows(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    current_report = json.loads(paths["current"].read_text(encoding="utf-8"))
+    benchmark = cast("list[dict[str, object]]", current_report["benchmarks"])[0]
+    per_query = cast("list[dict[str, object]]", benchmark["per_query_results"])
+    per_query[1]["case_id"] = "renamed-beta"
+    metadata = cast("dict[str, object]", current_report["metadata"])
+    current_report = claim_report_envelope.finalize_claim_report(
+        current_report,
+        command=str(metadata["command_invocation"]),
+    )
+    _write_report(paths["current"], current_report)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert "statistical evidence missing paired per-query rows" in captured.err
+
+
+def test_public_target_claim_gate_rejects_incompatible_statistical_method(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    plan = json.loads(paths["evaluation_plan"].read_text(encoding="utf-8"))
+    plan["statistical_method"] = "compare aggregate percentages only"
+    _write_report(paths["evaluation_plan"], plan)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "statistical_method" in captured.err
+    assert "paired" in captured.err
+
+
+def test_public_target_claim_gate_rejects_missing_matched_prompt_metadata(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    ledger = json.loads(paths["baseline_ledger"].read_text(encoding="utf-8"))
+    matched_metadata = cast("dict[str, object]", ledger["matched_metadata"])
+    del matched_metadata["prompt_hash"]
+    _write_report(paths["baseline_ledger"], ledger)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "matched_metadata is missing 'prompt_hash'" in captured.err
 
 
 def test_public_target_verify_report_command_checks_envelope_independently(

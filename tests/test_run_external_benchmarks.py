@@ -11,6 +11,19 @@ import pytest
 from hephaistos.armory.storage import initialize
 from scripts import claim_report_envelope, run_external_benchmarks
 
+ORACLE_KEYS_TO_REJECT = (
+    "expected",
+    "expected_past_exam_sources",
+    "expected_role",
+    "expected_text",
+    "expected_topics",
+    "forbidden_before_expected",
+    "forbidden_topics",
+    "must_include",
+    "must_not_include",
+    "relevance_grades",
+)
+
 
 def _write_jsonl(path: Path, rows: Sequence[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -37,6 +50,16 @@ def _as_list(value: object) -> list[object]:
 def _as_str(value: object) -> str:
     assert isinstance(value, str)
     return value
+
+
+def _has_exact_key(value: object, key_name: str) -> bool:
+    if isinstance(value, dict):
+        return key_name in value or any(
+            _has_exact_key(child, key_name) for child in value.values()
+        )
+    if isinstance(value, list):
+        return any(_has_exact_key(item, key_name) for item in value)
+    return False
 
 
 def _make_armory(root: Path) -> Path:
@@ -141,6 +164,9 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
     warnings = _as_list(report["warnings"])
     envelope = _as_dict(report["claim_envelope"])
     determinism = _as_dict(envelope["determinism"])
+    claim_policy = _as_dict(report["claim_policy"])
+    leakage = _as_dict(claim_policy["leakage"])
+    privacy = _as_dict(claim_policy["privacy"])
 
     assert status == 0
     assert report["schema_version"] == "external-runner-report-v1"
@@ -195,6 +221,11 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
     assert isinstance(metrics["mean_latency_ms"], float)
     assert benchmark["status"] == "success"
     assert "miss_diagnostics" in benchmark
+    for oracle_key in ORACLE_KEYS_TO_REJECT:
+        assert not _has_exact_key(report, oracle_key)
+    assert leakage["status"] == "passed"
+    assert privacy["analytics_enabled_by_default"] is False
+    assert privacy["crash_reports_enabled_by_default"] is False
     assert any("top_k=9" in str(warning) for warning in warnings)
     assert "sentinel-secret-value" not in json.dumps(report)
 
@@ -362,6 +393,8 @@ def test_runner_validates_reproducibility_without_network(
     assert reproducibility["enabled"] is True
     assert reproducibility["status"] == "passed"
     assert envelope["claim_eligible"] is True
+    for oracle_key in ORACLE_KEYS_TO_REJECT:
+        assert not _has_exact_key(report, oracle_key)
     assert "benchmarks[].metrics.mean_latency_ms" in runtime_only_fields
     assert reproducibility["mismatches"] == []
     assert validation.status == "passed"
@@ -603,6 +636,25 @@ def test_heph_native_runner_wraps_existing_suite_report(
                     "material_roles": {"pass_rate": 1.0},
                     "document_understanding": {"passed": True},
                     "answers": {"pass_rate": 1.0},
+                    "priority": {
+                        "cases": [
+                            {
+                                "case_id": "priority-1",
+                                "expected_topics": ["hidden topic"],
+                                "expected_past_exam_sources": ["materials/exam.md"],
+                                "forbidden_topics": ["private distractor"],
+                            }
+                        ]
+                    },
+                    "roles": [{"case_id": "role-1", "expected_role": "lecture"}],
+                    "answers_detail": [
+                        {
+                            "case_id": "answer-1",
+                            "expected_text": "hidden answer",
+                            "must_include": ["hidden answer"],
+                            "must_not_include": ["private distractor"],
+                        }
+                    ],
                 }
             )
             + "\n",
@@ -643,3 +695,5 @@ def test_heph_native_runner_wraps_existing_suite_report(
     assert benchmark["benchmark_type"] == "heph-native"
     assert _as_dict(native_report["rag"])["hit_rate"] == 1.0
     assert "material_roles" in native_report
+    for oracle_key in ORACLE_KEYS_TO_REJECT:
+        assert not _has_exact_key(report, oracle_key)

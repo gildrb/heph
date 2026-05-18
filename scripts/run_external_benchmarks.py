@@ -54,6 +54,35 @@ _SUPPORTED_DATASETS = {
     "heph-native": frozenset({"academic", "heph-native"}),
     "enterprise-rag": frozenset({"enterprise-rag-bench"}),
 }
+_ORACLE_KEYS = frozenset(
+    {
+        "answer_key",
+        "expected",
+        "expected_answer",
+        "expected_answers",
+        "expected_citations",
+        "expected_doc_ids",
+        "expected_mark_totals",
+        "expected_ordered_topics",
+        "expected_past_exam_sources",
+        "expected_role",
+        "expected_source_ids",
+        "expected_sources",
+        "expected_text",
+        "expected_topics",
+        "forbidden_before_expected",
+        "forbidden_text",
+        "forbidden_topics",
+        "gold_answer",
+        "gold_answers",
+        "gold_references",
+        "leaderboard_rows",
+        "must_include",
+        "must_not_include",
+        "qrels",
+        "relevance_grades",
+    }
+)
 
 _METRIC_FORMULAS = {
     "hit_rate": (
@@ -766,7 +795,7 @@ def _rag_benchmark_payload(
         "metrics": _metrics_from_rag_report(report),
         "per_query_results": [_case_result_payload(result) for result in report.results],
         "miss_diagnostics": _miss_diagnostics(report),
-        "rag_report": asdict(report),
+        "rag_report": _claim_safe_rag_report(report),
     }
 
 
@@ -816,9 +845,6 @@ def _case_result_payload(result: benchmark_rag.CaseResult) -> dict[str, object]:
     return {
         "case_id": result.case_id,
         "query": result.query,
-        "expected": list(result.expected),
-        "relevance_grades": dict(sorted(result.relevance_grades.items())),
-        "forbidden_before_expected": list(result.forbidden_before_expected),
         "retrieved": list(result.retrieved),
         "hit": result.hit,
         "rank": result.rank,
@@ -833,6 +859,33 @@ def _case_result_payload(result: benchmark_rag.CaseResult) -> dict[str, object]:
         "forbidden_before_expected_ok": result.forbidden_before_expected_ok,
         "latency_ms": result.elapsed_ms,
     }
+
+
+def _claim_safe_rag_report(report: benchmark_rag.BenchmarkReport) -> dict[str, object]:
+    payload = cast("dict[str, object]", asdict(report))
+    return _remove_oracle_fields(payload)
+
+
+def _remove_oracle_fields(value: object) -> dict[str, object]:
+    redacted = _without_oracle_fields(value)
+    if isinstance(redacted, dict):
+        return cast("dict[str, object]", redacted)
+    return {}
+
+
+def _without_oracle_fields(value: object) -> object:
+    if isinstance(value, dict):
+        cleaned: dict[str, object] = {}
+        for raw_key, child in value.items():
+            if not isinstance(raw_key, str) or raw_key in _ORACLE_KEYS:
+                continue
+            cleaned[raw_key] = _without_oracle_fields(child)
+        return cleaned
+    if isinstance(value, list):
+        return [_without_oracle_fields(item) for item in value]
+    if isinstance(value, tuple):
+        return [_without_oracle_fields(item) for item in value]
+    return value
 
 
 def _threshold_failures(
@@ -905,8 +958,6 @@ def _rag_reproducibility_projection(
         "results": [
             {
                 "case_id": result.case_id,
-                "expected": list(result.expected),
-                "forbidden_before_expected": list(result.forbidden_before_expected),
                 "retrieved": list(result.retrieved),
                 "hit": result.hit,
                 "rank": result.rank,
@@ -1023,7 +1074,7 @@ def _native_benchmark_payload(
         "dataset": dataset,
         "status": "success" if native_status == 0 else "threshold_failed",
         "metrics": _metrics_from_native_report(native_report),
-        "native_suite_report": native_report,
+        "native_suite_report": _remove_oracle_fields(native_report),
     }
 
 

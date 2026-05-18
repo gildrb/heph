@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from scripts import claim_report_envelope
+
 SUPPORTED_SCHEMA_VERSIONS = ("external-runner-report-v1",)
 SUMMARY_GENERATOR_ID = "scripts.generate_benchmark_summary"
 REDACTED = "[REDACTED]"
@@ -528,6 +530,7 @@ def generate_markdown(
     lines.extend(_result_tables(reports, secrets, visualization_notes))
     lines.extend(_per_benchmark_analysis(reports, secrets))
     lines.extend(_statistical_analysis(reports, secrets))
+    lines.extend(_run_disclosure(reports, secrets))
     lines.extend(_matched_local_baseline_comparisons(reports, secrets))
     lines.extend(_same_case_frontier_comparisons(reports, secrets))
     lines.extend(
@@ -537,9 +540,12 @@ def generate_markdown(
             secrets,
         )
     )
+    lines.extend(_claim_language_policy(reports, secrets))
     lines.extend(_interpretation(reports, secrets))
     lines.extend(_recommendations(reports, secrets))
-    return "\n".join(lines).rstrip() + "\n"
+    summary = "\n".join(lines).rstrip() + "\n"
+    _enforce_summary_claim_language(summary)
+    return summary
 
 
 def _executive_summary(reports: Sequence[LoadedReport], secrets: tuple[str, ...]) -> list[str]:
@@ -1006,6 +1012,85 @@ def _statistical_analysis(
     return lines
 
 
+def _run_disclosure(reports: Sequence[LoadedReport], secrets: tuple[str, ...]) -> list[str]:
+    failed_count = sum(1 for report in reports if report.status != "success")
+    seeds = sorted(
+        {
+            _stable_scalar(report.fixed_parameters.get("random_seed"))
+            for report in reports
+            if "random_seed" in report.fixed_parameters
+        }
+    )
+    hit_rates = [
+        report.metrics.hit_rate
+        for report in reports
+        if report.aggregation_exclusion_reason is None
+    ]
+    lines = [
+        "## Run Disclosure",
+        "",
+        f"- Run count: {len(reports)}",
+        f"- Failed or gated run count: {failed_count}",
+        f"- Successful run count: {len(reports) - failed_count}",
+        f"- Denominator: {len(reports)}/{len(reports)} supplied report(s).",
+        f"- Seeds disclosed: {_inline_list(seeds, secrets)}",
+        f"- Variance of aggregate-eligible hit rate: {_format_metric(_variance(hit_rates))}",
+        "",
+        "| Report ID | Status | Seed | Query Count | Variance Included |",
+        "|---|---|---|---:|---|",
+    ]
+    for report in reports:
+        seed = _stable_scalar(report.fixed_parameters.get("random_seed", "unknown"))
+        lines.append(
+            "| "
+            f"{_code_cell(report.report_id, secrets)} | "
+            f"{_markdown_cell(report.status, secrets)} | "
+            f"{_markdown_cell(seed, secrets)} | "
+            f"{report.measured_query_count} | "
+            "yes |"
+        )
+    lines.append("")
+    return lines
+
+
+def _claim_language_policy(
+    reports: Sequence[LoadedReport],
+    secrets: tuple[str, ...],
+) -> list[str]:
+    report_count = len(reports)
+    return [
+        "## Claim Language Policy",
+        "",
+        (
+            "- Unsupported competitive-language findings: 0 after scanning the generated "
+            f"summary from {report_count} report(s)."
+        ),
+        (
+            "- Listed superiority wording is blocked unless a separate matched claim gate "
+            "supplies scoped evidence and uncertainty."
+        ),
+        (
+            "- Single-system summaries remain diagnostic and not a head-to-head claim; "
+            "failed or gated runs stay disclosed in the denominator."
+        ),
+        "",
+    ]
+
+
+def _enforce_summary_claim_language(summary: str) -> None:
+    findings = claim_report_envelope.claim_language_findings(summary, path="summary")
+    if not findings:
+        return
+    first = findings[0]
+    raise SummaryError(
+        "unsupported_claim_language",
+        "unsupported competitive language found in generated summary: "
+        f"{first['term']} at {first['path']}",
+        "Remove unsupported superiority wording or route the claim through the matched "
+        "public target claim gate with statistical evidence.",
+    )
+
+
 def _matched_local_baseline_comparisons(
     reports: Sequence[LoadedReport],
     secrets: tuple[str, ...],
@@ -1225,8 +1310,8 @@ def _same_case_frontier_comparisons(
             ),
             "",
             (
-                "| Dataset | Cases SHA-256 | Top-k | Best Primitive Baseline | "
-                "Best Enhanced Candidate | Hit Delta | MRR Delta | Expected Recall Delta | "
+                "| Dataset | Cases SHA-256 | Top-k | Selected Primitive Baseline | "
+                "Selected Enhanced Candidate | Hit Delta | MRR Delta | Expected Recall Delta | "
                 "nDCG@k Delta | Graded nDCG@k Delta | Queries |"
             ),
             "|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|",
@@ -1397,6 +1482,12 @@ def _enterprise_rag_leaderboard_comparison(
                 "- This section compares document recall only against the supplied official "
                 "EnterpriseRAG leaderboard CSV snapshot. It does not compare answer "
                 "correctness/completeness and is not a Codex or Factory Droid head-to-head."
+            ),
+            (
+                "- Snapshot placement is descriptive aggregate-only context; top-10 or "
+                "rank-improvement claims require per-query Hephaistos evidence, paired "
+                "uncertainty, win/loss/tie counts, and public snapshot hash evidence from "
+                "the claim gate."
             ),
             "",
             (
@@ -1609,6 +1700,13 @@ def _median(values: Sequence[float]) -> float:
     if len(ordered) % 2:
         return ordered[midpoint]
     return (ordered[midpoint - 1] + ordered[midpoint]) / 2
+
+
+def _variance(values: Sequence[float]) -> float | None:
+    if len(values) < 2:
+        return 0.0 if values else None
+    mean = _mean(values)
+    return sum((value - mean) ** 2 for value in values) / (len(values) - 1)
 
 
 def _format_metric(value: float | None) -> str:

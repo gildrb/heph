@@ -187,6 +187,7 @@ def test_summary_aggregates_reports_without_mutating_sources(
     assert "## Result Tables" in summary
     assert "## Per-Benchmark Analysis" in summary
     assert "## Statistical Analysis" in summary
+    assert "## Run Disclosure" in summary
     assert "## Interpretation" in summary
     assert "## Recommendations" in summary
     assert (
@@ -198,6 +199,9 @@ def test_summary_aggregates_reports_without_mutating_sources(
         "0.500 | 0.250 | 0.750 | n/a | n/a | n/a | n/a | 10.000 | passed |"
     ) in summary
     assert "Prompt/model metadata: `benchmarks/model-evaluation-prompt.md`" in summary
+    assert "- Run count: 2" in summary
+    assert "- Failed or gated run count: 1" in summary
+    assert "Variance" in summary
     assert "summary-secret-token" not in summary
     assert "[REDACTED]" in summary
 
@@ -277,6 +281,30 @@ def test_summary_includes_valid_failed_report_errors(tmp_path: Path) -> None:
     assert "Status: `error`" in summary
     assert "input_not_found" in summary
     assert "benchmark cases file does not exist" in summary
+    assert "- Failed or gated run count: 1" in summary
+
+
+def test_summary_rejects_unsupported_competitive_language(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    report_path = tmp_path / "unsupported-language.json"
+    output = tmp_path / "summary.md"
+    _write_report(
+        report_path,
+        _external_report(
+            "beir:beir/fixture",
+            warnings=["Hephaistos beats Codex and is objectively superior."],
+        ),
+    )
+
+    status = generate_benchmark_summary.main([str(report_path), "--output", str(output)])
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "unsupported_claim_language" in captured.err
+    assert "beats" in captured.err
+    assert not output.exists()
 
 
 def test_summary_excludes_zero_query_reports_from_aggregate_means(

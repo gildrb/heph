@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shlex
 import subprocess
 import sys
@@ -23,8 +24,10 @@ THRESHOLD_PROFILE_SCHEMA_VERSION = "threshold-profile-v1"
 THRESHOLD_PROFILE_VERSION = "external-runner-thresholds-v1"
 KNOWN_LIMITS_SCHEMA_VERSION = "known-limits-v1"
 KNOWN_LIMITS_POLICY_VERSION = "known-limits-policy-v1"
+CLAIM_POLICY_SCHEMA_VERSION = "claim-policy-v1"
 LATENCY_SCOPE_RETRIEVAL_ONLY = "retrieval_only_per_query"
 LATENCY_SCOPE_NATIVE_RAG = "native_suite_rag_retrieval"
+REDACTED = "[REDACTED]"
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _HASH_FIELDS = ("cases_sha256", "manifest_sha256", "qrels_sha256", "corpus_sha256")
@@ -82,6 +85,73 @@ _STRIPPED_RUNTIME_KEYS = frozenset(
         "suite_path",
     }
 )
+_SECRET_ENV_NAME_MARKERS = (
+    "API_KEY",
+    "AUTH",
+    "CREDENTIAL",
+    "DSN",
+    "KEY",
+    "PASSWORD",
+    "SECRET",
+    "TOKEN",
+)
+_BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|token|secret|password|credential|dsn)(\s*[:=]\s*)([^\s`|,;]+)"
+)
+_UNSUPPORTED_COMPETITIVE_LANGUAGE = (
+    ("beats", re.compile(r"(?i)\bbeats?\b")),
+    ("wins over", re.compile(r"(?i)\bwins?\s+over\b")),
+    ("outperforms", re.compile(r"(?i)\boutperform(?:s|ed|ing)?\b")),
+    ("top tier", re.compile(r"(?i)\btop[- ]tier\b")),
+    ("best", re.compile(r"(?i)\bbest\b")),
+    ("state of the art", re.compile(r"(?i)\bstate[- ]of[- ]the[- ]art\b")),
+    ("objectively superior", re.compile(r"(?i)\bobjectively\s+superior\b")),
+    ("superior", re.compile(r"(?i)\bsuperior\b")),
+)
+_LEAKAGE_KEYS = frozenset(
+    {
+        "answer_key",
+        "expected",
+        "expected_answer",
+        "expected_answers",
+        "expected_citations",
+        "expected_doc_ids",
+        "expected_mark_totals",
+        "expected_ordered_topics",
+        "expected_past_exam_sources",
+        "expected_role",
+        "expected_source_ids",
+        "expected_sources",
+        "expected_text",
+        "expected_topics",
+        "forbidden_before_expected",
+        "forbidden_text",
+        "forbidden_topics",
+        "gold_answer",
+        "gold_answers",
+        "gold_references",
+        "leaderboard_rows",
+        "must_include",
+        "must_not_include",
+        "qrels",
+        "relevance_grades",
+    }
+)
+_FIXTURE_PRIVATE_PREFIX = "fixture" + "_private_"
+
+
+def _fixture_private_pattern(term: str) -> re.Pattern[str]:
+    return re.compile(rf"(?i)\b{re.escape(_FIXTURE_PRIVATE_PREFIX + term)}\b")
+
+
+_LEAKAGE_VALUE_PATTERNS = (
+    ("fixture private name", _fixture_private_pattern("name")),
+    ("fixture private course", _fixture_private_pattern("course")),
+    ("fixture private institution", _fixture_private_pattern("institution")),
+    ("qrels sentinel", re.compile(r"(?i)\b(?:qrel|qrels)[_-]?sentinel\b")),
+    ("expected answer sentinel", re.compile(r"(?i)\bexpected[_ -]?answer[_ -]?sentinel\b")),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +206,10 @@ def finalize_claim_report(
     """Attach a reproducibility envelope and deterministic projection hash."""
     resolved_root = repo_root() if root is None else root
     payload = _json_clone(report)
+    payload.pop("claim_envelope", None)
+    payload.pop("claim_policy", None)
+    payload.pop("deterministic_projection", None)
+    redacted_count = _redact_payload_in_place(payload, _secret_values_from_environment())
     metadata = _ensure_mapping(payload, "metadata")
     fixed_parameters = _mapping_or_empty(metadata.get("fixed_parameters"))
     aggregate_metrics = _mapping_or_empty(payload.get("aggregate_metrics"))
@@ -166,6 +240,7 @@ def finalize_claim_report(
     payload["known_limits"] = known_limits
     metadata["threshold_profile_version"] = threshold_profile["version"]
     metadata["known_limits_policy_version"] = known_limits["policy_version"]
+    payload["claim_policy"] = _claim_policy(payload, redacted_count=redacted_count)
 
     envelope: dict[str, object] = {
         "schema_version": CLAIM_REPORT_ENVELOPE_SCHEMA_VERSION,
@@ -173,6 +248,7 @@ def finalize_claim_report(
         "scoring_protocol_version": SCORING_PROTOCOL_VERSION,
         "claim_eligible": False,
         "ineligibility_reasons": [],
+        "claim_policy": payload["claim_policy"],
         "reproducibility": {
             "git": observed["git"],
             "command_invocation": command,
@@ -262,6 +338,7 @@ def validate_claim_report_envelope(
     envelope = _required_mapping(report, "claim_envelope", "report", errors)
     threshold_profile = _required_mapping(report, "threshold_profile", "report", errors)
     known_limits = _required_mapping(report, "known_limits", "report", errors)
+    claim_policy = _required_mapping(report, "claim_policy", "report", errors)
     if not metadata or not envelope:
         return _validation_result(errors, warnings, claim_eligible=False)
 
@@ -269,6 +346,7 @@ def validate_claim_report_envelope(
     _validate_envelope(envelope, metadata, report, errors)
     _validate_threshold_profile(threshold_profile, report, errors)
     _validate_known_limits(known_limits, errors)
+    _validate_claim_policy(claim_policy, errors)
     _validate_live_state(
         envelope,
         metadata,
@@ -619,7 +697,221 @@ def _claim_ineligibility_reasons(report: Mapping[str, object]) -> list[str]:
             claim_blocking = typed_entry.get("claim_blocking", True)
             if claim_blocking is not False:
                 reasons.append("claim-blocking known_limits entry is present")
+    claim_policy = _mapping_or_empty(report.get("claim_policy"))
+    language = _mapping_or_empty(claim_policy.get("language"))
+    leakage = _mapping_or_empty(claim_policy.get("leakage"))
+    redaction = _mapping_or_empty(claim_policy.get("redaction"))
+    privacy = _mapping_or_empty(claim_policy.get("privacy"))
+    if language.get("status") != "passed":
+        reasons.append("claim language policy scan failed")
+    if leakage.get("status") != "passed":
+        reasons.append("claim leakage scan failed")
+    if redaction.get("status") != "passed":
+        reasons.append("claim redaction policy failed")
+    if privacy.get("status") != "passed":
+        reasons.append("claim privacy policy failed")
     return reasons
+
+
+def _claim_policy(report: Mapping[str, object], *, redacted_count: int) -> dict[str, object]:
+    language_findings = claim_language_findings(report, path="report")
+    leakage_findings = _leakage_findings(report)
+    return {
+        "schema_version": CLAIM_POLICY_SCHEMA_VERSION,
+        "language": {
+            "status": "passed" if not language_findings else "failed",
+            "prohibited_terms": [term for term, _pattern in _UNSUPPORTED_COMPETITIVE_LANGUAGE],
+            "findings": list(language_findings),
+            "word_count": _word_count(report),
+            "policy": (
+                "Claim-eligible output must avoid unsupported competitive language; "
+                "use scoped matched-comparison wording with uncertainty instead."
+            ),
+        },
+        "leakage": {
+            "status": "passed" if not leakage_findings else "failed",
+            "checked_categories": [
+                "qrels",
+                "expected answers",
+                "expected source identifiers",
+                "fixture private terms",
+                "leaderboard rows",
+            ],
+            "findings": leakage_findings,
+            "policy": (
+                "Claim-eligible output may include opaque per-query identifiers and hashes, "
+                "but not hidden qrels, expected answers, fixture-only terms, or oracle rows."
+            ),
+        },
+        "redaction": {
+            "status": "passed",
+            "redacted_values": redacted_count,
+            "placeholder": REDACTED,
+            "policy": "Secret-like environment values and bearer/assignment forms are redacted.",
+        },
+        "privacy": {
+            "status": "passed",
+            "analytics_enabled_by_default": False,
+            "crash_reports_enabled_by_default": False,
+            "remote_diagnostics_require_explicit_opt_in": True,
+            "policy": (
+                "Source, editable, and Git benchmark validation is local-first and does "
+                "not enable remote analytics or crash reporting by default."
+            ),
+        },
+    }
+
+
+def claim_language_findings(value: object, *, path: str = "value") -> tuple[dict[str, str], ...]:
+    """Return unsupported competitive language findings in a JSON-like object or text."""
+    findings: list[dict[str, str]] = []
+    for item_path, text in _iter_strings(value, path=path):
+        for term, pattern in _UNSUPPORTED_COMPETITIVE_LANGUAGE:
+            match = pattern.search(text)
+            if match is None:
+                continue
+            findings.append(
+                {
+                    "path": item_path,
+                    "term": term,
+                    "excerpt": _excerpt(text, match.start(), match.end()),
+                }
+            )
+    return tuple(findings)
+
+
+def _leakage_findings(value: object) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    _collect_leakage_findings(value, path="report", findings=findings)
+    return findings
+
+
+def _collect_leakage_findings(
+    value: object,
+    *,
+    path: str,
+    findings: list[dict[str, str]],
+) -> None:
+    if isinstance(value, dict):
+        for raw_key, child in value.items():
+            if not isinstance(raw_key, str):
+                continue
+            child_path = f"{path}.{raw_key}"
+            if raw_key.casefold() in _LEAKAGE_KEYS:
+                findings.append({"path": child_path, "key": raw_key})
+            _collect_leakage_findings(child, path=child_path, findings=findings)
+        return
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            _collect_leakage_findings(child, path=f"{path}[{index}]", findings=findings)
+        return
+    if not isinstance(value, str):
+        return
+    for label, pattern in _LEAKAGE_VALUE_PATTERNS:
+        match = pattern.search(value)
+        if match is not None:
+            findings.append(
+                {
+                    "path": path,
+                    "term": label,
+                    "excerpt": _excerpt(value, match.start(), match.end()),
+                }
+            )
+
+
+def _iter_strings(value: object, *, path: str) -> tuple[tuple[str, str], ...]:
+    strings: list[tuple[str, str]] = []
+    _collect_strings(value, path=path, strings=strings)
+    return tuple(strings)
+
+
+def _collect_strings(value: object, *, path: str, strings: list[tuple[str, str]]) -> None:
+    if isinstance(value, str):
+        strings.append((path, value))
+        return
+    if isinstance(value, dict):
+        for raw_key, child in value.items():
+            if isinstance(raw_key, str):
+                _collect_strings(child, path=f"{path}.{raw_key}", strings=strings)
+        return
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            _collect_strings(child, path=f"{path}[{index}]", strings=strings)
+
+
+def _word_count(value: object) -> int:
+    return sum(len(re.findall(r"\b\w+\b", text)) for _path, text in _iter_strings(value, path=""))
+
+
+def _excerpt(text: str, start: int, end: int) -> str:
+    prefix_start = max(0, start - 40)
+    suffix_end = min(len(text), end + 40)
+    return text[prefix_start:suffix_end].replace("\n", " ")
+
+
+def _secret_values_from_environment() -> tuple[str, ...]:
+    values = {
+        value
+        for name, value in os.environ.items()
+        if value
+        and len(value) >= 4
+        and any(marker in name.upper() for marker in _SECRET_ENV_NAME_MARKERS)
+    }
+    return tuple(sorted(values, key=lambda item: (-len(item), item)))
+
+
+def _redact_payload_in_place(payload: dict[str, object], secret_values: tuple[str, ...]) -> int:
+    redacted, count = _redacted_value(payload, secret_values)
+    if isinstance(redacted, dict):
+        payload.clear()
+        payload.update(cast("dict[str, object]", redacted))
+    return count
+
+
+def _redacted_value(value: object, secret_values: tuple[str, ...]) -> tuple[object, int]:
+    if isinstance(value, str):
+        return _redacted_text(value, secret_values)
+    if isinstance(value, list):
+        redacted_items: list[object] = []
+        count = 0
+        for item in value:
+            redacted_item, item_count = _redacted_value(item, secret_values)
+            redacted_items.append(redacted_item)
+            count += item_count
+        return redacted_items, count
+    if isinstance(value, dict):
+        redacted_mapping: dict[str, object] = {}
+        count = 0
+        for raw_key, child in value.items():
+            if not isinstance(raw_key, str):
+                continue
+            redacted_child, child_count = _redacted_value(child, secret_values)
+            redacted_mapping[raw_key] = redacted_child
+            count += child_count
+        return redacted_mapping, count
+    return value, 0
+
+
+def _redacted_text(text: str, secret_values: tuple[str, ...]) -> tuple[str, int]:
+    redacted = text
+    count = 0
+    for secret_value in secret_values:
+        occurrences = redacted.count(secret_value)
+        if occurrences:
+            redacted = redacted.replace(secret_value, REDACTED)
+            count += occurrences
+    redacted, bearer_count = _BEARER_RE.subn("Bearer " + REDACTED, redacted)
+    count += bearer_count
+    redacted, assignment_count = _SECRET_ASSIGNMENT_RE.subn(
+        _redact_secret_assignment,
+        redacted,
+    )
+    count += assignment_count
+    return redacted, count
+
+
+def _redact_secret_assignment(match: re.Match[str]) -> str:
+    return f"{match.group(1)}{match.group(2)}{REDACTED}"
 
 
 def _required_mapping(
@@ -849,6 +1141,31 @@ def _validate_known_limits(
         claim_blocking = entry.get("claim_blocking", True)
         if not isinstance(claim_blocking, bool):
             errors.append(f"known_limits entry {index} claim_blocking must be boolean")
+
+
+def _validate_claim_policy(
+    claim_policy: Mapping[str, object],
+    errors: list[str],
+) -> None:
+    if claim_policy.get("schema_version") != CLAIM_POLICY_SCHEMA_VERSION:
+        errors.append("claim_policy schema_version is unsupported")
+    for field_name in ("language", "leakage", "redaction", "privacy"):
+        section = _required_mapping(claim_policy, field_name, "claim_policy", errors)
+        status = section.get("status")
+        if status not in {"passed", "failed"}:
+            errors.append(f"claim_policy {field_name} status must be passed or failed")
+    language = _mapping_or_empty(claim_policy.get("language"))
+    leakage = _mapping_or_empty(claim_policy.get("leakage"))
+    redaction = _mapping_or_empty(claim_policy.get("redaction"))
+    privacy = _mapping_or_empty(claim_policy.get("privacy"))
+    if language.get("status") != "passed":
+        errors.append("claim language policy scan failed")
+    if leakage.get("status") != "passed":
+        errors.append("claim leakage scan failed")
+    if redaction.get("status") != "passed":
+        errors.append("claim redaction policy failed")
+    if privacy.get("status") != "passed":
+        errors.append("claim privacy policy failed")
 
 
 def _validate_live_state(
