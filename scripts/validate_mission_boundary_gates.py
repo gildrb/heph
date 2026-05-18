@@ -526,7 +526,7 @@ def _check_report_network_state(
     repo_root: Path,
     failures: list[BoundaryFailure],
 ) -> None:
-    for report in _report_entries(raw_reports, repo_root):
+    for report in _report_entries(raw_reports, repo_root, failures):
         metadata = _mapping_or_empty(report.get("metadata"))
         fixed_parameters = _mapping_or_empty(metadata.get("fixed_parameters"))
         raw_network_state = metadata.get("network_state")
@@ -555,7 +555,11 @@ def _check_report_network_state(
             )
 
 
-def _report_entries(raw_reports: object, repo_root: Path) -> list[Mapping[str, object]]:
+def _report_entries(
+    raw_reports: object,
+    repo_root: Path,
+    failures: list[BoundaryFailure],
+) -> list[Mapping[str, object]]:
     if not isinstance(raw_reports, list):
         return []
     reports: list[Mapping[str, object]] = []
@@ -565,11 +569,37 @@ def _report_entries(raw_reports: object, repo_root: Path) -> list[Mapping[str, o
         elif isinstance(raw_report, str) and raw_report.strip():
             path = _resolve_evidence_path(raw_report, repo_root=repo_root, relative_to_repo=True)
             try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                payload = {}
-            if isinstance(payload, dict):
-                reports.append(cast("Mapping[str, object]", payload))
+                text = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                failures.append(
+                    BoundaryFailure(
+                        "report_load_failed",
+                        "declared report evidence path must be readable",
+                        f"{path}: {exc}",
+                    )
+                )
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError as exc:
+                failures.append(
+                    BoundaryFailure(
+                        "report_json_invalid",
+                        "declared report evidence path must contain valid JSON",
+                        f"{path}: {exc.msg} at line {exc.lineno} column {exc.colno}",
+                    )
+                )
+                continue
+            if not isinstance(payload, dict):
+                failures.append(
+                    BoundaryFailure(
+                        "report_payload_invalid",
+                        "declared report evidence JSON must be an object",
+                        f"{path}: {type(payload).__name__}",
+                    )
+                )
+                continue
+            reports.append(cast("Mapping[str, object]", payload))
     return reports
 
 

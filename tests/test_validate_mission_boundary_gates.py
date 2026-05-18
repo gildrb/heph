@@ -106,6 +106,15 @@ def _failure_codes(report: gates.BoundaryGateReport) -> set[str]:
     return {failure.code for failure in report.failures}
 
 
+def _failure_by_code(
+    report: gates.BoundaryGateReport,
+    code: str,
+) -> gates.BoundaryFailure:
+    matches = [failure for failure in report.failures if failure.code == code]
+    assert matches
+    return matches[0]
+
+
 def test_boundary_gate_accepts_valid_mission_closure_evidence(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -132,6 +141,64 @@ def test_boundary_gate_accepts_valid_mission_closure_evidence(tmp_path: Path) ->
     assert payload["status"] == "passed"
     assert payload["failures"] == []
     assert "artifact-containment" in _as_list(payload["checks"])
+
+
+def test_boundary_gate_rejects_missing_declared_report_path(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    evidence = _base_evidence(repo)
+    missing_report = repo / ".artifacts" / "safety-run" / "missing-report.json"
+    evidence["reports"] = [str(missing_report)]
+
+    report = gates.validate_boundary_evidence(evidence, repo_root=repo)
+
+    failure = _failure_by_code(report, "report_load_failed")
+    assert report.status == "failed"
+    assert str(missing_report) in failure.evidence
+
+
+def test_boundary_gate_rejects_unreadable_declared_report_path(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    evidence = _base_evidence(repo)
+    unreadable_report = repo / ".artifacts" / "safety-run"
+    evidence["reports"] = [str(unreadable_report)]
+
+    report = gates.validate_boundary_evidence(evidence, repo_root=repo)
+
+    failure = _failure_by_code(report, "report_load_failed")
+    assert report.status == "failed"
+    assert str(unreadable_report) in failure.evidence
+
+
+def test_boundary_gate_rejects_malformed_declared_report_json(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    evidence = _base_evidence(repo)
+    report_path = repo / ".artifacts" / "safety-run" / "malformed-report.json"
+    report_path.write_text("{not-json", encoding="utf-8")
+    evidence["reports"] = [str(report_path)]
+
+    report = gates.validate_boundary_evidence(evidence, repo_root=repo)
+
+    failure = _failure_by_code(report, "report_json_invalid")
+    assert report.status == "failed"
+    assert str(report_path) in failure.evidence
+
+
+def test_boundary_gate_rejects_non_object_declared_report_json(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    evidence = _base_evidence(repo)
+    report_path = repo / ".artifacts" / "safety-run" / "list-report.json"
+    report_path.write_text("[]\n", encoding="utf-8")
+    evidence["reports"] = [str(report_path)]
+
+    report = gates.validate_boundary_evidence(evidence, repo_root=repo)
+
+    failure = _failure_by_code(report, "report_payload_invalid")
+    assert report.status == "failed"
+    assert str(report_path) in failure.evidence
 
 
 def test_boundary_gate_rejects_repo_artifacts_and_docs_changes(tmp_path: Path) -> None:
