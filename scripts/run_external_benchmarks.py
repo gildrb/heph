@@ -27,7 +27,7 @@ from hephaistos.rag.hybrid import (
     DEFAULT_PSEUDO_FEEDBACK_TERMS,
     DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
 )
-from scripts import benchmark_rag, run_benchmark_suite
+from scripts import benchmark_rag, claim_report_envelope, run_benchmark_suite
 
 SCHEMA_VERSION = "external-runner-report-v1"
 RUNNER_ID = "scripts.run_external_benchmarks"
@@ -79,8 +79,11 @@ _RUNTIME_ONLY_FIELDS = (
     "metadata.suite_path",
     "metadata.armory_path",
     "metadata.cases_path",
+    "metadata.command_invocation",
     "metadata.readiness_report_path",
     "metadata.report_path",
+    "claim_envelope.determinism.projection_sha256",
+    "deterministic_projection.sha256",
     "benchmarks[].metrics.mean_latency_ms",
     "benchmarks[].metrics.latency.mean_ms",
     "benchmarks[].per_query_results[].latency_ms",
@@ -1154,7 +1157,7 @@ def _strip_runtime_fields(value: object, *, key_name: str = "") -> object:
 
 def deterministic_report_projection(report: Mapping[str, object]) -> object:
     """Return report content with enumerated runtime-only fields removed."""
-    return _strip_runtime_fields(report)
+    return claim_report_envelope.deterministic_report_projection(report)
 
 
 def _status_and_exit_code(
@@ -1210,19 +1213,30 @@ def _metadata(
             or os.environ.get("HEPHAISTOS_RERANK_MODEL", _DEFAULT_RERANK_MODEL),
         },
         "metric_formulas": dict(_METRIC_FORMULAS),
-        "latency_scope": _METRIC_FORMULAS["latency"],
+        "latency_scope": claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY,
         "timestamp_policy": "no wall-clock timestamp is included in deterministic reports",
         "runtime_only_fields": list(_RUNTIME_ONLY_FIELDS),
     }
     if armory_path is not None:
         metadata["armory_path"] = str(armory_path)
+        materials_path = armory_path / storage.MATERIALS_DIR
+        if materials_path.is_dir():
+            metadata["corpus_sha256"] = claim_report_envelope.sha256_directory(materials_path)
     if cases_path is not None:
         metadata["cases_path"] = str(cases_path)
         metadata["cases_sha256"] = _sha256_file(cases_path)
+        metadata["qrels_sha256"] = metadata["cases_sha256"]
     conversion_manifest = suite_path / "conversion_manifest.json"
     if conversion_manifest.is_file():
         metadata["conversion_manifest_path"] = str(conversion_manifest)
         metadata["conversion_manifest_sha256"] = _sha256_file(conversion_manifest)
+        metadata["manifest_sha256"] = metadata["conversion_manifest_sha256"]
+    elif cases_path is not None:
+        metadata["manifest_sha256"] = metadata["cases_sha256"]
+    elif suite_path.exists():
+        metadata["manifest_sha256"] = claim_report_envelope.sha256_directory(suite_path)
+        metadata["corpus_sha256"] = metadata["manifest_sha256"]
+        metadata["qrels_sha256"] = metadata["manifest_sha256"]
     if readiness_report_path is not None:
         metadata["readiness_report_path"] = str(readiness_report_path.resolve())
     if report_path is not None:
@@ -1397,7 +1411,7 @@ def _error_report(
             or os.environ.get("HEPHAISTOS_RERANK_MODEL", _DEFAULT_RERANK_MODEL),
         },
         "metric_formulas": dict(_METRIC_FORMULAS),
-        "latency_scope": _METRIC_FORMULAS["latency"],
+        "latency_scope": "not_executed",
         "timestamp_policy": "no wall-clock timestamp is included in deterministic reports",
         "runtime_only_fields": list(_RUNTIME_ONLY_FIELDS),
     }
@@ -1599,7 +1613,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    invocation = claim_report_envelope.command_invocation(RUNNER_ID, effective_argv)
+    args = parser.parse_args(effective_argv)
     benchmark_type = cast("str", args.benchmark_type)
     dataset = cast("str", args.dataset)
     report_path = cast("Path | None", args.json_report)
@@ -1645,6 +1661,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             model_label,
             exc,
         )
+        report = claim_report_envelope.finalize_claim_report(report, command=invocation)
         _write_json_report(report_path, report)
         _print_status(report, error=True)
         return 2
@@ -1664,10 +1681,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             model_label,
             error,
         )
+        report = claim_report_envelope.finalize_claim_report(report, command=invocation)
         _write_json_report(report_path, report)
         _print_status(report, error=True)
         return 2
 
+    report = claim_report_envelope.finalize_claim_report(report, command=invocation)
     _write_json_report(report_path, report)
     _print_status(report, error=status != 0)
     return status

@@ -99,6 +99,10 @@ class LoadedReport:
     prompt_path: str | None
     prompt_hash: str | None
     model: str | None
+    claim_eligible: bool | None
+    claim_ineligibility_reasons: tuple[str, ...]
+    scoring_protocol_version: str | None
+    threshold_profile_version: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +171,8 @@ def _load_report(path: Path, input_order: int) -> LoadedReport:
     dataset = _metadata_string(metadata, "dataset", "unknown")
     report_id = _report_id(payload, benchmark_type, dataset)
     reproducibility = _mapping_or_empty(payload.get("reproducibility"))
+    claim_envelope = _mapping_or_empty(payload.get("claim_envelope"))
+    threshold_profile = _mapping_or_empty(payload.get("threshold_profile"))
     status = _optional_string(payload.get("status"), "unknown")
     benchmark_rows = _benchmark_rows(payload, report_id, path, internal_warnings)
     measured_query_count = _report_query_count(aggregate_metrics, benchmark_rows)
@@ -200,6 +206,14 @@ def _load_report(path: Path, input_order: int) -> LoadedReport:
         prompt_path=_optional_string_or_none(metadata.get("prompt_path")),
         prompt_hash=_optional_string_or_none(metadata.get("prompt_hash")),
         model=_optional_string_or_none(metadata.get("model")),
+        claim_eligible=_optional_bool_or_none(claim_envelope.get("claim_eligible")),
+        claim_ineligibility_reasons=tuple(
+            _string_list(claim_envelope.get("ineligibility_reasons"))
+        ),
+        scoring_protocol_version=_optional_string_or_none(
+            metadata.get("scoring_protocol_version")
+        ),
+        threshold_profile_version=_optional_string_or_none(threshold_profile.get("version")),
     )
 
 
@@ -247,6 +261,12 @@ def _optional_string(value: object, default: str) -> str:
 
 def _optional_string_or_none(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _optional_bool_or_none(value: object) -> bool | None:
+    if isinstance(value, bool):
         return value
     return None
 
@@ -576,6 +596,20 @@ def _methodology(reports: Sequence[LoadedReport], secrets: tuple[str, ...]) -> l
     compared_fields = sorted(
         {field for report in reports for field in report.deterministic_fields_compared}
     )
+    scoring_protocols = sorted(
+        {
+            report.scoring_protocol_version
+            for report in reports
+            if report.scoring_protocol_version is not None
+        }
+    )
+    threshold_profiles = sorted(
+        {
+            report.threshold_profile_version
+            for report in reports
+            if report.threshold_profile_version is not None
+        }
+    )
     formulas = _merged_metric_formulas(reports)
     hit_rate_formula = _redact_text(
         formulas.get("hit_rate", "queries with an expected reference retrieved within top-k"),
@@ -637,6 +671,8 @@ def _methodology(reports: Sequence[LoadedReport], secrets: tuple[str, ...]) -> l
         ),
         f"- Runtime-only fields observed: {_inline_list(runtime_fields, secrets)}",
         f"- Deterministic fields compared by reports: {_inline_list(compared_fields, secrets)}",
+        f"- Scoring protocol versions observed: {_inline_list(scoring_protocols, secrets)}",
+        f"- Threshold profile versions observed: {_inline_list(threshold_profiles, secrets)}",
         "",
         "### Metric Explanations",
         "",
@@ -842,6 +878,7 @@ def _per_benchmark_analysis(
                 f"### {_redact_text(report.report_id, secrets)}",
                 "",
                 f"- Status: `{_redact_text(report.status, secrets)}`",
+                f"- Claim eligibility: {_claim_eligibility_line(report, secrets)}",
                 f"- Measured queries: {report.measured_query_count}",
                 f"- Aggregate statistics: `{aggregation_status}`",
                 (
@@ -884,6 +921,15 @@ def _per_benchmark_analysis(
             )
         lines.append("")
     return lines
+
+
+def _claim_eligibility_line(report: LoadedReport, secrets: tuple[str, ...]) -> str:
+    if report.claim_eligible is True:
+        return "`eligible`"
+    if report.claim_eligible is False:
+        reasons = ", ".join(report.claim_ineligibility_reasons) or "not specified"
+        return "`ineligible` (" + _redact_text(reasons, secrets) + ")"
+    return "`not declared`"
 
 
 def _statistical_analysis(

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import cast
 
-from scripts import benchmark_public_targets, generate_benchmark_summary
+from scripts import benchmark_public_targets, claim_report_envelope, generate_benchmark_summary
 
 ROOT = Path(__file__).resolve().parent.parent
 PROMPT_PATH = ROOT / "benchmarks" / "model-evaluation-prompt.md"
@@ -20,6 +20,15 @@ def _write_report(path: Path, payload: dict[str, object]) -> None:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _refresh_projection_hash(report: dict[str, object]) -> None:
+    projection_sha256 = claim_report_envelope.deterministic_projection_sha256(report)
+    envelope = cast("dict[str, object]", report["claim_envelope"])
+    determinism = cast("dict[str, object]", envelope["determinism"])
+    deterministic_projection = cast("dict[str, object]", report["deterministic_projection"])
+    determinism["projection_sha256"] = projection_sha256
+    deterministic_projection["sha256"] = projection_sha256
 
 
 def _retrieval_report(
@@ -442,7 +451,26 @@ def _enterprise_rag_report(
     ]
     benchmark_metrics = cast("dict[str, object]", benchmark["metrics"])
     benchmark_metrics["query_count"] = 2
-    return report
+    report["thresholds"] = {"hit_rate": 0.0, "mrr": 0.0, "expected_recall": 0.0}
+    report["reproducibility"] = {
+        "enabled": True,
+        "status": "passed",
+        "runtime_only_fields": [
+            "metadata.report_path",
+            "metadata.command_invocation",
+            "aggregate_metrics.mean_latency_ms",
+        ],
+        "deterministic_fields_compared": [
+            "metadata.dataset",
+            "metadata.fixed_parameters",
+            "aggregate_metrics.expected_recall",
+        ],
+        "mismatches": [],
+    }
+    return claim_report_envelope.finalize_claim_report(
+        report,
+        command=str(metadata["command_invocation"]),
+    )
 
 
 def _write_public_target_inputs(
@@ -459,26 +487,22 @@ def _write_public_target_inputs(
     evaluation_plan = tmp_path / "evaluation-plan.json"
     output = tmp_path / "claim-gate.json"
 
-    _write_report(
-        baseline,
-        _enterprise_rag_report(
-            report_id="enterprise-rag-bm25-document-baseline",
-            mode="bm25-document",
-            hit_rate=0.74,
-            mrr=0.58,
-            expected_recall=0.684,
-        ),
+    baseline_report = _enterprise_rag_report(
+        report_id="enterprise-rag-bm25-document-baseline",
+        mode="bm25-document",
+        hit_rate=0.74,
+        mrr=0.58,
+        expected_recall=0.684,
     )
-    _write_report(
-        current,
-        _enterprise_rag_report(
-            report_id="enterprise-rag-hybrid-document-current",
-            mode="hybrid-document",
-            hit_rate=0.75,
-            mrr=0.59,
-            expected_recall=current_expected_recall,
-        ),
+    current_report = _enterprise_rag_report(
+        report_id="enterprise-rag-hybrid-document-current",
+        mode="hybrid-document",
+        hit_rate=0.75,
+        mrr=0.59,
+        expected_recall=current_expected_recall,
     )
+    _write_report(baseline, baseline_report)
+    _write_report(current, current_report)
     raw_snapshot.write_text(
         "\n".join(
             [
@@ -531,19 +555,24 @@ def _write_public_target_inputs(
             ],
         },
     )
+    baseline_metadata = cast("dict[str, object]", baseline_report["metadata"])
+    baseline_parameters = cast("dict[str, object]", baseline_metadata["fixed_parameters"])
     matched_metadata = {
-        "benchmark_type": "enterprise-rag",
-        "dataset": "enterprise-rag-bench",
-        "cases_sha256": "a" * 64,
-        "manifest_sha256": "b" * 64,
-        "qrels_sha256": "c" * 64,
-        "corpus_sha256": "d" * 64,
-        "scoring_protocol_version": "enterprise-rag-document-recall-v1",
-        "top_k": 10,
-        "candidate_multiplier": 2,
-        "candidate_depth": 20,
-        "latency_scope": "retrieval_only_per_query",
-        "dependency_lock_sha256": "e" * 64,
+        "benchmark_type": baseline_metadata["benchmark_type"],
+        "dataset": baseline_metadata["dataset"],
+        "cases_sha256": baseline_metadata["cases_sha256"],
+        "manifest_sha256": baseline_metadata["manifest_sha256"],
+        "qrels_sha256": baseline_metadata["qrels_sha256"],
+        "corpus_sha256": baseline_metadata["corpus_sha256"],
+        "scoring_protocol_version": baseline_metadata["scoring_protocol_version"],
+        "top_k": baseline_parameters["top_k"],
+        "candidate_multiplier": baseline_parameters["candidate_multiplier"],
+        "candidate_depth": (
+            cast("int", baseline_parameters["top_k"])
+            * cast("int", baseline_parameters["candidate_multiplier"])
+        ),
+        "latency_scope": baseline_metadata["latency_scope"],
+        "dependency_lock_sha256": baseline_metadata["dependency_lock_sha256"],
     }
     _write_report(
         baseline_ledger,
@@ -681,6 +710,63 @@ def test_public_target_claim_gate_records_baseline_snapshot_and_plan_evidence(
         "not evidence of broad retrieval generalization"
         in payload["known_public_target"]["limitation"]
     )
+
+
+def test_public_target_verify_report_command_checks_envelope_independently(
+    tmp_path: Path,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    current_report = json.loads(paths["current"].read_text(encoding="utf-8"))
+    metadata = cast("dict[str, object]", current_report["metadata"])
+    output = tmp_path / "verify-report.json"
+
+    status = benchmark_public_targets.main(
+        [
+            "verify-report",
+            "--report",
+            str(paths["current"]),
+            "--command-invocation",
+            str(metadata["command_invocation"]),
+            "--output",
+            str(output),
+        ]
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert status == 0
+    assert payload["schema_version"] == "claim-report-envelope-verification-v1"
+    assert payload["status"] == "passed"
+    assert payload["claim_eligible"] is True
+    assert payload["errors"] == []
+
+
+def test_public_target_verify_report_rejects_stale_dirty_state_fingerprint(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    current_report = json.loads(paths["current"].read_text(encoding="utf-8"))
+    metadata = cast("dict[str, object]", current_report["metadata"])
+    envelope = cast("dict[str, object]", current_report["claim_envelope"])
+    reproducibility = cast("dict[str, object]", envelope["reproducibility"])
+    git = cast("dict[str, object]", reproducibility["git"])
+    git["dirty_state_sha256"] = "0" * 64
+    _refresh_projection_hash(current_report)
+    _write_report(paths["current"], current_report)
+
+    status = benchmark_public_targets.main(
+        [
+            "verify-report",
+            "--report",
+            str(paths["current"]),
+            "--command-invocation",
+            str(metadata["command_invocation"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert "dirty state fingerprint does not match checkout" in captured.err
 
 
 def test_public_target_claim_gate_rejects_changed_frozen_baseline(
@@ -875,6 +961,170 @@ def test_public_target_claim_gate_rejects_failed_current_report(
     assert "claim_report_not_success" in captured.err
 
 
+def test_public_target_claim_gate_rejects_stale_current_report_envelope(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    current_report = json.loads(paths["current"].read_text(encoding="utf-8"))
+    aggregate_metrics = cast("dict[str, object]", current_report["aggregate_metrics"])
+    aggregate_metrics["mrr"] = 0.99
+    _write_report(paths["current"], current_report)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "claim_report_envelope_invalid" in captured.err
+    assert "deterministic projection SHA-256 is stale" in captured.err
+
+
+def test_public_target_claim_gate_rejects_lowered_threshold_without_new_version(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    current_report = json.loads(paths["current"].read_text(encoding="utf-8"))
+    thresholds = cast("dict[str, object]", current_report["thresholds"])
+    thresholds["hit_rate"] = 0.1
+    profile = cast("dict[str, object]", current_report["threshold_profile"])
+    profile["thresholds"] = dict(thresholds)
+    profile["previous_profile"] = {
+        "version": profile["version"],
+        "thresholds": {"hit_rate": 0.9, "mrr": 0.0, "expected_recall": 0.0},
+    }
+    metadata = cast("dict[str, object]", current_report["metadata"])
+    current_report = claim_report_envelope.finalize_claim_report(
+        current_report,
+        command=str(metadata["command_invocation"]),
+    )
+    _write_report(paths["current"], current_report)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "claim_report_envelope_invalid" in captured.err
+    assert "weakened thresholds require a new threshold_profile version" in captured.err
+
+
+def test_public_target_claim_gate_rejects_unversioned_known_limit(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    current_report = json.loads(paths["current"].read_text(encoding="utf-8"))
+    current_report["known_limits"] = {
+        "schema_version": claim_report_envelope.KNOWN_LIMITS_SCHEMA_VERSION,
+        "policy_version": claim_report_envelope.KNOWN_LIMITS_POLICY_VERSION,
+        "entries": [{"id": "fixture-gap"}],
+    }
+    metadata = cast("dict[str, object]", current_report["metadata"])
+    current_report = claim_report_envelope.finalize_claim_report(
+        current_report,
+        command=str(metadata["command_invocation"]),
+    )
+    _write_report(paths["current"], current_report)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "claim_report_envelope_invalid" in captured.err
+    assert "known_limits entry 0 missing meaningful string field 'version'" in captured.err
+
+
+def test_public_target_claim_gate_rejects_non_boolean_known_limit_claim_blocking(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    paths = _write_public_target_inputs(tmp_path)
+    current_report = json.loads(paths["current"].read_text(encoding="utf-8"))
+    current_report["known_limits"] = {
+        "schema_version": claim_report_envelope.KNOWN_LIMITS_SCHEMA_VERSION,
+        "policy_version": claim_report_envelope.KNOWN_LIMITS_POLICY_VERSION,
+        "entries": [
+            {
+                "id": "fixture-gap",
+                "version": "fixture-gap-v1",
+                "rationale": "Exercise known-limit type validation.",
+                "limitation": "This known limit is a negative fixture.",
+                "recorded_before_claim": True,
+                "claim_blocking": "false",
+            }
+        ],
+    }
+    metadata = cast("dict[str, object]", current_report["metadata"])
+    current_report = claim_report_envelope.finalize_claim_report(
+        current_report,
+        command=str(metadata["command_invocation"]),
+    )
+    _write_report(paths["current"], current_report)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "claim_report_envelope_invalid" in captured.err
+    assert "known_limits entry 0 claim_blocking must be boolean" in captured.err
+
+
 def test_public_target_claim_gate_rejects_unplanned_candidate_depth(
     tmp_path: Path,
     capsys,
@@ -884,6 +1134,10 @@ def test_public_target_claim_gate_rejects_unplanned_candidate_depth(
     metadata = cast("dict[str, object]", current_report["metadata"])
     fixed_parameters = cast("dict[str, object]", metadata["fixed_parameters"])
     fixed_parameters["candidate_multiplier"] = 3
+    current_report = claim_report_envelope.finalize_claim_report(
+        current_report,
+        command=str(metadata["command_invocation"]),
+    )
     _write_report(paths["current"], current_report)
 
     status = benchmark_public_targets.main(

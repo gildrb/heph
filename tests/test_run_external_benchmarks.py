@@ -9,7 +9,7 @@ from typing import cast
 import pytest
 
 from hephaistos.armory.storage import initialize
-from scripts import run_external_benchmarks
+from scripts import claim_report_envelope, run_external_benchmarks
 
 
 def _write_jsonl(path: Path, rows: Sequence[dict[str, object]]) -> None:
@@ -139,6 +139,8 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
     parameters = _as_dict(metadata["fixed_parameters"])
     benchmark = _as_dict(_as_list(report["benchmarks"])[0])
     warnings = _as_list(report["warnings"])
+    envelope = _as_dict(report["claim_envelope"])
+    determinism = _as_dict(envelope["determinism"])
 
     assert status == 0
     assert report["schema_version"] == "external-runner-report-v1"
@@ -159,6 +161,23 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
     assert parameters["embedding_document_prefix"] == "passage: "
     assert parameters["rerank_model"] == "fixture-rerank-model"
     assert "cases_sha256" in metadata
+    assert "corpus_sha256" in metadata
+    assert "manifest_sha256" in metadata
+    assert "qrels_sha256" in metadata
+    assert metadata["dependency_lock_sha256"] == claim_report_envelope.sha256_file(
+        claim_report_envelope.repo_root() / "uv.lock"
+    )
+    assert metadata["scoring_protocol_version"] == (claim_report_envelope.SCORING_PROTOCOL_VERSION)
+    assert metadata["latency_scope"] == claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY
+    assert metadata["network_state"] == "disabled-after-materialization"
+    assert metadata["cache_state"] == "local-cache-allowed"
+    assert envelope["schema_version"] == claim_report_envelope.CLAIM_REPORT_ENVELOPE_SCHEMA_VERSION
+    assert envelope["claim_eligible"] is False
+    assert "reproducibility validation was not enabled and passed" in _as_list(
+        envelope["ineligibility_reasons"]
+    )
+    observed_projection_sha256 = claim_report_envelope.deterministic_projection_sha256(report)
+    assert determinism["projection_sha256"] == observed_projection_sha256
     assert parameters["query_order"] == "case-file-order"
     assert _as_str(formulas["hit_rate"]).startswith("fraction of queries")
     assert _as_str(formulas["mrr"]).startswith("mean reciprocal rank")
@@ -309,34 +328,44 @@ def test_runner_validates_reproducibility_without_network(
 ) -> None:
     suite = _make_external_suite(tmp_path, _passing_cases())
     report_path = tmp_path / "repro.json"
+    argv = [
+        "standard-rag",
+        "ms-marco",
+        "--suite",
+        str(suite),
+        "--validate-reproducibility",
+        "--json-report",
+        str(report_path),
+    ]
 
     def fail_network(*_args: object, **_kwargs: object) -> socket.socket:
         raise AssertionError("runner must not open network sockets after materialization")
 
     monkeypatch.setattr(socket, "create_connection", fail_network)
 
-    status = run_external_benchmarks.main(
-        [
-            "standard-rag",
-            "ms-marco",
-            "--suite",
-            str(suite),
-            "--validate-reproducibility",
-            "--json-report",
-            str(report_path),
-        ]
-    )
+    status = run_external_benchmarks.main(argv)
 
     report = _read_report(report_path)
     reproducibility = _as_dict(report["reproducibility"])
+    envelope = _as_dict(report["claim_envelope"])
     runtime_only_fields = _as_list(reproducibility["runtime_only_fields"])
+    validation = claim_report_envelope.validate_claim_report_envelope(
+        report,
+        expected_command=claim_report_envelope.command_invocation(
+            run_external_benchmarks.RUNNER_ID,
+            argv,
+        ),
+    )
 
     assert status == 0
     assert report["status"] == "success"
     assert reproducibility["enabled"] is True
     assert reproducibility["status"] == "passed"
+    assert envelope["claim_eligible"] is True
     assert "benchmarks[].metrics.mean_latency_ms" in runtime_only_fields
     assert reproducibility["mismatches"] == []
+    assert validation.status == "passed"
+    assert validation.errors == ()
 
 
 def test_runner_fails_threshold_gates_with_metric_details(tmp_path: Path) -> None:

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from scripts import claim_report_envelope
+
 BASELINE_LEDGER_SCHEMA_VERSION = "baseline-ledger-v1"
 PUBLIC_SNAPSHOT_SCHEMA_VERSION = "enterprise-rag-public-snapshot-v1"
 DATASET_VERSION_LEDGER_SCHEMA_VERSION = "dataset-version-ledger-v1"
@@ -1094,6 +1096,17 @@ def _validate_claim_report(report: Mapping[str, object], *, label: str) -> None:
             code="claim_report_incomplete",
             label=f"{label} report metadata",
         )
+    envelope_result = claim_report_envelope.validate_claim_report_envelope(
+        report,
+        require_claim_eligible=True,
+    )
+    if envelope_result.errors:
+        raise PublicTargetError(
+            "claim_report_envelope_invalid",
+            f"{label} report envelope is invalid: " + "; ".join(envelope_result.errors[:5]),
+            "Regenerate the benchmark report with the current claim envelope schema "
+            "and reproducibility validation enabled.",
+        )
 
 
 def _per_query_row_count(report: Mapping[str, object]) -> int | None:
@@ -1517,6 +1530,21 @@ def _build_parser() -> argparse.ArgumentParser:
     claim_gate.add_argument("--dataset-ledger", required=True, type=Path)
     claim_gate.add_argument("--evaluation-plan", required=True, type=Path)
     claim_gate.add_argument("--output", type=Path, help="Write claim-gate evidence JSON")
+    verify_report = subparsers.add_parser(
+        "verify-report",
+        help="Independently verify a claim report reproducibility envelope.",
+    )
+    verify_report.add_argument("--report", required=True, type=Path)
+    verify_report.add_argument(
+        "--command-invocation",
+        help="Exact benchmark command transcript expected in the report envelope.",
+    )
+    verify_report.add_argument(
+        "--allow-claim-ineligible",
+        action="store_true",
+        help="Check envelope structure without requiring claim eligibility.",
+    )
+    verify_report.add_argument("--output", type=Path, help="Write verification evidence JSON")
     return parser
 
 
@@ -1547,6 +1575,29 @@ def _run_claim_gate_command(args: argparse.Namespace) -> int:
     return 1
 
 
+def _run_verify_report_command(args: argparse.Namespace) -> int:
+    report_path = cast("Path", args.report).expanduser().resolve()
+    report = _read_json_object(report_path, label="claim report")
+    result = claim_report_envelope.validate_claim_report_envelope(
+        report,
+        expected_command=cast("str | None", args.command_invocation),
+        require_claim_eligible=not cast("bool", args.allow_claim_ineligible),
+    )
+    payload = claim_report_envelope.verification_payload(report_path, report, result)
+    _write_json(cast("Path | None", args.output), payload)
+    if result.status == "passed":
+        print(
+            "claim report envelope verified: "
+            f"report={payload['report_id']} sha256={payload['report_sha256']}"
+        )
+        return 0
+    print(
+        "claim report envelope verification failed: " + "; ".join(result.errors),
+        file=sys.stderr,
+    )
+    return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entrypoint."""
     parser = _build_parser()
@@ -1554,6 +1605,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if cast("str", args.command) == "claim-gate":
             return _run_claim_gate_command(args)
+        if cast("str", args.command) == "verify-report":
+            return _run_verify_report_command(args)
     except PublicTargetError as exc:
         print(
             f"public target validation error [{exc.code}]: {exc.message} "
