@@ -38,6 +38,13 @@ TYPE_IGNORE_POLICY_MESSAGE: Final[str] = (
 TY_IGNORE_POLICY_MESSAGE: Final[str] = (
     f"ty suppressions must use `{TY_IGNORE_MARKER}[exact-diagnostic]`"
 )
+BENCHMARK_ONLY_TOP_LEVEL_MODULES: Final[frozenset[str]] = frozenset({"benchmarks", "scripts"})
+RUNTIME_BENCHMARK_PATH_MARKERS: Final[tuple[str, ...]] = (
+    ".artifacts",
+    ".artifacts/",
+    "/.artifacts/",
+    "benchmarks/",
+)
 ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
     "hephaistos/app/cli.py": frozenset(
         {
@@ -224,6 +231,27 @@ class PolicyVisitor(ast.NodeVisitor):
             )
         )
 
+    def _is_product_runtime_file(self) -> bool:
+        return self.rel_path.startswith("hephaistos/")
+
+    def _check_runtime_benchmark_import(self, node: ast.AST, module: str) -> None:
+        if not self._is_product_runtime_file():
+            return
+        if _is_benchmark_only_module(module):
+            self._add(
+                node,
+                f"product runtime modules must not import benchmark-only module `{module}`",
+            )
+
+    def _check_runtime_benchmark_path(self, node: ast.AST, value: str) -> None:
+        if not self._is_product_runtime_file():
+            return
+        if _is_generated_or_benchmark_artifact_path(value):
+            self._add(
+                node,
+                "product runtime modules must not reference generated benchmark artifact paths",
+            )
+
     def _import_context_is_allowed(self) -> bool:
         for ancestor in self._stack[:-1]:
             if isinstance(ancestor, ast.Module):
@@ -243,6 +271,8 @@ class PolicyVisitor(ast.NodeVisitor):
         modules = [alias.name for alias in node.names]
         if not self._import_context_is_allowed() and not self._deferred_import_is_allowed(modules):
             self._add(node, "deferred imports are forbidden outside module scope")
+        for module in modules:
+            self._check_runtime_benchmark_import(node, module)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -251,6 +281,8 @@ class PolicyVisitor(ast.NodeVisitor):
             [module]
         ):
             self._add(node, "deferred imports are forbidden outside module scope")
+        if node.level == 0 and node.module is not None:
+            self._check_runtime_benchmark_import(node, node.module)
         if node.module in {"typing", "typing_extensions"}:
             for alias in node.names:
                 if alias.name == "Any":
@@ -266,6 +298,11 @@ class PolicyVisitor(ast.NodeVisitor):
         dotted = _dotted_name(node)
         if dotted in {"typing.Any", "typing_extensions.Any"}:
             self._add(node, "explicit Any is forbidden")
+        self.generic_visit(node)
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if isinstance(node.value, str):
+            self._check_runtime_benchmark_path(node, node.value)
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -292,10 +329,18 @@ class PolicyVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def _check_file(path: Path) -> list[Violation]:
-    rel_path = path.relative_to(REPO_ROOT).as_posix()
-    source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(path))
+def _is_benchmark_only_module(module: str) -> bool:
+    top_level = module.split(".", maxsplit=1)[0]
+    return top_level in BENCHMARK_ONLY_TOP_LEVEL_MODULES
+
+
+def _is_generated_or_benchmark_artifact_path(value: str) -> bool:
+    normalized = value.replace("\\", "/")
+    return any(marker in normalized for marker in RUNTIME_BENCHMARK_PATH_MARKERS)
+
+
+def _check_source(source: str, rel_path: str, *, filename: str | None = None) -> list[Violation]:
+    tree = ast.parse(source, filename=filename or rel_path)
     visitor = PolicyVisitor(rel_path)
     visitor.visit(tree)
 
@@ -340,6 +385,12 @@ def _check_file(path: Path) -> list[Violation]:
                 )
             )
     return violations
+
+
+def _check_file(path: Path) -> list[Violation]:
+    rel_path = path.relative_to(REPO_ROOT).as_posix()
+    source = path.read_text(encoding="utf-8")
+    return _check_source(source, rel_path, filename=str(path))
 
 
 def main() -> None:

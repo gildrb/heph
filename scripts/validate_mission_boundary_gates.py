@@ -41,6 +41,16 @@ _PRIVATE_HOST_SUFFIXES = (".corp", ".internal", ".local", ".localhost", ".test")
 _PRIVATE_HOST_NAMES = frozenset({"0.0.0.0", "localhost", "localhost.localdomain"})
 _DOCS_ROOTS = frozenset({"docs", "droid-wiki"})
 _DOCS_FILES = frozenset({"AGENTS.md", "README.md"})
+_PUBLIC_EXPORT_KEYS = frozenset({"public_exports", "shareable_exports"})
+_PUBLIC_VISIBILITY_VALUES = frozenset(
+    {
+        "external",
+        "public",
+        "published",
+        "shareable",
+        "shared",
+    }
+)
 _REQUIRED_VALIDATORS = {
     "ruff": "uv run ruff check .",
     "format-check": "uv run ruff format --check .",
@@ -100,14 +110,18 @@ def validate_boundary_evidence(
     failures: list[BoundaryFailure] = []
     checks = (
         "artifact-containment",
+        "artifact-gitignore",
         "docs-skipped",
+        "private-artifact-default",
         "network-egress",
         "no-other-harness",
         "configured-validators",
         "one-shot-resources",
     )
     _check_artifact_containment(evidence, root, failures)
+    _check_artifacts_gitignored(root, failures)
     _check_docs_skipped(evidence, root, failures)
+    _check_private_artifact_default(evidence, failures)
     _check_network_egress(evidence, root, failures)
     _check_command_boundaries(evidence, failures)
     _check_validators(evidence, failures)
@@ -210,6 +224,12 @@ def _artifact_entries(value: object) -> list[str]:
     return entries
 
 
+def _artifact_metadata_entries(value: object) -> list[Mapping[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [cast("Mapping[str, object]", item) for item in value if isinstance(item, dict)]
+
+
 def _path_inputs(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -304,6 +324,40 @@ def _is_relative_to(path: Path, root: Path) -> bool:
     return True
 
 
+def _check_artifacts_gitignored(
+    repo_root: Path,
+    failures: list[BoundaryFailure],
+) -> None:
+    gitignore = repo_root / ".gitignore"
+    try:
+        lines = gitignore.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        failures.append(
+            BoundaryFailure(
+                "artifacts_gitignore_missing",
+                "repo .gitignore must be readable and ignore generated benchmark artifacts",
+                str(exc),
+            )
+        )
+        return
+    if not any(_ignores_artifacts_root(line) for line in lines):
+        failures.append(
+            BoundaryFailure(
+                "artifacts_not_gitignored",
+                "repo .gitignore must include .artifacts/ for generated benchmark artifacts",
+                gitignore.as_posix(),
+            )
+        )
+
+
+def _ignores_artifacts_root(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or stripped.startswith(("#", "!")):
+        return False
+    normalized = stripped.lstrip("/").rstrip("/")
+    return normalized == ".artifacts" or normalized.startswith(".artifacts/")
+
+
 def _check_docs_skipped(
     evidence: Mapping[str, object],
     repo_root: Path,
@@ -350,6 +404,71 @@ def _is_docs_path(path: str) -> bool:
     if not parts:
         return False
     return parts[0] in _DOCS_ROOTS or parts[0] in _DOCS_FILES or parts[-1] == "README.md"
+
+
+def _check_private_artifact_default(
+    evidence: Mapping[str, object],
+    failures: list[BoundaryFailure],
+) -> None:
+    publication = _mapping_or_empty(evidence.get("artifact_publication"))
+    if publication.get("public_export_enabled") is True:
+        failures.append(
+            BoundaryFailure(
+                "public_export_out_of_scope",
+                "public/shareable benchmark export is out of default mission scope",
+                "artifact_publication.public_export_enabled=true",
+            )
+        )
+    for key in ("default_scope", "default_visibility"):
+        raw_value = publication.get(key)
+        if isinstance(raw_value, str) and _is_public_visibility(raw_value):
+            failures.append(
+                BoundaryFailure(
+                    "public_export_out_of_scope",
+                    "benchmark artifacts must be private/internal by default",
+                    f"artifact_publication.{key}={raw_value}",
+                )
+            )
+    failures.extend(
+        BoundaryFailure(
+            "public_export_out_of_scope",
+            "public/shareable benchmark export is out of default mission scope",
+            entry,
+        )
+        for key in _PUBLIC_EXPORT_KEYS
+        for entry in _export_entries(evidence.get(key), key=key)
+    )
+    for entry in _artifact_metadata_entries(evidence.get("generated_artifacts")):
+        visibility = entry.get("visibility")
+        if isinstance(visibility, str) and _is_public_visibility(visibility):
+            raw_path = entry.get("path")
+            failures.append(
+                BoundaryFailure(
+                    "public_export_out_of_scope",
+                    "generated benchmark artifacts must not be public/shareable by default",
+                    str(raw_path) if isinstance(raw_path, str) else visibility,
+                )
+            )
+
+
+def _export_entries(value: object, *, key: str) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    entries: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            entries.append(f"{key}: {item}")
+        elif isinstance(item, dict):
+            path = cast("dict[object, object]", item).get("path")
+            visibility = cast("dict[object, object]", item).get("visibility")
+            entries.append(f"{key}: {path or visibility or '<entry>'}")
+    return entries
+
+
+def _is_public_visibility(value: str) -> bool:
+    normalized = value.strip().lower().replace("_", "-")
+    tokens = {token for token in re.split(r"[^a-z0-9]+", normalized) if token}
+    return normalized in _PUBLIC_VISIBILITY_VALUES or bool(tokens & _PUBLIC_VISIBILITY_VALUES)
 
 
 def _check_network_egress(

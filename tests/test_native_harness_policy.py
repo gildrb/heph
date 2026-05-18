@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from scripts import claim_report_envelope
+from scripts import check_repo_policies, claim_report_envelope
 
 
 def _minimal_claim_report(*, warnings: list[str] | None = None) -> dict[str, object]:
@@ -172,3 +172,52 @@ def test_native_harness_policy_file_stays_outside_generated_artifacts(tmp_path: 
 
     assert report_path.is_file()
     assert ".artifacts" not in report_path.parts
+
+
+def test_repo_policy_rejects_product_runtime_imports_from_benchmark_only_code() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "import scripts.run_external_benchmarks",
+                "from benchmarks.academic import fixture",
+            )
+        ),
+        "hephaistos/chat/runtime_boundary_fixture.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "benchmark-only module `scripts.run_external_benchmarks`" in rendered
+    assert "benchmark-only module `benchmarks.academic`" in rendered
+
+
+def test_repo_policy_rejects_product_runtime_references_to_generated_artifacts() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                'REPORT_PATH = ".artifacts/benchmarks/report.json"',
+                'FIXTURE_PATH = "benchmarks/academic/rag.jsonl"',
+            )
+        ),
+        "hephaistos/rag/runtime_boundary_fixture.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert rendered.count("generated benchmark artifact paths") == 2
+
+
+def test_current_product_runtime_has_no_benchmark_only_import_or_artifact_coupling() -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    product_root = repo_root / "hephaistos"
+    violations: list[str] = []
+    for path in sorted(product_root.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        violations.extend(
+            violation.render()
+            for violation in check_repo_policies._check_file(path)
+            if "benchmark" in violation.message
+        )
+
+    assert violations == []

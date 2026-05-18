@@ -25,6 +25,7 @@ def _as_list(value: object) -> list[object]:
 
 
 def _base_evidence(repo: Path) -> dict[str, object]:
+    (repo / ".gitignore").write_text(".artifacts/\n", encoding="utf-8")
     artifacts = repo / ".artifacts" / "safety-run"
     artifacts.mkdir(parents=True)
     report_path = artifacts / "external-report.json"
@@ -46,6 +47,10 @@ def _base_evidence(repo: Path) -> dict[str, object]:
             str(artifacts / "summary.json"),
             str(temp_armory / ".hephaistos" / "rag_index.json"),
         ],
+        "artifact_publication": {
+            "default_scope": "private/internal",
+            "public_export_enabled": False,
+        },
         "changed_paths": ["scripts/validate_mission_boundary_gates.py"],
         "egress": {"mode": "disabled-after-materialization", "requests": []},
         "reports": [str(report_path)],
@@ -141,6 +146,8 @@ def test_boundary_gate_accepts_valid_mission_closure_evidence(tmp_path: Path) ->
     assert payload["status"] == "passed"
     assert payload["failures"] == []
     assert "artifact-containment" in _as_list(payload["checks"])
+    assert "artifact-gitignore" in _as_list(payload["checks"])
+    assert "private-artifact-default" in _as_list(payload["checks"])
 
 
 def test_boundary_gate_rejects_missing_declared_report_path(tmp_path: Path) -> None:
@@ -215,6 +222,46 @@ def test_boundary_gate_rejects_repo_artifacts_and_docs_changes(tmp_path: Path) -
         "artifact_outside_allowed_roots",
         "docs_changed",
     } <= _failure_codes(report)
+
+
+def test_boundary_gate_rejects_missing_artifacts_gitignore(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    evidence = _base_evidence(repo)
+    (repo / ".gitignore").write_text("# generated artifacts not ignored\n", encoding="utf-8")
+
+    report = gates.validate_boundary_evidence(evidence, repo_root=repo)
+
+    failure = _failure_by_code(report, "artifacts_not_gitignored")
+    assert report.status == "failed"
+    assert ".gitignore" in failure.evidence
+
+
+def test_boundary_gate_rejects_public_or_shareable_exports(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    evidence = _base_evidence(repo)
+    artifacts = repo / ".artifacts" / "safety-run"
+    evidence["artifact_publication"] = {
+        "default_visibility": "public/shareable",
+        "public_export_enabled": True,
+    }
+    evidence["public_exports"] = [str(artifacts / "leaderboard-export.jsonl")]
+    evidence["shareable_exports"] = [{"path": str(artifacts / "bundle.zip")}]
+    evidence["generated_artifacts"] = [
+        {
+            "path": str(artifacts / "public-summary.md"),
+            "visibility": "shareable",
+        }
+    ]
+
+    report = gates.validate_boundary_evidence(evidence, repo_root=repo)
+
+    failures = [
+        failure for failure in report.failures if failure.code == "public_export_out_of_scope"
+    ]
+    assert report.status == "failed"
+    assert len(failures) == 5
 
 
 def test_boundary_gate_rejects_symlinked_artifact_paths(tmp_path: Path) -> None:
