@@ -290,12 +290,14 @@ def _source_span_issues(
         if not span.source_ref.strip() or not span.text.strip():
             issues.append(_issue(artifact, "invalid_source_span", "source ref and text required"))
             continue
+        offsets_invalid = False
         if (span.start is None) != (span.end is None):
             issues.append(_issue(artifact, "invalid_source_span", "span offsets must be paired"))
-        if span.start is not None and span.end is not None and span.start < 0:
-            issues.append(_issue(artifact, "invalid_source_span", "span offsets are invalid"))
-        if span.start is not None and span.end is not None and span.end < span.start:
-            issues.append(_issue(artifact, "invalid_source_span", "span offsets are invalid"))
+            offsets_invalid = True
+        elif span.start is not None and span.end is not None:
+            if span.start < 0 or span.end <= span.start:
+                issues.append(_issue(artifact, "invalid_source_span", "span offsets are invalid"))
+                offsets_invalid = True
         source_text = source_text_by_ref.get(span.source_ref)
         if source_text is None:
             if source_text_by_ref:
@@ -306,6 +308,11 @@ def _source_span_issues(
                         f"source ref is not available: {span.source_ref}",
                     )
                 )
+            continue
+        if span.start is not None and span.end is not None and span.end > len(source_text):
+            issues.append(_issue(artifact, "invalid_source_span", "span offsets are invalid"))
+            offsets_invalid = True
+        if offsets_invalid:
             continue
         if not _span_matches_source(span, source_text):
             issues.append(
@@ -374,10 +381,11 @@ def _span_matches_source(span: StudyArtifactSourceSpan, source_text: str) -> boo
     normalized_span = _normalized_for_match(span.text)
     if not normalized_span:
         return False
-    if span.start is not None and span.end is not None and span.end <= len(source_text):
+    if span.start is not None and span.end is not None:
+        if span.start < 0 or span.end > len(source_text) or span.end <= span.start:
+            return False
         selected = source_text[span.start : span.end]
-        if _normalized_for_match(selected) == normalized_span:
-            return True
+        return _normalized_for_match(selected) == normalized_span
     return normalized_span in _normalized_for_match(source_text)
 
 
@@ -398,8 +406,10 @@ def _support_rate(tokens: set[str], source_tokens: set[str]) -> float:
 
 
 def _artifact_fingerprint(artifact: StudyArtifact) -> str:
+    kind = artifact.kind
+    kind_value = kind.value if isinstance(kind, StudyArtifactKind) else str(kind)
     parts = (
-        artifact.kind.value,
+        kind_value,
         _normalized_for_match(artifact.prompt),
         _normalized_for_match(artifact.answer),
         _normalized_for_match(artifact.content),

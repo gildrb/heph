@@ -107,6 +107,48 @@ def test_validate_artifacts_rejects_unsupported_source_mismatched_vague_and_dupl
     assert issue_codes["broad"] == {"overly_broad_artifact"}
 
 
+def test_validate_artifacts_rejects_invalid_runtime_kind_without_crashing() -> None:
+    invalid_kind = StudyArtifact(
+        artifact_id="invalid-kind",
+        kind=StudyArtifactKind.FLASHCARD,
+        prompt="What is long-term potentiation?",
+        answer="Long-term potentiation is persistent strengthening of synapses.",
+        concept_tags=("Long-term potentiation",),
+        source_spans=(_span(),),
+    )
+    object.__setattr__(invalid_kind, "kind", "flashcard")
+
+    report = validate_study_artifacts([invalid_kind], SOURCE_MAP)
+
+    assert report.passed is False
+    assert {issue.code for issue in report.rejected[0].issues} == {"invalid_kind"}
+
+
+def test_validate_artifact_rejects_out_of_range_source_span_offsets() -> None:
+    artifact = StudyArtifact(
+        artifact_id="bad-offsets",
+        kind=StudyArtifactKind.FLASHCARD,
+        prompt="What is long-term potentiation?",
+        answer="Long-term potentiation is persistent strengthening of synapses.",
+        concept_tags=("Long-term potentiation",),
+        source_spans=(
+            StudyArtifactSourceSpan(
+                source_ref=SOURCE_REF,
+                text=(
+                    "Long-term potentiation is persistent strengthening of synapses after "
+                    "high-frequency stimulation."
+                ),
+                start=0,
+                end=len(SOURCE_TEXT) + 20,
+            ),
+        ),
+    )
+
+    result = validate_study_artifact(artifact, SOURCE_MAP)
+
+    assert {issue.code for issue in result.issues} == {"invalid_source_span"}
+
+
 def test_validate_artifacts_covers_all_supported_study_artifact_kinds() -> None:
     source_span = StudyArtifactSourceSpan(source_ref=SOURCE_REF, text=SOURCE_TEXT)
     artifacts = [

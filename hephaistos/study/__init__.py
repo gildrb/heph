@@ -1,5 +1,7 @@
 """Deterministic study-session state and controller helpers."""
 
+from __future__ import annotations
+
 from hephaistos.study.artifacts import (
     StudyArtifact,
     StudyArtifactDifficulty,
