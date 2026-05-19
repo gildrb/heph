@@ -47,6 +47,9 @@ SCORING_PROTOCOL_VERSION = claim_report_envelope.SCORING_PROTOCOL_VERSION
 REQUIRED_TOP_K_VALUES = (1, 3, 5, 10, 25, 50, 100)
 _DEFAULT_MIN_SCORE = 0.0
 _DEFAULT_CANDIDATE_MULTIPLIER = 2
+_DEFAULT_WEIGHTED_HYBRID_SPARSE_WEIGHT = 1.25
+_DEFAULT_WEIGHTED_HYBRID_DENSE_WEIGHT = 1.0
+_UNWEIGHTED_RRF_WEIGHT = 1.0
 _DEFAULT_MIN_PERMISSION_RETRIEVAL_SAFETY_RATE = 1.0
 _DEFAULT_MIN_FORBIDDEN_BEFORE_EXPECTED_AVOIDANCE = 0.0
 _DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
@@ -72,6 +75,9 @@ _MISS_NO_CANDIDATES = "no_retrieved_candidates"
 _MISS_OUTSIDE_TOP_K = "expected_evidence_outside_requested_top_k"
 _MISS_FORBIDDEN_ORDERING = "forbidden_before_expected_ordering"
 _MISS_PERMISSION_SCOPE = "permission_scope_exclusion"
+_FUSION_NONE = "none"
+_FUSION_WEIGHTED_HYBRID = "weighted_sparse_dense"
+_FUSION_RRF = "reciprocal_rank_fusion"
 _ARTIFACT_FILENAMES = {
     "matrix_report": "matrix-report.json",
     "per_query_results": "per-query-results.jsonl",
@@ -129,7 +135,7 @@ class MatrixCell:
     candidate_multiplier: int = _DEFAULT_CANDIDATE_MULTIPLIER
     hybrid_sparse_weight: float = 1.0
     hybrid_dense_weight: float = 1.0
-    fusion_strategy: str = "none"
+    fusion_strategy: str = _FUSION_NONE
 
     def candidate_budget(self, top_k: int) -> int:
         """Return the pre-final candidate budget for this cell."""
@@ -142,13 +148,15 @@ class MatrixCell:
 
     def fusion_payload(self) -> dict[str, object]:
         """Return explicit fusion metadata for this cell."""
-        if self.fusion_strategy == "none":
-            return {"strategy": "none", "sparse_weight": 0.0, "dense_weight": 0.0}
-        return {
-            "strategy": self.fusion_strategy,
-            "sparse_weight": self.hybrid_sparse_weight,
-            "dense_weight": self.hybrid_dense_weight,
-        }
+        return _fusion_payload(
+            self.fusion_strategy,
+            sparse_weight=self.hybrid_sparse_weight,
+            dense_weight=self.hybrid_dense_weight,
+        )
+
+    def retrieval_signature(self) -> str:
+        """Return the canonical mode/fusion identity exercised by this cell."""
+        return _retrieval_signature(self.retrieval_mode.value, self.fusion_payload())
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +181,7 @@ class MatrixConfig:
     retriever: str
     granularity: ReferenceGranularity
     retrieval_mode: RetrievalMode
-    fusion_strategy: str = "none"
+    fusion_strategy: str = _FUSION_NONE
     candidate_multiplier: int = _DEFAULT_CANDIDATE_MULTIPLIER
     sparse_weight: float = 1.0
     dense_weight: float = 0.0
@@ -184,19 +192,23 @@ class MatrixConfig:
             "retriever": self.retriever,
             "granularity": self.granularity.value,
             "retrieval_mode": self.retrieval_mode.value,
+            "retrieval_signature": self.retrieval_signature(),
             "candidate_multiplier": self.candidate_multiplier,
             "fusion": self.fusion_payload(),
+            "claim_eligible": self.claim_eligible(),
         }
 
     def fusion_payload(self) -> dict[str, object]:
         """Return explicit fusion metadata for this matrix config."""
-        if self.fusion_strategy == "none":
-            return {"strategy": "none", "sparse_weight": 0.0, "dense_weight": 0.0}
-        return {
-            "strategy": self.fusion_strategy,
-            "sparse_weight": self.sparse_weight,
-            "dense_weight": self.dense_weight,
-        }
+        return _fusion_payload(
+            self.fusion_strategy,
+            sparse_weight=self.sparse_weight,
+            dense_weight=self.dense_weight,
+        )
+
+    def retrieval_signature(self) -> str:
+        """Return the canonical mode/fusion identity exercised by this config."""
+        return _retrieval_signature(self.retrieval_mode.value, self.fusion_payload())
 
     def candidate_budget(self, top_k: int) -> int:
         """Return the requested pre-final candidate budget for this row."""
@@ -204,9 +216,20 @@ class MatrixConfig:
             self.retrieval_mode != RetrievalMode.BM25_DOCUMENT
         ):
             return max(top_k, top_k * self.candidate_multiplier)
-        if self.fusion_strategy != "none":
+        if self.fusion_strategy != _FUSION_NONE:
             return max(top_k, top_k * self.candidate_multiplier)
         return top_k
+
+    def claim_eligible(self) -> bool:
+        """Return whether this row can support comparative retrieval claims."""
+        if self.fusion_strategy == _FUSION_WEIGHTED_HYBRID:
+            return not _weights_match(
+                self.sparse_weight,
+                self.dense_weight,
+                sparse_weight=_UNWEIGHTED_RRF_WEIGHT,
+                dense_weight=_UNWEIGHTED_RRF_WEIGHT,
+            )
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,8 +373,8 @@ def default_matrix_configs() -> tuple[MatrixConfig, ...]:
 def required_matrix_cells(
     *,
     candidate_multiplier: int = _DEFAULT_CANDIDATE_MULTIPLIER,
-    hybrid_sparse_weight: float = 1.0,
-    hybrid_dense_weight: float = 1.0,
+    hybrid_sparse_weight: float = _DEFAULT_WEIGHTED_HYBRID_SPARSE_WEIGHT,
+    hybrid_dense_weight: float = _DEFAULT_WEIGHTED_HYBRID_DENSE_WEIGHT,
 ) -> tuple[MatrixCell, ...]:
     """Return the required core matrix cells as public contract descriptors."""
     return (
@@ -392,7 +415,7 @@ def required_matrix_cells(
             granularity=ReferenceGranularity.CHUNK.value,
             retrieval_mode=RetrievalMode.HYBRID,
             candidate_multiplier=candidate_multiplier,
-            fusion_strategy="weighted_sparse_dense",
+            fusion_strategy=_FUSION_WEIGHTED_HYBRID,
             hybrid_sparse_weight=hybrid_sparse_weight,
             hybrid_dense_weight=hybrid_dense_weight,
         ),
@@ -401,7 +424,7 @@ def required_matrix_cells(
             granularity=ReferenceGranularity.DOCUMENT.value,
             retrieval_mode=RetrievalMode.HYBRID,
             candidate_multiplier=candidate_multiplier,
-            fusion_strategy="weighted_sparse_dense",
+            fusion_strategy=_FUSION_WEIGHTED_HYBRID,
             hybrid_sparse_weight=hybrid_sparse_weight,
             hybrid_dense_weight=hybrid_dense_weight,
         ),
@@ -410,18 +433,18 @@ def required_matrix_cells(
             granularity=ReferenceGranularity.CHUNK.value,
             retrieval_mode=RetrievalMode.HYBRID,
             candidate_multiplier=candidate_multiplier,
-            fusion_strategy="reciprocal_rank_fusion",
-            hybrid_sparse_weight=hybrid_sparse_weight,
-            hybrid_dense_weight=hybrid_dense_weight,
+            fusion_strategy=_FUSION_RRF,
+            hybrid_sparse_weight=_UNWEIGHTED_RRF_WEIGHT,
+            hybrid_dense_weight=_UNWEIGHTED_RRF_WEIGHT,
         ),
         MatrixCell(
             retriever="rrf",
             granularity=ReferenceGranularity.DOCUMENT.value,
             retrieval_mode=RetrievalMode.HYBRID,
             candidate_multiplier=candidate_multiplier,
-            fusion_strategy="reciprocal_rank_fusion",
-            hybrid_sparse_weight=hybrid_sparse_weight,
-            hybrid_dense_weight=hybrid_dense_weight,
+            fusion_strategy=_FUSION_RRF,
+            hybrid_sparse_weight=_UNWEIGHTED_RRF_WEIGHT,
+            hybrid_dense_weight=_UNWEIGHTED_RRF_WEIGHT,
         ),
     )
 
@@ -450,6 +473,86 @@ def _cell_from_config(config: MatrixConfig) -> MatrixCell:
     )
 
 
+def _fusion_payload(
+    fusion_strategy: str,
+    *,
+    sparse_weight: float,
+    dense_weight: float,
+) -> dict[str, object]:
+    if fusion_strategy == _FUSION_NONE:
+        return {
+            "strategy": _FUSION_NONE,
+            "algorithm": _FUSION_NONE,
+            "sparse_weight": 0.0,
+            "dense_weight": 0.0,
+            "canonical_id": _FUSION_NONE,
+        }
+    return {
+        "strategy": fusion_strategy,
+        "algorithm": _fusion_algorithm(fusion_strategy),
+        "sparse_weight": sparse_weight,
+        "dense_weight": dense_weight,
+        "canonical_id": _fusion_canonical_id(fusion_strategy, sparse_weight, dense_weight),
+    }
+
+
+def _fusion_algorithm(fusion_strategy: str) -> str:
+    if fusion_strategy == _FUSION_WEIGHTED_HYBRID:
+        return "weighted_reciprocal_rank_fusion"
+    if fusion_strategy == _FUSION_RRF:
+        return _FUSION_RRF
+    return fusion_strategy
+
+
+def _fusion_canonical_id(
+    fusion_strategy: str,
+    sparse_weight: float,
+    dense_weight: float,
+) -> str:
+    if fusion_strategy == _FUSION_NONE:
+        return _FUSION_NONE
+    return (
+        f"{fusion_strategy}:"
+        f"sparse={_weight_label(sparse_weight)}:"
+        f"dense={_weight_label(dense_weight)}"
+    )
+
+
+def _retrieval_signature(retrieval_mode: str, fusion: Mapping[str, object]) -> str:
+    canonical_fusion = fusion.get("canonical_id")
+    if not isinstance(canonical_fusion, str):
+        canonical_fusion = _fusion_canonical_id(
+            _string_value(fusion.get("strategy"), fallback=_FUSION_NONE),
+            _float_value(fusion.get("sparse_weight")),
+            _float_value(fusion.get("dense_weight")),
+        )
+    return f"{retrieval_mode}|fusion={canonical_fusion}"
+
+
+def _weight_label(value: float) -> str:
+    return f"{value:.6g}"
+
+
+def _weights_match(
+    actual_sparse_weight: float,
+    actual_dense_weight: float,
+    *,
+    sparse_weight: float,
+    dense_weight: float,
+) -> bool:
+    return math.isclose(
+        actual_sparse_weight,
+        sparse_weight,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ) and math.isclose(
+        actual_dense_weight,
+        dense_weight,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    )
+
+
 def matrix_row_id(config: MatrixConfig, top_k: int) -> str:
     """Build a stable row id from a matrix config and top-k value."""
     return f"{config.retriever}:{config.granularity.value}:k={top_k}"
@@ -463,16 +566,39 @@ def canonicalize_case_labels(
     granularity: ReferenceGranularity,
 ) -> CaseLabels:
     """Resolve expected and forbidden labels, rejecting duplicates and aliases."""
-    expected_labels = tuple(
-        _canonical_label(reference, corpus, granularity=granularity) for reference in expected
+    expected_labels = _collapse_document_labels(
+        tuple(
+            _canonical_label(reference, corpus, granularity=granularity) for reference in expected
+        ),
+        granularity=granularity,
     )
-    forbidden_labels = tuple(
-        _canonical_label(reference, corpus, granularity=granularity)
-        for reference in forbidden_before_expected
+    forbidden_labels = _collapse_document_labels(
+        tuple(
+            _canonical_label(reference, corpus, granularity=granularity)
+            for reference in forbidden_before_expected
+        ),
+        granularity=granularity,
     )
     _validate_label_uniqueness(expected_labels, label="expected")
     _validate_label_uniqueness(forbidden_labels, label="forbidden_before_expected")
     return CaseLabels(expected=expected_labels, forbidden_before_expected=forbidden_labels)
+
+
+def _collapse_document_labels(
+    labels: Sequence[CanonicalLabel],
+    *,
+    granularity: ReferenceGranularity,
+) -> tuple[CanonicalLabel, ...]:
+    if granularity != ReferenceGranularity.DOCUMENT:
+        return tuple(labels)
+    collapsed: list[CanonicalLabel] = []
+    seen: set[str] = set()
+    for label in labels:
+        if label.canonical in seen:
+            continue
+        collapsed.append(label)
+        seen.add(label.canonical)
+    return tuple(collapsed)
 
 
 def canonical_relevant_references(
@@ -613,14 +739,15 @@ def validate_matrix_report(report: Mapping[str, object]) -> MatrixContractResult
         errors.append(
             f"required_top_k must be {list(REQUIRED_TOP_K_VALUES)}, got {list(required_top_k)}"
         )
-    configured_rows = _configured_keys(matrix.get("configured_rows"), errors)
+    configured_rows = _configured_rows(matrix.get("configured_rows"), errors)
     if not configured_rows:
         configured_rows = {
-            (cell.retriever, cell.granularity)
+            (cell.retriever, cell.granularity): _config_from_cell(cell).payload()
             for cell in required_matrix_cells(candidate_multiplier=_DEFAULT_CANDIDATE_MULTIPLIER)
         }
     rows = _row_mappings(matrix.get("rows"), errors)
     seen: set[tuple[str, str, int]] = set()
+    claimable_signatures: dict[tuple[str, str, int], str] = {}
     report_metadata = _mapping_or_empty(report.get("metadata"))
     _validate_index_cache(report_metadata, errors)
     _validate_diagnostic_summary(report, errors)
@@ -638,6 +765,9 @@ def validate_matrix_report(report: Mapping[str, object]) -> MatrixContractResult
             _validate_row_hashes(row, report_metadata, key, errors)
         if status == "success":
             _validate_row_metrics(row, key, errors)
+        configured = configured_rows.get((key[0], key[1]))
+        _validate_row_retrieval_identity(row, configured, key, errors)
+        _validate_claimable_signature(row, key, claimable_signatures, errors)
     _validate_per_query_reconciliation(report, rows, errors)
     _validate_thresholds(report, rows, errors)
     for retriever, granularity in configured_rows:
@@ -1059,11 +1189,12 @@ def _run_matrix_cell(
         "retriever": config.retriever,
         "granularity": config.granularity.value,
         "retrieval_mode": config.retrieval_mode.value,
+        "retrieval_signature": config.retrieval_signature(),
         "fusion": config.fusion_payload(),
         "top_k": top_k,
         "candidate_budget": config.candidate_budget(top_k),
         "candidate_multiplier": config.candidate_multiplier,
-        "claim_eligible": True,
+        "claim_eligible": config.claim_eligible(),
         "metrics": row_metrics,
         "matched_metadata": dict(matched_metadata),
         "retriever_backends": list(index.retriever_backend_names),
@@ -2056,7 +2187,7 @@ def _retrieval_top_k_for_config(config: MatrixConfig, top_k: int) -> int:
     if (
         config.granularity == ReferenceGranularity.DOCUMENT
         and config.retrieval_mode != RetrievalMode.BM25_DOCUMENT
-    ) or config.fusion_strategy != "none":
+    ) or config.fusion_strategy != _FUSION_NONE:
         return config.candidate_budget(top_k)
     return top_k
 
@@ -2332,6 +2463,7 @@ def _failed_row(
         "retriever": config.retriever,
         "granularity": config.granularity.value,
         "retrieval_mode": config.retrieval_mode.value,
+        "retrieval_signature": config.retrieval_signature(),
         "fusion": config.fusion_payload(),
         "top_k": top_k,
         "candidate_budget": config.candidate_budget(top_k),
@@ -2640,13 +2772,13 @@ def _parse_top_k_values(raw: str, parser: argparse.ArgumentParser) -> tuple[int,
     return values
 
 
-def _configured_keys(value: object, errors: list[str]) -> set[tuple[str, str]]:
+def _configured_rows(value: object, errors: list[str]) -> dict[tuple[str, str], dict[str, object]]:
     if value is None:
-        return set()
+        return {}
     if not isinstance(value, list):
         errors.append("matrix configured_rows must be a list")
-        return set()
-    keys: set[tuple[str, str]] = set()
+        return {}
+    rows: dict[tuple[str, str], dict[str, object]] = {}
     for item in value:
         if not isinstance(item, dict):
             errors.append("matrix configured_rows entries must be objects")
@@ -2657,8 +2789,13 @@ def _configured_keys(value: object, errors: list[str]) -> set[tuple[str, str]]:
         if not isinstance(retriever, str) or not isinstance(granularity, str):
             errors.append("configured row missing retriever or granularity")
             continue
-        keys.add((retriever, granularity))
-    return keys
+        key = (retriever, granularity)
+        if key in rows:
+            errors.append(
+                f"duplicate configured row for retriever={retriever} granularity={granularity}"
+            )
+        rows[key] = row
+    return rows
 
 
 def _row_mappings(value: object, errors: list[str]) -> list[dict[str, object]]:
@@ -2688,6 +2825,171 @@ def _row_key(row: Mapping[str, object], errors: list[str]) -> tuple[str, str, in
         errors.append("row missing integer top_k")
         top_k = -1
     return retriever, granularity, top_k
+
+
+def _validate_row_retrieval_identity(
+    row: Mapping[str, object],
+    configured: Mapping[str, object] | None,
+    key: tuple[str, str, int],
+    errors: list[str],
+) -> None:
+    expected_mode, expected_strategy = _expected_retrieval_identity(key[0], key[1])
+    row_mode = row.get("retrieval_mode")
+    if row_mode != expected_mode:
+        errors.append(f"row {key[0]}:{key[1]}:k={key[2]} retrieval_mode must be {expected_mode!r}")
+    row_fusion = _mapping_or_empty(row.get("fusion"))
+    if not row_fusion:
+        errors.append(f"row {key[0]}:{key[1]}:k={key[2]} missing fusion metadata")
+    row_strategy = row_fusion.get("strategy")
+    if row_strategy != expected_strategy:
+        errors.append(
+            f"row {key[0]}:{key[1]}:k={key[2]} fusion strategy must be {expected_strategy!r}"
+        )
+    _validate_expected_fusion_weights(row_fusion, key, errors)
+    _validate_configured_retrieval_identity(row, configured, key, errors)
+
+
+def _expected_retrieval_identity(retriever: str, granularity: str) -> tuple[str, str]:
+    if retriever == "bm25" and granularity == ReferenceGranularity.DOCUMENT.value:
+        return RetrievalMode.BM25_DOCUMENT.value, _FUSION_NONE
+    if retriever == "bm25":
+        return RetrievalMode.BM25.value, _FUSION_NONE
+    if retriever == "dense":
+        return RetrievalMode.DENSE.value, _FUSION_NONE
+    if retriever == "hybrid":
+        return RetrievalMode.HYBRID.value, _FUSION_WEIGHTED_HYBRID
+    if retriever == "rrf":
+        return RetrievalMode.HYBRID.value, _FUSION_RRF
+    return "", _FUSION_NONE
+
+
+def _validate_expected_fusion_weights(
+    fusion: Mapping[str, object],
+    key: tuple[str, str, int],
+    errors: list[str],
+) -> None:
+    if not fusion:
+        return
+    retriever = key[0]
+    if retriever == "rrf" and not _fusion_weights_match(
+        fusion,
+        sparse_weight=_UNWEIGHTED_RRF_WEIGHT,
+        dense_weight=_UNWEIGHTED_RRF_WEIGHT,
+    ):
+        errors.append(f"row {key[0]}:{key[1]}:k={key[2]} rrf fusion must be unweighted")
+
+
+def _validate_configured_retrieval_identity(
+    row: Mapping[str, object],
+    configured: Mapping[str, object] | None,
+    key: tuple[str, str, int],
+    errors: list[str],
+) -> None:
+    if configured is None:
+        return
+    configured_mode = configured.get("retrieval_mode")
+    row_mode = row.get("retrieval_mode")
+    if row_mode != configured_mode:
+        errors.append(
+            f"row {key[0]}:{key[1]}:k={key[2]} retrieval_mode does not match configured row"
+        )
+    configured_fusion = _mapping_or_empty(configured.get("fusion"))
+    row_fusion = _mapping_or_empty(row.get("fusion"))
+    _validate_configured_fusion(configured_fusion, row_fusion, key, errors)
+    configured_signature = _configured_retrieval_signature(configured)
+    row_signature = row.get("retrieval_signature")
+    if row_signature != configured_signature:
+        errors.append(
+            f"row {key[0]}:{key[1]}:k={key[2]} retrieval_signature does not match configured row"
+        )
+    configured_claim_eligible = configured.get("claim_eligible")
+    row_claim_eligible = row.get("claim_eligible")
+    if (
+        isinstance(configured_claim_eligible, bool)
+        and row_claim_eligible != configured_claim_eligible
+    ):
+        errors.append(
+            f"row {key[0]}:{key[1]}:k={key[2]} claim_eligible does not match configured row"
+        )
+
+
+def _validate_configured_fusion(
+    configured_fusion: Mapping[str, object],
+    row_fusion: Mapping[str, object],
+    key: tuple[str, str, int],
+    errors: list[str],
+) -> None:
+    if not configured_fusion or not row_fusion:
+        return
+    errors.extend(
+        f"row {key[0]}:{key[1]}:k={key[2]} fusion {field_name} does not match configured row"
+        for field_name in ("strategy", "algorithm", "canonical_id")
+        if row_fusion.get(field_name) != configured_fusion.get(field_name)
+    )
+    for field_name in ("sparse_weight", "dense_weight"):
+        row_value = row_fusion.get(field_name)
+        configured_value = configured_fusion.get(field_name)
+        if not isinstance(row_value, int | float) or not isinstance(
+            configured_value,
+            int | float,
+        ):
+            errors.append(f"row {key[0]}:{key[1]}:k={key[2]} fusion {field_name} must be numeric")
+            continue
+        if not math.isclose(float(row_value), float(configured_value), rel_tol=0.0, abs_tol=1e-12):
+            errors.append(
+                f"row {key[0]}:{key[1]}:k={key[2]} fusion {field_name} "
+                "does not match configured row"
+            )
+
+
+def _configured_retrieval_signature(configured: Mapping[str, object]) -> str:
+    configured_signature = configured.get("retrieval_signature")
+    if isinstance(configured_signature, str):
+        return configured_signature
+    mode = _string_value(configured.get("retrieval_mode"), fallback="")
+    return _retrieval_signature(mode, _mapping_or_empty(configured.get("fusion")))
+
+
+def _fusion_weights_match(
+    fusion: Mapping[str, object],
+    *,
+    sparse_weight: float,
+    dense_weight: float,
+) -> bool:
+    actual_sparse = fusion.get("sparse_weight")
+    actual_dense = fusion.get("dense_weight")
+    if not isinstance(actual_sparse, int | float) or not isinstance(actual_dense, int | float):
+        return False
+    return _weights_match(
+        float(actual_sparse),
+        float(actual_dense),
+        sparse_weight=sparse_weight,
+        dense_weight=dense_weight,
+    )
+
+
+def _validate_claimable_signature(
+    row: Mapping[str, object],
+    key: tuple[str, str, int],
+    claimable_signatures: dict[tuple[str, str, int], str],
+    errors: list[str],
+) -> None:
+    if row.get("status") != "success" or row.get("claim_eligible") is not True:
+        return
+    row_signature = row.get("retrieval_signature")
+    if not isinstance(row_signature, str):
+        errors.append(f"row {key[0]}:{key[1]}:k={key[2]} missing retrieval_signature")
+        return
+    signature_key = (key[1], row_signature, key[2])
+    row_id = _string_value(row.get("row_id"), fallback=f"{key[0]}:{key[1]}:k={key[2]}")
+    existing = claimable_signatures.get(signature_key)
+    if existing is not None and existing != row_id:
+        errors.append(
+            f"claim-eligible rows {existing} and {row_id} share retrieval_signature "
+            f"{row_signature}"
+        )
+        return
+    claimable_signatures[signature_key] = row_id
 
 
 def _validate_index_cache(report_metadata: Mapping[str, object], errors: list[str]) -> None:
@@ -3089,6 +3391,12 @@ def _float_value(value: object) -> float:
     if isinstance(value, int | float):
         return float(value)
     return 0.0
+
+
+def _string_value(value: object, *, fallback: str) -> str:
+    if isinstance(value, str):
+        return value
+    return fallback
 
 
 def _int_metric(metrics: Mapping[str, object], metric_name: str) -> int:

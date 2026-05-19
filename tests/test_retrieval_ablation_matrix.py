@@ -155,10 +155,11 @@ def _complete_contract_report() -> dict[str, object]:
         hybrid_sparse_weight=1.25,
         hybrid_dense_weight=1.0,
     )
+    configs = [run_retrieval_ablation_matrix._config_from_cell(cell) for cell in cells]
     rows: list[dict[str, object]] = []
     per_query_results: list[dict[str, object]] = []
     diagnostics: list[dict[str, object]] = []
-    for cell in cells:
+    for cell, config in zip(cells, configs, strict=True):
         for top_k in run_retrieval_ablation_matrix.REQUIRED_TOP_K_VALUES:
             row_id = f"{cell.retriever}:{cell.granularity}:k={top_k}"
             shortfall = max(0, top_k - 1) * 2
@@ -220,8 +221,12 @@ def _complete_contract_report() -> dict[str, object]:
                 "retriever": cell.retriever,
                 "granularity": cell.granularity,
                 "retrieval_mode": cell.retrieval_mode.value,
+                "retrieval_signature": cell.retrieval_signature(),
+                "fusion": cell.fusion_payload(),
                 "top_k": top_k,
                 "candidate_budget": cell.candidate_budget(top_k),
+                "candidate_multiplier": cell.candidate_multiplier,
+                "claim_eligible": config.claim_eligible(),
                 "dataset_id": metadata["dataset_id"],
                 "corpus_sha256": metadata["corpus_sha256"],
                 "cases_sha256": metadata["cases_sha256"],
@@ -282,7 +287,11 @@ def _complete_contract_report() -> dict[str, object]:
     return {
         "schema_version": run_retrieval_ablation_matrix.SCHEMA_VERSION,
         "metadata": metadata,
-        "matrix": {"rows": rows},
+        "matrix": {
+            "required_top_k": list(run_retrieval_ablation_matrix.REQUIRED_TOP_K_VALUES),
+            "configured_rows": [config.payload() for config in configs],
+            "rows": rows,
+        },
         "per_query_results": per_query_results,
         "diagnostics": diagnostics,
         "diagnostic_summary": {
@@ -335,6 +344,50 @@ def test_matrix_report_contract_accepts_complete_matrix() -> None:
     assert result.errors == ()
 
 
+def test_required_matrix_cells_distinguish_weighted_hybrid_and_rrf() -> None:
+    cells = run_retrieval_ablation_matrix.required_matrix_cells()
+    hybrid = next(
+        cell for cell in cells if cell.retriever == "hybrid" and cell.granularity == "chunk"
+    )
+    rrf = next(cell for cell in cells if cell.retriever == "rrf" and cell.granularity == "chunk")
+
+    assert hybrid.fusion_strategy == "weighted_sparse_dense"
+    assert hybrid.hybrid_sparse_weight == 1.25
+    assert hybrid.hybrid_dense_weight == 1.0
+    assert rrf.fusion_strategy == "reciprocal_rank_fusion"
+    assert rrf.hybrid_sparse_weight == 1.0
+    assert rrf.hybrid_dense_weight == 1.0
+    assert hybrid.retrieval_signature() != rrf.retrieval_signature()
+
+
+def test_unweighted_hybrid_alias_is_not_claim_eligible() -> None:
+    config = run_retrieval_ablation_matrix.MatrixConfig(
+        retriever="hybrid",
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+        retrieval_mode=run_retrieval_ablation_matrix.RetrievalMode.HYBRID,
+        fusion_strategy="weighted_sparse_dense",
+        sparse_weight=1.0,
+        dense_weight=1.0,
+    )
+
+    assert config.claim_eligible() is False
+
+
+def test_document_labels_collapse_same_document_chunk_aliases() -> None:
+    corpus = run_retrieval_ablation_matrix.CanonicalCorpus.from_reference_map(
+        {"materials/alpha.md": (0, 1), "materials/beta.md": (0,)}
+    )
+
+    labels = run_retrieval_ablation_matrix.canonicalize_case_labels(
+        ["materials/alpha.md#chunk=0", "materials/alpha.md#chunk=1"],
+        [],
+        corpus,
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.DOCUMENT,
+    )
+
+    assert [label.canonical for label in labels.expected] == ["materials/alpha.md"]
+
+
 @pytest.mark.parametrize(
     ("mutator", "expected_fragment"),
     [
@@ -353,6 +406,19 @@ def test_matrix_report_contract_accepts_complete_matrix() -> None:
         (
             lambda rows: rows[0].__setitem__("corpus_sha256", "0" * 64),
             "row bm25:chunk:k=1 corpus_sha256 does not match metadata",
+        ),
+        (
+            lambda rows: _as_dict(rows[-1]).__setitem__(
+                "fusion",
+                {
+                    "strategy": "weighted_sparse_dense",
+                    "algorithm": "weighted_reciprocal_rank_fusion",
+                    "sparse_weight": 1.25,
+                    "dense_weight": 1.0,
+                    "canonical_id": "weighted_sparse_dense:sparse=1.25:dense=1",
+                },
+            ),
+            "fusion strategy must be 'reciprocal_rank_fusion'",
         ),
     ],
 )
@@ -455,7 +521,7 @@ def test_matrix_command_writes_manifest_and_selects_strongest_configuration(
     )
     report_path = tmp_path / "artifacts" / "matrix.json"
     manifest_path = tmp_path / "artifacts" / "artifact-manifest.json"
-    requested_top_k: list[tuple[str, str, int]] = []
+    requested_top_k: list[tuple[str, str, str, float, float, int]] = []
 
     def fake_retrieve(
         _index: object,
@@ -464,7 +530,16 @@ def test_matrix_command_writes_manifest_and_selects_strongest_configuration(
         retrieval_top_k: int,
         _parameters: run_retrieval_ablation_matrix.MatrixParameters,
     ) -> list[ScoredChunk]:
-        requested_top_k.append((cell.retriever, cell.granularity, retrieval_top_k))
+        requested_top_k.append(
+            (
+                cell.retriever,
+                cell.granularity,
+                cell.fusion_strategy,
+                cell.hybrid_sparse_weight,
+                cell.hybrid_dense_weight,
+                retrieval_top_k,
+            )
+        )
         alpha = ScoredChunk(Chunk("alpha", "materials/alpha.md", 0, 0, 5), score=1.0)
         beta = ScoredChunk(Chunk("beta", "materials/beta.md", 0, 0, 4), score=0.9)
         if cell.retriever == "bm25" and cell.granularity == "document":
@@ -527,8 +602,8 @@ def test_matrix_command_writes_manifest_and_selects_strongest_configuration(
     }
     assert "latency" in first_metrics
     assert first_metrics["permission_retrieval_safety_rate"] == 1.0
-    assert ("hybrid", "chunk", 2) in requested_top_k
-    assert ("rrf", "chunk", 2) in requested_top_k
+    assert ("hybrid", "chunk", "weighted_sparse_dense", 1.25, 1.0, 2) in requested_top_k
+    assert ("rrf", "chunk", "reciprocal_rank_fusion", 1.0, 1.0, 2) in requested_top_k
 
 
 def test_matrix_command_excludes_ignored_permissioned_material(
