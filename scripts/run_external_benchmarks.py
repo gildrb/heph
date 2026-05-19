@@ -2423,10 +2423,50 @@ def _base_report(
         "aggregate_metrics": aggregate_metrics,
         "thresholds": _threshold_payload(thresholds),
         "threshold_failures": threshold_failures,
+        "known_limits": _known_limits_for_benchmarks(benchmarks),
         "warnings": warnings,
         "errors": errors,
         "reproducibility": reproducibility,
     }
+
+
+def _known_limits_for_benchmarks(
+    benchmarks: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    entries: list[dict[str, object]] = []
+    if _contains_claim_blocking_repair_diagnostic(benchmarks):
+        entries.append(
+            {
+                "id": "repair-routing-label-scored-diagnostics",
+                "version": "repair-routing-label-scored-diagnostics-v1",
+                "rationale": (
+                    "Repair routing and diagnostic effective-result selection use "
+                    "benchmark labels to measure sufficiency; repaired diagnostics are "
+                    "retained for audits only."
+                ),
+                "limitation": (
+                    "Reports with repair diagnostics are not claim-eligible until repair "
+                    "routing uses observable retrieval/evidence signals only."
+                ),
+                "recorded_before_claim": True,
+                "claim_blocking": True,
+            }
+        )
+    return {
+        "schema_version": claim_report_envelope.KNOWN_LIMITS_SCHEMA_VERSION,
+        "policy_version": claim_report_envelope.KNOWN_LIMITS_POLICY_VERSION,
+        "entries": entries,
+    }
+
+
+def _contains_claim_blocking_repair_diagnostic(
+    benchmarks: Sequence[Mapping[str, object]],
+) -> bool:
+    for benchmark in benchmarks:
+        repair_analysis = benchmark.get("repair_analysis")
+        if isinstance(repair_analysis, Mapping) and repair_analysis.get("claim_blocking") is True:
+            return True
+    return False
 
 
 def _report_id(metadata: Mapping[str, object]) -> str:

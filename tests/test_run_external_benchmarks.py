@@ -907,6 +907,118 @@ def test_enterprise_rag_repair_pass_reports_trace_and_effective_metrics(
     assert repaired_result["retrieved"] == ["materials/beta.md"]
 
 
+def test_enterprise_rag_repair_diagnostics_are_not_claim_eligible(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    suite = _make_external_suite(
+        tmp_path,
+        [
+            {
+                "id": "repairable",
+                "query": "distractor alpha receptor repair target",
+                "expected": ["materials/alpha.md"],
+                "forbidden_before_expected": ["materials/beta.md"],
+            }
+        ],
+    )
+
+    def fake_run_benchmark(
+        _armory_path: Path,
+        cases: Sequence[benchmark_rag.BenchmarkCase],
+        **kwargs: object,
+    ) -> benchmark_rag.BenchmarkReport:
+        results: list[benchmark_rag.CaseResult] = []
+        for case in cases:
+            repaired_query = "distractor" not in case.query.casefold()
+            results.append(
+                _case_result(
+                    case_id=case.case_id,
+                    query=case.query,
+                    retrieved=("materials/alpha.md",)
+                    if repaired_query
+                    else ("materials/beta.md",),
+                    hit=repaired_query,
+                    rank=1 if repaired_query else None,
+                    forbidden_rank=None if repaired_query else 1,
+                    forbidden_ok=repaired_query,
+                )
+            )
+        retrieval_mode = cast(
+            "run_external_benchmarks.RetrievalMode",
+            kwargs["retrieval_mode"],
+        )
+        top_k = cast("int", kwargs["top_k"])
+        return _benchmark_report(
+            retrieval_mode=retrieval_mode.value,
+            top_k=top_k,
+            results=tuple(results),
+        )
+
+    monkeypatch.setattr(
+        run_external_benchmarks.benchmark_rag,
+        "run_benchmark",
+        fake_run_benchmark,
+    )
+    report_path = tmp_path / "reports" / "repair-repro.json"
+
+    status = run_external_benchmarks.main(
+        [
+            "enterprise-rag",
+            "enterprise-rag-bench",
+            "--suite",
+            str(suite),
+            "--top-k",
+            "1",
+            "--repair-max-passes",
+            "2",
+            "--validate-reproducibility",
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = _read_report(report_path)
+    benchmark = _as_dict(_as_list(report["benchmarks"])[0])
+    analysis = _as_dict(benchmark["repair_analysis"])
+    diagnostic_metrics = _as_dict(analysis["diagnostic_effective_metrics"])
+    envelope = _as_dict(report["claim_envelope"])
+    known_limits = _as_dict(report["known_limits"])
+    known_limit_entries = [_as_dict(row) for row in _as_list(known_limits["entries"])]
+    result = _as_dict(_as_list(benchmark["per_query_results"])[0])
+
+    assert status == 0
+    assert _as_dict(report["reproducibility"])["status"] == "passed"
+    assert _as_dict(benchmark["metrics"])["hit_rate"] == 0.0
+    assert diagnostic_metrics["hit_rate"] == 1.0
+    assert analysis["claim_eligible"] is False
+    assert analysis["claim_blocking"] is True
+    assert analysis["claim_path"] == "original_retrieval_only"
+    assert _as_dict(analysis["measurement"])["oracle_free_routing"] is False
+    assert result["retrieved"] == ["materials/beta.md"]
+    assert envelope["claim_eligible"] is False
+    assert "claim-blocking known_limits entry is present" in _as_list(
+        envelope["ineligibility_reasons"]
+    )
+    assert known_limit_entries == [
+        {
+            "claim_blocking": True,
+            "id": "repair-routing-label-scored-diagnostics",
+            "limitation": (
+                "Reports with repair diagnostics are not claim-eligible until repair "
+                "routing uses observable retrieval/evidence signals only."
+            ),
+            "rationale": (
+                "Repair routing and diagnostic effective-result selection use "
+                "benchmark labels to measure sufficiency; repaired diagnostics are "
+                "retained for audits only."
+            ),
+            "recorded_before_claim": True,
+            "version": "repair-routing-label-scored-diagnostics-v1",
+        }
+    ]
+
+
 def test_runner_cli_top_k_overrides_case_top_k(tmp_path: Path) -> None:
     suite = _make_external_suite(
         tmp_path,
