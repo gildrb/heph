@@ -202,6 +202,8 @@ dependencies are installed.
 
 With `uv sync --group rag`, retrieval can use BM25, hybrid sparse plus
 embedding retrieval, cross-encoder re-ranking, and query transformation.
+Hybrid pseudo-feedback favors distinctive corpus terms so expansion reinforces
+specific evidence instead of repeated boilerplate.
 
 Document files such as PDF, DOCX, PPTX, XLSX, ODT, ODS, ODP, and RTF are
 converted into Markdown before indexing.

@@ -236,25 +236,19 @@ class HybridRetriever:
         return self._sparse.retrieve(feedback_query, top_k=pool)
 
     def _feedback_query(self, query: str, sparse_results: list[ScoredChunk]) -> str:
+        self._ensure_feedback_state()
         query_terms = set(tokenize(query))
         scored_terms: Counter[str] = Counter()
         for rank, result in enumerate(sparse_results[: self._feedback_docs], start=1):
-            terms = tokenize(
-                "\n".join(
-                    part
-                    for part in (
-                        result.chunk.heading,
-                        result.chunk.text,
-                        result.chunk.source,
-                    )
-                    if part
-                )
-            )
+            cached_terms = self._feedback_tokens.get((result.chunk.source, result.chunk.index))
+            terms = cached_terms if cached_terms is not None else tokenize(result.chunk.text)
+            terms = [*terms, *tokenize(result.chunk.source)]
             local_counts = Counter(
                 term for term in terms if len(term) >= 3 and term not in query_terms
             )
             for term, count in local_counts.items():
-                scored_terms[term] += count / rank
+                idf = 1.0 if self._feedback_idf is None else self._feedback_idf.get(term, 1.0)
+                scored_terms[term] += (count * idf) / rank
         feedback_terms = [term for term, _score in scored_terms.most_common(self._feedback_terms)]
         if not feedback_terms:
             return query

@@ -1087,6 +1087,29 @@ class TestHybridRetriever:
         assert feedback_query.startswith("alpha ")
         assert "rareterm" in feedback_query
 
+    def test_pseudo_feedback_prefers_distinctive_terms_over_repeated_boilerplate(
+        self,
+    ) -> None:
+        chunks = [
+            _make_chunk(
+                "alpha common common common raretarget raretarget",
+                "seed.md",
+                0,
+            ),
+            _make_chunk("common filler", "common-a.md", 0),
+            _make_chunk("common another", "common-b.md", 0),
+            _make_chunk("common third", "common-c.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+        hybrid = HybridRetriever(index, pseudo_feedback=True, pseudo_feedback_terms=1)
+
+        feedback_query = hybrid._feedback_query(
+            "alpha",
+            [ScoredChunk(chunk=chunks[0], score=1.0)],
+        )
+
+        assert feedback_query == "alpha raretarget"
+
     def test_empty_results_from_both(self) -> None:
         chunks = [_make_chunk("unrelated", "a.md", 0)]
         index = _make_index_with_chunks(chunks)
