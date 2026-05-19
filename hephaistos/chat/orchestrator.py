@@ -2160,7 +2160,8 @@ def _overview_answer_has_bad_shape(
             for citation_id in citation_ids
             if citation_id.casefold() in source_by_id
         }
-        if len(cited_sources) < min(_OVERVIEW_MIN_DISTINCT_SOURCES, len(source_by_id)):
+        available_source_count = len(set(source_by_id.values()))
+        if len(cited_sources) < min(_OVERVIEW_MIN_DISTINCT_SOURCES, available_source_count):
             return True
     bullet_lines = [
         line.strip() for line in raw_reply.splitlines() if line.lstrip().startswith(("- ", "* "))

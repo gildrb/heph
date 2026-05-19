@@ -1468,6 +1468,22 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
     )
 
 
+def test_overview_shape_accepts_multiple_chunks_from_one_source() -> None:
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk("materials/lecture.pdf", 0, "E1"),
+        _make_evidence_chunk("materials/lecture.pdf", 1, "E2"),
+    )
+
+    assert not _overview_answer_has_bad_shape(
+        "These are the topics I found in the material [E1][E2].\n"
+        "- Graph algorithms [E1].\n"
+        "- Recurrence relations [E2].\n"
+        "- Bayes theorem [E1].\n"
+        "Use the shell menu to choose one cited topic for guided learning next.",
+        evidence,
+    )
+
+
 @patch("hephaistos.chat.orchestrator.iter_agent_events")
 @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
 @patch("hephaistos.chat.orchestrator.plan_turn")
