@@ -6,10 +6,9 @@ import contextlib
 import re
 import threading
 import urllib.error
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from html import unescape
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hephaistos._types import is_string_mapping, parse_json_object_fragment
@@ -96,7 +95,7 @@ from hephaistos.study import (
     recall_clarification_plan,
     validate_pedagogy,
 )
-from hephaistos.study.priority import PriorityWebSearcher, analyze_priority, duckduckgo_search
+from hephaistos.study.priority import PriorityWebSearcher, analyze_priority
 from hephaistos.study.schedule import StudyItemState, load_study_schedule, save_study_schedule
 
 if TYPE_CHECKING:
@@ -224,7 +223,6 @@ _GUIDED_TOPIC_MENU_REQUEST_RE = re.compile(
 )
 _MAX_INTERNAL_PASSES = 3
 _OVERVIEW_REQUIRED_SHAPE: tuple[str, ...] = ()
-_LOCAL_OVERVIEW_SOURCE_THRESHOLD = 20
 _OVERVIEW_FORBIDDEN_SHAPE = (
     "corpus-level claim",
     "document signal",
@@ -358,14 +356,6 @@ _OVERVIEW_COURSE_TITLE_RE = re.compile(
     r"\b(?:"
     r"(?:module|modul|course|cours|curso|vorlesung|lecture)\s*[:#]?\s*[\w.-]*|"
     r"(?:[\w+-]+\s+){1,5}(?:[ivx]{1,4}|\d{1,4})"
-    r")\b",
-    re.IGNORECASE,
-)
-_OVERVIEW_CONTENT_CUE_RE = re.compile(
-    r"\b(?:"
-    r"abstract|aims?|aufgabe|beispiel|chapter|definition|example|exercise|goals?|"
-    r"inhaltsverzeichnis|introduction|lemma|learning\s+outcomes?|method|objectives?|"
-    r"problem|proof|question|satz|summary|theorem|topics?|überblick|uebung|übung"
     r")\b",
     re.IGNORECASE,
 )
@@ -1091,6 +1081,8 @@ def _run_bounded_internal_repairs(
     """Run a bounded generate->grounding->pedagogy repair loop."""
     repaired = reply
     passes = 1  # pass 1 = initial model generation
+    if _overview_turn(plan) and repaired == _overview_unavailable_reply():
+        return repaired, passes
     for _ in range(_MAX_INTERNAL_PASSES - 1):
         previous = repaired
         repaired = _apply_grounding_repairs(plan, repaired, evidence)
@@ -1349,216 +1341,35 @@ def _overview_fallback_reply(
     *,
     user_input: str = "",
     config: ChatConfig | None = None,
-    web_searcher: PriorityWebSearcher | None = None,
 ) -> str:
-    """Return a conservative local overview when model grounding is unusable."""
+    """Return a constrained model repair when the first overview answer is unusable."""
     if not _overview_turn(plan) or evidence is None or not evidence.items:
         return ""
 
-    use_english_request = _should_append_english_guided_menu(user_input)
-    offer_topic_menu = _should_offer_guided_topic_menu(user_input)
-    if not use_english_request:
-        localized_reply = _overview_model_fallback_reply(
+    model_reply = _overview_model_fallback_reply(
+        plan,
+        evidence,
+        user_input=user_input,
+        config=config,
+    )
+    if not model_reply:
+        return ""
+    if _should_offer_guided_topic_menu(user_input):
+        return _append_guided_choice_menu(
             plan,
+            model_reply,
             evidence,
             user_input=user_input,
             config=config,
         )
-        if localized_reply:
-            return localized_reply
+    return model_reply
 
-    if not offer_topic_menu:
-        return _overview_general_fallback_reply(plan, evidence)
 
-    topic_items = _overview_model_topic_items(
-        evidence,
-        user_input=user_input,
-        config=config,
-    ) or _overview_topic_items(
-        evidence,
-        web_searcher=web_searcher,
+def _overview_unavailable_reply() -> str:
+    return (
+        "I could not produce a grounded material overview from the current model output. "
+        "Please try again or narrow the request to one file or concept."
     )
-    if not topic_items:
-        return _overview_general_fallback_reply(plan, evidence)
-
-    recommendations = _overview_recommendation_items(evidence, topic_items)
-
-    lines = [_OVERVIEW_TOPIC_SECTION_HEADING]
-    lines.extend(f"- {topic}" for topic in topic_items[:_OVERVIEW_TOPIC_LIMIT])
-    lines.append("")
-    lines.append(_OVERVIEW_TOPIC_MENU_PROMPT)
-    if recommendations:
-        lines.append("")
-        lines.append(_OVERVIEW_RECOMMENDATIONS_HEADING)
-        lines.extend(f"- {recommendation}" for recommendation in recommendations)
-    return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
-
-
-def _large_corpus_local_overview_reply(
-    plan: StudyTurnPlan,
-    evidence: TurnEvidence | None,
-    *,
-    user_input: str,
-) -> str:
-    """Return a concise deterministic overview for medium or large English corpora."""
-    if (
-        not _overview_turn(plan)
-        or evidence is None
-        or not evidence.items
-        or not _should_append_english_guided_menu(user_input)
-    ):
-        return ""
-    total_sources = evidence.total_source_count or len({item.source for item in evidence.items})
-    if total_sources < _LOCAL_OVERVIEW_SOURCE_THRESHOLD:
-        return ""
-    return _overview_general_fallback_reply(plan, evidence)
-
-
-def _overview_general_fallback_reply(
-    plan: StudyTurnPlan,
-    evidence: TurnEvidence,
-) -> str:
-    """Return a cited corpus overview without turning the request into a topic menu."""
-
-    source_group_items = _overview_source_group_items(evidence)
-    topic_items = _overview_topic_items(evidence, web_searcher=None)
-    role_items = _overview_role_items(evidence)
-    opening_citations = _overview_first_evidence_citations(evidence, limit=2)
-
-    topic_labels: list[str] = []
-    topic_evidence_ids: list[str] = []
-    for topic in topic_items:
-        label, citation = _split_overview_citation(topic)
-        evidence_id = citation.strip("[]")
-        if not label or label in topic_labels:
-            continue
-        topic_labels.append(label)
-        if evidence_id:
-            topic_evidence_ids.append(evidence_id)
-        if len(topic_labels) >= 4:
-            break
-    if len(topic_labels) < 2:
-        for label, evidence_id in source_group_items:
-            if not label or label in topic_labels:
-                continue
-            topic_labels.append(label)
-            topic_evidence_ids.append(evidence_id)
-            if len(topic_labels) >= 4:
-                break
-    topic_citations = _overview_citations_from_ids(topic_evidence_ids)
-    if not topic_labels:
-        topic_labels = _overview_content_clues(evidence, limit=3)
-        topic_citations = opening_citations
-    if not topic_labels:
-        return ""
-
-    role_labels = [label for label, _evidence_id in role_items[:4]]
-    role_citations = _overview_citations_from_ids(
-        evidence_id for _label, evidence_id in role_items
-    )
-    if not role_labels:
-        role_labels = ["searchable material"]
-        role_citations = opening_citations
-
-    lines = [
-        (
-            f"The enabled materials include {_overview_join_labels(role_labels)}. "
-            f"{role_citations or opening_citations}"
-        ).strip(),
-    ]
-
-    if topic_labels:
-        lines.append(
-            f"- Content areas visible in the cited excerpts include "
-            f"{_overview_join_labels(topic_labels)}. {topic_citations or opening_citations}"
-        )
-
-    content_clues = _overview_content_clues(evidence, limit=4)
-    if content_clues:
-        lines.extend(f"- {clue}" for clue in content_clues)
-    elif not topic_labels:
-        lines.append(
-            f"- The available excerpts are searchable source material. {opening_citations}"
-        )
-
-    return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
-
-
-def _overview_source_group_items(evidence: TurnEvidence) -> list[tuple[str, str]]:
-    """Return broad corpus labels from source group prefixes with citations."""
-    groups: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    for item in evidence.items:
-        label = _overview_source_group_label(item.source)
-        normalized = _normalize_overview_topic(label)
-        if not label or normalized in seen:
-            continue
-        seen.add(normalized)
-        groups.append((label, item.evidence_id))
-    return groups
-
-
-def _overview_source_group_label(source: str) -> str:
-    stem = Path(source).stem
-    if "-" in stem:
-        prefix = stem.split("-", maxsplit=1)[0]
-        if " " in prefix or "," in prefix:
-            stem = prefix
-    label = _clean_overview_line(stem.replace("_", " "))
-    if not label or len(label) > 80:
-        return ""
-    normalized = label.casefold()
-    if normalized in {"materials", "public", "uploads", "untitled"}:
-        return ""
-    if "wiki import" in normalized or "upload" in normalized:
-        return ""
-    if _overview_line_looks_like_metadata(label):
-        return ""
-    return label
-
-
-def _overview_role_items(evidence: TurnEvidence) -> list[tuple[str, str]]:
-    """Return diverse role labels with citation IDs from overview evidence."""
-    by_role: dict[str, str] = {}
-    for item in evidence.items:
-        role, confidence, _reason = infer_material_role_from_text(item.source, item.content)
-        if confidence < 0.6 and role != "reference":
-            continue
-        by_role.setdefault(_overview_role_label(role), item.evidence_id)
-    return list(by_role.items())
-
-
-def _overview_first_evidence_citations(evidence: TurnEvidence, *, limit: int) -> str:
-    return _overview_citations_from_ids(item.evidence_id for item in evidence.items[:limit])
-
-
-def _overview_citations_from_items(items: Sequence[str]) -> str:
-    return _overview_citations_from_ids(
-        _overview_first_citation(item).strip("[]") for item in items
-    )
-
-
-def _overview_citations_from_ids(ids: Iterable[str]) -> str:
-    citations: list[str] = []
-    seen: set[str] = set()
-    for raw_id in ids:
-        evidence_id = raw_id.strip().upper()
-        if not evidence_id or evidence_id in seen:
-            continue
-        seen.add(evidence_id)
-        citations.append(f"[{evidence_id}]")
-    return "".join(citations)
-
-
-def _overview_join_labels(labels: Sequence[str]) -> str:
-    clean_labels = [label.strip(" .") for label in labels if label.strip(" .")]
-    if not clean_labels:
-        return "the cited material"
-    if len(clean_labels) == 1:
-        return clean_labels[0]
-    if len(clean_labels) == 2:
-        return f"{clean_labels[0]} and {clean_labels[1]}"
-    return ", ".join(clean_labels[:-1]) + f", and {clean_labels[-1]}"
 
 
 def _append_guided_choice_menu(
@@ -1677,29 +1488,6 @@ def _overview_role_label(role: str) -> str:
     return _OVERVIEW_ROLE_LABELS.get(role, role.replace("_", " "))
 
 
-def _overview_content_clues(evidence: TurnEvidence, *, limit: int = 8) -> list[str]:
-    """Return readable, cited content cues without depending on a subject or language."""
-    candidates: list[tuple[str, str, str]] = []
-    seen_sources: set[str] = set()
-    for item in evidence.items:
-        if item.source in seen_sources:
-            continue
-        cue = _overview_content_cue(item.content)
-        if not cue:
-            continue
-        seen_sources.add(item.source)
-        role, _confidence, _reason = infer_material_role_from_text(item.source, item.content)
-        if role == "past_exam":
-            cue = "exam-style questions or structured assessment prompts"
-        elif role == "assignment":
-            cue = "exercise or assignment prompts"
-        candidates.append((role, f"{_material_label(item.source)}: {cue}", item.evidence_id))
-    return [
-        f"{label} [{evidence_id}]"
-        for _role, label, evidence_id in _select_role_diverse_items(candidates, limit=limit)
-    ]
-
-
 def _select_role_diverse_items(
     candidates: list[tuple[str, str, str]],
     *,
@@ -1724,49 +1512,11 @@ def _select_role_diverse_items(
     return selected
 
 
-def _overview_content_cue(text: str) -> str:
-    lines = [_clean_overview_line(line) for line in unescape(text).splitlines()]
-    candidates = [line for line in lines if _overview_line_is_content_cue(line)]
-    if not candidates:
-        sentences = re.split(r"(?<=[.!?])\s+", " ".join(unescape(text).split()))
-        candidates = [
-            _clean_overview_line(sentence)
-            for sentence in sentences
-            if _overview_line_is_content_cue(_clean_overview_line(sentence))
-        ]
-    if not candidates:
-        candidates = [
-            _clean_overview_line(line)
-            for line in lines
-            if 18 <= len(line) <= 140 and not _overview_line_looks_like_metadata(line)
-        ]
-    if not candidates:
-        return ""
-    return _trim_overview_cue(candidates[0])
-
-
 def _clean_overview_line(line: str) -> str:
     cleaned = " ".join(unescape(line).strip().split())
     cleaned = cleaned.replace("[... truncated]", "").strip()
     cleaned = _OVERVIEW_LINE_MARKER_RE.sub("", cleaned).strip()
     return cleaned.strip(" -:;")
-
-
-def _overview_line_is_content_cue(line: str) -> bool:
-    if not 8 <= len(line) <= 180:
-        return False
-    if _overview_line_looks_like_metadata(line):
-        return False
-    normalized = line.casefold()
-    if normalized in _OVERVIEW_TOPIC_STOPWORDS:
-        return False
-    if normalized.startswith(("http://", "https://")):
-        return False
-    if "ocw.mit.edu" in normalized:
-        return False
-    if re.fullmatch(r"(?:question|aufgabe|problem|exercise)\s+\d+[a-z]?", normalized):
-        return False
-    return bool(_OVERVIEW_CONTENT_CUE_RE.search(line) or _OVERVIEW_FORMULA_RE.search(line))
 
 
 def _overview_line_looks_like_metadata(line: str) -> bool:
@@ -2138,12 +1888,6 @@ def _overview_topic_sentence(evidence: TurnEvidence) -> str:
     if not topic_clues:
         return ""
     return ", ".join(topic_clues)
-
-
-def _overview_default_web_searcher(evidence: TurnEvidence | None) -> PriorityWebSearcher | None:
-    if evidence is None or not evidence.items:
-        return None
-    return duckduckgo_search
 
 
 def _overview_subject_hint(evidence: TurnEvidence) -> str:
@@ -2757,29 +2501,6 @@ class TurnOrchestrator:
             yield from _final_reply_events(final_reply)
             return
 
-        if local_overview_reply := _large_corpus_local_overview_reply(
-            plan,
-            resolved.turn_evidence,
-            user_input=user_input,
-        ):
-            if notice := _writing_notice(plan):
-                yield NoticeEvent(notice, code="writing")
-            session.study_state, final_reply = apply_turn_result(
-                original_study_state,
-                plan,
-                local_overview_reply,
-                _evidence_refs(resolved.turn_evidence),
-            )
-            self.last_reply = final_reply
-            self.last_internal_passes = 1
-            if final_reply and (
-                not session.conversation.messages
-                or session.conversation.messages[-1].role != "assistant"
-            ):
-                session.conversation.add("assistant", final_reply)
-            yield from _final_reply_events(final_reply)
-            return
-
         if notice := _writing_notice(plan):
             yield NoticeEvent(notice, code="writing")
 
@@ -2835,6 +2556,7 @@ class TurnOrchestrator:
             self.last_reply = "".join(last_reply_parts)
 
         if not raw_reply:
+            localize_fallback_reply = True
             fallback_reply = _source_qa_fallback_reply(plan, resolved.turn_evidence)
             if not fallback_reply:
                 fallback_reply = _overview_fallback_reply(
@@ -2842,19 +2564,23 @@ class TurnOrchestrator:
                     resolved.turn_evidence,
                     user_input=user_input,
                     config=session.config,
-                    web_searcher=_overview_default_web_searcher(resolved.turn_evidence),
                 )
+                localize_fallback_reply = not bool(fallback_reply)
             if not fallback_reply:
-                fallback_reply = (
-                    "PARTIAL: I could not generate a grounded assessment. Please try again."
-                    if plan.action is StudyAction.ASSESS
-                    else "I could not generate a prompt. Please try again."
+                if _overview_turn(plan):
+                    fallback_reply = _overview_unavailable_reply()
+                else:
+                    fallback_reply = (
+                        "PARTIAL: I could not generate a grounded assessment. Please try again."
+                        if plan.action is StudyAction.ASSESS
+                        else "I could not generate a prompt. Please try again."
+                    )
+            if localize_fallback_reply:
+                fallback_reply = _localize_deterministic_reply(
+                    fallback_reply,
+                    user_input=user_input,
+                    config=session.config,
                 )
-            fallback_reply = _localize_deterministic_reply(
-                fallback_reply,
-                user_input=user_input,
-                config=session.config,
-            )
             session.study_state, final_reply = apply_turn_result(
                 original_study_state,
                 plan,
@@ -2877,11 +2603,14 @@ class TurnOrchestrator:
                 resolved.turn_evidence,
                 user_input=user_input,
                 config=session.config,
-                web_searcher=_overview_default_web_searcher(resolved.turn_evidence),
             )
             if fallback_reply:
                 raw_reply = fallback_reply
                 visible_reply = fallback_reply
+                used_overview_fallback = True
+            else:
+                raw_reply = _overview_unavailable_reply()
+                visible_reply = raw_reply
                 used_overview_fallback = True
 
         if not used_overview_fallback:

@@ -42,10 +42,10 @@ from hephaistos.chat.evidence import (
 )
 from hephaistos.chat.orchestrator import (
     TurnOrchestrator,
+    _append_guided_choice_menu,
     _evidence_notice,
     _evidence_notice_metadata,
     _insufficient_evidence_reply,
-    _large_corpus_local_overview_reply,
     _localize_deterministic_reply,
     _model_normalized_study_plan,
     _needs_overview_fallback,
@@ -136,6 +136,13 @@ def _make_study_session() -> ChatSession:
     )
     object.__setattr__(session, "trace", MagicMock())
     return session
+
+
+def _make_overview_model_config() -> ChatConfig:
+    config = ChatConfig()
+    config.base_url = "https://local.test/v1"
+    config.model = "overview-repair"
+    return config
 
 
 def _make_study_plan(
@@ -1171,7 +1178,10 @@ def test_evidence_notice_hides_calibration_evidence() -> None:
     assert _evidence_notice(ResolvedTurnPlan(study_plan=plan, turn_evidence=evidence)) == ""
 
 
-def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_overview_fallback_reply_uses_model_repair_with_citations(
+    mock_stream: MagicMock,
+) -> None:
     plan = _make_study_plan(
         action=StudyAction.PRESENT,
         retrieval_query="what is the material about",
@@ -1195,22 +1205,28 @@ def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
         sampled_source_count=2,
         total_source_count=9,
     )
+    repaired_reply = (
+        "The material looks like a course collection about graph algorithms, "
+        "recurrence-based problem solving, and exam practice [E1][E2].\n"
+        "- The lecture excerpt points to graph algorithms and recurrence as core concepts [E1].\n"
+        "- The exam excerpt shows assessment-style practice with point-bearing questions [E2]."
+    )
+    mock_stream.return_value = iter([CompletionDelta(content=repaired_reply)])
 
-    reply = _overview_fallback_reply(plan, evidence)
+    reply = _overview_fallback_reply(
+        plan,
+        evidence,
+        config=_make_overview_model_config(),
+    )
 
-    assert "The enabled materials include" in reply
+    assert reply == repaired_reply
+    mock_stream.assert_called_once()
+    assert "The enabled materials include" not in reply
     assert "These are the topics I found in the material:" not in reply
     assert "Choose a topic to explore next" not in reply
-    assert "Retrieved overview sample" not in reply
-    assert "not an exhaustive summary" not in reply
-    assert "indexed sources" not in reply
-    assert "corpus-level claim" not in reply
-    assert "document signal" not in reply.casefold()
-    assert "Other material signals" not in reply
-    assert "sampled" not in reply.casefold()
     assert "graph algorithms" in reply.casefold()
     assert "recurrence" in reply.casefold()
-    assert "exam-style questions or structured assessment prompts [E2]" in reply
+    assert "assessment-style practice" in reply
     assert "[E2]" in reply
     assert "[E1]" in reply
 
@@ -1234,19 +1250,29 @@ def test_overview_topic_menu_uses_document_headings_when_requested() -> None:
             "## Protein Folding\nThe lecture discusses native states and denaturation.",
         ),
     )
+    model_reply = (
+        "The material introduces biochemical concepts through lecture notes [E1][E2].\n"
+        "- Enzyme kinetics appears through reaction-rate models [E1].\n"
+        "- Protein folding appears through native states and denaturation [E2]."
+    )
 
-    reply = _overview_fallback_reply(
+    reply = _append_guided_choice_menu(
         plan,
+        model_reply,
         evidence,
         user_input="which topics should I study?",
     )
 
+    assert reply.startswith("The material introduces biochemical concepts")
     assert "Enzyme Kinetics [E1]" in reply
     assert "Protein Folding [E2]" in reply
     assert "Choose a topic to explore next" in reply
 
 
-def test_overview_fallback_does_not_append_english_menu_for_non_latin_request() -> None:
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_overview_fallback_preserves_model_repair_without_english_menu_for_german_request(
+    mock_stream: MagicMock,
+) -> None:
     plan = _make_study_plan(
         action=StudyAction.PRESENT,
         retrieval_query="what is the material about",
@@ -1265,9 +1291,23 @@ def test_overview_fallback_does_not_append_english_menu_for_non_latin_request() 
             "Lecture notes. Dynamic programming uses recurrence relations to build solutions.",
         ),
     )
+    repaired_reply = (
+        "Die Materialien geben einen Überblick über Graphalgorithmen, Rekurrenzen und "
+        "dynamische Programmierung [E1][E2].\n"
+        "- Der erste Auszug nennt Graphalgorithmen und Rekurrenzen als zentrale Themen [E1].\n"
+        "- Der zweite Auszug verbindet dynamische Programmierung mit rekurrenten "
+        "Lösungsaufbauten [E2]."
+    )
+    mock_stream.return_value = iter([CompletionDelta(content=repaired_reply)])
 
-    reply = _overview_fallback_reply(plan, evidence, user_input="这些文件讲什么?")
+    reply = _overview_fallback_reply(
+        plan,
+        evidence,
+        user_input="um was geht es in den dateien?",
+        config=_make_overview_model_config(),
+    )
 
+    assert reply == repaired_reply
     assert "[E1]" in reply
     assert "[E2]" in reply
     assert "These are the topics" not in reply
@@ -1275,7 +1315,8 @@ def test_overview_fallback_does_not_append_english_menu_for_non_latin_request() 
     assert "Recommended options" not in reply
 
 
-def test_overview_fallback_satisfies_answer_shape_contract() -> None:
+@patch("hephaistos.chat.orchestrator.stream_completion")
+def test_overview_fallback_satisfies_answer_shape_contract(mock_stream: MagicMock) -> None:
     plan = _make_study_plan(
         action=StudyAction.PRESENT,
         retrieval_query="what is the material about",
@@ -1294,14 +1335,26 @@ def test_overview_fallback_satisfies_answer_shape_contract() -> None:
             "Final exam. Question 2. Points: 10.",
         ),
     )
-    reply = _overview_fallback_reply(plan, evidence)
+    repaired_reply = (
+        "The material looks like a course collection about graph algorithms, "
+        "recurrence-based problem solving, and exam practice [E1][E2].\n"
+        "- The lecture excerpt points to graph algorithms and recurrence as core concepts [E1].\n"
+        "- The exam excerpt shows assessment-style practice with point-bearing questions [E2]."
+    )
+    mock_stream.return_value = iter([CompletionDelta(content=repaired_reply)])
+    reply = _overview_fallback_reply(
+        plan,
+        evidence,
+        config=_make_overview_model_config(),
+    )
     case = benchmark_answers.AnswerCase(
         case_id="overview-fallback",
         answer=reply,
         evidence=evidence,
         expected_citations=("E1", "E2"),
-        must_include=("Content areas", "exam-style"),
+        must_include=("graph algorithms", "assessment-style"),
         must_not_include=(
+            "The enabled materials include",
             "the files cover",
             "no evidence citations",
             "sampled orientation",
@@ -1415,54 +1468,13 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
     )
 
 
-def test_large_corpus_local_overview_is_concise_cited_and_not_boilerplate() -> None:
-    plan = material_overview_plan("what is the material about")
-    evidence = TurnEvidence(
-        items=(
-            _make_evidence_chunk(
-                "materials/linear-algebra.md",
-                0,
-                "E1",
-                "Lecture notes. Linear algebra studies vectors, matrices, bases, and rank.",
-            ),
-            _make_evidence_chunk(
-                "materials/graph-search-exam.pdf",
-                0,
-                "E2",
-                "Final exam. Explain breadth-first search and depth-first search. Points: 10.",
-            ),
-            _make_evidence_chunk(
-                "materials/dynamic-programming-slides.pdf",
-                0,
-                "E3",
-                "Lecture slides. Dynamic programming compares recursive and iterative methods.",
-            ),
-        ),
-        sampled_source_count=32,
-        total_source_count=382,
-    )
-
-    reply = _large_corpus_local_overview_reply(
-        plan,
-        evidence,
-        user_input="what is the material about",
-    )
-
-    assert reply
-    assert "- " in reply
-    assert "[E1]" in reply
-    assert "[E2]" in reply
-    assert "Visible topics" not in reply
-    assert "Sampled orientation" not in reply
-    assert "non-exhaustive" not in reply
-    assert not _overview_answer_has_bad_shape(reply, evidence)
-
-
+@patch("hephaistos.chat.orchestrator.iter_agent_events")
 @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
 @patch("hephaistos.chat.orchestrator.plan_turn")
-def test_large_corpus_local_overview_emits_turn_complete(
+def test_large_corpus_overview_uses_model_path(
     mock_plan_turn: MagicMock,
     mock_resolve_evidence: MagicMock,
+    mock_iter_agent: MagicMock,
 ) -> None:
     plan = material_overview_plan("what is the material about")
     evidence = TurnEvidence(
@@ -1485,17 +1497,41 @@ def test_large_corpus_local_overview_emits_turn_complete(
     )
     mock_plan_turn.return_value = plan
     mock_resolve_evidence.return_value = evidence
-
-    events = list(
-        TurnOrchestrator(_make_study_session()).iter_events("what is the material about")
+    model_reply = (
+        "The material is a compact academic computing collection spanning linear algebra, "
+        "graph search, and dynamic programming, with both explanatory notes and "
+        "assessment-style practice [E1][E2].\n"
+        "- The notes introduce vectors, matrices, bases, and rank as conceptual "
+        "foundations [E1].\n"
+        "- The exam material asks students to explain breadth-first and depth-first "
+        "search, so the collection also includes practice-oriented algorithm questions [E2]."
     )
+    mock_iter_agent.return_value = iter(
+        [
+            AssistantDeltaEvent(model_reply),
+            TurnCompleteEvent(
+                full_text=model_reply,
+                turn_index=3,
+                latency_ms=12.5,
+                finish_reason="stop",
+                tokens_remaining=999,
+            ),
+        ]
+    )
+    session = _make_study_session()
+    session.config.base_url = "https://local.test/v1"
+    session.config.model = "overview-model"
+
+    events = list(TurnOrchestrator(session).iter_events("what is the material about"))
 
     deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
     completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
+    mock_iter_agent.assert_called_once()
     assert len(deltas) == 1
     assert len(completions) == 1
     assert completions[0].full_text == deltas[0]
-    assert completions[0].finish_reason == "fallback"
+    assert completions[0].finish_reason == "stop"
+    assert "The enabled materials include" not in deltas[0]
 
 
 def test_overview_shape_rejects_non_topic_menu_labels() -> None:
@@ -1699,9 +1735,15 @@ def test_overview_fallback_unescapes_content_and_filters_exam_noise_topics() -> 
             """,
         ),
     )
+    model_reply = (
+        "The material introduces series concepts and assessment material [E1][E2].\n"
+        "- Geometric series appear through convergence conditions [E1].\n"
+        "- The assessment excerpt contains exercise-style prompts [E2]."
+    )
 
-    reply = _overview_fallback_reply(
+    reply = _append_guided_choice_menu(
         plan,
+        model_reply,
         evidence,
         user_input="which topics should I study?",
     )
@@ -2758,7 +2800,13 @@ class TestTurnOrchestratorStudy:
         )
         mock_plan_turn.return_value = plan
         mock_resolve_evidence.return_value = evidence
-        mock_iter_agent.return_value = iter([AssistantDeltaEvent("Here is a synthesis [E1][E2].")])
+        model_reply = (
+            "The sampled material looks like a two-part lecture collection with related "
+            "conceptual notes [E1][E2].\n"
+            "- The first lecture excerpt provides one cited slice of the collection [E1].\n"
+            "- The second lecture excerpt provides another cited slice for comparison [E2]."
+        )
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
 
         session = _make_study_session()
         orch = TurnOrchestrator(session)
@@ -2809,9 +2857,12 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.return_value = iter(
             [
                 AssistantDeltaEvent(
-                    "Die Unterlagen geben einen Überblick über Analysis [E1] [E2].\n"
-                    "- Reihen und Konvergenzkriterien sind ein Schwerpunkt [E1].\n"
-                    "- Taylor-Polynome und lineare Approximationen kommen dazu [E2]."
+                    "Die Unterlagen geben einen zusammenhängenden Überblick über zentrale "
+                    "Analysis-Themen und passende mathematische Werkzeuge [E1] [E2].\n"
+                    "- Reihen und Konvergenzkriterien bilden einen sichtbaren Schwerpunkt "
+                    "der ersten Unterlage [E1].\n"
+                    "- Taylor-Polynome und lineare Approximationen ergänzen diesen Schwerpunkt "
+                    "in der zweiten Unterlage [E2]."
                 )
             ]
         )
@@ -3046,7 +3097,7 @@ class TestTurnOrchestratorStudy:
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_medium_corpus_material_overview_uses_fast_local_reply(
+    def test_medium_corpus_material_overview_uses_model_path(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
@@ -3083,14 +3134,21 @@ class TestTurnOrchestratorStudy:
         )
         mock_plan_turn.return_value = plan
         mock_resolve_evidence.return_value = evidence
+        model_reply = (
+            "The material looks like a mixed algorithms and mathematics study set [E1][E2].\n"
+            "- The exam excerpt asks about graph algorithms and data structures [E1].\n"
+            "- The lecture excerpts mention sequences, recurrence relations, and proofs [E2][E3]."
+        )
+        mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
 
         session = _make_study_session()
         events = list(TurnOrchestrator(session).iter_events("what is the material about"))
 
-        mock_iter_agent.assert_not_called()
+        mock_iter_agent.assert_called_once()
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
-        assert "The enabled materials include" in deltas[0]
+        assert deltas[0] == model_reply
+        assert "The enabled materials include" not in deltas[0]
         assert "I could not identify precise topics" not in deltas[0]
         assert "These are the topics I found in the material:" not in deltas[0]
         assert "Choose a topic to explore next" not in deltas[0]
@@ -3163,6 +3221,7 @@ class TestTurnOrchestratorStudy:
         assert "I could not identify precise topics" not in final_reply
         assert orch.last_reply == final_reply
 
+    @patch("hephaistos.chat.orchestrator.stream_completion")
     @patch("hephaistos.chat.orchestrator._build_overview_context")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -3171,6 +3230,7 @@ class TestTurnOrchestratorStudy:
         mock_resolve_evidence: MagicMock,
         mock_iter_agent: MagicMock,
         mock_overview_context: MagicMock,
+        mock_stream: MagicMock,
     ) -> None:
         evidence = _make_turn_evidence(
             _make_evidence_chunk(
@@ -3191,18 +3251,39 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.return_value = iter(
             [AssistantDeltaEvent("The materials cover core topics [E1][E2].")]
         )
+        repaired_reply = (
+            "The material introduces a small signal-processing study set with cited "
+            "lecture notes [E1][E2].\n"
+            "- Signal entropy appears as a topic about uncertainty measures [E1].\n"
+            "- Carrier waves appear as a topic about modulation references [E2]."
+        )
+        topic_payload = (
+            '{"topics":['
+            '{"canonical_english":"signal entropy",'
+            '"display_label":"Signal entropy","evidence_id":"E1",'
+            '"evidence_quote":"Signal entropy"},'
+            '{"canonical_english":"carrier waves",'
+            '"display_label":"Carrier waves","evidence_id":"E2",'
+            '"evidence_quote":"Carrier waves"}'
+            "]}"
+        )
+        mock_stream.side_effect = [
+            iter([CompletionDelta(content=repaired_reply)]),
+            iter([CompletionDelta(content=topic_payload)]),
+        ]
 
         session = _make_study_session()
+        session.config = _make_overview_model_config()
         orch = TurnOrchestrator(session)
-        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
-            events = list(
-                orch.iter_events("what are the materials about, and which topics should I study?")
-            )
+        events = list(
+            orch.iter_events("what are the materials about, and which topics should I study?")
+        )
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
         final_reply = deltas[0]
         assert "The materials cover core topics" not in final_reply
+        assert final_reply.startswith("The material introduces a small signal-processing")
         assert "These are the topics I found in the material:" in final_reply
         assert (
             "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter." in final_reply
@@ -3214,7 +3295,7 @@ class TestTurnOrchestratorStudy:
     @patch("hephaistos.chat.orchestrator._build_overview_context")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
-    def test_guided_overview_no_topic_fallback_does_not_append_unvalidated_menu(
+    def test_guided_overview_failed_repair_returns_unavailable_message(
         self,
         mock_resolve_evidence: MagicMock,
         mock_iter_agent: MagicMock,
@@ -3233,38 +3314,32 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.return_value = iter(
             [AssistantDeltaEvent("The files cover vague material [E1]. Say ready.")]
         )
-        unrelated_result = PriorityWebSearchResult(
-            title="unrelated cooking",
-            url="https://example.test",
-            snippet="recipe ingredients kitchen",
-        )
 
         session = _make_study_session()
         orch = TurnOrchestrator(session)
-        with patch(
-            "hephaistos.chat.orchestrator.duckduckgo_search",
-            return_value=(unrelated_result,),
-        ):
-            events = list(orch.iter_events("what are the materials about"))
+        events = list(orch.iter_events("what are the materials about"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
         final_reply = deltas[0]
         assert "I could not identify precise topics" not in final_reply
-        assert "The enabled materials include" in final_reply
-        assert "Zephyrology concepts" in final_reply
+        assert "The enabled materials include" not in final_reply
+        assert "Zephyrology concepts" not in final_reply
+        assert "could not produce a grounded material overview" in final_reply
         assert "These are the topics I found in the material:" not in final_reply
         assert "Choose a topic to explore next" not in final_reply
         assert orch.last_reply == final_reply
 
+    @patch("hephaistos.chat.orchestrator.stream_completion")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_overview_turn_replaces_uncited_model_reply_with_local_fallback(
+    def test_overview_turn_replaces_uncited_model_reply_with_model_repair(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
         mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
     ) -> None:
         plan = _make_study_plan(
             action=StudyAction.PRESENT,
@@ -3284,17 +3359,25 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.return_value = iter(
             [AssistantDeltaEvent("The course is about computer science.")]
         )
+        repaired_reply = (
+            "Based on the lecture excerpt, the material is about graph algorithms and "
+            "course-note structure [E1].\n"
+            "- The excerpt identifies graph algorithms as a lecture topic [E1].\n"
+            "- It also looks like lecture material with table-of-contents scaffolding [E1]."
+        )
+        mock_stream.return_value = iter([CompletionDelta(content=repaired_reply)])
 
         session = _make_study_session()
+        session.config = _make_overview_model_config()
         orch = TurnOrchestrator(session)
-        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
-            events = list(orch.iter_events("what is the material about"))
+        events = list(orch.iter_events("what is the material about"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
         assert deltas[0] != "The course is about computer science."
+        assert deltas[0] == repaired_reply
         assert orch.last_reply == deltas[0]
-        assert "The enabled materials include" in orch.last_reply
+        assert "The enabled materials include" not in orch.last_reply
         assert "These are the topics I found" not in orch.last_reply
         assert "[E1]" in orch.last_reply
         assert session.conversation.messages[-1].content == orch.last_reply
@@ -3303,6 +3386,7 @@ class TestTurnOrchestratorStudy:
         assert reply_trace.kwargs["study_task"] == "material-overview"
         assert reply_trace.kwargs["retrieval_query"] == "what is the material about"
 
+    @patch("hephaistos.chat.orchestrator.stream_completion")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
@@ -3311,6 +3395,7 @@ class TestTurnOrchestratorStudy:
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
         mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
     ) -> None:
         plan = _make_study_plan(
             action=StudyAction.PRESENT,
@@ -3341,19 +3426,27 @@ class TestTurnOrchestratorStudy:
                 )
             ]
         )
+        repaired_reply = (
+            "The material looks like a course study set combining lecture notes and exam "
+            "practice [E1][E2].\n"
+            "- The lecture excerpt points to definitions, theorems, and examples [E1].\n"
+            "- The past-exam excerpt asks learners to prove a theorem and solve an exercise [E2]."
+        )
+        mock_stream.return_value = iter([CompletionDelta(content=repaired_reply)])
 
         session = _make_study_session()
+        session.config = _make_overview_model_config()
         orch = TurnOrchestrator(session)
-        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
-            events = list(orch.iter_events("what is the material about"))
+        events = list(orch.iter_events("what is the material about"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         notices = [event.message for event in events if isinstance(event, NoticeEvent)]
         assert len(deltas) == 1
+        assert deltas[0] == repaired_reply
         assert "The files cover" not in deltas[0]
         assert "Say ready when you want recall" not in deltas[0]
         assert "I could not identify precise topics" not in deltas[0]
-        assert "The enabled materials include" in deltas[0]
+        assert "The enabled materials include" not in deltas[0]
         assert "Choose a topic to explore next" not in deltas[0]
         assert "not an exhaustive summary" not in deltas[0]
         assert "[E1]" in deltas[0]
@@ -3384,7 +3477,7 @@ class TestTurnOrchestratorStudy:
                 "Administrative Header. Signal entropy is introduced with examples.",
             ),
             _make_evidence_chunk(
-                "materials/analysis.pdf",
+                "materials/modulation.pdf",
                 1,
                 "E2",
                 "Carrier waves are defined before modulation examples.",
@@ -3395,22 +3488,26 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.return_value = iter(
             [AssistantDeltaEvent("The files cover vague course material [E1] [E2].")]
         )
-        mock_stream.return_value = iter(
-            [
-                CompletionDelta(
-                    content=(
-                        '{"topics":['
-                        '{"canonical_english":"signal entropy",'
-                        '"display_label":"Signal entropy","evidence_id":"E1",'
-                        '"evidence_quote":"Signal entropy"},'
-                        '{"canonical_english":"carrier waves",'
-                        '"display_label":"Carrier waves","evidence_id":"E2",'
-                        '"evidence_quote":"Carrier waves"}'
-                        "]}"
-                    )
-                )
-            ]
+        repaired_reply = (
+            "The material introduces analysis topics around signal entropy and carrier "
+            "waves [E1][E2].\n"
+            "- Signal entropy is introduced with examples in the first excerpt [E1].\n"
+            "- Carrier waves are defined before modulation examples in the second excerpt [E2]."
         )
+        topic_payload = (
+            '{"topics":['
+            '{"canonical_english":"signal entropy",'
+            '"display_label":"Signal entropy","evidence_id":"E1",'
+            '"evidence_quote":"Signal entropy"},'
+            '{"canonical_english":"carrier waves",'
+            '"display_label":"Carrier waves","evidence_id":"E2",'
+            '"evidence_quote":"Carrier waves"}'
+            "]}"
+        )
+        mock_stream.side_effect = [
+            iter([CompletionDelta(content=repaired_reply)]),
+            iter([CompletionDelta(content=topic_payload)]),
+        ]
 
         session = _make_study_session()
         session.config.base_url = "https://local.test/v1"
@@ -3422,9 +3519,11 @@ class TestTurnOrchestratorStudy:
         assert len(deltas) == 1
         final_reply = deltas[0]
         assert "The files cover vague course material" not in final_reply
+        assert final_reply.startswith("The material introduces analysis topics")
         assert "Signal entropy [E1]" in final_reply
         assert "Carrier waves [E2]" in final_reply
         assert orch.last_reply == final_reply
+        assert mock_stream.call_count == 2
         normalizer_conversation = mock_stream.call_args.args[1]
         system_prompt = normalizer_conversation.messages[0].content
         user_prompt = normalizer_conversation.messages[1].content
@@ -3502,6 +3601,7 @@ class TestTurnOrchestratorStudy:
         assert "next-step/readiness/drill instructions" in system_prompt
         assert "internal evidence-grounding blocks" in system_prompt
 
+    @patch("hephaistos.chat.orchestrator.stream_completion")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
@@ -3510,6 +3610,7 @@ class TestTurnOrchestratorStudy:
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
         mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
     ) -> None:
         plan = _make_study_plan(
             action=StudyAction.PRESENT,
@@ -3545,17 +3646,25 @@ class TestTurnOrchestratorStudy:
                 ),
             ]
         )
+        repaired_reply = (
+            "The material looks like a course study set combining lecture notes and exam "
+            "practice [E1][E2].\n"
+            "- The lecture excerpt points to definitions, theorems, and examples [E1].\n"
+            "- The past-exam excerpt asks learners to prove a theorem and solve an exercise [E2]."
+        )
+        mock_stream.return_value = iter([CompletionDelta(content=repaired_reply)])
 
         session = _make_study_session()
-        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
-            events = list(TurnOrchestrator(session).iter_events("what is the material about"))
+        session.config = _make_overview_model_config()
+        events = list(TurnOrchestrator(session).iter_events("what is the material about"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
         assert len(deltas) == 1
         assert len(completions) == 1
+        assert deltas[0] == repaired_reply
         assert "I could not identify precise topics" not in deltas[0]
-        assert "The enabled materials include" in deltas[0]
+        assert "The enabled materials include" not in deltas[0]
         assert "Choose a topic to explore next" not in deltas[0]
         assert completions[0].full_text == deltas[0]
         assert "The files cover" not in completions[0].full_text
@@ -3608,14 +3717,16 @@ class TestTurnOrchestratorStudy:
         mock_iter_agent.assert_called_once()
         assert mock_iter_agent.call_args.kwargs["tool_schemas"] is None
 
+    @patch("hephaistos.chat.orchestrator.stream_completion")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
     @patch("hephaistos.chat.orchestrator.plan_turn")
-    def test_empty_overview_turn_uses_local_fallback(
+    def test_empty_overview_turn_uses_model_repair(
         self,
         mock_plan_turn: MagicMock,
         mock_resolve_evidence: MagicMock,
         mock_iter_agent: MagicMock,
+        mock_stream: MagicMock,
     ) -> None:
         plan = _make_study_plan(
             action=StudyAction.PRESENT,
@@ -3631,18 +3742,27 @@ class TestTurnOrchestratorStudy:
             )
         )
         mock_iter_agent.return_value = iter([])
+        repaired_reply = (
+            "Based on the exam excerpt, the material is assessment-oriented algorithm "
+            "practice [E1].\n"
+            "- The excerpt contains a Klausur task with a numbered question [E1].\n"
+            "- It also includes point-bearing exam wording, so the material includes "
+            "practice prompts [E1]."
+        )
+        mock_stream.return_value = iter([CompletionDelta(content=repaired_reply)])
 
         session = _make_study_session()
+        session.config = _make_overview_model_config()
         orch = TurnOrchestrator(session)
-        with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
-            events = list(orch.iter_events("what is the material about"))
+        events = list(orch.iter_events("what is the material about"))
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
+        assert deltas[0] == repaired_reply
         assert "I could not identify precise topics" not in deltas[0]
-        assert "The enabled materials include" in deltas[0]
+        assert "The enabled materials include" not in deltas[0]
         assert "Choose a topic to explore next" not in deltas[0]
-        assert "exam-style questions or structured assessment prompts [E1]" in deltas[0]
+        assert "practice prompts [E1]" in deltas[0]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
