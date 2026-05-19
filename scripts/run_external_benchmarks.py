@@ -1273,17 +1273,30 @@ def _rerank_analysis(
         "tie": sum(1 for row in per_query if row.get("rerank_outcome") == "tie"),
     }
     harm_cases = [row for row in per_query if row.get("harm_bucket") is not None]
+    candidate_metrics = _metrics_from_rag_report(candidate_report)
+    pre_metrics = _rerank_pre_metrics(per_query)
+    post_metrics = _metrics_from_rag_report(post_report)
+    reranker_state = _reranker_state(parameters, post_report)
     return {
         "top_k": top_k,
         "candidate_multiplier": parameters.candidate_multiplier,
         "candidate_budget": candidate_budget,
         "candidate_generation_mode": RetrievalMode.HYBRID.value,
         "final_rerank_mode": RetrievalMode.HYBRID_RERANK.value,
-        "candidate_metrics": _metrics_from_rag_report(candidate_report),
-        "pre_rerank_metrics_at_k": _rerank_pre_metrics(per_query),
-        "post_rerank_metrics": _metrics_from_rag_report(post_report),
+        "candidate_metrics": candidate_metrics,
+        "pre_rerank_metrics_at_k": pre_metrics,
+        "post_rerank_metrics": post_metrics,
         "recall_at_candidate_budget": candidate_report.mean_expected_recall,
         "recall_at_k": post_report.mean_expected_recall,
+        "configuration_selection": _rerank_configuration_selection(
+            parameters,
+            candidate_report,
+            post_report,
+            reranker_state,
+            pre_metrics,
+            post_metrics,
+            harm_cases,
+        ),
         "win_loss_tie": outcomes,
         "harm": {
             "computed": True,
@@ -1293,7 +1306,7 @@ def _rerank_analysis(
         "bottleneck_counts": _rerank_bottleneck_counts(per_query),
         "source_family_confusion": _rerank_source_family_confusion(per_query),
         "boost_diagnostics": _rerank_boost_diagnostics(per_query),
-        "reranker_state": _reranker_state(parameters, post_report),
+        "reranker_state": reranker_state,
         "per_query": per_query,
     }
 
@@ -1328,6 +1341,7 @@ def _rerank_case_analysis(
         _source_family(candidate_retrieved[0]) if candidate_retrieved else "none"
     )
     top_final_family = _source_family(final_retrieved[0]) if final_retrieved else "none"
+    score_comparison = _rerank_score_comparison(candidate_result, post_result)
     return {
         "case_id": post_result.case_id,
         "query": post_result.query,
@@ -1353,9 +1367,88 @@ def _rerank_case_analysis(
         "expected_source_families": list(expected_families),
         "top_candidate_source_family": top_candidate_family,
         "top_final_source_family": top_final_family,
+        "score_delta_available": score_comparison["available"],
+        "score_comparison": score_comparison,
         "candidate_retrieved": candidate_retrieved[:10],
         "final_retrieved": final_retrieved[:10],
     }
+
+
+def _rerank_score_comparison(
+    candidate_result: benchmark_rag.CaseResult | None,
+    post_result: benchmark_rag.CaseResult,
+) -> dict[str, object]:
+    if candidate_result is None:
+        return {
+            "available": False,
+            "shared_ref_count": 0,
+            "shared_ref_score_deltas": [],
+            "top_candidate_score": None,
+            "top_final_score": _top_retrieval_score(post_result),
+            "first_relevant_candidate_score": None,
+            "first_relevant_final_score": _first_matching_score(
+                post_result.expected,
+                _chunk_scores_by_ref(post_result),
+            ),
+            "first_relevant_score_delta": None,
+        }
+    candidate_scores = _chunk_scores_by_ref(candidate_result)
+    final_scores = _chunk_scores_by_ref(post_result)
+    shared_refs = sorted(candidate_scores.keys() & final_scores.keys())
+    first_relevant_candidate_score = _first_matching_score(
+        candidate_result.expected,
+        candidate_scores,
+    )
+    first_relevant_final_score = _first_matching_score(
+        candidate_result.expected,
+        final_scores,
+    )
+    return {
+        "available": bool(shared_refs),
+        "shared_ref_count": len(shared_refs),
+        "shared_ref_score_deltas": [
+            {
+                "ref": ref,
+                "candidate_score": _round_score(candidate_scores[ref]),
+                "final_score": _round_score(final_scores[ref]),
+                "delta": _round_score(final_scores[ref] - candidate_scores[ref]),
+            }
+            for ref in shared_refs[:10]
+        ],
+        "top_candidate_score": _top_retrieval_score(candidate_result),
+        "top_final_score": _top_retrieval_score(post_result),
+        "first_relevant_candidate_score": first_relevant_candidate_score,
+        "first_relevant_final_score": first_relevant_final_score,
+        "first_relevant_score_delta": _score_delta(
+            first_relevant_candidate_score,
+            first_relevant_final_score,
+        ),
+    }
+
+
+def _chunk_scores_by_ref(result: benchmark_rag.CaseResult) -> dict[str, float]:
+    return {chunk.ref: chunk.score for chunk in result.retrieved_chunks}
+
+
+def _first_matching_score(
+    references: Sequence[str],
+    scores_by_ref: Mapping[str, float],
+) -> float | None:
+    for expected_ref in references:
+        for retrieved_ref, score in scores_by_ref.items():
+            if _ref_matches_expected(expected_ref, retrieved_ref):
+                return _round_score(score)
+    return None
+
+
+def _score_delta(first_score: float | None, second_score: float | None) -> float | None:
+    if first_score is None or second_score is None:
+        return None
+    return _round_score(second_score - first_score)
+
+
+def _round_score(value: float) -> float:
+    return round(value, 6)
 
 
 def _first_expected_ref_rank(expected: Sequence[str], retrieved: Sequence[str]) -> int | None:
@@ -1455,6 +1548,7 @@ def _rerank_pre_metrics(per_query: Sequence[Mapping[str, object]]) -> dict[str, 
     if not per_query:
         return {
             "hit_rate": 0.0,
+            "expected_recall": 0.0,
             "recall_at_k": 0.0,
             "mrr": 0.0,
             "query_count": 0,
@@ -1470,10 +1564,94 @@ def _rerank_pre_metrics(per_query: Sequence[Mapping[str, object]]) -> dict[str, 
     query_count = len(per_query)
     return {
         "hit_rate": hit_count / query_count,
+        "expected_recall": recall_sum / query_count,
         "recall_at_k": recall_sum / query_count,
         "mrr": reciprocal_rank_sum / query_count,
         "query_count": query_count,
     }
+
+
+def _rerank_configuration_selection(
+    parameters: RunnerParameters,
+    candidate_report: benchmark_rag.BenchmarkReport,
+    post_report: benchmark_rag.BenchmarkReport,
+    reranker_state: Mapping[str, object],
+    pre_metrics: Mapping[str, object],
+    post_metrics: Mapping[str, object],
+    harm_cases: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    primary_metric = "expected_recall"
+    pre_primary = _float_value(pre_metrics.get(primary_metric))
+    post_primary = _float_value(post_metrics.get(primary_metric))
+    primary_delta = _metric_delta(pre_primary, post_primary)
+    pre_mrr = _float_value(pre_metrics.get("mrr"))
+    post_mrr = _float_value(post_metrics.get("mrr"))
+    pre_hit_rate = _float_value(pre_metrics.get("hit_rate"))
+    post_hit_rate = _float_value(post_metrics.get("hit_rate"))
+    pre_avoidance = candidate_report.forbidden_before_expected_avoidance
+    post_avoidance = post_report.forbidden_before_expected_avoidance
+    avoidance_delta = _metric_delta(pre_avoidance, post_avoidance)
+    claim_eligible = reranker_state.get("claim_eligible") is True
+    harm_count = len(harm_cases)
+    safe_improvement = claim_eligible and primary_delta > 0.0 and harm_count == 0
+    if not claim_eligible:
+        selected_configuration = "no_claim_eligible_rerank"
+        rationale = (
+            "rerank output is not claim-eligible because the active reranker was not recorded"
+        )
+    elif harm_count:
+        selected_configuration = "pre_rerank_baseline"
+        rationale = "rerank introduced harm cases, so the safer baseline is selected"
+    elif primary_delta > 0.0:
+        selected_configuration = RetrievalMode.HYBRID_RERANK.value
+        rationale = "rerank improves the predeclared primary metric without observed harm"
+    else:
+        selected_configuration = "pre_rerank_baseline"
+        rationale = "rerank did not improve the predeclared primary metric"
+    return {
+        "primary_metric": primary_metric,
+        "baseline_configuration": "hybrid_candidates_at_final_top_k",
+        "candidate_configuration": {
+            "retrieval_mode": RetrievalMode.HYBRID.value,
+            "top_k": candidate_report.top_k,
+            "candidate_budget": parameters.top_k * max(1, parameters.candidate_multiplier),
+            "candidate_multiplier": 1,
+        },
+        "final_configuration": {
+            "retrieval_mode": RetrievalMode.HYBRID_RERANK.value,
+            "top_k": post_report.top_k,
+            "candidate_multiplier": parameters.candidate_multiplier,
+            "rerank_model": reranker_state.get("reported_model"),
+        },
+        "controlled_comparison": {
+            "pre_rerank_at_k": dict(pre_metrics),
+            "post_rerank": dict(post_metrics),
+        },
+        "metric_deltas": {
+            "expected_recall": primary_delta,
+            "mrr": _metric_delta(pre_mrr, post_mrr),
+            "hit_rate": _metric_delta(pre_hit_rate, post_hit_rate),
+            "forbidden_before_expected_avoidance": avoidance_delta,
+        },
+        "latency_tradeoff": {
+            "candidate_generation_mean_ms": candidate_report.mean_latency_ms,
+            "final_rerank_mean_ms": post_report.mean_latency_ms,
+            "delta_ms": _metric_delta(
+                candidate_report.mean_latency_ms,
+                post_report.mean_latency_ms,
+            ),
+            "scope": "retrieval_only_per_query",
+        },
+        "harm_case_count": harm_count,
+        "claim_eligible": claim_eligible,
+        "safe_improvement": safe_improvement,
+        "selected_configuration": selected_configuration,
+        "rationale": rationale,
+    }
+
+
+def _metric_delta(first_value: float, second_value: float) -> float:
+    return round(second_value - first_value, 6)
 
 
 def _rerank_bottleneck_counts(per_query: Sequence[Mapping[str, object]]) -> dict[str, int]:
@@ -1508,15 +1686,63 @@ def _rerank_boost_diagnostics(per_query: Sequence[Mapping[str, object]]) -> dict
         for row in per_query
         if row.get("top_candidate_source_family") != row.get("top_final_source_family")
     )
+    shared_score_deltas = _shared_score_deltas(per_query)
+    first_relevant_score_deltas = _first_relevant_score_deltas(per_query)
     return {
         "source_family_rank_change_count": changed_family_count,
         "source_family_confusion_available": True,
-        "score_delta_available": False,
+        "score_delta_available": bool(shared_score_deltas or first_relevant_score_deltas),
+        "shared_ref_score_delta_count": len(shared_score_deltas),
+        "shared_ref_score_delta_mean": _mean_or_none(shared_score_deltas),
+        "first_relevant_score_delta_count": len(first_relevant_score_deltas),
+        "first_relevant_score_delta_mean": _mean_or_none(first_relevant_score_deltas),
+        "first_relevant_score_improved_count": sum(
+            1 for delta in first_relevant_score_deltas if delta > 0.0
+        ),
+        "first_relevant_score_lowered_count": sum(
+            1 for delta in first_relevant_score_deltas if delta < 0.0
+        ),
         "notes": [
-            "External benchmark reports source-family rank changes; exact internal boost scores "
-            "remain implementation-private."
+            "External benchmark reports source-family rank changes and score deltas when "
+            "retrieval traces expose comparable candidate and final chunk scores."
         ],
     }
+
+
+def _shared_score_deltas(per_query: Sequence[Mapping[str, object]]) -> list[float]:
+    deltas: list[float] = []
+    for row in per_query:
+        score_comparison = row.get("score_comparison")
+        if not isinstance(score_comparison, Mapping):
+            continue
+        raw_shared_deltas = score_comparison.get("shared_ref_score_deltas")
+        if not isinstance(raw_shared_deltas, list):
+            continue
+        for raw_delta_row in raw_shared_deltas:
+            if not isinstance(raw_delta_row, Mapping):
+                continue
+            raw_delta = raw_delta_row.get("delta")
+            if isinstance(raw_delta, int | float):
+                deltas.append(float(raw_delta))
+    return deltas
+
+
+def _first_relevant_score_deltas(per_query: Sequence[Mapping[str, object]]) -> list[float]:
+    deltas: list[float] = []
+    for row in per_query:
+        score_comparison = row.get("score_comparison")
+        if not isinstance(score_comparison, Mapping):
+            continue
+        raw_delta = score_comparison.get("first_relevant_score_delta")
+        if isinstance(raw_delta, int | float):
+            deltas.append(float(raw_delta))
+    return deltas
+
+
+def _mean_or_none(values: Sequence[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 6)
 
 
 def _reranker_state(
@@ -1529,15 +1755,21 @@ def _reranker_state(
         report_model
     )
     reasons = []
-    if not claim_eligible:
+    if post_report.retrieval_mode != RetrievalMode.HYBRID_RERANK.value:
+        reasons.append(
+            f"retrieval mode reported as {post_report.retrieval_mode!r}, not "
+            f"{RetrievalMode.HYBRID_RERANK.value!r}"
+        )
+    if not report_model:
         reasons.append("hybrid-rerank report did not record an active reranker model")
     return {
         "requested": True,
         "requested_model": model_name,
         "reported_model": report_model,
-        "dependency_state": "runtime_reported",
+        "dependency_state": "runtime_reported" if claim_eligible else "unavailable_or_fallback",
         "fallback_status": "not_detected" if claim_eligible else "non_reranked_fallback",
         "claim_eligible": claim_eligible,
+        "claim_blocking": not claim_eligible,
         "ineligibility_reasons": reasons,
     }
 

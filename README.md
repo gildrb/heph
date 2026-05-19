@@ -243,6 +243,8 @@ Use `--offline` to forbid network materialization, local `--beir-source-dir` or
 `--require-visualization-extra` to fail early when optional extras are missing.
 External runners write JSON reports with fixed retrieval parameters and redact
 secret-like environment values before logs or Markdown summaries are written.
+Hybrid rerank reports also include candidate-vs-final metrics, harm cases,
+fallback claim-blocking state, and the selected safe configuration rationale.
 
 To run already materialized external inputs directly:
 

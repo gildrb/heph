@@ -106,9 +106,21 @@ def _case_result(
     rank: int | None,
     forbidden_rank: int | None = None,
     forbidden_ok: bool = True,
+    chunk_scores: tuple[float, ...] | None = None,
 ) -> benchmark_rag.CaseResult:
     recall = 1.0 if hit else 0.0
     precision = recall / max(len(retrieved), 1)
+    retrieved_chunks: tuple[benchmark_rag.RetrievedChunkResult, ...] = ()
+    if chunk_scores is not None:
+        assert len(chunk_scores) == len(retrieved)
+        retrieved_chunks = tuple(
+            benchmark_rag.RetrievedChunkResult(
+                ref=ref,
+                score=score,
+                text_excerpt=f"excerpt for {ref}",
+            )
+            for ref, score in zip(retrieved, chunk_scores, strict=True)
+        )
     return benchmark_rag.CaseResult(
         case_id=case_id,
         query=query,
@@ -116,7 +128,7 @@ def _case_result(
         relevance_grades={},
         forbidden_before_expected=("materials/beta.md",),
         retrieved=retrieved,
-        retrieved_chunks=(),
+        retrieved_chunks=retrieved_chunks,
         hit=hit,
         rank=rank,
         first_forbidden_rank=forbidden_rank,
@@ -426,6 +438,7 @@ def test_enterprise_rag_hybrid_rerank_reports_candidate_and_harm_analysis(
                 rank=2,
                 forbidden_rank=1,
                 forbidden_ok=False,
+                chunk_scores=(0.8, 0.4),
             ),
             _case_result(
                 case_id="harm",
@@ -434,6 +447,7 @@ def test_enterprise_rag_hybrid_rerank_reports_candidate_and_harm_analysis(
                 hit=True,
                 rank=1,
                 forbidden_rank=2,
+                chunk_scores=(0.9, 0.3),
             ),
         ),
     )
@@ -448,6 +462,7 @@ def test_enterprise_rag_hybrid_rerank_reports_candidate_and_harm_analysis(
                 retrieved=("materials/alpha.md",),
                 hit=True,
                 rank=1,
+                chunk_scores=(0.95,),
             ),
             _case_result(
                 case_id="harm",
@@ -457,6 +472,7 @@ def test_enterprise_rag_hybrid_rerank_reports_candidate_and_harm_analysis(
                 rank=None,
                 forbidden_rank=1,
                 forbidden_ok=False,
+                chunk_scores=(0.96,),
             ),
         ),
     )
@@ -505,6 +521,9 @@ def test_enterprise_rag_hybrid_rerank_reports_candidate_and_harm_analysis(
     per_query = _as_list(analysis["per_query"])
     first_query = _as_dict(per_query[0])
     second_query = _as_dict(per_query[1])
+    boost_diagnostics = _as_dict(analysis["boost_diagnostics"])
+    selection = _as_dict(analysis["configuration_selection"])
+    first_score_comparison = _as_dict(first_query["score_comparison"])
 
     assert status == 0
     assert analysis["top_k"] == 1
@@ -521,7 +540,213 @@ def test_enterprise_rag_hybrid_rerank_reports_candidate_and_harm_analysis(
     assert second_query["rerank_outcome"] == "loss"
     assert second_query["harm_bucket"] == "forbidden_moved_before_expected"
     assert second_query["bottleneck_bucket"] == "candidate_found_but_ranked_outside_final_top_k"
+    assert first_score_comparison["first_relevant_score_delta"] == 0.55
+    assert boost_diagnostics["score_delta_available"] is True
+    assert boost_diagnostics["shared_ref_score_delta_count"] == 2
+    assert selection["primary_metric"] == "expected_recall"
+    assert selection["safe_improvement"] is False
+    assert selection["selected_configuration"] == "pre_rerank_baseline"
+    assert selection["harm_case_count"] == 1
     assert _as_dict(analysis["reranker_state"])["claim_eligible"] is True
+
+
+def test_enterprise_rag_hybrid_rerank_selects_claim_eligible_improvement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    suite = _make_external_suite(
+        tmp_path,
+        [
+            {
+                "id": "win",
+                "query": "alpha should rerank ahead of beta",
+                "expected": ["materials/alpha.md"],
+                "forbidden_before_expected": ["materials/beta.md"],
+            },
+        ],
+    )
+    candidate_report = _benchmark_report(
+        retrieval_mode="hybrid",
+        top_k=2,
+        results=(
+            _case_result(
+                case_id="win",
+                query="alpha should rerank ahead of beta",
+                retrieved=("materials/beta.md", "materials/alpha.md"),
+                hit=True,
+                rank=2,
+                forbidden_rank=1,
+                forbidden_ok=False,
+                chunk_scores=(0.8, 0.4),
+            ),
+        ),
+    )
+    post_report = _benchmark_report(
+        retrieval_mode="hybrid-rerank",
+        top_k=1,
+        rerank_model="fixture-reranker",
+        results=(
+            _case_result(
+                case_id="win",
+                query="alpha should rerank ahead of beta",
+                retrieved=("materials/alpha.md",),
+                hit=True,
+                rank=1,
+                chunk_scores=(0.95,),
+            ),
+        ),
+    )
+
+    def fake_run_benchmark(
+        _armory_path: Path,
+        _cases: Sequence[benchmark_rag.BenchmarkCase],
+        **kwargs: object,
+    ) -> benchmark_rag.BenchmarkReport:
+        retrieval_mode = kwargs["retrieval_mode"]
+        if retrieval_mode == run_external_benchmarks.RetrievalMode.HYBRID:
+            return candidate_report
+        if retrieval_mode == run_external_benchmarks.RetrievalMode.HYBRID_RERANK:
+            return post_report
+        raise AssertionError(f"unexpected retrieval mode: {retrieval_mode}")
+
+    monkeypatch.setattr(
+        run_external_benchmarks.benchmark_rag,
+        "run_benchmark",
+        fake_run_benchmark,
+    )
+    report_path = tmp_path / "reports" / "rerank-selection.json"
+
+    status = run_external_benchmarks.main(
+        [
+            "enterprise-rag",
+            "enterprise-rag-bench",
+            "--suite",
+            str(suite),
+            "--retrieval-mode",
+            "hybrid-rerank",
+            "--top-k",
+            "1",
+            "--candidate-multiplier",
+            "2",
+            "--rerank-model",
+            "fixture-reranker",
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = _read_report(report_path)
+    benchmark = _as_dict(_as_list(report["benchmarks"])[0])
+    analysis = _as_dict(benchmark["rerank_analysis"])
+    selection = _as_dict(analysis["configuration_selection"])
+    metric_deltas = _as_dict(selection["metric_deltas"])
+
+    assert status == 0
+    assert selection["safe_improvement"] is True
+    assert selection["selected_configuration"] == "hybrid-rerank"
+    assert selection["harm_case_count"] == 0
+    assert metric_deltas["expected_recall"] == 1.0
+
+
+def test_enterprise_rag_hybrid_rerank_blocks_claims_when_reranker_falls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    suite = _make_external_suite(
+        tmp_path,
+        [
+            {
+                "id": "fallback",
+                "query": "alpha rerank fallback control",
+                "expected": ["materials/alpha.md"],
+                "forbidden_before_expected": ["materials/beta.md"],
+            },
+        ],
+    )
+    candidate_report = _benchmark_report(
+        retrieval_mode="hybrid",
+        top_k=2,
+        results=(
+            _case_result(
+                case_id="fallback",
+                query="alpha rerank fallback control",
+                retrieved=("materials/beta.md", "materials/alpha.md"),
+                hit=True,
+                rank=2,
+                forbidden_rank=1,
+                forbidden_ok=False,
+            ),
+        ),
+    )
+    post_report = _benchmark_report(
+        retrieval_mode="hybrid",
+        top_k=1,
+        rerank_model=None,
+        results=(
+            _case_result(
+                case_id="fallback",
+                query="alpha rerank fallback control",
+                retrieved=("materials/alpha.md",),
+                hit=True,
+                rank=1,
+            ),
+        ),
+    )
+
+    def fake_run_benchmark(
+        _armory_path: Path,
+        _cases: Sequence[benchmark_rag.BenchmarkCase],
+        **kwargs: object,
+    ) -> benchmark_rag.BenchmarkReport:
+        retrieval_mode = kwargs["retrieval_mode"]
+        if retrieval_mode == run_external_benchmarks.RetrievalMode.HYBRID:
+            return candidate_report
+        if retrieval_mode == run_external_benchmarks.RetrievalMode.HYBRID_RERANK:
+            return post_report
+        raise AssertionError(f"unexpected retrieval mode: {retrieval_mode}")
+
+    monkeypatch.setattr(
+        run_external_benchmarks.benchmark_rag,
+        "run_benchmark",
+        fake_run_benchmark,
+    )
+    report_path = tmp_path / "reports" / "rerank-fallback.json"
+
+    status = run_external_benchmarks.main(
+        [
+            "enterprise-rag",
+            "enterprise-rag-bench",
+            "--suite",
+            str(suite),
+            "--retrieval-mode",
+            "hybrid-rerank",
+            "--top-k",
+            "1",
+            "--candidate-multiplier",
+            "2",
+            "--rerank-model",
+            "fixture-reranker",
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = _read_report(report_path)
+    benchmark = _as_dict(_as_list(report["benchmarks"])[0])
+    analysis = _as_dict(benchmark["rerank_analysis"])
+    reranker_state = _as_dict(analysis["reranker_state"])
+    selection = _as_dict(analysis["configuration_selection"])
+    reasons = _as_list(reranker_state["ineligibility_reasons"])
+
+    assert status == 0
+    assert reranker_state["claim_eligible"] is False
+    assert reranker_state["claim_blocking"] is True
+    assert reranker_state["fallback_status"] == "non_reranked_fallback"
+    assert reranker_state["dependency_state"] == "unavailable_or_fallback"
+    assert any("retrieval mode reported as 'hybrid'" in str(reason) for reason in reasons)
+    assert any("active reranker model" in str(reason) for reason in reasons)
+    assert selection["safe_improvement"] is False
+    assert selection["selected_configuration"] == "no_claim_eligible_rerank"
 
 
 def test_enterprise_rag_repair_pass_reports_trace_and_effective_metrics(
