@@ -10,7 +10,7 @@ import pytest
 from hephaistos.armory.storage import initialize
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.retrieval_types import ScoredChunk
-from scripts import run_retrieval_ablation_matrix
+from scripts import claim_report_envelope, run_retrieval_ablation_matrix
 
 
 def _as_dict(value: object) -> dict[str, object]:
@@ -54,7 +54,88 @@ def _make_armory(tmp_path: Path) -> Path:
     return armory
 
 
+def _fixture_per_query_row(
+    *,
+    row_id: str,
+    cell: run_retrieval_ablation_matrix.MatrixCell,
+    top_k: int,
+    case_id: str,
+) -> dict[str, object]:
+    return {
+        "row_id": row_id,
+        "case_id": case_id,
+        "query": f"fixture query {case_id}",
+        "query_type": "fixture-query",
+        "retriever": cell.retriever,
+        "granularity": cell.granularity,
+        "top_k": top_k,
+        "candidate_budget": cell.candidate_budget(top_k),
+        "retrieval_top_k_requested": cell.candidate_budget(top_k),
+        "expected_count": 1,
+        "forbidden_before_expected_count": 0,
+        "retrieved": ["materials/fixture.md"],
+        "retrieved_chunks": [
+            {
+                "ref": "materials/fixture.md",
+                "chunk_ref": "materials/fixture.md#chunk=0",
+                "source": "materials/fixture.md",
+                "score": 1.0,
+                "text_excerpt": "Fixture evidence",
+            }
+        ],
+        "hit": True,
+        "rank": 1,
+        "candidate_rank": 1,
+        "relevant_found": 1,
+        "candidate_relevant_found": 1,
+        "reciprocal_rank": 1.0,
+        "recall_at_k": 1.0,
+        "candidate_recall_at_budget": 1.0,
+        "precision_at_k": 1.0 / top_k,
+        "average_precision_at_k": 1.0,
+        "ndcg_at_k": 1.0,
+        "evidence_category": "full_evidence",
+        "miss_bucket": None,
+        "raw_candidate_count": 1,
+        "candidate_retrieved_count": 1,
+        "final_retrieved_count": 1,
+        "top_k_satisfied": top_k == 1,
+        "top_k_shortfall_count": max(0, top_k - 1),
+        "duplicate_document_drop_count": 0,
+        "first_forbidden_rank": None,
+        "forbidden_before_expected_ok": True,
+        "permission_violation_count": 0,
+        "expected_source_families": ["fixture"],
+        "top_retrieved_source_family": "fixture",
+        "expected_document_types": ["markdown"],
+        "top_retrieved_document_type": "markdown",
+        "latency_ms": 1.0 if case_id == "case-1" else 2.0,
+    }
+
+
 def _complete_contract_report() -> dict[str, object]:
+    index_cache = {
+        "index_path": "/tmp/fixture-armory/.hephaistos/rag_index.json",
+        "index_identity": "1" * 16,
+        "index_build_or_refresh_command": "uv run heph index /tmp/fixture-armory",
+        "scored_corpus_sha256": "a" * 64,
+        "indexed_corpus_sha256": "a" * 64,
+        "fresh_for_scored_corpus": True,
+        "cache_state": "warm_reused",
+        "loaded_existing_index": True,
+        "stale_before_run": False,
+        "rebuilt_during_run": False,
+        "document_count": 1,
+        "chunk_count": 2,
+        "cache_artifacts": [],
+    }
+    permission_scope = {
+        "scope": "indexed_materials",
+        "scope_hash": "9" * 64,
+        "allowed_source_count": 1,
+        "indexed_source_count": 1,
+        "policy": "hidden, ignored, symlinked, and outside-material paths are excluded",
+    }
     metadata = {
         "dataset_id": "fixture-matrix",
         "corpus_sha256": "a" * 64,
@@ -65,31 +146,23 @@ def _complete_contract_report() -> dict[str, object]:
         "git_commit": "e" * 40,
         "dependency_lock_sha256": "f" * 64,
         "configured_top_k_values": [1, 3, 5, 10, 25, 50, 100],
+        "latency_scope": claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY,
+        "index_cache": index_cache,
+        "permission_scope": permission_scope,
     }
     cells = run_retrieval_ablation_matrix.required_matrix_cells(
         candidate_multiplier=2,
         hybrid_sparse_weight=1.25,
         hybrid_dense_weight=1.0,
     )
-    rows = [
-        {
-            "row_id": f"{cell.retriever}:{cell.granularity}:k={top_k}",
-            "status": "success",
-            "retriever": cell.retriever,
-            "granularity": cell.granularity,
-            "retrieval_mode": cell.retrieval_mode.value,
-            "top_k": top_k,
-            "dataset_id": metadata["dataset_id"],
-            "corpus_sha256": metadata["corpus_sha256"],
-            "cases_sha256": metadata["cases_sha256"],
-            "labels_sha256": metadata["labels_sha256"],
-            "manifest_sha256": metadata["manifest_sha256"],
-            "scoring_protocol_version": metadata["scoring_protocol_version"],
-            "git_commit": metadata["git_commit"],
-            "dependency_lock_sha256": metadata["dependency_lock_sha256"],
-            "query_count": 2,
-            "miss_count": 0,
-            "metrics": {
+    rows: list[dict[str, object]] = []
+    per_query_results: list[dict[str, object]] = []
+    diagnostics: list[dict[str, object]] = []
+    for cell in cells:
+        for top_k in run_retrieval_ablation_matrix.REQUIRED_TOP_K_VALUES:
+            row_id = f"{cell.retriever}:{cell.granularity}:k={top_k}"
+            shortfall = max(0, top_k - 1) * 2
+            metrics: dict[str, object] = {
                 "hit_rate": 1.0,
                 "recall": 1.0,
                 "mrr": 1.0,
@@ -102,17 +175,156 @@ def _complete_contract_report() -> dict[str, object]:
                 "map_at_k": 1.0,
                 "ndcg_at_k": 1.0,
                 "precision_at_k": 1.0 / top_k,
+                "candidate_recall_at_budget": 1.0,
                 "query_count": 2,
                 "miss_count": 0,
-            },
-        }
-        for cell in cells
-        for top_k in run_retrieval_ablation_matrix.REQUIRED_TOP_K_VALUES
-    ]
+                "mean_latency_ms": 1.5,
+                "latency": {
+                    "mean_ms": 1.5,
+                    "p50_ms": 1.5,
+                    "p75_ms": 1.75,
+                    "p90_ms": 1.9,
+                    "p95_ms": 1.95,
+                    "p99_ms": 1.99,
+                    "sample_count": 2,
+                    "scope": claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY,
+                    "unit": "milliseconds",
+                },
+                "evidence_categories": {
+                    "full_evidence": {"count": 2, "rate": 1.0},
+                    "partial_evidence": {"count": 0, "rate": 0.0},
+                    "no_evidence": {"count": 0, "rate": 0.0},
+                },
+                "full_evidence_count": 2,
+                "partial_evidence_count": 0,
+                "no_evidence_count": 0,
+                "miss_bucket_counts": {},
+                "top_k_reconciliation": {
+                    "per_query_count": 2,
+                    "raw_candidate_count": 2,
+                    "candidate_retrieved_count": 2,
+                    "final_retrieved_count": 2,
+                    "duplicate_document_drop_count": 0,
+                    "top_k_shortfall_count": shortfall,
+                },
+                "forbidden_before_expected_case_count": 0,
+                "forbidden_before_expected_failure_count": 0,
+                "forbidden_before_expected_avoidance": 1.0,
+                "permission_scope_checked_count": 2,
+                "permission_violation_count": 0,
+                "permission_retrieval_safety_rate": 1.0,
+            }
+            row: dict[str, object] = {
+                "row_id": row_id,
+                "status": "success",
+                "retriever": cell.retriever,
+                "granularity": cell.granularity,
+                "retrieval_mode": cell.retrieval_mode.value,
+                "top_k": top_k,
+                "candidate_budget": cell.candidate_budget(top_k),
+                "dataset_id": metadata["dataset_id"],
+                "corpus_sha256": metadata["corpus_sha256"],
+                "cases_sha256": metadata["cases_sha256"],
+                "labels_sha256": metadata["labels_sha256"],
+                "manifest_sha256": metadata["manifest_sha256"],
+                "scoring_protocol_version": metadata["scoring_protocol_version"],
+                "git_commit": metadata["git_commit"],
+                "dependency_lock_sha256": metadata["dependency_lock_sha256"],
+                "query_count": 2,
+                "miss_count": 0,
+                "metrics": metrics,
+            }
+            rows.append(row)
+            per_query_results.extend(
+                _fixture_per_query_row(
+                    row_id=row_id,
+                    cell=cell,
+                    top_k=top_k,
+                    case_id=case_id,
+                )
+                for case_id in ("case-1", "case-2")
+            )
+            diagnostics.append(
+                {
+                    "row_id": row_id,
+                    "status": "success",
+                    "query_count": 2,
+                    "miss_count": 0,
+                    "miss_bucket_counts": {},
+                    "evidence_categories": metrics["evidence_categories"],
+                    "source_family_breakdown": {
+                        "fixture": {"case_count": 2, "hit_count": 2, "miss_count": 0}
+                    },
+                    "document_type_breakdown": {
+                        "markdown": {"case_count": 2, "hit_count": 2, "miss_count": 0}
+                    },
+                    "query_type_breakdown": {
+                        "fixture-query": {"case_count": 2, "hit_count": 2, "miss_count": 0}
+                    },
+                    "source_family_confusion": {
+                        "fixture->fixture": {"case_count": 2, "hit_count": 2}
+                    },
+                    "latency": metrics["latency"],
+                    "top_k_reconciliation": metrics["top_k_reconciliation"],
+                    "permission_safety": {
+                        "permission_violation_count": 0,
+                        "permission_retrieval_safety_rate": 1.0,
+                    },
+                    "recall_diagnostics": {
+                        "top_k": top_k,
+                        "recall_at_k": 1.0,
+                        "candidate_recall_at_budget": 1.0,
+                    },
+                    "misses": [],
+                    "failure": None,
+                }
+            )
     return {
         "schema_version": run_retrieval_ablation_matrix.SCHEMA_VERSION,
         "metadata": metadata,
         "matrix": {"rows": rows},
+        "per_query_results": per_query_results,
+        "diagnostics": diagnostics,
+        "diagnostic_summary": {
+            "recall_at_50_100": [
+                {
+                    "retriever": cell.retriever,
+                    "granularity": cell.granularity,
+                    "recall_at_50": 1.0,
+                    "recall_at_100": 1.0,
+                    "candidate_recall_at_50": 1.0,
+                    "candidate_recall_at_100": 1.0,
+                    "candidate_recall_scope": "pre_final_candidate_list",
+                }
+                for cell in cells
+            ],
+            "source_family": {"fixture": {"case_count": 112, "miss_count": 0}},
+            "document_type": {"markdown": {"case_count": 112, "miss_count": 0}},
+            "query_type": {"fixture-query": {"case_count": 112, "miss_count": 0}},
+            "latency": {
+                "scope": claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY,
+                "unit": "milliseconds",
+                "rows": 56,
+            },
+            "evidence_categories": {
+                "full_evidence": {"count": 112, "rate": 1.0},
+                "partial_evidence": {"count": 0, "rate": 0.0},
+                "no_evidence": {"count": 0, "rate": 0.0},
+            },
+            "top_k_reconciliation": {
+                "rows_checked": 56,
+                "per_query_rows_checked": 112,
+                "non_monotonic_metric_failures": [],
+            },
+            "index_cache": index_cache,
+            "permission_safety": {
+                "permission_retrieval_safety_rate": 1.0,
+                "permission_violation_count": 0,
+            },
+            "optimization_targets": [],
+        },
+        "thresholds": {"permission_retrieval_safety_rate": 1.0},
+        "threshold_failures": [],
     }
 
 
@@ -152,6 +364,50 @@ def test_matrix_report_contract_rejects_negative_fixtures(
     rows = cast("list[dict[str, object]]", _as_dict(report["matrix"])["rows"])
 
     mutator(rows)
+
+    result = run_retrieval_ablation_matrix.validate_matrix_report(report)
+    assert result.status == "failed"
+    assert any(expected_fragment in error for error in result.errors)
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_fragment"),
+    [
+        (
+            lambda report: _as_dict(
+                _as_dict(_as_list(_as_dict(report["matrix"])["rows"])[0])["metrics"]
+            ).pop("evidence_categories"),
+            "evidence_categories",
+        ),
+        (
+            lambda report: _as_dict(_as_list(report["per_query_results"])[0]).__setitem__(
+                "recall_at_k",
+                0.5,
+            ),
+            "recall_at_k does not reconcile",
+        ),
+        (
+            lambda report: _as_dict(_as_dict(report["metadata"])["index_cache"]).__setitem__(
+                "fresh_for_scored_corpus",
+                False,
+            ),
+            "index cache is not fresh",
+        ),
+        (
+            lambda report: _as_dict(
+                _as_dict(_as_list(_as_dict(report["matrix"])["rows"])[0])["metrics"]
+            ).__setitem__("permission_violation_count", 1),
+            "permission violation",
+        ),
+    ],
+)
+def test_matrix_report_contract_rejects_diagnostics_negative_controls(
+    mutator,
+    expected_fragment: str,
+) -> None:
+    report = _complete_contract_report()
+
+    mutator(report)
 
     result = run_retrieval_ablation_matrix.validate_matrix_report(report)
     assert result.status == "failed"
@@ -199,14 +455,16 @@ def test_matrix_command_writes_manifest_and_selects_strongest_configuration(
     )
     report_path = tmp_path / "artifacts" / "matrix.json"
     manifest_path = tmp_path / "artifacts" / "artifact-manifest.json"
+    requested_top_k: list[tuple[str, str, int]] = []
 
     def fake_retrieve(
         _index: object,
         case: run_retrieval_ablation_matrix.benchmark_rag.BenchmarkCase,
         cell: run_retrieval_ablation_matrix.MatrixCell,
-        _retrieval_top_k: int,
+        retrieval_top_k: int,
         _parameters: run_retrieval_ablation_matrix.MatrixParameters,
     ) -> list[ScoredChunk]:
+        requested_top_k.append((cell.retriever, cell.granularity, retrieval_top_k))
         alpha = ScoredChunk(Chunk("alpha", "materials/alpha.md", 0, 0, 5), score=1.0)
         beta = ScoredChunk(Chunk("beta", "materials/beta.md", 0, 0, 4), score=0.9)
         if cell.retriever == "bm25" and cell.granularity == "document":
@@ -252,3 +510,85 @@ def test_matrix_command_writes_manifest_and_selects_strongest_configuration(
     assert "summary" in _as_dict(manifest["artifacts"])
     assert not _has_exact_key(report, "expected")
     assert not _has_exact_key(report, "qrels")
+    diagnostic_summary = _as_dict(report["diagnostic_summary"])
+    assert len(_as_list(diagnostic_summary["recall_at_50_100"])) == 8
+    assert "source_family" in diagnostic_summary
+    assert "document_type" in diagnostic_summary
+    assert "query_type" in diagnostic_summary
+    assert "optimization_targets" in diagnostic_summary
+    index_cache = _as_dict(_as_dict(report["metadata"])["index_cache"])
+    assert index_cache["fresh_for_scored_corpus"] is True
+    assert index_cache["scored_corpus_sha256"] == _as_dict(report["metadata"])["corpus_sha256"]
+    first_row = _as_dict(_as_list(matrix["rows"])[0])
+    first_metrics = _as_dict(first_row["metrics"])
+    assert _as_dict(first_metrics["evidence_categories"])["full_evidence"] == {
+        "count": 2,
+        "rate": 1.0,
+    }
+    assert "latency" in first_metrics
+    assert first_metrics["permission_retrieval_safety_rate"] == 1.0
+    assert ("hybrid", "chunk", 2) in requested_top_k
+    assert ("rrf", "chunk", 2) in requested_top_k
+
+
+def test_matrix_command_excludes_ignored_permissioned_material(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    armory = _make_armory(tmp_path)
+    (armory / ".hephaistosignore").write_text("materials/private.md\n", encoding="utf-8")
+    (armory / "materials" / "private.md").write_text(
+        "PRIVATE-TENANT-SENTINEL must never be retrieved.\n",
+        encoding="utf-8",
+    )
+    dataset = tmp_path / "cases.jsonl"
+    _write_jsonl(
+        dataset,
+        [
+            {
+                "id": "alpha",
+                "query": "alpha receptor signaling ligand binding",
+                "expected": ["materials/alpha.md"],
+            },
+        ],
+    )
+    report_path = tmp_path / "artifacts" / "matrix.json"
+
+    def indexed_chunks_only(
+        index: object,
+        _case: run_retrieval_ablation_matrix.benchmark_rag.BenchmarkCase,
+        _cell: run_retrieval_ablation_matrix.MatrixCell,
+        _retrieval_top_k: int,
+        _parameters: run_retrieval_ablation_matrix.MatrixParameters,
+    ) -> list[ScoredChunk]:
+        assert isinstance(index, run_retrieval_ablation_matrix.ArmoryIndex)
+        return [ScoredChunk(chunk, score=1.0) for chunk in index.all_chunks]
+
+    monkeypatch.setattr(
+        run_retrieval_ablation_matrix,
+        "_retrieve_ranked_chunks",
+        indexed_chunks_only,
+    )
+
+    status = run_retrieval_ablation_matrix.main(
+        [
+            str(armory),
+            str(dataset),
+            "--dataset-id",
+            "permissioned-test-corpus",
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report_text = report_path.read_text(encoding="utf-8")
+    report = _as_dict(json.loads(report_text))
+    metadata = _as_dict(report["metadata"])
+    permission_scope = _as_dict(metadata["permission_scope"])
+    first_query = _as_dict(_as_list(report["per_query_results"])[0])
+
+    assert status == 0
+    assert "PRIVATE-TENANT-SENTINEL" not in report_text
+    assert "materials/private.md" not in report_text
+    assert permission_scope["allowed_source_count"] == 2
+    assert first_query["permission_violation_count"] == 0

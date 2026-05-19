@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 import json
 import math
 import os
@@ -46,6 +47,8 @@ SCORING_PROTOCOL_VERSION = claim_report_envelope.SCORING_PROTOCOL_VERSION
 REQUIRED_TOP_K_VALUES = (1, 3, 5, 10, 25, 50, 100)
 _DEFAULT_MIN_SCORE = 0.0
 _DEFAULT_CANDIDATE_MULTIPLIER = 2
+_DEFAULT_MIN_PERMISSION_RETRIEVAL_SAFETY_RATE = 1.0
+_DEFAULT_MIN_FORBIDDEN_BEFORE_EXPECTED_AVOIDANCE = 0.0
 _DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 _DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 _PRIMARY_METRIC = "recall_at_k"
@@ -59,6 +62,16 @@ _METRIC_KEYS = (
     "precision_at_k",
 )
 _COUNT_KEYS = ("query_count", "miss_count")
+_EVIDENCE_FULL = "full_evidence"
+_EVIDENCE_PARTIAL = "partial_evidence"
+_EVIDENCE_NONE = "no_evidence"
+_EVIDENCE_CATEGORIES = (_EVIDENCE_FULL, _EVIDENCE_PARTIAL, _EVIDENCE_NONE)
+_MISS_PARTIAL = "partial_expected_evidence_only"
+_MISS_NO_EXPECTED = "no_expected_evidence_retrieved"
+_MISS_NO_CANDIDATES = "no_retrieved_candidates"
+_MISS_OUTSIDE_TOP_K = "expected_evidence_outside_requested_top_k"
+_MISS_FORBIDDEN_ORDERING = "forbidden_before_expected_ordering"
+_MISS_PERMISSION_SCOPE = "permission_scope_exclusion"
 _ARTIFACT_FILENAMES = {
     "matrix_report": "matrix-report.json",
     "per_query_results": "per-query-results.jsonl",
@@ -206,6 +219,16 @@ class RankedReference:
 
 
 @dataclass(frozen=True, slots=True)
+class RankedReferenceSet:
+    """Raw and deduplicated retrieval candidates used for top-k reconciliation."""
+
+    ranked: tuple[RankedReference, ...]
+    raw_candidate_count: int
+    candidate_retrieved_count: int
+    duplicate_document_drop_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class CanonicalLabel:
     """A resolved expected or forbidden label at a scoring granularity."""
 
@@ -252,15 +275,32 @@ class ScoredCaseResult:
 
     case_id: str
     query: str
+    query_type: str
     expected_count: int
     forbidden_count: int
     retrieved: tuple[str, ...]
     retrieved_chunks: tuple[dict[str, object], ...]
     hit: bool
     rank: int | None
+    candidate_rank: int | None
     first_forbidden_rank: int | None
     forbidden_before_expected_ok: bool
     metrics: RankingMetrics
+    candidate_metrics: RankingMetrics
+    evidence_category: str
+    miss_bucket: str | None
+    retrieval_top_k_requested: int
+    raw_candidate_count: int
+    candidate_retrieved_count: int
+    final_retrieved_count: int
+    top_k_satisfied: bool
+    top_k_shortfall_count: int
+    duplicate_document_drop_count: int
+    permission_violation_count: int
+    expected_source_families: tuple[str, ...]
+    expected_document_types: tuple[str, ...]
+    top_retrieved_source_family: str | None
+    top_retrieved_document_type: str | None
     elapsed_ms: float
 
 
@@ -479,33 +519,77 @@ def score_ranked_references(
     *,
     case_id: str,
     query: str,
+    query_type: str,
     labels: CaseLabels,
     retrieved: Sequence[RankedReference],
     corpus: CanonicalCorpus,
     granularity: ReferenceGranularity,
     top_k: int,
+    retrieval_top_k_requested: int,
+    raw_candidate_count: int,
+    candidate_retrieved_count: int,
+    duplicate_document_drop_count: int,
     elapsed_ms: float,
 ) -> ScoredCaseResult:
     """Score a ranked list after canonicalizing and deduplicating retrieved references."""
     canonical_retrieved = _canonicalize_retrieved(retrieved, corpus, granularity=granularity)
     top_retrieved = canonical_retrieved[:top_k]
     rank = _first_label_rank(labels.expected, top_retrieved)
+    candidate_rank = _first_label_rank(labels.expected, canonical_retrieved)
     forbidden_rank = _first_label_rank(labels.forbidden_before_expected, top_retrieved)
     metrics = _rank_metrics(labels.expected, top_retrieved, top_k=top_k)
+    candidate_metrics = _rank_metrics(
+        labels.expected,
+        canonical_retrieved,
+        top_k=max(retrieval_top_k_requested, top_k),
+    )
     forbidden_ok = _forbidden_before_expected_ok(rank, forbidden_rank)
     retrieved_chunk_rows = [_retrieved_chunk_payload(item) for item in top_retrieved]
+    final_retrieved_count = len(top_retrieved)
+    top_k_shortfall_count = max(0, top_k - final_retrieved_count)
+    evidence_category = _evidence_category(metrics.relevant_found, len(labels.expected))
+    permission_violation_count = 0
+    miss_bucket = _miss_bucket(
+        evidence_category=evidence_category,
+        forbidden_before_expected_ok=forbidden_ok,
+        permission_violation_count=permission_violation_count,
+        final_retrieved_count=final_retrieved_count,
+        candidate_rank=candidate_rank,
+        top_k=top_k,
+    )
     return ScoredCaseResult(
         case_id=case_id,
         query=query,
+        query_type=query_type,
         expected_count=len(labels.expected),
         forbidden_count=len(labels.forbidden_before_expected),
         retrieved=tuple(item.canonical for item in top_retrieved),
         retrieved_chunks=tuple(retrieved_chunk_rows),
         hit=rank is not None,
         rank=rank,
+        candidate_rank=candidate_rank,
         first_forbidden_rank=forbidden_rank,
         forbidden_before_expected_ok=forbidden_ok,
         metrics=metrics,
+        candidate_metrics=candidate_metrics,
+        evidence_category=evidence_category,
+        miss_bucket=miss_bucket,
+        retrieval_top_k_requested=retrieval_top_k_requested,
+        raw_candidate_count=raw_candidate_count,
+        candidate_retrieved_count=candidate_retrieved_count,
+        final_retrieved_count=final_retrieved_count,
+        top_k_satisfied=top_k_shortfall_count == 0,
+        top_k_shortfall_count=top_k_shortfall_count,
+        duplicate_document_drop_count=duplicate_document_drop_count,
+        permission_violation_count=permission_violation_count,
+        expected_source_families=_families_from_labels(labels.expected),
+        expected_document_types=_document_types_from_labels(labels.expected),
+        top_retrieved_source_family=_source_family(top_retrieved[0].source)
+        if top_retrieved
+        else None,
+        top_retrieved_document_type=_document_type(top_retrieved[0].source)
+        if top_retrieved
+        else None,
         elapsed_ms=elapsed_ms,
     )
 
@@ -538,6 +622,8 @@ def validate_matrix_report(report: Mapping[str, object]) -> MatrixContractResult
     rows = _row_mappings(matrix.get("rows"), errors)
     seen: set[tuple[str, str, int]] = set()
     report_metadata = _mapping_or_empty(report.get("metadata"))
+    _validate_index_cache(report_metadata, errors)
+    _validate_diagnostic_summary(report, errors)
     for row in rows:
         key = _row_key(row, errors)
         if key in seen:
@@ -552,6 +638,8 @@ def validate_matrix_report(report: Mapping[str, object]) -> MatrixContractResult
             _validate_row_hashes(row, report_metadata, key, errors)
         if status == "success":
             _validate_row_metrics(row, key, errors)
+    _validate_per_query_reconciliation(report, rows, errors)
+    _validate_thresholds(report, rows, errors)
     for retriever, granularity in configured_rows:
         errors.extend(
             f"missing row for retriever={retriever} granularity={granularity} top_k={top_k}"
@@ -647,6 +735,10 @@ def run_matrix(
     rerank_model: str | None = None,
     copy_armory: bool = False,
     dataset_id: str | None = None,
+    min_permission_retrieval_safety_rate: float = _DEFAULT_MIN_PERMISSION_RETRIEVAL_SAFETY_RATE,
+    min_forbidden_before_expected_avoidance: float = (
+        _DEFAULT_MIN_FORBIDDEN_BEFORE_EXPECTED_AVOIDANCE
+    ),
     command_invocation: str,
 ) -> dict[str, object]:
     """Run all configured matrix rows and return the finalized JSON report."""
@@ -655,13 +747,22 @@ def run_matrix(
     resolved_output_dir = output_dir.expanduser().resolve()
     working_armory = _prepare_working_armory(resolved_armory, resolved_output_dir, copy_armory)
     cases = benchmark_rag.load_cases(resolved_cases)
+    hashes = _input_hashes(resolved_armory, resolved_cases)
+    loaded_existing_index, stale_before_run = _probe_index_cache(working_armory)
     index = load_or_build(working_armory)
     corpus = CanonicalCorpus.from_index(index)
+    index_cache = _index_cache_state(
+        index,
+        working_armory=working_armory,
+        corpus_sha256=hashes["corpus_sha256"],
+        loaded_existing_index=loaded_existing_index,
+        stale_before_run=stale_before_run,
+    )
+    permission_scope = _permission_scope(corpus, corpus_sha256=hashes["corpus_sha256"])
     configs = tuple(
         _with_candidate_multiplier(config, candidate_multiplier)
         for config in default_matrix_configs()
     )
-    hashes = _input_hashes(resolved_armory, resolved_cases)
     observed = claim_report_envelope.observe_current_state()
     resolved_dataset_id = dataset_id or resolved_cases.stem
     matched_metadata = _matched_metadata(
@@ -715,6 +816,10 @@ def run_matrix(
         rows=rows,
         per_query_results=per_query_results,
         diagnostics=row_diagnostics,
+        index_cache=index_cache,
+        permission_scope=permission_scope,
+        min_permission_retrieval_safety_rate=min_permission_retrieval_safety_rate,
+        min_forbidden_before_expected_avoidance=min_forbidden_before_expected_avoidance,
         dataset_id=resolved_dataset_id,
     )
     finalized = claim_report_envelope.finalize_claim_report(
@@ -765,7 +870,13 @@ def write_matrix_artifacts(
         ),
         encoding="utf-8",
     )
-    _write_json(diagnostics_path, {"rows": diagnostics})
+    _write_json(
+        diagnostics_path,
+        {
+            "rows": diagnostics,
+            "summary": _mapping_or_empty(report.get("diagnostic_summary")),
+        },
+    )
     _write_json(metadata_path, metadata)
     summary_path.write_text(_summary_markdown(report), encoding="utf-8")
 
@@ -808,12 +919,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     embed_document_prefix = cast("str", args.embedding_document_prefix)
     rerank_model = _optional_cli_string(cast("str | None", args.rerank_model))
     copy_armory = cast("bool", args.copy_armory)
+    min_permission_safety = cast("float", args.min_permission_retrieval_safety_rate)
+    min_forbidden_avoidance = cast("float", args.min_forbidden_before_expected_avoidance)
     top_k_values = _parse_top_k_values(cast("str", args.top_k_values), parser)
 
     if min_score < 0:
         parser.error("--min-score must be non-negative")
     if candidate_multiplier <= 0:
         parser.error("--candidate-multiplier must be positive")
+    if not 0 <= min_permission_safety <= 1:
+        parser.error("--min-permission-retrieval-safety-rate must be in [0, 1]")
+    if not 0 <= min_forbidden_avoidance <= 1:
+        parser.error("--min-forbidden-before-expected-avoidance must be in [0, 1]")
 
     command = claim_report_envelope.command_invocation(RUNNER_ID, list(argv or sys.argv[1:]))
     try:
@@ -830,6 +947,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             rerank_model=rerank_model,
             copy_armory=copy_armory,
             dataset_id=dataset_id,
+            min_permission_retrieval_safety_rate=min_permission_safety,
+            min_forbidden_before_expected_avoidance=min_forbidden_avoidance,
             command_invocation=command,
         )
         manifest = write_matrix_artifacts(
@@ -903,12 +1022,7 @@ def _run_matrix_cell(
                 granularity=config.granularity,
             )
             started = time.perf_counter()
-            retrieval_top_k = (
-                config.candidate_budget(top_k)
-                if config.granularity == ReferenceGranularity.DOCUMENT
-                and config.retrieval_mode != RetrievalMode.BM25_DOCUMENT
-                else top_k
-            )
+            retrieval_top_k = _retrieval_top_k_for_config(config, top_k)
             chunks = _retrieve_ranked_chunks(
                 index,
                 case,
@@ -921,11 +1035,16 @@ def _run_matrix_cell(
             scored = score_ranked_references(
                 case_id=case.case_id,
                 query=case.query,
+                query_type=case.task or "unlabeled",
                 labels=labels,
-                retrieved=ranked,
+                retrieved=ranked.ranked,
                 corpus=corpus,
                 granularity=config.granularity,
                 top_k=top_k,
+                retrieval_top_k_requested=retrieval_top_k,
+                raw_candidate_count=ranked.raw_candidate_count,
+                candidate_retrieved_count=ranked.candidate_retrieved_count,
+                duplicate_document_drop_count=ranked.duplicate_document_drop_count,
                 elapsed_ms=elapsed_ms,
             )
             scored_results.append(scored)
@@ -972,11 +1091,21 @@ def _base_report(
     rows: list[dict[str, object]],
     per_query_results: list[dict[str, object]],
     diagnostics: list[dict[str, object]],
+    index_cache: Mapping[str, object],
+    permission_scope: Mapping[str, object],
+    min_permission_retrieval_safety_rate: float,
+    min_forbidden_before_expected_avoidance: float,
     dataset_id: str,
 ) -> dict[str, object]:
     selected = _selected_configuration(rows)
     aggregate_metrics = _selected_aggregate_metrics(selected, rows)
     baseline_delta = _baseline_delta(selected, rows)
+    diagnostic_summary = _diagnostic_summary(
+        rows=rows,
+        per_query_results=per_query_results,
+        diagnostics=diagnostics,
+        index_cache=index_cache,
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "report_id": f"retrieval-ablation-matrix:{dataset_id}",
@@ -985,6 +1114,7 @@ def _base_report(
             "runner": RUNNER_ID,
             "benchmark_type": "retrieval-ablation-matrix",
             "dataset": dataset_id,
+            "dataset_id": dataset_id,
             "armory_path": str(armory_path),
             "working_armory_path": str(working_armory_path),
             "cases_path": str(cases_path),
@@ -994,6 +1124,8 @@ def _base_report(
             "labels_sha256": hashes["qrels_sha256"],
             "qrels_sha256": hashes["qrels_sha256"],
             "manifest_sha256": hashes["manifest_sha256"],
+            "index_cache": dict(index_cache),
+            "permission_scope": dict(permission_scope),
             "configured_top_k_values": list(top_k_values),
             "latency_scope": claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY,
             "scoring_protocol_version": SCORING_PROTOCOL_VERSION,
@@ -1030,12 +1162,15 @@ def _base_report(
         "baseline_delta": baseline_delta,
         "per_query_results": per_query_results,
         "diagnostics": diagnostics,
+        "diagnostic_summary": diagnostic_summary,
         "thresholds": {
             "hit_rate": 0.0,
             "mrr": 0.0,
             "expected_recall": 0.0,
             "primary_metric": _PRIMARY_METRIC,
             "primary_top_k": _PRIMARY_TOP_K,
+            "permission_retrieval_safety_rate": min_permission_retrieval_safety_rate,
+            "forbidden_before_expected_avoidance": min_forbidden_before_expected_avoidance,
         },
         "threshold_failures": [],
         "warnings": [],
@@ -1138,6 +1273,19 @@ def _selected_aggregate_metrics(
         "ndcg_at_k": metrics.get("ndcg_at_k", 0.0),
         "query_count": metrics.get("query_count", 0),
         "miss_count": metrics.get("miss_count", 0),
+        "full_evidence_count": metrics.get("full_evidence_count", 0),
+        "partial_evidence_count": metrics.get("partial_evidence_count", 0),
+        "no_evidence_count": metrics.get("no_evidence_count", 0),
+        "evidence_categories": metrics.get("evidence_categories", {}),
+        "candidate_recall_at_budget": metrics.get("candidate_recall_at_budget", 0.0),
+        "forbidden_before_expected_avoidance": metrics.get(
+            "forbidden_before_expected_avoidance",
+            1.0,
+        ),
+        "permission_retrieval_safety_rate": metrics.get(
+            "permission_retrieval_safety_rate",
+            1.0,
+        ),
         "mean_latency_ms": metrics.get("mean_latency_ms", 0.0),
         "latency": metrics.get(
             "latency",
@@ -1148,6 +1296,243 @@ def _selected_aggregate_metrics(
             },
         ),
     }
+
+
+def _diagnostic_summary(
+    *,
+    rows: Sequence[Mapping[str, object]],
+    per_query_results: Sequence[Mapping[str, object]],
+    diagnostics: Sequence[Mapping[str, object]],
+    index_cache: Mapping[str, object],
+) -> dict[str, object]:
+    successful_rows = [row for row in rows if row.get("status") == "success"]
+    return {
+        "recall_at_50_100": _recall_at_50_100_summary(successful_rows),
+        "source_family": _global_breakdown(
+            per_query_results,
+            expected_field="expected_source_families",
+        ),
+        "document_type": _global_breakdown(
+            per_query_results,
+            expected_field="expected_document_types",
+        ),
+        "query_type": _global_query_type_breakdown(per_query_results),
+        "latency": {
+            "scope": claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY,
+            "unit": "milliseconds",
+            "rows": len(successful_rows),
+            "slowest_rows": _slowest_rows(successful_rows),
+        },
+        "evidence_categories": _global_evidence_categories(successful_rows),
+        "miss_buckets": _global_miss_buckets(successful_rows),
+        "top_k_reconciliation": {
+            "rows_checked": len(successful_rows),
+            "per_query_rows_checked": len(per_query_results),
+            "non_monotonic_metric_failures": _non_monotonic_metric_failures(successful_rows),
+        },
+        "index_cache": dict(index_cache),
+        "permission_safety": _permission_safety_summary(successful_rows),
+        "optimization_targets": _optimization_targets(successful_rows, diagnostics),
+    }
+
+
+def _recall_at_50_100_summary(rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    grouped: dict[tuple[str, str], dict[int, Mapping[str, object]]] = {}
+    for row in rows:
+        retriever = row.get("retriever")
+        granularity = row.get("granularity")
+        top_k = row.get("top_k")
+        if not isinstance(retriever, str) or not isinstance(granularity, str):
+            continue
+        if not isinstance(top_k, int) or top_k not in {50, 100}:
+            continue
+        grouped.setdefault((retriever, granularity), {})[top_k] = row
+    summary: list[dict[str, object]] = []
+    for retriever, granularity in sorted(grouped):
+        at_50 = grouped[(retriever, granularity)].get(50)
+        at_100 = grouped[(retriever, granularity)].get(100)
+        metrics_50 = _mapping_or_empty(at_50.get("metrics") if at_50 else None)
+        metrics_100 = _mapping_or_empty(at_100.get("metrics") if at_100 else None)
+        summary.append(
+            {
+                "retriever": retriever,
+                "granularity": granularity,
+                "row_id_at_50": at_50.get("row_id") if at_50 else None,
+                "row_id_at_100": at_100.get("row_id") if at_100 else None,
+                "recall_at_50": metrics_50.get("recall_at_k"),
+                "recall_at_100": metrics_100.get("recall_at_k"),
+                "candidate_recall_at_50": metrics_50.get("candidate_recall_at_budget"),
+                "candidate_recall_at_100": metrics_100.get("candidate_recall_at_budget"),
+                "query_count_at_50": metrics_50.get("query_count"),
+                "miss_count_at_50": metrics_50.get("miss_count"),
+                "query_count_at_100": metrics_100.get("query_count"),
+                "miss_count_at_100": metrics_100.get("miss_count"),
+                "candidate_recall_scope": "pre_final_candidate_list",
+            }
+        )
+    return summary
+
+
+def _global_breakdown(
+    per_query_rows: Sequence[Mapping[str, object]],
+    *,
+    expected_field: str,
+) -> dict[str, dict[str, float | int]]:
+    return _breakdown_payload(per_query_rows, expected_field=expected_field)
+
+
+def _global_query_type_breakdown(
+    per_query_rows: Sequence[Mapping[str, object]],
+) -> dict[str, dict[str, float | int]]:
+    return _query_type_breakdown(per_query_rows)
+
+
+def _slowest_rows(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    limit: int = 5,
+) -> list[dict[str, object]]:
+    slowest: list[dict[str, object]] = []
+    for row in rows:
+        metrics = _mapping_or_empty(row.get("metrics"))
+        latency = _mapping_or_empty(metrics.get("latency"))
+        mean_ms = latency.get("mean_ms")
+        if not isinstance(mean_ms, int | float):
+            continue
+        slowest.append({"row_id": row.get("row_id"), "mean_ms": float(mean_ms)})
+    return sorted(slowest, key=lambda item: float(item["mean_ms"]), reverse=True)[:limit]
+
+
+def _global_evidence_categories(
+    rows: Sequence[Mapping[str, object]],
+) -> dict[str, dict[str, float | int]]:
+    counts = dict.fromkeys(_EVIDENCE_CATEGORIES, 0)
+    total = 0
+    for row in rows:
+        metrics = _mapping_or_empty(row.get("metrics"))
+        query_count = metrics.get("query_count")
+        if isinstance(query_count, int):
+            total += query_count
+        categories = _mapping_or_empty(metrics.get("evidence_categories"))
+        for category in _EVIDENCE_CATEGORIES:
+            payload = _mapping_or_empty(categories.get(category))
+            count = payload.get("count")
+            if isinstance(count, int):
+                counts[category] += count
+    return _evidence_category_payload(counts, total)
+
+
+def _global_miss_buckets(rows: Sequence[Mapping[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        metrics = _mapping_or_empty(row.get("metrics"))
+        for bucket, raw_count in _mapping_or_empty(metrics.get("miss_bucket_counts")).items():
+            if isinstance(bucket, str) and isinstance(raw_count, int):
+                counts[bucket] = counts.get(bucket, 0) + raw_count
+    return dict(sorted(counts.items()))
+
+
+def _permission_safety_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    checked = 0
+    violations = 0
+    forbidden_cases = 0
+    forbidden_failures = 0
+    for row in rows:
+        metrics = _mapping_or_empty(row.get("metrics"))
+        checked += _int_metric(metrics, "permission_scope_checked_count")
+        violations += _int_metric(metrics, "permission_violation_count")
+        forbidden_cases += _int_metric(metrics, "forbidden_before_expected_case_count")
+        forbidden_failures += _int_metric(metrics, "forbidden_before_expected_failure_count")
+    return {
+        "permission_scope_checked_count": checked,
+        "permission_violation_count": violations,
+        "permission_retrieval_safety_rate": (checked - violations) / checked if checked else 1.0,
+        "forbidden_before_expected_case_count": forbidden_cases,
+        "forbidden_before_expected_failure_count": forbidden_failures,
+        "forbidden_before_expected_avoidance": (
+            (forbidden_cases - forbidden_failures) / forbidden_cases if forbidden_cases else 1.0
+        ),
+    }
+
+
+def _optimization_targets(
+    rows: Sequence[Mapping[str, object]],
+    diagnostics: Sequence[Mapping[str, object]],
+    *,
+    limit: int = 8,
+) -> list[dict[str, object]]:
+    row_by_id = {row.get("row_id"): row for row in rows if isinstance(row.get("row_id"), str)}
+    targets: list[dict[str, object]] = []
+    for diagnostic in diagnostics:
+        row_id = diagnostic.get("row_id")
+        row = row_by_id.get(row_id)
+        metrics = _mapping_or_empty(row.get("metrics") if row else None)
+        miss_count = _int_metric(metrics, "miss_count")
+        if miss_count <= 0:
+            continue
+        miss_buckets = _mapping_or_empty(diagnostic.get("miss_bucket_counts"))
+        if miss_buckets:
+            bucket, count = max(
+                (
+                    (bucket_name, raw_count)
+                    for bucket_name, raw_count in miss_buckets.items()
+                    if isinstance(bucket_name, str) and isinstance(raw_count, int)
+                ),
+                key=lambda item: item[1],
+                default=("unknown", 0),
+            )
+        else:
+            bucket, count = ("unknown", miss_count)
+        targets.append(
+            {
+                "row_id": row_id,
+                "miss_count": miss_count,
+                "dominant_bucket": bucket,
+                "dominant_bucket_count": count,
+                "candidate_recall_at_budget": metrics.get("candidate_recall_at_budget"),
+                "recall_at_k": metrics.get("recall_at_k"),
+            }
+        )
+    return sorted(targets, key=lambda item: int(item["miss_count"]), reverse=True)[:limit]
+
+
+def _non_monotonic_metric_failures(
+    rows: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    grouped: dict[tuple[str, str], list[Mapping[str, object]]] = {}
+    for row in rows:
+        retriever = row.get("retriever")
+        granularity = row.get("granularity")
+        if not isinstance(retriever, str) or not isinstance(granularity, str):
+            continue
+        grouped.setdefault((retriever, granularity), []).append(row)
+    failures: list[dict[str, object]] = []
+    for (retriever, granularity), group_rows in grouped.items():
+        previous: dict[str, tuple[int, float]] = {}
+        for row in sorted(group_rows, key=lambda item: int(item.get("top_k", 0))):
+            top_k = row.get("top_k")
+            if not isinstance(top_k, int):
+                continue
+            metrics = _mapping_or_empty(row.get("metrics"))
+            for metric_name in ("hit_rate_at_k", "recall_at_k", "candidate_recall_at_budget"):
+                value = metrics.get(metric_name)
+                if not isinstance(value, int | float):
+                    continue
+                previous_top_k, previous_value = previous.get(metric_name, (top_k, float(value)))
+                if float(value) + 1e-12 < previous_value:
+                    failures.append(
+                        {
+                            "retriever": retriever,
+                            "granularity": granularity,
+                            "metric": metric_name,
+                            "previous_top_k": previous_top_k,
+                            "previous_value": previous_value,
+                            "top_k": top_k,
+                            "value": float(value),
+                        }
+                    )
+                previous[metric_name] = (top_k, max(previous_value, float(value)))
+    return failures
 
 
 def _selection_key(row: Mapping[str, object]) -> tuple[float, float, float, float, float, int]:
@@ -1218,18 +1603,47 @@ def _aggregate_metrics(
     query_count = len(results)
     if not results:
         return _empty_metrics(top_k)
-    miss_count = sum(1 for result in results if not result.hit)
-    hit_count = query_count - miss_count
+    category_counts = _evidence_category_counts(results)
+    miss_count = query_count - category_counts[_EVIDENCE_FULL]
     reciprocal_rank_sum = sum(result.metrics.reciprocal_rank for result in results)
     recall_sum = sum(result.metrics.recall_at_k for result in results)
+    candidate_recall_sum = sum(result.candidate_metrics.recall_at_k for result in results)
     precision_sum = sum(result.metrics.precision_at_k for result in results)
     average_precision_sum = sum(result.metrics.average_precision_at_k for result in results)
     ndcg_sum = sum(result.metrics.ndcg_at_k for result in results)
     latency_values = [result.elapsed_ms for result in results]
     mean_latency = sum(latency_values) / query_count
+    forbidden_case_count = sum(1 for result in results if result.forbidden_count > 0)
+    forbidden_failure_count = sum(
+        1
+        for result in results
+        if result.forbidden_count > 0 and not result.forbidden_before_expected_ok
+    )
+    forbidden_avoidance = (
+        (forbidden_case_count - forbidden_failure_count) / forbidden_case_count
+        if forbidden_case_count
+        else 1.0
+    )
+    permission_violation_count = sum(result.permission_violation_count for result in results)
+    permission_safety_rate = (
+        (query_count - permission_violation_count) / query_count if query_count else 1.0
+    )
+    category_payload = _evidence_category_payload(category_counts, query_count)
+    miss_bucket_counts = _miss_bucket_counts(results)
+    top_k_payload = {
+        "per_query_count": query_count,
+        "raw_candidate_count": sum(result.raw_candidate_count for result in results),
+        "candidate_retrieved_count": sum(result.candidate_retrieved_count for result in results),
+        "final_retrieved_count": sum(result.final_retrieved_count for result in results),
+        "duplicate_document_drop_count": sum(
+            result.duplicate_document_drop_count for result in results
+        ),
+        "top_k_shortfall_count": sum(result.top_k_shortfall_count for result in results),
+    }
     return {
-        "hit_rate_at_k": hit_count / query_count,
+        "hit_rate_at_k": sum(1 for result in results if result.hit) / query_count,
         "recall_at_k": recall_sum / query_count,
+        "candidate_recall_at_budget": candidate_recall_sum / query_count,
         "mrr_at_k": reciprocal_rank_sum / query_count,
         "map_at_k": average_precision_sum / query_count,
         "ndcg_at_k": ndcg_sum / query_count,
@@ -1248,8 +1662,49 @@ def _aggregate_metrics(
             "scope": claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY,
             "unit": "milliseconds",
         },
+        "evidence_categories": category_payload,
+        "full_evidence_count": category_counts[_EVIDENCE_FULL],
+        "partial_evidence_count": category_counts[_EVIDENCE_PARTIAL],
+        "no_evidence_count": category_counts[_EVIDENCE_NONE],
+        "miss_bucket_counts": miss_bucket_counts,
+        "top_k_reconciliation": top_k_payload,
+        "forbidden_before_expected_case_count": forbidden_case_count,
+        "forbidden_before_expected_failure_count": forbidden_failure_count,
+        "forbidden_before_expected_avoidance": forbidden_avoidance,
+        "permission_scope_checked_count": query_count,
+        "permission_violation_count": permission_violation_count,
+        "permission_retrieval_safety_rate": permission_safety_rate,
         "top_k": top_k,
     }
+
+
+def _evidence_category_counts(results: Sequence[ScoredCaseResult]) -> dict[str, int]:
+    counts = dict.fromkeys(_EVIDENCE_CATEGORIES, 0)
+    for result in results:
+        counts[result.evidence_category] = counts.get(result.evidence_category, 0) + 1
+    return counts
+
+
+def _evidence_category_payload(
+    counts: Mapping[str, int],
+    query_count: int,
+) -> dict[str, dict[str, float | int]]:
+    return {
+        category: {
+            "count": counts.get(category, 0),
+            "rate": counts.get(category, 0) / query_count if query_count else 0.0,
+        }
+        for category in _EVIDENCE_CATEGORIES
+    }
+
+
+def _miss_bucket_counts(results: Sequence[ScoredCaseResult]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for result in results:
+        if result.miss_bucket is None:
+            continue
+        counts[result.miss_bucket] = counts.get(result.miss_bucket, 0) + 1
+    return counts
 
 
 def _empty_metrics(top_k: int) -> dict[str, object]:
@@ -1270,6 +1725,29 @@ def _empty_metrics(top_k: int) -> dict[str, object]:
                 "scope": claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY,
                 "unit": "milliseconds",
             },
+            "candidate_recall_at_budget": 0.0,
+            "evidence_categories": _evidence_category_payload(
+                dict.fromkeys(_EVIDENCE_CATEGORIES, 0),
+                0,
+            ),
+            "full_evidence_count": 0,
+            "partial_evidence_count": 0,
+            "no_evidence_count": 0,
+            "miss_bucket_counts": {},
+            "top_k_reconciliation": {
+                "per_query_count": 0,
+                "raw_candidate_count": 0,
+                "candidate_retrieved_count": 0,
+                "final_retrieved_count": 0,
+                "duplicate_document_drop_count": 0,
+                "top_k_shortfall_count": 0,
+            },
+            "forbidden_before_expected_case_count": 0,
+            "forbidden_before_expected_failure_count": 0,
+            "forbidden_before_expected_avoidance": 1.0,
+            "permission_scope_checked_count": 0,
+            "permission_violation_count": 0,
+            "permission_retrieval_safety_rate": 1.0,
             "top_k": top_k,
         }
     )
@@ -1358,6 +1836,91 @@ def _forbidden_before_expected_ok(
     if expected_rank is None:
         return False
     return expected_rank < forbidden_rank
+
+
+def _evidence_category(relevant_found: int, expected_count: int) -> str:
+    if expected_count > 0 and relevant_found >= expected_count:
+        return _EVIDENCE_FULL
+    if relevant_found > 0:
+        return _EVIDENCE_PARTIAL
+    return _EVIDENCE_NONE
+
+
+def _miss_bucket(
+    *,
+    evidence_category: str,
+    forbidden_before_expected_ok: bool,
+    permission_violation_count: int,
+    final_retrieved_count: int,
+    candidate_rank: int | None,
+    top_k: int,
+) -> str | None:
+    if evidence_category == _EVIDENCE_FULL:
+        return None
+    if permission_violation_count > 0:
+        return _MISS_PERMISSION_SCOPE
+    if not forbidden_before_expected_ok:
+        return _MISS_FORBIDDEN_ORDERING
+    if evidence_category == _EVIDENCE_PARTIAL:
+        return _MISS_PARTIAL
+    if final_retrieved_count == 0:
+        return _MISS_NO_CANDIDATES
+    if candidate_rank is not None and candidate_rank > top_k:
+        return _MISS_OUTSIDE_TOP_K
+    return _MISS_NO_EXPECTED
+
+
+def _families_from_labels(labels: Sequence[CanonicalLabel]) -> tuple[str, ...]:
+    return tuple(sorted({_source_family(label.source) for label in labels}))
+
+
+def _document_types_from_labels(labels: Sequence[CanonicalLabel]) -> tuple[str, ...]:
+    return tuple(sorted({_document_type(label.source) for label in labels}))
+
+
+def _source_family(source: str) -> str:
+    source_path = _reference_source(source)
+    if source_path.startswith("materials/"):
+        source_path = source_path.removeprefix("materials/")
+    path = Path(source_path)
+    parts = path.parts
+    if len(parts) > 1 and parts[0]:
+        return _neutral_token(parts[0])
+    stem = path.stem or source_path
+    for separator in ("-", "_", "."):
+        if separator in stem:
+            stem = stem.split(separator, 1)[0]
+            break
+    return _neutral_token(stem)
+
+
+def _neutral_token(value: str) -> str:
+    normalized = "".join(
+        char.lower() if char.isalnum() else "-"
+        for char in value.strip()
+        if char.isalnum() or char in {"-", "_"}
+    ).strip("-")
+    return normalized or "unknown"
+
+
+def _document_type(source: str) -> str:
+    suffix = Path(_reference_source(source)).suffix.lower().lstrip(".")
+    return {
+        "md": "markdown",
+        "markdown": "markdown",
+        "txt": "text",
+        "text": "text",
+        "jsonl": "jsonl",
+        "json": "json",
+        "csv": "csv",
+        "tsv": "tsv",
+        "html": "html",
+        "htm": "html",
+        "pdf": "pdf",
+        "docx": "docx",
+        "pptx": "pptx",
+        "xlsx": "xlsx",
+    }.get(suffix, suffix or "unknown")
 
 
 def _canonical_label(
@@ -1468,12 +2031,7 @@ def _retrieve_for_config(
     embed_document_prefix: str,
     rerank_model: str | None,
 ) -> list[ScoredChunk]:
-    retrieval_top_k = (
-        config.candidate_budget(top_k)
-        if config.granularity == ReferenceGranularity.DOCUMENT
-        and config.retrieval_mode != RetrievalMode.BM25_DOCUMENT
-        else top_k
-    )
+    retrieval_top_k = _retrieval_top_k_for_config(config, top_k)
     return retrieve(
         query,
         index,
@@ -1492,6 +2050,15 @@ def _retrieve_for_config(
         pseudo_feedback_terms=DEFAULT_PSEUDO_FEEDBACK_TERMS,
         pseudo_feedback_weight=DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
     )
+
+
+def _retrieval_top_k_for_config(config: MatrixConfig, top_k: int) -> int:
+    if (
+        config.granularity == ReferenceGranularity.DOCUMENT
+        and config.retrieval_mode != RetrievalMode.BM25_DOCUMENT
+    ) or config.fusion_strategy != "none":
+        return config.candidate_budget(top_k)
+    return top_k
 
 
 def _retrieve_ranked_chunks(
@@ -1532,13 +2099,15 @@ def _ranked_references_from_chunks(
     *,
     config: MatrixConfig,
     top_k: int,
-) -> tuple[RankedReference, ...]:
+) -> RankedReferenceSet:
     ranked: list[RankedReference] = []
     seen_documents: set[str] = set()
+    duplicate_document_drop_count = 0
     for scored_chunk in chunks:
         ref = EvidenceReference(scored_chunk.chunk.source, scored_chunk.chunk.index).render()
         if config.granularity == ReferenceGranularity.DOCUMENT:
             if scored_chunk.chunk.source in seen_documents:
+                duplicate_document_drop_count += 1
                 continue
             seen_documents.add(scored_chunk.chunk.source)
         ranked.append(
@@ -1548,9 +2117,14 @@ def _ranked_references_from_chunks(
                 text_excerpt=_excerpt(scored_chunk.chunk.text),
             )
         )
-        if len(ranked) >= top_k:
+        if len(ranked) >= max(top_k, config.candidate_budget(top_k)):
             break
-    return tuple(ranked)
+    return RankedReferenceSet(
+        ranked=tuple(ranked),
+        raw_candidate_count=len(chunks),
+        candidate_retrieved_count=len(ranked),
+        duplicate_document_drop_count=duplicate_document_drop_count,
+    )
 
 
 def _per_query_payload(
@@ -1562,25 +2136,121 @@ def _per_query_payload(
         "row_id": matrix_row_id(config, top_k),
         "case_id": result.case_id,
         "query": result.query,
+        "query_type": result.query_type,
         "retriever": config.retriever,
         "granularity": config.granularity.value,
         "top_k": top_k,
         "candidate_budget": config.candidate_budget(top_k),
+        "retrieval_top_k_requested": result.retrieval_top_k_requested,
         "expected_count": result.expected_count,
         "forbidden_before_expected_count": result.forbidden_count,
         "retrieved": list(result.retrieved),
         "retrieved_chunks": list(result.retrieved_chunks),
         "hit": result.hit,
         "rank": result.rank,
+        "candidate_rank": result.candidate_rank,
+        "relevant_found": result.metrics.relevant_found,
+        "candidate_relevant_found": result.candidate_metrics.relevant_found,
         "reciprocal_rank": result.metrics.reciprocal_rank,
         "recall_at_k": result.metrics.recall_at_k,
+        "candidate_recall_at_budget": result.candidate_metrics.recall_at_k,
         "precision_at_k": result.metrics.precision_at_k,
         "average_precision_at_k": result.metrics.average_precision_at_k,
         "ndcg_at_k": result.metrics.ndcg_at_k,
+        "evidence_category": result.evidence_category,
+        "miss_bucket": result.miss_bucket,
+        "raw_candidate_count": result.raw_candidate_count,
+        "candidate_retrieved_count": result.candidate_retrieved_count,
+        "final_retrieved_count": result.final_retrieved_count,
+        "top_k_satisfied": result.top_k_satisfied,
+        "top_k_shortfall_count": result.top_k_shortfall_count,
+        "duplicate_document_drop_count": result.duplicate_document_drop_count,
         "first_forbidden_rank": result.first_forbidden_rank,
         "forbidden_before_expected_ok": result.forbidden_before_expected_ok,
+        "permission_violation_count": result.permission_violation_count,
+        "expected_source_families": list(result.expected_source_families),
+        "top_retrieved_source_family": result.top_retrieved_source_family,
+        "expected_document_types": list(result.expected_document_types),
+        "top_retrieved_document_type": result.top_retrieved_document_type,
         "latency_ms": result.elapsed_ms,
     }
+
+
+def _breakdown_payload(
+    per_query_rows: Sequence[Mapping[str, object]],
+    *,
+    expected_field: str,
+) -> dict[str, dict[str, float | int]]:
+    totals: dict[str, dict[str, int]] = {}
+    for item in per_query_rows:
+        labels = _string_list(item.get(expected_field)) or ["unknown"]
+        for label in labels:
+            bucket = totals.setdefault(label, {"case_count": 0, "hit_count": 0, "miss_count": 0})
+            bucket["case_count"] += 1
+            if item.get("hit") is True:
+                bucket["hit_count"] += 1
+            else:
+                bucket["miss_count"] += 1
+    return _rate_breakdown(totals)
+
+
+def _query_type_breakdown(
+    per_query_rows: Sequence[Mapping[str, object]],
+) -> dict[str, dict[str, float | int]]:
+    totals: dict[str, dict[str, int]] = {}
+    for item in per_query_rows:
+        raw_query_type = item.get("query_type")
+        query_type = raw_query_type if isinstance(raw_query_type, str) else "unlabeled"
+        bucket = totals.setdefault(query_type, {"case_count": 0, "hit_count": 0, "miss_count": 0})
+        bucket["case_count"] += 1
+        if item.get("hit") is True:
+            bucket["hit_count"] += 1
+        else:
+            bucket["miss_count"] += 1
+    return _rate_breakdown(totals)
+
+
+def _source_family_confusion(
+    per_query_rows: Sequence[Mapping[str, object]],
+) -> dict[str, dict[str, int]]:
+    totals: dict[str, dict[str, int]] = {}
+    for item in per_query_rows:
+        expected_families = _string_list(item.get("expected_source_families")) or ["unknown"]
+        top_family = item.get("top_retrieved_source_family")
+        top_label = top_family if isinstance(top_family, str) else "none"
+        for expected_family in expected_families:
+            key = f"{expected_family}->{top_label}"
+            bucket = totals.setdefault(key, {"case_count": 0, "hit_count": 0})
+            bucket["case_count"] += 1
+            if item.get("hit") is True:
+                bucket["hit_count"] += 1
+    return dict(sorted(totals.items()))
+
+
+def _rate_breakdown(
+    totals: Mapping[str, Mapping[str, int]],
+) -> dict[str, dict[str, float | int]]:
+    payload: dict[str, dict[str, float | int]] = {}
+    for label, counts in sorted(totals.items()):
+        case_count = counts.get("case_count", 0)
+        hit_count = counts.get("hit_count", 0)
+        miss_count = counts.get("miss_count", 0)
+        payload[label] = {
+            "case_count": case_count,
+            "hit_count": hit_count,
+            "miss_count": miss_count,
+            "hit_rate": hit_count / case_count if case_count else 0.0,
+            "miss_rate": miss_count / case_count if case_count else 0.0,
+        }
+    return payload
+
+
+def _candidate_recall_scope(row: Mapping[str, object]) -> str:
+    top_k = row.get("top_k")
+    candidate_budget = row.get("candidate_budget")
+    if isinstance(top_k, int) and isinstance(candidate_budget, int) and candidate_budget > top_k:
+        return "pre_final_candidate_list"
+    return "final_ranked_list"
 
 
 def _row_diagnostics(
@@ -1588,22 +2258,63 @@ def _row_diagnostics(
     row: Mapping[str, object],
     per_query_rows: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
+    metrics = _mapping_or_empty(row.get("metrics"))
     misses = [
         {
             "case_id": item.get("case_id"),
-            "bucket": "no_expected_evidence_retrieved"
-            if item.get("retrieved")
-            else "no_retrieved_candidates",
+            "bucket": item.get("miss_bucket") or _MISS_NO_EXPECTED,
             "retrieved_count": len(_object_list(item.get("retrieved"))),
+            "candidate_rank": item.get("candidate_rank"),
+            "top_k": item.get("top_k"),
             "top_retrieved": _object_list(item.get("retrieved"))[:3],
         }
         for item in per_query_rows
-        if item.get("hit") is False
+        if item.get("evidence_category") != _EVIDENCE_FULL
     ]
     return {
         "row_id": row_id,
         "status": row.get("status"),
+        "query_count": metrics.get("query_count", len(per_query_rows)),
         "miss_count": len(misses),
+        "miss_bucket_counts": _mapping_or_empty(metrics.get("miss_bucket_counts")),
+        "evidence_categories": _mapping_or_empty(metrics.get("evidence_categories")),
+        "source_family_breakdown": _breakdown_payload(
+            per_query_rows,
+            expected_field="expected_source_families",
+        ),
+        "document_type_breakdown": _breakdown_payload(
+            per_query_rows,
+            expected_field="expected_document_types",
+        ),
+        "query_type_breakdown": _query_type_breakdown(per_query_rows),
+        "source_family_confusion": _source_family_confusion(per_query_rows),
+        "latency": metrics.get("latency"),
+        "top_k_reconciliation": metrics.get("top_k_reconciliation"),
+        "permission_safety": {
+            "permission_violation_count": metrics.get("permission_violation_count", 0),
+            "permission_retrieval_safety_rate": metrics.get(
+                "permission_retrieval_safety_rate",
+                1.0,
+            ),
+            "forbidden_before_expected_case_count": metrics.get(
+                "forbidden_before_expected_case_count",
+                0,
+            ),
+            "forbidden_before_expected_failure_count": metrics.get(
+                "forbidden_before_expected_failure_count",
+                0,
+            ),
+            "forbidden_before_expected_avoidance": metrics.get(
+                "forbidden_before_expected_avoidance",
+                1.0,
+            ),
+        },
+        "recall_diagnostics": {
+            "top_k": row.get("top_k"),
+            "recall_at_k": metrics.get("recall_at_k"),
+            "candidate_recall_at_budget": metrics.get("candidate_recall_at_budget"),
+            "candidate_recall_scope": _candidate_recall_scope(row),
+        },
         "misses": misses,
         "failure": row.get("failure"),
     }
@@ -1678,6 +2389,64 @@ def _input_hashes(armory_path: Path, cases_path: Path) -> dict[str, str]:
         "cases_sha256": cases_sha,
         "qrels_sha256": cases_sha,
         "manifest_sha256": cases_sha,
+    }
+
+
+def _probe_index_cache(working_armory: Path) -> tuple[bool, bool]:
+    probe = ArmoryIndex(working_armory)
+    loaded = probe.load(allow_stale=True)
+    return loaded, not loaded or probe.is_stale()
+
+
+def _index_cache_state(
+    index: ArmoryIndex,
+    *,
+    working_armory: Path,
+    corpus_sha256: str,
+    loaded_existing_index: bool,
+    stale_before_run: bool,
+) -> dict[str, object]:
+    index_path = working_armory / ".hephaistos" / "rag_index.json"
+    fresh_for_scored_corpus = not index.is_stale()
+    cache_artifacts: list[dict[str, object]] = []
+    if index_path.is_file():
+        cache_artifacts.append(
+            {
+                "role": "rag_index",
+                "path": str(index_path),
+                "sha256": claim_report_envelope.sha256_file(index_path),
+                "size_bytes": index_path.stat().st_size,
+            }
+        )
+    return {
+        "index_path": str(index_path),
+        "index_identity": index.content_hash,
+        "index_build_or_refresh_command": f"uv run heph index {working_armory}",
+        "scored_corpus_sha256": corpus_sha256,
+        "indexed_corpus_sha256": corpus_sha256,
+        "fresh_for_scored_corpus": fresh_for_scored_corpus,
+        "cache_state": "rebuilt_fresh" if stale_before_run else "warm_reused",
+        "loaded_existing_index": loaded_existing_index,
+        "stale_before_run": stale_before_run,
+        "rebuilt_during_run": stale_before_run,
+        "document_count": len(index.documents),
+        "chunk_count": index.chunk_count,
+        "cache_artifacts": cache_artifacts,
+    }
+
+
+def _permission_scope(corpus: CanonicalCorpus, *, corpus_sha256: str) -> dict[str, object]:
+    sources = sorted(corpus.source_to_chunks)
+    scope_hash = hashlib.sha256(
+        json.dumps(sources, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return {
+        "scope": "indexed_materials",
+        "scope_hash": scope_hash,
+        "corpus_sha256": corpus_sha256,
+        "allowed_source_count": len(sources),
+        "indexed_source_count": len(sources),
+        "policy": "hidden, ignored, symlinked, and outside-material paths are excluded",
     }
 
 
@@ -1838,6 +2607,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-k-values", default=",".join(str(k) for k in REQUIRED_TOP_K_VALUES))
     parser.add_argument("--min-score", type=float, default=_DEFAULT_MIN_SCORE)
     parser.add_argument("--candidate-multiplier", type=int, default=_DEFAULT_CANDIDATE_MULTIPLIER)
+    parser.add_argument(
+        "--min-permission-retrieval-safety-rate",
+        type=float,
+        default=_DEFAULT_MIN_PERMISSION_RETRIEVAL_SAFETY_RATE,
+    )
+    parser.add_argument(
+        "--min-forbidden-before-expected-avoidance",
+        type=float,
+        default=_DEFAULT_MIN_FORBIDDEN_BEFORE_EXPECTED_AVOIDANCE,
+    )
     parser.add_argument("--embedding-model")
     parser.add_argument("--embedding-query-prefix", default="")
     parser.add_argument("--embedding-document-prefix", default="")
@@ -1911,6 +2690,47 @@ def _row_key(row: Mapping[str, object], errors: list[str]) -> tuple[str, str, in
     return retriever, granularity, top_k
 
 
+def _validate_index_cache(report_metadata: Mapping[str, object], errors: list[str]) -> None:
+    index_cache = _required_mapping(report_metadata, "index_cache", "metadata", errors)
+    if not index_cache:
+        return
+    if index_cache.get("fresh_for_scored_corpus") is not True:
+        errors.append("index cache is not fresh for scored corpus")
+    corpus_sha = report_metadata.get("corpus_sha256")
+    scored_sha = index_cache.get("scored_corpus_sha256")
+    indexed_sha = index_cache.get("indexed_corpus_sha256")
+    if corpus_sha is not None and scored_sha != corpus_sha:
+        errors.append("index cache scored_corpus_sha256 does not match metadata corpus_sha256")
+    if scored_sha is not None and indexed_sha != scored_sha:
+        errors.append("index cache indexed corpus does not match scored corpus")
+
+
+def _validate_diagnostic_summary(report: Mapping[str, object], errors: list[str]) -> None:
+    summary = _required_mapping(report, "diagnostic_summary", "report", errors)
+    if not summary:
+        return
+    required_fields = (
+        "recall_at_50_100",
+        "source_family",
+        "document_type",
+        "query_type",
+        "latency",
+        "evidence_categories",
+        "top_k_reconciliation",
+        "index_cache",
+        "permission_safety",
+        "optimization_targets",
+    )
+    errors.extend(
+        f"diagnostic_summary missing {field_name}"
+        for field_name in required_fields
+        if field_name not in summary
+    )
+    recall_rows = summary.get("recall_at_50_100")
+    if isinstance(recall_rows, list) and len(recall_rows) < len(required_matrix_cells()):
+        errors.append("diagnostic_summary recall_at_50_100 missing matrix combinations")
+
+
 def _validate_row_metrics(
     row: Mapping[str, object],
     key: tuple[str, str, int],
@@ -1933,11 +2753,257 @@ def _validate_row_metrics(
             continue
         if not isinstance(value, int | float) or not 0 <= float(value) <= 1:
             errors.append(f"metric {metric_name} outside [0, 1]")
-    latency_value = metrics.get("latency")
-    if isinstance(latency_value, dict):
-        latency = cast("dict[str, object]", latency_value)
-        if latency.get("scope") != claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY:
-            errors.append(f"row {key} latency scope must be retrieval-only")
+    _validate_latency(metrics.get("latency"), key, errors)
+    if isinstance(query_count, int):
+        _validate_evidence_categories(metrics, key, query_count, errors)
+        _validate_miss_buckets(metrics, key, errors)
+    permission_violations = metrics.get("permission_violation_count")
+    if isinstance(permission_violations, int) and permission_violations > 0:
+        errors.append(f"row {key[0]}:{key[1]}:k={key[2]} permission violation count is nonzero")
+
+
+def _validate_latency(
+    value: object,
+    key: tuple[str, str, int],
+    errors: list[str],
+) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"row {key} metric latency missing")
+        return
+    latency = cast("dict[str, object]", value)
+    if latency.get("scope") != claim_report_envelope.LATENCY_SCOPE_RETRIEVAL_ONLY:
+        errors.append(f"row {key} latency scope must be retrieval-only")
+    if latency.get("unit") != "milliseconds":
+        errors.append(f"row {key} latency unit must be milliseconds")
+    for field_name in ("mean_ms", "p50_ms", "p75_ms", "p90_ms", "p95_ms", "p99_ms"):
+        raw_value = latency.get(field_name)
+        if not isinstance(raw_value, int | float) or float(raw_value) < 0:
+            errors.append(f"row {key} latency {field_name} must be a non-negative number")
+    sample_count = latency.get("sample_count")
+    if not isinstance(sample_count, int) or sample_count < 0:
+        errors.append(f"row {key} latency sample_count must be a non-negative integer")
+
+
+def _validate_evidence_categories(
+    metrics: Mapping[str, object],
+    key: tuple[str, str, int],
+    query_count: int,
+    errors: list[str],
+) -> None:
+    categories = _required_mapping(metrics, "evidence_categories", "metrics", errors)
+    if not categories:
+        return
+    count_total = 0
+    rate_total = 0.0
+    for category in _EVIDENCE_CATEGORIES:
+        payload = _mapping_or_empty(categories.get(category))
+        count = payload.get("count")
+        rate = payload.get("rate")
+        if not isinstance(count, int) or count < 0:
+            errors.append(f"row {key} evidence_categories {category} count invalid")
+            continue
+        if not isinstance(rate, int | float) or not 0 <= float(rate) <= 1:
+            errors.append(f"row {key} evidence_categories {category} rate invalid")
+            continue
+        count_total += count
+        rate_total += float(rate)
+    if count_total != query_count:
+        errors.append(f"row {key} evidence_categories counts do not sum to query_count")
+    if query_count and not math.isclose(rate_total, 1.0, rel_tol=0.0, abs_tol=1e-6):
+        errors.append(f"row {key} evidence_categories rates do not sum to 1.0")
+    full_count = _category_count(categories, _EVIDENCE_FULL)
+    partial_count = _category_count(categories, _EVIDENCE_PARTIAL)
+    no_count = _category_count(categories, _EVIDENCE_NONE)
+    if metrics.get("full_evidence_count") != full_count:
+        errors.append(f"row {key} full_evidence_count does not match evidence_categories")
+    if metrics.get("partial_evidence_count") != partial_count:
+        errors.append(f"row {key} partial_evidence_count does not match evidence_categories")
+    if metrics.get("no_evidence_count") != no_count:
+        errors.append(f"row {key} no_evidence_count does not match evidence_categories")
+    miss_count = metrics.get("miss_count")
+    if isinstance(miss_count, int) and partial_count + no_count != miss_count:
+        errors.append(f"row {key} evidence miss counts do not match miss_count")
+
+
+def _category_count(categories: Mapping[str, object], category: str) -> int:
+    payload = _mapping_or_empty(categories.get(category))
+    count = payload.get("count")
+    return count if isinstance(count, int) else 0
+
+
+def _validate_miss_buckets(
+    metrics: Mapping[str, object],
+    key: tuple[str, str, int],
+    errors: list[str],
+) -> None:
+    miss_buckets = _mapping_or_empty(metrics.get("miss_bucket_counts"))
+    bucket_total = sum(value for value in miss_buckets.values() if isinstance(value, int))
+    miss_count = metrics.get("miss_count")
+    if isinstance(miss_count, int) and bucket_total != miss_count:
+        errors.append(f"row {key} miss_bucket_counts do not sum to miss_count")
+
+
+def _validate_per_query_reconciliation(
+    report: Mapping[str, object],
+    rows: Sequence[Mapping[str, object]],
+    errors: list[str],
+) -> None:
+    raw_per_query = report.get("per_query_results")
+    if not isinstance(raw_per_query, list):
+        errors.append("per_query_results must be a list")
+        return
+    per_query_rows = [
+        cast("dict[str, object]", item) for item in raw_per_query if isinstance(item, dict)
+    ]
+    by_row_id: dict[str, list[dict[str, object]]] = {}
+    for item in per_query_rows:
+        row_id = item.get("row_id")
+        if isinstance(row_id, str):
+            by_row_id.setdefault(row_id, []).append(item)
+    for row in rows:
+        if row.get("status") != "success":
+            continue
+        row_id = row.get("row_id")
+        if not isinstance(row_id, str):
+            continue
+        metrics = _mapping_or_empty(row.get("metrics"))
+        query_rows = by_row_id.get(row_id, [])
+        query_count = metrics.get("query_count")
+        if isinstance(query_count, int) and len(query_rows) != query_count:
+            errors.append(f"row {row_id} per_query_results count does not match query_count")
+        _validate_metric_average(
+            row_id,
+            metrics,
+            query_rows,
+            metric_name="recall_at_k",
+            per_query_field="recall_at_k",
+            errors=errors,
+        )
+        _validate_metric_average(
+            row_id,
+            metrics,
+            query_rows,
+            metric_name="candidate_recall_at_budget",
+            per_query_field="candidate_recall_at_budget",
+            errors=errors,
+        )
+        _validate_metric_average(
+            row_id,
+            metrics,
+            query_rows,
+            metric_name="precision_at_k",
+            per_query_field="precision_at_k",
+            errors=errors,
+        )
+        _validate_per_query_evidence(row_id, metrics, query_rows, errors)
+    _validate_top_k_monotonicity(rows, errors)
+
+
+def _validate_metric_average(
+    row_id: str,
+    metrics: Mapping[str, object],
+    query_rows: Sequence[Mapping[str, object]],
+    *,
+    metric_name: str,
+    per_query_field: str,
+    errors: list[str],
+) -> None:
+    if not query_rows:
+        return
+    metric_value = metrics.get(metric_name)
+    if not isinstance(metric_value, int | float):
+        return
+    values = [item.get(per_query_field) for item in query_rows]
+    if not all(isinstance(value, int | float) for value in values):
+        errors.append(f"row {row_id} {per_query_field} per-query values are incomplete")
+        return
+    average = sum(float(value) for value in values) / len(values)
+    if not math.isclose(float(metric_value), average, rel_tol=0.0, abs_tol=1e-6):
+        errors.append(f"row {row_id} {metric_name} does not reconcile with per-query results")
+
+
+def _validate_per_query_evidence(
+    row_id: str,
+    metrics: Mapping[str, object],
+    query_rows: Sequence[Mapping[str, object]],
+    errors: list[str],
+) -> None:
+    counts = dict.fromkeys(_EVIDENCE_CATEGORIES, 0)
+    miss_buckets: dict[str, int] = {}
+    for item in query_rows:
+        category = item.get("evidence_category")
+        if isinstance(category, str):
+            counts[category] = counts.get(category, 0) + 1
+        miss_bucket = item.get("miss_bucket")
+        if isinstance(miss_bucket, str):
+            miss_buckets[miss_bucket] = miss_buckets.get(miss_bucket, 0) + 1
+    categories = _mapping_or_empty(metrics.get("evidence_categories"))
+    for category in _EVIDENCE_CATEGORIES:
+        if _category_count(categories, category) != counts.get(category, 0):
+            errors.append(f"row {row_id} evidence_categories do not reconcile")
+            break
+    metric_miss_buckets = _mapping_or_empty(metrics.get("miss_bucket_counts"))
+    normalized_metric_buckets = {
+        key: value
+        for key, value in sorted(metric_miss_buckets.items())
+        if isinstance(key, str) and isinstance(value, int)
+    }
+    if dict(sorted(miss_buckets.items())) != normalized_metric_buckets:
+        errors.append(f"row {row_id} miss_bucket_counts do not reconcile")
+
+
+def _validate_top_k_monotonicity(
+    rows: Sequence[Mapping[str, object]],
+    errors: list[str],
+) -> None:
+    grouped: dict[tuple[str, str], list[Mapping[str, object]]] = {}
+    for row in rows:
+        if row.get("status") != "success":
+            continue
+        retriever = row.get("retriever")
+        granularity = row.get("granularity")
+        if isinstance(retriever, str) and isinstance(granularity, str):
+            grouped.setdefault((retriever, granularity), []).append(row)
+    for key, group_rows in grouped.items():
+        previous: dict[str, float] = {}
+        for row in sorted(group_rows, key=lambda item: int(item.get("top_k", 0))):
+            top_k = row.get("top_k")
+            metrics = _mapping_or_empty(row.get("metrics"))
+            for metric_name in ("hit_rate_at_k", "recall_at_k", "candidate_recall_at_budget"):
+                value = metrics.get(metric_name)
+                if not isinstance(value, int | float):
+                    continue
+                prior = previous.get(metric_name)
+                if prior is not None and float(value) + 1e-9 < prior:
+                    errors.append(
+                        f"row group {key[0]}:{key[1]} {metric_name} is not monotonic at k={top_k}"
+                    )
+                previous[metric_name] = float(value)
+
+
+def _validate_thresholds(
+    report: Mapping[str, object],
+    rows: Sequence[Mapping[str, object]],
+    errors: list[str],
+) -> None:
+    thresholds = _mapping_or_empty(report.get("thresholds"))
+    for row in rows:
+        if row.get("status") != "success":
+            continue
+        row_id = row.get("row_id")
+        metrics = _mapping_or_empty(row.get("metrics"))
+        for metric_name in (
+            "permission_retrieval_safety_rate",
+            "forbidden_before_expected_avoidance",
+        ):
+            threshold = thresholds.get(metric_name)
+            metric_value = metrics.get(metric_name)
+            if not isinstance(threshold, int | float) or not isinstance(metric_value, int | float):
+                continue
+            if float(metric_value) + 1e-9 < float(threshold):
+                errors.append(
+                    f"row {row_id} {metric_name} is below threshold {float(threshold):.3f}"
+                )
 
 
 def _validate_row_hashes(
@@ -2011,6 +3077,25 @@ def _int_tuple(value: object) -> tuple[int, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(item for item in value if isinstance(item, int))
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _float_value(value: object) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    return 0.0
+
+
+def _int_metric(metrics: Mapping[str, object], metric_name: str) -> int:
+    value = metrics.get(metric_name)
+    if isinstance(value, int):
+        return value
+    return 0
 
 
 def _float_metric(metrics: Mapping[str, object], metric_name: str) -> float:
