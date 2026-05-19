@@ -104,10 +104,28 @@ def _fixture_per_query_row(
         "duplicate_document_drop_count": 0,
         "first_forbidden_rank": None,
         "forbidden_before_expected_ok": True,
+        "permission_scope_checked": True,
         "permission_violation_count": 0,
+        "permission_violating_query": False,
         "expected_source_families": ["fixture"],
+        "source_family_evidence": [
+            {
+                "label": "fixture",
+                "expected_count": 1,
+                "matched_count": 1,
+                "evidence_category": "full_evidence",
+            }
+        ],
         "top_retrieved_source_family": "fixture",
         "expected_document_types": ["markdown"],
+        "document_type_evidence": [
+            {
+                "label": "markdown",
+                "expected_count": 1,
+                "matched_count": 1,
+                "evidence_category": "full_evidence",
+            }
+        ],
         "top_retrieved_document_type": "markdown",
         "latency_ms": 1.0 if case_id == "case-1" else 2.0,
     }
@@ -130,11 +148,15 @@ def _complete_contract_report() -> dict[str, object]:
         "cache_artifacts": [],
     }
     permission_scope = {
-        "scope": "indexed_materials",
+        "scope": "explicit_allowlist",
         "scope_hash": "9" * 64,
+        "corpus_sha256": "a" * 64,
+        "allowlist_path": "/tmp/fixture-armory/permission-allowlist.jsonl",
+        "explicit": True,
         "allowed_source_count": 1,
         "indexed_source_count": 1,
-        "policy": "hidden, ignored, symlinked, and outside-material paths are excluded",
+        "out_of_scope_indexed_source_count": 0,
+        "policy": "retrieved source paths must be in the explicit allowlist",
     }
     metadata = {
         "dataset_id": "fixture-matrix",
@@ -213,6 +235,7 @@ def _complete_contract_report() -> dict[str, object]:
                 "forbidden_before_expected_avoidance": 1.0,
                 "permission_scope_checked_count": 2,
                 "permission_violation_count": 0,
+                "permission_violating_query_count": 0,
                 "permission_retrieval_safety_rate": 1.0,
             }
             row: dict[str, object] = {
@@ -273,6 +296,7 @@ def _complete_contract_report() -> dict[str, object]:
                     "top_k_reconciliation": metrics["top_k_reconciliation"],
                     "permission_safety": {
                         "permission_violation_count": 0,
+                        "permission_violating_query_count": 0,
                         "permission_retrieval_safety_rate": 1.0,
                     },
                     "recall_diagnostics": {
@@ -329,6 +353,7 @@ def _complete_contract_report() -> dict[str, object]:
             "permission_safety": {
                 "permission_retrieval_safety_rate": 1.0,
                 "permission_violation_count": 0,
+                "permission_violating_query_count": 0,
             },
             "optimization_targets": [],
         },
@@ -465,12 +490,96 @@ def test_permission_allowlist_flags_retrieved_sources_outside_scope(tmp_path: Pa
     assert scored.permission_violation_sources == ("materials/beta.md",)
 
 
-def test_family_and_type_breakdowns_credit_only_matched_groups() -> None:
+def test_permission_scope_without_allowlist_is_not_treated_as_allowed() -> None:
     corpus = run_retrieval_ablation_matrix.CanonicalCorpus.from_reference_map(
         {"materials/alpha.md": (0,), "materials/beta.md": (0,)}
     )
+
+    scope = run_retrieval_ablation_matrix._permission_scope(
+        corpus,
+        corpus_sha256="a" * 64,
+        allowed_sources=None,
+        allowlist_path=None,
+    )
+
+    assert scope["scope"] == "not_evaluated"
+    assert scope["explicit"] is False
+    assert scope["allowed_source_count"] == 0
+    assert scope["indexed_source_count"] == 2
+    assert scope["out_of_scope_indexed_source_count"] == 2
+    policy = scope["policy"]
+    assert isinstance(policy, str)
+    assert "permission checks require --permission-allowlist" in policy
+
+
+def test_permission_allowlist_counts_every_out_of_scope_source(tmp_path: Path) -> None:
+    corpus = run_retrieval_ablation_matrix.CanonicalCorpus.from_reference_map(
+        {
+            "materials/alpha.md": (0,),
+            "materials/beta.md": (0,),
+            "materials/gamma.md": (0,),
+        }
+    )
     labels = run_retrieval_ablation_matrix.canonicalize_case_labels(
-        ["materials/alpha.md#chunk=0", "materials/beta.md#chunk=0"],
+        ["materials/alpha.md#chunk=0"],
+        [],
+        corpus,
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+    )
+    allowlist = tmp_path / "allowed.jsonl"
+    allowlist.write_text('{"source": "materials/alpha.md#chunk=0"}\n', encoding="utf-8")
+
+    scored = run_retrieval_ablation_matrix.score_ranked_references(
+        case_id="permission-negative",
+        query="alpha with leaked beta and gamma",
+        query_type="fixture",
+        labels=labels,
+        retrieved=[
+            run_retrieval_ablation_matrix.RankedReference(
+                "materials/alpha.md#chunk=0",
+                1.0,
+                "alpha",
+            ),
+            run_retrieval_ablation_matrix.RankedReference(
+                "materials/beta.md#chunk=0",
+                0.9,
+                "beta",
+            ),
+            run_retrieval_ablation_matrix.RankedReference(
+                "materials/gamma.md#chunk=0",
+                0.8,
+                "gamma",
+            ),
+        ],
+        corpus=corpus,
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+        top_k=3,
+        retrieval_top_k_requested=3,
+        raw_candidate_count=3,
+        candidate_retrieved_count=3,
+        duplicate_document_drop_count=0,
+        elapsed_ms=1.0,
+        allowed_sources=run_retrieval_ablation_matrix._load_allowed_sources(allowlist),
+    )
+
+    assert scored.permission_violation_count == 2
+    assert scored.permission_violation_sources == ("materials/beta.md", "materials/gamma.md")
+
+
+def test_family_and_type_breakdowns_credit_only_matched_groups() -> None:
+    corpus = run_retrieval_ablation_matrix.CanonicalCorpus.from_reference_map(
+        {
+            "materials/alpha.md": (0,),
+            "materials/beta.md": (0,),
+            "materials/gamma.pdf": (0,),
+        }
+    )
+    labels = run_retrieval_ablation_matrix.canonicalize_case_labels(
+        [
+            "materials/alpha.md#chunk=0",
+            "materials/beta.md#chunk=0",
+            "materials/gamma.pdf#chunk=0",
+        ],
         [],
         corpus,
         granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
@@ -516,10 +625,30 @@ def test_family_and_type_breakdowns_credit_only_matched_groups() -> None:
 
     assert source_breakdown["alpha"]["full_evidence_count"] == 1
     assert source_breakdown["beta"]["no_evidence_count"] == 1
+    assert source_breakdown["gamma"]["no_evidence_count"] == 1
     assert source_breakdown["beta"]["hit_count"] == 0
     assert type_breakdown["markdown"]["partial_evidence_count"] == 1
     assert type_breakdown["markdown"]["expected_count"] == 2
     assert type_breakdown["markdown"]["matched_count"] == 1
+    assert type_breakdown["pdf"]["no_evidence_count"] == 1
+
+
+def test_legacy_breakdowns_do_not_credit_all_expected_groups_as_full_hits() -> None:
+    row = {
+        "expected_source_families": ["alpha", "beta"],
+        "hit": True,
+    }
+
+    source_breakdown = run_retrieval_ablation_matrix._breakdown_payload(
+        [row],
+        evidence_field="source_family_evidence",
+        expected_field="expected_source_families",
+    )
+
+    assert source_breakdown["alpha"]["full_evidence_count"] == 0
+    assert source_breakdown["alpha"]["no_evidence_count"] == 1
+    assert source_breakdown["beta"]["full_evidence_count"] == 0
+    assert source_breakdown["beta"]["no_evidence_count"] == 1
 
 
 def test_matrix_report_contract_rejects_unweighted_weighted_hybrid_claim_row() -> None:
@@ -553,6 +682,40 @@ def test_matrix_report_contract_rejects_unweighted_weighted_hybrid_claim_row() -
         "unweighted weighted-hybrid row must not be claim_eligible" in error
         for error in result.errors
     )
+
+
+def test_matrix_report_contract_rejects_implicit_indexed_permission_scope() -> None:
+    report = _complete_contract_report()
+    permission_scope = _as_dict(_as_dict(report["metadata"])["permission_scope"])
+    permission_scope.update(
+        {
+            "scope": "indexed_materials",
+            "explicit": False,
+            "allowlist_path": None,
+            "allowed_source_count": permission_scope["indexed_source_count"],
+            "out_of_scope_indexed_source_count": 0,
+            "policy": "hidden, ignored, symlinked, and outside-material paths are excluded",
+        }
+    )
+
+    result = run_retrieval_ablation_matrix.validate_matrix_report(report)
+
+    assert result.status == "failed"
+    assert any(
+        "permission_scope must not default to indexed materials" in error
+        for error in result.errors
+    )
+
+
+def test_matrix_report_contract_rejects_missing_group_evidence_rows() -> None:
+    report = _complete_contract_report()
+    first_query = _as_dict(_as_list(report["per_query_results"])[0])
+    first_query.pop("source_family_evidence")
+
+    result = run_retrieval_ablation_matrix.validate_matrix_report(report)
+
+    assert result.status == "failed"
+    assert any("source_family_evidence missing" in error for error in result.errors)
 
 
 @pytest.mark.parametrize(
@@ -841,5 +1004,9 @@ def test_matrix_command_excludes_ignored_permissioned_material(
     assert status == 0
     assert "PRIVATE-TENANT-SENTINEL" not in report_text
     assert "materials/private.md" not in report_text
-    assert permission_scope["allowed_source_count"] == 2
+    assert permission_scope["scope"] == "not_evaluated"
+    assert permission_scope["allowed_source_count"] == 0
+    assert permission_scope["indexed_source_count"] == 2
+    assert permission_scope["out_of_scope_indexed_source_count"] == 2
+    assert first_query["permission_scope_checked"] is False
     assert first_query["permission_violation_count"] == 0

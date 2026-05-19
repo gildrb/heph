@@ -329,6 +329,7 @@ class ScoredCaseResult:
     top_k_satisfied: bool
     top_k_shortfall_count: int
     duplicate_document_drop_count: int
+    permission_scope_checked: bool
     permission_violation_count: int
     permission_violation_sources: tuple[str, ...]
     expected_source_families: tuple[str, ...]
@@ -688,8 +689,9 @@ def score_ranked_references(
     final_retrieved_count = len(top_retrieved)
     top_k_shortfall_count = max(0, top_k - final_retrieved_count)
     evidence_category = _evidence_category(metrics.relevant_found, len(labels.expected))
+    permission_scope_checked = allowed_sources is not None
     permission_violation_sources = _permission_violation_sources(top_retrieved, allowed_sources)
-    permission_violation_count = 1 if permission_violation_sources else 0
+    permission_violation_count = len(permission_violation_sources)
     miss_bucket = _miss_bucket(
         evidence_category=evidence_category,
         forbidden_before_expected_ok=forbidden_ok,
@@ -722,6 +724,7 @@ def score_ranked_references(
         top_k_satisfied=top_k_shortfall_count == 0,
         top_k_shortfall_count=top_k_shortfall_count,
         duplicate_document_drop_count=duplicate_document_drop_count,
+        permission_scope_checked=permission_scope_checked,
         permission_violation_count=permission_violation_count,
         permission_violation_sources=permission_violation_sources,
         expected_source_families=_families_from_labels(labels.expected),
@@ -776,6 +779,7 @@ def validate_matrix_report(report: Mapping[str, object]) -> MatrixContractResult
     claimable_signatures: dict[tuple[str, str, int], str] = {}
     report_metadata = _mapping_or_empty(report.get("metadata"))
     _validate_index_cache(report_metadata, errors)
+    _validate_permission_scope(report_metadata, errors)
     _validate_diagnostic_summary(report, errors)
     for row in rows:
         key = _row_key(row, errors)
@@ -1611,18 +1615,29 @@ def _global_miss_buckets(rows: Sequence[Mapping[str, object]]) -> dict[str, int]
 def _permission_safety_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
     checked = 0
     violations = 0
+    violating_queries = 0
+    query_count = 0
     forbidden_cases = 0
     forbidden_failures = 0
     for row in rows:
         metrics = _mapping_or_empty(row.get("metrics"))
+        query_count += _int_metric(metrics, "query_count")
         checked += _int_metric(metrics, "permission_scope_checked_count")
         violations += _int_metric(metrics, "permission_violation_count")
+        violating_queries += _int_metric(metrics, "permission_violating_query_count")
         forbidden_cases += _int_metric(metrics, "forbidden_before_expected_case_count")
         forbidden_failures += _int_metric(metrics, "forbidden_before_expected_failure_count")
     return {
         "permission_scope_checked_count": checked,
         "permission_violation_count": violations,
-        "permission_retrieval_safety_rate": (checked - violations) / checked if checked else 1.0,
+        "permission_violating_query_count": violating_queries,
+        "permission_retrieval_safety_rate": (
+            (checked - violating_queries) / checked if checked else 1.0
+        ),
+        "permission_scope_status": _permission_scope_status(
+            checked_count=checked,
+            query_count=query_count,
+        ),
         "forbidden_before_expected_case_count": forbidden_cases,
         "forbidden_before_expected_failure_count": forbidden_failures,
         "forbidden_before_expected_avoidance": (
@@ -1803,9 +1818,18 @@ def _aggregate_metrics(
         if forbidden_case_count
         else 1.0
     )
+    permission_scope_checked_count = sum(
+        1 for result in results if result.permission_scope_checked
+    )
     permission_violation_count = sum(result.permission_violation_count for result in results)
+    permission_violating_query_count = sum(
+        1 for result in results if result.permission_violation_count > 0
+    )
     permission_safety_rate = (
-        (query_count - permission_violation_count) / query_count if query_count else 1.0
+        (permission_scope_checked_count - permission_violating_query_count)
+        / permission_scope_checked_count
+        if permission_scope_checked_count
+        else 1.0
     )
     category_payload = _evidence_category_payload(category_counts, query_count)
     miss_bucket_counts = _miss_bucket_counts(results)
@@ -1850,9 +1874,14 @@ def _aggregate_metrics(
         "forbidden_before_expected_case_count": forbidden_case_count,
         "forbidden_before_expected_failure_count": forbidden_failure_count,
         "forbidden_before_expected_avoidance": forbidden_avoidance,
-        "permission_scope_checked_count": query_count,
+        "permission_scope_checked_count": permission_scope_checked_count,
         "permission_violation_count": permission_violation_count,
+        "permission_violating_query_count": permission_violating_query_count,
         "permission_retrieval_safety_rate": permission_safety_rate,
+        "permission_scope_status": _permission_scope_status(
+            checked_count=permission_scope_checked_count,
+            query_count=query_count,
+        ),
         "top_k": top_k,
     }
 
@@ -1884,6 +1913,14 @@ def _miss_bucket_counts(results: Sequence[ScoredCaseResult]) -> dict[str, int]:
             continue
         counts[result.miss_bucket] = counts.get(result.miss_bucket, 0) + 1
     return counts
+
+
+def _permission_scope_status(*, checked_count: int, query_count: int) -> str:
+    if query_count == 0 or checked_count == 0:
+        return "not_evaluated"
+    if checked_count == query_count:
+        return "checked"
+    return "partially_checked"
 
 
 def _empty_metrics(top_k: int) -> dict[str, object]:
@@ -1926,7 +1963,9 @@ def _empty_metrics(top_k: int) -> dict[str, object]:
             "forbidden_before_expected_avoidance": 1.0,
             "permission_scope_checked_count": 0,
             "permission_violation_count": 0,
+            "permission_violating_query_count": 0,
             "permission_retrieval_safety_rate": 1.0,
+            "permission_scope_status": "not_evaluated",
             "top_k": top_k,
         }
     )
@@ -2382,7 +2421,9 @@ def _per_query_payload(
         "duplicate_document_drop_count": result.duplicate_document_drop_count,
         "first_forbidden_rank": result.first_forbidden_rank,
         "forbidden_before_expected_ok": result.forbidden_before_expected_ok,
+        "permission_scope_checked": result.permission_scope_checked,
         "permission_violation_count": result.permission_violation_count,
+        "permission_violating_query": result.permission_violation_count > 0,
         "permission_violation_sources": list(result.permission_violation_sources),
         "expected_source_families": list(result.expected_source_families),
         "source_family_evidence": _group_evidence_payload(result.source_family_evidence),
@@ -2457,13 +2498,8 @@ def _accumulate_legacy_breakdown(
         bucket = totals.setdefault(label, _empty_group_totals())
         bucket["case_count"] += 1
         bucket["expected_count"] += 1
-        if item.get("hit") is True:
-            bucket["hit_count"] += 1
-            bucket["matched_count"] += 1
-            bucket["full_evidence_count"] += 1
-        else:
-            bucket["miss_count"] += 1
-            bucket["no_evidence_count"] += 1
+        bucket["miss_count"] += 1
+        bucket["no_evidence_count"] += 1
 
 
 def _empty_group_totals() -> dict[str, int]:
@@ -2518,7 +2554,7 @@ def _source_family_confusion(
             key = f"{expected_family}->{top_label}"
             bucket = totals.setdefault(key, {"case_count": 0, "hit_count": 0})
             bucket["case_count"] += 1
-            if expected_family in matched or (not evidence_rows and item.get("hit") is True):
+            if expected_family in matched:
                 bucket["hit_count"] += 1
     return dict(sorted(totals.items()))
 
@@ -2619,11 +2655,17 @@ def _row_diagnostics(
         "latency": metrics.get("latency"),
         "top_k_reconciliation": metrics.get("top_k_reconciliation"),
         "permission_safety": {
+            "permission_scope_checked_count": metrics.get("permission_scope_checked_count", 0),
             "permission_violation_count": metrics.get("permission_violation_count", 0),
+            "permission_violating_query_count": metrics.get(
+                "permission_violating_query_count",
+                0,
+            ),
             "permission_retrieval_safety_rate": metrics.get(
                 "permission_retrieval_safety_rate",
                 1.0,
             ),
+            "permission_scope_status": metrics.get("permission_scope_status", "not_evaluated"),
             "forbidden_before_expected_case_count": metrics.get(
                 "forbidden_before_expected_case_count",
                 0,
@@ -2830,26 +2872,28 @@ def _permission_scope(
     allowlist_path: Path | None,
 ) -> dict[str, object]:
     sources = sorted(corpus.source_to_chunks)
-    effective_allowed_sources = sorted(allowed_sources) if allowed_sources is not None else sources
+    explicit = allowed_sources is not None
+    effective_allowed_sources = sorted(allowed_sources) if explicit else []
     scope_hash = hashlib.sha256(
         json.dumps(effective_allowed_sources, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
     out_of_scope = sorted(set(sources) - set(effective_allowed_sources))
     return {
-        "scope": "explicit_allowlist" if allowed_sources is not None else "indexed_materials",
+        "scope": "explicit_allowlist" if explicit else "not_evaluated",
         "scope_hash": scope_hash,
         "corpus_sha256": corpus_sha256,
         "allowlist_path": str(allowlist_path.expanduser().resolve())
         if allowlist_path is not None
         else None,
-        "explicit": allowed_sources is not None,
+        "explicit": explicit,
         "allowed_source_count": len(effective_allowed_sources),
         "indexed_source_count": len(sources),
         "out_of_scope_indexed_source_count": len(out_of_scope),
         "policy": (
             "retrieved source paths must be in the explicit allowlist"
-            if allowed_sources is not None
-            else "hidden, ignored, symlinked, and outside-material paths are excluded"
+            if explicit
+            else "permission checks require --permission-allowlist; indexed sources are not "
+            "treated as allowed by default"
         ),
     }
 
@@ -3318,6 +3362,48 @@ def _validate_index_cache(report_metadata: Mapping[str, object], errors: list[st
         errors.append("index cache indexed corpus does not match scored corpus")
 
 
+def _validate_permission_scope(report_metadata: Mapping[str, object], errors: list[str]) -> None:
+    permission_scope = _required_mapping(report_metadata, "permission_scope", "metadata", errors)
+    if not permission_scope:
+        return
+    scope = permission_scope.get("scope")
+    explicit = permission_scope.get("explicit")
+    allowed_count = permission_scope.get("allowed_source_count")
+    indexed_count = permission_scope.get("indexed_source_count")
+    out_of_scope_count = permission_scope.get("out_of_scope_indexed_source_count")
+    if scope == "indexed_materials":
+        errors.append("permission_scope must not default to indexed materials")
+        return
+    if scope not in {"explicit_allowlist", "not_evaluated"}:
+        errors.append("permission_scope scope must be explicit_allowlist or not_evaluated")
+    if not isinstance(allowed_count, int) or allowed_count < 0:
+        errors.append("permission_scope allowed_source_count must be a non-negative integer")
+    if not isinstance(indexed_count, int) or indexed_count < 0:
+        errors.append("permission_scope indexed_source_count must be a non-negative integer")
+    if not isinstance(out_of_scope_count, int) or out_of_scope_count < 0:
+        errors.append(
+            "permission_scope out_of_scope_indexed_source_count must be a non-negative integer"
+        )
+    if scope == "explicit_allowlist":
+        if explicit is not True:
+            errors.append("permission_scope explicit_allowlist must set explicit=true")
+        if not isinstance(permission_scope.get("allowlist_path"), str):
+            errors.append("permission_scope explicit_allowlist must record allowlist_path")
+        if (
+            isinstance(indexed_count, int)
+            and isinstance(out_of_scope_count, int)
+            and out_of_scope_count > indexed_count
+        ):
+            errors.append("permission_scope out_of_scope count exceeds indexed sources")
+    if scope == "not_evaluated":
+        if explicit is not False:
+            errors.append("permission_scope not_evaluated must set explicit=false")
+        if allowed_count != 0:
+            errors.append("permission_scope not_evaluated must not list allowed indexed sources")
+        if isinstance(indexed_count, int) and out_of_scope_count != indexed_count:
+            errors.append("permission_scope not_evaluated must mark indexed sources out of scope")
+
+
 def _validate_diagnostic_summary(report: Mapping[str, object], errors: list[str]) -> None:
     summary = _required_mapping(report, "diagnostic_summary", "report", errors)
     if not summary:
@@ -3543,6 +3629,9 @@ def _validate_per_query_evidence(
 ) -> None:
     counts = dict.fromkeys(_EVIDENCE_CATEGORIES, 0)
     miss_buckets: dict[str, int] = {}
+    permission_scope_checked_count = 0
+    permission_violation_count = 0
+    permission_violating_query_count = 0
     for item in query_rows:
         category = item.get("evidence_category")
         if isinstance(category, str):
@@ -3550,6 +3639,32 @@ def _validate_per_query_evidence(
         miss_bucket = item.get("miss_bucket")
         if isinstance(miss_bucket, str):
             miss_buckets[miss_bucket] = miss_buckets.get(miss_bucket, 0) + 1
+        permission_scope_checked = item.get("permission_scope_checked")
+        if permission_scope_checked is True:
+            permission_scope_checked_count += 1
+        elif permission_scope_checked is not False:
+            errors.append(f"row {row_id} permission_scope_checked per-query values are incomplete")
+        raw_permission_violations = item.get("permission_violation_count")
+        if not isinstance(raw_permission_violations, int) or raw_permission_violations < 0:
+            errors.append(f"row {row_id} permission_violation_count per-query values are invalid")
+        else:
+            permission_violation_count += raw_permission_violations
+            if raw_permission_violations > 0:
+                permission_violating_query_count += 1
+        _validate_per_query_group_evidence(
+            row_id,
+            item,
+            evidence_field="source_family_evidence",
+            expected_field="expected_source_families",
+            errors=errors,
+        )
+        _validate_per_query_group_evidence(
+            row_id,
+            item,
+            evidence_field="document_type_evidence",
+            expected_field="expected_document_types",
+            errors=errors,
+        )
     categories = _mapping_or_empty(metrics.get("evidence_categories"))
     for category in _EVIDENCE_CATEGORIES:
         if _category_count(categories, category) != counts.get(category, 0):
@@ -3563,6 +3678,52 @@ def _validate_per_query_evidence(
     }
     if dict(sorted(miss_buckets.items())) != normalized_metric_buckets:
         errors.append(f"row {row_id} miss_bucket_counts do not reconcile")
+    if metrics.get("permission_scope_checked_count") != permission_scope_checked_count:
+        errors.append(f"row {row_id} permission_scope_checked_count does not reconcile")
+    if metrics.get("permission_violation_count") != permission_violation_count:
+        errors.append(f"row {row_id} permission_violation_count does not reconcile")
+    if metrics.get("permission_violating_query_count") != permission_violating_query_count:
+        errors.append(f"row {row_id} permission_violating_query_count does not reconcile")
+
+
+def _validate_per_query_group_evidence(
+    row_id: str,
+    item: Mapping[str, object],
+    *,
+    evidence_field: str,
+    expected_field: str,
+    errors: list[str],
+) -> None:
+    raw_evidence = item.get(evidence_field)
+    if not isinstance(raw_evidence, list):
+        errors.append(f"row {row_id} per-query {evidence_field} missing")
+        return
+    evidence_rows = _list_of_mappings(raw_evidence)
+    if len(evidence_rows) != len(raw_evidence):
+        errors.append(f"row {row_id} per-query {evidence_field} entries must be objects")
+        return
+    expected_labels = set(_string_list(item.get(expected_field)))
+    evidence_labels: set[str] = set()
+    for evidence in evidence_rows:
+        label = evidence.get("label")
+        if not isinstance(label, str):
+            errors.append(f"row {row_id} per-query {evidence_field} label missing")
+            continue
+        evidence_labels.add(label)
+        expected_count = evidence.get("expected_count")
+        matched_count = evidence.get("matched_count")
+        if not isinstance(expected_count, int) or expected_count <= 0:
+            errors.append(f"row {row_id} per-query {evidence_field} expected_count invalid")
+            continue
+        if not isinstance(matched_count, int) or not 0 <= matched_count <= expected_count:
+            errors.append(f"row {row_id} per-query {evidence_field} matched_count invalid")
+            continue
+        category = evidence.get("evidence_category")
+        expected_category = _evidence_category(matched_count, expected_count)
+        if category != expected_category:
+            errors.append(f"row {row_id} per-query {evidence_field} category does not reconcile")
+    if expected_labels and evidence_labels != expected_labels:
+        errors.append(f"row {row_id} per-query {evidence_field} labels do not match expected")
 
 
 def _validate_top_k_monotonicity(
