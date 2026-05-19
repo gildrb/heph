@@ -78,6 +78,7 @@ class RawAnswerCase(TypedDict):
     required_sections: NotRequired[list[str]]
     evidence_coverage: NotRequired[dict[str, int]]
     supported_claims: NotRequired[list[RawSupportedClaim]]
+    contradicted_claims: NotRequired[list[RawSupportedClaim]]
     allowed_citation_kinds: NotRequired[list[str]]
 
 
@@ -112,6 +113,7 @@ class AnswerCase:
     required_sections: tuple[str, ...] = ()
     evidence_coverage: dict[str, int] | None = None
     supported_claims: tuple[SupportedClaim, ...] = ()
+    contradicted_claims: tuple[SupportedClaim, ...] = ()
     evidence_kinds: tuple[tuple[str, str], ...] = ()
     allowed_citation_kinds: tuple[str, ...] = ("source",)
 
@@ -134,6 +136,7 @@ class AnswerCaseResult:
     missing_required_text: tuple[str, ...]
     forbidden_text_present: tuple[str, ...]
     unsupported_claims: tuple[str, ...]
+    contradicted_claims: tuple[str, ...]
     invalid_citation_kinds: tuple[str, ...]
     shape_failures: tuple[str, ...]
     coverage_failures: tuple[str, ...]
@@ -156,6 +159,7 @@ class AnswerBenchmarkReport:
     required_text_rate: float
     forbidden_text_rate: float
     supported_claim_rate: float
+    contradiction_rate: float
     answer_shape_rate: float
     evidence_coverage_rate: float
     required_label_rate: float
@@ -356,6 +360,9 @@ def _as_raw_cases(payload: object) -> list[RawAnswerCase]:
         supported_claims = _parse_supported_claims(raw.get("supported_claims"), idx)
         if supported_claims:
             raw_case["supported_claims"] = supported_claims
+        contradicted_claims = _parse_supported_claims(raw.get("contradicted_claims"), idx)
+        if contradicted_claims:
+            raw_case["contradicted_claims"] = contradicted_claims
         evidence_coverage = _parse_evidence_coverage(raw.get("evidence_coverage"), idx)
         if evidence_coverage is not None:
             raw_case["evidence_coverage"] = evidence_coverage
@@ -500,6 +507,7 @@ def load_cases_from_payload(payload: object) -> list[AnswerCase]:
                 required_sections=tuple(raw.get("required_sections", [])),
                 evidence_coverage=raw.get("evidence_coverage"),
                 supported_claims=_supported_claims_from_raw(raw.get("supported_claims", [])),
+                contradicted_claims=_supported_claims_from_raw(raw.get("contradicted_claims", [])),
                 evidence_kinds=_evidence_kinds_from_raw(raw_evidence),
                 allowed_citation_kinds=_allowed_citation_kinds_from_raw(raw, idx),
             )
@@ -579,6 +587,14 @@ def _invalid_citation_kinds(
         if kind not in allowed:
             invalid.append(f"{citation}:{kind}")
     return tuple(invalid)
+
+
+def _contradicted_claims_present(case: AnswerCase) -> tuple[str, ...]:
+    return tuple(
+        f"{claim.text} [{claim.evidence_id}]"
+        for claim in case.contradicted_claims
+        if _contains_text(case.answer, claim.text)
+    )
 
 
 def _is_abstention(answer: str) -> bool:
@@ -753,6 +769,7 @@ def evaluate_case(case: AnswerCase) -> AnswerCaseResult:
         phrase for phrase in case.must_not_include if _contains_text(case.answer, phrase)
     )
     unsupported_claims = _unsupported_claims(case, verified)
+    contradicted_claims = _contradicted_claims_present(case)
     invalid_citation_kinds = _invalid_citation_kinds(case, verified)
     word_count = _word_count(case.answer)
     distinct_cited_sources = _distinct_verified_evidence_sources(case.evidence, verified)
@@ -775,6 +792,7 @@ def evaluate_case(case: AnswerCase) -> AnswerCaseResult:
         or missing_required_text
         or forbidden_text_present
         or unsupported_claims
+        or contradicted_claims
         or invalid_citation_kinds
         or shape_failures
         or coverage_failures
@@ -799,6 +817,7 @@ def evaluate_case(case: AnswerCase) -> AnswerCaseResult:
         missing_required_text=missing_required_text,
         forbidden_text_present=forbidden_text_present,
         unsupported_claims=unsupported_claims,
+        contradicted_claims=contradicted_claims,
         invalid_citation_kinds=invalid_citation_kinds,
         shape_failures=shape_failures,
         coverage_failures=coverage_failures,
@@ -830,6 +849,7 @@ def run_benchmark(cases: Sequence[AnswerCase]) -> AnswerBenchmarkReport:
     required_text = sum(1 for result in results if not result.missing_required_text)
     forbidden_text = sum(1 for result in results if not result.forbidden_text_present)
     supported_claims = sum(1 for result in results if not result.unsupported_claims)
+    contradictions = sum(1 for result in results if not result.contradicted_claims)
     answer_shape = sum(1 for result in results if not result.shape_failures)
     evidence_coverage = sum(1 for result in results if not result.coverage_failures)
     required_label = sum(1 for result in results if not result.missing_required_label)
@@ -846,6 +866,7 @@ def run_benchmark(cases: Sequence[AnswerCase]) -> AnswerBenchmarkReport:
         required_text_rate=_rate(total, required_text),
         forbidden_text_rate=_rate(total, forbidden_text),
         supported_claim_rate=_rate(total, supported_claims),
+        contradiction_rate=_rate(total, contradictions),
         answer_shape_rate=_rate(total, answer_shape),
         evidence_coverage_rate=_rate(total, evidence_coverage),
         required_label_rate=_rate(total, required_label),
@@ -873,6 +894,7 @@ def print_text_report(report: AnswerBenchmarkReport) -> None:
     print(f"required_text={_format_percent(report.required_text_rate)}")
     print(f"forbidden_text={_format_percent(report.forbidden_text_rate)}")
     print(f"supported_claims={_format_percent(report.supported_claim_rate)}")
+    print(f"contradictions={_format_percent(report.contradiction_rate)}")
     print(f"answer_shape={_format_percent(report.answer_shape_rate)}")
     print(f"evidence_coverage={_format_percent(report.evidence_coverage_rate)}")
     print(f"required_label={_format_percent(report.required_label_rate)}")
@@ -897,6 +919,8 @@ def _failure_reasons(result: AnswerCaseResult) -> str:
         reasons.append("forbidden text: " + ", ".join(result.forbidden_text_present))
     if result.unsupported_claims:
         reasons.append("unsupported claims: " + ", ".join(result.unsupported_claims))
+    if result.contradicted_claims:
+        reasons.append("contradicted claims: " + ", ".join(result.contradicted_claims))
     if result.invalid_citation_kinds:
         reasons.append("invalid citation kinds: " + ", ".join(result.invalid_citation_kinds))
     if result.shape_failures:
@@ -924,6 +948,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-required-text", type=float, default=0.0)
     parser.add_argument("--min-forbidden-text", type=float, default=0.0)
     parser.add_argument("--min-supported-claims", type=float, default=0.0)
+    parser.add_argument("--min-contradiction-rate", type=float, default=0.0)
     parser.add_argument("--min-answer-shape", type=float, default=0.0)
     parser.add_argument("--min-evidence-coverage", type=float, default=0.0)
     parser.add_argument("--min-required-label", type=float, default=0.0)
@@ -947,6 +972,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     min_required_text = cast("float", args.min_required_text)
     min_forbidden_text = cast("float", args.min_forbidden_text)
     min_supported_claims = cast("float", args.min_supported_claims)
+    min_contradiction_rate = cast("float", args.min_contradiction_rate)
     min_answer_shape = cast("float", args.min_answer_shape)
     min_evidence_coverage = cast("float", args.min_evidence_coverage)
     min_required_label = cast("float", args.min_required_label)
@@ -959,6 +985,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     _validate_rate(min_required_text, "--min-required-text", parser)
     _validate_rate(min_forbidden_text, "--min-forbidden-text", parser)
     _validate_rate(min_supported_claims, "--min-supported-claims", parser)
+    _validate_rate(min_contradiction_rate, "--min-contradiction-rate", parser)
     _validate_rate(min_answer_shape, "--min-answer-shape", parser)
     _validate_rate(min_evidence_coverage, "--min-evidence-coverage", parser)
     _validate_rate(min_required_label, "--min-required-label", parser)
@@ -983,6 +1010,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         or report.required_text_rate < min_required_text
         or report.forbidden_text_rate < min_forbidden_text
         or report.supported_claim_rate < min_supported_claims
+        or report.contradiction_rate < min_contradiction_rate
         or report.answer_shape_rate < min_answer_shape
         or report.evidence_coverage_rate < min_evidence_coverage
         or report.required_label_rate < min_required_label

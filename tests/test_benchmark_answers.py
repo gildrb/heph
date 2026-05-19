@@ -112,6 +112,9 @@ def test_load_cases_parses_citation_evidence_kind_scope(tmp_path: Path) -> None:
                             }
                         ],
                         "allowed_citation_kinds": ["source", "tool_result"],
+                        "contradicted_claims": [
+                            {"text": "result is 41", "evidence_id": "E2"},
+                        ],
                     }
                 ]
             }
@@ -123,6 +126,9 @@ def test_load_cases_parses_citation_evidence_kind_scope(tmp_path: Path) -> None:
 
     assert cases[0].evidence_kinds == (("E2", "tool_result"),)
     assert cases[0].allowed_citation_kinds == ("source", "tool_result")
+    assert cases[0].contradicted_claims == (
+        benchmark_answers.SupportedClaim(text="result is 41", evidence_id="E2"),
+    )
 
 
 def test_run_benchmark_scores_grounding_failures() -> None:
@@ -169,6 +175,7 @@ def test_run_benchmark_scores_grounding_failures() -> None:
     assert report.required_text_rate == 0.5
     assert report.forbidden_text_rate == 0.5
     assert report.supported_claim_rate == 0.5
+    assert report.contradiction_rate == 1.0
     assert report.answer_shape_rate == 1.0
     assert report.required_label_rate == 1.0
     assert report.failures == ("fail",)
@@ -247,6 +254,24 @@ def test_answer_benchmark_allows_explicit_tool_citation_scope() -> None:
 
     assert result.passed
     assert result.invalid_citation_kinds == ()
+
+
+def test_answer_benchmark_rejects_contradicted_claims() -> None:
+    case = benchmark_answers.AnswerCase(
+        case_id="contradicted",
+        answer="Dijkstra supports negative weights [E1].",
+        evidence=_turn_evidence(),
+        expected_citations=("E1",),
+        contradicted_claims=(
+            benchmark_answers.SupportedClaim(text="supports negative weights", evidence_id="E1"),
+        ),
+    )
+
+    report = benchmark_answers.run_benchmark([case])
+
+    assert report.pass_rate == 0.0
+    assert report.contradiction_rate == 0.0
+    assert report.results[0].contradicted_claims == ("supports negative weights [E1]",)
 
 
 def test_answer_shape_constraints_catch_vague_or_narrow_answers() -> None:
@@ -784,6 +809,35 @@ def test_main_gates_citation_source_rate(tmp_path: Path, capsys) -> None:
     assert status == 1
     assert "citation_sources=0.0%" in captured.out
     assert "memory-cited: invalid citation kinds: E1:memory" in captured.out
+
+
+def test_main_gates_contradiction_rate(tmp_path: Path, capsys) -> None:
+    dataset = tmp_path / "answers.json"
+    dataset.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "contradicted",
+                        "answer": "Dijkstra supports negative weights [E1].",
+                        "evidence": _evidence(),
+                        "expected_citations": ["E1"],
+                        "contradicted_claims": [
+                            {"text": "supports negative weights", "evidence_id": "E1"},
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = benchmark_answers.main([str(dataset), "--min-contradiction-rate", "1.0"])
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert "contradictions=0.0%" in captured.out
+    assert "contradicted: contradicted claims: supports negative weights [E1]" in captured.out
 
 
 def test_main_gates_required_label_rate(tmp_path: Path, capsys) -> None:
