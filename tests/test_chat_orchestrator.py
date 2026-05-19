@@ -1198,7 +1198,9 @@ def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
 
     reply = _overview_fallback_reply(plan, evidence)
 
-    assert "These are the topics I found in the material:" in reply
+    assert "The enabled materials include" in reply
+    assert "These are the topics I found in the material:" not in reply
+    assert "Choose a topic to explore next" not in reply
     assert "Retrieved overview sample" not in reply
     assert "not an exhaustive summary" not in reply
     assert "indexed sources" not in reply
@@ -1206,15 +1208,14 @@ def test_overview_fallback_reply_summarizes_materials_with_citations() -> None:
     assert "document signal" not in reply.casefold()
     assert "Other material signals" not in reply
     assert "sampled" not in reply.casefold()
-    assert "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter." in reply
-    assert "Recommended options:" in reply
-    assert "graph algorithms [e1]" in reply.casefold()
-    assert "recurrence [e1]" in reply.casefold()
+    assert "graph algorithms" in reply.casefold()
+    assert "recurrence" in reply.casefold()
+    assert "exam-style questions or structured assessment prompts [E2]" in reply
     assert "[E2]" in reply
     assert "[E1]" in reply
 
 
-def test_overview_fallback_uses_document_headings_as_generic_topics() -> None:
+def test_overview_topic_menu_uses_document_headings_when_requested() -> None:
     plan = _make_study_plan(
         action=StudyAction.PRESENT,
         retrieval_query="what is the material about",
@@ -1234,10 +1235,15 @@ def test_overview_fallback_uses_document_headings_as_generic_topics() -> None:
         ),
     )
 
-    reply = _overview_fallback_reply(plan, evidence)
+    reply = _overview_fallback_reply(
+        plan,
+        evidence,
+        user_input="which topics should I study?",
+    )
 
     assert "Enzyme Kinetics [E1]" in reply
     assert "Protein Folding [E2]" in reply
+    assert "Choose a topic to explore next" in reply
 
 
 def test_overview_fallback_does_not_append_english_menu_for_non_latin_request() -> None:
@@ -1294,8 +1300,14 @@ def test_overview_fallback_satisfies_answer_shape_contract() -> None:
         answer=reply,
         evidence=evidence,
         expected_citations=("E1", "E2"),
-        must_include=("topics", "Choose a topic"),
-        must_not_include=("the files cover", "no evidence citations", "sampled orientation"),
+        must_include=("Content areas", "exam-style"),
+        must_not_include=(
+            "the files cover",
+            "no evidence citations",
+            "sampled orientation",
+            "I could not identify precise topics",
+            "Choose a topic",
+        ),
         min_words=24,
         max_words=190,
         min_citation_count=2,
@@ -1648,7 +1660,11 @@ def test_overview_fallback_unescapes_content_and_filters_exam_noise_topics() -> 
         ),
     )
 
-    reply = _overview_fallback_reply(plan, evidence)
+    reply = _overview_fallback_reply(
+        plan,
+        evidence,
+        user_input="which topics should I study?",
+    )
 
     assert "geometric series [e1]" in reply.casefold()
     assert "&lt;" not in reply
@@ -2987,6 +3003,60 @@ class TestTurnOrchestratorStudy:
             "Deterministic local corpus overview."
         )
 
+    @patch("hephaistos.chat.orchestrator.iter_agent_events")
+    @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+    @patch("hephaistos.chat.orchestrator.plan_turn")
+    def test_medium_corpus_material_overview_uses_fast_local_reply(
+        self,
+        mock_plan_turn: MagicMock,
+        mock_resolve_evidence: MagicMock,
+        mock_iter_agent: MagicMock,
+    ) -> None:
+        plan = _make_study_plan(
+            action=StudyAction.PRESENT,
+            retrieval_query="what is the material about",
+            buffer_response=True,
+        )
+        evidence = TurnEvidence(
+            items=(
+                _make_evidence_chunk(
+                    "materials/algorithms-2019-exam.pdf",
+                    0,
+                    "E1",
+                    "Klausur. Aufgabe 1. Graph algorithms and data structures. Punkte.",
+                ),
+                _make_evidence_chunk(
+                    "materials/math-slides.pdf",
+                    0,
+                    "E2",
+                    "Lecture slides. Mathematics for computer science covers sequences.",
+                ),
+                _make_evidence_chunk(
+                    "materials/lecture-notes.pdf",
+                    0,
+                    "E3",
+                    "Reference notes. Recurrence relations and proofs are introduced.",
+                ),
+            ),
+            sampled_source_count=32,
+            total_source_count=46,
+        )
+        mock_plan_turn.return_value = plan
+        mock_resolve_evidence.return_value = evidence
+
+        session = _make_study_session()
+        events = list(TurnOrchestrator(session).iter_events("what is the material about"))
+
+        mock_iter_agent.assert_not_called()
+        deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+        assert len(deltas) == 1
+        assert "The enabled materials include" in deltas[0]
+        assert "I could not identify precise topics" not in deltas[0]
+        assert "These are the topics I found in the material:" not in deltas[0]
+        assert "Choose a topic to explore next" not in deltas[0]
+        assert "[E1]" in deltas[0]
+        assert "[E2]" in deltas[0]
+
     @patch("hephaistos.chat.orchestrator._build_overview_context")
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
@@ -3033,7 +3103,9 @@ class TestTurnOrchestratorStudy:
 
         session = _make_study_session()
         orch = TurnOrchestrator(session)
-        events = list(orch.iter_events("what are the materials about"))
+        events = list(
+            orch.iter_events("what are the materials about, and which topics should I study?")
+        )
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
@@ -3083,7 +3155,9 @@ class TestTurnOrchestratorStudy:
         session = _make_study_session()
         orch = TurnOrchestrator(session)
         with patch("hephaistos.chat.orchestrator.duckduckgo_search", return_value=()):
-            events = list(orch.iter_events("what are the materials about"))
+            events = list(
+                orch.iter_events("what are the materials about, and which topics should I study?")
+            )
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
@@ -3136,8 +3210,9 @@ class TestTurnOrchestratorStudy:
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
         final_reply = deltas[0]
-        assert "I could not identify precise topics" in final_reply
-        assert "What the sample does show:" in final_reply
+        assert "I could not identify precise topics" not in final_reply
+        assert "The enabled materials include" in final_reply
+        assert "Zephyrology concepts" in final_reply
         assert "These are the topics I found in the material:" not in final_reply
         assert "Choose a topic to explore next" not in final_reply
         assert orch.last_reply == final_reply
@@ -3179,7 +3254,8 @@ class TestTurnOrchestratorStudy:
         assert len(deltas) == 1
         assert deltas[0] != "The course is about computer science."
         assert orch.last_reply == deltas[0]
-        assert "These are the topics I found" in orch.last_reply
+        assert "The enabled materials include" in orch.last_reply
+        assert "These are the topics I found" not in orch.last_reply
         assert "[E1]" in orch.last_reply
         assert session.conversation.messages[-1].content == orch.last_reply
         trace = cast("MagicMock", session.trace)
@@ -3236,7 +3312,8 @@ class TestTurnOrchestratorStudy:
         assert len(deltas) == 1
         assert "The files cover" not in deltas[0]
         assert "Say ready when you want recall" not in deltas[0]
-        assert "I could not identify precise topics" in deltas[0]
+        assert "I could not identify precise topics" not in deltas[0]
+        assert "The enabled materials include" in deltas[0]
         assert "Choose a topic to explore next" not in deltas[0]
         assert "not an exhaustive summary" not in deltas[0]
         assert "[E1]" in deltas[0]
@@ -3437,7 +3514,8 @@ class TestTurnOrchestratorStudy:
         completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
         assert len(deltas) == 1
         assert len(completions) == 1
-        assert "I could not identify precise topics" in deltas[0]
+        assert "I could not identify precise topics" not in deltas[0]
+        assert "The enabled materials include" in deltas[0]
         assert "Choose a topic to explore next" not in deltas[0]
         assert completions[0].full_text == deltas[0]
         assert "The files cover" not in completions[0].full_text
@@ -3521,7 +3599,8 @@ class TestTurnOrchestratorStudy:
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
-        assert "I could not identify precise topics" in deltas[0]
+        assert "I could not identify precise topics" not in deltas[0]
+        assert "The enabled materials include" in deltas[0]
         assert "Choose a topic to explore next" not in deltas[0]
         assert "exam-style questions or structured assessment prompts [E1]" in deltas[0]
 

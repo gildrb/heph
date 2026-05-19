@@ -213,9 +213,18 @@ _ENGLISH_TOPIC_PRESENTATION_START_RE = re.compile(
     r"help\s+me\s+(?:study|understand))\b",
     re.IGNORECASE,
 )
+_GUIDED_TOPIC_MENU_REQUEST_RE = re.compile(
+    r"\b(?:"
+    r"choose|drill|learn|practice|prioriti[sz]e|quiz|review|study|topics?|"
+    r"what\s+should\s+i\s+(?:learn|practice|review|study)|"
+    r"where\s+should\s+i\s+start|"
+    r"which\s+(?:concepts?|topics?)"
+    r")\b",
+    re.IGNORECASE,
+)
 _MAX_INTERNAL_PASSES = 3
 _OVERVIEW_REQUIRED_SHAPE: tuple[str, ...] = ()
-_LOCAL_OVERVIEW_SOURCE_THRESHOLD = 80
+_LOCAL_OVERVIEW_SOURCE_THRESHOLD = 20
 _OVERVIEW_FORBIDDEN_SHAPE = (
     "corpus-level claim",
     "document signal",
@@ -1346,8 +1355,9 @@ def _overview_fallback_reply(
     if not _overview_turn(plan) or evidence is None or not evidence.items:
         return ""
 
-    use_english_ui = _should_append_english_guided_menu(user_input)
-    if not use_english_ui:
+    use_english_request = _should_append_english_guided_menu(user_input)
+    offer_topic_menu = _should_offer_guided_topic_menu(user_input)
+    if not use_english_request:
         localized_reply = _overview_model_fallback_reply(
             plan,
             evidence,
@@ -1357,40 +1367,21 @@ def _overview_fallback_reply(
         if localized_reply:
             return localized_reply
 
+    if not offer_topic_menu:
+        return _overview_general_fallback_reply(plan, evidence)
+
     topic_items = _overview_model_topic_items(
         evidence,
         user_input=user_input,
         config=config,
     ) or _overview_topic_items(
         evidence,
-        web_searcher=None if not use_english_ui else web_searcher,
+        web_searcher=web_searcher,
     )
     if not topic_items:
-        if not use_english_ui:
-            content_clues = _overview_content_clues(evidence, limit=3)
-            if content_clues:
-                return _append_read_all_scope_disclosure(
-                    plan,
-                    "\n".join(f"- {clue}" for clue in content_clues),
-                    evidence,
-                )
-            return ""
-        lines = ["I could not identify precise topics from the sampled material yet."]
-        content_clues = _overview_content_clues(evidence, limit=3)
-        if content_clues:
-            lines.append("")
-            lines.append("What the sample does show:")
-            lines.extend(f"- {clue}" for clue in content_clues)
-        return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
+        return _overview_general_fallback_reply(plan, evidence)
 
     recommendations = _overview_recommendation_items(evidence, topic_items)
-
-    if not use_english_ui:
-        return _append_read_all_scope_disclosure(
-            plan,
-            "\n".join(f"- {topic}" for topic in topic_items[:_OVERVIEW_TOPIC_LIMIT]),
-            evidence,
-        )
 
     lines = [_OVERVIEW_TOPIC_SECTION_HEADING]
     lines.extend(f"- {topic}" for topic in topic_items[:_OVERVIEW_TOPIC_LIMIT])
@@ -1409,7 +1400,7 @@ def _large_corpus_local_overview_reply(
     *,
     user_input: str,
 ) -> str:
-    """Return a concise deterministic overview for large English corpus requests."""
+    """Return a concise deterministic overview for medium or large English corpora."""
     if (
         not _overview_turn(plan)
         or evidence is None
@@ -1420,26 +1411,41 @@ def _large_corpus_local_overview_reply(
     total_sources = evidence.total_source_count or len({item.source for item in evidence.items})
     if total_sources < _LOCAL_OVERVIEW_SOURCE_THRESHOLD:
         return ""
+    return _overview_general_fallback_reply(plan, evidence)
 
-    topic_label_items = _overview_source_group_items(evidence)
+
+def _overview_general_fallback_reply(
+    plan: StudyTurnPlan,
+    evidence: TurnEvidence,
+) -> str:
+    """Return a cited corpus overview without turning the request into a topic menu."""
+
+    source_group_items = _overview_source_group_items(evidence)
     topic_items = _overview_topic_items(evidence, web_searcher=None)
     role_items = _overview_role_items(evidence)
     opening_citations = _overview_first_evidence_citations(evidence, limit=2)
 
-    topic_labels = [label for label, _evidence_id in topic_label_items[:4]]
-    topic_citations = _overview_citations_from_ids(
-        evidence_id for _label, evidence_id in topic_label_items[:4]
-    )
+    topic_labels: list[str] = []
+    topic_evidence_ids: list[str] = []
+    for topic in topic_items:
+        label, citation = _split_overview_citation(topic)
+        evidence_id = citation.strip("[]")
+        if not label or label in topic_labels:
+            continue
+        topic_labels.append(label)
+        if evidence_id:
+            topic_evidence_ids.append(evidence_id)
+        if len(topic_labels) >= 4:
+            break
     if len(topic_labels) < 2:
-        for topic in topic_items:
-            label, citation = _split_overview_citation(topic)
+        for label, evidence_id in source_group_items:
             if not label or label in topic_labels:
                 continue
             topic_labels.append(label)
-            if citation:
-                topic_citations += citation
+            topic_evidence_ids.append(evidence_id)
             if len(topic_labels) >= 4:
                 break
+    topic_citations = _overview_citations_from_ids(topic_evidence_ids)
     if not topic_labels:
         topic_labels = _overview_content_clues(evidence, limit=3)
         topic_citations = opening_citations
@@ -1454,14 +1460,28 @@ def _large_corpus_local_overview_reply(
         role_labels = ["searchable material"]
         role_citations = opening_citations
 
-    return (
-        f"The material is a broad academic corpus for concept review and practice. "
-        f"{opening_citations}\n\n"
-        f"- Major topic clusters include {_overview_join_labels(topic_labels)}. "
-        f"{topic_citations or opening_citations}\n"
-        f"- It includes {_overview_join_labels(role_labels)}, so it can support both review "
-        f"and practice. {role_citations or opening_citations}"
-    )
+    lines = [
+        (
+            f"The enabled materials include {_overview_join_labels(role_labels)}. "
+            f"{role_citations or opening_citations}"
+        ).strip(),
+    ]
+
+    if topic_labels:
+        lines.append(
+            f"- Content areas visible in the cited excerpts include "
+            f"{_overview_join_labels(topic_labels)}. {topic_citations or opening_citations}"
+        )
+
+    content_clues = _overview_content_clues(evidence, limit=4)
+    if content_clues:
+        lines.extend(f"- {clue}" for clue in content_clues)
+    elif not topic_labels:
+        lines.append(
+            f"- The available excerpts are searchable source material. {opening_citations}"
+        )
+
+    return _append_read_all_scope_disclosure(plan, "\n".join(lines), evidence)
 
 
 def _overview_source_group_items(evidence: TurnEvidence) -> list[tuple[str, str]]:
@@ -1557,7 +1577,7 @@ def _append_guided_choice_menu(
         or not evidence.items
         or not reply.strip()
         or _reply_has_selectable_study_menu(reply)
-        or not _should_append_english_guided_menu(user_input)
+        or not _should_offer_guided_topic_menu(user_input)
     ):
         return reply
     if not _overview_turn(plan) and _GUIDED_RECOMMENDATION_LABEL_RE.search(reply) is None:
@@ -1590,6 +1610,14 @@ def _should_append_english_guided_menu(user_input: str) -> bool:
     if not words:
         return False
     return any(word in _ENGLISH_GUIDED_MENU_CUE_WORDS for word in words)
+
+
+def _should_offer_guided_topic_menu(user_input: str) -> bool:
+    if not _should_append_english_guided_menu(user_input):
+        return False
+    if not user_input.strip():
+        return False
+    return bool(_GUIDED_TOPIC_MENU_REQUEST_RE.search(user_input))
 
 
 def _reply_has_selectable_study_menu(reply: str) -> bool:

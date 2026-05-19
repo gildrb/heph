@@ -23,10 +23,13 @@ def _write_overview_expectation(path: Path) -> None:
                     "id": "overview",
                     "task": "material-overview",
                     "must_include": [
-                        "These are the topics",
-                        "Choose a topic",
+                        "The enabled materials include",
+                        "Content areas",
                     ],
                     "must_not_include": [
+                        "These are the topics",
+                        "Choose a topic",
+                        "I could not identify precise topics",
                         "the files cover",
                         "next action",
                         "say ready when you want recall",
@@ -63,6 +66,16 @@ def _write_overview_expectation(path: Path) -> None:
             ]
         ),
         encoding="utf-8",
+    )
+
+
+def _generic_overview_answer() -> str:
+    return (
+        "The enabled materials include lecture notes and past exam practice [E1] [E2].\n"
+        "- Content areas visible in the cited excerpts include definitions, theorems, "
+        "examples, and proof practice [E1][E2].\n"
+        "- @lecture.md: Definitions, theorems, and examples [E1].\n"
+        "- @exam.md: Past exam proof practice [E2]."
     )
 
 
@@ -111,12 +124,7 @@ def _material_operation_rows() -> list[dict[str, object]]:
 def test_chat_event_benchmark_passes_structured_overview_stream(tmp_path: Path) -> None:
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
-    answer = (
-        "These are the topics I found in the material [E1] [E2].\n"
-        "- Definitions, theorems, and examples [E1].\n"
-        "- Past exam proof practice [E2].\n"
-        "- Choose a topic to explore next with the menu [E1]."
-    )
+    answer = _generic_overview_answer()
     _write_jsonl(
         events_path,
         [
@@ -172,10 +180,7 @@ def test_chat_event_benchmark_rejects_overview_study_loop_tail(tmp_path: Path) -
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
     answer = (
-        "These are the topics I found in the material [E1] [E2].\n"
-        "- Definitions, theorems, and examples [E1].\n"
-        "- Past exam proof practice [E2].\n"
-        "- Choose a topic to explore next with the menu [E1].\n\n"
+        f"{_generic_overview_answer()}\n\n"
         "Next action: Review the smallest source-backed piece, then ask for recall."
     )
     _write_jsonl(
@@ -230,12 +235,7 @@ def test_chat_event_benchmark_validates_tool_runtime_notice_metadata(
 ) -> None:
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
-    answer = (
-        "These are the topics I found in the material [E1] [E2].\n"
-        "- Definitions, theorems, and examples [E1].\n"
-        "- Past exam proof practice [E2].\n"
-        "- Choose a topic to explore next with the menu [E1]."
-    )
+    answer = _generic_overview_answer()
     _write_jsonl(
         events_path,
         [
@@ -319,12 +319,7 @@ def test_chat_event_benchmark_fails_malformed_acceptance_criteria_notice(
 ) -> None:
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
-    answer = (
-        "These are the topics I found in the material [E1] [E2].\n"
-        "- Definitions, theorems, and examples [E1].\n"
-        "- Past exam proof practice [E2].\n"
-        "- Choose a topic to explore next with the menu [E1]."
-    )
+    answer = _generic_overview_answer()
     _write_jsonl(
         events_path,
         [
@@ -384,12 +379,7 @@ def test_chat_event_benchmark_fails_malformed_tool_runtime_notice(
 ) -> None:
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
-    answer = (
-        "These are the topics I found in the material [E1] [E2].\n"
-        "- Definitions, theorems, and examples [E1].\n"
-        "- Past exam proof practice [E2].\n"
-        "- Choose a topic to explore next with the menu [E1]."
-    )
+    answer = _generic_overview_answer()
     _write_jsonl(
         events_path,
         [
@@ -461,12 +451,7 @@ def test_chat_event_benchmark_fails_malformed_material_operations(
 ) -> None:
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
-    answer = (
-        "These are the topics I found in the material [E1] [E2].\n"
-        "- Definitions, theorems, and examples [E1].\n"
-        "- Past exam proof practice [E2].\n"
-        "- Choose a topic to explore next with the menu [E1]."
-    )
+    answer = _generic_overview_answer()
     _write_jsonl(
         events_path,
         [
@@ -533,12 +518,7 @@ def test_chat_event_benchmark_enforces_expected_material_operations(
 ) -> None:
     events_path = tmp_path / "events.jsonl"
     expectation_path = tmp_path / "expectation.json"
-    answer = (
-        "These are the topics I found in the material [E1] [E2].\n"
-        "- Definitions, theorems, and examples [E1].\n"
-        "- Past exam proof practice [E2].\n"
-        "- Choose a topic to explore next with the menu [E1]."
-    )
+    answer = _generic_overview_answer()
     rows = _material_operation_rows()
     rows[1] = {
         "type": "material_operation",
