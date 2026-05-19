@@ -6,6 +6,7 @@ import argparse
 import ipaddress
 import json
 import re
+import subprocess
 import sys
 import tempfile
 import urllib.parse
@@ -348,6 +349,24 @@ def _check_artifacts_gitignored(
                 gitignore.as_posix(),
             )
         )
+    if not any(_ignores_benchmarks_root(line) for line in lines):
+        failures.append(
+            BoundaryFailure(
+                "benchmarks_not_gitignored",
+                "repo .gitignore must include benchmarks/ for private benchmark suites",
+                gitignore.as_posix(),
+            )
+        )
+    tracked_benchmarks = _tracked_benchmark_paths(repo_root)
+    if tracked_benchmarks:
+        failures.append(
+            BoundaryFailure(
+                "benchmarks_tracked",
+                "benchmark suites, corpora, qrels, prompts, snapshots, and outputs "
+                "must not be tracked",
+                "\n".join(tracked_benchmarks),
+            )
+        )
 
 
 def _ignores_artifacts_root(line: str) -> bool:
@@ -356,6 +375,33 @@ def _ignores_artifacts_root(line: str) -> bool:
         return False
     normalized = stripped.lstrip("/").rstrip("/")
     return normalized == ".artifacts" or normalized.startswith(".artifacts/")
+
+
+def _ignores_benchmarks_root(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or stripped.startswith(("#", "!")):
+        return False
+    normalized = stripped.lstrip("/").rstrip("/")
+    return normalized == "benchmarks" or normalized.startswith("benchmarks/")
+
+
+def _tracked_benchmark_paths(repo_root: Path) -> tuple[str, ...]:
+    if not (repo_root / ".git").exists():
+        return ()
+    try:
+        completed = subprocess.run(
+            ["git", "ls-files", "benchmarks"],
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    if completed.returncode != 0:
+        return ()
+    return tuple(line for line in completed.stdout.splitlines() if line.strip())
 
 
 def _check_docs_skipped(

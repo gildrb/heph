@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import cast
 
@@ -25,7 +26,7 @@ def _as_list(value: object) -> list[object]:
 
 
 def _base_evidence(repo: Path) -> dict[str, object]:
-    (repo / ".gitignore").write_text(".artifacts/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(".artifacts/\nbenchmarks/\n", encoding="utf-8")
     artifacts = repo / ".artifacts" / "safety-run"
     artifacts.mkdir(parents=True)
     report_path = artifacts / "external-report.json"
@@ -235,6 +236,42 @@ def test_boundary_gate_rejects_missing_artifacts_gitignore(tmp_path: Path) -> No
     failure = _failure_by_code(report, "artifacts_not_gitignored")
     assert report.status == "failed"
     assert ".gitignore" in failure.evidence
+
+
+def test_boundary_gate_rejects_missing_benchmarks_gitignore(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    evidence = _base_evidence(repo)
+    (repo / ".gitignore").write_text(".artifacts/\n", encoding="utf-8")
+
+    report = gates.validate_boundary_evidence(evidence, repo_root=repo)
+
+    failure = _failure_by_code(report, "benchmarks_not_gitignored")
+    assert report.status == "failed"
+    assert ".gitignore" in failure.evidence
+
+
+def test_boundary_gate_rejects_tracked_benchmark_files(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    evidence = _base_evidence(repo)
+    benchmark_file = repo / "benchmarks" / "academic" / "answers.jsonl"
+    benchmark_file.parent.mkdir(parents=True)
+    benchmark_file.write_text("{}\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, timeout=10)
+    subprocess.run(
+        ["git", "add", "-f", "benchmarks/academic/answers.jsonl"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        timeout=10,
+    )
+
+    report = gates.validate_boundary_evidence(evidence, repo_root=repo)
+
+    failure = _failure_by_code(report, "benchmarks_tracked")
+    assert report.status == "failed"
+    assert "benchmarks/academic/answers.jsonl" in failure.evidence
 
 
 def test_boundary_gate_rejects_public_or_shareable_exports(tmp_path: Path) -> None:
