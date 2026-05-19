@@ -124,6 +124,7 @@ def test_infer_material_role_uses_path_hints() -> None:
         "materials/Folien_2026_04_13.pdf": "slides",
         "materials/Klausur_WorkspaceFixture2_WS2024.pdf": "past_exam",
         "materials/book/chapter-2.pdf": "textbook",
+        "materials/public-course/summary.html": "reference",
         "materials/project/main.py": "codebase",
         "materials/misc/context.md": "reference",
     }
@@ -193,6 +194,84 @@ def test_infer_material_role_from_text_detects_generic_lecture_slides() -> None:
     assert role == "slides"
     assert confidence >= 0.75
     assert "lecture slides" in reason
+
+
+def test_infer_material_role_from_text_detects_public_textbook_html_before_exam_cues() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/public-academic/uc-berkeley-cs188/search/agents.html",
+        """
+        <link rel="canonical"
+              href="https://inst.eecs.berkeley.edu/~cs188/textbook/search/agents.html" />
+        <title>1.1 Agents | Introduction to Artificial Intelligence</title>
+        <a href="/~cs188/textbook/search/">1. Search</a>
+        <p>Problem formulation and question answering appear in the navigation.</p>
+        """,
+    )
+
+    assert role == "textbook"
+    assert confidence >= 0.8
+    assert "textbook" in reason
+
+
+def test_infer_material_role_from_text_detects_numbered_public_textbook_chunks() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/public-academic/course/search/agents.html",
+        """
+        1.1 Agents | Introduction to Artificial Intelligence
+        Skip to main content
+        1. Search 1.1 Agents 1.2 State Spaces and Search Problems
+        In artificial intelligence, the central problem is a rational agent.
+        """,
+    )
+
+    assert role == "textbook"
+    assert confidence >= 0.8
+    assert "numbered textbook" in reason
+
+
+def test_infer_material_role_from_text_keeps_public_textbook_summaries_as_reference() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/public-academic/course/search/summary.html",
+        """
+        <link rel="canonical"
+              href="https://example.edu/textbook/search/summary.html" />
+        <title>1.6 Summary | Introduction to Artificial Intelligence</title>
+        """,
+    )
+
+    assert role == "reference"
+    assert confidence >= 0.75
+    assert "summary" in reason
+
+
+def test_infer_material_role_from_text_detects_public_course_notes_before_slides() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/public-academic/stanford-cs231n/classification/index.html",
+        """
+        <meta name="description" content="Course materials and notes for Stanford class CS231n.">
+        <p>This is an introductory lecture designed to introduce image classification.</p>
+        <p>The Table of Contents lists nearest-neighbor classifiers.</p>
+        """,
+    )
+
+    assert role == "lecture"
+    assert confidence >= 0.8
+    assert "course notes" in reason
+
+
+def test_infer_material_role_from_text_detects_public_video_lecture_page() -> None:
+    role, confidence, reason = infer_material_role_from_text(
+        "materials/public-academic/mit-missing-semester/2020/course-shell/index.html",
+        """
+        <span class="nav-link"><a href="/2026/">lectures</a></span>
+        <div class="youtube-wrapper">
+        <h1 class="title">Course Overview + The Shell</h1>
+        """,
+    )
+
+    assert role == "lecture"
+    assert confidence >= 0.8
+    assert "lectures" in reason
 
 
 def test_infer_material_role_from_text_detects_generic_exercise_sheet() -> None:

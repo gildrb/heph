@@ -84,6 +84,19 @@ _LECTURE_STRUCTURE_RE = re.compile(
     r"übungstermine|ubungstermine)\b",
     re.IGNORECASE,
 )
+_PUBLIC_TEXTBOOK_RE = re.compile(
+    r"(?:/~[^\"'\s<>]+/textbook/|/textbook/|online textbook|textbook section)",
+    re.IGNORECASE,
+)
+_PUBLIC_COURSE_NOTES_RE = re.compile(
+    r"(?:course materials and notes|introductory lecture|lecture video|youtube-wrapper|"
+    r"course overview\s*\+|nav-link[^>]*>\s*lectures\s*<)",
+    re.IGNORECASE,
+)
+_NUMBERED_TEXTBOOK_SECTION_RE = re.compile(
+    r"\b\d{1,2}\.\d{1,2}\s+[A-Z][^|\n]{2,80}\s+\|\s+[A-Z]",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +149,8 @@ def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]
         return "assignment", 0.85, "path suggests assigned problems"
     if any(token in normalized for token in ("vocab", "glossary", "flashcard")):
         return "vocabulary", 0.85, "path suggests vocabulary practice"
+    if path.stem.lower() in {"summary", "reference"}:
+        return "reference", 0.76, "path suggests a summary or reference page"
     if any(token in normalized for token in ("folie", "folien", "slides")):
         return "slides", 0.9, "path suggests lecture slides"
     if any(token in normalized for token in ("lecture", "seminar", "class-notes")):
@@ -165,6 +180,14 @@ def infer_material_role_from_text(
     path_role, path_confidence, path_reason = infer_material_role(rel_path)
     if path_confidence >= 0.75:
         return path_role, path_confidence, path_reason
+
+    role_hint_text = f"{rel_path}\n{text[:8000]}"
+    if _PUBLIC_TEXTBOOK_RE.search(role_hint_text):
+        return "textbook", 0.84, "content suggests a public textbook section"
+    if _NUMBERED_TEXTBOOK_SECTION_RE.search(role_hint_text):
+        return "textbook", 0.8, "content suggests a numbered textbook section"
+    if _PUBLIC_COURSE_NOTES_RE.search(role_hint_text):
+        return "lecture", 0.82, "content suggests public course notes or lectures"
 
     normalized = text.lower()
     exam_hits = sum(
