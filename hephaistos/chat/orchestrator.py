@@ -631,12 +631,12 @@ def _repair_missing_evidence_citations(
 ) -> str:
     if not reply.strip() or evidence is None or not evidence.items:
         return reply
-    if plan.action not in {StudyAction.PRESENT, StudyAction.SOURCE_QA}:
-        return reply
     verification = verify_citations(reply, evidence)
     if verification.unverified:
         reply = _remove_unverified_citations(reply, verification.unverified)
         verification = verify_citations(reply, evidence)
+    if plan.action not in {StudyAction.PRESENT, StudyAction.SOURCE_QA}:
+        return reply
     if verification.has_citations:
         return reply
     return _append_evidence_bullets(reply, evidence)

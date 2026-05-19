@@ -150,7 +150,8 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
   evidence IDs to cite.
 - **Citations are checked after every answer.** The model must cite retrieved
   evidence like `[E1]`. Hephaistos verifies those IDs against the evidence from
-  that exact turn and warns when citations are missing or invented.
+  that exact turn, removes unsupported citation IDs where it can, and warns
+  when citations are missing or invented.
 - **Each armory remembers useful context.** After substantive exchanges,
   Hephaistos extracts learned concepts into `.hephaistos/memory.json` and uses
   that memory in future sessions for the same armory.
@@ -170,7 +171,7 @@ builds can provide `HEPHAISTOS_POSTHOG_PROJECT_TOKEN`,
 3. For each material-backed question, Hephaistos builds or loads the local RAG
    index, retrieves relevant chunks, and passes them to the model as citable
    evidence.
-4. The answer is checked for valid evidence citations.
+4. The answer is checked and lightly repaired for valid evidence citations.
 5. Useful concepts from the exchange are saved as armory memory for later
    sessions.
 

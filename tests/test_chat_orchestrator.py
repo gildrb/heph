@@ -211,6 +211,33 @@ def test_german_overview_repair_does_not_append_english_study_scaffold() -> None
     assert "Say ready" not in repaired
 
 
+def test_internal_grounding_repair_removes_unverified_citations_for_assessment() -> None:
+    plan = StudyTurnPlan(
+        action=StudyAction.ASSESS,
+        phase=StudyPhase.ASSESS,
+        retrieval_query="calculus recall",
+        prompt="Assess the learner from the supplied evidence.",
+    )
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk(
+            "materials/calculus.md",
+            0,
+            "E1",
+            "The derivative is the instantaneous rate of change.",
+        )
+    )
+
+    repaired, passes = _run_bounded_internal_repairs(
+        plan,
+        "PARTIAL: The answer is close, but one claim needs checking [E999].",
+        evidence,
+    )
+
+    assert passes <= 3
+    assert "[E999]" not in repaired
+    assert "derivative" not in repaired
+
+
 def test_repair_pedagogy_shape_does_not_append_english_recommendation_reason() -> None:
     plan = plan_turn(StudyState(autonomy_mode=StudyAutonomyMode.GUIDED), "Explain compactness")
 
