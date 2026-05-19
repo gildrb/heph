@@ -82,6 +82,8 @@ def test_load_cases_supports_jsonl_and_defaults_citation_requirement(tmp_path: P
     assert cases[0].task == "grounded-explanation"
     assert cases[0].require_citations is True
     assert cases[0].expected_citations == ("E1",)
+    assert cases[0].evidence_kinds == (("E1", "source"),)
+    assert cases[0].allowed_citation_kinds == ("source",)
     assert cases[0].supported_claims == (
         benchmark_answers.SupportedClaim(text="priority queue", evidence_id="E1"),
     )
@@ -89,6 +91,38 @@ def test_load_cases_supports_jsonl_and_defaults_citation_requirement(tmp_path: P
     assert cases[1].require_citations is False
     assert cases[1].require_abstention is True
     assert cases[1].required_label == "PARTIAL"
+
+
+def test_load_cases_parses_citation_evidence_kind_scope(tmp_path: Path) -> None:
+    dataset = tmp_path / "answers.json"
+    dataset.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "tool-cited",
+                        "answer": "The calculator result is 42 [E2].",
+                        "evidence": [
+                            {
+                                "id": "E2",
+                                "source": "tool://calculator",
+                                "chunk": 0,
+                                "text": "The calculator result is 42.",
+                                "kind": "Tool Result",
+                            }
+                        ],
+                        "allowed_citation_kinds": ["source", "tool_result"],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cases = benchmark_answers.load_cases(dataset)
+
+    assert cases[0].evidence_kinds == (("E2", "tool_result"),)
+    assert cases[0].allowed_citation_kinds == ("source", "tool_result")
 
 
 def test_run_benchmark_scores_grounding_failures() -> None:
@@ -131,6 +165,7 @@ def test_run_benchmark_scores_grounding_failures() -> None:
     assert report.pass_rate == 0.5
     assert report.citation_validity_rate == 0.5
     assert report.expected_citation_rate == 0.5
+    assert report.citation_source_rate == 1.0
     assert report.required_text_rate == 0.5
     assert report.forbidden_text_rate == 0.5
     assert report.supported_claim_rate == 0.5
@@ -144,6 +179,74 @@ def test_run_benchmark_scores_grounding_failures() -> None:
     assert report.results[1].distinct_cited_sources == 0
     assert report.results[1].bullet_count == 0
     assert report.results[1].cited_bullet_count == 0
+
+
+def test_answer_benchmark_rejects_memory_or_tool_citations_by_default() -> None:
+    memory_chunk = Chunk(
+        text="The learner recently practiced Bellman-Ford.",
+        source="memory://study-state",
+        index=0,
+        char_start=0,
+        char_end=45,
+    )
+    evidence = TurnEvidence(
+        (
+            _turn_evidence().items[0],
+            EvidenceChunk(
+                evidence_id="E2",
+                chunk=memory_chunk,
+                score=1.0,
+                content=memory_chunk.text,
+            ),
+        )
+    )
+    case = benchmark_answers.AnswerCase(
+        case_id="memory-citation",
+        answer="The learner recently practiced Bellman-Ford [E2].",
+        evidence=evidence,
+        expected_citations=("E2",),
+        evidence_kinds=(("E1", "source"), ("E2", "memory")),
+    )
+
+    report = benchmark_answers.run_benchmark([case])
+
+    assert report.pass_rate == 0.0
+    assert report.citation_validity_rate == 1.0
+    assert report.citation_source_rate == 0.0
+    assert report.results[0].invalid_citation_kinds == ("E2:memory",)
+
+
+def test_answer_benchmark_allows_explicit_tool_citation_scope() -> None:
+    tool_chunk = Chunk(
+        text="The calculator result is 42.",
+        source="tool://calculator",
+        index=0,
+        char_start=0,
+        char_end=28,
+    )
+    evidence = TurnEvidence(
+        (
+            EvidenceChunk(
+                evidence_id="E1",
+                chunk=tool_chunk,
+                score=1.0,
+                content=tool_chunk.text,
+            ),
+        )
+    )
+    case = benchmark_answers.AnswerCase(
+        case_id="tool-citation",
+        answer="The calculator result is 42 [E1].",
+        evidence=evidence,
+        expected_citations=("E1",),
+        evidence_kinds=(("E1", "tool"),),
+        allowed_citation_kinds=("source", "tool"),
+    )
+
+    result = benchmark_answers.evaluate_case(case)
+
+    assert result.passed
+    assert result.invalid_citation_kinds == ()
 
 
 def test_answer_shape_constraints_catch_vague_or_narrow_answers() -> None:
@@ -652,6 +755,35 @@ def test_main_gates_expected_required_and_forbidden_rates(
         "bad-shape: missing expected citations: E2; missing required text: priority queue; "
         "forbidden text: negative weights" in captured.out
     )
+
+
+def test_main_gates_citation_source_rate(tmp_path: Path, capsys) -> None:
+    dataset = tmp_path / "answers.json"
+    memory_evidence = _evidence()
+    memory_evidence[0]["source"] = "memory://study-state"
+    memory_evidence[0]["kind"] = "memory"
+    dataset.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "memory-cited",
+                        "answer": "Dijkstra shortest paths use a priority queue [E1].",
+                        "evidence": memory_evidence,
+                        "expected_citations": ["E1"],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = benchmark_answers.main([str(dataset), "--min-citation-sources", "1.0"])
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert "citation_sources=0.0%" in captured.out
+    assert "memory-cited: invalid citation kinds: E1:memory" in captured.out
 
 
 def test_main_gates_required_label_rate(tmp_path: Path, capsys) -> None:

@@ -293,6 +293,8 @@ def _answer_failure_reasons(result: benchmark_answers.AnswerCaseResult) -> str:
         reasons.append("forbidden text: " + ", ".join(result.forbidden_text_present))
     if result.unsupported_claims:
         reasons.append("unsupported claims: " + ", ".join(result.unsupported_claims))
+    if result.invalid_citation_kinds:
+        reasons.append("invalid citation kinds: " + ", ".join(result.invalid_citation_kinds))
     if result.shape_failures:
         reasons.append("answer shape: " + "; ".join(result.shape_failures))
     if result.coverage_failures:

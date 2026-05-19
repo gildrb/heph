@@ -46,6 +46,7 @@ class RawEvidence(TypedDict):
     chunk: int
     text: str
     score: NotRequired[float]
+    kind: NotRequired[str]
 
 
 class RawSupportedClaim(TypedDict):
@@ -77,6 +78,7 @@ class RawAnswerCase(TypedDict):
     required_sections: NotRequired[list[str]]
     evidence_coverage: NotRequired[dict[str, int]]
     supported_claims: NotRequired[list[RawSupportedClaim]]
+    allowed_citation_kinds: NotRequired[list[str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +112,8 @@ class AnswerCase:
     required_sections: tuple[str, ...] = ()
     evidence_coverage: dict[str, int] | None = None
     supported_claims: tuple[SupportedClaim, ...] = ()
+    evidence_kinds: tuple[tuple[str, str], ...] = ()
+    allowed_citation_kinds: tuple[str, ...] = ("source",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +134,7 @@ class AnswerCaseResult:
     missing_required_text: tuple[str, ...]
     forbidden_text_present: tuple[str, ...]
     unsupported_claims: tuple[str, ...]
+    invalid_citation_kinds: tuple[str, ...]
     shape_failures: tuple[str, ...]
     coverage_failures: tuple[str, ...]
     missing_citations: bool
@@ -147,6 +152,7 @@ class AnswerBenchmarkReport:
     citation_validity_rate: float
     citation_presence_rate: float
     expected_citation_rate: float
+    citation_source_rate: float
     required_text_rate: float
     forbidden_text_rate: float
     supported_claim_rate: float
@@ -188,6 +194,14 @@ def _as_string_list(value: object, field_name: str, case_idx: int) -> list[str]:
 
 def _as_bool(value: object, *, default: bool) -> bool:
     return value if isinstance(value, bool) else default
+
+
+def _normalize_evidence_kind(value: object, *, field_name: str, case_idx: int) -> str:
+    if value is None:
+        return "source"
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"case {case_idx} field '{field_name}' must be a non-empty string")
+    return re.sub(r"[^a-z0-9_-]+", "_", value.strip().casefold()).strip("_")
 
 
 def _as_non_negative_int(value: object, field_name: str, case_idx: int) -> int:
@@ -345,6 +359,13 @@ def _as_raw_cases(payload: object) -> list[RawAnswerCase]:
         evidence_coverage = _parse_evidence_coverage(raw.get("evidence_coverage"), idx)
         if evidence_coverage is not None:
             raw_case["evidence_coverage"] = evidence_coverage
+        allowed_citation_kinds = _as_string_list(
+            raw.get("allowed_citation_kinds"),
+            "allowed_citation_kinds",
+            idx,
+        )
+        if allowed_citation_kinds:
+            raw_case["allowed_citation_kinds"] = allowed_citation_kinds
 
         raw_evidence = raw.get("evidence")
         if raw_evidence is not None:
@@ -377,6 +398,11 @@ def _parse_raw_evidence_list(raw_evidence: object, case_idx: int) -> list[RawEvi
             raise ValueError(f"case {case_idx} evidence {evidence_idx} must include string 'text'")
         raw_score = raw_item.get("score", 1.0)
         score = raw_score if isinstance(raw_score, int | float) else 1.0
+        kind = _normalize_evidence_kind(
+            raw_item.get("kind"),
+            field_name="evidence.kind",
+            case_idx=case_idx,
+        )
         items.append(
             {
                 "id": evidence_id,
@@ -384,6 +410,7 @@ def _parse_raw_evidence_list(raw_evidence: object, case_idx: int) -> list[RawEvi
                 "chunk": chunk,
                 "text": text,
                 "score": float(score),
+                "kind": kind,
             }
         )
     return items
@@ -419,6 +446,17 @@ def _supported_claims_from_raw(
     return tuple(
         SupportedClaim(text=claim["text"], evidence_id=claim["evidence_id"].strip().upper())
         for claim in raw_claims
+    )
+
+
+def _evidence_kinds_from_raw(raw_evidence: Sequence[RawEvidence]) -> tuple[tuple[str, str], ...]:
+    return tuple((item["id"].strip().upper(), item.get("kind", "source")) for item in raw_evidence)
+
+
+def _allowed_citation_kinds_from_raw(raw: RawAnswerCase, case_idx: int) -> tuple[str, ...]:
+    return tuple(
+        _normalize_evidence_kind(item, field_name="allowed_citation_kinds", case_idx=case_idx)
+        for item in raw.get("allowed_citation_kinds", ["source"])
     )
 
 
@@ -462,6 +500,8 @@ def load_cases_from_payload(payload: object) -> list[AnswerCase]:
                 required_sections=tuple(raw.get("required_sections", [])),
                 evidence_coverage=raw.get("evidence_coverage"),
                 supported_claims=_supported_claims_from_raw(raw.get("supported_claims", [])),
+                evidence_kinds=_evidence_kinds_from_raw(raw_evidence),
+                allowed_citation_kinds=_allowed_citation_kinds_from_raw(raw, idx),
             )
         )
     return cases
@@ -517,6 +557,28 @@ def _unsupported_claims(
         ):
             unsupported.append(f"{claim.text} [{claim.evidence_id}]")
     return tuple(unsupported)
+
+
+def _evidence_kind_by_id(case: AnswerCase) -> dict[str, str]:
+    kinds = dict(case.evidence_kinds)
+    if case.evidence is not None:
+        for item in case.evidence.items:
+            kinds.setdefault(item.evidence_id, "source")
+    return kinds
+
+
+def _invalid_citation_kinds(
+    case: AnswerCase,
+    verified_citations: Sequence[str],
+) -> tuple[str, ...]:
+    allowed = set(case.allowed_citation_kinds or ("source",))
+    evidence_kind_by_id = _evidence_kind_by_id(case)
+    invalid: list[str] = []
+    for citation in verified_citations:
+        kind = evidence_kind_by_id.get(citation, "source")
+        if kind not in allowed:
+            invalid.append(f"{citation}:{kind}")
+    return tuple(invalid)
 
 
 def _is_abstention(answer: str) -> bool:
@@ -691,6 +753,7 @@ def evaluate_case(case: AnswerCase) -> AnswerCaseResult:
         phrase for phrase in case.must_not_include if _contains_text(case.answer, phrase)
     )
     unsupported_claims = _unsupported_claims(case, verified)
+    invalid_citation_kinds = _invalid_citation_kinds(case, verified)
     word_count = _word_count(case.answer)
     distinct_cited_sources = _distinct_verified_evidence_sources(case.evidence, verified)
     bullet_count = _bullet_count(case.answer)
@@ -712,6 +775,7 @@ def evaluate_case(case: AnswerCase) -> AnswerCaseResult:
         or missing_required_text
         or forbidden_text_present
         or unsupported_claims
+        or invalid_citation_kinds
         or shape_failures
         or coverage_failures
         or missing_citations
@@ -735,6 +799,7 @@ def evaluate_case(case: AnswerCase) -> AnswerCaseResult:
         missing_required_text=missing_required_text,
         forbidden_text_present=forbidden_text_present,
         unsupported_claims=unsupported_claims,
+        invalid_citation_kinds=invalid_citation_kinds,
         shape_failures=shape_failures,
         coverage_failures=coverage_failures,
         missing_citations=missing_citations,
@@ -761,6 +826,7 @@ def run_benchmark(cases: Sequence[AnswerCase]) -> AnswerBenchmarkReport:
     citation_valid = sum(1 for result in results if not result.unverified_citations)
     citation_present = sum(1 for result in results if not result.missing_citations)
     expected_citations = sum(1 for result in results if not result.missing_expected_citations)
+    citation_sources = sum(1 for result in results if not result.invalid_citation_kinds)
     required_text = sum(1 for result in results if not result.missing_required_text)
     forbidden_text = sum(1 for result in results if not result.forbidden_text_present)
     supported_claims = sum(1 for result in results if not result.unsupported_claims)
@@ -776,6 +842,7 @@ def run_benchmark(cases: Sequence[AnswerCase]) -> AnswerBenchmarkReport:
         citation_validity_rate=_rate(total, citation_valid),
         citation_presence_rate=_rate(total, citation_present),
         expected_citation_rate=_rate(total, expected_citations),
+        citation_source_rate=_rate(total, citation_sources),
         required_text_rate=_rate(total, required_text),
         forbidden_text_rate=_rate(total, forbidden_text),
         supported_claim_rate=_rate(total, supported_claims),
@@ -802,6 +869,7 @@ def print_text_report(report: AnswerBenchmarkReport) -> None:
     print(f"citation_validity={_format_percent(report.citation_validity_rate)}")
     print(f"citation_presence={_format_percent(report.citation_presence_rate)}")
     print(f"expected_citations={_format_percent(report.expected_citation_rate)}")
+    print(f"citation_sources={_format_percent(report.citation_source_rate)}")
     print(f"required_text={_format_percent(report.required_text_rate)}")
     print(f"forbidden_text={_format_percent(report.forbidden_text_rate)}")
     print(f"supported_claims={_format_percent(report.supported_claim_rate)}")
@@ -829,6 +897,8 @@ def _failure_reasons(result: AnswerCaseResult) -> str:
         reasons.append("forbidden text: " + ", ".join(result.forbidden_text_present))
     if result.unsupported_claims:
         reasons.append("unsupported claims: " + ", ".join(result.unsupported_claims))
+    if result.invalid_citation_kinds:
+        reasons.append("invalid citation kinds: " + ", ".join(result.invalid_citation_kinds))
     if result.shape_failures:
         reasons.append("answer shape: " + "; ".join(result.shape_failures))
     if result.coverage_failures:
@@ -850,6 +920,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-citation-validity", type=float, default=0.0)
     parser.add_argument("--min-citation-presence", type=float, default=0.0)
     parser.add_argument("--min-expected-citations", type=float, default=0.0)
+    parser.add_argument("--min-citation-sources", type=float, default=0.0)
     parser.add_argument("--min-required-text", type=float, default=0.0)
     parser.add_argument("--min-forbidden-text", type=float, default=0.0)
     parser.add_argument("--min-supported-claims", type=float, default=0.0)
@@ -872,6 +943,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     min_citation_validity = cast("float", args.min_citation_validity)
     min_citation_presence = cast("float", args.min_citation_presence)
     min_expected_citations = cast("float", args.min_expected_citations)
+    min_citation_sources = cast("float", args.min_citation_sources)
     min_required_text = cast("float", args.min_required_text)
     min_forbidden_text = cast("float", args.min_forbidden_text)
     min_supported_claims = cast("float", args.min_supported_claims)
@@ -883,6 +955,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     _validate_rate(min_citation_validity, "--min-citation-validity", parser)
     _validate_rate(min_citation_presence, "--min-citation-presence", parser)
     _validate_rate(min_expected_citations, "--min-expected-citations", parser)
+    _validate_rate(min_citation_sources, "--min-citation-sources", parser)
     _validate_rate(min_required_text, "--min-required-text", parser)
     _validate_rate(min_forbidden_text, "--min-forbidden-text", parser)
     _validate_rate(min_supported_claims, "--min-supported-claims", parser)
@@ -906,6 +979,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         or report.citation_validity_rate < min_citation_validity
         or report.citation_presence_rate < min_citation_presence
         or report.expected_citation_rate < min_expected_citations
+        or report.citation_source_rate < min_citation_sources
         or report.required_text_rate < min_required_text
         or report.forbidden_text_rate < min_forbidden_text
         or report.supported_claim_rate < min_supported_claims
