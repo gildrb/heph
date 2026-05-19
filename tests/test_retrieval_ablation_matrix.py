@@ -388,6 +388,173 @@ def test_document_labels_collapse_same_document_chunk_aliases() -> None:
     assert [label.canonical for label in labels.expected] == ["materials/alpha.md"]
 
 
+def test_document_labels_collapse_source_and_chunk_aliases() -> None:
+    corpus = run_retrieval_ablation_matrix.CanonicalCorpus.from_reference_map(
+        {"materials/alpha.md": (0, 1), "materials/beta.md": (0,)}
+    )
+
+    labels = run_retrieval_ablation_matrix.canonicalize_case_labels(
+        ["materials/alpha.md", "materials/alpha.md#chunk=1"],
+        [],
+        corpus,
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.DOCUMENT,
+    )
+
+    assert [label.canonical for label in labels.expected] == ["materials/alpha.md"]
+
+
+def test_chunk_labels_still_reject_document_and_chunk_aliases() -> None:
+    corpus = run_retrieval_ablation_matrix.CanonicalCorpus.from_reference_map(
+        {"materials/alpha.md": (0, 1), "materials/beta.md": (0,)}
+    )
+
+    with pytest.raises(
+        run_retrieval_ablation_matrix.ReferenceResolutionError,
+        match="alias-equivalent document and chunk references",
+    ):
+        run_retrieval_ablation_matrix.canonicalize_case_labels(
+            ["materials/alpha.md", "materials/alpha.md#chunk=1"],
+            [],
+            corpus,
+            granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+        )
+
+
+def test_permission_allowlist_flags_retrieved_sources_outside_scope(tmp_path: Path) -> None:
+    corpus = run_retrieval_ablation_matrix.CanonicalCorpus.from_reference_map(
+        {"materials/alpha.md": (0,), "materials/beta.md": (0,)}
+    )
+    labels = run_retrieval_ablation_matrix.canonicalize_case_labels(
+        ["materials/alpha.md#chunk=0"],
+        [],
+        corpus,
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+    )
+    allowlist = tmp_path / "allowed.jsonl"
+    allowlist.write_text('{"source": "materials/alpha.md#chunk=0"}\n', encoding="utf-8")
+
+    scored = run_retrieval_ablation_matrix.score_ranked_references(
+        case_id="permission-negative",
+        query="alpha with leaked beta",
+        query_type="fixture",
+        labels=labels,
+        retrieved=[
+            run_retrieval_ablation_matrix.RankedReference(
+                "materials/alpha.md#chunk=0",
+                1.0,
+                "alpha",
+            ),
+            run_retrieval_ablation_matrix.RankedReference(
+                "materials/beta.md#chunk=0",
+                0.9,
+                "beta",
+            ),
+        ],
+        corpus=corpus,
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+        top_k=2,
+        retrieval_top_k_requested=2,
+        raw_candidate_count=2,
+        candidate_retrieved_count=2,
+        duplicate_document_drop_count=0,
+        elapsed_ms=1.0,
+        allowed_sources=run_retrieval_ablation_matrix._load_allowed_sources(allowlist),
+    )
+
+    assert scored.permission_violation_count == 1
+    assert scored.permission_violation_sources == ("materials/beta.md",)
+
+
+def test_family_and_type_breakdowns_credit_only_matched_groups() -> None:
+    corpus = run_retrieval_ablation_matrix.CanonicalCorpus.from_reference_map(
+        {"materials/alpha.md": (0,), "materials/beta.md": (0,)}
+    )
+    labels = run_retrieval_ablation_matrix.canonicalize_case_labels(
+        ["materials/alpha.md#chunk=0", "materials/beta.md#chunk=0"],
+        [],
+        corpus,
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+    )
+    config = run_retrieval_ablation_matrix.MatrixConfig(
+        retriever="bm25",
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+        retrieval_mode=run_retrieval_ablation_matrix.RetrievalMode.BM25,
+    )
+
+    scored = run_retrieval_ablation_matrix.score_ranked_references(
+        case_id="partial-family",
+        query="alpha and beta",
+        query_type="fixture",
+        labels=labels,
+        retrieved=[
+            run_retrieval_ablation_matrix.RankedReference(
+                "materials/alpha.md#chunk=0",
+                1.0,
+                "alpha",
+            )
+        ],
+        corpus=corpus,
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+        top_k=2,
+        retrieval_top_k_requested=2,
+        raw_candidate_count=1,
+        candidate_retrieved_count=1,
+        duplicate_document_drop_count=0,
+        elapsed_ms=1.0,
+    )
+    row = run_retrieval_ablation_matrix._per_query_payload(config, 2, scored)
+    source_breakdown = run_retrieval_ablation_matrix._breakdown_payload(
+        [row],
+        evidence_field="source_family_evidence",
+        expected_field="expected_source_families",
+    )
+    type_breakdown = run_retrieval_ablation_matrix._breakdown_payload(
+        [row],
+        evidence_field="document_type_evidence",
+        expected_field="expected_document_types",
+    )
+
+    assert source_breakdown["alpha"]["full_evidence_count"] == 1
+    assert source_breakdown["beta"]["no_evidence_count"] == 1
+    assert source_breakdown["beta"]["hit_count"] == 0
+    assert type_breakdown["markdown"]["partial_evidence_count"] == 1
+    assert type_breakdown["markdown"]["expected_count"] == 2
+    assert type_breakdown["markdown"]["matched_count"] == 1
+
+
+def test_matrix_report_contract_rejects_unweighted_weighted_hybrid_claim_row() -> None:
+    report = _complete_contract_report()
+    matrix = _as_dict(report["matrix"])
+    configured_rows = cast("list[dict[str, object]]", matrix["configured_rows"])
+    rows = cast("list[dict[str, object]]", matrix["rows"])
+    unweighted_config = run_retrieval_ablation_matrix.MatrixConfig(
+        retriever="hybrid",
+        granularity=run_retrieval_ablation_matrix.ReferenceGranularity.CHUNK,
+        retrieval_mode=run_retrieval_ablation_matrix.RetrievalMode.HYBRID,
+        fusion_strategy="weighted_sparse_dense",
+        sparse_weight=1.0,
+        dense_weight=1.0,
+    ).payload()
+    unweighted_config["claim_eligible"] = True
+
+    for configured_row in configured_rows:
+        if configured_row["retriever"] == "hybrid" and configured_row["granularity"] == "chunk":
+            configured_row.update(unweighted_config)
+    for row in rows:
+        if row["retriever"] == "hybrid" and row["granularity"] == "chunk":
+            row["fusion"] = unweighted_config["fusion"]
+            row["retrieval_signature"] = unweighted_config["retrieval_signature"]
+            row["claim_eligible"] = True
+
+    result = run_retrieval_ablation_matrix.validate_matrix_report(report)
+
+    assert result.status == "failed"
+    assert any(
+        "unweighted weighted-hybrid row must not be claim_eligible" in error
+        for error in result.errors
+    )
+
+
 @pytest.mark.parametrize(
     ("mutator", "expected_fragment"),
     [
@@ -419,6 +586,15 @@ def test_document_labels_collapse_same_document_chunk_aliases() -> None:
                 },
             ),
             "fusion strategy must be 'reciprocal_rank_fusion'",
+        ),
+        (
+            lambda rows: _as_dict(rows[-1]["fusion"]).update(
+                {
+                    "sparse_weight": 1.25,
+                    "canonical_id": "reciprocal_rank_fusion:sparse=1.25:dense=1",
+                }
+            ),
+            "rrf fusion must be unweighted",
         ),
     ],
 )

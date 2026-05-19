@@ -16,7 +16,7 @@ import os
 import shutil
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -293,6 +293,16 @@ class RankingMetrics:
 
 
 @dataclass(frozen=True, slots=True)
+class GroupEvidence:
+    """Evidence coverage for one expected source family or document type."""
+
+    label: str
+    expected_count: int
+    matched_count: int
+    evidence_category: str
+
+
+@dataclass(frozen=True, slots=True)
 class ScoredCaseResult:
     """Scored per-query result after canonical reference handling."""
 
@@ -320,8 +330,11 @@ class ScoredCaseResult:
     top_k_shortfall_count: int
     duplicate_document_drop_count: int
     permission_violation_count: int
+    permission_violation_sources: tuple[str, ...]
     expected_source_families: tuple[str, ...]
     expected_document_types: tuple[str, ...]
+    source_family_evidence: tuple[GroupEvidence, ...]
+    document_type_evidence: tuple[GroupEvidence, ...]
     top_retrieved_source_family: str | None
     top_retrieved_document_type: str | None
     elapsed_ms: float
@@ -656,6 +669,7 @@ def score_ranked_references(
     candidate_retrieved_count: int,
     duplicate_document_drop_count: int,
     elapsed_ms: float,
+    allowed_sources: frozenset[str] | None = None,
 ) -> ScoredCaseResult:
     """Score a ranked list after canonicalizing and deduplicating retrieved references."""
     canonical_retrieved = _canonicalize_retrieved(retrieved, corpus, granularity=granularity)
@@ -674,7 +688,8 @@ def score_ranked_references(
     final_retrieved_count = len(top_retrieved)
     top_k_shortfall_count = max(0, top_k - final_retrieved_count)
     evidence_category = _evidence_category(metrics.relevant_found, len(labels.expected))
-    permission_violation_count = 0
+    permission_violation_sources = _permission_violation_sources(top_retrieved, allowed_sources)
+    permission_violation_count = 1 if permission_violation_sources else 0
     miss_bucket = _miss_bucket(
         evidence_category=evidence_category,
         forbidden_before_expected_ok=forbidden_ok,
@@ -708,8 +723,19 @@ def score_ranked_references(
         top_k_shortfall_count=top_k_shortfall_count,
         duplicate_document_drop_count=duplicate_document_drop_count,
         permission_violation_count=permission_violation_count,
+        permission_violation_sources=permission_violation_sources,
         expected_source_families=_families_from_labels(labels.expected),
         expected_document_types=_document_types_from_labels(labels.expected),
+        source_family_evidence=_group_evidence(
+            labels.expected,
+            top_retrieved,
+            label_fn=_source_family,
+        ),
+        document_type_evidence=_group_evidence(
+            labels.expected,
+            top_retrieved,
+            label_fn=_document_type,
+        ),
         top_retrieved_source_family=_source_family(top_retrieved[0].source)
         if top_retrieved
         else None,
@@ -865,6 +891,7 @@ def run_matrix(
     rerank_model: str | None = None,
     copy_armory: bool = False,
     dataset_id: str | None = None,
+    permission_allowlist_path: Path | None = None,
     min_permission_retrieval_safety_rate: float = _DEFAULT_MIN_PERMISSION_RETRIEVAL_SAFETY_RATE,
     min_forbidden_before_expected_avoidance: float = (
         _DEFAULT_MIN_FORBIDDEN_BEFORE_EXPECTED_AVOIDANCE
@@ -881,6 +908,7 @@ def run_matrix(
     loaded_existing_index, stale_before_run = _probe_index_cache(working_armory)
     index = load_or_build(working_armory)
     corpus = CanonicalCorpus.from_index(index)
+    allowed_sources = _load_allowed_sources(permission_allowlist_path)
     index_cache = _index_cache_state(
         index,
         working_armory=working_armory,
@@ -888,7 +916,12 @@ def run_matrix(
         loaded_existing_index=loaded_existing_index,
         stale_before_run=stale_before_run,
     )
-    permission_scope = _permission_scope(corpus, corpus_sha256=hashes["corpus_sha256"])
+    permission_scope = _permission_scope(
+        corpus,
+        corpus_sha256=hashes["corpus_sha256"],
+        allowed_sources=allowed_sources,
+        allowlist_path=permission_allowlist_path,
+    )
     configs = tuple(
         _with_candidate_multiplier(config, candidate_multiplier)
         for config in default_matrix_configs()
@@ -919,6 +952,7 @@ def run_matrix(
                     embed_query_prefix=embed_query_prefix,
                     embed_document_prefix=embed_document_prefix,
                     rerank_model=rerank_model,
+                    allowed_sources=allowed_sources,
                     matched_metadata=matched_metadata,
                 )
             except Exception as exc:
@@ -1048,6 +1082,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     embed_query_prefix = cast("str", args.embedding_query_prefix)
     embed_document_prefix = cast("str", args.embedding_document_prefix)
     rerank_model = _optional_cli_string(cast("str | None", args.rerank_model))
+    permission_allowlist = cast("Path | None", args.permission_allowlist)
     copy_armory = cast("bool", args.copy_armory)
     min_permission_safety = cast("float", args.min_permission_retrieval_safety_rate)
     min_forbidden_avoidance = cast("float", args.min_forbidden_before_expected_avoidance)
@@ -1077,6 +1112,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             rerank_model=rerank_model,
             copy_armory=copy_armory,
             dataset_id=dataset_id,
+            permission_allowlist_path=permission_allowlist,
             min_permission_retrieval_safety_rate=min_permission_safety,
             min_forbidden_before_expected_avoidance=min_forbidden_avoidance,
             command_invocation=command,
@@ -1124,6 +1160,7 @@ def _run_matrix_cell(
     embed_query_prefix: str,
     embed_document_prefix: str,
     rerank_model: str | None,
+    allowed_sources: frozenset[str] | None,
     matched_metadata: Mapping[str, object],
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
     scored_results: list[ScoredCaseResult] = []
@@ -1176,6 +1213,7 @@ def _run_matrix_cell(
                 candidate_retrieved_count=ranked.candidate_retrieved_count,
                 duplicate_document_drop_count=ranked.duplicate_document_drop_count,
                 elapsed_ms=elapsed_ms,
+                allowed_sources=allowed_sources,
             )
             scored_results.append(scored)
             per_query_rows.append(_per_query_payload(config, top_k, scored))
@@ -1441,10 +1479,12 @@ def _diagnostic_summary(
         "recall_at_50_100": _recall_at_50_100_summary(successful_rows),
         "source_family": _global_breakdown(
             per_query_results,
+            evidence_field="source_family_evidence",
             expected_field="expected_source_families",
         ),
         "document_type": _global_breakdown(
             per_query_results,
+            evidence_field="document_type_evidence",
             expected_field="expected_document_types",
         ),
         "query_type": _global_query_type_breakdown(per_query_results),
@@ -1507,9 +1547,14 @@ def _recall_at_50_100_summary(rows: Sequence[Mapping[str, object]]) -> list[dict
 def _global_breakdown(
     per_query_rows: Sequence[Mapping[str, object]],
     *,
+    evidence_field: str,
     expected_field: str,
 ) -> dict[str, dict[str, float | int]]:
-    return _breakdown_payload(per_query_rows, expected_field=expected_field)
+    return _breakdown_payload(
+        per_query_rows,
+        evidence_field=evidence_field,
+        expected_field=expected_field,
+    )
 
 
 def _global_query_type_breakdown(
@@ -1688,7 +1733,10 @@ def _mode_order(row: Mapping[str, object]) -> int:
         ("bm25", "chunk"): 1,
         ("dense", "document"): 2,
         ("dense", "chunk"): 3,
-        ("hybrid", "chunk"): 4,
+        ("hybrid", "document"): 4,
+        ("hybrid", "chunk"): 5,
+        ("rrf", "document"): 6,
+        ("rrf", "chunk"): 7,
     }
     return order.get((retriever, granularity), -1)
 
@@ -1956,6 +2004,42 @@ def _labels_match(label: CanonicalLabel, retrieved: CanonicalRetrievedReference)
     if label.source_scope:
         return label.source == retrieved.source
     return label.canonical == retrieved.canonical
+
+
+def _permission_violation_sources(
+    retrieved: Sequence[CanonicalRetrievedReference],
+    allowed_sources: frozenset[str] | None,
+) -> tuple[str, ...]:
+    if allowed_sources is None:
+        return ()
+    return tuple(sorted({item.source for item in retrieved if item.source not in allowed_sources}))
+
+
+def _group_evidence(
+    expected: Sequence[CanonicalLabel],
+    retrieved: Sequence[CanonicalRetrievedReference],
+    *,
+    label_fn: Callable[[str], str],
+) -> tuple[GroupEvidence, ...]:
+    labels_by_group: dict[str, list[CanonicalLabel]] = {}
+    for label in expected:
+        labels_by_group.setdefault(label_fn(label.source), []).append(label)
+    outcomes: list[GroupEvidence] = []
+    for group_label, group_expected in sorted(labels_by_group.items()):
+        matched_count = sum(
+            1
+            for expected_label in group_expected
+            if any(_labels_match(expected_label, item) for item in retrieved)
+        )
+        outcomes.append(
+            GroupEvidence(
+                label=group_label,
+                expected_count=len(group_expected),
+                matched_count=matched_count,
+                evidence_category=_evidence_category(matched_count, len(group_expected)),
+            )
+        )
+    return tuple(outcomes)
 
 
 def _forbidden_before_expected_ok(
@@ -2299,30 +2383,100 @@ def _per_query_payload(
         "first_forbidden_rank": result.first_forbidden_rank,
         "forbidden_before_expected_ok": result.forbidden_before_expected_ok,
         "permission_violation_count": result.permission_violation_count,
+        "permission_violation_sources": list(result.permission_violation_sources),
         "expected_source_families": list(result.expected_source_families),
+        "source_family_evidence": _group_evidence_payload(result.source_family_evidence),
         "top_retrieved_source_family": result.top_retrieved_source_family,
         "expected_document_types": list(result.expected_document_types),
+        "document_type_evidence": _group_evidence_payload(result.document_type_evidence),
         "top_retrieved_document_type": result.top_retrieved_document_type,
         "latency_ms": result.elapsed_ms,
     }
 
 
+def _group_evidence_payload(outcomes: Sequence[GroupEvidence]) -> list[dict[str, object]]:
+    return [
+        {
+            "label": outcome.label,
+            "expected_count": outcome.expected_count,
+            "matched_count": outcome.matched_count,
+            "evidence_category": outcome.evidence_category,
+        }
+        for outcome in outcomes
+    ]
+
+
 def _breakdown_payload(
     per_query_rows: Sequence[Mapping[str, object]],
     *,
+    evidence_field: str,
     expected_field: str,
 ) -> dict[str, dict[str, float | int]]:
     totals: dict[str, dict[str, int]] = {}
     for item in per_query_rows:
-        labels = _string_list(item.get(expected_field)) or ["unknown"]
-        for label in labels:
-            bucket = totals.setdefault(label, {"case_count": 0, "hit_count": 0, "miss_count": 0})
-            bucket["case_count"] += 1
-            if item.get("hit") is True:
-                bucket["hit_count"] += 1
-            else:
-                bucket["miss_count"] += 1
-    return _rate_breakdown(totals)
+        evidence_rows = _list_of_mappings(item.get(evidence_field))
+        if evidence_rows:
+            _accumulate_group_evidence(totals, evidence_rows)
+            continue
+        _accumulate_legacy_breakdown(totals, item, expected_field=expected_field)
+    return _evidence_rate_breakdown(totals)
+
+
+def _accumulate_group_evidence(
+    totals: dict[str, dict[str, int]],
+    evidence_rows: Sequence[Mapping[str, object]],
+) -> None:
+    for evidence in evidence_rows:
+        label = _string_value(evidence.get("label"), fallback="unknown")
+        category = _string_value(evidence.get("evidence_category"), fallback=_EVIDENCE_NONE)
+        expected_count = _positive_int_value(evidence.get("expected_count"))
+        matched_count = _positive_int_value(evidence.get("matched_count"))
+        bucket = totals.setdefault(label, _empty_group_totals())
+        bucket["case_count"] += 1
+        bucket["expected_count"] += expected_count
+        bucket["matched_count"] += matched_count
+        if matched_count > 0:
+            bucket["hit_count"] += 1
+        if category == _EVIDENCE_FULL:
+            bucket["full_evidence_count"] += 1
+        elif category == _EVIDENCE_PARTIAL:
+            bucket["partial_evidence_count"] += 1
+        else:
+            bucket["no_evidence_count"] += 1
+            bucket["miss_count"] += 1
+
+
+def _accumulate_legacy_breakdown(
+    totals: dict[str, dict[str, int]],
+    item: Mapping[str, object],
+    *,
+    expected_field: str,
+) -> None:
+    labels = _string_list(item.get(expected_field)) or ["unknown"]
+    for label in labels:
+        bucket = totals.setdefault(label, _empty_group_totals())
+        bucket["case_count"] += 1
+        bucket["expected_count"] += 1
+        if item.get("hit") is True:
+            bucket["hit_count"] += 1
+            bucket["matched_count"] += 1
+            bucket["full_evidence_count"] += 1
+        else:
+            bucket["miss_count"] += 1
+            bucket["no_evidence_count"] += 1
+
+
+def _empty_group_totals() -> dict[str, int]:
+    return {
+        "case_count": 0,
+        "hit_count": 0,
+        "miss_count": 0,
+        "expected_count": 0,
+        "matched_count": 0,
+        "full_evidence_count": 0,
+        "partial_evidence_count": 0,
+        "no_evidence_count": 0,
+    }
 
 
 def _query_type_breakdown(
@@ -2346,14 +2500,25 @@ def _source_family_confusion(
 ) -> dict[str, dict[str, int]]:
     totals: dict[str, dict[str, int]] = {}
     for item in per_query_rows:
+        evidence_rows = _list_of_mappings(item.get("source_family_evidence"))
         expected_families = _string_list(item.get("expected_source_families")) or ["unknown"]
         top_family = item.get("top_retrieved_source_family")
         top_label = top_family if isinstance(top_family, str) else "none"
-        for expected_family in expected_families:
+        families = (
+            tuple(_string_value(row.get("label"), fallback="unknown") for row in evidence_rows)
+            if evidence_rows
+            else tuple(expected_families)
+        )
+        matched = {
+            _string_value(row.get("label"), fallback="unknown")
+            for row in evidence_rows
+            if _positive_int_value(row.get("matched_count")) > 0
+        }
+        for expected_family in families:
             key = f"{expected_family}->{top_label}"
             bucket = totals.setdefault(key, {"case_count": 0, "hit_count": 0})
             bucket["case_count"] += 1
-            if item.get("hit") is True:
+            if expected_family in matched or (not evidence_rows and item.get("hit") is True):
                 bucket["hit_count"] += 1
     return dict(sorted(totals.items()))
 
@@ -2372,6 +2537,36 @@ def _rate_breakdown(
             "miss_count": miss_count,
             "hit_rate": hit_count / case_count if case_count else 0.0,
             "miss_rate": miss_count / case_count if case_count else 0.0,
+        }
+    return payload
+
+
+def _evidence_rate_breakdown(
+    totals: Mapping[str, Mapping[str, int]],
+) -> dict[str, dict[str, float | int]]:
+    payload: dict[str, dict[str, float | int]] = {}
+    for label, counts in sorted(totals.items()):
+        case_count = counts.get("case_count", 0)
+        expected_count = counts.get("expected_count", 0)
+        matched_count = counts.get("matched_count", 0)
+        full_count = counts.get("full_evidence_count", 0)
+        partial_count = counts.get("partial_evidence_count", 0)
+        no_count = counts.get("no_evidence_count", 0)
+        payload[label] = {
+            "case_count": case_count,
+            "hit_count": counts.get("hit_count", 0),
+            "miss_count": counts.get("miss_count", 0),
+            "expected_count": expected_count,
+            "matched_count": matched_count,
+            "hit_rate": counts.get("hit_count", 0) / case_count if case_count else 0.0,
+            "miss_rate": counts.get("miss_count", 0) / case_count if case_count else 0.0,
+            "expected_recall": matched_count / expected_count if expected_count else 0.0,
+            "full_evidence_count": full_count,
+            "partial_evidence_count": partial_count,
+            "no_evidence_count": no_count,
+            "full_evidence_rate": full_count / case_count if case_count else 0.0,
+            "partial_evidence_rate": partial_count / case_count if case_count else 0.0,
+            "no_evidence_rate": no_count / case_count if case_count else 0.0,
         }
     return payload
 
@@ -2411,10 +2606,12 @@ def _row_diagnostics(
         "evidence_categories": _mapping_or_empty(metrics.get("evidence_categories")),
         "source_family_breakdown": _breakdown_payload(
             per_query_rows,
+            evidence_field="source_family_evidence",
             expected_field="expected_source_families",
         ),
         "document_type_breakdown": _breakdown_payload(
             per_query_rows,
+            evidence_field="document_type_evidence",
             expected_field="expected_document_types",
         ),
         "query_type_breakdown": _query_type_breakdown(per_query_rows),
@@ -2567,18 +2764,93 @@ def _index_cache_state(
     }
 
 
-def _permission_scope(corpus: CanonicalCorpus, *, corpus_sha256: str) -> dict[str, object]:
+def _load_allowed_sources(path: Path | None) -> frozenset[str] | None:
+    if path is None:
+        return None
+    resolved = path.expanduser().resolve()
+    raw_text = resolved.read_text(encoding="utf-8")
+    stripped = raw_text.strip()
+    if not stripped:
+        return frozenset()
+    if stripped[0] in {"[", "{"}:
+        payload = json.loads(stripped)
+        return frozenset(_source_entries_from_json(payload))
+    sources: set[str] = set()
+    for line in raw_text.splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        if entry.startswith("{"):
+            sources.update(_source_entries_from_json(json.loads(entry)))
+        else:
+            sources.add(_reference_source(entry))
+    return frozenset(sorted(sources))
+
+
+def _source_entries_from_json(payload: object) -> tuple[str, ...]:
+    if isinstance(payload, list):
+        return tuple(
+            entry
+            for item in payload
+            if item is not None
+            if (entry := _source_entry_from_json_item(item))
+        )
+    if isinstance(payload, dict):
+        for field_name in ("allowed_sources", "sources"):
+            sources = payload.get(field_name)
+            if isinstance(sources, list):
+                return tuple(
+                    entry
+                    for item in sources
+                    if item is not None
+                    if (entry := _source_entry_from_json_item(item))
+                )
+        source = payload.get("source")
+        if isinstance(source, str):
+            normalized = _reference_source(source.strip())
+            return (normalized,) if normalized else ()
+    return ()
+
+
+def _source_entry_from_json_item(item: object) -> str:
+    if isinstance(item, str):
+        return _reference_source(item.strip())
+    if isinstance(item, dict):
+        source = item.get("source")
+        if isinstance(source, str):
+            return _reference_source(source.strip())
+    return ""
+
+
+def _permission_scope(
+    corpus: CanonicalCorpus,
+    *,
+    corpus_sha256: str,
+    allowed_sources: frozenset[str] | None,
+    allowlist_path: Path | None,
+) -> dict[str, object]:
     sources = sorted(corpus.source_to_chunks)
+    effective_allowed_sources = sorted(allowed_sources) if allowed_sources is not None else sources
     scope_hash = hashlib.sha256(
-        json.dumps(sources, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        json.dumps(effective_allowed_sources, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
+    out_of_scope = sorted(set(sources) - set(effective_allowed_sources))
     return {
-        "scope": "indexed_materials",
+        "scope": "explicit_allowlist" if allowed_sources is not None else "indexed_materials",
         "scope_hash": scope_hash,
         "corpus_sha256": corpus_sha256,
-        "allowed_source_count": len(sources),
+        "allowlist_path": str(allowlist_path.expanduser().resolve())
+        if allowlist_path is not None
+        else None,
+        "explicit": allowed_sources is not None,
+        "allowed_source_count": len(effective_allowed_sources),
         "indexed_source_count": len(sources),
-        "policy": "hidden, ignored, symlinked, and outside-material paths are excluded",
+        "out_of_scope_indexed_source_count": len(out_of_scope),
+        "policy": (
+            "retrieved source paths must be in the explicit allowlist"
+            if allowed_sources is not None
+            else "hidden, ignored, symlinked, and outside-material paths are excluded"
+        ),
     }
 
 
@@ -2754,6 +3026,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--embedding-document-prefix", default="")
     parser.add_argument("--rerank-model")
     parser.add_argument(
+        "--permission-allowlist",
+        type=Path,
+        help="JSON, JSONL, or text file listing source paths allowed in retrieved results",
+    )
+    parser.add_argument(
         "--copy-armory",
         action="store_true",
         help="Run against a copy under output-dir to keep source fixtures free of new caches",
@@ -2846,6 +3123,12 @@ def _validate_row_retrieval_identity(
             f"row {key[0]}:{key[1]}:k={key[2]} fusion strategy must be {expected_strategy!r}"
         )
     _validate_expected_fusion_weights(row_fusion, key, errors)
+    _validate_claim_eligibility_payload(
+        row.get("claim_eligible"),
+        row_fusion,
+        label=f"row {key[0]}:{key[1]}:k={key[2]}",
+        errors=errors,
+    )
     _validate_configured_retrieval_identity(row, configured, key, errors)
 
 
@@ -2911,6 +3194,12 @@ def _validate_configured_retrieval_identity(
         errors.append(
             f"row {key[0]}:{key[1]}:k={key[2]} claim_eligible does not match configured row"
         )
+    _validate_claim_eligibility_payload(
+        configured_claim_eligible,
+        configured_fusion,
+        label=f"configured row {key[0]}:{key[1]}",
+        errors=errors,
+    )
 
 
 def _validate_configured_fusion(
@@ -2965,6 +3254,28 @@ def _fusion_weights_match(
         float(actual_dense),
         sparse_weight=sparse_weight,
         dense_weight=dense_weight,
+    )
+
+
+def _validate_claim_eligibility_payload(
+    claim_eligible: object,
+    fusion: Mapping[str, object],
+    *,
+    label: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(claim_eligible, bool):
+        errors.append(f"{label} claim_eligible must be a boolean")
+        return
+    if claim_eligible and _is_unweighted_weighted_hybrid(fusion):
+        errors.append(f"{label} unweighted weighted-hybrid row must not be claim_eligible")
+
+
+def _is_unweighted_weighted_hybrid(fusion: Mapping[str, object]) -> bool:
+    return fusion.get("strategy") == _FUSION_WEIGHTED_HYBRID and _fusion_weights_match(
+        fusion,
+        sparse_weight=_UNWEIGHTED_RRF_WEIGHT,
+        dense_weight=_UNWEIGHTED_RRF_WEIGHT,
     )
 
 
@@ -3402,6 +3713,12 @@ def _string_value(value: object, *, fallback: str) -> str:
 def _int_metric(metrics: Mapping[str, object], metric_name: str) -> int:
     value = metrics.get(metric_name)
     if isinstance(value, int):
+        return value
+    return 0
+
+
+def _positive_int_value(value: object) -> int:
+    if isinstance(value, int) and value > 0:
         return value
     return 0
 
