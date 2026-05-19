@@ -972,7 +972,7 @@ def _repair_analysis(
         result.case_id: result
         for result in (repair_report.results if repair_report is not None else ())
     }
-    effective_results: list[benchmark_rag.CaseResult] = []
+    diagnostic_effective_results: list[benchmark_rag.CaseResult] = []
     per_query: list[dict[str, object]] = []
     attempted_count = 0
     success_count = 0
@@ -1001,7 +1001,7 @@ def _repair_analysis(
                 failed_count += 1
         if not _result_sufficient(effective):
             abstention_count += 1
-        effective_results.append(effective)
+        diagnostic_effective_results.append(effective)
         per_query.append(
             _repair_case_payload(
                 result,
@@ -1014,15 +1014,22 @@ def _repair_analysis(
             )
         )
 
-    effective_report = _report_with_results(first_report, effective_results)
+    diagnostic_effective_report = _report_with_results(first_report, diagnostic_effective_results)
     analysis = {
         "enabled": True,
         "max_passes": parameters.repair_max_passes,
-        "policy": "deterministic_query_cleanup_on_weak_evidence",
+        "policy": "diagnostic_query_cleanup_on_label_scored_weak_evidence",
+        "claim_eligible": False,
+        "claim_blocking": True,
+        "claim_path": "original_retrieval_only",
+        "ineligibility_reasons": [
+            "repair routing and effective-result selection are label-scored diagnostics"
+        ],
         "measurement": {
             "success_metric": "original-question evidence sufficiency after repaired retrieval",
-            "oracle_free_routing": True,
-            "uses_case_labels_for_routing": False,
+            "oracle_free_routing": False,
+            "uses_case_labels_for_routing": True,
+            "claim_eligible": False,
         },
         "attempted_count": attempted_count,
         "success_count": success_count,
@@ -1031,10 +1038,11 @@ def _repair_analysis(
         "abstain_or_clarify_count": abstention_count,
         "fabricated_evidence_ids": [],
         "initial_metrics": _metrics_from_rag_report(first_report),
-        "effective_metrics": _metrics_from_rag_report(effective_report),
+        "effective_metrics": _metrics_from_rag_report(first_report),
+        "diagnostic_effective_metrics": _metrics_from_rag_report(diagnostic_effective_report),
         "per_query": per_query,
     }
-    return effective_report, analysis
+    return first_report, analysis
 
 
 def _report_with_results(

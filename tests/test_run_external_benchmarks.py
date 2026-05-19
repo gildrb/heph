@@ -867,6 +867,7 @@ def test_enterprise_rag_repair_pass_reports_trace_and_effective_metrics(
     parameters = _as_dict(metadata["fixed_parameters"])
     benchmark = _as_dict(_as_list(report["benchmarks"])[0])
     analysis = _as_dict(benchmark["repair_analysis"])
+    measurement = _as_dict(analysis["measurement"])
     per_query = [_as_dict(row) for row in _as_list(analysis["per_query"])]
     repairable = next(row for row in per_query if row["case_id"] == "repairable")
     failed = next(row for row in per_query if row["case_id"] == "failed")
@@ -874,12 +875,20 @@ def test_enterprise_rag_repair_pass_reports_trace_and_effective_metrics(
     failed_passes = [_as_dict(row) for row in _as_list(failed["passes"])]
     result_rows = [_as_dict(row) for row in _as_list(benchmark["per_query_results"])]
     repaired_result = next(row for row in result_rows if row["case_id"] == "repairable")
+    diagnostic_metrics = _as_dict(analysis["diagnostic_effective_metrics"])
 
     assert status == 0
     assert parameters["repair_max_passes"] == 2
     assert ":repair_max_passes=2" in str(report["report_id"])
-    assert _as_dict(benchmark["initial_metrics"])["hit_rate"] == 0.0
-    assert _as_dict(benchmark["metrics"])["hit_rate"] == 0.5
+    assert _as_dict(analysis["initial_metrics"])["hit_rate"] == 0.0
+    assert _as_dict(benchmark["metrics"])["hit_rate"] == 0.0
+    assert _as_dict(analysis["effective_metrics"])["hit_rate"] == 0.0
+    assert diagnostic_metrics["hit_rate"] == 0.5
+    assert analysis["claim_eligible"] is False
+    assert analysis["claim_blocking"] is True
+    assert analysis["claim_path"] == "original_retrieval_only"
+    assert measurement["oracle_free_routing"] is False
+    assert measurement["uses_case_labels_for_routing"] is True
     assert analysis["attempted_count"] == 2
     assert analysis["success_count"] == 1
     assert analysis["failed_count"] == 1
@@ -895,7 +904,7 @@ def test_enterprise_rag_repair_pass_reports_trace_and_effective_metrics(
     assert failed["abstain_or_clarify"] is True
     assert failed_passes[1]["stop_reason"] == "abstain_or_clarify"
     assert repaired_result["query"] == "distractor alpha receptor repair target"
-    assert repaired_result["retrieved"] == ["materials/alpha.md"]
+    assert repaired_result["retrieved"] == ["materials/beta.md"]
 
 
 def test_runner_cli_top_k_overrides_case_top_k(tmp_path: Path) -> None:
