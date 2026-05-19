@@ -10,10 +10,13 @@ from hephaistos.study.artifacts import (
     StudyArtifactKind,
     StudyArtifactReviewState,
     StudyArtifactSourceSpan,
+    next_study_artifact_review_state,
+    record_study_artifact_review,
     study_artifacts_to_anki_tsv,
     validate_study_artifact,
     validate_study_artifacts,
 )
+from hephaistos.study.state import StudyRecallRating
 
 SOURCE_REF = "materials/lecture.md#chunk=2"
 SOURCE_TEXT = (
@@ -231,6 +234,88 @@ def test_validate_artifact_rejects_invalid_review_state() -> None:
     assert any("lapses cannot exceed reviews" in issue.message for issue in result.issues)
     assert any("mastery must be within" in issue.message for issue in result.issues)
     assert any("timezone-aware" in issue.message for issue in result.issues)
+
+
+def test_record_study_artifact_review_advances_due_date_without_mutating_original() -> None:
+    artifact = StudyArtifact(
+        artifact_id="ltp-card",
+        kind=StudyArtifactKind.FLASHCARD,
+        prompt="What is long-term potentiation?",
+        answer="Long-term potentiation is persistent strengthening of synapses.",
+        source_spans=(_span(),),
+    )
+    reviewed_at = datetime(2026, 5, 19, 12, 0, tzinfo=UTC)
+
+    reviewed = record_study_artifact_review(
+        artifact,
+        StudyRecallRating.EASY,
+        reviewed_at=reviewed_at,
+    )
+
+    assert artifact.review_state == StudyArtifactReviewState()
+    assert reviewed.review_state.reviews == 1
+    assert reviewed.review_state.lapses == 0
+    assert reviewed.review_state.mastery == 1.0
+    assert reviewed.review_state.last_reviewed_at == reviewed_at
+    assert reviewed.review_state.due_at == datetime(2026, 5, 31, 12, 0, tzinfo=UTC)
+    assert validate_study_artifact(reviewed, SOURCE_MAP).accepted is True
+
+
+def test_next_study_artifact_review_state_tracks_lapses_and_hint_penalties() -> None:
+    previous = StudyArtifactReviewState(
+        reviews=1,
+        lapses=0,
+        mastery=1.0,
+        last_reviewed_at=datetime(2026, 5, 19, 12, 0, tzinfo=UTC),
+        due_at=datetime(2026, 5, 31, 12, 0, tzinfo=UTC),
+    )
+    reviewed_at = datetime(2026, 6, 1, 9, 30, tzinfo=UTC)
+
+    state = next_study_artifact_review_state(
+        previous,
+        StudyRecallRating.HARD,
+        reviewed_at=reviewed_at,
+        hint_level_needed=2,
+    )
+
+    assert state.reviews == 2
+    assert state.lapses == 1
+    assert state.mastery == 0.678
+    assert state.last_reviewed_at == reviewed_at
+    assert state.due_at == datetime(2026, 6, 2, 9, 30, tzinfo=UTC)
+
+
+def test_next_study_artifact_review_state_reschedules_missed_reviews_immediately() -> None:
+    reviewed_at = datetime(2026, 6, 1, 9, 30, tzinfo=UTC)
+
+    state = next_study_artifact_review_state(
+        StudyArtifactReviewState(mastery=0.4),
+        StudyRecallRating.NONE,
+        reviewed_at=reviewed_at,
+    )
+
+    assert state.reviews == 1
+    assert state.lapses == 1
+    assert state.mastery == 0.26
+    assert state.due_at == reviewed_at
+
+
+def test_next_study_artifact_review_state_rejects_invalid_review_inputs() -> None:
+    naive_reviewed_at = datetime(2026, 5, 19, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        next_study_artifact_review_state(
+            StudyArtifactReviewState(),
+            StudyRecallRating.GOOD,
+            reviewed_at=naive_reviewed_at,
+        )
+    with pytest.raises(ValueError, match="hint_level_needed"):
+        next_study_artifact_review_state(
+            StudyArtifactReviewState(),
+            StudyRecallRating.GOOD,
+            reviewed_at=datetime(2026, 5, 19, 12, 0, tzinfo=UTC),
+            hint_level_needed=-1,
+        )
 
 
 def test_anki_export_requires_validated_card_artifacts() -> None:

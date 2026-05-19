@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from hephaistos._types import is_object_list, is_string_mapping
+from hephaistos.study.mastery import next_recall_mastery
 from hephaistos.study.state import StudyRecallRating
 
 _SCHEDULE_FILE = "study_schedule.json"
@@ -370,7 +371,7 @@ class StudyScheduleStore:
                 _append_unique(state.successful_interventions, intervention)
             else:
                 _append_unique(state.failed_interventions, intervention)
-        state.mastery = _next_mastery(state.mastery, rating, hint_level_needed)
+        state.mastery = next_recall_mastery(state.mastery, rating, hint_level_needed)
         state.calibration_gap = (
             round(abs(confidence - state.mastery), 4) if confidence is not None else None
         )
@@ -463,24 +464,6 @@ def _review_interval(stability: float, rating: StudyRecallRating) -> timedelta:
     if rating is StudyRecallRating.NONE:
         return timedelta(0)
     return timedelta(days=_interval_days_for_retention(stability, _DESIRED_RETENTION))
-
-
-def _next_mastery(
-    current: float,
-    rating: StudyRecallRating,
-    hint_level_needed: int | None,
-) -> float:
-    correctness = {
-        StudyRecallRating.EASY: 1.0,
-        StudyRecallRating.GOOD: 0.82,
-        StudyRecallRating.HARD: 0.22,
-        StudyRecallRating.NONE: 0.0,
-    }[rating]
-    if hint_level_needed is not None:
-        correctness = max(0.0, correctness - min(0.35, hint_level_needed * 0.07))
-    if current <= 0:
-        return round(correctness, 4)
-    return round((current * 0.65) + (correctness * 0.35), 4)
 
 
 def _next_best_action(

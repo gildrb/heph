@@ -6,9 +6,12 @@ import csv
 import io
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from enum import StrEnum
+
+from hephaistos.study.mastery import next_recall_mastery
+from hephaistos.study.state import StudyRecallRating
 
 
 class StudyArtifactKind(StrEnum):
@@ -153,6 +156,7 @@ _STOPWORDS = frozenset(
         "with",
     }
 )
+_MAX_ARTIFACT_REVIEW_INTERVAL_DAYS = 365
 
 
 def validate_study_artifact(
@@ -223,6 +227,54 @@ def study_artifacts_to_anki_tsv(
     writer = csv.writer(output, delimiter="\t", lineterminator="\n")
     writer.writerows(rows)
     return output.getvalue()
+
+
+def next_study_artifact_review_state(
+    state: StudyArtifactReviewState,
+    rating: StudyRecallRating,
+    *,
+    reviewed_at: datetime,
+    hint_level_needed: int | None = None,
+) -> StudyArtifactReviewState:
+    """Return the next deterministic review state for one study artifact."""
+    if not isinstance(rating, StudyRecallRating):
+        raise TypeError("rating must be a StudyRecallRating")
+    if reviewed_at.tzinfo is None or reviewed_at.utcoffset() is None:
+        raise ValueError("reviewed_at must be timezone-aware")
+    if hint_level_needed is not None and hint_level_needed < 0:
+        raise ValueError("hint_level_needed cannot be negative")
+
+    reviews = state.reviews + 1
+    lapse = rating in {StudyRecallRating.HARD, StudyRecallRating.NONE}
+    lapses = state.lapses + (1 if lapse else 0)
+    mastery = next_recall_mastery(state.mastery, rating, hint_level_needed)
+    due_at = reviewed_at + _artifact_review_interval(rating, reviews=reviews, mastery=mastery)
+    return StudyArtifactReviewState(
+        reviews=reviews,
+        lapses=lapses,
+        mastery=mastery,
+        last_reviewed_at=reviewed_at,
+        due_at=due_at,
+    )
+
+
+def record_study_artifact_review(
+    artifact: StudyArtifact,
+    rating: StudyRecallRating,
+    *,
+    reviewed_at: datetime,
+    hint_level_needed: int | None = None,
+) -> StudyArtifact:
+    """Return a copy of ``artifact`` with review state advanced after recall."""
+    return replace(
+        artifact,
+        review_state=next_study_artifact_review_state(
+            artifact.review_state,
+            rating,
+            reviewed_at=reviewed_at,
+            hint_level_needed=hint_level_needed,
+        ),
+    )
 
 
 def _artifact_issues(
@@ -403,6 +455,23 @@ def _support_rate(tokens: set[str], source_tokens: set[str]) -> float:
     if not tokens:
         return 1.0
     return len(tokens & source_tokens) / len(tokens)
+
+
+def _artifact_review_interval(
+    rating: StudyRecallRating,
+    *,
+    reviews: int,
+    mastery: float,
+) -> timedelta:
+    if rating is StudyRecallRating.NONE:
+        return timedelta(0)
+    if rating is StudyRecallRating.HARD:
+        return timedelta(days=1)
+    base_days = 7 if rating is StudyRecallRating.EASY else 3
+    review_multiplier = 1.0 + (min(max(reviews - 1, 0), 8) * 0.35)
+    mastery_multiplier = 1.0 + (mastery * (0.65 if rating is StudyRecallRating.EASY else 0.35))
+    days = round(base_days * review_multiplier * mastery_multiplier)
+    return timedelta(days=min(_MAX_ARTIFACT_REVIEW_INTERVAL_DAYS, max(1, days)))
 
 
 def _artifact_fingerprint(artifact: StudyArtifact) -> str:
