@@ -15,6 +15,8 @@ CANDIDATE_MULTIPLIER=2
 MIN_SCORE=0.0
 BEIR_RETRIEVAL_MODE=""
 BEIR_CANDIDATE_MULTIPLIER=""
+MTEB_RETRIEVAL_MODE=""
+MTEB_CANDIDATE_MULTIPLIER=""
 STANDARD_RAG_RETRIEVAL_MODE=""
 STANDARD_RAG_CANDIDATE_MULTIPLIER=""
 EMBEDDING_MODEL=""
@@ -25,6 +27,10 @@ BEIR_EMBEDDING_MODEL=""
 BEIR_EMBEDDING_QUERY_PREFIX=""
 BEIR_EMBEDDING_DOCUMENT_PREFIX=""
 BEIR_RERANK_MODEL=""
+MTEB_EMBEDDING_MODEL=""
+MTEB_EMBEDDING_QUERY_PREFIX=""
+MTEB_EMBEDDING_DOCUMENT_PREFIX=""
+MTEB_RERANK_MODEL=""
 STANDARD_RAG_EMBEDDING_MODEL=""
 STANDARD_RAG_EMBEDDING_QUERY_PREFIX=""
 STANDARD_RAG_EMBEDDING_DOCUMENT_PREFIX=""
@@ -33,6 +39,8 @@ HYBRID_SPARSE_WEIGHT=1.0
 HYBRID_DENSE_WEIGHT=1.0
 BEIR_HYBRID_SPARSE_WEIGHT=""
 BEIR_HYBRID_DENSE_WEIGHT=""
+MTEB_HYBRID_SPARSE_WEIGHT=""
+MTEB_HYBRID_DENSE_WEIGHT=""
 STANDARD_RAG_HYBRID_SPARSE_WEIGHT=""
 STANDARD_RAG_HYBRID_DENSE_WEIGHT=""
 COMPETITIVE_PRESET=0
@@ -47,6 +55,7 @@ VALIDATE_REPRODUCIBILITY=0
 VISUALIZE=0
 
 SKIP_BEIR=0
+SKIP_MTEB=1
 SKIP_STANDARD_RAG=0
 SKIP_NATIVE=0
 SKIP_PUBLIC_ACADEMIC=0
@@ -56,6 +65,11 @@ BEIR_DATASET="beir/nfcorpus"
 BEIR_SOURCE_DIR=""
 BEIR_SOURCE_ZIP=""
 BEIR_DOWNLOAD_URL=""
+MTEB_DATASET="mteb/fixture"
+MTEB_SOURCE_DIR=""
+MTEB_CORPUS_FILE=""
+MTEB_QUERIES_FILE=""
+MTEB_RELEVANCE_FILE=""
 STANDARD_RAG_DATASET="ms-marco"
 STANDARD_RAG_MANIFEST=""
 MS_MARCO_SOURCE_DIR=""
@@ -94,6 +108,8 @@ Core options:
   --candidate-multiplier N      Hybrid candidate over-retrieval multiplier
   --beir-retrieval-mode MODE    Override retrieval mode for BEIR runner only
   --beir-candidate-multiplier N Override candidate multiplier for BEIR runner only
+  --mteb-retrieval-mode MODE    Override retrieval mode for MTEB runner only
+  --mteb-candidate-multiplier N Override candidate multiplier for MTEB runner only
   --standard-rag-retrieval-mode MODE
                                 Override retrieval mode for standard-RAG runner only
   --standard-rag-candidate-multiplier N
@@ -109,6 +125,12 @@ Core options:
   --beir-embedding-document-prefix TEXT
                                 Override embedding document prefix for BEIR runner only
   --beir-rerank-model MODEL     Override rerank model for BEIR runner only
+  --mteb-embedding-model MODEL  Override embedding model for MTEB runner only
+  --mteb-embedding-query-prefix TEXT
+                                Override embedding query prefix for MTEB runner only
+  --mteb-embedding-document-prefix TEXT
+                                Override embedding document prefix for MTEB runner only
+  --mteb-rerank-model MODEL     Override rerank model for MTEB runner only
   --standard-rag-embedding-model MODEL
                                 Override embedding model for standard-RAG runner only
   --standard-rag-embedding-query-prefix TEXT
@@ -128,6 +150,10 @@ Core options:
                                 Override sparse RRF weight for BEIR runner only
   --beir-hybrid-dense-weight VALUE
                                 Override dense RRF weight for BEIR runner only
+  --mteb-hybrid-sparse-weight VALUE
+                                Override sparse RRF weight for MTEB runner only
+  --mteb-hybrid-dense-weight VALUE
+                                Override dense RRF weight for MTEB runner only
   --standard-rag-hybrid-sparse-weight VALUE
                                 Override sparse RRF weight for standard-RAG runner only
   --standard-rag-hybrid-dense-weight VALUE
@@ -150,6 +176,11 @@ Dataset selection:
   --beir-source-dir PATH        Local extracted BEIR source directory
   --beir-source-zip PATH        Local BEIR zip fixture
   --beir-download-url URL       Explicit HTTPS BEIR dataset zip URL
+  --mteb-dataset ID             MTEB retrieval dataset id, e.g. mteb/SciFact
+  --mteb-source-dir PATH        Local MTEB retrieval JSONL/TSV export directory
+  --mteb-corpus-file PATH       Explicit MTEB corpus JSONL file
+  --mteb-queries-file PATH      Explicit MTEB queries JSONL file
+  --mteb-relevance-file PATH    Explicit MTEB relevant-docs JSONL/TSV file
   --standard-rag-dataset ID     Standard RAG dataset id, e.g. ms-marco
   --standard-rag-manifest PATH  Local standard RAG manifest
   --ms-marco-source-dir PATH    Local MS MARCO directory with collection, queries, and qrels files
@@ -163,6 +194,7 @@ Dataset selection:
 
 Skip controls:
   --skip-beir
+  --skip-mteb
   --skip-standard-rag
   --skip-native
   --skip-public-academic
@@ -362,9 +394,16 @@ run_command() {
 create_fixture_inputs() {
   local fixture_dir="${OUTPUT_DIR}/fixtures"
   local beir_dir="${fixture_dir}/beir"
+  local mteb_dir="${fixture_dir}/mteb"
   local public_suite="${fixture_dir}/public-academic-suite"
   local standard_manifest="${fixture_dir}/standard-rag-manifest.json"
-  mkdir -p "${beir_dir}/qrels" "${public_suite}/armory/materials" "${public_suite}/armory/.hephaistos"
+  mkdir -p \
+    "${beir_dir}/qrels" \
+    "${mteb_dir}/corpus" \
+    "${mteb_dir}/queries" \
+    "${mteb_dir}/data" \
+    "${public_suite}/armory/materials" \
+    "${public_suite}/armory/.hephaistos"
 
   cat > "${beir_dir}/corpus.jsonl" <<'JSONL'
 {"_id":"alpha","title":"Alpha Notes","text":"Alpha deterministic benchmark retrieval evidence."}
@@ -378,6 +417,18 @@ query-id	corpus-id	score
 q1	alpha	1
 q1	beta	0
 TSV
+
+  cat > "${mteb_dir}/corpus/corpus-00000-of-00001.jsonl" <<'JSONL'
+{"id":"alpha","title":"Alpha MTEB Notes","text":"Alpha MTEB retrieval evidence for secondary gate execution."}
+{"id":"beta","title":"Beta MTEB Distractor","text":"Beta MTEB distractor material."}
+JSONL
+  cat > "${mteb_dir}/queries/test.jsonl" <<'JSONL'
+{"id":"q1","instruction":"Retrieve the relevant passage.","text":"alpha MTEB retrieval evidence"}
+JSONL
+  cat > "${mteb_dir}/data/test-00000-of-00001.jsonl" <<'JSONL'
+{"query-id":"q1","corpus-id":"alpha","score":1}
+{"query-id":"q1","corpus-id":"beta","score":0}
+JSONL
 
   cat > "${standard_manifest}" <<'JSON'
 {
@@ -432,6 +483,9 @@ JSON
 
   BEIR_DATASET="beir/fixture"
   BEIR_SOURCE_DIR="${beir_dir}"
+  MTEB_DATASET="mteb/fixture"
+  MTEB_SOURCE_DIR="${mteb_dir}"
+  SKIP_MTEB=0
   STANDARD_RAG_DATASET="fixture-standard-rag"
   STANDARD_RAG_MANIFEST="${standard_manifest}"
   PUBLIC_ACADEMIC_SUITE="${public_suite}"
@@ -489,6 +543,29 @@ run_external_adapter_phase() {
     fi
     run_command "${beir_command[@]}"
     BEIR_SUITE="${beir_suite}"
+  fi
+
+  if [[ "${SKIP_MTEB}" -eq 0 ]]; then
+    local mteb_suite="${OUTPUT_DIR}/suites/mteb"
+    local mteb_command=(
+      "${UV_BIN}" run python -m scripts.external_benchmarks.mteb_adapter
+      "${MTEB_DATASET}"
+      --output "${mteb_suite}"
+      --json-report "${OUTPUT_DIR}/reports/mteb-adapter.json"
+    )
+    if [[ -n "${MTEB_SOURCE_DIR}" ]]; then
+      mteb_command+=(--source-dir "${MTEB_SOURCE_DIR}")
+    elif [[ -n "${MTEB_CORPUS_FILE}" && -n "${MTEB_QUERIES_FILE}" && -n "${MTEB_RELEVANCE_FILE}" ]]; then
+      mteb_command+=(
+        --corpus-file "${MTEB_CORPUS_FILE}"
+        --queries-file "${MTEB_QUERIES_FILE}"
+        --relevance-file "${MTEB_RELEVANCE_FILE}"
+      )
+    else
+      fail "MTEB phase requires --mteb-source-dir or all explicit MTEB input files"
+    fi
+    run_command "${mteb_command[@]}"
+    MTEB_SUITE="${mteb_suite}"
   fi
 
   if [[ "${SKIP_STANDARD_RAG}" -eq 0 ]]; then
@@ -572,6 +649,23 @@ run_external_runner_phase() {
       "${BEIR_HYBRID_SPARSE_WEIGHT:-${HYBRID_SPARSE_WEIGHT}}" \
       "${BEIR_HYBRID_DENSE_WEIGHT:-${HYBRID_DENSE_WEIGHT}}"
     RUNNER_REPORTS+=("${OUTPUT_DIR}/reports/beir-runner.json")
+  fi
+
+  if [[ "${SKIP_MTEB}" -eq 0 ]]; then
+    run_benchmark_runner \
+      "mteb" \
+      "${MTEB_DATASET}" \
+      "${MTEB_SUITE}" \
+      "${OUTPUT_DIR}/reports/mteb-runner.json" \
+      "${MTEB_RETRIEVAL_MODE:-${RETRIEVAL_MODE}}" \
+      "${MTEB_CANDIDATE_MULTIPLIER:-${CANDIDATE_MULTIPLIER}}" \
+      "${MTEB_EMBEDDING_MODEL:-${EMBEDDING_MODEL}}" \
+      "${MTEB_EMBEDDING_QUERY_PREFIX:-${EMBEDDING_QUERY_PREFIX}}" \
+      "${MTEB_EMBEDDING_DOCUMENT_PREFIX:-${EMBEDDING_DOCUMENT_PREFIX}}" \
+      "${MTEB_RERANK_MODEL:-${RERANK_MODEL}}" \
+      "${MTEB_HYBRID_SPARSE_WEIGHT:-${HYBRID_SPARSE_WEIGHT}}" \
+      "${MTEB_HYBRID_DENSE_WEIGHT:-${HYBRID_DENSE_WEIGHT}}"
+    RUNNER_REPORTS+=("${OUTPUT_DIR}/reports/mteb-runner.json")
   fi
 
   if [[ "${SKIP_STANDARD_RAG}" -eq 0 ]]; then
@@ -688,6 +782,14 @@ while [[ "$#" -gt 0 ]]; do
       BEIR_CANDIDATE_MULTIPLIER="$2"
       shift 2
       ;;
+    --mteb-retrieval-mode)
+      MTEB_RETRIEVAL_MODE="$2"
+      shift 2
+      ;;
+    --mteb-candidate-multiplier)
+      MTEB_CANDIDATE_MULTIPLIER="$2"
+      shift 2
+      ;;
     --standard-rag-retrieval-mode)
       STANDARD_RAG_RETRIEVAL_MODE="$2"
       shift 2
@@ -728,6 +830,22 @@ while [[ "$#" -gt 0 ]]; do
       BEIR_RERANK_MODEL="$2"
       shift 2
       ;;
+    --mteb-embedding-model)
+      MTEB_EMBEDDING_MODEL="$2"
+      shift 2
+      ;;
+    --mteb-embedding-query-prefix)
+      MTEB_EMBEDDING_QUERY_PREFIX="$2"
+      shift 2
+      ;;
+    --mteb-embedding-document-prefix)
+      MTEB_EMBEDDING_DOCUMENT_PREFIX="$2"
+      shift 2
+      ;;
+    --mteb-rerank-model)
+      MTEB_RERANK_MODEL="$2"
+      shift 2
+      ;;
     --standard-rag-embedding-model)
       STANDARD_RAG_EMBEDDING_MODEL="$2"
       shift 2
@@ -760,6 +878,14 @@ while [[ "$#" -gt 0 ]]; do
       BEIR_HYBRID_DENSE_WEIGHT="$2"
       shift 2
       ;;
+    --mteb-hybrid-sparse-weight)
+      MTEB_HYBRID_SPARSE_WEIGHT="$2"
+      shift 2
+      ;;
+    --mteb-hybrid-dense-weight)
+      MTEB_HYBRID_DENSE_WEIGHT="$2"
+      shift 2
+      ;;
     --standard-rag-hybrid-sparse-weight)
       STANDARD_RAG_HYBRID_SPARSE_WEIGHT="$2"
       shift 2
@@ -776,6 +902,12 @@ while [[ "$#" -gt 0 ]]; do
       BEIR_EMBEDDING_QUERY_PREFIX="Represent this sentence for searching relevant passages: "
       BEIR_HYBRID_SPARSE_WEIGHT=1.0
       BEIR_HYBRID_DENSE_WEIGHT=1.25
+      MTEB_RETRIEVAL_MODE="hybrid-prf"
+      MTEB_CANDIDATE_MULTIPLIER=2
+      MTEB_EMBEDDING_MODEL="BAAI/bge-large-en-v1.5"
+      MTEB_EMBEDDING_QUERY_PREFIX="Represent this sentence for searching relevant passages: "
+      MTEB_HYBRID_SPARSE_WEIGHT=1.0
+      MTEB_HYBRID_DENSE_WEIGHT=1.25
       STANDARD_RAG_RETRIEVAL_MODE="hybrid-rerank"
       STANDARD_RAG_CANDIDATE_MULTIPLIER=2
       STANDARD_RAG_EMBEDDING_MODEL="BAAI/bge-base-en-v1.5"
@@ -837,6 +969,31 @@ while [[ "$#" -gt 0 ]]; do
       BEIR_DOWNLOAD_URL="$2"
       shift 2
       ;;
+    --mteb-dataset)
+      MTEB_DATASET="$2"
+      SKIP_MTEB=0
+      shift 2
+      ;;
+    --mteb-source-dir)
+      MTEB_SOURCE_DIR="$(absolute_path "$2")"
+      SKIP_MTEB=0
+      shift 2
+      ;;
+    --mteb-corpus-file)
+      MTEB_CORPUS_FILE="$(absolute_path "$2")"
+      SKIP_MTEB=0
+      shift 2
+      ;;
+    --mteb-queries-file)
+      MTEB_QUERIES_FILE="$(absolute_path "$2")"
+      SKIP_MTEB=0
+      shift 2
+      ;;
+    --mteb-relevance-file)
+      MTEB_RELEVANCE_FILE="$(absolute_path "$2")"
+      SKIP_MTEB=0
+      shift 2
+      ;;
     --standard-rag-dataset)
       STANDARD_RAG_DATASET="$2"
       shift 2
@@ -871,6 +1028,10 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --skip-beir)
       SKIP_BEIR=1
+      shift
+      ;;
+    --skip-mteb)
+      SKIP_MTEB=1
       shift
       ;;
     --skip-standard-rag)

@@ -215,8 +215,8 @@ uv run python -m scripts.run_benchmark_suite \
   --min-evidence-coverage 1.0
 ```
 
-Run the comprehensive external workflow, including optional BEIR, standard RAG,
-native, public-academic, and summary phases:
+Run the comprehensive external workflow, including optional BEIR, MTEB retrieval,
+standard RAG, native, public-academic, and summary phases:
 
 ```bash
 scripts/comprehensive_benchmark_run.sh \
@@ -225,8 +225,10 @@ scripts/comprehensive_benchmark_run.sh \
 ```
 
 Use `--offline` to forbid network materialization, local `--beir-source-dir` or
-`--beir-source-zip` inputs for BEIR runs, and `--require-beir-extra` or
-`--require-visualization-extra` to fail early when optional extras are missing.
+`--beir-source-zip` inputs for BEIR runs, local `--mteb-source-dir` or explicit
+MTEB JSONL/TSV file inputs for retrieval-only MTEB gates, and
+`--require-beir-extra` or `--require-visualization-extra` to fail early when
+optional extras are missing.
 External runners write JSON reports with fixed retrieval parameters and redact
 secret-like environment values before logs or Markdown summaries are written.
 Hybrid rerank reports also include candidate-vs-final metrics, harm cases,

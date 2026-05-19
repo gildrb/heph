@@ -88,6 +88,7 @@ _QUERY_REPAIR_STOPWORDS = frozenset(
 
 _BENCHMARK_TYPES = (
     "beir",
+    "mteb",
     "standard-rag",
     "heph-native",
     "public-academic",
@@ -95,6 +96,7 @@ _BENCHMARK_TYPES = (
 )
 _SUPPORTED_DATASETS = {
     "beir": frozenset({"beir/nfcorpus", "beir/scidocs", "beir/trec-covid", "beir/fixture"}),
+    "mteb": frozenset({"mteb/fixture"}),
     "standard-rag": frozenset({"ms-marco", "natural-questions", "fixture-standard-rag"}),
     "public-academic": frozenset({"public-academic"}),
     "heph-native": frozenset({"academic", "heph-native"}),
@@ -417,6 +419,8 @@ def _validate_cli_values(parameters: RunnerParameters, thresholds: Thresholds) -
 
 
 def _validate_dataset(benchmark_type: str, dataset: str) -> None:
+    if benchmark_type == "mteb" and dataset.startswith("mteb/") and len(dataset) > len("mteb/"):
+        return
     supported = _SUPPORTED_DATASETS[benchmark_type]
     if dataset in supported:
         return
@@ -2649,7 +2653,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "dataset",
-        help=("Dataset identifier, e.g. beir/nfcorpus, ms-marco, public-academic, or academic"),
+        help=(
+            "Dataset identifier, e.g. beir/nfcorpus, mteb/SciFact, ms-marco, "
+            "public-academic, or academic"
+        ),
     )
     parser.add_argument(
         "--suite",

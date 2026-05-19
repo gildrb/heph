@@ -58,6 +58,7 @@ if os.environ.get("FAKE_UV_FAIL_MODULE") == module:
 
 if module in {
     "scripts.external_benchmarks.beir_adapter",
+    "scripts.external_benchmarks.mteb_adapter",
     "scripts.external_benchmarks.standard_rag_adapter",
 }:
     output = Path(option_value(args, "--output"))
@@ -180,6 +181,7 @@ def test_comprehensive_script_help_documents_required_interface() -> None:
         "--visualize",
         "--require-beir-extra",
         "--competitive-preset",
+        "--mteb-source-dir",
         "--hybrid-dense-weight",
         "--embedding-query-prefix",
         "--embedding-document-prefix",
@@ -283,6 +285,7 @@ def test_comprehensive_script_runs_ordered_fixture_phases_with_quoted_paths(
         assert phase_positions == sorted(phase_positions)
         assert (output_dir / "summary" / "benchmark-summary.md").is_file()
         assert (output_dir / "reports" / "beir-runner.json").is_file()
+        assert (output_dir / "reports" / "mteb-runner.json").is_file()
         assert (output_dir / "reports" / "standard-rag-runner.json").is_file()
         assert (output_dir / "reports" / "heph-native-runner.json").is_file()
         assert (output_dir / "reports" / "public-academic-runner.json").is_file()
@@ -310,6 +313,14 @@ def test_comprehensive_script_supports_per_external_runner_retrieval_modes(
                 "hybrid",
                 "--beir-candidate-multiplier",
                 "2",
+                "--mteb-dataset",
+                "mteb/fixture",
+                "--mteb-retrieval-mode",
+                "hybrid-prf",
+                "--mteb-candidate-multiplier",
+                "2",
+                "--mteb-embedding-model",
+                "all-mpnet-base-v2",
                 "--beir-embedding-model",
                 "all-mpnet-base-v2",
                 "--beir-embedding-document-prefix",
@@ -335,6 +346,8 @@ def test_comprehensive_script_supports_per_external_runner_retrieval_modes(
     assert "--retrieval-mode hybrid --candidate-multiplier 2" in uv_log
     assert "--embedding-model all-mpnet-base-v2" in uv_log
     assert "--embedding-document-prefix passage: " in uv_log
+    assert ("scripts.run_external_benchmarks mteb mteb/fixture --suite") in uv_log
+    assert "--retrieval-mode hybrid-prf --candidate-multiplier 2" in uv_log
     assert ("scripts.run_external_benchmarks standard-rag fixture-standard-rag --suite") in uv_log
     assert "--retrieval-mode hybrid-rerank --candidate-multiplier 2" in uv_log
     assert "--embedding-document-prefix doc: " in uv_log

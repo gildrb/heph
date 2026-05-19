@@ -330,6 +330,34 @@ def test_runner_executes_materialized_beir_suite_with_required_metrics(
     assert "sentinel-secret-value" not in json.dumps(report)
 
 
+def test_runner_accepts_materialized_mteb_suite_with_dynamic_dataset(
+    tmp_path: Path,
+) -> None:
+    suite = _make_external_suite(tmp_path, _passing_cases())
+    report_path = tmp_path / "reports" / "mteb.json"
+
+    status = run_external_benchmarks.main(
+        [
+            "mteb",
+            "mteb/SciFact",
+            "--suite",
+            str(suite),
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = _read_report(report_path)
+    metadata = _as_dict(report["metadata"])
+    benchmark = _as_dict(_as_list(report["benchmarks"])[0])
+
+    assert status == 0
+    assert report["status"] == "success"
+    assert metadata["benchmark_type"] == "mteb"
+    assert metadata["dataset"] == "mteb/SciFact"
+    assert benchmark["id"] == "mteb:mteb/SciFact"
+
+
 def test_runner_executes_materialized_enterprise_rag_suite(tmp_path: Path) -> None:
     suite = _make_external_suite(tmp_path, _passing_cases())
     report_path = tmp_path / "reports" / "enterprise-rag.json"
