@@ -129,6 +129,55 @@ def test_negation_precision_penalty_keeps_negated_queries_in_order() -> None:
     assert [result.chunk.source for result in reranked] == ["negative.md", "positive.md"]
 
 
+def test_negation_precision_penalty_ignores_unrelated_negated_sentence() -> None:
+    results = [
+        ScoredChunk(
+            chunk=_make_chunk(
+                "Active recall is useful after an explanation. "
+                "If the source material does not contain the answer, the tutor abstains.",
+                "study.md",
+            ),
+            score=0.9,
+        ),
+        ScoredChunk(
+            chunk=_make_chunk(
+                "An active site can be explained through enzyme kinetics.",
+                "biochem.md",
+            ),
+            score=0.88,
+        ),
+    ]
+
+    reranked = _apply_negation_precision_penalty(
+        "Why use active recall after an explanation?",
+        results,
+    )
+
+    assert [result.chunk.source for result in reranked] == ["study.md", "biochem.md"]
+    assert reranked[0].score == 0.9
+
+
+def test_negation_precision_penalty_preserves_abstention_queries() -> None:
+    results = [
+        ScoredChunk(
+            chunk=_make_chunk(
+                "If the source material does not contain the answer, the tutor abstains.",
+                "abstention.md",
+            ),
+            score=0.9,
+        ),
+        ScoredChunk(chunk=_make_chunk("The tutor answers from memory.", "memory.md"), score=0.8),
+    ]
+
+    reranked = _apply_negation_precision_penalty(
+        "What should a grounded tutor do when the source lacks the answer?",
+        results,
+    )
+
+    assert [result.chunk.source for result in reranked] == ["abstention.md", "memory.md"]
+    assert reranked[0].score == 0.9
+
+
 def test_retrieve_can_diversify_duplicate_source_chunks() -> None:
     chunks = [
         _make_chunk("alpha topic repeated", "same.md", 0),

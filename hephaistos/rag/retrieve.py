@@ -67,6 +67,20 @@ _NEGATION_MARKERS = (
     " unrelated to ",
     " different from ",
 )
+_NEGATION_QUERY_INTENT_TOKENS = frozenset(
+    {
+        "abstain",
+        "abstention",
+        "absent",
+        "lack",
+        "lacking",
+        "missing",
+        "unsupported",
+        "unanswered",
+    }
+)
+_NEGATION_SEGMENT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+_NEGATION_QUERY_OVERLAP_MIN = 2
 _SOURCE_MATCH_BOOST = 0.12
 _SOURCE_MATCH_MAX_BOOST = 0.36
 _EXPLICIT_HINT_BOOST = 8.0
@@ -276,7 +290,23 @@ def _has_negation_marker(text: str) -> bool:
 
 
 def _query_is_negated(query: str) -> bool:
-    return _has_negation_marker(query)
+    if _has_negation_marker(query):
+        return True
+    return bool(set(tokenize(query)) & _NEGATION_QUERY_INTENT_TOKENS)
+
+
+def _has_query_relevant_negation(query_tokens: set[str], text: str) -> bool:
+    if not query_tokens:
+        return _has_negation_marker(text)
+
+    overlap_threshold = min(_NEGATION_QUERY_OVERLAP_MIN, len(query_tokens))
+    for segment in _NEGATION_SEGMENT_RE.split(text):
+        if not _has_negation_marker(segment):
+            continue
+        segment_tokens = set(tokenize(segment))
+        if len(query_tokens & segment_tokens) >= overlap_threshold:
+            return True
+    return False
 
 
 def _apply_negation_precision_penalty(
@@ -292,10 +322,11 @@ def _apply_negation_precision_penalty(
     """
     if _query_is_negated(query):
         return results
+    query_tokens = set(tokenize(query))
     reranked: list[ScoredChunk] = []
     changed = False
     for result in results:
-        if _has_negation_marker(result.chunk.text):
+        if _has_query_relevant_negation(query_tokens, result.chunk.text):
             reranked.append(
                 ScoredChunk(chunk=result.chunk, score=result.score * _NEGATION_PENALTY)
             )
