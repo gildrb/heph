@@ -1,5 +1,18 @@
 """Deterministic study-session state and controller helpers."""
 
+from hephaistos.study.artifacts import (
+    StudyArtifact,
+    StudyArtifactDifficulty,
+    StudyArtifactIssue,
+    StudyArtifactKind,
+    StudyArtifactReviewState,
+    StudyArtifactSourceSpan,
+    StudyArtifactValidationReport,
+    StudyArtifactValidationResult,
+    study_artifacts_to_anki_tsv,
+    validate_study_artifact,
+    validate_study_artifacts,
+)
 from hephaistos.study.autopilot import (
     AutopilotInput,
     AutopilotSessionType,
@@ -73,6 +86,14 @@ __all__ = [
     "PolicyOutcome",
     "ReviewItem",
     "StudyAction",
+    "StudyArtifact",
+    "StudyArtifactDifficulty",
+    "StudyArtifactIssue",
+    "StudyArtifactKind",
+    "StudyArtifactReviewState",
+    "StudyArtifactSourceSpan",
+    "StudyArtifactValidationReport",
+    "StudyArtifactValidationResult",
     "StudyAutonomyMode",
     "StudyAutopilot",
     "StudyFeedbackType",
@@ -103,5 +124,8 @@ __all__ = [
     "plan_turn",
     "recall_clarification_plan",
     "session_type_from_text",
+    "study_artifacts_to_anki_tsv",
     "validate_pedagogy",
+    "validate_study_artifact",
+    "validate_study_artifacts",
 ]
