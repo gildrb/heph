@@ -88,6 +88,8 @@ def _write_candidate_report(
     path: Path,
     *,
     pass_rate: float = 1.0,
+    citation_source_rate: float = 1.0,
+    contradiction_rate: float = 1.0,
     include_required_text: bool = True,
     include_coverage: bool = True,
     domains: list[str] | None = None,
@@ -97,8 +99,10 @@ def _write_candidate_report(
         "citation_validity_rate": 1.0,
         "citation_presence_rate": 1.0,
         "expected_citation_rate": 1.0,
+        "citation_source_rate": citation_source_rate,
         "forbidden_text_rate": 1.0,
         "supported_claim_rate": 1.0,
+        "contradiction_rate": contradiction_rate,
         "answer_shape_rate": 1.0,
         "evidence_coverage_rate": 1.0,
         "required_label_rate": 1.0,
@@ -240,6 +244,10 @@ def test_model_eval_matrix_runs_candidates_and_writes_combined_report(tmp_path: 
                 str(replay_dataset),
                 str(matrix),
                 str(tmp_path / "out"),
+                "--min-citation-sources",
+                "0.9",
+                "--min-contradiction-rate",
+                "0.8",
                 "--json-report",
                 str(report_path),
             ]
@@ -248,6 +256,8 @@ def test_model_eval_matrix_runs_candidates_and_writes_combined_report(tmp_path: 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert status == 0
     assert replay.call_count == 2
+    assert replay.call_args.kwargs["citation_sources"] == 0.9
+    assert replay.call_args.kwargs["contradiction_rate"] == 0.8
     assert replay.call_args.kwargs["evidence_coverage"] == 1.0
     assert report["status"] == 0
     assert report["groups"] == ["frontier", "local"]
@@ -288,6 +298,8 @@ def test_model_eval_matrix_runs_candidates_and_writes_combined_report(tmp_path: 
         assert Path(result["report_path"]).parent == Path(report["output_dir"])
         assert Path(result["output"]).parent == Path(report["output_dir"])
     assert report["results"][0]["pass_rate"] == 1.0
+    assert report["results"][0]["citation_source_rate"] == 1.0
+    assert report["results"][0]["contradiction_rate"] == 1.0
     assert report["results"][0]["evidence_coverage_rate"] == 1.0
     assert "frontier-key" not in json.dumps(report)
 
@@ -771,6 +783,50 @@ def test_model_eval_matrix_fails_when_candidate_report_is_missing_metrics(
     def fake_eval(*_args, **kwargs) -> int:
         report = kwargs["report_path"]
         _write_candidate_report(report, include_required_text=False)
+        return 0
+
+    with patch(
+        "scripts.run_model_eval_matrix.run_replay_answer_eval.run_replay_answer_eval",
+        side_effect=fake_eval,
+    ):
+        status = run_model_eval_matrix.run_model_eval_matrix(
+            tmp_path / "armory",
+            replay_dataset,
+            tmp_path / "out",
+            candidates,
+        )
+
+    assert status == 1
+
+
+def test_model_eval_matrix_fails_when_candidate_answer_safety_metrics_regress(
+    tmp_path: Path,
+) -> None:
+    replay_dataset = tmp_path / "replay.jsonl"
+    _write_replay_dataset(replay_dataset)
+    candidates = [
+        run_model_eval_matrix.ModelCandidate(
+            candidate_id="local-small",
+            group="local",
+            model="local-model",
+        ),
+        run_model_eval_matrix.ModelCandidate(
+            candidate_id="frontier-hosted",
+            group="frontier",
+            model="frontier-model",
+            api_key="frontier-key",
+        ),
+    ]
+
+    def fake_eval(*_args, **kwargs) -> int:
+        report = kwargs["report_path"]
+        citation_source_rate = 0.5 if "local-small" in str(report) else 1.0
+        contradiction_rate = 0.5 if "local-small" in str(report) else 1.0
+        _write_candidate_report(
+            report,
+            citation_source_rate=citation_source_rate,
+            contradiction_rate=contradiction_rate,
+        )
         return 0
 
     with patch(

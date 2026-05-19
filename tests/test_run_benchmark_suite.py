@@ -89,6 +89,8 @@ def test_suite_writes_machine_readable_report(tmp_path: Path) -> None:
     assert report["suite"] == str(run_benchmark_suite.DEFAULT_SUITE)
     assert report["thresholds"]["rag_hit_rate"] == 1.0
     assert report["thresholds"]["rag_forbidden_before_expected_avoidance"] == 1.0
+    assert report["thresholds"]["citation_sources"] == 1.0
+    assert report["thresholds"]["contradiction_rate"] == 1.0
     assert report["thresholds"]["answer_shape"] == 1.0
     assert report["thresholds"]["evidence_coverage"] == 1.0
     assert report["thresholds"]["required_label"] == 1.0
@@ -147,6 +149,8 @@ def test_suite_writes_machine_readable_report(tmp_path: Path) -> None:
     assert report["chat_runtime_events"]["acceptance_criteria_metadata_rate"] == 1.0
     assert report["chat_runtime_events"]["answer_pass_rate"] == 1.0
     assert report["answers"]["pass_rate"] == 1.0
+    assert report["answers"]["citation_source_rate"] == 1.0
+    assert report["answers"]["contradiction_rate"] == 1.0
     assert report["answers"]["answer_shape_rate"] == 1.0
     assert report["answers"]["evidence_coverage_rate"] == 1.0
     assert report["study_state"]["pass_rate"] == 1.0
@@ -194,8 +198,10 @@ def test_suite_gates_rag_forbidden_before_expected_avoidance() -> None:
 
 def test_suite_gates_answer_shape_thresholds() -> None:
     assert run_benchmark_suite.run_suite(expected_citations=1.01) == 1
+    assert run_benchmark_suite.run_suite(citation_sources=1.01) == 1
     assert run_benchmark_suite.run_suite(required_text=1.01) == 1
     assert run_benchmark_suite.run_suite(forbidden_text=1.01) == 1
+    assert run_benchmark_suite.run_suite(contradiction_rate=1.01) == 1
     assert run_benchmark_suite.run_suite(required_label=1.01) == 1
     assert run_benchmark_suite.run_suite(answer_shape=1.01) == 1
     assert run_benchmark_suite.run_suite(evidence_coverage=1.01) == 1

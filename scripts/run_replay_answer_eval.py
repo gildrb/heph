@@ -22,9 +22,11 @@ DEFAULT_ANSWER_PASS_RATE = 1.0
 DEFAULT_CITATION_VALIDITY = 1.0
 DEFAULT_CITATION_PRESENCE = 1.0
 DEFAULT_EXPECTED_CITATIONS = 1.0
+DEFAULT_CITATION_SOURCES = 1.0
 DEFAULT_REQUIRED_TEXT = 1.0
 DEFAULT_FORBIDDEN_TEXT = 1.0
 DEFAULT_SUPPORTED_CLAIMS = 1.0
+DEFAULT_CONTRADICTION_RATE = 1.0
 DEFAULT_ANSWER_SHAPE = 1.0
 DEFAULT_EVIDENCE_COVERAGE = 1.0
 DEFAULT_REQUIRED_LABEL = 1.0
@@ -85,9 +87,11 @@ def run_replay_answer_eval(
     citation_validity: float = DEFAULT_CITATION_VALIDITY,
     citation_presence: float = DEFAULT_CITATION_PRESENCE,
     expected_citations: float = DEFAULT_EXPECTED_CITATIONS,
+    citation_sources: float = DEFAULT_CITATION_SOURCES,
     required_text: float = DEFAULT_REQUIRED_TEXT,
     forbidden_text: float = DEFAULT_FORBIDDEN_TEXT,
     supported_claims: float = DEFAULT_SUPPORTED_CLAIMS,
+    contradiction_rate: float = DEFAULT_CONTRADICTION_RATE,
     answer_shape: float = DEFAULT_ANSWER_SHAPE,
     evidence_coverage: float = DEFAULT_EVIDENCE_COVERAGE,
     required_label: float = DEFAULT_REQUIRED_LABEL,
@@ -115,9 +119,11 @@ def run_replay_answer_eval(
         or report.citation_validity_rate < citation_validity
         or report.citation_presence_rate < citation_presence
         or report.expected_citation_rate < expected_citations
+        or report.citation_source_rate < citation_sources
         or report.required_text_rate < required_text
         or report.forbidden_text_rate < forbidden_text
         or report.supported_claim_rate < supported_claims
+        or report.contradiction_rate < contradiction_rate
         or report.answer_shape_rate < answer_shape
         or report.evidence_coverage_rate < evidence_coverage
         or report.required_label_rate < required_label
@@ -136,9 +142,11 @@ def run_replay_answer_eval(
                 citation_validity=citation_validity,
                 citation_presence=citation_presence,
                 expected_citations=expected_citations,
+                citation_sources=citation_sources,
                 required_text=required_text,
                 forbidden_text=forbidden_text,
                 supported_claims=supported_claims,
+                contradiction_rate=contradiction_rate,
                 answer_shape=answer_shape,
                 evidence_coverage=evidence_coverage,
                 required_label=required_label,
@@ -179,9 +187,11 @@ def _summary(
     citation_validity: float,
     citation_presence: float,
     expected_citations: float,
+    citation_sources: float,
     required_text: float,
     forbidden_text: float,
     supported_claims: float,
+    contradiction_rate: float,
     answer_shape: float,
     evidence_coverage: float,
     required_label: float,
@@ -204,9 +214,11 @@ def _summary(
             "citation_validity": citation_validity,
             "citation_presence": citation_presence,
             "expected_citations": expected_citations,
+            "citation_sources": citation_sources,
             "required_text": required_text,
             "forbidden_text": forbidden_text,
             "supported_claims": supported_claims,
+            "contradiction_rate": contradiction_rate,
             "answer_shape": answer_shape,
             "evidence_coverage": evidence_coverage,
             "required_label": required_label,
@@ -239,9 +251,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-citation-validity", type=float, default=DEFAULT_CITATION_VALIDITY)
     parser.add_argument("--min-citation-presence", type=float, default=DEFAULT_CITATION_PRESENCE)
     parser.add_argument("--min-expected-citations", type=float, default=DEFAULT_EXPECTED_CITATIONS)
+    parser.add_argument("--min-citation-sources", type=float, default=DEFAULT_CITATION_SOURCES)
     parser.add_argument("--min-required-text", type=float, default=DEFAULT_REQUIRED_TEXT)
     parser.add_argument("--min-forbidden-text", type=float, default=DEFAULT_FORBIDDEN_TEXT)
     parser.add_argument("--min-supported-claims", type=float, default=DEFAULT_SUPPORTED_CLAIMS)
+    parser.add_argument(
+        "--min-contradiction-rate",
+        type=float,
+        default=DEFAULT_CONTRADICTION_RATE,
+    )
     parser.add_argument("--min-answer-shape", type=float, default=DEFAULT_ANSWER_SHAPE)
     parser.add_argument("--min-evidence-coverage", type=float, default=DEFAULT_EVIDENCE_COVERAGE)
     parser.add_argument("--min-required-label", type=float, default=DEFAULT_REQUIRED_LABEL)
@@ -280,9 +298,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     citation_validity = cast("float", args.min_citation_validity)
     citation_presence = cast("float", args.min_citation_presence)
     expected_citations = cast("float", args.min_expected_citations)
+    citation_sources = cast("float", args.min_citation_sources)
     required_text = cast("float", args.min_required_text)
     forbidden_text = cast("float", args.min_forbidden_text)
     supported_claims = cast("float", args.min_supported_claims)
+    contradiction_rate = cast("float", args.min_contradiction_rate)
     answer_shape = cast("float", args.min_answer_shape)
     evidence_coverage = cast("float", args.min_evidence_coverage)
     required_label = cast("float", args.min_required_label)
@@ -304,9 +324,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     _validate_rate(citation_validity, "--min-citation-validity", parser)
     _validate_rate(citation_presence, "--min-citation-presence", parser)
     _validate_rate(expected_citations, "--min-expected-citations", parser)
+    _validate_rate(citation_sources, "--min-citation-sources", parser)
     _validate_rate(required_text, "--min-required-text", parser)
     _validate_rate(forbidden_text, "--min-forbidden-text", parser)
     _validate_rate(supported_claims, "--min-supported-claims", parser)
+    _validate_rate(contradiction_rate, "--min-contradiction-rate", parser)
     _validate_rate(answer_shape, "--min-answer-shape", parser)
     _validate_rate(evidence_coverage, "--min-evidence-coverage", parser)
     _validate_rate(required_label, "--min-required-label", parser)
@@ -331,9 +353,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             citation_validity=citation_validity,
             citation_presence=citation_presence,
             expected_citations=expected_citations,
+            citation_sources=citation_sources,
             required_text=required_text,
             forbidden_text=forbidden_text,
             supported_claims=supported_claims,
+            contradiction_rate=contradiction_rate,
             answer_shape=answer_shape,
             evidence_coverage=evidence_coverage,
             required_label=required_label,

@@ -44,9 +44,11 @@ _METRIC_LABELS = {
     "citation_validity_rate": "citation validity",
     "citation_presence_rate": "citation presence",
     "expected_citation_rate": "expected citations",
+    "citation_source_rate": "citation sources",
     "required_text_rate": "required text",
     "forbidden_text_rate": "forbidden text",
     "supported_claim_rate": "supported claims",
+    "contradiction_rate": "contradiction avoidance",
     "answer_shape_rate": "answer shape",
     "evidence_coverage_rate": "evidence coverage",
     "required_label_rate": "required labels",
@@ -101,9 +103,11 @@ class ModelEvalResult:
     citation_validity_rate: float | None
     citation_presence_rate: float | None
     expected_citation_rate: float | None
+    citation_source_rate: float | None
     required_text_rate: float | None
     forbidden_text_rate: float | None
     supported_claim_rate: float | None
+    contradiction_rate: float | None
     answer_shape_rate: float | None
     evidence_coverage_rate: float | None
     required_label_rate: float | None
@@ -136,9 +140,11 @@ class CandidateReportMetrics:
     citation_validity_rate: float | None
     citation_presence_rate: float | None
     expected_citation_rate: float | None
+    citation_source_rate: float | None
     required_text_rate: float | None
     forbidden_text_rate: float | None
     supported_claim_rate: float | None
+    contradiction_rate: float | None
     answer_shape_rate: float | None
     evidence_coverage_rate: float | None
     required_label_rate: float | None
@@ -273,9 +279,11 @@ def run_model_eval_matrix(
     citation_validity: float = run_replay_answer_eval.DEFAULT_CITATION_VALIDITY,
     citation_presence: float = run_replay_answer_eval.DEFAULT_CITATION_PRESENCE,
     expected_citations: float = run_replay_answer_eval.DEFAULT_EXPECTED_CITATIONS,
+    citation_sources: float = run_replay_answer_eval.DEFAULT_CITATION_SOURCES,
     required_text: float = run_replay_answer_eval.DEFAULT_REQUIRED_TEXT,
     forbidden_text: float = run_replay_answer_eval.DEFAULT_FORBIDDEN_TEXT,
     supported_claims: float = run_replay_answer_eval.DEFAULT_SUPPORTED_CLAIMS,
+    contradiction_rate: float = run_replay_answer_eval.DEFAULT_CONTRADICTION_RATE,
     answer_shape: float = run_replay_answer_eval.DEFAULT_ANSWER_SHAPE,
     evidence_coverage: float = run_replay_answer_eval.DEFAULT_EVIDENCE_COVERAGE,
     required_label: float = run_replay_answer_eval.DEFAULT_REQUIRED_LABEL,
@@ -306,9 +314,11 @@ def run_model_eval_matrix(
             citation_validity=citation_validity,
             citation_presence=citation_presence,
             expected_citations=expected_citations,
+            citation_sources=citation_sources,
             required_text=required_text,
             forbidden_text=forbidden_text,
             supported_claims=supported_claims,
+            contradiction_rate=contradiction_rate,
             answer_shape=answer_shape,
             evidence_coverage=evidence_coverage,
             required_label=required_label,
@@ -414,9 +424,11 @@ def _run_candidate(
     citation_validity: float,
     citation_presence: float,
     expected_citations: float,
+    citation_sources: float,
     required_text: float,
     forbidden_text: float,
     supported_claims: float,
+    contradiction_rate: float,
     answer_shape: float,
     evidence_coverage: float,
     required_label: float,
@@ -445,9 +457,11 @@ def _run_candidate(
             citation_validity_rate=None,
             citation_presence_rate=None,
             expected_citation_rate=None,
+            citation_source_rate=None,
             required_text_rate=None,
             forbidden_text_rate=None,
             supported_claim_rate=None,
+            contradiction_rate=None,
             answer_shape_rate=None,
             evidence_coverage_rate=None,
             required_label_rate=None,
@@ -475,9 +489,11 @@ def _run_candidate(
             citation_validity=citation_validity,
             citation_presence=citation_presence,
             expected_citations=expected_citations,
+            citation_sources=citation_sources,
             required_text=required_text,
             forbidden_text=forbidden_text,
             supported_claims=supported_claims,
+            contradiction_rate=contradiction_rate,
             answer_shape=answer_shape,
             evidence_coverage=evidence_coverage,
             required_label=required_label,
@@ -498,9 +514,11 @@ def _run_candidate(
                 "citation_validity_rate": citation_validity,
                 "citation_presence_rate": citation_presence,
                 "expected_citation_rate": expected_citations,
+                "citation_source_rate": citation_sources,
                 "required_text_rate": required_text,
                 "forbidden_text_rate": forbidden_text,
                 "supported_claim_rate": supported_claims,
+                "contradiction_rate": contradiction_rate,
                 "answer_shape_rate": answer_shape,
                 "evidence_coverage_rate": evidence_coverage,
                 "required_label_rate": required_label,
@@ -526,9 +544,11 @@ def _run_candidate(
             citation_validity_rate=metrics.citation_validity_rate,
             citation_presence_rate=metrics.citation_presence_rate,
             expected_citation_rate=metrics.expected_citation_rate,
+            citation_source_rate=metrics.citation_source_rate,
             required_text_rate=metrics.required_text_rate,
             forbidden_text_rate=metrics.forbidden_text_rate,
             supported_claim_rate=metrics.supported_claim_rate,
+            contradiction_rate=metrics.contradiction_rate,
             answer_shape_rate=metrics.answer_shape_rate,
             evidence_coverage_rate=metrics.evidence_coverage_rate,
             required_label_rate=metrics.required_label_rate,
@@ -553,9 +573,11 @@ def _run_candidate(
             citation_validity_rate=None,
             citation_presence_rate=None,
             expected_citation_rate=None,
+            citation_source_rate=None,
             required_text_rate=None,
             forbidden_text_rate=None,
             supported_claim_rate=None,
+            contradiction_rate=None,
             answer_shape_rate=None,
             evidence_coverage_rate=None,
             required_label_rate=None,
@@ -595,9 +617,11 @@ def _run_replay_eval_with_timeout(
     citation_validity: float,
     citation_presence: float,
     expected_citations: float,
+    citation_sources: float,
     required_text: float,
     forbidden_text: float,
     supported_claims: float,
+    contradiction_rate: float,
     answer_shape: float,
     evidence_coverage: float,
     required_label: float,
@@ -615,9 +639,11 @@ def _run_replay_eval_with_timeout(
             citation_validity=citation_validity,
             citation_presence=citation_presence,
             expected_citations=expected_citations,
+            citation_sources=citation_sources,
             required_text=required_text,
             forbidden_text=forbidden_text,
             supported_claims=supported_claims,
+            contradiction_rate=contradiction_rate,
             answer_shape=answer_shape,
             evidence_coverage=evidence_coverage,
             required_label=required_label,
@@ -642,9 +668,11 @@ def _run_replay_eval_with_timeout(
             citation_validity,
             citation_presence,
             expected_citations,
+            citation_sources,
             required_text,
             forbidden_text,
             supported_claims,
+            contradiction_rate,
             answer_shape,
             evidence_coverage,
             required_label,
@@ -677,9 +705,11 @@ def _run_replay_eval_worker(
     citation_validity: float,
     citation_presence: float,
     expected_citations: float,
+    citation_sources: float,
     required_text: float,
     forbidden_text: float,
     supported_claims: float,
+    contradiction_rate: float,
     answer_shape: float,
     evidence_coverage: float,
     required_label: float,
@@ -701,9 +731,11 @@ def _run_replay_eval_worker(
                     citation_validity=citation_validity,
                     citation_presence=citation_presence,
                     expected_citations=expected_citations,
+                    citation_sources=citation_sources,
                     required_text=required_text,
                     forbidden_text=forbidden_text,
                     supported_claims=supported_claims,
+                    contradiction_rate=contradiction_rate,
                     answer_shape=answer_shape,
                     evidence_coverage=evidence_coverage,
                     required_label=required_label,
@@ -727,9 +759,11 @@ def _run_replay_eval(
     citation_validity: float,
     citation_presence: float,
     expected_citations: float,
+    citation_sources: float,
     required_text: float,
     forbidden_text: float,
     supported_claims: float,
+    contradiction_rate: float,
     answer_shape: float,
     evidence_coverage: float,
     required_label: float,
@@ -746,9 +780,11 @@ def _run_replay_eval(
         citation_validity=citation_validity,
         citation_presence=citation_presence,
         expected_citations=expected_citations,
+        citation_sources=citation_sources,
         required_text=required_text,
         forbidden_text=forbidden_text,
         supported_claims=supported_claims,
+        contradiction_rate=contradiction_rate,
         answer_shape=answer_shape,
         evidence_coverage=evidence_coverage,
         required_label=required_label,
@@ -791,9 +827,11 @@ def _report_metrics(path: Path) -> CandidateReportMetrics:
         citation_validity_rate=_float_metric(report.get("citation_validity_rate")),
         citation_presence_rate=_float_metric(report.get("citation_presence_rate")),
         expected_citation_rate=_float_metric(report.get("expected_citation_rate")),
+        citation_source_rate=_float_metric(report.get("citation_source_rate")),
         required_text_rate=_float_metric(report.get("required_text_rate")),
         forbidden_text_rate=_float_metric(report.get("forbidden_text_rate")),
         supported_claim_rate=_float_metric(report.get("supported_claim_rate")),
+        contradiction_rate=_float_metric(report.get("contradiction_rate")),
         answer_shape_rate=_float_metric(report.get("answer_shape_rate")),
         evidence_coverage_rate=_float_metric(report.get("evidence_coverage_rate")),
         required_label_rate=_float_metric(report.get("required_label_rate")),
@@ -911,12 +949,16 @@ def _candidate_rate_metric(metrics: CandidateReportMetrics, metric: str) -> floa
         return metrics.citation_presence_rate
     if metric == "expected_citation_rate":
         return metrics.expected_citation_rate
+    if metric == "citation_source_rate":
+        return metrics.citation_source_rate
     if metric == "required_text_rate":
         return metrics.required_text_rate
     if metric == "forbidden_text_rate":
         return metrics.forbidden_text_rate
     if metric == "supported_claim_rate":
         return metrics.supported_claim_rate
+    if metric == "contradiction_rate":
+        return metrics.contradiction_rate
     if metric == "answer_shape_rate":
         return metrics.answer_shape_rate
     if metric == "evidence_coverage_rate":
@@ -982,9 +1024,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-citation-validity", type=float, default=1.0)
     parser.add_argument("--min-citation-presence", type=float, default=1.0)
     parser.add_argument("--min-expected-citations", type=float, default=1.0)
+    parser.add_argument("--min-citation-sources", type=float, default=1.0)
     parser.add_argument("--min-required-text", type=float, default=1.0)
     parser.add_argument("--min-forbidden-text", type=float, default=1.0)
     parser.add_argument("--min-supported-claims", type=float, default=1.0)
+    parser.add_argument("--min-contradiction-rate", type=float, default=1.0)
     parser.add_argument("--min-answer-shape", type=float, default=1.0)
     parser.add_argument("--min-evidence-coverage", type=float, default=1.0)
     parser.add_argument("--min-required-label", type=float, default=1.0)
@@ -1021,9 +1065,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     citation_validity = cast("float", args.min_citation_validity)
     citation_presence = cast("float", args.min_citation_presence)
     expected_citations = cast("float", args.min_expected_citations)
+    citation_sources = cast("float", args.min_citation_sources)
     required_text = cast("float", args.min_required_text)
     forbidden_text = cast("float", args.min_forbidden_text)
     supported_claims = cast("float", args.min_supported_claims)
+    contradiction_rate = cast("float", args.min_contradiction_rate)
     answer_shape = cast("float", args.min_answer_shape)
     evidence_coverage = cast("float", args.min_evidence_coverage)
     required_label = cast("float", args.min_required_label)
@@ -1040,9 +1086,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         (citation_validity, "--min-citation-validity"),
         (citation_presence, "--min-citation-presence"),
         (expected_citations, "--min-expected-citations"),
+        (citation_sources, "--min-citation-sources"),
         (required_text, "--min-required-text"),
         (forbidden_text, "--min-forbidden-text"),
         (supported_claims, "--min-supported-claims"),
+        (contradiction_rate, "--min-contradiction-rate"),
         (answer_shape, "--min-answer-shape"),
         (evidence_coverage, "--min-evidence-coverage"),
         (required_label, "--min-required-label"),
@@ -1086,9 +1134,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             citation_validity=citation_validity,
             citation_presence=citation_presence,
             expected_citations=expected_citations,
+            citation_sources=citation_sources,
             required_text=required_text,
             forbidden_text=forbidden_text,
             supported_claims=supported_claims,
+            contradiction_rate=contradiction_rate,
             answer_shape=answer_shape,
             evidence_coverage=evidence_coverage,
             required_label=required_label,

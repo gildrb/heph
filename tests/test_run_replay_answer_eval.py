@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from hephaistos.runtime import ChatConfig
@@ -130,9 +131,13 @@ def test_replay_answer_eval_writes_machine_readable_report(tmp_path: Path) -> No
     assert report["base_url"] == "https://example.invalid"
     assert report["output"] == str(output)
     assert report["thresholds"]["answer_pass_rate"] == 1.0
+    assert report["thresholds"]["citation_sources"] == 1.0
+    assert report["thresholds"]["contradiction_rate"] == 1.0
     assert report["thresholds"]["answer_shape"] == 1.0
     assert report["thresholds"]["evidence_coverage"] == 1.0
     assert report["report"]["pass_rate"] == 1.0
+    assert report["report"]["citation_source_rate"] == 1.0
+    assert report["report"]["contradiction_rate"] == 1.0
     assert report["report"]["answer_shape_rate"] == 1.0
     assert report["report"]["evidence_coverage_rate"] == 1.0
     assert report["report"]["domains"] == ["computer-science", "mathematics", "study-methods"]
@@ -200,6 +205,70 @@ def test_replay_answer_eval_gates_generated_answer_quality(tmp_path: Path) -> No
             output,
             ChatConfig(),
             answer_pass_rate=1.0,
+        )
+
+    assert status == 1
+
+
+def test_replay_answer_eval_gates_invalid_citation_sources(tmp_path: Path) -> None:
+    dataset = tmp_path / "replay.jsonl"
+    output = tmp_path / "answers.jsonl"
+    _write_replay_dataset(dataset)
+    fixtures = _fixtures()
+    fixtures[0]["evidence"][0]["kind"] = "tool"
+
+    with patch("scripts.run_replay_answer_eval.replay_answer_benchmark.replay_cases") as replay:
+        replay.return_value = fixtures
+        status = run_replay_answer_eval.run_replay_answer_eval(
+            tmp_path / "armory",
+            dataset,
+            output,
+            ChatConfig(),
+            answer_pass_rate=0.0,
+            citation_validity=0.0,
+            citation_presence=0.0,
+            expected_citations=0.0,
+            citation_sources=1.0,
+            required_text=0.0,
+            forbidden_text=0.0,
+            supported_claims=0.0,
+            contradiction_rate=0.0,
+            answer_shape=0.0,
+            evidence_coverage=0.0,
+            required_label=0.0,
+        )
+
+    assert status == 1
+
+
+def test_replay_answer_eval_gates_contradicted_claims(tmp_path: Path) -> None:
+    dataset = tmp_path / "replay.jsonl"
+    output = tmp_path / "answers.jsonl"
+    _write_replay_dataset(dataset)
+    fixtures = _fixtures()
+    cast("dict[str, object]", fixtures[0])["contradicted_claims"] = [
+        {"text": "priority queue", "evidence_id": "E1"}
+    ]
+
+    with patch("scripts.run_replay_answer_eval.replay_answer_benchmark.replay_cases") as replay:
+        replay.return_value = fixtures
+        status = run_replay_answer_eval.run_replay_answer_eval(
+            tmp_path / "armory",
+            dataset,
+            output,
+            ChatConfig(),
+            answer_pass_rate=0.0,
+            citation_validity=0.0,
+            citation_presence=0.0,
+            expected_citations=0.0,
+            citation_sources=0.0,
+            required_text=0.0,
+            forbidden_text=0.0,
+            supported_claims=0.0,
+            contradiction_rate=1.0,
+            answer_shape=0.0,
+            evidence_coverage=0.0,
+            required_label=0.0,
         )
 
     assert status == 1
