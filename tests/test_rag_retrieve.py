@@ -25,10 +25,12 @@ from hephaistos.rag.retrieve import (
     ScoredChunk,
     TfidfRetriever,
     _apply_negation_precision_penalty,
+    _compound_query_variants,
     _cosine_similarity,
     _create_retriever,
     _normalize_query_for_retrieval,
     _reciprocal_rank_fusion,
+    _retrieve_query_variants,
     _tokenize,
     retrieve,
 )
@@ -62,6 +64,14 @@ def _make_index_with_chunks_at(armory_path: Path, chunks: list[Chunk]) -> Armory
             )
         )
     return index
+
+
+class _VariantRetriever:
+    def __init__(self, ranked_by_query: dict[str, list[ScoredChunk]]) -> None:
+        self._ranked_by_query = ranked_by_query
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
+        return self._ranked_by_query.get(query, [])[:top_k]
 
 
 def test_normalize_query_for_retrieval_preserves_long_prompt_tail_signal() -> None:
@@ -195,6 +205,59 @@ def test_retrieve_can_diversify_duplicate_source_chunks() -> None:
     )
 
     assert {result.chunk.source for result in results} == {"same.md", "other.md"}
+
+
+def test_compound_query_variants_extracts_both_clauses() -> None:
+    variants = _compound_query_variants(
+        "Using the sources, answer both: what rule does integration by parts follow from, "
+        "and what do Fourier transforms decompose periodic signals into?"
+    )
+
+    assert variants[1:] == [
+        "what rule does integration by parts follow from",
+        "what do Fourier transforms decompose periodic signals into",
+    ]
+
+
+def test_retrieve_query_variants_promotes_each_compound_clause_head() -> None:
+    original_query = "answer both calculus and physics"
+    calculus_query = "what rule does integration by parts follow from"
+    physics_query = "what do Fourier transforms decompose periodic signals into"
+    calculus = ScoredChunk(
+        chunk=_make_chunk(
+            "Integration by parts follows from the product rule for derivatives.",
+            "calculus.md",
+            0,
+        ),
+        score=10.0,
+    )
+    calculus_neighbor = ScoredChunk(
+        chunk=_make_chunk("Integration examples and extra calculus notes.", "calculus.md", 1),
+        score=9.0,
+    )
+    physics = ScoredChunk(
+        chunk=_make_chunk(
+            "Fourier transforms decompose periodic signals into frequency components.",
+            "physics.md",
+            0,
+        ),
+        score=7.0,
+    )
+    retriever = _VariantRetriever(
+        {
+            original_query: [calculus, calculus_neighbor],
+            calculus_query: [calculus],
+            physics_query: [physics],
+        }
+    )
+
+    results = _retrieve_query_variants(
+        retriever,
+        [original_query, calculus_query, physics_query],
+        top_k=2,
+    )
+
+    assert [result.chunk.source for result in results] == ["calculus.md", "physics.md"]
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ cross-encoder re-ranking → top-k results.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import cast
 
@@ -88,6 +89,10 @@ _SOURCE_MATCH_MAX_BOOST = 0.36
 _EXPLICIT_HINT_BOOST = 8.0
 _QUOTED_HINT_RE = re.compile(r'"([^"]+)"')
 _SOURCE_SECTION_HINT_RE = re.compile(r'\bsource\s+section\s+"([^"]+)"', re.IGNORECASE)
+_COMPOUND_BOTH_FOCUS_RE = re.compile(r"\bboth\b:?\s*(?P<focus>.+)", re.IGNORECASE)
+_COMPOUND_SPLIT_RE = re.compile(r"\s*,?\s+(?:and|und)\s+|[;]")
+_MIN_COMPOUND_QUERY_TOKENS = 3
+_MAX_COMPOUND_QUERY_PARTS = 4
 _SOURCE_INTENT_TOKENS = {
     "document",
     "documents",
@@ -105,6 +110,14 @@ _SOURCE_INTENT_TOKENS = {
     "source",
     "sources",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class _CompoundMergeEntry:
+    scored_chunk: ScoredChunk
+    best_score: float
+    first_list_index: int
+    best_rank: int
 
 
 class RetrievalMode(StrEnum):
@@ -286,6 +299,28 @@ def _normalize_query_for_retrieval(query: str) -> str:
     return " ".join(deduped) if deduped else query
 
 
+def _compound_query_variants(query: str) -> list[str]:
+    normalized = " ".join(query.split())
+    if not normalized:
+        return [query]
+
+    focus_match = _COMPOUND_BOTH_FOCUS_RE.search(normalized)
+    if focus_match is None:
+        return [normalized]
+
+    raw_focus = focus_match.group("focus")
+    parts = [_clean_compound_query_part(part) for part in _COMPOUND_SPLIT_RE.split(raw_focus)]
+    query_parts = [part for part in parts if len(tokenize(part)) >= _MIN_COMPOUND_QUERY_TOKENS]
+    if len(query_parts) < 2:
+        return [normalized]
+    return [normalized, *query_parts[:_MAX_COMPOUND_QUERY_PARTS]]
+
+
+def _clean_compound_query_part(part: str) -> str:
+    cleaned = part.strip(" \t\n\r,;:.?!")
+    return " ".join(cleaned.split())
+
+
 def _has_negation_marker(text: str) -> bool:
     normalized = f" {text.lower()} "
     return any(marker in normalized for marker in _NEGATION_MARKERS)
@@ -417,6 +452,87 @@ def _apply_explicit_hint_boost(
     return boosted
 
 
+def _retrieve_query_variants(
+    retriever: RetrieverProtocol,
+    query_variants: list[str],
+    top_k: int,
+) -> list[ScoredChunk]:
+    if top_k <= 0:
+        return []
+    if len(query_variants) <= 1:
+        return retriever.retrieve(query_variants[0], top_k)
+
+    ranked_lists = [
+        results for query in query_variants if (results := retriever.retrieve(query, top_k))
+    ]
+    if not ranked_lists:
+        return []
+    if len(ranked_lists) == 1:
+        return ranked_lists[0][:top_k]
+    return _merge_compound_query_results(ranked_lists, top_k)
+
+
+def _merge_compound_query_results(
+    ranked_lists: list[list[ScoredChunk]],
+    top_k: int,
+) -> list[ScoredChunk]:
+    """Merge compound-query results while preserving each clause's top hit."""
+    entries: dict[tuple[str, int], _CompoundMergeEntry] = {}
+    promoted_keys: list[tuple[str, int]] = []
+    promoted_seen: set[tuple[str, int]] = set()
+
+    for list_index, ranked in enumerate(ranked_lists):
+        if list_index > 0 and ranked:
+            promoted_key = _scored_chunk_key(ranked[0])
+            if promoted_key not in promoted_seen:
+                promoted_keys.append(promoted_key)
+                promoted_seen.add(promoted_key)
+        for rank, scored_chunk in enumerate(ranked):
+            key = _scored_chunk_key(scored_chunk)
+            existing = entries.get(key)
+            if existing is None:
+                entries[key] = _CompoundMergeEntry(
+                    scored_chunk=scored_chunk,
+                    best_score=scored_chunk.score,
+                    first_list_index=list_index,
+                    best_rank=rank,
+                )
+                continue
+            entries[key] = _CompoundMergeEntry(
+                scored_chunk=existing.scored_chunk,
+                best_score=max(existing.best_score, scored_chunk.score),
+                first_list_index=min(existing.first_list_index, list_index),
+                best_rank=min(existing.best_rank, rank),
+            )
+
+    promoted_entries = [
+        _entry_to_scored_chunk(entries[key]) for key in promoted_keys if key in entries
+    ]
+    promoted_key_set = set(promoted_keys)
+    remaining_entries = [entry for key, entry in entries.items() if key not in promoted_key_set]
+    remaining_entries.sort(
+        key=lambda entry: (
+            entry.best_score,
+            -entry.best_rank,
+            -entry.first_list_index,
+        ),
+        reverse=True,
+    )
+    merged = [
+        *promoted_entries,
+        *[_entry_to_scored_chunk(entry) for entry in remaining_entries],
+    ]
+    return merged[:top_k]
+
+
+def _scored_chunk_key(scored_chunk: ScoredChunk) -> tuple[str, int]:
+    return scored_chunk.chunk.source, scored_chunk.chunk.index
+
+
+def _entry_to_scored_chunk(entry: _CompoundMergeEntry) -> ScoredChunk:
+    return ScoredChunk(chunk=entry.scored_chunk.chunk, score=entry.best_score)
+
+
 def _diversify_sources(results: list[ScoredChunk], top_k: int) -> list[ScoredChunk]:
     best_by_source: dict[str, ScoredChunk] = {}
     for result in results:
@@ -544,6 +660,7 @@ def retrieve(
         index._retriever_cache[cache_key] = retriever
     requested_top_k = max(0, top_k)
     search_query = _normalize_query_for_retrieval(query)
+    query_variants = _compound_query_variants(search_query)
     retrieval_top_k = (
         requested_top_k * candidate_multiplier if diversify_sources else requested_top_k
     )
@@ -553,7 +670,7 @@ def retrieve(
         requested_top_k,
         retrieval_top_k,
     )
-    results = retriever.retrieve(search_query, retrieval_top_k)
+    results = _retrieve_query_variants(retriever, query_variants, retrieval_top_k)
     results = _apply_negation_precision_penalty(search_query, results)
     results = _apply_source_path_boost(search_query, results)
     results = _apply_explicit_hint_boost(search_query, results)
@@ -586,6 +703,7 @@ def retrieve(
             "fields": {
                 "query_len": len(query),
                 "search_query_len": len(search_query),
+                "query_variants": len(query_variants),
                 "top_k": top_k,
                 "retrieval_top_k": retrieval_top_k,
                 "returned": len(results),
