@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
     from hephaistos.chat.session import ChatSession
 
+_INFO_PANEL_MATERIAL_NAME_WIDTH = 39
+
 
 def require_rich_text() -> type[Text]:
     if _RichText is None:
@@ -141,6 +143,19 @@ def _session_duration(seconds: int) -> str:
     return f"{secs}s"
 
 
+def _truncate_info_panel_value(value: str, *, width: int) -> str:
+    if len(value) <= width:
+        return value
+    if width <= 3:
+        return "." * width
+    return f"{value[: width - 3]}..."
+
+
+def _material_panel_display_name(name: str) -> str:
+    display_name = name.removeprefix("materials/")
+    return _truncate_info_panel_value(display_name, width=_INFO_PANEL_MATERIAL_NAME_WIDTH)
+
+
 def _material_panel_lines(session: ChatSession) -> list[str]:
     files = list(session.source_files)
     if not files:
@@ -149,7 +164,7 @@ def _material_panel_lines(session: ChatSession) -> list[str]:
     lines = ["materials"]
     visible = files[:8]
     for name in visible:
-        display_name = name.removeprefix("materials/")
+        display_name = _material_panel_display_name(name)
         lines.append(f"  @{display_name}")
     if len(files) > len(visible):
         lines.append(f"  +{len(files) - len(visible)} more")
@@ -203,12 +218,14 @@ def info_panel_default_text(session: ChatSession, *, session_seconds: int = 0) -
         detail = f"+{hidden_material_count} more"
         detail_start = plain.index(detail)
         text.stylize(palette.text_muted, detail_start, detail_start + len(detail))
+    search_from = 0
     for name in session.source_files:
-        display_name = name.removeprefix("materials/")
+        display_name = _material_panel_display_name(name)
         token = f"@{display_name}"
-        idx = plain.find(token)
+        idx = plain.find(token, search_from)
         if idx == -1:
             continue
+        search_from = idx + len(token)
         style = (
             palette.status_error_text
             if name in session.disabled_source_files

@@ -431,10 +431,6 @@ class TuiTranscriptMixin:
     def _refresh_footer_hints(self: _TranscriptHost) -> None:
         self._refresh_completion_position()
         hints = self.query_one("#footer-hints", Static)
-        if self.busy:
-            tui_module = sys.modules["hephaistos.tui"]
-            hints.update(tui_module._footer_hints_text(self.session, busy=True))
-            return
         if self._armory_inline_active:
             hints.update(
                 sys.modules["hephaistos.tui"]._armory_footer_hints_text(
@@ -442,6 +438,13 @@ class TuiTranscriptMixin:
                     filtering=bool(self._armory_filter),
                 )
             )
+            return
+        if self._materials_inline_active:
+            hints.update("")
+            return
+        if self.busy:
+            tui_module = sys.modules["hephaistos.tui"]
+            hints.update(tui_module._footer_hints_text(self.session, busy=True))
             return
         tui_module = sys.modules["hephaistos.tui"]
         hints.update(tui_module._footer_hints_text(self.session, busy=self.busy))

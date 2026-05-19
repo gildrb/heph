@@ -183,6 +183,8 @@ class _InlineFlowHost(Protocol):
 
     def _refresh_status(self, state: str) -> None: ...
 
+    def _sync_busy_to_current_session(self, *, idle_status: str = "ready") -> None: ...
+
     def _refresh_footer_hints(self) -> None: ...
 
     def _refresh_completion_position(self) -> None: ...
@@ -942,7 +944,7 @@ class TuiInlineFlowMixin:
             elif message.role == "assistant":
                 self._append_entry(message.content, "markdown")
         self._close_inline_flow(f"resumed session {resumed.session_id}")
-        self._refresh_status("ready")
+        self._sync_busy_to_current_session()
         self._update_info_panel()
 
     def _prompt_inline_text(self: _InlineFlowHost, name: str, step: str, placeholder: str) -> None:

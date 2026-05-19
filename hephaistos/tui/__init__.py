@@ -114,6 +114,7 @@ from hephaistos.tui.status import config_error, status_lines
 from hephaistos.tui.streaming import run_tui_turn
 from hephaistos.tui.style import _tui_css
 from hephaistos.tui.transcript import TuiTranscriptMixin
+from hephaistos.tui.turns import TuiTurnMixin
 
 if TYPE_CHECKING:
     from rich.text import Text
@@ -222,6 +223,7 @@ class HephaistosTui(
     TuiArmoryMixin,
     TuiMaterialsMixin,
     TuiTranscriptMixin,
+    TuiTurnMixin,
     App[None],
 ):
     BINDINGS: ClassVar[list[Binding]] = [
@@ -248,6 +250,9 @@ class HephaistosTui(
         self.session = active_session
         self.state = runtime_state
         self.abort_event = threading.Event()
+        self._active_turns: dict[str, threading.Event] = {}
+        self._active_turn_sessions: dict[str, ChatSession] = {}
+        self._turn_sessions: dict[str, ChatSession] = {}
         self.busy = False
         self.completion_engine = SlashCompletionEngine()
         self.completion_candidates: list[CompletionCandidate] = []
@@ -629,11 +634,6 @@ class HephaistosTui(
         self._hide_completions()
         if route is _TuiInputRoute.EMPTY:
             return
-        if self.busy:
-            self.session.steering.enqueue(value)
-            self._record_history(value)
-            self._append_notice(f"Steering queued: {value}")
-            return
         if route is _TuiInputRoute.MATERIALS:
             self._record_history(value)
             self._open_materials_inline(value)
@@ -656,6 +656,15 @@ class HephaistosTui(
             self._append_user(value, mark_working=False)
             self._handle_inline_command(value)
             return
+        if self.busy:
+            if route is _TuiInputRoute.CHAT:
+                self.session.steering.enqueue(value)
+                self._record_history(value)
+                self._append_notice(f"Steering queued: {value}")
+            else:
+                self._record_history(value)
+                self._append_notice(f"Command unavailable while this answer is running: {value}")
+            return
         if route is _TuiInputRoute.EXTERNAL:
             self._record_history(value)
             self._handle_external_input(value)
@@ -674,16 +683,30 @@ class HephaistosTui(
             return
         self._record_history(value)
         self._append_user(value)
+        turn_session = self.session
+        turn_key = self._turn_key_for_session(turn_session)
+        turn_abort_event = threading.Event()
+        self._active_turns[turn_key] = turn_abort_event
+        self._active_turn_sessions[turn_key] = turn_session
+        self._turn_sessions[turn_key] = turn_session
+        self.abort_event = turn_abort_event
         self.busy = True
-        self.abort_event.clear()
         self._refresh_status("assistant working")
-        self.run_worker(lambda: self._run_turn(value), thread=True)
+        self._refresh_footer_hints()
+        self.run_worker(
+            lambda: self._run_turn(turn_session, turn_key, turn_abort_event, value),
+            thread=True,
+        )
 
     def action_cancel_turn(self) -> None:
-        if self.busy:
-            self.abort_event.set()
-            self._stop_thinking_animation()
-            self._append_notice("Interrupt requested.")
+        abort_event = self._active_turns.get(self._current_turn_key())
+        if abort_event is None and self.busy:
+            abort_event = self.abort_event
+        if abort_event is None:
+            return
+        abort_event.set()
+        self._stop_thinking_animation()
+        self._append_notice("Interrupt requested.")
 
     def action_clear_transcript(self) -> None:
         self.state.transcript.clear()
@@ -783,13 +806,23 @@ class HephaistosTui(
         result = NewCommand().handle(self.session, "")
         if result.new_session is not None:
             self.session = result.new_session
+            self._turn_sessions[self._turn_key_for_session(self.session)] = self.session
             self.state.transcript.clear()
             self.query_one("#transcript", RichLog).clear()
             self._append_entry(_new_chat_card_text(), "startup")
             self._append_notice("New chat started.")
-            self._refresh_status("ready")
             self._focused_msg_index = None
+            self._sync_busy_to_current_session()
             self._update_info_panel()
+
+    def _replace_transcript_from_session(self) -> None:
+        self.state.transcript.clear()
+        self.query_one("#transcript", RichLog).clear()
+        for message in self.session.conversation.messages:
+            if message.role == "user":
+                self._append_entry(message.content, "user")
+            elif message.role == "assistant":
+                self._append_entry(message.content, "markdown")
 
     def _handle_external_input(self, value: str) -> None:
         if value.startswith("!"):
@@ -1009,45 +1042,6 @@ class HephaistosTui(
 
     def action_evidence(self) -> None:
         self._handle_external_input("/evidence")
-
-    def _run_turn(self, user_input: str) -> None:
-        last_activity_line = ""
-
-        def on_reply(reply: str) -> None:
-            self.call_from_thread(self._append_assistant_reply, reply)
-            if menu := overview_topic_menu(reply):
-                self.call_from_thread(self._open_study_topic_flow, menu.options, menu.prompts)
-
-        def on_notice(notice: str) -> None:
-            self.call_from_thread(self._append_notice, notice)
-
-        def on_progress(progress: str) -> None:
-            self.call_from_thread(self._refresh_status, f"assistant {progress}")
-
-        def on_activity(line: str) -> None:
-            nonlocal last_activity_line
-            if line == last_activity_line:
-                return
-            last_activity_line = line
-            self.call_from_thread(self._append_activity, line)
-
-        def on_error(error: str) -> None:
-            self.call_from_thread(self._append_error, error)
-
-        def on_finish() -> None:
-            self.call_from_thread(self._finish_turn)
-
-        run_tui_turn(
-            self.session,
-            user_input,
-            self.abort_event,
-            on_reply=on_reply,
-            on_notice=on_notice,
-            on_error=on_error,
-            on_finish=on_finish,
-            on_progress=on_progress,
-            on_activity=on_activity,
-        )
 
     def _completion_menu_visible(self) -> bool:
         suggestions = self.query_one("#suggestions", OptionList)

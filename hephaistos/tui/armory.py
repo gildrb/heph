@@ -48,6 +48,8 @@ class _ArmoryHost(Protocol):
     _armory_mode: str
     _armory_creating: bool
     _armory_entries: list[_DirEntry]
+    _active_turn_sessions: dict[str, ChatSession]
+    _turn_sessions: dict[str, ChatSession]
     _sidebar_width_visible: bool
     _focused_msg_index: int | None
     session: ChatSession
@@ -69,6 +71,8 @@ class _ArmoryHost(Protocol):
 
     def _set_sidebar_visible(self, visible: bool) -> None: ...
 
+    def _turn_key_for_armory_path(self, armory_path: Path) -> str: ...
+
     def _hide_completions(self) -> None: ...
 
     def _refresh_footer_hints(self) -> None: ...
@@ -76,6 +80,10 @@ class _ArmoryHost(Protocol):
     def _schedule_transcript_reflow(self) -> None: ...
 
     def _refresh_status(self, state: str) -> None: ...
+
+    def _sync_busy_to_current_session(self, *, idle_status: str = "ready") -> None: ...
+
+    def _replace_transcript_from_session(self) -> None: ...
 
     def _update_info_panel(self) -> None: ...
 
@@ -133,9 +141,12 @@ def _sidebar_text(content: str) -> str:
     return "\n".join(f"  {line}" if line else "" for line in content.splitlines())
 
 
-def _armory_entry_text(entry: _DirEntry, *, selected: bool) -> str | Text:
+_ACTIVE_TURN_BADGE = "  working"
+
+
+def _armory_entry_text(entry: _DirEntry, *, selected: bool, active: bool = False) -> str | Text:
     if _RichText is None:
-        return entry.label
+        return f"{entry.label}{_ACTIVE_TURN_BADGE if active else ''}"
     if not entry.label:
         return ""
 
@@ -155,6 +166,9 @@ def _armory_entry_text(entry: _DirEntry, *, selected: bool) -> str | Text:
     else:
         style = f"bold {palette.brand_primary}" if selected else palette.text_primary
         text.append(label, style=style)
+    if active:
+        badge_style = f"bold {palette.brand_primary}" if selected else palette.brand_primary
+        text.append(_ACTIVE_TURN_BADGE, style=badge_style)
     return text
 
 
@@ -258,7 +272,15 @@ class TuiArmoryMixin:
             highlighted = current.highlighted
         current.set_options(
             [
-                _armory_entry_text(entry, selected=index == highlighted)
+                _armory_entry_text(
+                    entry,
+                    selected=index == highlighted,
+                    active=(
+                        entry.path is not None
+                        and self._turn_key_for_armory_path(entry.path)
+                        in self._active_turn_sessions
+                    ),
+                )
                 for index, entry in enumerate(self._armory_entries)
             ]
         )
@@ -324,6 +346,8 @@ class TuiArmoryMixin:
             content = entry.label or ""
         else:
             content = armory_detail(entry.path)
+            if self._turn_key_for_armory_path(entry.path) in self._active_turn_sessions:
+                content = f"{content}\n\nassistant working"
         preview.update(content)
         sidebar.update(_sidebar_text(content))
 
@@ -416,14 +440,23 @@ class TuiArmoryMixin:
             return
         previous = self.session
         tui_module = sys.modules["hephaistos.tui"]
-        self.session = tui_module.start_fresh_session(self.session, path)
+        turn_key = self._turn_key_for_armory_path(path)
+        reusable_session = self._active_turn_sessions.get(turn_key) or self._turn_sessions.get(
+            turn_key
+        )
+        if reusable_session is None:
+            self.session = tui_module.start_fresh_session(self.session, path)
+        else:
+            self.session = reusable_session
         if self.session is previous:
             self.query_one("#armory-error-inline", Static).update(f"Could not open armory: {path}")
             return
         set_last_armory(path)
+        self._turn_sessions[turn_key] = self.session
         self._close_armory_inline()
-        self._refresh_status("ready")
         self._focused_msg_index = None
+        self._replace_transcript_from_session()
+        self._sync_busy_to_current_session()
         self._update_info_panel()
         self._append_notice(f"Using armory {path}")
         src_count = self.session.source_file_count or 0

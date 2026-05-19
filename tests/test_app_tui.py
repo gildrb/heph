@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
@@ -76,6 +77,19 @@ def _plain_session() -> ChatSession:
         conversation=conversation,
         session_id="session-test",
     )
+
+
+def _mark_active_turn(
+    app: tui.HephaistosTui,
+    session: ChatSession | None = None,
+) -> threading.Event:
+    active_session = session or app.session
+    event = threading.Event()
+    turn_key = app._turn_key_for_session(active_session)
+    app._active_turns[turn_key] = event
+    app._active_turn_sessions[turn_key] = active_session
+    app._sync_busy_to_current_session()
+    return event
 
 
 def _configured_status_session() -> ChatSession:
@@ -331,6 +345,23 @@ def test_secondary_chrome_details_share_darker_tint(
         assert effective_style(panel, label) == palette.text_muted
 
     assert palette.text_muted != palette.text_secondary
+
+
+def test_info_panel_material_paths_are_truncated_to_one_line() -> None:
+    session = _plain_session()
+    session.source_files = (
+        "materials/public-academic/mit-missing-semester/2020/command-line/index.html",
+        "materials/short.md",
+    )
+
+    panel = tui._info_panel_default_text(session)
+    material_lines = [line for line in panel.plain.splitlines() if line.strip().startswith("@")]
+
+    assert len(material_lines) == 2
+    assert material_lines[0].endswith("...")
+    assert len(material_lines[0]) <= 44
+    assert "command-line/index.html" not in material_lines[0]
+    assert material_lines[1].strip() == "@short.md"
 
 
 def test_high_contrast_routine_labels_use_neutral_emphasis() -> None:
@@ -1637,8 +1668,7 @@ def test_tui_slash_suggestion_uses_canonical_materials_command() -> None:
 
 def test_info_panel_shows_session_duration_and_material_names() -> None:
     session = _plain_session()
-    long_pdf = "materials/very-important-full-pdf-name-for-exam-review.pdf"
-    session.source_files = (long_pdf, "materials/calculus.md")
+    session.source_files = ("materials/exam-review.pdf", "materials/calculus.md")
     session.source_file_count = 2
 
     panel = tui._info_panel_default_text(
@@ -1656,7 +1686,7 @@ def test_info_panel_shows_session_duration_and_material_names() -> None:
     assert "/exam active recall" in panel.plain
     assert "/priority plan focus" in panel.plain
     assert "/remind due review" in panel.plain
-    assert "@very-important-full-pdf-name-for-exam-review.pdf" in panel.plain
+    assert "@exam-review.pdf" in panel.plain
     assert "@calculus.md" in panel.plain
     assert "☑" not in panel.plain
     assert "☐" not in panel.plain
@@ -3138,6 +3168,130 @@ def test_command_input_executes_without_user_transcript(
     asyncio.run(check_command_input())
 
 
+def test_busy_submit_routes_commands_without_steering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    calls: list[tuple[str, str]] = []
+
+    def record_materials(value: str) -> None:
+        calls.append(("materials", value))
+
+    def record_sessions(value: str) -> None:
+        calls.append(("sessions", value))
+
+    def record_new() -> None:
+        calls.append(("new", ""))
+
+    def record_armory(value: str) -> None:
+        calls.append(("armory", value))
+
+    def record_inline(value: str) -> None:
+        calls.append(("inline", value))
+
+    def record_external(value: str) -> None:
+        calls.append(("external", value))
+
+    async def check_busy_dispatch() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            _mark_active_turn(app)
+            monkeypatch.setattr(app, "_open_materials_inline", record_materials)
+            monkeypatch.setattr(app, "_handle_sessions_command", record_sessions)
+            monkeypatch.setattr(app, "_handle_new", record_new)
+            monkeypatch.setattr(app, "_handle_armory_browser", record_armory)
+            monkeypatch.setattr(app, "_handle_inline_command", record_inline)
+            monkeypatch.setattr(app, "_handle_external_input", record_external)
+            composer = app.query_one("#composer", tui.Input)
+
+            for value in (
+                "/materials notes",
+                "/sessions",
+                "/new",
+                "/armory",
+                "/settings",
+                "/models",
+            ):
+                composer.value = value
+                await pilot.press("enter")
+                await pilot.pause()
+
+            composer.value = "/help"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            composer.value = "extra context"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert calls == [
+                ("materials", "/materials notes"),
+                ("sessions", "/sessions"),
+                ("new", ""),
+                ("armory", "/armory"),
+                ("inline", "/settings"),
+                ("inline", "/models"),
+            ]
+            assert any(
+                "Command unavailable while this answer is running: /help" in entry.content
+                for entry in app.state.transcript
+            )
+            assert any(
+                "Steering queued: extra context" in entry.content for entry in app.state.transcript
+            )
+            assert not any("Steering queued: /" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_busy_dispatch())
+
+
+def test_busy_materials_and_settings_remain_interactive() -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    session = _plain_session()
+    session.source_files = ("materials/biology.pdf",)
+    session.source_file_count = 1
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_busy_inline_commands() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            _mark_active_turn(app)
+            composer = app.query_one("#composer", tui.Input)
+
+            composer.value = "/materials"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._materials_inline_active is True
+            assert app.busy is True
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app._materials_inline_active is False
+            assert app.busy is True
+
+            composer.value = "/settings"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._inline_flow.active is True
+            assert app._inline_flow.name == "settings"
+            assert app.busy is True
+            assert not any("Steering queued: /" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_busy_inline_commands())
+
+
 def test_inline_command_output_has_command_boundary() -> None:
     if tui.Input is None:
         pytest.skip("Textual is not installed")
@@ -4134,6 +4288,155 @@ def test_handle_armory_browser_switches_to_selected_armory(
             assert app.focused is composer
 
     asyncio.run(check_switch())
+
+
+def test_busy_turn_allows_switching_armories_and_starting_another_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    armory_a = tmp_path / "alpha"
+    armory_b = tmp_path / "beta"
+    initialize(armory_a)
+    initialize(armory_b)
+    session_a = _configured_status_session()
+    session_a.armory_path = armory_a
+    session_b = _configured_status_session()
+    session_b.session_id = "session-beta"
+    session_b.armory_path = armory_b
+    app = tui.HephaistosTui(
+        session_a,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+    workers: list[Callable[[], None]] = []
+
+    def fake_start_fresh(current: ChatSession, selected: Path | None) -> ChatSession:
+        assert current is session_a
+        assert selected == armory_b
+        return session_b
+
+    def fake_run_worker(work: Callable[[], None], *, thread: bool) -> None:
+        assert thread is True
+        workers.append(work)
+
+    async def check_parallel_armory_turns() -> None:
+        async with typed_app.run_test(size=(120, 24)) as pilot:
+            monkeypatch.setattr(tui, "start_fresh_session", fake_start_fresh)
+            monkeypatch.setattr(app, "run_worker", fake_run_worker)
+            _mark_active_turn(app, session_a)
+            assert app.busy is True
+
+            app._open_selected_armory(armory_b)
+            assert app.session is session_b
+            assert app.busy is False
+
+            composer = app.query_one("#composer", tui.Input)
+            composer.value = "What is in beta?"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert workers
+            assert app.busy is True
+            assert app._turn_key_for_session(session_a) in app._active_turns
+            assert app._turn_key_for_session(session_b) in app._active_turns
+
+            app._open_selected_armory(armory_a)
+            assert app.session is session_a
+            assert app.busy is True
+            app._finish_background_turn(app._turn_key_for_session(session_a), session_a)
+            app._finish_background_turn(app._turn_key_for_session(session_b), session_b)
+
+    asyncio.run(check_parallel_armory_turns())
+
+
+def test_finished_background_turn_is_restored_when_reopening_armory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    armory_a = tmp_path / "alpha"
+    armory_b = tmp_path / "beta"
+    initialize(armory_a)
+    initialize(armory_b)
+    session_a = _configured_status_session()
+    session_a.armory_path = armory_a
+    session_b = _configured_status_session()
+    session_b.session_id = "session-beta"
+    session_b.armory_path = armory_b
+    app = tui.HephaistosTui(
+        session_b,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    def fail_start_fresh(current: ChatSession, selected: Path | None) -> ChatSession:
+        raise AssertionError(f"should reuse background session for {selected}")
+
+    async def check_reopen_background_session() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            monkeypatch.setattr(tui, "start_fresh_session", fail_start_fresh)
+            _mark_active_turn(app, session_a)
+            session_a.conversation.add("user", "Alpha prompt")
+            session_a.conversation.add("assistant", "Alpha answer")
+            app._finish_background_turn(app._turn_key_for_session(session_a), session_a)
+
+            app._open_selected_armory(armory_a)
+
+            assert app.session is session_a
+            assert app.busy is False
+            assert any("Alpha prompt" in entry.content for entry in app.state.transcript)
+            assert any("Alpha answer" in entry.content for entry in app.state.transcript)
+
+    asyncio.run(check_reopen_background_session())
+
+
+def test_armory_inline_marks_armories_with_running_turns(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(tmp_path))
+    armory = tmp_path / "study"
+    initialize(armory)
+    session = _plain_session()
+    session.armory_path = armory
+    app = tui.HephaistosTui(
+        session,
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_running_badge() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            _mark_active_turn(app, session)
+            app._open_armory_inline("manage")
+            current = app.query_one("#armory-current-inline", tui.OptionList)
+            index = next(
+                index for index, entry in enumerate(app._armory_entries) if entry.path == armory
+            )
+            current.highlighted = index
+            app._render_armory_options(index)
+            app._update_armory_preview()
+
+            prompt = current.get_option_at_index(index).prompt
+            prompt_text = prompt.plain if isinstance(prompt, Text) else str(prompt)
+            preview = app.query_one("#armory-preview-inline", tui.Static)
+            assert "working" in prompt_text
+            assert "assistant working" in str(preview.render())
+
+    asyncio.run(check_running_badge())
 
 
 def test_click_refocuses_composer() -> None:

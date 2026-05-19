@@ -61,9 +61,13 @@ class _MaterialsHost(Protocol):
 
     def _hide_completions(self) -> None: ...
 
+    def _refresh_footer_hints(self) -> None: ...
+
     def _schedule_transcript_reflow(self) -> None: ...
 
     def _refresh_status(self, state: str) -> None: ...
+
+    def _sync_busy_to_current_session(self, *, idle_status: str = "ready") -> None: ...
 
     def _update_info_panel(self) -> None: ...
 
@@ -136,6 +140,7 @@ class TuiMaterialsMixin:
         composer.placeholder = "Filter materials..."
         self._hide_completions()
         self._refresh_materials_inline()
+        self._refresh_footer_hints()
         material_list = self.query_one("#materials-list", OptionList)
         material_list.focus()
         self.set_focus(material_list)
@@ -153,7 +158,7 @@ class TuiMaterialsMixin:
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = 'Ask anything... "Summarize the risks in this document set"'
-        self._refresh_status("ready")
+        self._sync_busy_to_current_session()
         self._update_info_panel()
         composer.focus()
         self.set_focus(composer)
