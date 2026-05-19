@@ -45,6 +45,21 @@ RUNTIME_BENCHMARK_PATH_MARKERS: Final[tuple[str, ...]] = (
     "/.artifacts/",
     "benchmarks/",
 )
+DYNAMIC_IMPORT_CALL_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "__import__",
+        "importlib.import_module",
+        "importlib.util.module_from_spec",
+        "importlib.util.spec_from_file_location",
+    }
+)
+DYNAMIC_IMPORT_MODULE_TARGET_CALLS: Final[frozenset[str]] = frozenset(
+    {
+        "__import__",
+        "importlib.import_module",
+        "importlib.util.spec_from_file_location",
+    }
+)
 ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
     "hephaistos/app/cli.py": frozenset(
         {
@@ -210,6 +225,39 @@ def _module_is_allowed(module: str | None, allowed: frozenset[str]) -> bool:
     return any(module == item or module.startswith(f"{item}.") for item in allowed)
 
 
+def _literal_string_keyword(node: ast.Call, keyword_name: str) -> str | None:
+    for keyword in node.keywords:
+        if keyword.arg != keyword_name:
+            continue
+        if isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str):
+            return keyword.value.value
+    return None
+
+
+def _literal_string_argument(node: ast.Call, keyword_name: str) -> str | None:
+    if node.args:
+        first_arg = node.args[0]
+        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+            return first_arg.value
+    return _literal_string_keyword(node, keyword_name)
+
+
+def _literal_dynamic_import_target(node: ast.Call, dotted: str | None) -> str | None:
+    if dotted not in DYNAMIC_IMPORT_MODULE_TARGET_CALLS:
+        return None
+    module = _literal_string_argument(node, "name")
+    if module is None:
+        return None
+    if dotted == "importlib.import_module" and module.startswith("."):
+        package = _literal_string_keyword(node, "package")
+        if package is not None:
+            stripped_module = module.lstrip(".")
+            if stripped_module:
+                return f"{package}.{stripped_module}"
+            return package
+    return module
+
+
 class PolicyVisitor(ast.NodeVisitor):
     def __init__(self, rel_path: str) -> None:
         self.rel_path = rel_path
@@ -307,15 +355,13 @@ class PolicyVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         dotted = _dotted_name(node.func)
-        if dotted in {
-            "__import__",
-            "importlib.import_module",
-            "importlib.util.module_from_spec",
-            "importlib.util.spec_from_file_location",
-        }:
+        if dotted in DYNAMIC_IMPORT_CALL_NAMES:
             allowed = ALLOWED_DYNAMIC_IMPORT_CALLS.get(self.rel_path, frozenset())
             if dotted not in allowed:
                 self._add(node, f"dynamic import helper `{dotted}` is forbidden here")
+            module = _literal_dynamic_import_target(node, dotted)
+            if module is not None:
+                self._check_runtime_benchmark_import(node, module)
 
         if dotted in {"cast", "typing.cast"} and node.args:
             first_arg = node.args[0]

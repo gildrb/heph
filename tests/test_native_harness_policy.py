@@ -191,6 +191,39 @@ def test_repo_policy_rejects_product_runtime_imports_from_benchmark_only_code() 
     assert "benchmark-only module `benchmarks.academic`" in rendered
 
 
+def test_repo_policy_rejects_allowlisted_runtime_dynamic_benchmark_imports() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "import importlib",
+                'importlib.import_module("scripts.run_external_benchmarks")',
+                'importlib.import_module("benchmarks.academic.fixture")',
+            )
+        ),
+        "hephaistos/cli/main.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "benchmark-only module `scripts.run_external_benchmarks`" in rendered
+    assert "benchmark-only module `benchmarks.academic.fixture`" in rendered
+
+
+def test_repo_policy_allows_allowlisted_runtime_dynamic_product_imports() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "import importlib",
+                'importlib.import_module("hephaistos.commands")',
+            )
+        ),
+        "hephaistos/cli/main.py",
+    )
+
+    assert violations == []
+
+
 def test_repo_policy_rejects_product_runtime_references_to_generated_artifacts() -> None:
     violations = check_repo_policies._check_source(
         "\n".join(
