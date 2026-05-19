@@ -33,6 +33,7 @@ from scripts import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_PRIVATE_SUITE_RELATIVE = Path("benchmarks") / "academic"
 FORBIDDEN_FRAMEWORKS = ("langchain", "langgraph", "llama-index", "llama_index")
 FORBIDDEN_FIXTURE_COURSE_TERMS = re.compile(
     r"\b(?:"
@@ -142,6 +143,10 @@ def _file_exists(path: str) -> AuditItem:
     return AuditItem(path, status, str(target))
 
 
+def _default_private_suite() -> Path:
+    return REPO_ROOT / DEFAULT_PRIVATE_SUITE_RELATIVE
+
+
 def _model_matrix_example_item() -> AuditItem:
     requirement = "Model matrix example declares local/frontier responsibilities"
     path = _repo_file("benchmarks/model-matrix.example.json")
@@ -228,9 +233,14 @@ def _script_generality_item() -> AuditItem:
     return AuditItem(requirement, "covered", str(scripts_root))
 
 
-def _deterministic_chat_event_suite_item() -> AuditItem:
+def _path_exists_item(requirement: str, path: Path) -> AuditItem:
+    status = "covered" if path.exists() else "missing"
+    return AuditItem(requirement, status, str(path))
+
+
+def _deterministic_chat_event_suite_item(suite: Path | None = None) -> AuditItem:
     requirement = "Deterministic suite verifies public chat JSONL harness events"
-    suite = _repo_file("benchmarks/academic")
+    suite = _default_private_suite() if suite is None else suite
     manifest_path = suite / "manifest.json"
     events_path = suite / "chat_events.jsonl"
     runtime_events_path = suite / "chat_events_runtime.jsonl"
@@ -326,12 +336,16 @@ def _deterministic_chat_event_suite_item() -> AuditItem:
     )
 
 
-def _deterministic_benchmark_suite_item() -> AuditItem:
+def _deterministic_benchmark_suite_item(suite: Path | None = None) -> AuditItem:
     requirement = "Deterministic academic benchmark suite passes"
+    suite = _default_private_suite() if suite is None else suite
     try:
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            status = run_benchmark_suite.run_suite()
+            if suite.expanduser().resolve() == run_benchmark_suite.DEFAULT_SUITE.resolve():
+                status = run_benchmark_suite.run_suite()
+            else:
+                status = run_benchmark_suite.run_suite(suite_path=suite)
     except (OSError, TypeError, ValueError) as exc:
         return AuditItem(requirement, "missing", f"benchmark suite failed: {exc}")
     if status != 0:
@@ -339,12 +353,12 @@ def _deterministic_benchmark_suite_item() -> AuditItem:
     return AuditItem(
         requirement,
         "covered",
-        _deterministic_suite_evidence(),
+        _deterministic_suite_evidence(suite),
     )
 
 
-def _deterministic_suite_evidence() -> str:
-    suite = run_benchmark_suite.DEFAULT_SUITE
+def _deterministic_suite_evidence(suite: Path | None = None) -> str:
+    suite = _default_private_suite() if suite is None else suite
     academic_items_dataset = suite / "academic_items.jsonl"
     if not academic_items_dataset.is_file():
         return str(suite)
@@ -489,9 +503,10 @@ def _real_chat_expectation_evidence_failure(expectation: Mapping[str, object]) -
     for index, raw_item in enumerate(evidence, start=1):
         if not isinstance(raw_item, dict):
             return f"real chat event expectation evidence item {index} must be an object"
-        evidence_id = raw_item.get("id")
-        source = raw_item.get("source")
-        text = raw_item.get("text")
+        item = cast("Mapping[str, object]", raw_item)
+        evidence_id = item.get("id")
+        source = item.get("source")
+        text = item.get("text")
         if not isinstance(evidence_id, str) or not evidence_id.strip():
             return f"real chat event expectation evidence item {index} missing id"
         if not isinstance(source, str) or not source.strip():
@@ -1531,11 +1546,13 @@ def _child_metric_mismatches(
 
 def audit_completion(
     *,
+    suite_path: Path | None = None,
     real_manifest: Path | None = None,
     real_preflight_report: Path | None = None,
     model_matrix_report: Path | None = None,
 ) -> HarnessCompletionAudit:
     """Return completion status for the competitive academic harness objective."""
+    suite = (_default_private_suite() if suite_path is None else suite_path).expanduser().resolve()
     items = [
         _framework_policy_item(),
         _runtime_generality_item(),
@@ -1550,9 +1567,11 @@ def audit_completion(
         _file_exists("scripts/extract_chat_event_expectation.py"),
         _file_exists("scripts/materialize_public_corpus.py"),
         _file_exists("scripts/run_model_eval_matrix.py"),
-        _file_exists("benchmarks/academic/manifest.json"),
-        _deterministic_benchmark_suite_item(),
-        _deterministic_chat_event_suite_item(),
+        _path_exists_item(
+            "Private deterministic benchmark suite manifest", suite / "manifest.json"
+        ),
+        _deterministic_benchmark_suite_item(suite),
+        _deterministic_chat_event_suite_item(suite),
         _model_matrix_example_item(),
         _real_corpus_item(real_manifest),
         _real_chat_event_item(real_manifest),
@@ -1649,6 +1668,12 @@ def _next_steps(missing: tuple[str, ...]) -> tuple[str, ...]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--suite",
+        type=Path,
+        default=None,
+        help=("Private local benchmark suite directory; defaults to ignored benchmarks/academic."),
+    )
     parser.add_argument("--real-manifest", type=Path)
     parser.add_argument("--real-preflight-report", type=Path)
     parser.add_argument("--model-matrix-report", type=Path)
@@ -1659,11 +1684,13 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    suite = cast("Path | None", args.suite)
     real_manifest = cast("Path | None", args.real_manifest)
     real_preflight_report = cast("Path | None", args.real_preflight_report)
     model_matrix_report = cast("Path | None", args.model_matrix_report)
     json_report = cast("Path | None", args.json_report)
     report = audit_completion(
+        suite_path=suite,
         real_manifest=real_manifest.expanduser().resolve() if real_manifest else None,
         real_preflight_report=(
             real_preflight_report.expanduser().resolve() if real_preflight_report else None

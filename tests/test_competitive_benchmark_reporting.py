@@ -5,10 +5,16 @@ import json
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from scripts import benchmark_public_targets, claim_report_envelope, generate_benchmark_summary
 
 ROOT = Path(__file__).resolve().parent.parent
 PROMPT_PATH = ROOT / "benchmarks" / "model-evaluation-prompt.md"
+pytestmark = pytest.mark.skipif(
+    not PROMPT_PATH.is_file(),
+    reason="private benchmark prompt is local-only",
+)
 
 
 def _write_report(path: Path, payload: dict[str, object]) -> None:

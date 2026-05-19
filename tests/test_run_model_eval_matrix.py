@@ -5,7 +5,11 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from scripts import run_model_eval_matrix
+
+PRIVATE_MODEL_MATRIX_EXAMPLE = Path("benchmarks/model-matrix.example.json")
 
 
 def _write_replay_dataset(path: Path) -> None:
@@ -123,9 +127,9 @@ def _write_candidate_report(
 
 
 def test_example_model_matrix_loads_and_covers_required_groups() -> None:
-    candidates = run_model_eval_matrix.load_candidates(
-        Path("benchmarks/model-matrix.example.json")
-    )
+    if not PRIVATE_MODEL_MATRIX_EXAMPLE.is_file():
+        pytest.skip("private model matrix example is local-only")
+    candidates = run_model_eval_matrix.load_candidates(PRIVATE_MODEL_MATRIX_EXAMPLE)
 
     report = run_model_eval_matrix.validate_model_eval_matrix(candidates)
 

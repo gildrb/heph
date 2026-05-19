@@ -9,12 +9,17 @@ import pytest
 from scripts import run_benchmark_suite, validate_benchmark_manifest
 
 PUBLIC_ACADEMIC_MANIFEST = Path("benchmarks/public-academic/manifest.json")
+PRIVATE_DEFAULT_MANIFEST = run_benchmark_suite.DEFAULT_SUITE / "manifest.json"
+
+
+def _skip_without_private_default_suite() -> None:
+    if not PRIVATE_DEFAULT_MANIFEST.is_file():
+        pytest.skip("private benchmark suite is local-only")
 
 
 def test_default_manifest_passes() -> None:
-    report = validate_benchmark_manifest.validate_manifest(
-        run_benchmark_suite.DEFAULT_SUITE / "manifest.json"
-    )
+    _skip_without_private_default_suite()
+    report = validate_benchmark_manifest.validate_manifest(PRIVATE_DEFAULT_MANIFEST)
 
     assert report.corpus_kind == "synthetic-snippets"
     assert "mathematics" in report.domains
@@ -27,6 +32,8 @@ def test_default_manifest_passes() -> None:
 
 
 def test_public_academic_manifest_passes_strict_schema() -> None:
+    if not PUBLIC_ACADEMIC_MANIFEST.is_file():
+        pytest.skip("private public-academic manifest is local-only")
     report = validate_benchmark_manifest.validate_manifest(PUBLIC_ACADEMIC_MANIFEST)
 
     assert report.corpus_kind == "public-academic"
@@ -76,6 +83,7 @@ def test_public_academic_manifest_rejects_duplicate_ids(tmp_path: Path) -> None:
 
 
 def test_manifest_rejects_missing_document(tmp_path: Path) -> None:
+    _skip_without_private_default_suite()
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     manifest_path = suite / "manifest.json"
@@ -89,6 +97,7 @@ def test_manifest_rejects_missing_document(tmp_path: Path) -> None:
 
 
 def test_manifest_rejects_narrow_stressors(tmp_path: Path) -> None:
+    _skip_without_private_default_suite()
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     manifest_path = suite / "manifest.json"
@@ -105,6 +114,7 @@ def test_manifest_rejects_narrow_stressors(tmp_path: Path) -> None:
 def test_manifest_allows_zero_optional_breadth_threshold_for_diagnostics(
     tmp_path: Path,
 ) -> None:
+    _skip_without_private_default_suite()
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     manifest_path = suite / "manifest.json"
@@ -121,6 +131,7 @@ def test_manifest_allows_zero_optional_breadth_threshold_for_diagnostics(
 
 
 def test_manifest_rejects_zero_document_threshold(tmp_path: Path) -> None:
+    _skip_without_private_default_suite()
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     manifest_path = suite / "manifest.json"
@@ -131,6 +142,7 @@ def test_manifest_rejects_zero_document_threshold(tmp_path: Path) -> None:
 
 
 def test_manifest_can_gate_external_real_corpus_requirements(tmp_path: Path) -> None:
+    _skip_without_private_default_suite()
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     manifest_path = suite / "manifest.json"
@@ -171,6 +183,7 @@ def test_manifest_can_gate_external_real_corpus_requirements(tmp_path: Path) -> 
 
 
 def test_manifest_rejects_missing_required_document_provenance(tmp_path: Path) -> None:
+    _skip_without_private_default_suite()
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     manifest_path = suite / "manifest.json"
@@ -186,6 +199,7 @@ def test_manifest_rejects_missing_required_document_provenance(tmp_path: Path) -
 
 
 def test_manifest_rejects_missing_required_stressor(tmp_path: Path) -> None:
+    _skip_without_private_default_suite()
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     manifest_path = suite / "manifest.json"
@@ -202,6 +216,7 @@ def test_manifest_rejects_missing_required_stressor(tmp_path: Path) -> None:
 
 
 def test_manifest_rejects_forbidden_known_limit(tmp_path: Path) -> None:
+    _skip_without_private_default_suite()
     suite = tmp_path / "suite"
     shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
     manifest_path = suite / "manifest.json"
@@ -218,6 +233,7 @@ def test_manifest_rejects_forbidden_known_limit(tmp_path: Path) -> None:
 
 
 def test_suite_report_includes_manifest(tmp_path: Path) -> None:
+    _skip_without_private_default_suite()
     report_path = tmp_path / "suite.json"
 
     status = run_benchmark_suite.run_suite(report_path=report_path)

@@ -9,6 +9,14 @@ import pytest
 
 from scripts import benchmark_academic_items
 
+PRIVATE_ACADEMIC_ARMORY = Path("benchmarks/academic/armory")
+PRIVATE_ACADEMIC_ITEMS = Path("benchmarks/academic/academic_items.jsonl")
+
+
+def _skip_without_private_academic_suite() -> None:
+    if not PRIVATE_ACADEMIC_ARMORY.is_dir() or not PRIVATE_ACADEMIC_ITEMS.is_file():
+        pytest.skip("private benchmark suite is local-only")
+
 
 def test_load_academic_item_cases(tmp_path: Path) -> None:
     dataset = tmp_path / "academic_items.jsonl"
@@ -36,9 +44,10 @@ def test_load_academic_item_cases(tmp_path: Path) -> None:
 
 
 def test_academic_item_benchmark_passes_fixture_cases(tmp_path: Path) -> None:
+    _skip_without_private_academic_suite()
     armory = tmp_path / "armory"
-    shutil.copytree(Path("benchmarks/academic/armory"), armory)
-    cases = benchmark_academic_items.load_cases(Path("benchmarks/academic/academic_items.jsonl"))
+    shutil.copytree(PRIVATE_ACADEMIC_ARMORY, armory)
+    cases = benchmark_academic_items.load_cases(PRIVATE_ACADEMIC_ITEMS)
 
     report = benchmark_academic_items.run_benchmark(armory, cases)
 
@@ -65,6 +74,7 @@ def test_academic_item_benchmark_passes_fixture_cases(tmp_path: Path) -> None:
 
 
 def test_academic_item_benchmark_reports_missing_items(tmp_path: Path) -> None:
+    _skip_without_private_academic_suite()
     dataset = tmp_path / "academic_items.jsonl"
     dataset.write_text(
         json.dumps(
@@ -81,7 +91,7 @@ def test_academic_item_benchmark_reports_missing_items(tmp_path: Path) -> None:
     )
 
     armory = tmp_path / "armory"
-    shutil.copytree(Path("benchmarks/academic/armory"), armory)
+    shutil.copytree(PRIVATE_ACADEMIC_ARMORY, armory)
 
     report = benchmark_academic_items.run_benchmark(
         armory,
@@ -97,13 +107,14 @@ def test_academic_item_cli_gates_question_type_breadth(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    _skip_without_private_academic_suite()
     armory = tmp_path / "armory"
-    shutil.copytree(Path("benchmarks/academic/armory"), armory)
+    shutil.copytree(PRIVATE_ACADEMIC_ARMORY, armory)
 
     status = benchmark_academic_items.main(
         [
             str(armory),
-            "benchmarks/academic/academic_items.jsonl",
+            str(PRIVATE_ACADEMIC_ITEMS),
             "--min-question-types",
             "99",
         ]

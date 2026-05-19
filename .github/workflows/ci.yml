@@ -268,6 +268,10 @@ jobs:
       - name: Academic RAG benchmark suite
         run: |
           mkdir -p .artifacts
+          if [ ! -f benchmarks/academic/manifest.json ]; then
+            echo "| benchmark academic-suite | skipped: local private suite unavailable |" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           start=$(date +%s%N)
           uv run python -m scripts.run_benchmark_suite \
             --json-report .artifacts/benchmark-suite.json
@@ -329,7 +333,7 @@ jobs:
           )
           PY
       - name: Upload benchmark report
-        if: always()
+        if: always() && hashFiles('.artifacts/benchmark-suite.json') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: benchmark-suite-report

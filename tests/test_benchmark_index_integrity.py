@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scripts import benchmark_index_integrity
+
+PRIVATE_INDEX_INTEGRITY_DATASET = Path("benchmarks/academic/index_integrity.jsonl")
 
 
 def _write_material(path: Path, text: str) -> None:
@@ -11,7 +15,9 @@ def _write_material(path: Path, text: str) -> None:
 
 
 def test_load_cases_supports_jsonl() -> None:
-    dataset = Path("benchmarks/academic/index_integrity.jsonl")
+    if not PRIVATE_INDEX_INTEGRITY_DATASET.is_file():
+        pytest.skip("private benchmark suite is local-only")
+    dataset = PRIVATE_INDEX_INTEGRITY_DATASET
 
     cases = benchmark_index_integrity.load_cases(dataset)
 

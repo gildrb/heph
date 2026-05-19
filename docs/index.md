@@ -219,10 +219,10 @@ heph index ~/armories/exams
 
 Hephaistos includes deterministic benchmark harnesses for retrieval, answer
 grounding, document understanding, learning state, index integrity, academic item
-extraction, model replay, and external corpus adapters. The committed academic
-suite lives under `benchmarks/academic/`; public-corpus scaffolding and the
-model evaluation prompt live under `benchmarks/public-academic/` and
-`benchmarks/model-evaluation-prompt.md`.
+extraction, model replay, and external corpus adapters. Benchmark suites,
+corpora, prompts, qrels, and generated reports are local-only under the ignored
+`benchmarks/` tree; the default private deterministic suite path is
+`benchmarks/academic/`.
 
 Run the local deterministic suite from a source checkout:
 
@@ -267,8 +267,9 @@ uv run python -m scripts.generate_benchmark_summary \
   --output .artifacts/benchmark-summary.md
 ```
 
-See `benchmarks/README.md` for dataset schemas, public/permissioned corpus
-materialization, model-matrix evaluation, and strict completion-audit gates.
+Keep dataset schemas, public/permissioned corpus materialization inputs,
+model-matrix evaluation prompts, and strict completion-audit evidence in the
+private local `benchmarks/` tree.
 
 ## Bring Your Own Model
 

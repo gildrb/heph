@@ -6,11 +6,17 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from hephaistos.armory.storage import initialize
 from scripts import run_external_benchmarks
 
 ROOT = Path(__file__).resolve().parent.parent
 PROMPT_PATH = ROOT / "benchmarks" / "model-evaluation-prompt.md"
+pytestmark = pytest.mark.skipif(
+    not PROMPT_PATH.is_file(),
+    reason="private benchmark prompt is local-only",
+)
 
 
 def _prompt_text() -> str:

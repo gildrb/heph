@@ -8,6 +8,11 @@ import pytest
 
 from scripts import audit_agent_harness_completion, run_benchmark_suite
 
+pytestmark = pytest.mark.skipif(
+    not (run_benchmark_suite.DEFAULT_SUITE / "manifest.json").is_file(),
+    reason="private benchmark suite is local-only",
+)
+
 _PASSING_MODEL_METRICS = {
     "cases": 4,
     "domains": ["biology", "cross-domain", "history", "mathematics"],
@@ -1821,3 +1826,39 @@ def test_completion_audit_cli_writes_json_report(tmp_path: Path) -> None:
     assert any("run_model_eval_matrix" in step for step in payload["next_steps"])
     assert "discover_real_corpus_candidates" in payload["next_steps"][0]
     assert "audit_agent_harness_completion" in payload["next_steps"][-1]
+
+
+def test_completion_audit_cli_uses_explicit_private_suite(
+    tmp_path: Path,
+) -> None:
+    suite = tmp_path / "private-suite"
+    report_path = tmp_path / "audit.json"
+    shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
+
+    status = audit_agent_harness_completion.main(
+        ["--suite", str(suite), "--json-report", str(report_path)]
+    )
+
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    manifest_item = next(
+        item
+        for item in payload["items"]
+        if item["requirement"] == "Private deterministic benchmark suite manifest"
+    )
+    benchmark_item = next(
+        item
+        for item in payload["items"]
+        if item["requirement"] == "Deterministic academic benchmark suite passes"
+    )
+    chat_item = next(
+        item
+        for item in payload["items"]
+        if item["requirement"] == "Deterministic suite verifies public chat JSONL harness events"
+    )
+    assert status == 1
+    assert manifest_item["status"] == "covered"
+    assert manifest_item["evidence"] == str(suite / "manifest.json")
+    assert benchmark_item["status"] == "covered"
+    assert str(suite) in benchmark_item["evidence"]
+    assert chat_item["status"] == "covered"
+    assert str(suite / "chat_events.jsonl") in chat_item["evidence"]

@@ -1,8 +1,8 @@
-"""Run the deterministic local benchmark suite.
+"""Run a deterministic local benchmark suite.
 
-The suite copies the committed academic armory fixture into a temporary
-directory before running retrieval benchmarks, so generated indexes never dirty
-the working tree.
+The suite copies a private, ignored benchmark armory into a temporary directory
+before running retrieval benchmarks, so generated indexes never dirty source
+fixtures or the working tree.
 """
 
 from __future__ import annotations
@@ -140,7 +140,7 @@ GENERATED_ARMORY_INDEX_ARTIFACT_PREFIXES = frozenset(("embeddings_", "retriever_
 class BenchmarkSuiteSummary(TypedDict):
     suite: str
     status: int
-    thresholds: dict[str, float | int]
+    thresholds: dict[str, object]
     rag: dict[str, object]
     material_roles: dict[str, object]
     document_understanding: dict[str, object]
@@ -321,7 +321,7 @@ def _validate_overview_forbidden_phrase_contract(
 
 def _overview_contract_task(contract: benchmark_answers.AnswerCase | Mapping[str, object]) -> str:
     if isinstance(contract, benchmark_answers.AnswerCase):
-        return contract.task
+        return contract.task or ""
     task = contract.get("task")
     return task if isinstance(task, str) else ""
 
@@ -446,7 +446,7 @@ def study_intent_contract_report(
     combined = f"{prompt}\n{schema}"
     combined_normalized = _normalized_contract_text(combined)
     prompt_normalized = _normalized_contract_text(prompt)
-    failures = [
+    failures: list[str] = [
         f"schema missing intent label: {intent}"
         for intent in DEFAULT_REQUIRED_STUDY_INTENT_LABELS
         if intent not in schema
