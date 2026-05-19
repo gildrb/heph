@@ -9,7 +9,7 @@ from typing import cast
 import pytest
 
 from hephaistos.armory.storage import initialize
-from scripts import claim_report_envelope, run_external_benchmarks
+from scripts import benchmark_rag, claim_report_envelope, run_external_benchmarks
 
 ORACLE_KEYS_TO_REJECT = (
     "expected",
@@ -95,6 +95,94 @@ def _passing_cases() -> list[dict[str, object]]:
             "top_k": 9,
         }
     ]
+
+
+def _case_result(
+    *,
+    case_id: str,
+    query: str,
+    retrieved: tuple[str, ...],
+    hit: bool,
+    rank: int | None,
+    forbidden_rank: int | None = None,
+    forbidden_ok: bool = True,
+) -> benchmark_rag.CaseResult:
+    recall = 1.0 if hit else 0.0
+    precision = recall / max(len(retrieved), 1)
+    return benchmark_rag.CaseResult(
+        case_id=case_id,
+        query=query,
+        expected=("materials/alpha.md",),
+        relevance_grades={},
+        forbidden_before_expected=("materials/beta.md",),
+        retrieved=retrieved,
+        retrieved_chunks=(),
+        hit=hit,
+        rank=rank,
+        first_forbidden_rank=forbidden_rank,
+        forbidden_before_expected_ok=forbidden_ok,
+        recall=recall,
+        precision_at_k=precision,
+        average_precision_at_k=recall,
+        ndcg_at_k=recall,
+        graded_ndcg_at_k=recall,
+        elapsed_ms=1.0,
+    )
+
+
+def _benchmark_report(
+    *,
+    retrieval_mode: str,
+    top_k: int,
+    results: tuple[benchmark_rag.CaseResult, ...],
+    rerank_model: str | None = None,
+) -> benchmark_rag.BenchmarkReport:
+    total = len(results)
+    hits = sum(1 for result in results if result.hit)
+    recall_sum = sum(result.recall for result in results)
+    reciprocal_rank_sum = sum(
+        0.0 if result.rank is None else 1 / result.rank for result in results
+    )
+    precision_sum = sum(result.precision_at_k for result in results)
+    average_precision_sum = sum(result.average_precision_at_k for result in results)
+    ndcg_sum = sum(result.ndcg_at_k for result in results)
+    graded_ndcg_sum = sum(result.graded_ndcg_at_k for result in results)
+    forbidden_ok_count = sum(1 for result in results if result.forbidden_before_expected_ok)
+    return benchmark_rag.BenchmarkReport(
+        armory_path="/tmp/armory",
+        cases=total,
+        domains=("fixture",),
+        tasks=("rerank",),
+        top_k=top_k,
+        min_score=0.0,
+        retrieval_mode=retrieval_mode,
+        candidate_multiplier=2,
+        hybrid_sparse_weight=1.0,
+        hybrid_dense_weight=1.0,
+        pseudo_feedback_docs=3,
+        pseudo_feedback_terms=6,
+        pseudo_feedback_weight=0.1,
+        retriever_backends=("FixtureRetriever",),
+        transform_strategy="identity",
+        embedding_model="fixture-embed",
+        embedding_query_prefix="",
+        embedding_document_prefix="",
+        rerank_model=rerank_model,
+        hit_rate=hits / total,
+        mean_reciprocal_rank=reciprocal_rank_sum / total,
+        mean_expected_recall=recall_sum / total,
+        mean_precision_at_k=precision_sum / total,
+        mean_average_precision_at_k=average_precision_sum / total,
+        mean_ndcg_at_k=ndcg_sum / total,
+        mean_graded_ndcg_at_k=graded_ndcg_sum / total,
+        forbidden_before_expected_avoidance=forbidden_ok_count / total,
+        mean_latency_ms=1.0,
+        misses=tuple(result.case_id for result in results if not result.hit),
+        forbidden_before_expected_failures=tuple(
+            result.case_id for result in results if not result.forbidden_before_expected_ok
+        ),
+        results=results,
+    )
 
 
 def test_report_id_records_hybrid_prf_parameters() -> None:
@@ -257,6 +345,137 @@ def test_runner_executes_materialized_enterprise_rag_suite(tmp_path: Path) -> No
     assert metadata["dataset"] == "enterprise-rag-bench"
     assert benchmark["id"] == "enterprise-rag:enterprise-rag-bench"
     assert _as_dict(report["aggregate_metrics"])["hit_rate"] == 1.0
+
+
+def test_enterprise_rag_hybrid_rerank_reports_candidate_and_harm_analysis(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    suite = _make_external_suite(
+        tmp_path,
+        [
+            {
+                "id": "win",
+                "query": "alpha should rerank ahead of beta",
+                "expected": ["materials/alpha.md"],
+                "forbidden_before_expected": ["materials/beta.md"],
+            },
+            {
+                "id": "harm",
+                "query": "alpha should not be dropped behind beta",
+                "expected": ["materials/alpha.md"],
+                "forbidden_before_expected": ["materials/beta.md"],
+            },
+        ],
+    )
+    candidate_report = _benchmark_report(
+        retrieval_mode="hybrid",
+        top_k=2,
+        results=(
+            _case_result(
+                case_id="win",
+                query="alpha should rerank ahead of beta",
+                retrieved=("materials/beta.md", "materials/alpha.md"),
+                hit=True,
+                rank=2,
+                forbidden_rank=1,
+                forbidden_ok=False,
+            ),
+            _case_result(
+                case_id="harm",
+                query="alpha should not be dropped behind beta",
+                retrieved=("materials/alpha.md", "materials/beta.md"),
+                hit=True,
+                rank=1,
+                forbidden_rank=2,
+            ),
+        ),
+    )
+    post_report = _benchmark_report(
+        retrieval_mode="hybrid-rerank",
+        top_k=1,
+        rerank_model="fixture-reranker",
+        results=(
+            _case_result(
+                case_id="win",
+                query="alpha should rerank ahead of beta",
+                retrieved=("materials/alpha.md",),
+                hit=True,
+                rank=1,
+            ),
+            _case_result(
+                case_id="harm",
+                query="alpha should not be dropped behind beta",
+                retrieved=("materials/beta.md",),
+                hit=False,
+                rank=None,
+                forbidden_rank=1,
+                forbidden_ok=False,
+            ),
+        ),
+    )
+
+    def fake_run_benchmark(
+        _armory_path: Path,
+        _cases: Sequence[benchmark_rag.BenchmarkCase],
+        **kwargs: object,
+    ) -> benchmark_rag.BenchmarkReport:
+        retrieval_mode = kwargs["retrieval_mode"]
+        if retrieval_mode == run_external_benchmarks.RetrievalMode.HYBRID:
+            return candidate_report
+        if retrieval_mode == run_external_benchmarks.RetrievalMode.HYBRID_RERANK:
+            return post_report
+        raise AssertionError(f"unexpected retrieval mode: {retrieval_mode}")
+
+    monkeypatch.setattr(
+        run_external_benchmarks.benchmark_rag,
+        "run_benchmark",
+        fake_run_benchmark,
+    )
+    report_path = tmp_path / "reports" / "rerank.json"
+
+    status = run_external_benchmarks.main(
+        [
+            "enterprise-rag",
+            "enterprise-rag-bench",
+            "--suite",
+            str(suite),
+            "--retrieval-mode",
+            "hybrid-rerank",
+            "--top-k",
+            "1",
+            "--candidate-multiplier",
+            "2",
+            "--rerank-model",
+            "fixture-reranker",
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = _read_report(report_path)
+    benchmark = _as_dict(_as_list(report["benchmarks"])[0])
+    analysis = _as_dict(benchmark["rerank_analysis"])
+    per_query = _as_list(analysis["per_query"])
+    first_query = _as_dict(per_query[0])
+    second_query = _as_dict(per_query[1])
+
+    assert status == 0
+    assert analysis["top_k"] == 1
+    assert analysis["candidate_multiplier"] == 2
+    assert analysis["candidate_budget"] == 2
+    assert analysis["recall_at_candidate_budget"] == 1.0
+    assert _as_dict(analysis["post_rerank_metrics"])["recall_at_k"] == 0.5
+    assert analysis["win_loss_tie"] == {"win": 1, "loss": 1, "tie": 0}
+    assert _as_dict(analysis["harm"])["case_count"] == 1
+    assert first_query["candidate_count"] == 2
+    assert first_query["pre_rerank_rank"] == 2
+    assert first_query["post_rerank_rank"] == 1
+    assert first_query["rerank_outcome"] == "win"
+    assert second_query["rerank_outcome"] == "loss"
+    assert second_query["harm_bucket"] == "forbidden_moved_before_expected"
+    assert second_query["bottleneck_bucket"] == "candidate_found_but_ranked_outside_final_top_k"
+    assert _as_dict(analysis["reranker_state"])["claim_eligible"] is True
 
 
 def test_runner_cli_top_k_overrides_case_top_k(tmp_path: Path) -> None:

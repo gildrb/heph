@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import cast
 
 from hephaistos.armory import storage
-from hephaistos.rag import RetrievalMode, TransformStrategy
+from hephaistos.rag import EvidenceReference, RetrievalMode, TransformStrategy
 from hephaistos.rag.hybrid import (
     DEFAULT_PSEUDO_FEEDBACK_DOCS,
     DEFAULT_PSEUDO_FEEDBACK_TERMS,
@@ -240,6 +240,18 @@ def _write_json_report(path: Path | None, report: Mapping[str, object]) -> None:
     )
 
 
+def _float_value(value: object) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    return 0.0
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
 def _rate_thresholds(args: argparse.Namespace) -> Thresholds:
     return Thresholds(
         hit_rate=cast("float", args.min_hit_rate),
@@ -249,16 +261,20 @@ def _rate_thresholds(args: argparse.Namespace) -> Thresholds:
 
 
 def _parameters(args: argparse.Namespace) -> RunnerParameters:
+    retrieval_mode = RetrievalMode(cast("str", args.retrieval_mode))
+    rerank_model = _optional_cli_string(cast("str | None", args.rerank_model))
+    if rerank_model is None and retrieval_mode == RetrievalMode.HYBRID_RERANK:
+        rerank_model = _DEFAULT_RERANK_MODEL
     return RunnerParameters(
         top_k=cast("int", args.top_k),
         min_score=cast("float", args.min_score),
         transform_strategy=TransformStrategy(cast("str", args.strategy)),
-        retrieval_mode=RetrievalMode(cast("str", args.retrieval_mode)),
+        retrieval_mode=retrieval_mode,
         candidate_multiplier=cast("int", args.candidate_multiplier),
         embedding_model=_optional_cli_string(cast("str | None", args.embedding_model)),
         embedding_query_prefix=cast("str", args.embedding_query_prefix),
         embedding_document_prefix=cast("str", args.embedding_document_prefix),
-        rerank_model=_optional_cli_string(cast("str | None", args.rerank_model)),
+        rerank_model=rerank_model,
         hybrid_sparse_weight=cast("float", args.hybrid_sparse_weight),
         hybrid_dense_weight=cast("float", args.hybrid_dense_weight),
         pseudo_feedback_docs=cast("int", args.pseudo_feedback_docs),
@@ -672,7 +688,17 @@ def _run_rag_flow(
         pseudo_feedback_weight=parameters.pseudo_feedback_weight,
         use_case_top_k=False,
     )
-    benchmark_payload = _rag_benchmark_payload(inputs, first_report)
+    candidate_report = _candidate_report_for_rerank(inputs, cases, parameters)
+    rerank_analysis = (
+        _rerank_analysis(parameters, candidate_report, first_report)
+        if candidate_report is not None
+        else None
+    )
+    benchmark_payload = _rag_benchmark_payload(
+        inputs,
+        first_report,
+        rerank_analysis=rerank_analysis,
+    )
     metrics = _metrics_from_rag_report(first_report)
     threshold_failures = _threshold_failures(metrics, thresholds)
     reproducibility = _skipped_reproducibility()
@@ -723,6 +749,35 @@ def _run_rag_flow(
         reproducibility=reproducibility,
     )
     return report, exit_code
+
+
+def _candidate_report_for_rerank(
+    inputs: ResolvedInputs,
+    cases: Sequence[benchmark_rag.BenchmarkCase],
+    parameters: RunnerParameters,
+) -> benchmark_rag.BenchmarkReport | None:
+    if parameters.retrieval_mode != RetrievalMode.HYBRID_RERANK:
+        return None
+    candidate_budget = parameters.top_k * max(1, parameters.candidate_multiplier)
+    return _run_rag_benchmark_with_gc_paused(
+        inputs.armory_path,
+        cases,
+        top_k=candidate_budget,
+        min_score=parameters.min_score,
+        transform_strategy=parameters.transform_strategy,
+        retrieval_mode=RetrievalMode.HYBRID,
+        candidate_multiplier=parameters.candidate_multiplier,
+        embed_model=parameters.embedding_model,
+        embed_query_prefix=parameters.embedding_query_prefix,
+        embed_document_prefix=parameters.embedding_document_prefix,
+        rerank_model=None,
+        hybrid_sparse_weight=parameters.hybrid_sparse_weight,
+        hybrid_dense_weight=parameters.hybrid_dense_weight,
+        pseudo_feedback_docs=parameters.pseudo_feedback_docs,
+        pseudo_feedback_terms=parameters.pseudo_feedback_terms,
+        pseudo_feedback_weight=parameters.pseudo_feedback_weight,
+        use_case_top_k=False,
+    )
 
 
 def _run_rag_benchmark_with_gc_paused(
@@ -786,8 +841,10 @@ def _input_warnings(armory_path: Path, top_k: int) -> list[str]:
 def _rag_benchmark_payload(
     inputs: ResolvedInputs,
     report: benchmark_rag.BenchmarkReport,
+    *,
+    rerank_analysis: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "id": f"{inputs.benchmark_type}:{inputs.dataset}",
         "benchmark_type": inputs.benchmark_type,
         "dataset": inputs.dataset,
@@ -797,6 +854,9 @@ def _rag_benchmark_payload(
         "miss_diagnostics": _miss_diagnostics(report),
         "rag_report": _claim_safe_rag_report(report),
     }
+    if rerank_analysis is not None:
+        payload["rerank_analysis"] = dict(rerank_analysis)
+    return payload
 
 
 def _miss_diagnostics(report: benchmark_rag.BenchmarkReport) -> list[dict[str, object]]:
@@ -816,6 +876,319 @@ def _miss_diagnostics(report: benchmark_rag.BenchmarkReport) -> list[dict[str, o
             }
         )
     return diagnostics[:30]
+
+
+def _rerank_analysis(
+    parameters: RunnerParameters,
+    candidate_report: benchmark_rag.BenchmarkReport,
+    post_report: benchmark_rag.BenchmarkReport,
+) -> dict[str, object]:
+    top_k = parameters.top_k
+    candidate_budget = top_k * max(1, parameters.candidate_multiplier)
+    candidate_by_id = {result.case_id: result for result in candidate_report.results}
+    per_query = [
+        _rerank_case_analysis(candidate_by_id.get(result.case_id), result, top_k=top_k)
+        for result in post_report.results
+    ]
+    outcomes = {
+        "win": sum(1 for row in per_query if row.get("rerank_outcome") == "win"),
+        "loss": sum(1 for row in per_query if row.get("rerank_outcome") == "loss"),
+        "tie": sum(1 for row in per_query if row.get("rerank_outcome") == "tie"),
+    }
+    harm_cases = [row for row in per_query if row.get("harm_bucket") is not None]
+    return {
+        "top_k": top_k,
+        "candidate_multiplier": parameters.candidate_multiplier,
+        "candidate_budget": candidate_budget,
+        "candidate_generation_mode": RetrievalMode.HYBRID.value,
+        "final_rerank_mode": RetrievalMode.HYBRID_RERANK.value,
+        "candidate_metrics": _metrics_from_rag_report(candidate_report),
+        "pre_rerank_metrics_at_k": _rerank_pre_metrics(per_query),
+        "post_rerank_metrics": _metrics_from_rag_report(post_report),
+        "recall_at_candidate_budget": candidate_report.mean_expected_recall,
+        "recall_at_k": post_report.mean_expected_recall,
+        "win_loss_tie": outcomes,
+        "harm": {
+            "computed": True,
+            "case_count": len(harm_cases),
+            "cases": harm_cases[:30],
+        },
+        "bottleneck_counts": _rerank_bottleneck_counts(per_query),
+        "source_family_confusion": _rerank_source_family_confusion(per_query),
+        "boost_diagnostics": _rerank_boost_diagnostics(per_query),
+        "reranker_state": _reranker_state(parameters, post_report),
+        "per_query": per_query,
+    }
+
+
+def _rerank_case_analysis(
+    candidate_result: benchmark_rag.CaseResult | None,
+    post_result: benchmark_rag.CaseResult,
+    *,
+    top_k: int,
+) -> dict[str, object]:
+    candidate_retrieved = list(candidate_result.retrieved) if candidate_result else []
+    final_retrieved = list(post_result.retrieved)
+    pre_rank_at_k = (
+        _first_expected_ref_rank(candidate_result.expected, candidate_retrieved[:top_k])
+        if candidate_result
+        else None
+    )
+    candidate_rank = candidate_result.rank if candidate_result else None
+    pre_rank = candidate_rank
+    post_rank = post_result.rank
+    harm_bucket = _rerank_harm_bucket(
+        candidate_result,
+        post_result,
+        pre_rank=pre_rank,
+        post_rank=post_rank,
+    )
+    bottleneck_bucket = _rerank_bottleneck_bucket(candidate_result, post_result)
+    expected_families = (
+        _source_families_from_refs(candidate_result.expected) if candidate_result else ("unknown",)
+    )
+    top_candidate_family = (
+        _source_family(candidate_retrieved[0]) if candidate_retrieved else "none"
+    )
+    top_final_family = _source_family(final_retrieved[0]) if final_retrieved else "none"
+    return {
+        "case_id": post_result.case_id,
+        "query": post_result.query,
+        "top_k": top_k,
+        "candidate_budget": len(candidate_retrieved),
+        "candidate_count": len(candidate_retrieved),
+        "final_count": len(final_retrieved),
+        "candidate_rank": candidate_rank,
+        "pre_rerank_rank": pre_rank,
+        "pre_rerank_rank_at_k": pre_rank_at_k,
+        "post_rerank_rank": post_rank,
+        "rank_delta": _rank_delta(pre_rank, post_rank),
+        "candidate_recall_at_budget": candidate_result.recall if candidate_result else 0.0,
+        "pre_rerank_recall_at_k": _recall_from_refs(candidate_result, candidate_retrieved[:top_k]),
+        "post_rerank_recall_at_k": post_result.recall,
+        "pre_forbidden_before_expected_ok": (
+            candidate_result.forbidden_before_expected_ok if candidate_result else True
+        ),
+        "post_forbidden_before_expected_ok": post_result.forbidden_before_expected_ok,
+        "rerank_outcome": _rerank_outcome(pre_rank, post_rank),
+        "harm_bucket": harm_bucket,
+        "bottleneck_bucket": bottleneck_bucket,
+        "expected_source_families": list(expected_families),
+        "top_candidate_source_family": top_candidate_family,
+        "top_final_source_family": top_final_family,
+        "candidate_retrieved": candidate_retrieved[:10],
+        "final_retrieved": final_retrieved[:10],
+    }
+
+
+def _first_expected_ref_rank(expected: Sequence[str], retrieved: Sequence[str]) -> int | None:
+    for rank, retrieved_ref in enumerate(retrieved, start=1):
+        if any(_ref_matches_expected(expected_ref, retrieved_ref) for expected_ref in expected):
+            return rank
+    return None
+
+
+def _ref_matches_expected(expected_ref: str, retrieved_ref: str) -> bool:
+    expected = EvidenceReference.parse(expected_ref)
+    retrieved = EvidenceReference.parse(retrieved_ref)
+    if expected is None:
+        return _reference_source(retrieved_ref) == expected_ref
+    return (
+        retrieved is not None
+        and retrieved.source == expected.source
+        and retrieved.chunk_index == expected.chunk_index
+    )
+
+
+def _reference_source(reference: str) -> str:
+    parsed = EvidenceReference.parse(reference)
+    if parsed is not None:
+        return parsed.source
+    return reference.split("#", 1)[0]
+
+
+def _recall_from_refs(
+    candidate_result: benchmark_rag.CaseResult | None,
+    retrieved: Sequence[str],
+) -> float:
+    if candidate_result is None:
+        return 0.0
+    found = sum(
+        1
+        for expected_ref in candidate_result.expected
+        if any(_ref_matches_expected(expected_ref, retrieved_ref) for retrieved_ref in retrieved)
+    )
+    return found / len(candidate_result.expected) if candidate_result.expected else 0.0
+
+
+def _rank_delta(pre_rank: int | None, post_rank: int | None) -> int | None:
+    if pre_rank is None or post_rank is None:
+        return None
+    return pre_rank - post_rank
+
+
+def _rerank_outcome(pre_rank: int | None, post_rank: int | None) -> str:
+    if pre_rank is None and post_rank is None:
+        return "tie"
+    if pre_rank is None:
+        return "win"
+    if post_rank is None:
+        return "loss"
+    if post_rank < pre_rank:
+        return "win"
+    if post_rank > pre_rank:
+        return "loss"
+    return "tie"
+
+
+def _rerank_harm_bucket(
+    candidate_result: benchmark_rag.CaseResult | None,
+    post_result: benchmark_rag.CaseResult,
+    *,
+    pre_rank: int | None,
+    post_rank: int | None,
+) -> str | None:
+    if (
+        candidate_result is not None
+        and candidate_result.forbidden_before_expected_ok
+        and not post_result.forbidden_before_expected_ok
+    ):
+        return "forbidden_moved_before_expected"
+    if pre_rank is not None and post_rank is None:
+        return "expected_dropped_from_final_top_k"
+    if pre_rank is not None and post_rank is not None and post_rank > pre_rank:
+        return "expected_rank_lowered"
+    return None
+
+
+def _rerank_bottleneck_bucket(
+    candidate_result: benchmark_rag.CaseResult | None,
+    post_result: benchmark_rag.CaseResult,
+) -> str | None:
+    if candidate_result is None or candidate_result.rank is None:
+        return "no_candidate_evidence_found"
+    if post_result.rank is None:
+        return "candidate_found_but_ranked_outside_final_top_k"
+    if not post_result.forbidden_before_expected_ok:
+        return "blocked_by_forbidden_before_expected_ordering"
+    return None
+
+
+def _rerank_pre_metrics(per_query: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    if not per_query:
+        return {
+            "hit_rate": 0.0,
+            "recall_at_k": 0.0,
+            "mrr": 0.0,
+            "query_count": 0,
+        }
+    hit_count = sum(1 for row in per_query if row.get("pre_rerank_rank") is not None)
+    recall_sum = sum(_float_value(row.get("pre_rerank_recall_at_k")) for row in per_query)
+    reciprocal_rank_sum = sum(
+        0.0 if row.get("pre_rerank_rank") is None else 1 / _float_value(row.get("pre_rerank_rank"))
+        for row in per_query
+    )
+    query_count = len(per_query)
+    return {
+        "hit_rate": hit_count / query_count,
+        "recall_at_k": recall_sum / query_count,
+        "mrr": reciprocal_rank_sum / query_count,
+        "query_count": query_count,
+    }
+
+
+def _rerank_bottleneck_counts(per_query: Sequence[Mapping[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in per_query:
+        bucket = row.get("bottleneck_bucket")
+        if isinstance(bucket, str):
+            counts[bucket] = counts.get(bucket, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _rerank_source_family_confusion(
+    per_query: Sequence[Mapping[str, object]],
+) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    for row in per_query:
+        expected_families = _string_list(row.get("expected_source_families")) or ["unknown"]
+        top_family = row.get("top_final_source_family")
+        top_label = top_family if isinstance(top_family, str) else "none"
+        for expected_family in expected_families:
+            key = f"{expected_family}->{top_label}"
+            bucket = counts.setdefault(key, {"case_count": 0, "harm_count": 0})
+            bucket["case_count"] += 1
+            if row.get("harm_bucket") is not None:
+                bucket["harm_count"] += 1
+    return dict(sorted(counts.items()))
+
+
+def _rerank_boost_diagnostics(per_query: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    changed_family_count = sum(
+        1
+        for row in per_query
+        if row.get("top_candidate_source_family") != row.get("top_final_source_family")
+    )
+    return {
+        "source_family_rank_change_count": changed_family_count,
+        "source_family_confusion_available": True,
+        "score_delta_available": False,
+        "notes": [
+            "External benchmark reports source-family rank changes; exact internal boost scores "
+            "remain implementation-private."
+        ],
+    }
+
+
+def _reranker_state(
+    parameters: RunnerParameters,
+    post_report: benchmark_rag.BenchmarkReport,
+) -> dict[str, object]:
+    model_name = parameters.rerank_model or _DEFAULT_RERANK_MODEL
+    report_model = post_report.rerank_model
+    claim_eligible = post_report.retrieval_mode == RetrievalMode.HYBRID_RERANK.value and bool(
+        report_model
+    )
+    reasons = []
+    if not claim_eligible:
+        reasons.append("hybrid-rerank report did not record an active reranker model")
+    return {
+        "requested": True,
+        "requested_model": model_name,
+        "reported_model": report_model,
+        "dependency_state": "runtime_reported",
+        "fallback_status": "not_detected" if claim_eligible else "non_reranked_fallback",
+        "claim_eligible": claim_eligible,
+        "ineligibility_reasons": reasons,
+    }
+
+
+def _source_families_from_refs(references: Sequence[str]) -> tuple[str, ...]:
+    return tuple(sorted({_source_family(reference) for reference in references}))
+
+
+def _source_family(reference: str) -> str:
+    source = _reference_source(reference)
+    if source.startswith("materials/"):
+        source = source.removeprefix("materials/")
+    path = Path(source)
+    if len(path.parts) > 1 and path.parts[0]:
+        return _neutral_token(path.parts[0])
+    stem = path.stem or source
+    for separator in ("-", "_", "."):
+        if separator in stem:
+            stem = stem.split(separator, 1)[0]
+            break
+    return _neutral_token(stem)
+
+
+def _neutral_token(value: str) -> str:
+    normalized = "".join(
+        char.lower() if char.isalnum() else "-"
+        for char in value.strip()
+        if char.isalnum() or char in {"-", "_"}
+    ).strip("-")
+    return normalized or "unknown"
 
 
 def _metrics_from_rag_report(report: benchmark_rag.BenchmarkReport) -> dict[str, object]:
