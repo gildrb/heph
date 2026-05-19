@@ -112,6 +112,11 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
             "importlib.import_module",
         }
     ),
+    "tests/test_rag_retrieve.py": frozenset(
+        {
+            "importlib.import_module",
+        }
+    ),
 }
 ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     "hephaistos/agent/__init__.py": frozenset(
@@ -214,6 +219,27 @@ def _dotted_name(node: ast.AST | None) -> str | None:
     return None
 
 
+def _import_alias_binding(alias: ast.alias) -> tuple[str, str] | None:
+    if alias.name == "importlib":
+        return alias.asname or "importlib", "importlib"
+    if not alias.name.startswith("importlib."):
+        return None
+    if alias.asname is None:
+        return "importlib", "importlib"
+    return alias.asname, alias.name
+
+
+def _import_from_alias_binding(module: str | None, alias: ast.alias) -> tuple[str, str] | None:
+    if (
+        module is None
+        or alias.name == "*"
+        or not (module == "importlib" or module.startswith("importlib."))
+    ):
+        return None
+    local_name = alias.asname or alias.name
+    return local_name, f"{module}.{alias.name}"
+
+
 def _is_type_checking_guard(test: ast.expr) -> bool:
     dotted = _dotted_name(test)
     return dotted in {"TYPE_CHECKING", "typing.TYPE_CHECKING"}
@@ -263,6 +289,7 @@ class PolicyVisitor(ast.NodeVisitor):
         self.rel_path = rel_path
         self.violations: list[Violation] = []
         self._stack: list[ast.AST] = []
+        self._import_aliases: dict[str, str] = {}
 
     def visit(self, node: ast.AST) -> None:
         self._stack.append(node)
@@ -315,8 +342,24 @@ class PolicyVisitor(ast.NodeVisitor):
         allowed = ALLOWED_DEFERRED_IMPORT_MODULES.get(self.rel_path, frozenset())
         return bool(allowed) and all(_module_is_allowed(module, allowed) for module in modules)
 
+    def _resolve_import_alias(self, dotted: str | None) -> str | None:
+        if dotted is None:
+            return None
+        head, separator, tail = dotted.partition(".")
+        alias_target = self._import_aliases.get(head)
+        if alias_target is None:
+            return dotted
+        if separator:
+            return f"{alias_target}.{tail}"
+        return alias_target
+
     def visit_Import(self, node: ast.Import) -> None:
         modules = [alias.name for alias in node.names]
+        for alias in node.names:
+            binding = _import_alias_binding(alias)
+            if binding is not None:
+                local_name, canonical_name = binding
+                self._import_aliases[local_name] = canonical_name
         if not self._import_context_is_allowed() and not self._deferred_import_is_allowed(modules):
             self._add(node, "deferred imports are forbidden outside module scope")
         for module in modules:
@@ -325,6 +368,12 @@ class PolicyVisitor(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         module = "." * node.level + (node.module or "")
+        if node.level == 0:
+            for alias in node.names:
+                binding = _import_from_alias_binding(node.module, alias)
+                if binding is not None:
+                    local_name, canonical_name = binding
+                    self._import_aliases[local_name] = canonical_name
         if not self._import_context_is_allowed() and not self._deferred_import_is_allowed(
             [module]
         ):
@@ -354,7 +403,7 @@ class PolicyVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        dotted = _dotted_name(node.func)
+        dotted = self._resolve_import_alias(_dotted_name(node.func))
         if dotted in DYNAMIC_IMPORT_CALL_NAMES:
             allowed = ALLOWED_DYNAMIC_IMPORT_CALLS.get(self.rel_path, frozenset())
             if dotted not in allowed:

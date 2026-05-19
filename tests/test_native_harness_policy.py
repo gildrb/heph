@@ -209,6 +209,42 @@ def test_repo_policy_rejects_allowlisted_runtime_dynamic_benchmark_imports() -> 
     assert "benchmark-only module `benchmarks.academic.fixture`" in rendered
 
 
+def test_repo_policy_rejects_imported_runtime_dynamic_benchmark_imports() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "from importlib import import_module",
+                'import_module("scripts.run_external_benchmarks")',
+                'import_module("benchmarks.academic.fixture")',
+            )
+        ),
+        "hephaistos/cli/main.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "benchmark-only module `scripts.run_external_benchmarks`" in rendered
+    assert "benchmark-only module `benchmarks.academic.fixture`" in rendered
+
+
+def test_repo_policy_rejects_aliased_runtime_dynamic_benchmark_imports() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "import importlib as il",
+                'il.import_module("scripts.run_external_benchmarks")',
+                'il.import_module("benchmarks.academic.fixture")',
+            )
+        ),
+        "hephaistos/cli/main.py",
+    )
+    rendered = "\n".join(violation.render() for violation in violations)
+
+    assert "benchmark-only module `scripts.run_external_benchmarks`" in rendered
+    assert "benchmark-only module `benchmarks.academic.fixture`" in rendered
+
+
 def test_repo_policy_allows_allowlisted_runtime_dynamic_product_imports() -> None:
     violations = check_repo_policies._check_source(
         "\n".join(
@@ -216,6 +252,23 @@ def test_repo_policy_allows_allowlisted_runtime_dynamic_product_imports() -> Non
                 "from __future__ import annotations",
                 "import importlib",
                 'importlib.import_module("hephaistos.commands")',
+            )
+        ),
+        "hephaistos/cli/main.py",
+    )
+
+    assert violations == []
+
+
+def test_repo_policy_allows_allowlisted_aliased_runtime_dynamic_product_imports() -> None:
+    violations = check_repo_policies._check_source(
+        "\n".join(
+            (
+                "from __future__ import annotations",
+                "from importlib import import_module as load_module",
+                "import importlib as il",
+                'load_module("hephaistos.commands")',
+                'il.import_module("hephaistos.commands")',
             )
         ),
         "hephaistos/cli/main.py",
