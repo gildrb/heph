@@ -51,6 +51,11 @@ DEFAULT_REQUIRED_REAL_STRESSORS = (
     "multi-column",
     "multilingual",
 )
+PUBLIC_ACADEMIC_REQUIRED_REAL_STRESSORS = (
+    "public-html",
+    "course-notes",
+    "textbook-section",
+)
 DEFAULT_FORBIDDEN_REAL_KNOWN_LIMITS = (
     "synthetic",
     "no real scanned pdfs",
@@ -61,6 +66,7 @@ DEFAULT_FORBIDDEN_REAL_KNOWN_LIMITS = (
     "no model-backed",
 )
 DEFAULT_REQUIRED_PREFLIGHT_ROLES = ("assignment", "past_exam", "slides")
+PUBLIC_ACADEMIC_REQUIRED_PREFLIGHT_ROLES = ("lecture", "textbook", "reference")
 DEFAULT_REQUIRED_PREFLIGHT_OVERVIEW_SOURCE_COVERAGE = 0.4
 DEFAULT_REQUIRED_PREFLIGHT_OVERVIEW_SAMPLE_CAP = 32
 DEFAULT_PREFLIGHT_SAMPLE_CAP_MAX_COVERAGE_FLOOR = 0.4
@@ -405,7 +411,7 @@ def _real_corpus_item(manifest_path: Path | None) -> AuditItem:
             min_domains=DEFAULT_REAL_MIN_DOMAINS,
             min_document_types=DEFAULT_REAL_MIN_DOCUMENT_TYPES,
             min_stressors=DEFAULT_REAL_MIN_STRESSORS,
-            required_stressors=DEFAULT_REQUIRED_REAL_STRESSORS,
+            required_stressors=(),
             forbid_known_limit=DEFAULT_FORBIDDEN_REAL_KNOWN_LIMITS,
             require_document_provenance=True,
         )
@@ -413,6 +419,15 @@ def _real_corpus_item(manifest_path: Path | None) -> AuditItem:
         return AuditItem(requirement, "missing", str(exc))
     if report.corpus_kind == "synthetic-snippets":
         return AuditItem(requirement, "missing", "real corpus manifest is still synthetic")
+    missing_stressors = tuple(
+        sorted(set(_required_real_stressors(report.corpus_kind)) - set(report.stressors))
+    )
+    if missing_stressors:
+        return AuditItem(
+            requirement,
+            "missing",
+            "real corpus manifest missing required stressor(s): " + ", ".join(missing_stressors),
+        )
     dataset_failures = _manifest_required_dataset_failures(
         manifest_path,
         DEFAULT_REQUIRED_REAL_DATASET_KINDS,
@@ -427,6 +442,12 @@ def _real_corpus_item(manifest_path: Path | None) -> AuditItem:
             f"document_types={len(report.document_types)}, stressors={len(report.stressors)}"
         ),
     )
+
+
+def _required_real_stressors(corpus_kind: str) -> tuple[str, ...]:
+    if corpus_kind == validate_benchmark_manifest.PUBLIC_ACADEMIC_CORPUS_KIND:
+        return PUBLIC_ACADEMIC_REQUIRED_REAL_STRESSORS
+    return DEFAULT_REQUIRED_REAL_STRESSORS
 
 
 def _real_chat_event_item(manifest_path: Path | None) -> AuditItem:
@@ -667,10 +688,9 @@ def _real_preflight_item(report_path: Path | None, manifest_path: Path | None) -
                 f"document(s), expected {indexed_documents}"
             ),
         )
+    required_roles = _required_preflight_roles(_preflight_corpus_kind(manifest))
     missing_roles = tuple(
-        role
-        for role in DEFAULT_REQUIRED_PREFLIGHT_ROLES
-        if _int_field(indexed_role_counts, role) <= 0
+        role for role in required_roles if _int_field(indexed_role_counts, role) <= 0
     )
     if missing_roles:
         return AuditItem(
@@ -757,6 +777,17 @@ def _real_preflight_item(report_path: Path | None, manifest_path: Path | None) -
             f"{overview_total_sources}"
         ),
     )
+
+
+def _preflight_corpus_kind(manifest: dict[object, object]) -> str:
+    corpus_kind = manifest.get("corpus_kind")
+    return corpus_kind if isinstance(corpus_kind, str) else ""
+
+
+def _required_preflight_roles(corpus_kind: str) -> tuple[str, ...]:
+    if corpus_kind == validate_benchmark_manifest.PUBLIC_ACADEMIC_CORPUS_KIND:
+        return PUBLIC_ACADEMIC_REQUIRED_PREFLIGHT_ROLES
+    return DEFAULT_REQUIRED_PREFLIGHT_ROLES
 
 
 def _int_field(payload: dict[object, object], field: str) -> int:

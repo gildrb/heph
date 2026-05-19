@@ -1458,6 +1458,46 @@ def test_large_corpus_local_overview_is_concise_cited_and_not_boilerplate() -> N
     assert not _overview_answer_has_bad_shape(reply, evidence)
 
 
+@patch("hephaistos.chat.orchestrator._resolve_turn_evidence")
+@patch("hephaistos.chat.orchestrator.plan_turn")
+def test_large_corpus_local_overview_emits_turn_complete(
+    mock_plan_turn: MagicMock,
+    mock_resolve_evidence: MagicMock,
+) -> None:
+    plan = material_overview_plan("what is the material about")
+    evidence = TurnEvidence(
+        items=(
+            _make_evidence_chunk(
+                "materials/linear-algebra.md",
+                0,
+                "E1",
+                "Lecture notes. Linear algebra studies vectors, matrices, bases, and rank.",
+            ),
+            _make_evidence_chunk(
+                "materials/graph-search-exam.pdf",
+                0,
+                "E2",
+                "Final exam. Explain breadth-first search and depth-first search.",
+            ),
+        ),
+        sampled_source_count=32,
+        total_source_count=51,
+    )
+    mock_plan_turn.return_value = plan
+    mock_resolve_evidence.return_value = evidence
+
+    events = list(
+        TurnOrchestrator(_make_study_session()).iter_events("what is the material about")
+    )
+
+    deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
+    completions = [event for event in events if isinstance(event, TurnCompleteEvent)]
+    assert len(deltas) == 1
+    assert len(completions) == 1
+    assert completions[0].full_text == deltas[0]
+    assert completions[0].finish_reason == "fallback"
+
+
 def test_overview_shape_rejects_non_topic_menu_labels() -> None:
     evidence = _make_turn_evidence(
         _make_evidence_chunk("materials/lecture.pdf", 0, "E1"),

@@ -368,6 +368,121 @@ def _write_real_preflight_report(path: Path, manifest_path: Path) -> None:
     )
 
 
+def _write_public_academic_real_manifest(tmp_path: Path) -> Path:
+    suite = tmp_path / "public-suite"
+    suite.mkdir()
+    for dataset in ("chat_events.jsonl", "chat_event_expectation.json", "replay.jsonl"):
+        (suite / dataset).write_text("{}\n", encoding="utf-8")
+    domains = (
+        "artificial-intelligence",
+        "software-engineering",
+        "computer-vision",
+        "security",
+        "reinforcement-learning",
+    )
+    roles = ("textbook", "lecture-notes", "reference")
+    document_types = (
+        "html-textbook-section",
+        "html-course-notes",
+        "html-chapter-summary",
+        "html-lecture-notes",
+        "html-search-textbook-section",
+        "html-probability-textbook-section",
+        "html-game-theory-textbook-section",
+        "html-reinforcement-learning-section",
+    )
+    stressors = (
+        "public-html",
+        "course-notes",
+        "textbook-section",
+        "search",
+        "security",
+        "software-engineering",
+        "computer-vision",
+        "deep-learning",
+        "reinforcement-learning",
+        "rl",
+        "artificial-intelligence",
+        "probabilistic-modeling",
+        "bayes-nets",
+        "constraint-satisfaction",
+        "decision-processes",
+        "games",
+    )
+    documents = [
+        {
+            "id": f"public-academic-{idx}",
+            "title": f"Public academic document {idx}",
+            "source": f"materials/public-academic/doc-{idx}.html",
+            "source_url": f"https://example.edu/course/doc-{idx}.html",
+            "bytes": 100 + idx,
+            "sha256": f"{idx:064x}"[-64:],
+            "source_organization": "Example University",
+            "license": "Public academic fixture attribution.",
+            "license_url": "https://example.edu/license",
+            "attribution": "Example University public course fixture.",
+            "domain": domains[idx % len(domains)],
+            "role": roles[idx % len(roles)],
+            "document_type": document_types[idx % len(document_types)],
+            "stressors": [
+                stressors[idx % len(stressors)],
+                stressors[(idx + 5) % len(stressors)],
+            ],
+        }
+        for idx in range(40)
+    ]
+    manifest_path = suite / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "id": "public-academic-real-test",
+                "description": "Public academic fixture manifest.",
+                "corpus_kind": "public-academic",
+                "documents": documents,
+                "datasets": [
+                    {"path": "chat_events.jsonl", "kind": "chat-events"},
+                    {
+                        "path": "chat_event_expectation.json",
+                        "kind": "chat-event-answer-expectation",
+                    },
+                    {"path": "replay.jsonl", "kind": "model-replay-prompts"},
+                ],
+                "known_limits": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def _write_public_academic_preflight_report(path: Path, manifest_path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "status": 0,
+                "armory_path": str(manifest_path.parent),
+                "manifest_path": str(manifest_path),
+                "failures": [],
+                "manifest": {"corpus_kind": "public-academic", "documents": 40},
+                "document_understanding": {
+                    "visible_materials": 40,
+                    "indexed_documents": 40,
+                    "chunks": 80,
+                    "role_counts": {"lecture": 12, "textbook": 16, "reference": 12},
+                    "indexed_role_counts": {"lecture": 12, "textbook": 16, "reference": 12},
+                    "extraction_health_passed": True,
+                    "extraction_health_pass_rate": 1.0,
+                    "overview_sampled_sources": 16,
+                    "overview_total_sources": 40,
+                    "overview_source_coverage_rate": 0.4,
+                    "failures": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_completion_audit_is_incomplete_without_external_proof() -> None:
     report = audit_agent_harness_completion.audit_completion()
 
@@ -874,6 +989,45 @@ def test_completion_audit_rejects_missing_real_preflight_report(tmp_path: Path) 
 
     assert item.status == "missing"
     assert "--real-preflight-report" in item.evidence
+
+
+def test_completion_audit_accepts_public_academic_corpus_requirements(tmp_path: Path) -> None:
+    manifest = _write_public_academic_real_manifest(tmp_path)
+
+    item = audit_agent_harness_completion._real_corpus_item(manifest)
+
+    assert item.status == "covered"
+    assert "documents=40" in item.evidence
+
+
+def test_completion_audit_accepts_public_academic_preflight_roles(tmp_path: Path) -> None:
+    manifest = _write_public_academic_real_manifest(tmp_path)
+    preflight_report = tmp_path / "public-preflight-report.json"
+    _write_public_academic_preflight_report(preflight_report, manifest)
+
+    item = audit_agent_harness_completion._real_preflight_item(preflight_report, manifest)
+
+    assert item.status == "covered"
+    assert "indexed=40" in item.evidence
+
+
+def test_completion_audit_rejects_public_academic_preflight_without_textbook(
+    tmp_path: Path,
+) -> None:
+    manifest = _write_public_academic_real_manifest(tmp_path)
+    preflight_report = tmp_path / "public-preflight-report.json"
+    _write_public_academic_preflight_report(preflight_report, manifest)
+    payload = json.loads(preflight_report.read_text(encoding="utf-8"))
+    payload["document_understanding"]["indexed_role_counts"] = {
+        "lecture": 20,
+        "reference": 20,
+    }
+    preflight_report.write_text(json.dumps(payload), encoding="utf-8")
+
+    item = audit_agent_harness_completion._real_preflight_item(preflight_report, manifest)
+
+    assert item.status == "missing"
+    assert "textbook" in item.evidence
 
 
 def test_completion_audit_rejects_failed_real_preflight_report(tmp_path: Path) -> None:

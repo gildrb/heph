@@ -2563,8 +2563,7 @@ class TurnOrchestrator:
                             or session.conversation.messages[-1].role != "assistant"
                         ):
                             session.conversation.add("assistant", final_reply)
-                        if final_reply:
-                            yield AssistantDeltaEvent(final_reply)
+                        yield from _final_reply_events(final_reply)
                         return
                     for event in self._iter_plain_events(user_input=user_input, abort=abort):
                         yield event
@@ -2649,6 +2648,7 @@ class TurnOrchestrator:
         ):
             session.conversation.add("assistant", self.last_reply)
         self.last_internal_passes = 1
+        yield _turn_complete_from_result(None, self.last_reply)
 
     def _iter_study_events(
         self,
@@ -2681,8 +2681,7 @@ class TurnOrchestrator:
                 or session.conversation.messages[-1].role != "assistant"
             ):
                 session.conversation.add("assistant", final_reply)
-            if final_reply:
-                yield AssistantDeltaEvent(final_reply)
+            yield from _final_reply_events(final_reply)
             return
 
         if plan.direct_reply is not None:
@@ -2711,8 +2710,7 @@ class TurnOrchestrator:
                 or session.conversation.messages[-1].role != "assistant"
             ):
                 session.conversation.add("assistant", final_reply)
-            if final_reply:
-                yield AssistantDeltaEvent(final_reply)
+            yield from _final_reply_events(final_reply)
             return
 
         if _needs_source_only_no_evidence_fallback(plan, resolved):
@@ -2734,8 +2732,7 @@ class TurnOrchestrator:
                 or session.conversation.messages[-1].role != "assistant"
             ):
                 session.conversation.add("assistant", final_reply)
-            if final_reply:
-                yield AssistantDeltaEvent(final_reply)
+            yield from _final_reply_events(final_reply)
             return
 
         if evidence_reply := _insufficient_evidence_reply(plan, resolved):
@@ -2757,8 +2754,7 @@ class TurnOrchestrator:
                 or session.conversation.messages[-1].role != "assistant"
             ):
                 session.conversation.add("assistant", final_reply)
-            if final_reply:
-                yield AssistantDeltaEvent(final_reply)
+            yield from _final_reply_events(final_reply)
             return
 
         if local_overview_reply := _large_corpus_local_overview_reply(
@@ -2781,8 +2777,7 @@ class TurnOrchestrator:
                 or session.conversation.messages[-1].role != "assistant"
             ):
                 session.conversation.add("assistant", final_reply)
-            if final_reply:
-                yield AssistantDeltaEvent(final_reply)
+            yield from _final_reply_events(final_reply)
             return
 
         if notice := _writing_notice(plan):
@@ -2872,8 +2867,7 @@ class TurnOrchestrator:
                 or session.conversation.messages[-1].role != "assistant"
             ):
                 session.conversation.add("assistant", final_reply)
-            if final_reply:
-                yield AssistantDeltaEvent(final_reply)
+            yield from _final_reply_events(final_reply)
             return
 
         used_overview_fallback = False
@@ -3159,3 +3153,12 @@ def _turn_complete_from_result(
         finish_reason=event.finish_reason,
         tokens_remaining=event.tokens_remaining,
     )
+
+
+def _final_reply_events(
+    final_reply: str,
+    completion_event: TurnCompleteEvent | None = None,
+) -> Iterator[TurnEvent]:
+    if final_reply:
+        yield AssistantDeltaEvent(final_reply)
+    yield _turn_complete_from_result(completion_event, final_reply)
