@@ -66,6 +66,19 @@ droid-wiki/
 security-findings.json
 validated-findings.json
 
+# Private benchmark suites, corpora, qrels, snapshots, and run outputs.
+# Keep benchmark evidence local under ignored paths; commit only scripts,
+# schemas, and tiny non-sensitive example shapes.
+benchmarks/academic/
+benchmarks/public-academic/
+benchmarks/private/
+benchmarks/local/
+benchmarks/external/
+benchmarks/**/*.jsonl
+benchmarks/**/manifest.json
+benchmarks/**/conversion_manifest.json
+!benchmarks/*.example.jsonl
+
 # Project-specific
 /*-armory/
 **/.hephaistos/

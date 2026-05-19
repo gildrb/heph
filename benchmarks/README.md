@@ -1,9 +1,12 @@
 # Hephaistos Benchmarks
 
-This directory holds benchmark datasets and examples for measuring whether the
-agent harness is improving academic RAG quality.
+This directory holds benchmark scripts, schemas, and tiny example shapes for
+measuring whether the agent harness is improving academic RAG quality. Real
+benchmark suites, corpora, qrels, snapshots, and generated reports are private
+local artifacts: keep them in ignored paths such as `benchmarks/academic/`,
+`benchmarks/public-academic/`, or `.artifacts/benchmarks/...`.
 
-Run the committed deterministic suite:
+Run a local deterministic suite after provisioning the ignored suite directory:
 
 ```bash
 uv run python -m scripts.run_benchmark_suite \
@@ -14,8 +17,8 @@ uv run python -m scripts.run_benchmark_suite \
 The suite copies `benchmarks/academic/armory` into a temporary directory before
 building a RAG index, then scores retrieval, material-role inference, priority,
 document-understanding preflight, index integrity, academic-item extraction,
-study-state, scheduling, and grounded-answer datasets from
-`benchmarks/academic/`. It also validates the model replay prompt dataset so
+study-state, scheduling, and grounded-answer datasets from the ignored local
+suite. It also validates the model replay prompt dataset so
 replay cases cannot silently drift away from the answer benchmark contract.
 Answer quality gates include citation validity, answer shape, and evidence
 coverage; `--min-evidence-coverage` fails the suite when answer fixtures
