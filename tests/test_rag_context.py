@@ -33,6 +33,8 @@ class TestBuildTurnEvidence:
         evidence = build_turn_evidence([_make_scored("Python is great.", "python.md", 0.95)])
         rendered = evidence.render()
         assert "Retrieved evidence for this question" in rendered
+        assert "Cite the most specific evidence IDs" in rendered
+        assert "If the evidence is partial or missing" in rendered
         assert "[E1]" in rendered
         assert "python.md" in rendered
         assert "Python is great." in rendered
@@ -62,6 +64,18 @@ class TestBuildTurnEvidence:
         rendered = evidence.render()
         assert rendered.index("[E1]") < rendered.index("[E2]")
         assert rendered.index("High relevance content") < rendered.index("Low relevance content")
+
+    def test_prefers_distinct_sources_before_duplicate_chunks_under_budget(self) -> None:
+        evidence = build_turn_evidence(
+            [
+                _make_scored("alpha " * 4, "alpha.md", 1.0),
+                _make_scored("nearby " * 4, "alpha.md", 0.99),
+                _make_scored("beta " * 4, "beta.md", 0.98),
+            ],
+            max_tokens=36,
+        )
+
+        assert [item.source for item in evidence.items[:2]] == ["alpha.md", "beta.md"]
 
 
 class TestBuildContext:

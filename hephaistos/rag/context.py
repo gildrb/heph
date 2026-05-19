@@ -28,9 +28,11 @@ _EVIDENCE_ID_PREFIX = "E"
 _EVIDENCE_HEADER_TEMPLATE = "[{evidence_id}] {source} (chunk {index}, relevance: {score:.2f})"
 _EVIDENCE_PROMPT_PREFIX = (
     "Retrieved evidence for this question:\n\n"
-    "Cite evidence IDs in brackets after factual claims, for example [E1] or [E1][E2]. "
-    "Do not cite filenames by themselves.\n\n"
+    "Cite the most specific evidence IDs in brackets after each factual claim, "
+    "for example [E1] or [E1][E2]. Do not cite filenames by themselves. "
+    "If the evidence is partial or missing, say what is missing instead of guessing.\n\n"
 )
+_DISTINCT_SOURCE_HEAD_LIMIT = 4
 _TRUNCATION_MARKER = "[... truncated]"
 
 
@@ -97,10 +99,13 @@ def build_turn_evidence(
 ) -> TurnEvidence:
     """Build citable turn evidence from retrieved chunks.
 
-    Chunks are included in relevance order until the budget is exhausted.
-    Included chunks are assigned stable IDs (``E1``, ``E2``, ...) in prompt
-    order. When the next chunk would exceed the budget, its content is
-    truncated if enough room remains to preserve a useful partial block.
+    The prompt head prefers the first few distinct sources before spending
+    budget on duplicate-source neighbors. This keeps multi-source synthesis
+    possible under tight budgets while preserving original relevance order
+    within the promoted source-diverse head and the remaining tail. Included
+    chunks are assigned stable IDs (``E1``, ``E2``, ...) in prompt order. When
+    the next chunk would exceed the budget, its content is truncated if enough
+    room remains to preserve a useful partial block.
     """
     if not scored_chunks:
         return TurnEvidence()
@@ -109,7 +114,7 @@ def build_turn_evidence(
     used = 0
     items: list[EvidenceChunk] = []
 
-    for idx, sc in enumerate(scored_chunks, start=1):
+    for idx, sc in enumerate(_prioritize_distinct_sources(scored_chunks), start=1):
         evidence_id = f"{_EVIDENCE_ID_PREFIX}{idx}"
         header = _EVIDENCE_HEADER_TEMPLATE.format(
             evidence_id=evidence_id,
@@ -148,6 +153,22 @@ def build_turn_evidence(
         used += entry_len
 
     return TurnEvidence(tuple(items))
+
+
+def _prioritize_distinct_sources(scored_chunks: list[ScoredChunk]) -> list[ScoredChunk]:
+    source_head: list[ScoredChunk] = []
+    tail: list[ScoredChunk] = []
+    seen_sources: set[str] = set()
+
+    for scored_chunk in scored_chunks:
+        source = scored_chunk.chunk.source
+        if source not in seen_sources and len(source_head) < _DISTINCT_SOURCE_HEAD_LIMIT:
+            source_head.append(scored_chunk)
+            seen_sources.add(source)
+        else:
+            tail.append(scored_chunk)
+
+    return [*source_head, *tail]
 
 
 def build_context(
