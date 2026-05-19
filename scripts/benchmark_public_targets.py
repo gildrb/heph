@@ -21,6 +21,9 @@ PUBLIC_SNAPSHOT_SCHEMA_VERSION = "enterprise-rag-public-snapshot-v1"
 DATASET_VERSION_LEDGER_SCHEMA_VERSION = "dataset-version-ledger-v1"
 EVALUATION_PLAN_SCHEMA_VERSION = "evaluation-plan-v1"
 CLAIM_GATE_SCHEMA_VERSION = "public-target-claim-gate-v1"
+BOOTSTRAP_SAMPLES = 999
+RANDOMIZATION_EXACT_MAX_PAIRS = 18
+RANDOMIZATION_MONTE_CARLO_SAMPLES = 4096
 
 _HASH_FIELDS = ("manifest_sha256", "cases_sha256", "qrels_sha256", "corpus_sha256")
 _MATCHED_METADATA_FIELDS = (
@@ -257,7 +260,7 @@ def _required_list(
 ) -> list[object]:
     value = payload.get(field_name)
     if isinstance(value, list):
-        return value
+        return cast("list[object]", value)
     raise PublicTargetError(
         code,
         f"{label} is missing list field {field_name!r}",
@@ -1132,7 +1135,7 @@ def _metric_value(report: Mapping[str, object], metric_path: str) -> float:
                 f"metric path {metric_path!r} is missing from report",
                 "Ensure all selected and guardrail metrics are present in both reports.",
             )
-        value = value.get(part)
+        value = cast("Mapping[str, object]", value).get(part)
     if isinstance(value, bool):
         value = None
     if isinstance(value, int | float):
@@ -1358,28 +1361,40 @@ def _statistical_evidence(
     methods: dict[str, object] = {}
     uncertainty: dict[str, object] = {}
     metric_failures: list[str] = []
+    hit_miss = _hit_miss_counts(paired)
+    mcnemar_p_value = _mcnemar_exact_p_value(hit_miss)
     for metric_path in metric_paths:
         deltas = _paired_metric_deltas(paired, metric_path)
         if not deltas:
             metric_failures.append(f"missing per-query metric values for {metric_path}")
             continue
-        lower, upper = _empirical_interval(deltas)
-        methods[metric_path] = {
+        lower, upper = _paired_bootstrap_interval(deltas)
+        method: dict[str, object] = {
             "method": _metric_method(metric_path),
             "paired": True,
             "sample_size": len(deltas),
+            "bootstrap_samples": BOOTSTRAP_SAMPLES,
         }
-        uncertainty[metric_path] = {
+        metric_uncertainty: dict[str, object] = {
             "mean_delta": sum(deltas) / len(deltas),
             "confidence_interval": [lower, upper],
+            "bootstrap_confidence_interval": [lower, upper],
             "within_noise": lower <= 0.0 <= upper,
         }
+        if metric_path.rsplit(".", 1)[-1] == "hit_rate":
+            method["mcnemar"] = "exact_binomial_two_sided"
+            metric_uncertainty["mcnemar_exact_p_value"] = mcnemar_p_value
+        else:
+            p_value = _paired_randomization_p_value(deltas)
+            method["randomization_test"] = "paired_sign_flip_two_sided"
+            metric_uncertainty["randomization_p_value"] = p_value
+        methods[metric_path] = method
+        uncertainty[metric_path] = metric_uncertainty
 
     primary_deltas = _paired_metric_deltas(paired, primary_metric)
     wins = sum(1 for delta in primary_deltas if delta > 0)
     losses = sum(1 for delta in primary_deltas if delta < 0)
     ties = sum(1 for delta in primary_deltas if delta == 0)
-    hit_miss = _hit_miss_counts(paired)
     return {
         "status": "passed" if not metric_failures else "failed",
         "pairing": "paired",
@@ -1390,11 +1405,12 @@ def _statistical_evidence(
         "methods": methods,
         "uncertainty": uncertainty,
         "win_loss_tie": {"wins": wins, "losses": losses, "ties": ties},
-        "hit_miss_table": hit_miss,
+        "hit_miss_table": {**hit_miss, "mcnemar_exact_p_value": mcnemar_p_value},
         "claim_wording": (
             "within noise"
             if any(
-                isinstance(item, dict) and item.get("within_noise") is True
+                isinstance(item, dict)
+                and cast("Mapping[str, object]", item).get("within_noise") is True
                 for item in uncertainty.values()
             )
             else "paired directional delta with uncertainty"
@@ -1440,17 +1456,81 @@ def _per_query_metric_value(row: Mapping[str, object], metric_path: str) -> floa
 def _metric_method(metric_path: str) -> str:
     metric_name = metric_path.rsplit(".", 1)[-1]
     if metric_name == "hit_rate":
-        return "paired_hit_miss_mcnemar_inputs"
-    return "paired_empirical_ci"
+        return "paired_bootstrap_ci_with_mcnemar"
+    return "paired_bootstrap_ci_with_randomization"
 
 
-def _empirical_interval(values: Sequence[float]) -> tuple[float, float]:
+def _paired_bootstrap_interval(values: Sequence[float]) -> tuple[float, float]:
+    if len(values) <= 1:
+        mean = sum(values) / len(values) if values else 0.0
+        return mean, mean
+    sample_means: list[float] = []
+    state = 0xC0DEC0DE + len(values)
+    for _sample_index in range(BOOTSTRAP_SAMPLES):
+        total = 0.0
+        for _value_index in values:
+            state = _next_deterministic_state(state)
+            total += values[state % len(values)]
+        sample_means.append(total / len(values))
+    return _percentile_interval(sample_means)
+
+
+def _percentile_interval(values: Sequence[float]) -> tuple[float, float]:
     ordered = sorted(values)
     if not ordered:
         return 0.0, 0.0
     lower_index = math.floor(0.025 * (len(ordered) - 1))
     upper_index = math.ceil(0.975 * (len(ordered) - 1))
     return ordered[lower_index], ordered[upper_index]
+
+
+def _paired_randomization_p_value(deltas: Sequence[float]) -> float:
+    nonzero = tuple(delta for delta in deltas if delta != 0.0)
+    if not nonzero:
+        return 1.0
+    observed = abs(sum(nonzero))
+    if len(nonzero) <= RANDOMIZATION_EXACT_MAX_PAIRS:
+        extreme = 0
+        total = 1 << len(nonzero)
+        for mask in range(total):
+            signed_sum = sum(
+                delta if mask & (1 << index) else -delta for index, delta in enumerate(nonzero)
+            )
+            if abs(signed_sum) >= observed - 1e-12:
+                extreme += 1
+        return extreme / total
+
+    extreme = 0
+    state = 0x51F15EED + len(nonzero)
+    for _sample_index in range(RANDOMIZATION_MONTE_CARLO_SAMPLES):
+        signed_sum = 0.0
+        for delta in nonzero:
+            state = _next_deterministic_state(state)
+            signed_sum += delta if state & 1 else -delta
+        if abs(signed_sum) >= observed - 1e-12:
+            extreme += 1
+    return extreme / RANDOMIZATION_MONTE_CARLO_SAMPLES
+
+
+def _mcnemar_exact_p_value(hit_miss: Mapping[str, object]) -> float:
+    baseline_only = _int_metric(hit_miss.get("baseline_only"))
+    current_only = _int_metric(hit_miss.get("current_only"))
+    discordant = baseline_only + current_only
+    if discordant == 0:
+        return 1.0
+    smaller = min(baseline_only, current_only)
+    tail = sum(math.comb(discordant, index) for index in range(smaller + 1))
+    return min(1.0, 2.0 * tail / (2**discordant))
+
+
+def _int_metric(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value
+
+
+def _next_deterministic_state(state: int) -> int:
+    return (1664525 * state + 1013904223) & 0xFFFFFFFF
 
 
 def _hit_miss_counts(
@@ -1486,7 +1566,7 @@ def _number_or_none(value: object) -> float | None:
 
 def _object_list(value: object) -> list[object]:
     if isinstance(value, list):
-        return value
+        return cast("list[object]", value)
     return []
 
 
@@ -2082,10 +2162,12 @@ def _run_claim_gate_command(args: argparse.Namespace) -> int:
     )
     _write_json(cast("Path | None", args.output), payload)
     if status == 0:
+        baseline = cast("Mapping[str, object]", payload["baseline"])
+        public_snapshot = cast("Mapping[str, object]", payload["public_snapshot"])
         print(
             "public target claim gate passed: "
-            f"baseline={payload['baseline']['artifact_path']} "
-            f"snapshot_hash={payload['public_snapshot']['raw_sha256']}"
+            f"baseline={baseline['artifact_path']} "
+            f"snapshot_hash={public_snapshot['raw_sha256']}"
         )
         return 0
     failures = payload.get("failures")

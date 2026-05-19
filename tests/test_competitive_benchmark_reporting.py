@@ -743,8 +743,24 @@ def test_public_target_claim_gate_records_baseline_snapshot_and_plan_evidence(
     assert payload["statistical_evidence"]["sample_size"] == 2
     assert (
         payload["statistical_evidence"]["methods"]["aggregate_metrics.expected_recall"]["method"]
-        == "paired_empirical_ci"
+        == "paired_bootstrap_ci_with_randomization"
     )
+    assert (
+        payload["statistical_evidence"]["methods"]["aggregate_metrics.hit_rate"]["method"]
+        == "paired_bootstrap_ci_with_mcnemar"
+    )
+    expected_recall_uncertainty = payload["statistical_evidence"]["uncertainty"][
+        "aggregate_metrics.expected_recall"
+    ]
+    assert "bootstrap_confidence_interval" in expected_recall_uncertainty
+    assert "randomization_p_value" in expected_recall_uncertainty
+    assert (
+        payload["statistical_evidence"]["uncertainty"]["aggregate_metrics.hit_rate"][
+            "mcnemar_exact_p_value"
+        ]
+        == 1.0
+    )
+    assert payload["statistical_evidence"]["hit_miss_table"]["mcnemar_exact_p_value"] == 1.0
     assert payload["run_disclosure"]["run_count"] == 2
     assert payload["run_disclosure"]["failed_count"] == 0
     assert payload["claim_language"]["status"] == "passed"
