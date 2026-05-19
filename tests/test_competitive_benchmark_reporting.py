@@ -11,7 +11,7 @@ from scripts import benchmark_public_targets, claim_report_envelope, generate_be
 
 ROOT = Path(__file__).resolve().parent.parent
 PROMPT_PATH = ROOT / "benchmarks" / "model-evaluation-prompt.md"
-pytestmark = pytest.mark.skipif(
+requires_private_prompt = pytest.mark.skipif(
     not PROMPT_PATH.is_file(),
     reason="private benchmark prompt is local-only",
 )
@@ -187,6 +187,7 @@ def _single_heph_report() -> dict[str, object]:
     }
 
 
+@requires_private_prompt
 def test_prompt_forbids_competitive_claims_without_matched_baselines() -> None:
     text = PROMPT_PATH.read_text(encoding="utf-8").lower()
 
@@ -694,6 +695,34 @@ def _write_public_target_inputs(
         "evaluation_plan": evaluation_plan,
         "output": output,
     }
+
+
+def test_public_target_claim_gate_runs_without_private_prompt_fixture(tmp_path: Path) -> None:
+    missing_prompt = tmp_path / "benchmarks" / "model-evaluation-prompt.md"
+    paths = _write_public_target_inputs(tmp_path)
+
+    status = benchmark_public_targets.main(
+        [
+            "claim-gate",
+            "--baseline-ledger",
+            str(paths["baseline_ledger"]),
+            "--current-report",
+            str(paths["current"]),
+            "--public-snapshot",
+            str(paths["snapshot"]),
+            "--dataset-ledger",
+            str(paths["dataset_ledger"]),
+            "--evaluation-plan",
+            str(paths["evaluation_plan"]),
+            "--output",
+            str(paths["output"]),
+        ]
+    )
+
+    payload = json.loads(paths["output"].read_text(encoding="utf-8"))
+    assert not missing_prompt.exists()
+    assert status == 0
+    assert payload["status"] == "passed"
 
 
 def test_public_target_claim_gate_records_baseline_snapshot_and_plan_evidence(

@@ -8,9 +8,19 @@ import pytest
 
 from scripts import audit_agent_harness_completion, run_benchmark_suite
 
-pytestmark = pytest.mark.skipif(
-    not (run_benchmark_suite.DEFAULT_SUITE / "manifest.json").is_file(),
+PRIVATE_DEFAULT_SUITE = run_benchmark_suite.DEFAULT_SUITE
+PRIVATE_DEFAULT_SUITE_AVAILABLE = (PRIVATE_DEFAULT_SUITE / "manifest.json").is_file()
+requires_private_default_suite = pytest.mark.skipif(
+    not PRIVATE_DEFAULT_SUITE_AVAILABLE,
     reason="private benchmark suite is local-only",
+)
+PRIVATE_MODEL_MATRIX_EXAMPLE = (
+    audit_agent_harness_completion.REPO_ROOT / "benchmarks" / "model-matrix.example.json"
+)
+PRIVATE_MODEL_MATRIX_EXAMPLE_AVAILABLE = PRIVATE_MODEL_MATRIX_EXAMPLE.is_file()
+requires_private_model_matrix_example = pytest.mark.skipif(
+    not PRIVATE_MODEL_MATRIX_EXAMPLE_AVAILABLE,
+    reason="private model matrix example is local-only",
 )
 
 _PASSING_MODEL_METRICS = {
@@ -42,6 +52,201 @@ _PASSING_CHILD_THRESHOLDS = {
     "min_answer_domains": 3,
     "min_answer_tasks": 3,
 }
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+    path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _chat_fixture_answer() -> str:
+    return (
+        "The enabled materials include lecture notes and past exam practice [E1] [E2].\n"
+        "- Content areas visible in the cited excerpts include definitions, theorems, "
+        "examples, and proof practice [E1][E2].\n"
+        "- @lecture.md: Definitions, theorems, and examples [E1].\n"
+        "- @exam.md: Past exam proof practice [E2]."
+    )
+
+
+def _chat_fixture_evidence() -> list[dict[str, object]]:
+    return [
+        {
+            "id": "E1",
+            "source": "materials/lecture.md",
+            "chunk": 0,
+            "text": "Lecture notes. Definitions, theorems, and examples.",
+        },
+        {
+            "id": "E2",
+            "source": "materials/exam.md",
+            "chunk": 0,
+            "text": "Past exam. Question 1 asks for a proof.",
+        },
+    ]
+
+
+def _chat_fixture_expectation() -> list[dict[str, object]]:
+    return [
+        {
+            "id": "overview",
+            "task": "material-overview",
+            "must_include": ["The enabled materials include", "Content areas"],
+            "must_not_include": ["the files cover", "next action"],
+            "expected_citations": ["E1", "E2"],
+            "min_words": 24,
+            "min_citation_count": 2,
+            "min_distinct_sources": 2,
+            "min_bullet_count": 2,
+            "min_cited_bullet_count": 2,
+            "max_explicit_date_lines": 1,
+            "required_material_operations": ["sample_overview"],
+            "evidence": _chat_fixture_evidence(),
+        }
+    ]
+
+
+def _chat_fixture_material_operations() -> list[dict[str, object]]:
+    return [
+        {
+            "type": "material_operation",
+            "operation": "index_ready",
+            "message": "Material index ready: 2 enabled sources, 2 chunks.",
+            "metadata": {"indexed_sources": 2, "indexed_chunks": 2},
+        },
+        {
+            "type": "material_operation",
+            "operation": "sample_overview",
+            "message": "Sampling corpus overview: 2 excerpts from 2 of 2 indexed sources.",
+            "metadata": {
+                "query": "what is the material about",
+                "evidence_blocks": 2,
+                "sampled_sources": 2,
+                "total_sources": 2,
+            },
+        },
+        {
+            "type": "material_operation",
+            "operation": "read_excerpt",
+            "message": "Opened materials/lecture.md#chunk=0: Lecture notes.",
+            "metadata": {
+                "evidence_id": "E1",
+                "ref": "materials/lecture.md#chunk=0",
+                "text_excerpt": "Lecture notes. Definitions, theorems, and examples.",
+            },
+        },
+        {
+            "type": "material_operation",
+            "operation": "read_excerpt",
+            "message": "Opened materials/exam.md#chunk=0: Past exam.",
+            "metadata": {
+                "evidence_id": "E2",
+                "ref": "materials/exam.md#chunk=0",
+                "text_excerpt": "Past exam. Question 1 asks for a proof.",
+            },
+        },
+    ]
+
+
+def _chat_fixture_events(*, include_tool_runtime: bool = False) -> list[dict[str, object]]:
+    answer = _chat_fixture_answer()
+    tool_runtime_events: list[dict[str, object]] = []
+    if include_tool_runtime:
+        tool_runtime_events = [
+            {
+                "type": "notice",
+                "code": "acceptance_criteria",
+                "message": "Acceptance criteria: inspect sources with tools.",
+                "metadata": {"source": "agent_harness", "requires_tools": True},
+            },
+            {
+                "type": "notice",
+                "code": "tool_runtime",
+                "message": "Execution note: repeated call.",
+                "metadata": {
+                    "tool": "read_file",
+                    "reason": "repeated_call",
+                    "repeat_count": 2,
+                    "arguments": {"path": "materials/lecture.md"},
+                },
+            },
+        ]
+    return [
+        {"type": "notice", "code": "reading", "message": "Reading."},
+        *_chat_fixture_material_operations(),
+        *tool_runtime_events,
+        {
+            "type": "notice",
+            "code": "evidence",
+            "message": "Using evidence.",
+            "metadata": {
+                "refs": ["materials/lecture.md#chunk=0", "materials/exam.md#chunk=0"],
+                "coverage": {
+                    "evidence_blocks": 2,
+                    "sampled_sources": 2,
+                    "total_sources": 2,
+                },
+                "items": [
+                    {
+                        "evidence_id": "E1",
+                        "ref": "materials/lecture.md#chunk=0",
+                        "text_excerpt": "Lecture notes. Definitions, theorems, and examples.",
+                    },
+                    {
+                        "evidence_id": "E2",
+                        "ref": "materials/exam.md#chunk=0",
+                        "text_excerpt": "Past exam. Question 1 asks for a proof.",
+                    },
+                ],
+            },
+        },
+        {"type": "notice", "code": "writing", "message": "Writing."},
+        {"type": "assistant_delta", "delta": answer},
+        {"type": "turn_complete", "full_text": answer, "turn_index": 1},
+    ]
+
+
+def _write_chat_event_suite(suite: Path) -> Path:
+    suite.mkdir(parents=True)
+    _write_jsonl(suite / "chat_events.jsonl", _chat_fixture_events())
+    _write_jsonl(
+        suite / "chat_events_runtime.jsonl",
+        _chat_fixture_events(include_tool_runtime=True),
+    )
+    (suite / "chat_event_expectation.json").write_text(
+        json.dumps(_chat_fixture_expectation()),
+        encoding="utf-8",
+    )
+    (suite / "manifest.json").write_text(
+        json.dumps(
+            {
+                "corpus_kind": "chat-event-fixture",
+                "documents": [
+                    {
+                        "source": "materials/lecture.md",
+                        "domain": "mathematics",
+                        "role": "lecture",
+                        "document_type": "notes",
+                        "stressors": ["overview"],
+                        "permission_note": "temporary test fixture",
+                    }
+                ],
+                "datasets": [
+                    {"path": "chat_events.jsonl", "kind": "chat-events"},
+                    {"path": "chat_events_runtime.jsonl", "kind": "chat-events-runtime"},
+                    {
+                        "path": "chat_event_expectation.json",
+                        "kind": "chat-event-answer-expectation",
+                    },
+                ],
+                "known_limits": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return suite
 
 
 def _write_candidate_replay_report(path: Path, *, status: int = 0) -> None:
@@ -272,11 +477,20 @@ def _retarget_model_matrix_replay_dataset(model_report: Path, replay_dataset: Pa
 
 def _write_real_manifest(tmp_path: Path) -> Path:
     suite = tmp_path / "real-suite"
-    shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
+    suite.mkdir()
+    armory = suite / "armory"
+    materials = armory / "materials"
+    materials.mkdir(parents=True)
+    _write_jsonl(suite / "chat_events.jsonl", _chat_fixture_events())
+    _write_jsonl(
+        suite / "chat_events_runtime.jsonl", _chat_fixture_events(include_tool_runtime=True)
+    )
+    (suite / "chat_event_expectation.json").write_text(
+        json.dumps(_chat_fixture_expectation()),
+        encoding="utf-8",
+    )
+    _write_valid_replay_dataset(suite / "replay.jsonl")
     manifest_path = suite / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["corpus_kind"] = "permissioned-pdfs"
-    manifest["known_limits"] = []
     domains = ["math", "biology", "chemistry", "physics", "history"]
     document_types = [
         "pdf",
@@ -306,17 +520,14 @@ def _write_real_manifest(tmp_path: Path) -> Path:
         "points-format",
         "tables",
     ]
-    manifest["documents"] = []
-    materials = suite / "armory" / "materials"
-    chat_expectation_path = suite / "chat_event_expectation.json"
-    chat_expectation = json.loads(chat_expectation_path.read_text(encoding="utf-8"))
-    chat_expectation[0]["expected_citations"] = ["E1", "E2"]
-    chat_expectation_path.write_text(json.dumps(chat_expectation), encoding="utf-8")
+    documents = []
     for idx in range(40):
         source = f"materials/real-{idx}.md"
         (materials / f"real-{idx}.md").write_text("real corpus placeholder\n", encoding="utf-8")
-        manifest["documents"].append(
+        documents.append(
             {
+                "id": f"real-corpus-{idx}",
+                "title": f"Real corpus fixture {idx}",
                 "source": source,
                 "domain": domains[idx % len(domains)],
                 "role": ("past_exam", "lecture", "assignment")[idx % 3],
@@ -328,7 +539,26 @@ def _write_real_manifest(tmp_path: Path) -> Path:
                 ],
             }
         )
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "id": "permissioned-real-test",
+                "description": "Permissioned real-corpus fixture manifest.",
+                "corpus_kind": "permissioned-pdfs",
+                "documents": documents,
+                "datasets": [
+                    {"path": "chat_events.jsonl", "kind": "chat-events"},
+                    {
+                        "path": "chat_event_expectation.json",
+                        "kind": "chat-event-answer-expectation",
+                    },
+                    {"path": "replay.jsonl", "kind": "model-replay-prompts"},
+                ],
+                "known_limits": [],
+            }
+        ),
+        encoding="utf-8",
+    )
     return manifest_path
 
 
@@ -485,6 +715,7 @@ def _write_public_academic_preflight_report(path: Path, manifest_path: Path) -> 
 
 def test_completion_audit_is_incomplete_without_external_proof() -> None:
     report = audit_agent_harness_completion.audit_completion()
+    items_by_requirement = {item.requirement: item for item in report.items}
 
     assert report.status == "incomplete"
     assert "No fixture-specific course terms in runtime harness code" not in report.missing
@@ -515,16 +746,31 @@ def test_completion_audit_is_incomplete_without_external_proof() -> None:
         for item in report.items
         if item.requirement == "scripts/materialize_public_corpus.py"
     )
-    assert all(
-        item.status == "covered"
-        for item in report.items
-        if item.requirement == "Deterministic suite verifies public chat JSONL harness events"
-    )
-    assert all(
-        item.status == "covered"
-        for item in report.items
-        if item.requirement == "Deterministic academic benchmark suite passes"
-    )
+    if PRIVATE_DEFAULT_SUITE_AVAILABLE:
+        assert (
+            items_by_requirement[
+                "Deterministic suite verifies public chat JSONL harness events"
+            ].status
+            == "covered"
+        )
+        assert (
+            items_by_requirement["Deterministic academic benchmark suite passes"].status
+            == "covered"
+        )
+    else:
+        assert items_by_requirement["Private deterministic benchmark suite manifest"].status == (
+            "missing"
+        )
+        assert (
+            items_by_requirement[
+                "Deterministic suite verifies public chat JSONL harness events"
+            ].status
+            == "missing"
+        )
+        assert (
+            items_by_requirement["Deterministic academic benchmark suite passes"].status
+            == "missing"
+        )
     assert any("--min-roles 3" in command for command in report.next_steps)
     assert any("build_permissioned_corpus_armory" in command for command in report.next_steps)
     assert any("--domain-from-parent" in command for command in report.next_steps)
@@ -533,6 +779,57 @@ def test_completion_audit_is_incomplete_without_external_proof() -> None:
     assert any("benchmark_chat_events" in command for command in report.next_steps)
 
 
+def test_completion_audit_reports_missing_private_suite_without_skipping(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "hephaistos").mkdir(parents=True)
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    for script_name in (
+        "run_benchmark_suite.py",
+        "benchmark_document_understanding.py",
+        "discover_real_corpus_candidates.py",
+        "build_permissioned_corpus_armory.py",
+        "prepare_real_corpus_evidence.py",
+        "replay_answer_benchmark.py",
+        "benchmark_chat_events.py",
+        "extract_chat_event_expectation.py",
+        "materialize_public_corpus.py",
+        "run_model_eval_matrix.py",
+    ):
+        (scripts / script_name).write_text(
+            "from __future__ import annotations\n", encoding="utf-8"
+        )
+    monkeypatch.setattr(audit_agent_harness_completion, "REPO_ROOT", repo)
+
+    report = audit_agent_harness_completion.audit_completion()
+
+    items_by_requirement = {item.requirement: item for item in report.items}
+    assert report.status == "incomplete"
+    assert items_by_requirement[
+        "No fixture-specific course terms in runtime harness code"
+    ].status == ("covered")
+    assert items_by_requirement[
+        "No fixture-specific course terms in non-fixture harness scripts"
+    ].status == ("covered")
+    assert items_by_requirement["Private deterministic benchmark suite manifest"].status == (
+        "missing"
+    )
+    assert items_by_requirement["Deterministic academic benchmark suite passes"].status == (
+        "missing"
+    )
+    assert (
+        items_by_requirement[
+            "Deterministic suite verifies public chat JSONL harness events"
+        ].status
+        == "missing"
+    )
+    assert "Large real/public or permissioned academic corpus" in report.missing
+
+
+@requires_private_default_suite
 def test_completion_audit_runs_default_deterministic_suite() -> None:
     item = audit_agent_harness_completion._deterministic_benchmark_suite_item()
 
@@ -557,10 +854,13 @@ def test_completion_audit_rejects_failing_deterministic_suite(
     assert "status is 1" in item.evidence
 
 
-def test_completion_audit_verifies_default_chat_event_suite() -> None:
-    item = audit_agent_harness_completion._deterministic_chat_event_suite_item()
+def test_completion_audit_verifies_chat_event_suite(tmp_path: Path) -> None:
+    suite = _write_chat_event_suite(tmp_path / "benchmarks" / "academic")
+
+    item = audit_agent_harness_completion._deterministic_chat_event_suite_item(suite)
 
     assert item.status == "covered"
+    assert str(suite / "chat_events.jsonl") in item.evidence
     assert "consistent=True" in item.evidence
     assert "metadata=True" in item.evidence
     assert "tool_runtime_metadata_rate=1.000" in item.evidence
@@ -573,10 +873,8 @@ def test_completion_audit_verifies_default_chat_event_suite() -> None:
 
 def test_completion_audit_rejects_inconsistent_chat_event_completion(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    suite = tmp_path / "benchmarks" / "academic"
-    shutil.copytree(run_benchmark_suite.DEFAULT_SUITE, suite)
+    suite = _write_chat_event_suite(tmp_path / "benchmarks" / "academic")
     lines = []
     for line in (suite / "chat_events.jsonl").read_text(encoding="utf-8").splitlines():
         payload = json.loads(line)
@@ -584,9 +882,8 @@ def test_completion_audit_rejects_inconsistent_chat_event_completion(
             payload["full_text"] = "The files cover vague material [E1] [E2]. Say ready."
         lines.append(json.dumps(payload))
     (suite / "chat_events.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    monkeypatch.setattr(audit_agent_harness_completion, "REPO_ROOT", tmp_path)
 
-    item = audit_agent_harness_completion._deterministic_chat_event_suite_item()
+    item = audit_agent_harness_completion._deterministic_chat_event_suite_item(suite)
 
     assert item.status == "missing"
     assert "assistant delta text does not match turn completion text" in item.evidence
@@ -594,34 +891,18 @@ def test_completion_audit_rejects_inconsistent_chat_event_completion(
 
 def test_completion_audit_rejects_manifest_without_chat_event_dataset(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    suite = tmp_path / "benchmarks" / "academic"
-    suite.mkdir(parents=True)
-    shutil.copytree(
-        run_benchmark_suite.DEFAULT_SUITE / "armory",
-        suite / "armory",
-    )
-    shutil.copy(
-        run_benchmark_suite.DEFAULT_SUITE / "chat_events.jsonl",
-        suite / "chat_events.jsonl",
-    )
-    shutil.copy(
-        run_benchmark_suite.DEFAULT_SUITE / "chat_event_expectation.json",
-        suite / "chat_event_expectation.json",
-    )
-    manifest = json.loads(
-        (run_benchmark_suite.DEFAULT_SUITE / "manifest.json").read_text(encoding="utf-8")
-    )
+    suite = _write_chat_event_suite(tmp_path / "benchmarks" / "academic")
+    manifest_path = suite / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["datasets"] = [
         dataset
         for dataset in manifest["datasets"]
         if dataset["kind"] not in {"chat-events", "chat-events-runtime"}
     ]
-    (suite / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    monkeypatch.setattr(audit_agent_harness_completion, "REPO_ROOT", tmp_path)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    item = audit_agent_harness_completion._deterministic_chat_event_suite_item()
+    item = audit_agent_harness_completion._deterministic_chat_event_suite_item(suite)
 
     assert item.status == "missing"
     assert "chat-events dataset" in item.evidence
@@ -660,6 +941,7 @@ def test_completion_audit_rejects_fixture_terms_in_harness_scripts(
     assert "fixture_private_name" in item.evidence
 
 
+@requires_private_model_matrix_example
 def test_completion_audit_verifies_model_matrix_example_responsibilities() -> None:
     item = audit_agent_harness_completion._model_matrix_example_item()
 
@@ -733,8 +1015,18 @@ def test_completion_audit_can_pass_with_real_manifest_and_model_report(tmp_path:
         model_matrix_report=model_report,
     )
 
-    assert report.status == "complete"
-    assert report.missing == ()
+    if PRIVATE_DEFAULT_SUITE_AVAILABLE and PRIVATE_MODEL_MATRIX_EXAMPLE_AVAILABLE:
+        assert report.status == "complete"
+        assert report.missing == ()
+    else:
+        assert report.status == "incomplete"
+        assert "Large real/public or permissioned academic corpus" not in report.missing
+        assert (
+            "Real corpus preflight passes extraction, indexing, and role smoke checks"
+            not in report.missing
+        )
+        assert "Real corpus public chat JSONL harness events pass" not in report.missing
+        assert "Model-backed replay eval passes local and frontier groups" not in report.missing
     real_chat_item = next(
         item
         for item in report.items
@@ -1982,6 +2274,7 @@ def test_completion_audit_cli_writes_json_report(tmp_path: Path) -> None:
     assert "audit_agent_harness_completion" in payload["next_steps"][-1]
 
 
+@requires_private_default_suite
 def test_completion_audit_cli_uses_explicit_private_suite(
     tmp_path: Path,
 ) -> None:
