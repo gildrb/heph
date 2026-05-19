@@ -347,6 +347,52 @@ def test_runner_executes_materialized_enterprise_rag_suite(tmp_path: Path) -> No
     assert _as_dict(report["aggregate_metrics"])["hit_rate"] == 1.0
 
 
+def test_enterprise_rag_reports_query_classification_for_neutral_renamed_cases(
+    tmp_path: Path,
+) -> None:
+    suite = _make_external_suite(
+        tmp_path,
+        [
+            {
+                "id": "neutral-alpha",
+                "query": "Which source document explains alpha receptor signaling?",
+                "expected": ["materials/alpha.md"],
+            },
+            {
+                "id": "neutral-beta",
+                "query": "Which source document explains beta cache invalidation?",
+                "expected": ["materials/beta.md"],
+            },
+        ],
+    )
+    report_path = tmp_path / "reports" / "classification.json"
+
+    status = run_external_benchmarks.main(
+        [
+            "enterprise-rag",
+            "enterprise-rag-bench",
+            "--suite",
+            str(suite),
+            "--top-k",
+            "2",
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = _read_report(report_path)
+    benchmark = _as_dict(_as_list(report["benchmarks"])[0])
+    summary = _as_dict(benchmark["query_classification"])
+    per_query = [_as_dict(row) for row in _as_list(benchmark["per_query_results"])]
+    classifications = [_as_dict(row["query_classification"])["query_class"] for row in per_query]
+
+    assert status == 0
+    assert summary["decision_basis"] == "query-text-and-fixed-retrieval-parameters"
+    assert _as_dict(summary["query_class_counts"]) == {"source_lookup": 2}
+    assert classifications == ["source_lookup", "source_lookup"]
+    assert _as_dict(per_query[0]["retrieval_trace"])["candidate_budget"] == 4
+
+
 def test_enterprise_rag_hybrid_rerank_reports_candidate_and_harm_analysis(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -476,6 +522,127 @@ def test_enterprise_rag_hybrid_rerank_reports_candidate_and_harm_analysis(
     assert second_query["harm_bucket"] == "forbidden_moved_before_expected"
     assert second_query["bottleneck_bucket"] == "candidate_found_but_ranked_outside_final_top_k"
     assert _as_dict(analysis["reranker_state"])["claim_eligible"] is True
+
+
+def test_enterprise_rag_repair_pass_reports_trace_and_effective_metrics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    suite = _make_external_suite(
+        tmp_path,
+        [
+            {
+                "id": "repairable",
+                "query": "distractor alpha receptor repair target",
+                "expected": ["materials/alpha.md"],
+                "forbidden_before_expected": ["materials/beta.md"],
+            },
+            {
+                "id": "failed",
+                "query": "irrelevant beta distractor target",
+                "expected": ["materials/alpha.md"],
+                "forbidden_before_expected": ["materials/beta.md"],
+            },
+        ],
+    )
+
+    def fake_run_benchmark(
+        _armory_path: Path,
+        cases: Sequence[benchmark_rag.BenchmarkCase],
+        **kwargs: object,
+    ) -> benchmark_rag.BenchmarkReport:
+        results: list[benchmark_rag.CaseResult] = []
+        for case in cases:
+            repaired_query = "distractor" not in case.query.casefold()
+            if case.case_id == "repairable" and repaired_query:
+                results.append(
+                    _case_result(
+                        case_id=case.case_id,
+                        query=case.query,
+                        retrieved=("materials/alpha.md",),
+                        hit=True,
+                        rank=1,
+                    )
+                )
+                continue
+            results.append(
+                _case_result(
+                    case_id=case.case_id,
+                    query=case.query,
+                    retrieved=("materials/beta.md",),
+                    hit=False,
+                    rank=None,
+                    forbidden_rank=1,
+                    forbidden_ok=False,
+                )
+            )
+        retrieval_mode = cast(
+            "run_external_benchmarks.RetrievalMode",
+            kwargs["retrieval_mode"],
+        )
+        top_k = cast("int", kwargs["top_k"])
+        return _benchmark_report(
+            retrieval_mode=retrieval_mode.value,
+            top_k=top_k,
+            results=tuple(results),
+        )
+
+    monkeypatch.setattr(
+        run_external_benchmarks.benchmark_rag,
+        "run_benchmark",
+        fake_run_benchmark,
+    )
+    report_path = tmp_path / "reports" / "repair.json"
+
+    status = run_external_benchmarks.main(
+        [
+            "enterprise-rag",
+            "enterprise-rag-bench",
+            "--suite",
+            str(suite),
+            "--top-k",
+            "1",
+            "--repair-max-passes",
+            "2",
+            "--json-report",
+            str(report_path),
+        ]
+    )
+
+    report = _read_report(report_path)
+    metadata = _as_dict(report["metadata"])
+    parameters = _as_dict(metadata["fixed_parameters"])
+    benchmark = _as_dict(_as_list(report["benchmarks"])[0])
+    analysis = _as_dict(benchmark["repair_analysis"])
+    per_query = [_as_dict(row) for row in _as_list(analysis["per_query"])]
+    repairable = next(row for row in per_query if row["case_id"] == "repairable")
+    failed = next(row for row in per_query if row["case_id"] == "failed")
+    repair_passes = [_as_dict(row) for row in _as_list(repairable["passes"])]
+    failed_passes = [_as_dict(row) for row in _as_list(failed["passes"])]
+    result_rows = [_as_dict(row) for row in _as_list(benchmark["per_query_results"])]
+    repaired_result = next(row for row in result_rows if row["case_id"] == "repairable")
+
+    assert status == 0
+    assert parameters["repair_max_passes"] == 2
+    assert ":repair_max_passes=2" in str(report["report_id"])
+    assert _as_dict(benchmark["initial_metrics"])["hit_rate"] == 0.0
+    assert _as_dict(benchmark["metrics"])["hit_rate"] == 0.5
+    assert analysis["attempted_count"] == 2
+    assert analysis["success_count"] == 1
+    assert analysis["failed_count"] == 1
+    assert analysis["improved_count"] == 1
+    assert analysis["abstain_or_clarify_count"] == 1
+    assert analysis["fabricated_evidence_ids"] == []
+    assert repairable["used_repair"] is True
+    assert repairable["successful"] is True
+    assert repairable["final_cited_evidence_subset_of_retrieved"] is True
+    assert repair_passes[0]["stop_reason"] == "retry_with_cleaned_query"
+    assert repair_passes[1]["stop_reason"] == "sufficient_evidence_after_repair"
+    assert repair_passes[1]["query_excerpt"] == "alpha receptor repair target"
+    assert failed["abstain_or_clarify"] is True
+    assert failed_passes[1]["stop_reason"] == "abstain_or_clarify"
+    assert repaired_result["query"] == "distractor alpha receptor repair target"
+    assert repaired_result["retrieved"] == ["materials/alpha.md"]
 
 
 def test_runner_cli_top_k_overrides_case_top_k(tmp_path: Path) -> None:

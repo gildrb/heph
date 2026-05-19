@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from html import unescape
 from typing import TYPE_CHECKING
@@ -13,12 +14,19 @@ from hephaistos.materials import infer_material_role_from_text
 from hephaistos.rag import (
     ArmoryIndex,
     Chunk,
+    RetrievalMode,
     ScoredChunk,
     TransformStrategy,
     TurnEvidence,
     build_turn_evidence,
     load_or_build,
     retrieve,
+)
+from hephaistos.rag.query_audit import (
+    RetrievalAuditConfig,
+    query_classification_payload,
+    query_excerpt,
+    retrieval_strategy_payload,
 )
 from hephaistos.rag.query_transform import PromptFn
 from hephaistos.rag.retrieval_types import EvidenceReference
@@ -150,6 +158,7 @@ class ResolvedTurnPlan:
     turn_evidence: TurnEvidence | None = None
     evidence_assessment: EvidenceAssessment | None = None
     priority_context: str = ""
+    retrieval_latency_ms: float | None = None
 
 
 def evidence_refs(turn_evidence: TurnEvidence | None) -> list[str]:
@@ -249,6 +258,77 @@ def evidence_assessment_trace(
         "source_diversity_score": round(assessment.source_diversity_score, 3),
         "recommended_action": assessment.recommended_action,
     }
+
+
+def retrieval_audit_metadata(
+    session: ChatSession,
+    plan: StudyTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> dict[str, object]:
+    """Return the JSONL-compatible retrieval audit contract for a chat turn."""
+    query = plan.retrieval_query or ""
+    if not query or plan.action is StudyAction.CALIBRATE:
+        return {}
+    config = _retrieval_audit_config(session)
+    coverage = evidence_trace_coverage(resolved.turn_evidence)
+    items = evidence_trace_items(resolved.turn_evidence)
+    assessment = evidence_assessment_trace(resolved.evidence_assessment)
+    trace = {
+        "pass": 1,
+        "query_excerpt": query_excerpt(query),
+        "query_class": query_classification_payload(query, config)["query_class"],
+        "retrieval_strategy": retrieval_strategy_payload(config),
+        "top_k": config.top_k,
+        "candidate_budget": config.candidate_budget,
+        "retrieved_count": coverage["evidence_blocks"],
+        "returned_count": coverage["evidence_blocks"],
+        "top_score": _top_evidence_score(resolved.turn_evidence),
+        "sufficiency": _audit_sufficiency(assessment),
+        "stop_reason": _audit_stop_reason(assessment),
+        "items": items,
+    }
+    if resolved.retrieval_latency_ms is not None:
+        trace["latency_ms"] = round(resolved.retrieval_latency_ms, 1)
+    return {
+        "query_classification": query_classification_payload(query, config),
+        "retrieval_trace": trace,
+    }
+
+
+def _retrieval_audit_config(session: ChatSession) -> RetrievalAuditConfig:
+    strategy = resolve_transform_strategy(session.config)
+    return RetrievalAuditConfig(
+        retrieval_mode=RetrievalMode.AUTO.value,
+        transform_strategy=strategy.value,
+        top_k=_QUERY_RETRIEVAL_TOP_K,
+        candidate_multiplier=1,
+        repair_max_passes=1,
+        rerank_requested=True,
+    )
+
+
+def _top_evidence_score(turn_evidence: TurnEvidence | None) -> float | None:
+    if turn_evidence is None or not turn_evidence.items:
+        return None
+    return round(turn_evidence.items[0].score, 4)
+
+
+def _audit_sufficiency(assessment: Mapping[str, object]) -> str:
+    if assessment.get("sufficient") is True:
+        return "sufficient"
+    recommended = assessment.get("recommended_action")
+    if isinstance(recommended, str) and recommended:
+        return recommended
+    return "no_evidence"
+
+
+def _audit_stop_reason(assessment: Mapping[str, object]) -> str:
+    if assessment.get("sufficient") is True:
+        return "sufficient_evidence"
+    recommended = assessment.get("recommended_action")
+    if isinstance(recommended, str) and recommended:
+        return recommended
+    return "no_evidence"
 
 
 def parse_source_ref(ref: str) -> tuple[str, int] | None:
@@ -993,4 +1073,5 @@ __all__ = [
     "query_demands_source_only_answer",
     "resolve_transform_strategy",
     "resolve_turn_evidence",
+    "retrieval_audit_metadata",
 ]

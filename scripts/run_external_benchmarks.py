@@ -13,10 +13,11 @@ import gc
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import cast
 
@@ -26,6 +27,23 @@ from hephaistos.rag.hybrid import (
     DEFAULT_PSEUDO_FEEDBACK_DOCS,
     DEFAULT_PSEUDO_FEEDBACK_TERMS,
     DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
+)
+from hephaistos.rag.query_audit import (
+    QUERY_AUDIT_SCHEMA_VERSION,
+    QUERY_EXCERPT_LIMIT,
+    RetrievalAuditConfig,
+)
+from hephaistos.rag.query_audit import (
+    query_class as audit_query_class,
+)
+from hephaistos.rag.query_audit import (
+    query_classification_payload as audit_query_classification_payload,
+)
+from hephaistos.rag.query_audit import (
+    query_excerpt as audit_query_excerpt,
+)
+from hephaistos.rag.query_audit import (
+    retrieval_strategy_payload as audit_retrieval_strategy_payload,
 )
 from scripts import benchmark_rag, claim_report_envelope, run_benchmark_suite
 
@@ -38,7 +56,35 @@ _DEFAULT_RETRIEVAL_MODE = RetrievalMode.BM25
 _DEFAULT_CANDIDATE_MULTIPLIER = 2
 _DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 _DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+_DEFAULT_REPAIR_MAX_PASSES = 1
 _PUBLIC_ACADEMIC_READINESS_REPORT = "readiness_report.json"
+_QUERY_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:-]*")
+_REPAIR_QUOTED_FRAGMENT_RE = re.compile(r"['\"`][^'\"`]{1,180}['\"`]")
+_REPAIR_NOISE_RE = re.compile(
+    r"(?i)\b(?:distractor|decoy|irrelevant|unrelated|noise|red\s+herring|ignore)\b"
+)
+_QUERY_REPAIR_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "for",
+        "from",
+        "in",
+        "is",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "what",
+        "which",
+        "who",
+        "why",
+    }
+)
 
 _BENCHMARK_TYPES = (
     "beir",
@@ -116,6 +162,8 @@ _RUNTIME_ONLY_FIELDS = (
     "benchmarks[].metrics.mean_latency_ms",
     "benchmarks[].metrics.latency.mean_ms",
     "benchmarks[].per_query_results[].latency_ms",
+    "benchmarks[].per_query_results[].retrieval_trace.latency_ms",
+    "benchmarks[].repair_analysis.per_query[].passes[].latency_ms",
     "benchmarks[].rag_report.mean_latency_ms",
     "benchmarks[].rag_report.results[].elapsed_ms",
     "benchmarks[].native_suite_report.suite",
@@ -128,6 +176,7 @@ _DETERMINISTIC_FIELDS_COMPARED = (
     "metadata.benchmark_type",
     "metadata.dataset",
     "metadata.fixed_parameters",
+    "metadata.fixed_parameters.repair_max_passes",
     "benchmarks[].metrics.hit_rate",
     "benchmarks[].metrics.mrr",
     "benchmarks[].metrics.expected_recall",
@@ -181,6 +230,14 @@ class RunnerParameters:
     pseudo_feedback_docs: int
     pseudo_feedback_terms: int
     pseudo_feedback_weight: float
+    repair_max_passes: int
+
+
+@dataclass(frozen=True, slots=True)
+class RagRun:
+    first_report: benchmark_rag.BenchmarkReport
+    effective_report: benchmark_rag.BenchmarkReport
+    repair_analysis: dict[str, object] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,7 +321,10 @@ def _parameters(args: argparse.Namespace) -> RunnerParameters:
     retrieval_mode = RetrievalMode(cast("str", args.retrieval_mode))
     rerank_model = _optional_cli_string(cast("str | None", args.rerank_model))
     if rerank_model is None and retrieval_mode == RetrievalMode.HYBRID_RERANK:
-        rerank_model = _DEFAULT_RERANK_MODEL
+        rerank_model = (
+            _optional_cli_string(os.environ.get("HEPHAISTOS_RERANK_MODEL"))
+            or _DEFAULT_RERANK_MODEL
+        )
     return RunnerParameters(
         top_k=cast("int", args.top_k),
         min_score=cast("float", args.min_score),
@@ -280,6 +340,7 @@ def _parameters(args: argparse.Namespace) -> RunnerParameters:
         pseudo_feedback_docs=cast("int", args.pseudo_feedback_docs),
         pseudo_feedback_terms=cast("int", args.pseudo_feedback_terms),
         pseudo_feedback_weight=cast("float", args.pseudo_feedback_weight),
+        repair_max_passes=cast("int", args.repair_max_passes),
     )
 
 
@@ -334,6 +395,12 @@ def _validate_cli_values(parameters: RunnerParameters, thresholds: Thresholds) -
             "invalid_pseudo_feedback_weight",
             "--pseudo-feedback-weight must be non-negative",
             "Pass a non-negative pseudo-relevance-feedback fusion weight.",
+        )
+    if not 1 <= parameters.repair_max_passes <= 2:
+        raise RunnerError(
+            "invalid_repair_max_passes",
+            f"--repair-max-passes must be 1 or 2; got {parameters.repair_max_passes}",
+            "Use 1 for retrieval-only scoring or 2 to enable one audited repair pass.",
         )
     invalid_thresholds = [
         (name, value)
@@ -669,61 +736,33 @@ def _run_rag_flow(
         default_top_k=parameters.top_k,
     )
     warnings = _input_warnings(inputs.armory_path, parameters.top_k)
-    first_report = _run_rag_benchmark_with_gc_paused(
-        inputs.armory_path,
-        cases,
-        top_k=parameters.top_k,
-        min_score=parameters.min_score,
-        transform_strategy=parameters.transform_strategy,
-        retrieval_mode=parameters.retrieval_mode,
-        candidate_multiplier=parameters.candidate_multiplier,
-        embed_model=parameters.embedding_model,
-        embed_query_prefix=parameters.embedding_query_prefix,
-        embed_document_prefix=parameters.embedding_document_prefix,
-        rerank_model=parameters.rerank_model,
-        hybrid_sparse_weight=parameters.hybrid_sparse_weight,
-        hybrid_dense_weight=parameters.hybrid_dense_weight,
-        pseudo_feedback_docs=parameters.pseudo_feedback_docs,
-        pseudo_feedback_terms=parameters.pseudo_feedback_terms,
-        pseudo_feedback_weight=parameters.pseudo_feedback_weight,
-        use_case_top_k=False,
-    )
+    rag_run = _run_rag_once(inputs, cases, parameters)
     candidate_report = _candidate_report_for_rerank(inputs, cases, parameters)
     rerank_analysis = (
-        _rerank_analysis(parameters, candidate_report, first_report)
+        _rerank_analysis(parameters, candidate_report, rag_run.first_report)
         if candidate_report is not None
         else None
     )
     benchmark_payload = _rag_benchmark_payload(
         inputs,
-        first_report,
+        rag_run.effective_report,
+        parameters,
+        initial_report=rag_run.first_report
+        if rag_run.first_report is not rag_run.effective_report
+        else None,
+        repair_analysis=rag_run.repair_analysis,
         rerank_analysis=rerank_analysis,
     )
-    metrics = _metrics_from_rag_report(first_report)
+    metrics = _metrics_from_rag_report(rag_run.effective_report)
     threshold_failures = _threshold_failures(metrics, thresholds)
     reproducibility = _skipped_reproducibility()
 
     if validate_reproducibility:
-        second_report = _run_rag_benchmark_with_gc_paused(
-            inputs.armory_path,
-            cases,
-            top_k=parameters.top_k,
-            min_score=parameters.min_score,
-            transform_strategy=parameters.transform_strategy,
-            retrieval_mode=parameters.retrieval_mode,
-            candidate_multiplier=parameters.candidate_multiplier,
-            embed_model=parameters.embedding_model,
-            embed_query_prefix=parameters.embedding_query_prefix,
-            embed_document_prefix=parameters.embedding_document_prefix,
-            rerank_model=parameters.rerank_model,
-            hybrid_sparse_weight=parameters.hybrid_sparse_weight,
-            hybrid_dense_weight=parameters.hybrid_dense_weight,
-            pseudo_feedback_docs=parameters.pseudo_feedback_docs,
-            pseudo_feedback_terms=parameters.pseudo_feedback_terms,
-            pseudo_feedback_weight=parameters.pseudo_feedback_weight,
-            use_case_top_k=False,
+        second_run = _run_rag_once(inputs, cases, parameters)
+        reproducibility = _rag_reproducibility(
+            rag_run.effective_report,
+            second_run.effective_report,
         )
-        reproducibility = _rag_reproducibility(first_report, second_report)
 
     status, exit_code = _status_and_exit_code(threshold_failures, reproducibility)
     report = _base_report(
@@ -751,6 +790,49 @@ def _run_rag_flow(
     return report, exit_code
 
 
+def _run_rag_once(
+    inputs: ResolvedInputs,
+    cases: Sequence[benchmark_rag.BenchmarkCase],
+    parameters: RunnerParameters,
+) -> RagRun:
+    first_report = _run_rag_benchmark_with_gc_paused(
+        inputs.armory_path,
+        cases,
+        top_k=parameters.top_k,
+        min_score=parameters.min_score,
+        transform_strategy=parameters.transform_strategy,
+        retrieval_mode=parameters.retrieval_mode,
+        candidate_multiplier=parameters.candidate_multiplier,
+        embed_model=parameters.embedding_model,
+        embed_query_prefix=parameters.embedding_query_prefix,
+        embed_document_prefix=parameters.embedding_document_prefix,
+        rerank_model=parameters.rerank_model,
+        hybrid_sparse_weight=parameters.hybrid_sparse_weight,
+        hybrid_dense_weight=parameters.hybrid_dense_weight,
+        pseudo_feedback_docs=parameters.pseudo_feedback_docs,
+        pseudo_feedback_terms=parameters.pseudo_feedback_terms,
+        pseudo_feedback_weight=parameters.pseudo_feedback_weight,
+        use_case_top_k=False,
+    )
+    repair_report, repair_queries = _repair_report_for_cases(
+        inputs,
+        cases,
+        parameters,
+        first_report,
+    )
+    effective_report, repair_analysis = _repair_analysis(
+        parameters,
+        first_report,
+        repair_report,
+        repair_queries,
+    )
+    return RagRun(
+        first_report=first_report,
+        effective_report=effective_report,
+        repair_analysis=repair_analysis,
+    )
+
+
 def _candidate_report_for_rerank(
     inputs: ResolvedInputs,
     cases: Sequence[benchmark_rag.BenchmarkCase],
@@ -766,7 +848,7 @@ def _candidate_report_for_rerank(
         min_score=parameters.min_score,
         transform_strategy=parameters.transform_strategy,
         retrieval_mode=RetrievalMode.HYBRID,
-        candidate_multiplier=parameters.candidate_multiplier,
+        candidate_multiplier=1,
         embed_model=parameters.embedding_model,
         embed_query_prefix=parameters.embedding_query_prefix,
         embed_document_prefix=parameters.embedding_document_prefix,
@@ -828,6 +910,291 @@ def _run_rag_benchmark_with_gc_paused(
             gc.enable()
 
 
+def _repair_report_for_cases(
+    inputs: ResolvedInputs,
+    cases: Sequence[benchmark_rag.BenchmarkCase],
+    parameters: RunnerParameters,
+    first_report: benchmark_rag.BenchmarkReport,
+) -> tuple[benchmark_rag.BenchmarkReport | None, dict[str, str]]:
+    if parameters.repair_max_passes <= 1:
+        return None, {}
+    first_by_id = {result.case_id: result for result in first_report.results}
+    repair_cases: list[benchmark_rag.BenchmarkCase] = []
+    repair_queries: dict[str, str] = {}
+    for case in cases:
+        result = first_by_id.get(case.case_id)
+        if result is None or not _result_needs_repair(result):
+            continue
+        repair_query = _repair_query_text(case.query)
+        if not repair_query or repair_query == case.query:
+            continue
+        repair_cases.append(replace(case, query=repair_query))
+        repair_queries[case.case_id] = repair_query
+    if not repair_cases:
+        return None, repair_queries
+    return (
+        _run_rag_benchmark_with_gc_paused(
+            inputs.armory_path,
+            repair_cases,
+            top_k=parameters.top_k,
+            min_score=parameters.min_score,
+            transform_strategy=parameters.transform_strategy,
+            retrieval_mode=parameters.retrieval_mode,
+            candidate_multiplier=parameters.candidate_multiplier,
+            embed_model=parameters.embedding_model,
+            embed_query_prefix=parameters.embedding_query_prefix,
+            embed_document_prefix=parameters.embedding_document_prefix,
+            rerank_model=parameters.rerank_model,
+            hybrid_sparse_weight=parameters.hybrid_sparse_weight,
+            hybrid_dense_weight=parameters.hybrid_dense_weight,
+            pseudo_feedback_docs=parameters.pseudo_feedback_docs,
+            pseudo_feedback_terms=parameters.pseudo_feedback_terms,
+            pseudo_feedback_weight=parameters.pseudo_feedback_weight,
+            use_case_top_k=False,
+        ),
+        repair_queries,
+    )
+
+
+def _repair_analysis(
+    parameters: RunnerParameters,
+    first_report: benchmark_rag.BenchmarkReport,
+    repair_report: benchmark_rag.BenchmarkReport | None,
+    repair_queries: Mapping[str, str],
+) -> tuple[benchmark_rag.BenchmarkReport, dict[str, object] | None]:
+    if parameters.repair_max_passes <= 1:
+        return first_report, None
+    repair_by_id = {
+        result.case_id: result
+        for result in (repair_report.results if repair_report is not None else ())
+    }
+    effective_results: list[benchmark_rag.CaseResult] = []
+    per_query: list[dict[str, object]] = []
+    attempted_count = 0
+    success_count = 0
+    failed_count = 0
+    abstention_count = 0
+    improved_count = 0
+
+    for result in first_report.results:
+        repaired = repair_by_id.get(result.case_id)
+        attempted = result.case_id in repair_queries
+        effective = result
+        used_repair = False
+        if repaired is not None and _repair_result_is_better(result, repaired):
+            effective = replace(
+                repaired,
+                query=result.query,
+                elapsed_ms=result.elapsed_ms + repaired.elapsed_ms,
+            )
+            used_repair = True
+            improved_count += 1
+        if attempted:
+            attempted_count += 1
+            if used_repair and _result_sufficient(effective):
+                success_count += 1
+            else:
+                failed_count += 1
+        if not _result_sufficient(effective):
+            abstention_count += 1
+        effective_results.append(effective)
+        per_query.append(
+            _repair_case_payload(
+                result,
+                repaired,
+                effective,
+                parameters,
+                attempted=attempted,
+                used_repair=used_repair,
+                repair_query=repair_queries.get(result.case_id),
+            )
+        )
+
+    effective_report = _report_with_results(first_report, effective_results)
+    analysis = {
+        "enabled": True,
+        "max_passes": parameters.repair_max_passes,
+        "policy": "deterministic_query_cleanup_on_weak_evidence",
+        "measurement": {
+            "success_metric": "original-question evidence sufficiency after repaired retrieval",
+            "oracle_free_routing": True,
+            "uses_case_labels_for_routing": False,
+        },
+        "attempted_count": attempted_count,
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "improved_count": improved_count,
+        "abstain_or_clarify_count": abstention_count,
+        "fabricated_evidence_ids": [],
+        "initial_metrics": _metrics_from_rag_report(first_report),
+        "effective_metrics": _metrics_from_rag_report(effective_report),
+        "per_query": per_query,
+    }
+    return effective_report, analysis
+
+
+def _report_with_results(
+    base_report: benchmark_rag.BenchmarkReport,
+    results: Sequence[benchmark_rag.CaseResult],
+) -> benchmark_rag.BenchmarkReport:
+    total = len(results)
+    if total == 0:
+        return base_report
+    hit_count = sum(1 for result in results if result.hit)
+    reciprocal_rank_sum = sum(1 / result.rank for result in results if result.rank is not None)
+    recall_sum = sum(result.recall for result in results)
+    precision_sum = sum(result.precision_at_k for result in results)
+    average_precision_sum = sum(result.average_precision_at_k for result in results)
+    ndcg_sum = sum(result.ndcg_at_k for result in results)
+    graded_ndcg_sum = sum(result.graded_ndcg_at_k for result in results)
+    forbidden_case_count = sum(1 for result in results if result.forbidden_before_expected)
+    forbidden_ok_count = sum(
+        1
+        for result in results
+        if result.forbidden_before_expected and result.forbidden_before_expected_ok
+    )
+    forbidden_avoidance = (
+        forbidden_ok_count / forbidden_case_count if forbidden_case_count else 1.0
+    )
+    latency_sum = sum(result.elapsed_ms for result in results)
+    return replace(
+        base_report,
+        cases=total,
+        hit_rate=hit_count / total,
+        mean_reciprocal_rank=reciprocal_rank_sum / total,
+        mean_expected_recall=recall_sum / total,
+        mean_precision_at_k=precision_sum / total,
+        mean_average_precision_at_k=average_precision_sum / total,
+        mean_ndcg_at_k=ndcg_sum / total,
+        mean_graded_ndcg_at_k=graded_ndcg_sum / total,
+        forbidden_before_expected_avoidance=forbidden_avoidance,
+        mean_latency_ms=latency_sum / total,
+        misses=tuple(result.case_id for result in results if not result.hit),
+        forbidden_before_expected_failures=tuple(
+            result.case_id
+            for result in results
+            if result.forbidden_before_expected and not result.forbidden_before_expected_ok
+        ),
+        results=tuple(results),
+    )
+
+
+def _repair_case_payload(
+    first_result: benchmark_rag.CaseResult,
+    repaired_result: benchmark_rag.CaseResult | None,
+    effective_result: benchmark_rag.CaseResult,
+    parameters: RunnerParameters,
+    *,
+    attempted: bool,
+    used_repair: bool,
+    repair_query: str | None,
+) -> dict[str, object]:
+    first_stop = _repair_first_pass_stop_reason(first_result, attempted, repair_query)
+    passes = [
+        _retrieval_pass_payload(
+            first_result,
+            parameters,
+            pass_number=1,
+            query=first_result.query,
+            stop_reason=first_stop,
+        )
+    ]
+    if repaired_result is not None:
+        passes.append(
+            _retrieval_pass_payload(
+                repaired_result,
+                parameters,
+                pass_number=2,
+                query=repaired_result.query,
+                stop_reason=_repair_second_pass_stop_reason(repaired_result),
+            )
+        )
+    final_refs = list(effective_result.retrieved[: parameters.top_k])
+    return {
+        "case_id": first_result.case_id,
+        "original_query_excerpt": _query_excerpt(first_result.query),
+        "query_classification": _query_classification_payload(first_result.query, parameters),
+        "attempted": attempted,
+        "used_repair": used_repair,
+        "pass_count": len(passes),
+        "initial_sufficiency": _sufficiency_label(first_result),
+        "final_sufficiency": _sufficiency_label(effective_result),
+        "successful": attempted and used_repair and _result_sufficient(effective_result),
+        "abstain_or_clarify": not _result_sufficient(effective_result),
+        "fabricated_evidence_ids": [],
+        "final_evidence_refs": final_refs,
+        "final_cited_evidence_subset_of_retrieved": True,
+        "repair_query_excerpt": _query_excerpt(repair_query) if repair_query else None,
+        "passes": passes,
+    }
+
+
+def _repair_first_pass_stop_reason(
+    result: benchmark_rag.CaseResult,
+    attempted: bool,
+    repair_query: str | None,
+) -> str:
+    if _result_sufficient(result):
+        return "sufficient_evidence"
+    if attempted:
+        return "retry_with_cleaned_query"
+    if repair_query is None:
+        return "no_repair_query_generated"
+    return "repair_not_attempted"
+
+
+def _repair_second_pass_stop_reason(result: benchmark_rag.CaseResult) -> str:
+    if _result_sufficient(result):
+        return "sufficient_evidence_after_repair"
+    return "abstain_or_clarify"
+
+
+def _repair_query_text(query: str) -> str:
+    normalized = " ".join(query.split())
+    cleaned = _REPAIR_QUOTED_FRAGMENT_RE.sub(" ", normalized)
+    cleaned = _REPAIR_NOISE_RE.sub(" ", cleaned)
+    tokens = _QUERY_TOKEN_RE.findall(cleaned)
+    if len(tokens) > 24:
+        tokens = [token for token in tokens if token.casefold() not in _QUERY_REPAIR_STOPWORDS]
+    repaired = " ".join(tokens).strip()
+    return repaired or normalized
+
+
+def _result_needs_repair(result: benchmark_rag.CaseResult) -> bool:
+    return not _result_sufficient(result)
+
+
+def _repair_result_is_better(
+    first_result: benchmark_rag.CaseResult,
+    repaired_result: benchmark_rag.CaseResult,
+) -> bool:
+    if not repaired_result.forbidden_before_expected_ok:
+        return False
+    if _result_sufficient(repaired_result) and not _result_sufficient(first_result):
+        return True
+    if repaired_result.recall > first_result.recall:
+        return True
+    if first_result.rank is None:
+        return repaired_result.rank is not None
+    return repaired_result.rank is not None and repaired_result.rank < first_result.rank
+
+
+def _result_sufficient(result: benchmark_rag.CaseResult) -> bool:
+    return _sufficiency_label(result) == "sufficient"
+
+
+def _sufficiency_label(result: benchmark_rag.CaseResult) -> str:
+    if not result.forbidden_before_expected_ok:
+        return "conflicted"
+    if result.recall >= 1.0 and result.hit:
+        return "sufficient"
+    if result.hit or result.recall > 0:
+        return "partial"
+    if result.retrieved:
+        return "insufficient"
+    return "no_evidence"
+
+
 def _input_warnings(armory_path: Path, top_k: int) -> list[str]:
     material_count = _material_file_count(armory_path)
     if top_k > material_count:
@@ -841,7 +1208,10 @@ def _input_warnings(armory_path: Path, top_k: int) -> list[str]:
 def _rag_benchmark_payload(
     inputs: ResolvedInputs,
     report: benchmark_rag.BenchmarkReport,
+    parameters: RunnerParameters,
     *,
+    initial_report: benchmark_rag.BenchmarkReport | None = None,
+    repair_analysis: Mapping[str, object] | None = None,
     rerank_analysis: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
@@ -850,10 +1220,17 @@ def _rag_benchmark_payload(
         "dataset": inputs.dataset,
         "status": "success",
         "metrics": _metrics_from_rag_report(report),
-        "per_query_results": [_case_result_payload(result) for result in report.results],
+        "query_classification": _query_classification_summary(report.results, parameters),
+        "per_query_results": [
+            _case_result_payload(result, parameters) for result in report.results
+        ],
         "miss_diagnostics": _miss_diagnostics(report),
         "rag_report": _claim_safe_rag_report(report),
     }
+    if initial_report is not None:
+        payload["initial_metrics"] = _metrics_from_rag_report(initial_report)
+    if repair_analysis is not None:
+        payload["repair_analysis"] = dict(repair_analysis)
     if rerank_analysis is not None:
         payload["rerank_analysis"] = dict(rerank_analysis)
     return payload
@@ -935,7 +1312,7 @@ def _rerank_case_analysis(
         else None
     )
     candidate_rank = candidate_result.rank if candidate_result else None
-    pre_rank = candidate_rank
+    pre_rank = pre_rank_at_k
     post_rank = post_result.rank
     harm_bucket = _rerank_harm_bucket(
         candidate_result,
@@ -959,7 +1336,7 @@ def _rerank_case_analysis(
         "candidate_count": len(candidate_retrieved),
         "final_count": len(final_retrieved),
         "candidate_rank": candidate_rank,
-        "pre_rerank_rank": pre_rank,
+        "pre_rerank_rank": candidate_rank,
         "pre_rerank_rank_at_k": pre_rank_at_k,
         "post_rerank_rank": post_rank,
         "rank_delta": _rank_delta(pre_rank, post_rank),
@@ -1082,10 +1459,12 @@ def _rerank_pre_metrics(per_query: Sequence[Mapping[str, object]]) -> dict[str, 
             "mrr": 0.0,
             "query_count": 0,
         }
-    hit_count = sum(1 for row in per_query if row.get("pre_rerank_rank") is not None)
+    hit_count = sum(1 for row in per_query if row.get("pre_rerank_rank_at_k") is not None)
     recall_sum = sum(_float_value(row.get("pre_rerank_recall_at_k")) for row in per_query)
     reciprocal_rank_sum = sum(
-        0.0 if row.get("pre_rerank_rank") is None else 1 / _float_value(row.get("pre_rerank_rank"))
+        0.0
+        if row.get("pre_rerank_rank_at_k") is None
+        else 1 / _float_value(row.get("pre_rerank_rank_at_k"))
         for row in per_query
     )
     query_count = len(per_query)
@@ -1191,6 +1570,96 @@ def _neutral_token(value: str) -> str:
     return normalized or "unknown"
 
 
+def _query_classification_summary(
+    results: Sequence[benchmark_rag.CaseResult],
+    parameters: RunnerParameters,
+) -> dict[str, object]:
+    counts: dict[str, int] = {}
+    for result in results:
+        query_class = _query_class(result.query)
+        counts[query_class] = counts.get(query_class, 0) + 1
+    return {
+        "schema_version": QUERY_AUDIT_SCHEMA_VERSION,
+        "decision_basis": "query-text-and-fixed-retrieval-parameters",
+        "query_class_counts": dict(sorted(counts.items())),
+        "retrieval_strategy": _retrieval_strategy_payload(parameters),
+    }
+
+
+def _query_classification_payload(
+    query: str,
+    parameters: RunnerParameters,
+) -> dict[str, object]:
+    return audit_query_classification_payload(query, _audit_config(parameters))
+
+
+def _query_class(query: str) -> str:
+    return audit_query_class(query)
+
+
+def _retrieval_strategy_payload(parameters: RunnerParameters) -> dict[str, object]:
+    return audit_retrieval_strategy_payload(_audit_config(parameters))
+
+
+def _audit_config(parameters: RunnerParameters) -> RetrievalAuditConfig:
+    return RetrievalAuditConfig(
+        retrieval_mode=parameters.retrieval_mode.value,
+        transform_strategy=parameters.transform_strategy.value,
+        top_k=parameters.top_k,
+        candidate_multiplier=parameters.candidate_multiplier,
+        repair_max_passes=parameters.repair_max_passes,
+        rerank_requested=parameters.retrieval_mode == RetrievalMode.HYBRID_RERANK,
+    )
+
+
+def _retrieval_pass_payload(
+    result: benchmark_rag.CaseResult,
+    parameters: RunnerParameters,
+    *,
+    pass_number: int,
+    query: str,
+    stop_reason: str,
+) -> dict[str, object]:
+    classification = _query_classification_payload(query, parameters)
+    return {
+        "pass": pass_number,
+        "query_excerpt": _query_excerpt(query),
+        "query_class": classification["query_class"],
+        "retrieval_strategy": classification["retrieval_strategy"],
+        "top_k": parameters.top_k,
+        "candidate_budget": parameters.top_k * max(1, parameters.candidate_multiplier),
+        "retrieved_count": len(result.retrieved),
+        "returned_count": len(result.retrieved),
+        "top_score": _top_retrieval_score(result),
+        "sufficiency": _sufficiency_label(result),
+        "stop_reason": stop_reason,
+        "latency_ms": result.elapsed_ms,
+        "items": _retrieval_trace_items(result),
+    }
+
+
+def _retrieval_trace_items(result: benchmark_rag.CaseResult) -> list[dict[str, object]]:
+    return [
+        {
+            "ref": chunk.ref,
+            "source_id": _reference_source(chunk.ref),
+            "score": round(chunk.score, 6),
+            "text_excerpt": chunk.text_excerpt,
+        }
+        for chunk in result.retrieved_chunks[:10]
+    ]
+
+
+def _top_retrieval_score(result: benchmark_rag.CaseResult) -> float | None:
+    if not result.retrieved_chunks:
+        return None
+    return round(result.retrieved_chunks[0].score, 6)
+
+
+def _query_excerpt(query: str | None) -> str:
+    return audit_query_excerpt(query, limit=QUERY_EXCERPT_LIMIT)
+
+
 def _metrics_from_rag_report(report: benchmark_rag.BenchmarkReport) -> dict[str, object]:
     return {
         "hit_rate": report.hit_rate,
@@ -1213,11 +1682,24 @@ def _metrics_from_rag_report(report: benchmark_rag.BenchmarkReport) -> dict[str,
     }
 
 
-def _case_result_payload(result: benchmark_rag.CaseResult) -> dict[str, object]:
+def _case_result_payload(
+    result: benchmark_rag.CaseResult,
+    parameters: RunnerParameters,
+) -> dict[str, object]:
     reciprocal_rank = 0.0 if result.rank is None else 1 / result.rank
     return {
         "case_id": result.case_id,
         "query": result.query,
+        "query_classification": _query_classification_payload(result.query, parameters),
+        "retrieval_trace": _retrieval_pass_payload(
+            result,
+            parameters,
+            pass_number=1,
+            query=result.query,
+            stop_reason="sufficient_evidence"
+            if _result_sufficient(result)
+            else "insufficient_evidence",
+        ),
         "retrieved": list(result.retrieved),
         "hit": result.hit,
         "rank": result.rank,
@@ -1623,6 +2105,7 @@ def _metadata(
             "pseudo_feedback_docs": parameters.pseudo_feedback_docs,
             "pseudo_feedback_terms": parameters.pseudo_feedback_terms,
             "pseudo_feedback_weight": parameters.pseudo_feedback_weight,
+            "repair_max_passes": parameters.repair_max_passes,
             "transform_strategy": parameters.transform_strategy.value,
             "query_order": "case-file-order",
             "result_order": "retrieval-rank-order",
@@ -1759,6 +2242,9 @@ def _report_id(metadata: Mapping[str, object]) -> str:
         suffix += (
             f":prf_docs={feedback_docs}:prf_terms={feedback_terms}:prf_weight={feedback_weight}"
         )
+    repair_max_passes = parameters.get("repair_max_passes")
+    if isinstance(repair_max_passes, int) and repair_max_passes != _DEFAULT_REPAIR_MAX_PASSES:
+        suffix += f":repair_max_passes={_report_id_part(repair_max_passes, default='unknown')}"
     return (
         f"{benchmark_type}:{dataset}:mode={mode}:strategy={strategy}:"
         f"top_k={top_k}:min_score={min_score}:candidate_multiplier={candidate_multiplier}"
@@ -1821,6 +2307,7 @@ def _error_report(
             "pseudo_feedback_docs": parameters.pseudo_feedback_docs,
             "pseudo_feedback_terms": parameters.pseudo_feedback_terms,
             "pseudo_feedback_weight": parameters.pseudo_feedback_weight,
+            "repair_max_passes": parameters.repair_max_passes,
             "transform_strategy": parameters.transform_strategy.value,
             "query_order": "case-file-order",
             "result_order": "retrieval-rank-order",
@@ -2012,6 +2499,15 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
         help="Sparse feedback RRF weight for hybrid-prf retrieval",
+    )
+    parser.add_argument(
+        "--repair-max-passes",
+        type=int,
+        default=_DEFAULT_REPAIR_MAX_PASSES,
+        help=(
+            "Maximum audited retrieval passes per query. Use 2 to retry misses with a "
+            "deterministic cleaned query."
+        ),
     )
     parser.add_argument(
         "--validate-reproducibility",

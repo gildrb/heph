@@ -55,6 +55,9 @@ from hephaistos.chat.evidence import (
 from hephaistos.chat.evidence import (
     resolve_turn_evidence as _resolve_turn_evidence,
 )
+from hephaistos.chat.evidence import (
+    retrieval_audit_metadata as _retrieval_audit_metadata,
+)
 from hephaistos.chat.titles import derive_title
 from hephaistos.chat.usage import save_usage
 from hephaistos.diagnostics.crashes import get_meter, get_tracer
@@ -679,7 +682,9 @@ def _evidence_bullet_lines(evidence: TurnEvidence) -> tuple[str, ...]:
     )
 
 
-def _visible_turn_evidence(resolved: ResolvedTurnPlan) -> TurnEvidence | None:
+def _visible_turn_evidence(resolved: object) -> TurnEvidence | None:
+    if not isinstance(resolved, ResolvedTurnPlan):
+        return None
     plan = resolved.study_plan
     if plan is not None and plan.action is StudyAction.CALIBRATE:
         return None
@@ -723,19 +728,25 @@ def _append_evidence_assessment_notice(notice: str, resolved: ResolvedTurnPlan) 
     return f"{notice}. Evidence sufficiency: {action} ({assessment.confidence:.0%})."
 
 
-def _evidence_notice_metadata(resolved: ResolvedTurnPlan) -> dict[str, object]:
+def _evidence_notice_metadata(
+    resolved: ResolvedTurnPlan,
+    session: ChatSession | None = None,
+) -> dict[str, object]:
     visible_evidence = _visible_turn_evidence(resolved)
     if visible_evidence is None or not visible_evidence.items:
         return {}
     plan = resolved.study_plan
     task = _trace_task(plan)
-    return {
+    metadata: dict[str, object] = {
         "task": task,
         "refs": _evidence_refs(visible_evidence),
         "coverage": _evidence_trace_coverage(visible_evidence),
         "items": _evidence_trace_items(visible_evidence),
         "assessment": _evidence_assessment_trace(resolved.evidence_assessment),
     }
+    if session is not None and plan is not None:
+        metadata.update(_retrieval_audit_metadata(session, plan, resolved))
+    return metadata
 
 
 def _material_operation_event(
@@ -2486,7 +2497,7 @@ class TurnOrchestrator:
                         yield NoticeEvent(
                             notice,
                             code="evidence",
-                            metadata=_evidence_notice_metadata(resolved),
+                            metadata=_evidence_notice_metadata(resolved, session),
                         )
                     for event in self._iter_study_events(
                         resolved,
@@ -2987,6 +2998,8 @@ class TurnOrchestrator:
         rag_timer = Timer()
         with rag_timer:
             resolved = self._resolve_turn_plan(plan)
+        if isinstance(resolved, ResolvedTurnPlan):
+            resolved = replace(resolved, retrieval_latency_ms=rag_timer.ms)
         visible_evidence = _visible_turn_evidence(resolved)
         session.last_turn_evidence = visible_evidence
         if resolved.turn_evidence is not None:

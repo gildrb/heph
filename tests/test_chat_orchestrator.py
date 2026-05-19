@@ -1057,6 +1057,45 @@ def test_evidence_notice_metadata_exposes_reviewable_evidence() -> None:
     }
 
 
+def test_evidence_notice_metadata_includes_query_audit_for_jsonl() -> None:
+    session = _make_study_session()
+    evidence = _make_turn_evidence(
+        _make_evidence_chunk("materials/a.md", 0, "E1", "First reviewed excerpt."),
+        _make_evidence_chunk("materials/b.md", 2, "E2", "Second reviewed excerpt."),
+    )
+    plan = _make_study_plan(
+        action=StudyAction.SOURCE_QA,
+        retrieval_query="Which source document explains alpha receptor signaling?",
+    )
+    assessment = assess_turn_evidence(plan, evidence)
+
+    metadata = _evidence_notice_metadata(
+        ResolvedTurnPlan(
+            study_plan=plan,
+            turn_evidence=evidence,
+            evidence_assessment=assessment,
+            retrieval_latency_ms=12.34,
+        ),
+        session,
+    )
+    classification = cast("dict[str, object]", metadata["query_classification"])
+    trace = cast("dict[str, object]", metadata["retrieval_trace"])
+    strategy = cast("dict[str, object]", trace["retrieval_strategy"])
+
+    assert classification["query_class"] == "source_lookup"
+    assert classification["transformed_query_count"] == 2
+    assert strategy["retrieval_mode"] == "auto"
+    assert strategy["transform_strategy"] == "expansion"
+    assert strategy["top_k"] == 30
+    assert trace["query_class"] == "source_lookup"
+    assert trace["candidate_budget"] == 30
+    assert trace["retrieved_count"] == 2
+    assert trace["top_score"] == 0.9
+    assert trace["sufficiency"] == "sufficient"
+    assert trace["stop_reason"] == "sufficient_evidence"
+    assert trace["latency_ms"] == 12.3
+
+
 def test_evidence_notice_discloses_partial_source_only_support() -> None:
     evidence = _make_turn_evidence(_make_evidence_chunk("materials/a.md", 0, "E1"))
     plan = _make_study_plan(action=StudyAction.SOURCE_QA, retrieval_query="using only sources")
