@@ -1630,6 +1630,39 @@ class TestRetrieveConvenience:
             results = retrieve("binary search", index)
             assert len(results) > 0
 
+    def test_overfetches_before_precision_adjustments(self) -> None:
+        chunks = [
+            _make_chunk("This is not the standard method.", "negative.md", 0),
+            _make_chunk("This is the standard method.", "positive.md", 0),
+        ]
+        index = _make_index_with_chunks(chunks)
+
+        class _OrderedRetriever:
+            def __init__(self) -> None:
+                self.calls: list[int] = []
+
+            def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
+                del query
+                self.calls.append(top_k)
+                return [
+                    ScoredChunk(chunk=chunks[0], score=0.9),
+                    ScoredChunk(chunk=chunks[1], score=0.8),
+                ][:top_k]
+
+        ordered_retriever = _OrderedRetriever()
+
+        def fake_create_retriever(*_args: object, **_kwargs: object) -> _OrderedRetriever:
+            return ordered_retriever
+
+        with patch(
+            "hephaistos.rag.retrieve._create_retriever",
+            side_effect=fake_create_retriever,
+        ):
+            results = retrieve("Which method is standard?", index, top_k=1)
+
+        assert ordered_retriever.calls == [2]
+        assert [result.chunk.source for result in results] == ["positive.md"]
+
     def test_caches_retrievers_per_transform_configuration(self) -> None:
         index = _make_index_with_chunks([_make_chunk("Binary search runs in O(log n) time.")])
         transformed_queries: list[list[str]] = []

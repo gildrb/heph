@@ -81,6 +81,8 @@ _NEGATION_QUERY_INTENT_TOKENS = frozenset(
 )
 _NEGATION_SEGMENT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _NEGATION_QUERY_OVERLAP_MIN = 2
+_POST_PROCESS_CANDIDATE_MULTIPLIER = 3
+_POST_PROCESS_MIN_EXTRA_CANDIDATES = 4
 _SOURCE_MATCH_BOOST = 0.12
 _SOURCE_MATCH_MAX_BOOST = 0.36
 _EXPLICIT_HINT_BOOST = 8.0
@@ -426,6 +428,27 @@ def _diversify_sources(results: list[ScoredChunk], top_k: int) -> list[ScoredChu
     return diversified[:top_k]
 
 
+def _post_process_candidate_top_k(
+    index: ArmoryIndex,
+    retriever: RetrieverProtocol,
+    requested_top_k: int,
+    retrieval_top_k: int,
+) -> int:
+    if isinstance(retriever, HybridRetriever):
+        return retrieval_top_k
+    if requested_top_k <= 0:
+        return retrieval_top_k
+    desired_top_k = max(
+        retrieval_top_k,
+        requested_top_k * _POST_PROCESS_CANDIDATE_MULTIPLIER,
+        requested_top_k + _POST_PROCESS_MIN_EXTRA_CANDIDATES,
+    )
+    chunk_count = len(index.all_chunks)
+    if chunk_count <= 0:
+        return desired_top_k
+    return min(chunk_count, desired_top_k)
+
+
 def retrieve(
     query: str,
     index: ArmoryIndex,
@@ -519,14 +542,23 @@ def retrieve(
             if cache_key == _IDENTITY_CACHE_KEY:
                 index._retriever = retriever
         index._retriever_cache[cache_key] = retriever
+    requested_top_k = max(0, top_k)
     search_query = _normalize_query_for_retrieval(query)
-    retrieval_top_k = top_k * candidate_multiplier if diversify_sources else top_k
+    retrieval_top_k = (
+        requested_top_k * candidate_multiplier if diversify_sources else requested_top_k
+    )
+    retrieval_top_k = _post_process_candidate_top_k(
+        index,
+        retriever,
+        requested_top_k,
+        retrieval_top_k,
+    )
     results = retriever.retrieve(search_query, retrieval_top_k)
     results = _apply_negation_precision_penalty(search_query, results)
     results = _apply_source_path_boost(search_query, results)
     results = _apply_explicit_hint_boost(search_query, results)
     if diversify_sources:
-        results = _diversify_sources(results, top_k)
+        results = _diversify_sources(results, requested_top_k)
 
     # Filter by minimum relevance score
     if min_score > 0.0 and results:
@@ -544,6 +576,9 @@ def retrieve(
                     }
                 },
             )
+
+    if not diversify_sources:
+        results = results[:requested_top_k]
 
     _log.debug(
         "retrieve results",
