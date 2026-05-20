@@ -6,7 +6,7 @@ import contextlib
 import re
 import threading
 import urllib.error
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from html import unescape
 from typing import TYPE_CHECKING
@@ -63,7 +63,7 @@ from hephaistos.diagnostics.crashes import get_meter, get_tracer
 from hephaistos.logging import Timer, get_logger
 from hephaistos.materials import infer_material_role_from_text
 from hephaistos.memory.workflow import schedule_memory_extraction
-from hephaistos.rag import EvidenceChunk, TurnEvidence
+from hephaistos.rag import TurnEvidence
 from hephaistos.runtime import (
     ChatConfig,
     Conversation,
@@ -95,8 +95,14 @@ from hephaistos.study import (
     recall_clarification_plan,
     validate_pedagogy,
 )
+from hephaistos.study.autopilot import StudyMoveKind
 from hephaistos.study.priority import PriorityWebSearcher, analyze_priority
-from hephaistos.study.schedule import StudyItemState, load_study_schedule, save_study_schedule
+from hephaistos.study.schedule import (
+    StudyItemState,
+    StudyScheduleStore,
+    load_study_schedule,
+    save_study_schedule,
+)
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
@@ -121,6 +127,13 @@ _EVIDENCE_REQUIRED_ACTIONS = frozenset(
         StudyAction.ASSESS,
     }
 )
+_TRACE_TASK_BY_ACTION = {
+    StudyAction.PRIORITY: "priority",
+    StudyAction.SOURCE_QA: "source-qa",
+    StudyAction.CALIBRATE: "calibration",
+    StudyAction.ASSESS: "active-recall-assessment",
+    StudyAction.HINT: "hint",
+}
 _EVIDENCE_CITATION_TEXT_RE = re.compile(
     r"\s*(?:\[|【)(?:e|E)\d+(?:\s*[,;]\s*(?:e|E)\d+)*(?:\]|】)"
 )
@@ -462,6 +475,28 @@ class _NormalizedStudyIntent:
     confidence: float
 
 
+@dataclass(frozen=True, slots=True)
+class _StudyAgentOutput:
+    streamed_reply: str
+    raw_reply: str
+    visible_reply: str
+    completion_event: TurnCompleteEvent | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ProcessedStudyReply:
+    raw_reply: str
+    visible_reply: str
+    pass_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _DeterministicStudyReply:
+    reply: str
+    source_refs: list[str] | None = None
+    internal_passes: int | None = None
+
+
 def _material_label(source: str) -> str:
     name = source.rsplit("/", maxsplit=1)[-1]
     return f"@{name or source}"
@@ -474,22 +509,12 @@ def _readable_material_label(source: str) -> str:
     return readable or name
 
 
-def _format_material_labels(sources: list[str]) -> str:
-    labels = [_material_label(source) for source in sources[:3]]
-    rendered = ", ".join(labels)
-    remaining = len(sources) - len(labels)
-    if remaining > 0:
-        rendered = f"{rendered}, and {remaining} more"
-    return rendered
-
-
 def _localize_deterministic_reply(
     reply: str,
     *,
     user_input: str,
     config: ChatConfig | None,
 ) -> str:
-    """Let the model adapt fixed fallback text without changing its factual content."""
     if (
         not reply.strip()
         or not user_input.strip()
@@ -567,43 +592,55 @@ def _missing_indexed_material_reply(session: ChatSession, action: StudyAction) -
         if source not in session.disabled_source_files
     ]
     if unindexable_sources:
-        materials = _format_material_labels(unindexable_sources)
-        reasons = {index.unindexable_files[source] for source in unindexable_sources}
-        if all("conversion backend unavailable" in reason.lower() for reason in reasons):
-            return (
-                f"I can see {materials}, but PDF/document conversion is unavailable in this "
-                "installation. I cannot answer from outside knowledge. Update or reinstall "
-                "Hephaistos, then ask again or run `heph index <armory>` to verify indexing."
-            )
-        if all("docling conversion failed" in reason.lower() for reason in reasons):
-            return (
-                f"I can see {materials}, but document conversion did not extract searchable "
-                "text from it. I cannot answer from outside knowledge. Re-export, replace, "
-                "or convert the document to text/Markdown, then ask again."
-            )
-        if all("timed out" in reason.lower() for reason in reasons):
-            return (
-                f"I can see {materials}, but document conversion timed out before searchable "
-                "text was indexed. I cannot answer from outside knowledge. Re-export or "
-                "convert the material to text/Markdown, then ask again."
-            )
-        if all("docling" in reason.lower() for reason in reasons):
-            return (
-                f"I can see {materials}, but it is not searchable armory evidence yet. "
-                "I cannot answer from outside knowledge. Update Hephaistos, then ask again "
-                "or run `heph index <armory>` to verify indexing."
-            )
-        return (
-            f"I can see {materials}, but no searchable text was indexed from it. "
-            "I cannot answer from outside knowledge. Convert the material to text or "
-            "Markdown, then ask again."
-        )
+        labels = [_material_label(source) for source in unindexable_sources[:3]]
+        materials = ", ".join(labels)
+        if remaining := len(unindexable_sources) - len(labels):
+            materials = f"{materials}, and {remaining} more"
+        reasons = [index.unindexable_files[source] for source in unindexable_sources]
+        return _unindexable_material_reply(materials, reasons)
 
     return (
         "The armory has visible materials, but no searchable evidence is indexed yet. "
         "I cannot answer from outside knowledge. Hephaistos prepares the index "
         "automatically when possible; run `heph index <armory>` to inspect the failure."
     )
+
+
+def _unindexable_material_reply(materials: str, reasons: list[str]) -> str:
+    reason_text = [reason.lower() for reason in reasons]
+    if _all_reasons_contain(reason_text, "conversion backend unavailable"):
+        return (
+            f"I can see {materials}, but PDF/document conversion is unavailable in this "
+            "installation. I cannot answer from outside knowledge. Update or reinstall "
+            "Hephaistos, then ask again or run `heph index <armory>` to verify indexing."
+        )
+    if _all_reasons_contain(reason_text, "docling conversion failed"):
+        return (
+            f"I can see {materials}, but document conversion did not extract searchable "
+            "text from it. I cannot answer from outside knowledge. Re-export, replace, "
+            "or convert the document to text/Markdown, then ask again."
+        )
+    if _all_reasons_contain(reason_text, "timed out"):
+        return (
+            f"I can see {materials}, but document conversion timed out before searchable "
+            "text was indexed. I cannot answer from outside knowledge. Re-export or "
+            "convert the material to text/Markdown, then ask again."
+        )
+    if _all_reasons_contain(reason_text, "docling"):
+        return (
+            f"I can see {materials}, but it is not searchable armory evidence yet. "
+            "I cannot answer from outside knowledge. Update Hephaistos, then ask again "
+            "or run `heph index <armory>` to verify indexing."
+        )
+    return (
+        f"I can see {materials}, but no searchable text was indexed from it. "
+        "I cannot answer from outside knowledge. Convert the material to text or "
+        "Markdown, then ask again."
+    )
+
+
+def _all_reasons_contain(reasons: list[str], needle: str) -> bool:
+    return bool(reasons) and all(needle in reason for reason in reasons)
 
 
 def _needs_source_only_no_evidence_fallback(
@@ -632,32 +669,16 @@ def _repair_missing_evidence_citations(
         return reply
     verification = verify_citations(reply, evidence)
     if verification.unverified:
-        reply = _remove_unverified_citations(reply, verification.unverified)
+        for evidence_id in verification.unverified:
+            reply = re.sub(rf"\s*\[\s*{re.escape(evidence_id)}\s*\]", "", reply)
         verification = verify_citations(reply, evidence)
     if plan.action not in {StudyAction.PRESENT, StudyAction.SOURCE_QA}:
         return reply
+    if plan.action is StudyAction.SOURCE_QA and not any(
+        line in reply for line in _evidence_bullet_lines(evidence)
+    ):
+        return _append_evidence_bullets(reply, evidence)
     if verification.has_citations:
-        return reply
-    return _append_evidence_bullets(reply, evidence)
-
-
-def _remove_unverified_citations(reply: str, unverified_ids: list[str]) -> str:
-    cleaned = reply
-    for evidence_id in unverified_ids:
-        cleaned = re.sub(rf"\s*\[\s*{re.escape(evidence_id)}\s*\]", "", cleaned)
-    return cleaned
-
-
-def _append_key_evidence_for_source_qa(
-    plan: StudyTurnPlan,
-    reply: str,
-    evidence: TurnEvidence | None,
-) -> str:
-    if plan.action is not StudyAction.SOURCE_QA:
-        return reply
-    if not reply.strip() or evidence is None or not evidence.items:
-        return reply
-    if _contains_evidence_bullets(reply, evidence):
         return reply
     return _append_evidence_bullets(reply, evidence)
 
@@ -669,15 +690,11 @@ def _append_evidence_bullets(reply: str, evidence: TurnEvidence) -> str:
     return f"{reply.rstrip()}\n\n" + "\n".join(bullets)
 
 
-def _contains_evidence_bullets(reply: str, evidence: TurnEvidence) -> bool:
-    return any(line in reply for line in _evidence_bullet_lines(evidence))
-
-
-def _evidence_bullet_lines(evidence: TurnEvidence) -> tuple[str, ...]:
+def _evidence_bullet_lines(evidence: TurnEvidence, *, limit: int = 8) -> tuple[str, ...]:
     return tuple(
         f"- {_readable_material_label(item.source)}: "
         f"{_trace_excerpt(item.content, limit=700)} [{item.evidence_id}]"
-        for item in evidence.items[:8]
+        for item in evidence.items[:limit]
     )
 
 
@@ -760,16 +777,8 @@ def _material_operation_event(
     )
 
 
-def _index_counts(session: ChatSession) -> tuple[int, int]:
-    index = session.rag_index
-    if index is None:
-        return 0, 0
-    enabled_documents = [
-        document
-        for document in index.documents
-        if document.source not in session.disabled_source_files and document.chunks
-    ]
-    return len(enabled_documents), sum(len(document.chunks) for document in enabled_documents)
+def _count_label(count: int, singular: str) -> str:
+    return f"{count} {singular}{'' if count == 1 else 's'}"
 
 
 def _read_all_files_requested(query: str | None) -> bool:
@@ -787,33 +796,60 @@ def _material_operation_events(
         return []
 
     events: list[MaterialOperationEvent] = []
-    indexed_sources, indexed_chunks = _index_counts(session)
-    if indexed_sources or indexed_chunks:
-        events.append(
-            _material_operation_event(
-                "index_ready",
-                (
-                    f"Material index ready: {indexed_sources} enabled source"
-                    f"{'' if indexed_sources == 1 else 's'}, {indexed_chunks} chunk"
-                    f"{'' if indexed_chunks == 1 else 's'}."
-                ),
-                indexed_sources=indexed_sources,
-                indexed_chunks=indexed_chunks,
-            )
-        )
-
+    enabled_documents = (
+        [
+            document
+            for document in session.rag_index.documents
+            if document.source not in session.disabled_source_files and document.chunks
+        ]
+        if session.rag_index is not None
+        else []
+    )
+    indexed_sources = len(enabled_documents)
+    indexed_chunks = sum(len(document.chunks) for document in enabled_documents)
     evidence = _visible_turn_evidence(resolved)
+    index_counts = (indexed_sources, indexed_chunks)
+    events.extend(_index_ready_events(*index_counts))
+    events.extend(_material_operation_start_events(session, plan, evidence, index_counts))
+    events.extend(_material_evidence_events(plan, evidence, index_counts))
+    events.extend(_read_all_scope_events(plan, evidence, indexed_sources))
+    return events
+
+
+def _index_ready_events(indexed_sources: int, indexed_chunks: int) -> list[MaterialOperationEvent]:
+    if not (indexed_sources or indexed_chunks):
+        return []
+    return [
+        _material_operation_event(
+            "index_ready",
+            (
+                "Material index ready: "
+                f"{_count_label(indexed_sources, 'enabled source')}, "
+                f"{_count_label(indexed_chunks, 'chunk')}."
+            ),
+            indexed_sources=indexed_sources,
+            indexed_chunks=indexed_chunks,
+        )
+    ]
+
+
+def _material_operation_start_events(
+    session: ChatSession,
+    plan: StudyTurnPlan,
+    evidence: TurnEvidence | None,
+    index_counts: tuple[int, int],
+) -> list[MaterialOperationEvent]:
+    indexed_sources, indexed_chunks = index_counts
     if _overview_turn(plan):
         sampled_sources = evidence.sampled_source_count if evidence else 0
         total_sources = evidence.total_source_count if evidence else indexed_sources
         evidence_blocks = len(evidence.items) if evidence else 0
-        events.append(
+        return [
             _material_operation_event(
                 "sample_overview",
                 (
-                    f"Sampling corpus overview: {evidence_blocks} excerpt"
-                    f"{'' if evidence_blocks == 1 else 's'} from {sampled_sources} of "
-                    f"{total_sources} indexed source{'' if total_sources == 1 else 's'}."
+                    f"Sampling corpus overview: {_count_label(evidence_blocks, 'excerpt')} "
+                    f"from {sampled_sources} of {_count_label(total_sources, 'indexed source')}."
                 ),
                 query=plan.retrieval_query,
                 evidence_blocks=evidence_blocks,
@@ -821,9 +857,9 @@ def _material_operation_events(
                 total_sources=total_sources,
                 read_all_requested=_read_all_files_requested(plan.retrieval_query),
             )
-        )
-    elif plan.use_expected_source_refs and session.study_state.expected_source_refs:
-        events.append(
+        ]
+    if plan.use_expected_source_refs and session.study_state.expected_source_refs:
+        return [
             _material_operation_event(
                 "open_stored_evidence",
                 (
@@ -832,9 +868,9 @@ def _material_operation_events(
                 ),
                 refs=list(session.study_state.expected_source_refs),
             )
-        )
-    elif plan.retrieval_query:
-        events.append(
+        ]
+    if plan.retrieval_query:
+        return [
             _material_operation_event(
                 "search_index",
                 f"Searching indexed materials for: {plan.retrieval_query}",
@@ -842,25 +878,35 @@ def _material_operation_events(
                 indexed_sources=indexed_sources,
                 indexed_chunks=indexed_chunks,
             )
-        )
+        ]
+    return []
 
+
+def _material_evidence_events(
+    plan: StudyTurnPlan,
+    evidence: TurnEvidence | None,
+    index_counts: tuple[int, int],
+) -> list[MaterialOperationEvent]:
+    indexed_sources, indexed_chunks = index_counts
     if evidence is not None and evidence.items:
-        for item in evidence.items[:3]:
-            ref = f"{item.source}#chunk={item.chunk_index}"
-            events.append(
-                _material_operation_event(
-                    "read_excerpt",
-                    (f"Opened {ref}: {_trace_excerpt(item.content, limit=180)}"),
-                    evidence_id=item.evidence_id,
-                    ref=ref,
-                    source=item.source,
-                    chunk=item.chunk_index,
-                    score=round(item.score, 4),
-                    text_excerpt=_trace_excerpt(item.content, limit=240),
-                )
+        return [
+            _material_operation_event(
+                "read_excerpt",
+                (
+                    f"Opened {item.source}#chunk={item.chunk_index}: "
+                    f"{_trace_excerpt(item.content, limit=180)}"
+                ),
+                evidence_id=item.evidence_id,
+                ref=f"{item.source}#chunk={item.chunk_index}",
+                source=item.source,
+                chunk=item.chunk_index,
+                score=round(item.score, 4),
+                text_excerpt=_trace_excerpt(item.content, limit=240),
             )
-    elif plan.retrieval_query:
-        events.append(
+            for item in evidence.items[:3]
+        ]
+    if plan.retrieval_query:
+        return [
             _material_operation_event(
                 "search_result",
                 "Material search returned no matching indexed evidence.",
@@ -868,26 +914,33 @@ def _material_operation_events(
                 indexed_sources=indexed_sources,
                 indexed_chunks=indexed_chunks,
             )
-        )
+        ]
+    return []
 
-    if _read_all_files_requested(plan.retrieval_query):
-        sampled_sources = evidence.sampled_source_count if evidence else 0
-        total_sources = evidence.total_source_count if evidence else indexed_sources
-        events.append(
-            _material_operation_event(
-                "read_all_scope",
-                (
-                    "Read-all scope: this turn samples indexed evidence; it did not read every "
-                    "file end to end. Run `heph index <armory>` for a full index rebuild, then "
-                    "ask a narrower source-grounded question."
-                ),
-                query=plan.retrieval_query,
-                sampled_sources=sampled_sources,
-                total_sources=total_sources,
-                command="heph index <armory>",
-            )
+
+def _read_all_scope_events(
+    plan: StudyTurnPlan,
+    evidence: TurnEvidence | None,
+    indexed_sources: int,
+) -> list[MaterialOperationEvent]:
+    if not _read_all_files_requested(plan.retrieval_query):
+        return []
+    sampled_sources = evidence.sampled_source_count if evidence else 0
+    total_sources = evidence.total_source_count if evidence else indexed_sources
+    return [
+        _material_operation_event(
+            "read_all_scope",
+            (
+                "Read-all scope: this turn samples indexed evidence; it did not read every "
+                "file end to end. Run `heph index <armory>` for a full index rebuild, then "
+                "ask a narrower source-grounded question."
+            ),
+            query=plan.retrieval_query,
+            sampled_sources=sampled_sources,
+            total_sources=total_sources,
+            command="heph index <armory>",
         )
-    return events
+    ]
 
 
 def _reading_notice(plan: StudyTurnPlan) -> str:
@@ -982,7 +1035,10 @@ def _append_read_all_scope_disclosure(
 ) -> str:
     if not reply.strip() or not _read_all_files_requested(plan.retrieval_query):
         return reply
-    if not _should_append_english_scope_disclosure(plan):
+    request_match = _PROMPT_USER_REQUEST_RE.search(plan.prompt)
+    if request_match is not None and not _should_append_english_guided_menu(
+        request_match.group("request")
+    ):
         return reply
     normalized = reply.casefold()
     if "did not read every file" in normalized or "heph index <armory>" in normalized:
@@ -1001,13 +1057,6 @@ def _append_read_all_scope_disclosure(
         "this turn. Run `heph index <armory>` to rebuild the full materials index, then ask "
         "a narrower source-grounded question."
     )
-
-
-def _should_append_english_scope_disclosure(plan: StudyTurnPlan) -> bool:
-    match = _PROMPT_USER_REQUEST_RE.search(plan.prompt)
-    if match is None:
-        return True
-    return _should_append_english_guided_menu(match.group("request"))
 
 
 def _insufficient_evidence_reply(
@@ -1069,7 +1118,6 @@ def _apply_grounding_repairs(
     evidence: TurnEvidence | None,
 ) -> str:
     repaired = _repair_missing_evidence_citations(plan, reply, evidence)
-    repaired = _append_key_evidence_for_source_qa(plan, repaired, evidence)
     return _append_read_all_scope_disclosure(plan, repaired, evidence)
 
 
@@ -1078,7 +1126,6 @@ def _run_bounded_internal_repairs(
     reply: str,
     evidence: TurnEvidence | None,
 ) -> tuple[str, int]:
-    """Run a bounded generate->grounding->pedagogy repair loop."""
     repaired = reply
     passes = 1  # pass 1 = initial model generation
     if _overview_turn(plan) and repaired == _overview_unavailable_reply():
@@ -1098,7 +1145,6 @@ def _isolated_recall_conversation(
     original_study_state: StudyState,
     user_input: str,
 ) -> Conversation | None:
-    """Return a minimal context for recall control turns that must not see answers."""
     if plan.action in {
         StudyAction.PROMPT_RECALL,
         StudyAction.REFUSE_REVEAL,
@@ -1185,56 +1231,199 @@ def _trace_task(plan: StudyTurnPlan | None) -> str:
         return ""
     if _overview_turn(plan):
         return "material-overview"
-    if plan.action is StudyAction.PRIORITY:
-        return "priority"
-    if plan.action is StudyAction.SOURCE_QA:
-        return "source-qa"
-    if plan.action is StudyAction.CALIBRATE:
-        return "calibration"
-    if plan.action is StudyAction.ASSESS:
-        return "active-recall-assessment"
-    if plan.action is StudyAction.HINT:
-        return "hint"
-    return plan.action.value
+    return _TRACE_TASK_BY_ACTION.get(plan.action, plan.action.value)
 
 
 def _study_autopilot_context(session: ChatSession) -> tuple[tuple[ReviewItem, ...], MemoryState]:
     if session.armory_path is None:
         return (), MemoryState()
     store = load_study_schedule(session.armory_path)
-    due_reviews = tuple(
+    due_reviews = _due_review_items(store.due_items(limit=5))
+    weak_items = _weak_study_items(store.item_list)
+    weak_topics = _study_item_topics(weak_items)
+    misconceptions = _study_item_topics(_misconception_items(weak_items))
+    successful_interventions, failed_interventions = _study_policy_interventions(store)
+    return due_reviews, MemoryState(
+        weak_topics=weak_topics[:5],
+        misconceptions=misconceptions[:5],
+        successful_interventions=successful_interventions,
+        failed_interventions=failed_interventions,
+    )
+
+
+def _study_extra_system_prompt(
+    session: ChatSession,
+    plan: StudyTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> str:
+    extra_system_prompt = plan.prompt
+    if plan.action is StudyAction.PRIORITY:
+        priority_context = _build_priority_context(session)
+        if priority_context:
+            extra_system_prompt = f"{plan.prompt}\n\n{priority_context}"
+    elif plan.retrieval_query is not None and _is_overview_query(plan.retrieval_query):
+        overview_context = _build_overview_context(session)
+        if overview_context:
+            extra_system_prompt = f"{plan.prompt}\n\n{overview_context}"
+    return _append_evidence_assessment_prompt(extra_system_prompt, resolved)
+
+
+def _postprocess_study_reply(
+    plan: StudyTurnPlan,
+    raw_reply: str,
+    visible_reply: str,
+    resolved: ResolvedTurnPlan,
+    *,
+    user_input: str,
+    config: ChatConfig,
+) -> _ProcessedStudyReply:
+    used_overview_fallback = False
+    if _needs_overview_fallback(plan, raw_reply, resolved.turn_evidence):
+        fallback_reply = _overview_fallback_reply(
+            plan,
+            resolved.turn_evidence,
+            user_input=user_input,
+            config=config,
+        )
+        raw_reply = fallback_reply or _overview_unavailable_reply()
+        visible_reply = raw_reply
+        used_overview_fallback = True
+
+    if not used_overview_fallback:
+        guided_menu_reply = _append_guided_choice_menu(
+            plan,
+            visible_reply,
+            resolved.turn_evidence,
+            user_input=user_input,
+            config=config,
+        )
+        if guided_menu_reply != visible_reply:
+            visible_reply = guided_menu_reply
+            raw_reply = guided_menu_reply
+
+    visible_reply, pass_count = _run_bounded_internal_repairs(
+        plan,
+        visible_reply,
+        resolved.turn_evidence,
+    )
+    return _ProcessedStudyReply(
+        raw_reply=raw_reply,
+        visible_reply=visible_reply,
+        pass_count=pass_count,
+    )
+
+
+def _deterministic_study_reply(
+    session: ChatSession,
+    plan: StudyTurnPlan,
+    resolved: ResolvedTurnPlan,
+) -> _DeterministicStudyReply | None:
+    if missing_reply := _missing_indexed_material_reply(session, plan.action):
+        return _DeterministicStudyReply(missing_reply)
+    if plan.direct_reply is not None:
+        return _DeterministicStudyReply(plan.direct_reply)
+    if _needs_source_only_no_evidence_fallback(plan, resolved):
+        return _DeterministicStudyReply(_source_qa_fallback_reply(plan, None))
+    if evidence_reply := _insufficient_evidence_reply(plan, resolved):
+        return _DeterministicStudyReply(
+            evidence_reply,
+            source_refs=_evidence_refs(resolved.turn_evidence),
+            internal_passes=1,
+        )
+    return None
+
+
+def _previous_review_metrics(previous: StudyItemState | None) -> tuple[float, float | None, float]:
+    if previous is None:
+        return 0.0, None, 0.0
+    return previous.mastery, previous.last_confidence, 1.0 if previous.last_correct else 0.0
+
+
+def _review_confidence_delta(
+    state: StudyItemState,
+    previous_confidence: float | None,
+) -> float:
+    if state.last_confidence is None or previous_confidence is None:
+        return 0.0
+    return state.last_confidence - previous_confidence
+
+
+def _review_correctness_delta(
+    state: StudyItemState,
+    previous: StudyItemState | None,
+    previous_correctness: float,
+) -> float:
+    if previous is None and not state.last_correct:
+        return -1.0
+    current_correctness = 1.0 if state.last_correct else 0.0
+    return current_correctness - previous_correctness
+
+
+def _policy_outcome_from_review(
+    original_study_state: StudyState,
+    session_study_state: StudyState,
+    state: StudyItemState,
+    previous: StudyItemState | None,
+    intervention: StudyMoveKind,
+) -> PolicyOutcome:
+    previous_mastery, previous_confidence, previous_correctness = _previous_review_metrics(
+        previous
+    )
+    return PolicyOutcome(
+        move_type=intervention,
+        topic=original_study_state.retrieval_query or original_study_state.current_item,
+        correctness_delta=_review_correctness_delta(state, previous, previous_correctness),
+        confidence_delta=_review_confidence_delta(state, previous_confidence),
+        mastery_delta=state.mastery - previous_mastery,
+        time_cost_seconds=state.last_recall_seconds or 0,
+        frustration_signal=(
+            session_study_state.last_feedback_type is StudyFeedbackType.WRONG
+            and original_study_state.hint_level >= 3
+        ),
+    )
+
+
+def _due_review_items(items: list[StudyItemState]) -> tuple[ReviewItem, ...]:
+    return tuple(
         ReviewItem(
             item=item.item,
             concept=item.concept,
             failures=item.failures,
             last_confidence=item.last_confidence,
         )
-        for item in store.due_items(limit=5)
+        for item in items
     )
-    weak_items = sorted(
-        (
-            item
-            for item in store.item_list
-            if item.failures > 0
-            or item.mastery < 0.55
-            or item.next_best_action
-            in {"contrastive_question", "give_hint", "prerequisite_repair"}
-        ),
+
+
+def _weak_study_items(items: list[StudyItemState]) -> list[StudyItemState]:
+    return sorted(
+        (item for item in items if _study_item_is_weak(item)),
         key=lambda item: (-item.failures, item.mastery, -item.exam_importance),
     )
-    weak_topics = tuple(
-        dict.fromkeys(item.concept or item.retrieval_query or item.item for item in weak_items)
-    )
-    misconception_items = [
+
+
+def _study_item_is_weak(item: StudyItemState) -> bool:
+    repair_actions = {"contrastive_question", "give_hint", "prerequisite_repair"}
+    return item.failures > 0 or item.mastery < 0.55 or item.next_best_action in repair_actions
+
+
+def _misconception_items(items: list[StudyItemState]) -> list[StudyItemState]:
+    return [
         item
-        for item in weak_items
+        for item in items
         if item.next_best_action == "contrastive_question" or item.common_errors
     ]
-    misconceptions = tuple(
-        dict.fromkeys(
-            item.concept or item.retrieval_query or item.item for item in misconception_items
-        )
+
+
+def _study_item_topics(items: list[StudyItemState]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(item.concept or item.retrieval_query or item.item for item in items)
     )
+
+
+def _study_policy_interventions(
+    store: StudyScheduleStore,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     successful_interventions: list[str] = []
     failed_interventions: list[str] = []
     for item in store.item_list:
@@ -1245,11 +1434,9 @@ def _study_autopilot_context(session: ChatSession) -> tuple[tuple[ReviewItem, ..
             successful_interventions.append(move_type)
         elif stats.uses >= 2:
             failed_interventions.append(move_type)
-    return due_reviews, MemoryState(
-        weak_topics=weak_topics[:5],
-        misconceptions=misconceptions[:5],
-        successful_interventions=tuple(dict.fromkeys(successful_interventions)),
-        failed_interventions=tuple(dict.fromkeys(failed_interventions)),
+    return (
+        tuple(dict.fromkeys(successful_interventions)),
+        tuple(dict.fromkeys(failed_interventions)),
     )
 
 
@@ -1266,7 +1453,6 @@ def _matching_study_item(
 
 
 def _source_qa_fallback_reply(plan: StudyTurnPlan, evidence: TurnEvidence | None) -> str:
-    """Return a local source-grounded fallback when source QA streaming is empty."""
     source_only_query = bool(
         plan.retrieval_query and _query_demands_source_only_answer(plan.retrieval_query)
     )
@@ -1291,19 +1477,13 @@ def _source_qa_fallback_reply(plan: StudyTurnPlan, evidence: TurnEvidence | None
                     if phrase:
                         return f'"{phrase}" [{item.evidence_id}]'
 
-    bullets: list[str] = []
-    for item in evidence.items[:4]:
-        source = _readable_material_label(item.source)
-        excerpt = _trace_excerpt(item.content, limit=700)
-        bullets.append(f"- {source}: {excerpt} [{item.evidence_id}]")
-    return "\n".join(bullets)
+    return "\n".join(_evidence_bullet_lines(evidence, limit=4))
 
 
 def _append_evidence_assessment_prompt(
     prompt: str,
     resolved: ResolvedTurnPlan,
 ) -> str:
-    """Inject weak-evidence routing instructions into the model turn prompt."""
     plan = resolved.study_plan
     assessment = resolved.evidence_assessment
     if not prompt or plan is None or assessment is None:
@@ -1342,7 +1522,6 @@ def _overview_fallback_reply(
     user_input: str = "",
     config: ChatConfig | None = None,
 ) -> str:
-    """Return a constrained model repair when the first overview answer is unusable."""
     if not _overview_turn(plan) or evidence is None or not evidence.items:
         return ""
 
@@ -1380,7 +1559,6 @@ def _append_guided_choice_menu(
     user_input: str = "",
     config: ChatConfig | None = None,
 ) -> str:
-    """Append selectable topic options while preserving a good model-written summary."""
     if (
         plan.autonomy_mode is not StudyAutonomyMode.GUIDED
         or plan.action is not StudyAction.PRESENT
@@ -1441,27 +1619,6 @@ def _reply_has_selectable_study_menu(reply: str) -> bool:
     )
 
 
-def _overview_source_role_sentence(evidence: TurnEvidence) -> str:
-    content_by_source: dict[str, list[str]] = {}
-    evidence_id_by_source: dict[str, str] = {}
-    for item in evidence.items:
-        content_by_source.setdefault(item.source, []).append(item.content)
-        evidence_id_by_source.setdefault(item.source, item.evidence_id)
-
-    candidates: list[tuple[str, str, str]] = []
-    for source, snippets in content_by_source.items():
-        role, confidence, _reason = infer_material_role_from_text(source, " ".join(snippets))
-        if confidence < 0.6:
-            continue
-        evidence_id = evidence_id_by_source[source]
-        candidates.append((role, _material_label(source), evidence_id))
-    signals = [
-        f"{label}: {_overview_role_label(role)} [{evidence_id}]"
-        for role, label, evidence_id in _select_role_diverse_items(candidates, limit=5)
-    ]
-    return "; ".join(signals)
-
-
 def _overview_role_sentence(evidence: TurnEvidence) -> str:
     role_examples: dict[str, str] = {}
     sources_by_role: dict[str, set[str]] = {}
@@ -1477,39 +1634,12 @@ def _overview_role_sentence(evidence: TurnEvidence) -> str:
             "document roles confidently."
         )
     parts = [
-        f"{_overview_role_label(role)} ({len(sources)} source{'' if len(sources) == 1 else 's'}, "
+        f"{_OVERVIEW_ROLE_LABELS.get(role, role.replace('_', ' '))} "
+        f"({len(sources)} source{'' if len(sources) == 1 else 's'}, "
         f"e.g. [{role_examples[role]}])"
         for role, sources in sorted(sources_by_role.items())
     ]
     return "; ".join(parts) + "."
-
-
-def _overview_role_label(role: str) -> str:
-    return _OVERVIEW_ROLE_LABELS.get(role, role.replace("_", " "))
-
-
-def _select_role_diverse_items(
-    candidates: list[tuple[str, str, str]],
-    *,
-    limit: int,
-) -> list[tuple[str, str, str]]:
-    selected: list[tuple[str, str, str]] = []
-    seen_roles: set[str] = set()
-    for candidate in candidates:
-        role, _label, _evidence_id = candidate
-        if role in seen_roles:
-            continue
-        seen_roles.add(role)
-        selected.append(candidate)
-        if len(selected) >= limit:
-            return selected
-    for candidate in candidates:
-        if candidate in selected:
-            continue
-        selected.append(candidate)
-        if len(selected) >= limit:
-            return selected
-    return selected
 
 
 def _clean_overview_line(line: str) -> str:
@@ -1517,14 +1647,6 @@ def _clean_overview_line(line: str) -> str:
     cleaned = cleaned.replace("[... truncated]", "").strip()
     cleaned = _OVERVIEW_LINE_MARKER_RE.sub("", cleaned).strip()
     return cleaned.strip(" -:;")
-
-
-def _overview_line_looks_like_metadata(line: str) -> bool:
-    if _OVERVIEW_METADATA_LINE_RE.search(line):
-        return True
-    if _looks_like_name_line(line):
-        return True
-    return bool(_OVERVIEW_DATE_LINE_RE.search(line) and _looks_like_name_line(line))
 
 
 def _trim_overview_cue(line: str, *, limit: int = 120) -> str:
@@ -1539,29 +1661,14 @@ def _overview_model_topic_items(
     user_input: str,
     config: ChatConfig | None,
 ) -> list[str]:
-    if config is None or not config.base_url or not config.model:
-        return []
-    conversation = Conversation()
-    conversation.add(
-        "system",
-        f"{_OVERVIEW_TOPIC_NORMALIZATION_SYSTEM_PROMPT}\n{_OVERVIEW_TOPIC_NORMALIZATION_SCHEMA}",
+    payload = _model_json_payload(
+        config,
+        system_prompt=(
+            f"{_OVERVIEW_TOPIC_NORMALIZATION_SYSTEM_PROMPT}\n"
+            f"{_OVERVIEW_TOPIC_NORMALIZATION_SCHEMA}"
+        ),
+        user_prompt=_overview_topic_normalization_context(evidence, user_input),
     )
-    conversation.add("user", _overview_topic_normalization_context(evidence, user_input))
-    parts: list[str] = []
-    try:
-        parts.extend(
-            delta.content
-            for delta in stream_completion(
-                config,
-                conversation,
-                retry=RetryConfig(max_retries=1),
-                client_factory=build_client,
-            )
-            if delta.content
-        )
-    except EngineError:
-        return []
-    payload = parse_json_object_fragment("".join(parts))
     if payload is None:
         return []
     return _overview_topic_items_from_model_payload(payload, evidence)
@@ -1613,6 +1720,9 @@ def _overview_topic_normalization_context(evidence: TurnEvidence, user_input: st
     for item in evidence.items[:12]:
         role, _confidence, _reason = infer_material_role_from_text(item.source, item.content)
         heading = item.chunk.heading or "none"
+        compact_text = " ".join(unescape(item.content).split())
+        if len(compact_text) > 700:
+            compact_text = f"{compact_text[:699]}…"
         lines.extend(
             (
                 "",
@@ -1620,17 +1730,10 @@ def _overview_topic_normalization_context(evidence: TurnEvidence, user_input: st
                 f"Source: {item.source}",
                 f"Role: {role}",
                 f"Heading: {heading}",
-                f"Text: {_compact_overview_evidence_text(item.content)}",
+                f"Text: {compact_text}",
             )
         )
     return "\n".join(lines)
-
-
-def _compact_overview_evidence_text(text: str, *, max_chars: int = 700) -> str:
-    compact = " ".join(unescape(text).split())
-    if len(compact) <= max_chars:
-        return compact
-    return f"{compact[: max_chars - 1]}…"
 
 
 def _should_model_normalize_study_intent(
@@ -1659,14 +1762,27 @@ def _model_normalized_study_intent(
     *,
     config: ChatConfig | None,
 ) -> _NormalizedStudyIntent | None:
+    payload = _model_json_payload(
+        config,
+        system_prompt=(
+            f"{_STUDY_INTENT_NORMALIZATION_SYSTEM_PROMPT}\n{_STUDY_INTENT_NORMALIZATION_SCHEMA}"
+        ),
+        user_prompt=f"User request:\n{user_input.strip()}",
+    )
+    return _normalized_study_intent_from_payload(payload) if payload is not None else None
+
+
+def _model_json_payload(
+    config: ChatConfig | None,
+    *,
+    system_prompt: str,
+    user_prompt: str,
+) -> dict[str, object] | None:
     if config is None or not config.base_url or not config.model:
         return None
     conversation = Conversation()
-    conversation.add(
-        "system",
-        f"{_STUDY_INTENT_NORMALIZATION_SYSTEM_PROMPT}\n{_STUDY_INTENT_NORMALIZATION_SCHEMA}",
-    )
-    conversation.add("user", f"User request:\n{user_input.strip()}")
+    conversation.add("system", system_prompt)
+    conversation.add("user", user_prompt)
     parts: list[str] = []
     try:
         parts.extend(
@@ -1681,10 +1797,7 @@ def _model_normalized_study_intent(
         )
     except EngineError:
         return None
-    payload = parse_json_object_fragment("".join(parts))
-    if payload is None:
-        return None
-    return _normalized_study_intent_from_payload(payload)
+    return parse_json_object_fragment("".join(parts))
 
 
 def _normalized_study_intent_from_payload(
@@ -1693,7 +1806,7 @@ def _normalized_study_intent_from_payload(
     raw_intent = payload.get("intent")
     if not isinstance(raw_intent, str):
         return None
-    intent = _normalized_intent_label(raw_intent)
+    intent = re.sub(r"[^a-z0-9]+", "_", raw_intent.strip().casefold()).strip("_")
     supported_intents = {
         "material_overview",
         "source_qa",
@@ -1715,10 +1828,6 @@ def _normalized_study_intent_from_payload(
         canonical_english_request=canonical_request,
         confidence=confidence,
     )
-
-
-def _normalized_intent_label(label: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", label.strip().casefold()).strip("_")
 
 
 def _normalized_confidence(value: object) -> float:
@@ -1801,7 +1910,11 @@ def _overview_topic_items_from_model_payload(
         if evidence_item is None:
             continue
         evidence_quote = _overview_payload_string(raw_topic, "evidence_quote")
-        if not _overview_model_quote_is_supported(evidence_quote, evidence_item):
+        normalized_quote = _normalize_overview_quote(evidence_quote)
+        haystack = _normalize_overview_quote(
+            f"{evidence_item.chunk.heading}\n{evidence_item.content}"
+        )
+        if len(normalized_quote) < 4 or normalized_quote not in haystack:
             continue
         canonical = _clean_overview_model_label(
             _overview_payload_string(raw_topic, "canonical_english")
@@ -1821,14 +1934,6 @@ def _overview_topic_items_from_model_payload(
         if len(topic_items) >= _OVERVIEW_TOPIC_LIMIT:
             break
     return topic_items
-
-
-def _overview_model_quote_is_supported(quote: str, item: EvidenceChunk) -> bool:
-    normalized_quote = _normalize_overview_quote(quote)
-    if len(normalized_quote) < 4:
-        return False
-    haystack = _normalize_overview_quote(f"{item.chunk.heading}\n{item.content}")
-    return normalized_quote in haystack
 
 
 def _normalize_overview_quote(text: str) -> str:
@@ -1862,7 +1967,9 @@ def _overview_topic_items(
             evidence_id = evidence_id_by_source.get(source, "")
             if evidence_id:
                 break
-        label = _overview_display_topic(topic.topic)
+        label = " ".join(topic.topic.split())
+        if label and not any(char.isupper() for char in label):
+            label = f"{label[0].upper()}{label[1:]}"
         normalized_topic = _normalize_overview_topic(label)
         if not evidence_id or normalized_topic in seen:
             continue
@@ -1883,13 +1990,6 @@ def _overview_topic_items(
     return topic_clues
 
 
-def _overview_topic_sentence(evidence: TurnEvidence) -> str:
-    topic_clues = _overview_topic_items(evidence)
-    if not topic_clues:
-        return ""
-    return ", ".join(topic_clues)
-
-
 def _overview_subject_hint(evidence: TurnEvidence) -> str:
     for item in evidence.items:
         for line in unescape(item.content).splitlines()[:8]:
@@ -1903,13 +2003,6 @@ def _overview_subject_hint(evidence: TurnEvidence) -> str:
         _split_overview_citation(topic)[0] for topic in _overview_heading_topics(evidence, limit=3)
     )
     return _trim_overview_cue(f"{topic_text} {role_sentence}".strip(), limit=80)
-
-
-def _overview_display_topic(topic: str) -> str:
-    topic = " ".join(topic.split())
-    if not topic or any(char.isupper() for char in topic):
-        return topic
-    return f"{topic[0].upper()}{topic[1:]}"
 
 
 def _overview_topic_web_supported(
@@ -1946,22 +2039,22 @@ def _overview_recommendation_items(
     recommendations: list[str] = []
     if cited_topics:
         recommendations.append(f"Start with a guided explanation of {cited_topics[0]}.")
-    if _overview_has_role(evidence, {"past_exam", "assignment"}):
-        practice_source = _overview_first_role_citation(evidence, {"past_exam", "assignment"})
+    practice_source = _overview_first_role_citation(evidence, {"past_exam", "assignment"})
+    if practice_source:
         target = ""
         if len(cited_topics) > 1:
             target = cited_topics[1]
         elif cited_topics:
             target = cited_topics[0]
         if target:
-            source_text = f" using {practice_source}" if practice_source else ""
             recommendations.append(
-                f"Practice one exam-style or exercise question on {target}{source_text}."
+                f"Practice one exam-style or exercise question on {target} using "
+                f"{practice_source}."
             )
         else:
-            source_text = f" {practice_source}" if practice_source else ""
             recommendations.append(
-                f"Practice one exam-style or exercise question from the material{source_text}."
+                f"Practice one exam-style or exercise question from the material "
+                f"{practice_source}."
             )
     if len(cited_topics) >= 2:
         topic_pair = " and ".join(clean_topics[:2])
@@ -1974,14 +2067,6 @@ def _overview_recommendation_items(
         )
     recommendations.append("Turn the selected topic into a quick recall drill.")
     return _dedupe_overview_recommendations(recommendations)[:3]
-
-
-def _overview_has_role(evidence: TurnEvidence, roles: set[str]) -> bool:
-    for item in evidence.items:
-        role, confidence, _reason = infer_material_role_from_text(item.source, item.content)
-        if confidence >= 0.6 and role in roles:
-            return True
-    return False
 
 
 def _overview_first_role_citation(evidence: TurnEvidence, roles: set[str]) -> str:
@@ -2030,7 +2115,7 @@ def _overview_heading_topics(evidence: TurnEvidence, *, limit: int = 8) -> list[
                 continue
             if not _overview_topic_is_useful(topic):
                 continue
-            if _overview_heading_looks_like_metadata(topic):
+            if _OVERVIEW_METADATA_LINE_RE.search(topic) or _OVERVIEW_DATE_LINE_RE.search(topic):
                 continue
             seen.add(normalized_topic)
             topic_clues.append(f"{topic} [{item.evidence_id}]")
@@ -2054,12 +2139,6 @@ def _overview_markdown_headings(text: str) -> list[str]:
 
 def _normalize_overview_topic(topic: str) -> str:
     return " ".join(topic.casefold().split())
-
-
-def _overview_heading_looks_like_metadata(heading: str) -> bool:
-    if _OVERVIEW_METADATA_LINE_RE.search(heading):
-        return True
-    return bool(_OVERVIEW_DATE_LINE_RE.search(heading))
 
 
 def _overview_topic_source_role(sources: tuple[str, ...], evidence: TurnEvidence) -> str:
@@ -2136,45 +2215,61 @@ def _overview_answer_has_bad_shape(
     raw_reply: str,
     evidence: TurnEvidence | None = None,
 ) -> bool:
-    normalized = raw_reply.casefold()
     if _OVERVIEW_CITATION_RANGE_RE.search(raw_reply):
         return True
-    if any(phrase not in normalized for phrase in _OVERVIEW_REQUIRED_SHAPE):
-        return True
-    if any(phrase in normalized for phrase in _OVERVIEW_FORBIDDEN_SHAPE):
+    if _overview_answer_has_bad_required_language(raw_reply):
         return True
     if _overview_answer_is_date_or_document_organized(raw_reply):
         return True
-    words = re.findall(r"\b[\w'-]+\b", raw_reply)
-    if len(words) < _OVERVIEW_MIN_WORDS:
+    citation_ids = _overview_citation_ids(raw_reply)
+    if _overview_answer_is_too_thin(raw_reply, citation_ids):
         return True
-    citation_ids = tuple(
-        f"E{match.group('id')}" for match in _OVERVIEW_CITATION_ID_RE.finditer(raw_reply)
-    )
-    if len(citation_ids) < _OVERVIEW_MIN_CITATIONS:
+    if evidence is not None and not _overview_covers_enough_sources(citation_ids, evidence):
         return True
-    if evidence is not None:
-        source_by_id = {item.evidence_id.casefold(): item.source for item in evidence.items}
-        cited_sources = {
-            source_by_id[citation_id.casefold()]
-            for citation_id in citation_ids
-            if citation_id.casefold() in source_by_id
-        }
-        available_source_count = len(set(source_by_id.values()))
-        if len(cited_sources) < min(_OVERVIEW_MIN_DISTINCT_SOURCES, available_source_count):
-            return True
-    bullet_lines = [
-        line.strip() for line in raw_reply.splitlines() if line.lstrip().startswith(("- ", "* "))
-    ]
-    if len(bullet_lines) < _OVERVIEW_MIN_BULLETS:
-        return True
-    cited_bullets = [line for line in bullet_lines if _OVERVIEW_CITATION_ID_RE.search(line)]
-    if len(cited_bullets) < _OVERVIEW_MIN_CITED_BULLETS:
+    if not _overview_has_enough_cited_bullets(raw_reply):
         return True
     topic_labels = _overview_reply_topic_labels(raw_reply)
     if len(topic_labels) > _OVERVIEW_TOPIC_LIMIT:
         return True
     return any(not _overview_topic_is_useful(label) for label in topic_labels)
+
+
+def _overview_answer_has_bad_required_language(raw_reply: str) -> bool:
+    normalized = raw_reply.casefold()
+    return any(phrase not in normalized for phrase in _OVERVIEW_REQUIRED_SHAPE) or any(
+        phrase in normalized for phrase in _OVERVIEW_FORBIDDEN_SHAPE
+    )
+
+
+def _overview_citation_ids(raw_reply: str) -> tuple[str, ...]:
+    return tuple(f"E{match.group('id')}" for match in _OVERVIEW_CITATION_ID_RE.finditer(raw_reply))
+
+
+def _overview_answer_is_too_thin(raw_reply: str, citation_ids: tuple[str, ...]) -> bool:
+    words = re.findall(r"\b[\w'-]+\b", raw_reply)
+    return len(words) < _OVERVIEW_MIN_WORDS or len(citation_ids) < _OVERVIEW_MIN_CITATIONS
+
+
+def _overview_covers_enough_sources(citation_ids: tuple[str, ...], evidence: TurnEvidence) -> bool:
+    source_by_id = {item.evidence_id.casefold(): item.source for item in evidence.items}
+    cited_sources = {
+        source_by_id[citation_id.casefold()]
+        for citation_id in citation_ids
+        if citation_id.casefold() in source_by_id
+    }
+    available_source_count = len(set(source_by_id.values()))
+    return len(cited_sources) >= min(_OVERVIEW_MIN_DISTINCT_SOURCES, available_source_count)
+
+
+def _overview_has_enough_cited_bullets(raw_reply: str) -> bool:
+    bullet_lines = [
+        line.strip() for line in raw_reply.splitlines() if line.lstrip().startswith(("- ", "* "))
+    ]
+    cited_bullets = [line for line in bullet_lines if _OVERVIEW_CITATION_ID_RE.search(line)]
+    return (
+        len(bullet_lines) >= _OVERVIEW_MIN_BULLETS
+        and len(cited_bullets) >= _OVERVIEW_MIN_CITED_BULLETS
+    )
 
 
 def _overview_answer_is_date_or_document_organized(raw_reply: str) -> bool:
@@ -2210,8 +2305,6 @@ def _overview_reply_topic_labels(raw_reply: str) -> tuple[str, ...]:
 
 @dataclass(slots=True)
 class TurnOrchestrator:
-    """Own one user turn end-to-end."""
-
     session: ChatSession
     retry: RetryConfig | None = None
     last_reply: str = field(default="", init=False)
@@ -2283,31 +2376,12 @@ class TurnOrchestrator:
                     session.last_turn_evidence = None
                     plain_plan = plan_turn(original_study_state, user_input)
                     if plain_plan.direct_reply is not None:
-                        direct_reply = _localize_deterministic_reply(
+                        final_reply = self._apply_deterministic_reply(
+                            original_study_state,
+                            plain_plan,
                             plain_plan.direct_reply,
                             user_input=user_input,
-                            config=session.config,
                         )
-                        direct_plan = (
-                            plain_plan
-                            if direct_reply == plain_plan.direct_reply
-                            else replace(
-                                plain_plan,
-                                direct_reply=direct_reply,
-                            )
-                        )
-                        session.study_state, final_reply = apply_turn_result(
-                            original_study_state,
-                            direct_plan,
-                            direct_reply,
-                            [],
-                        )
-                        self.last_reply = final_reply
-                        if final_reply and (
-                            not session.conversation.messages
-                            or session.conversation.messages[-1].role != "assistant"
-                        ):
-                            session.conversation.add("assistant", final_reply)
                         yield from _final_reply_events(final_reply)
                         return
                     for event in self._iter_plain_events(user_input=user_input, abort=abort):
@@ -2387,135 +2461,22 @@ class TurnOrchestrator:
             )
             yield AssistantDeltaEvent(self.last_reply)
 
-        if self.last_reply and (
-            not session.conversation.messages
-            or session.conversation.messages[-1].role != "assistant"
-        ):
-            session.conversation.add("assistant", self.last_reply)
+        self._append_assistant_message(self.last_reply)
         self.last_internal_passes = 1
         yield _turn_complete_from_result(None, self.last_reply)
 
-    def _iter_study_events(
+    def _iter_study_agent_events(
         self,
         resolved: ResolvedTurnPlan,
         original_study_state: StudyState,
         *,
         user_input: str,
         abort: threading.Event | None,
-    ) -> Iterator[TurnEvent]:
+    ) -> Generator[TurnEvent, None, _StudyAgentOutput]:
         session = self.session
         assert session.armory_path is not None
         plan = resolved.study_plan
         assert plan is not None
-
-        if missing_reply := _missing_indexed_material_reply(session, plan.action):
-            missing_reply = _localize_deterministic_reply(
-                missing_reply,
-                user_input=user_input,
-                config=session.config,
-            )
-            session.study_state, final_reply = apply_turn_result(
-                original_study_state,
-                plan,
-                missing_reply,
-                [],
-            )
-            self.last_reply = final_reply
-            if final_reply and (
-                not session.conversation.messages
-                or session.conversation.messages[-1].role != "assistant"
-            ):
-                session.conversation.add("assistant", final_reply)
-            yield from _final_reply_events(final_reply)
-            return
-
-        if plan.direct_reply is not None:
-            direct_reply = _localize_deterministic_reply(
-                plan.direct_reply,
-                user_input=user_input,
-                config=session.config,
-            )
-            direct_plan = (
-                plan
-                if direct_reply == plan.direct_reply
-                else replace(
-                    plan,
-                    direct_reply=direct_reply,
-                )
-            )
-            session.study_state, final_reply = apply_turn_result(
-                original_study_state,
-                direct_plan,
-                direct_reply,
-                [],
-            )
-            self.last_reply = final_reply
-            if final_reply and (
-                not session.conversation.messages
-                or session.conversation.messages[-1].role != "assistant"
-            ):
-                session.conversation.add("assistant", final_reply)
-            yield from _final_reply_events(final_reply)
-            return
-
-        if _needs_source_only_no_evidence_fallback(plan, resolved):
-            fallback_reply = _source_qa_fallback_reply(plan, None)
-            fallback_reply = _localize_deterministic_reply(
-                fallback_reply,
-                user_input=user_input,
-                config=session.config,
-            )
-            session.study_state, final_reply = apply_turn_result(
-                original_study_state,
-                plan,
-                fallback_reply,
-                [],
-            )
-            self.last_reply = final_reply
-            if final_reply and (
-                not session.conversation.messages
-                or session.conversation.messages[-1].role != "assistant"
-            ):
-                session.conversation.add("assistant", final_reply)
-            yield from _final_reply_events(final_reply)
-            return
-
-        if evidence_reply := _insufficient_evidence_reply(plan, resolved):
-            evidence_reply = _localize_deterministic_reply(
-                evidence_reply,
-                user_input=user_input,
-                config=session.config,
-            )
-            session.study_state, final_reply = apply_turn_result(
-                original_study_state,
-                plan,
-                evidence_reply,
-                _evidence_refs(resolved.turn_evidence),
-            )
-            self.last_reply = final_reply
-            self.last_internal_passes = 1
-            if final_reply and (
-                not session.conversation.messages
-                or session.conversation.messages[-1].role != "assistant"
-            ):
-                session.conversation.add("assistant", final_reply)
-            yield from _final_reply_events(final_reply)
-            return
-
-        if notice := _writing_notice(plan):
-            yield NoticeEvent(notice, code="writing")
-
-        extra_system_prompt = plan.prompt
-        if plan.action is StudyAction.PRIORITY:
-            priority_context = _build_priority_context(session)
-            if priority_context:
-                extra_system_prompt = f"{plan.prompt}\n\n{priority_context}"
-        elif plan.retrieval_query is not None and _is_overview_query(plan.retrieval_query):
-            overview_context = _build_overview_context(session)
-            if overview_context:
-                extra_system_prompt = f"{plan.prompt}\n\n{overview_context}"
-        extra_system_prompt = _append_evidence_assessment_prompt(extra_system_prompt, resolved)
-
         raw_parts: list[str] = []
         last_reply_parts: list[str] = []
         completion_event: TurnCompleteEvent | None = None
@@ -2532,7 +2493,7 @@ class TurnOrchestrator:
             usage=session.usage,
             steering=session.steering,
             turn_evidence=resolved.turn_evidence,
-            extra_system_prompt=extra_system_prompt,
+            extra_system_prompt=_study_extra_system_prompt(session, plan, resolved),
             tool_schemas=None if plan.allow_tools else [],
             registry=session.tool_registry,
         ):
@@ -2555,83 +2516,159 @@ class TurnOrchestrator:
             raw_reply = visible_reply
         if last_reply_parts:
             self.last_reply = "".join(last_reply_parts)
+        return _StudyAgentOutput(
+            streamed_reply=streamed_reply,
+            raw_reply=raw_reply,
+            visible_reply=visible_reply,
+            completion_event=completion_event,
+        )
 
-        if not raw_reply:
-            localize_fallback_reply = True
-            fallback_reply = _source_qa_fallback_reply(plan, resolved.turn_evidence)
-            if not fallback_reply:
-                fallback_reply = _overview_fallback_reply(
-                    plan,
-                    resolved.turn_evidence,
-                    user_input=user_input,
-                    config=session.config,
-                )
-                localize_fallback_reply = not bool(fallback_reply)
-            if not fallback_reply:
-                if _overview_turn(plan):
-                    fallback_reply = _overview_unavailable_reply()
-                else:
-                    fallback_reply = (
-                        "PARTIAL: I could not generate a grounded assessment. Please try again."
-                        if plan.action is StudyAction.ASSESS
-                        else "I could not generate a prompt. Please try again."
-                    )
-            if localize_fallback_reply:
-                fallback_reply = _localize_deterministic_reply(
-                    fallback_reply,
-                    user_input=user_input,
-                    config=session.config,
-                )
-            session.study_state, final_reply = apply_turn_result(
-                original_study_state,
-                plan,
-                fallback_reply,
-                _evidence_refs(resolved.turn_evidence),
-            )
-            self.last_reply = final_reply
-            if final_reply and (
-                not session.conversation.messages
-                or session.conversation.messages[-1].role != "assistant"
-            ):
-                session.conversation.add("assistant", final_reply)
-            yield from _final_reply_events(final_reply)
-            return
-
-        used_overview_fallback = False
-        if _needs_overview_fallback(plan, raw_reply, resolved.turn_evidence):
+    def _iter_empty_study_reply_events(
+        self,
+        resolved: ResolvedTurnPlan,
+        original_study_state: StudyState,
+        *,
+        user_input: str,
+    ) -> Iterator[TurnEvent]:
+        session = self.session
+        plan = resolved.study_plan
+        assert plan is not None
+        localize_fallback_reply = True
+        fallback_reply = _source_qa_fallback_reply(plan, resolved.turn_evidence)
+        if not fallback_reply:
             fallback_reply = _overview_fallback_reply(
                 plan,
                 resolved.turn_evidence,
                 user_input=user_input,
                 config=session.config,
             )
-            if fallback_reply:
-                raw_reply = fallback_reply
-                visible_reply = fallback_reply
-                used_overview_fallback = True
+            localize_fallback_reply = not bool(fallback_reply)
+        if not fallback_reply:
+            if _overview_turn(plan):
+                fallback_reply = _overview_unavailable_reply()
             else:
-                raw_reply = _overview_unavailable_reply()
-                visible_reply = raw_reply
-                used_overview_fallback = True
-
-        if not used_overview_fallback:
-            guided_menu_reply = _append_guided_choice_menu(
-                plan,
-                visible_reply,
-                resolved.turn_evidence,
+                fallback_reply = (
+                    "PARTIAL: I could not generate a grounded assessment. Please try again."
+                    if plan.action is StudyAction.ASSESS
+                    else "I could not generate a prompt. Please try again."
+                )
+        if localize_fallback_reply:
+            fallback_reply = _localize_deterministic_reply(
+                fallback_reply,
                 user_input=user_input,
                 config=session.config,
             )
-            if guided_menu_reply != visible_reply:
-                visible_reply = guided_menu_reply
-                raw_reply = guided_menu_reply
-
-        visible_reply, pass_count = _run_bounded_internal_repairs(
+        session.study_state, final_reply = apply_turn_result(
+            original_study_state,
             plan,
-            visible_reply,
-            resolved.turn_evidence,
+            fallback_reply,
+            _evidence_refs(resolved.turn_evidence),
         )
-        self.last_internal_passes = pass_count
+        self.last_reply = final_reply
+        self._append_assistant_message(final_reply)
+        yield from _final_reply_events(final_reply)
+
+    def _iter_final_study_reply_events(
+        self,
+        plan: StudyTurnPlan,
+        completion_event: TurnCompleteEvent | None,
+        *,
+        raw_reply: str,
+        streamed_reply: str,
+        final_reply: str,
+    ) -> Iterator[TurnEvent]:
+        session = self.session
+        if final_reply and (
+            not session.conversation.messages
+            or session.conversation.messages[-1].role != "assistant"
+        ):
+            self._append_assistant_message(final_reply)
+        elif final_reply and raw_reply != final_reply:
+            for message in reversed(session.conversation.messages):
+                if message.role == "assistant":
+                    message.content = final_reply
+                    break
+
+        self.last_reply = final_reply
+        if plan.buffer_response and final_reply:
+            yield AssistantDeltaEvent(final_reply)
+        elif final_reply and streamed_reply and final_reply != streamed_reply:
+            suffix = final_reply.removeprefix(streamed_reply)
+            if suffix:
+                yield AssistantDeltaEvent(suffix)
+        elif final_reply and not streamed_reply:
+            yield AssistantDeltaEvent(final_reply)
+        yield _turn_complete_from_result(completion_event, final_reply)
+
+    def _iter_study_events(
+        self,
+        resolved: ResolvedTurnPlan,
+        original_study_state: StudyState,
+        *,
+        user_input: str,
+        abort: threading.Event | None,
+    ) -> Iterator[TurnEvent]:
+        session = self.session
+        assert session.armory_path is not None
+        plan = resolved.study_plan
+        assert plan is not None
+
+        def deterministic_events(
+            reply: str,
+            *,
+            source_refs: list[str] | None = None,
+        ) -> Iterator[TurnEvent]:
+            final_reply = self._apply_deterministic_reply(
+                original_study_state,
+                plan,
+                reply,
+                user_input=user_input,
+                source_refs=source_refs,
+            )
+            return _final_reply_events(final_reply)
+
+        if deterministic_reply := _deterministic_study_reply(session, plan, resolved):
+            if deterministic_reply.internal_passes is not None:
+                self.last_internal_passes = deterministic_reply.internal_passes
+            yield from deterministic_events(
+                deterministic_reply.reply,
+                source_refs=deterministic_reply.source_refs,
+            )
+            return
+
+        if notice := _writing_notice(plan):
+            yield NoticeEvent(notice, code="writing")
+
+        agent_output = yield from self._iter_study_agent_events(
+            resolved,
+            original_study_state,
+            user_input=user_input,
+            abort=abort,
+        )
+        streamed_reply = agent_output.streamed_reply
+        raw_reply = agent_output.raw_reply
+        visible_reply = agent_output.visible_reply
+        completion_event = agent_output.completion_event
+
+        if not raw_reply:
+            yield from self._iter_empty_study_reply_events(
+                resolved,
+                original_study_state,
+                user_input=user_input,
+            )
+            return
+
+        processed_reply = _postprocess_study_reply(
+            plan,
+            raw_reply,
+            visible_reply,
+            resolved,
+            user_input=user_input,
+            config=session.config,
+        )
+        raw_reply = processed_reply.raw_reply
+        visible_reply = processed_reply.visible_reply
+        self.last_internal_passes = processed_reply.pass_count
 
         if raw_reply:
             session.study_state, final_reply = apply_turn_result(
@@ -2649,24 +2686,47 @@ class TurnOrchestrator:
             session.study_state = original_study_state
             final_reply = raw_reply
 
-        if final_reply and (
-            not session.conversation.messages
-            or session.conversation.messages[-1].role != "assistant"
-        ):
-            session.conversation.add("assistant", final_reply)
-        elif final_reply and raw_reply != final_reply:
-            self._replace_last_assistant_message(final_reply)
+        yield from self._iter_final_study_reply_events(
+            plan,
+            completion_event,
+            raw_reply=raw_reply,
+            streamed_reply=streamed_reply,
+            final_reply=final_reply,
+        )
 
+    def _apply_deterministic_reply(
+        self,
+        original_study_state: StudyState,
+        plan: StudyTurnPlan,
+        reply: str,
+        *,
+        user_input: str,
+        source_refs: list[str] | None = None,
+    ) -> str:
+        localized_reply = _localize_deterministic_reply(
+            reply,
+            user_input=user_input,
+            config=self.session.config,
+        )
+        result_plan = plan
+        if plan.direct_reply == reply and localized_reply != reply:
+            result_plan = replace(plan, direct_reply=localized_reply)
+        self.session.study_state, final_reply = apply_turn_result(
+            original_study_state,
+            result_plan,
+            localized_reply,
+            source_refs or [],
+        )
         self.last_reply = final_reply
-        if plan.buffer_response and final_reply:
-            yield AssistantDeltaEvent(final_reply)
-        elif final_reply and streamed_reply and final_reply != streamed_reply:
-            suffix = final_reply.removeprefix(streamed_reply)
-            if suffix:
-                yield AssistantDeltaEvent(suffix)
-        elif final_reply and not streamed_reply:
-            yield AssistantDeltaEvent(final_reply)
-        yield _turn_complete_from_result(completion_event, final_reply)
+        self._append_assistant_message(final_reply)
+        return final_reply
+
+    def _append_assistant_message(self, reply: str) -> None:
+        if reply and (
+            not self.session.conversation.messages
+            or self.session.conversation.messages[-1].role != "assistant"
+        ):
+            self.session.conversation.add("assistant", reply)
 
     def _record_study_review_if_needed(
         self,
@@ -2685,10 +2745,9 @@ class TurnOrchestrator:
             item=original_study_state.current_item,
             retrieval_query=original_study_state.retrieval_query,
         )
-        previous_mastery = previous.mastery if previous is not None else 0.0
-        previous_confidence = previous.last_confidence if previous is not None else None
-        previous_correctness = 1.0 if previous is not None and previous.last_correct else 0.0
-        intervention = plan.study_move.kind if plan.study_move is not None else plan.action.value
+        intervention: StudyMoveKind = (
+            plan.study_move.kind if plan.study_move is not None else "assess"
+        )
         state = store.record_review(
             original_study_state.current_item,
             concept=original_study_state.retrieval_query,
@@ -2704,24 +2763,12 @@ class TurnOrchestrator:
             intervention=intervention,
             exam_importance=1.0 if original_study_state.expected_source_refs else 0.0,
         )
-        confidence_delta = 0.0
-        if state.last_confidence is not None and previous_confidence is not None:
-            confidence_delta = state.last_confidence - previous_confidence
-        current_correctness = 1.0 if state.last_correct else 0.0
-        correctness_delta = current_correctness - previous_correctness
-        if previous is None and not state.last_correct:
-            correctness_delta = -1.0
-        outcome = PolicyOutcome(
-            move_type=intervention,
-            topic=original_study_state.retrieval_query or original_study_state.current_item,
-            correctness_delta=correctness_delta,
-            confidence_delta=confidence_delta,
-            mastery_delta=state.mastery - previous_mastery,
-            time_cost_seconds=state.last_recall_seconds or 0,
-            frustration_signal=(
-                session.study_state.last_feedback_type is StudyFeedbackType.WRONG
-                and original_study_state.hint_level >= 3
-            ),
+        outcome = _policy_outcome_from_review(
+            original_study_state,
+            session.study_state,
+            state,
+            previous,
+            intervention,
         )
         store.record_policy_outcome(
             intervention,
@@ -2856,12 +2903,6 @@ class TurnOrchestrator:
                 save_usage(session.armory_path, session.session_id, session.usage)
 
         return notice
-
-    def _replace_last_assistant_message(self, content: str) -> None:
-        for message in reversed(self.session.conversation.messages):
-            if message.role == "assistant":
-                message.content = content
-                return
 
 
 def _turn_complete_from_result(

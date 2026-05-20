@@ -15,18 +15,6 @@ from hephaistos.parameters import settings as settings_store
 if TYPE_CHECKING:
     from hephaistos.runtime import ChatConfig
 
-_DEFAULTS_FILE = settings_store._DEFAULTS_FILE
-_USER_CONFIG_DIR = settings_store._USER_CONFIG_DIR
-_USER_CONFIG_FILE = settings_store._USER_CONFIG_FILE
-
-
-def _parse_toml_simple(path: Path) -> dict[str, str]:
-    return settings_store.parse_toml_simple(path)
-
-
-def _parse_feature_flags(raw: str) -> frozenset[str]:
-    return settings_store.parse_feature_flags(raw)
-
 
 def _load_user_overrides() -> dict[str, str]:
     raw = settings_store.load_raw_settings()
@@ -38,10 +26,6 @@ def _load_user_overrides() -> dict[str, str]:
     return result
 
 
-def _save_user_override(key: str, value: str) -> None:
-    settings_store.save_setting(key, value)
-
-
 def load_config(armory_path: Path | None = None) -> ChatConfig:
     """Load ChatConfig from defaults + provider config + user overrides + env vars."""
     providers_config = importlib.import_module("hephaistos.providers.config")
@@ -51,7 +35,7 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
     config = runtime.ChatConfig()
     toml_path = settings_store._DEFAULTS_FILE
     if toml_path.is_file():
-        toml = _parse_toml_simple(toml_path)
+        toml = settings_store.parse_toml_simple(toml_path)
         if toml.get("base_url"):
             config.base_url = toml["base_url"]
         if toml.get("model_id"):
@@ -89,7 +73,7 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
         with contextlib.suppress(ValueError):
             config.rag_context_budget = int(user_overrides["rag_context_budget"])
     if user_overrides.get("feature_flags"):
-        config.feature_flags = _parse_feature_flags(user_overrides["feature_flags"])
+        config.feature_flags = settings_store.parse_feature_flags(user_overrides["feature_flags"])
 
     base_url = os.environ.get("HEPHAISTOS_BASE_URL")
     if base_url:
@@ -111,7 +95,7 @@ def load_config(armory_path: Path | None = None) -> ChatConfig:
 
     feature_flags = os.environ.get("HEPHAISTOS_FEATURE_FLAGS")
     if feature_flags:
-        config.feature_flags = _parse_feature_flags(feature_flags)
+        config.feature_flags = settings_store.parse_feature_flags(feature_flags)
 
     return config
 
@@ -124,15 +108,12 @@ _CONFIG_KEY_TO_ENV = {
     "feature_flags": "HEPHAISTOS_FEATURE_FLAGS",
     "theme": "",
     "default_armory_path": "",
-    "interface_mode": "",
     "activity_trace_mode": "",
     "analytics_enabled": "HEPHAISTOS_ANALYTICS_ENABLED",
     "crash_reports_enabled": "HEPHAISTOS_CRASH_REPORTS_ENABLED",
-    "supermemory_enabled": "",
-    "supermemory_profile": "",
 }
 
-_BOOL_KEYS = {"analytics_enabled", "crash_reports_enabled", "supermemory_enabled"}
+_BOOL_KEYS = {"analytics_enabled", "crash_reports_enabled"}
 _SETTING_DESCRIPTIONS = {
     "base_url": "OpenAI-compatible API base URL",
     "model": "Model identifier",
@@ -141,12 +122,9 @@ _SETTING_DESCRIPTIONS = {
     "feature_flags": "Comma-separated feature flags",
     "theme": "TUI theme preset",
     "default_armory_path": "Startup armory fallback path",
-    "interface_mode": "Interface mode",
     "activity_trace_mode": "Live activity trace verbosity",
     "analytics_enabled": "Anonymous usage analytics opt-in",
     "crash_reports_enabled": "Redacted crash reporting opt-in",
-    "supermemory_enabled": "Supermemory sync opt-in",
-    "supermemory_profile": "Supermemory profile name",
 }
 
 
@@ -158,8 +136,6 @@ def _effective_setting_value(key: str) -> str:
         return app_settings.theme
     if key == "default_armory_path":
         return app_settings.default_armory_path or "(not set)"
-    if key == "interface_mode":
-        return app_settings.interface_mode
     if key == "activity_trace_mode":
         return app_settings.activity_trace_mode
     if key == "analytics_enabled":
@@ -170,18 +146,7 @@ def _effective_setting_value(key: str) -> str:
         suffix = " (env override)" if privacy.crash_reports_env_override() else ""
         avail = "available" if privacy.crash_reports_backend_available() else "unavailable"
         return f"{str(privacy.crash_reports_enabled()).lower()}{suffix} [{avail}]"
-    if key == "supermemory_enabled":
-        return str(app_settings.supermemory_enabled).lower()
-    if key == "supermemory_profile":
-        return app_settings.supermemory_profile
     return "(not set)"
-
-
-def _display_setting_value(key: str) -> str:
-    try:
-        return _effective_setting_value(key)
-    except KeyError:
-        return "(not set)"
 
 
 def _cmd_config_show(_args: argparse.Namespace) -> None:
@@ -193,14 +158,11 @@ def _cmd_config_show(_args: argparse.Namespace) -> None:
     print(f"  rag_context_budget: {config.rag_context_budget}")
     flags = ", ".join(sorted(config.feature_flags)) if config.feature_flags else "(none)"
     print(f"  feature_flags: {flags}")
-    print(f"  theme: {_display_setting_value('theme')}")
-    print(f"  default_armory_path: {_display_setting_value('default_armory_path')}")
-    print(f"  interface_mode: {_display_setting_value('interface_mode')}")
-    print(f"  activity_trace_mode: {_display_setting_value('activity_trace_mode')}")
-    print(f"  analytics_enabled: {_display_setting_value('analytics_enabled')}")
-    print(f"  crash_reports_enabled: {_display_setting_value('crash_reports_enabled')}")
-    print(f"  supermemory_enabled: {_display_setting_value('supermemory_enabled')}")
-    print(f"  supermemory_profile: {_display_setting_value('supermemory_profile')}")
+    print(f"  theme: {_effective_setting_value('theme')}")
+    print(f"  default_armory_path: {_effective_setting_value('default_armory_path')}")
+    print(f"  activity_trace_mode: {_effective_setting_value('activity_trace_mode')}")
+    print(f"  analytics_enabled: {_effective_setting_value('analytics_enabled')}")
+    print(f"  crash_reports_enabled: {_effective_setting_value('crash_reports_enabled')}")
 
 
 def _cmd_config_list(_args: argparse.Namespace) -> None:
@@ -208,10 +170,6 @@ def _cmd_config_list(_args: argparse.Namespace) -> None:
     for key, env in _CONFIG_KEY_TO_ENV.items():
         env_text = f" env: {env}" if env else ""
         print(f"  {key}: {_SETTING_DESCRIPTIONS[key]}{env_text}")
-
-
-def _cmd_config_path(_args: argparse.Namespace) -> None:
-    print(settings_store._USER_CONFIG_FILE)
 
 
 def _cmd_config_set(args: argparse.Namespace) -> None:
@@ -258,7 +216,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     list_cmd.set_defaults(handler=_cmd_config_list)
 
     path_cmd = config_sub.add_parser("path", help="Print the persistent config file path.")
-    path_cmd.set_defaults(handler=_cmd_config_path)
+    path_cmd.set_defaults(handler=lambda _args: print(settings_store._USER_CONFIG_FILE))
 
     set_cmd = config_sub.add_parser("set", help="Set a configuration parameter.")
     set_cmd.add_argument(
@@ -266,8 +224,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help=(
             "Config key "
             "(base_url, model, max_tokens, rag_context_budget, feature_flags, theme, "
-            "default_armory_path, interface_mode, analytics_enabled, "
-            "crash_reports_enabled, supermemory_enabled, supermemory_profile)."
+            "default_armory_path, analytics_enabled, crash_reports_enabled)."
         ),
     )
     set_cmd.add_argument("value", help="Value to set.")

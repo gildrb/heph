@@ -55,23 +55,12 @@ def _truncate(text: str, limit: int) -> str:
 
 def _metadata_int(metadata: Mapping[str, object], key: str) -> int | None:
     value = metadata.get(key)
-    if isinstance(value, int):
-        return value
-    return None
-
-
-def _metadata_number(metadata: Mapping[str, object], key: str) -> float | None:
-    value = metadata.get(key)
-    if isinstance(value, int | float):
-        return float(value)
-    return None
+    return value if isinstance(value, int) else None
 
 
 def _metadata_str(metadata: Mapping[str, object], key: str) -> str | None:
     value = metadata.get(key)
-    if isinstance(value, str):
-        return value
-    return None
+    return value if isinstance(value, str) else None
 
 
 def _metadata_str_list(metadata: Mapping[str, object], key: str) -> list[str]:
@@ -112,7 +101,8 @@ def _activity_line(
     if isinstance(event, ToolCallEvent):
         return f"{_ACTIVITY_TRACE_INDENT}Ran {_compact_tool_call(event)}"
     if isinstance(event, ToolResultEvent):
-        latency = _metadata_number(event.metadata, "latency_ms")
+        latency_value = event.metadata.get("latency_ms")
+        latency = float(latency_value) if isinstance(latency_value, int | float) else None
         elapsed = f" in {latency:.0f}ms" if latency is not None else ""
         if not event.success:
             error = event.error or event.summary or "tool failed"

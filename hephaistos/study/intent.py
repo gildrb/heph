@@ -192,7 +192,6 @@ _TOPIC_WORD_RE = re.compile(r"[^\W\d_][\w+-]{1,}")
 
 
 def is_material_source_request(text: str) -> bool:
-    """Return whether the user asks to answer from their indexed material."""
     normalized = _normalize(text)
     return bool(
         _MATERIAL_SOURCE_REQUEST_RE.search(normalized)
@@ -201,7 +200,6 @@ def is_material_source_request(text: str) -> bool:
 
 
 def is_source_only_query(text: str) -> bool:
-    """Return whether the query should abstain rather than use outside knowledge."""
     normalized = _normalize(text)
     return bool(
         _MATERIAL_SOURCE_REQUEST_RE.search(normalized)
@@ -211,52 +209,41 @@ def is_source_only_query(text: str) -> bool:
 
 
 def is_source_only_policy(text: str) -> bool:
-    """Return whether text contains a source-only abstention instruction."""
     return bool(_SOURCE_ONLY_POLICY_RE.search(_normalize(text)))
 
 
 def is_standalone_source_only_policy(text: str) -> bool:
-    """Return whether the whole message is only a source-only policy instruction."""
     return bool(_STANDALONE_SOURCE_ONLY_POLICY_RE.fullmatch(_normalize(text)))
 
 
 def material_drill_query(text: str) -> str | None:
-    """Return the requested topic for topic-specific active-recall requests."""
     normalized = _normalize(text)
     for pattern in _MATERIAL_DRILL_REQUEST_RE:
         match = pattern.search(normalized)
         if match is None:
             continue
-        topic = _clean_topic(match.group("topic"))
-        if _has_substantive_topic(topic):
+        topic = _normalize(match.group("topic").strip(" .?!:;"))
+        words = [word.casefold() for word in _TOPIC_WORD_RE.findall(topic)]
+        if any(word not in _REFERENT_ONLY_WORDS for word in words):
             return topic
     return None
 
 
 def is_new_material_topic_request(text: str) -> bool:
-    """Return whether the user is asking to switch to a fresh study topic."""
     normalized = _normalize(text)
     if _SOURCE_ONLY_POLICY_RE.search(normalized):
         return False
     match = _NEW_TOPIC_REQUEST_RE.search(normalized)
     if match is None:
         return False
-    topic = _clean_topic(match.group("topic"))
+    topic = _normalize(match.group("topic").strip(" .?!:;"))
+    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(topic)]
     return (
         bool(topic)
         and topic.casefold() not in _FOLLOWUP_TOPIC_REFERENTS
         and not (_FOLLOWUP_TOPIC_REFERENT_RE.search(topic))
-        and _has_substantive_topic(topic)
+        and any(word not in _REFERENT_ONLY_WORDS for word in words)
     )
-
-
-def _clean_topic(topic: str) -> str:
-    return _normalize(topic.strip(" .?!:;"))
-
-
-def _has_substantive_topic(topic: str) -> bool:
-    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(topic)]
-    return any(word not in _REFERENT_ONLY_WORDS for word in words)
 
 
 def _normalize(text: str) -> str:

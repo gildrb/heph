@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Protocol
 
-from hephaistos.chat.compaction import compact_session
 from hephaistos.chat.session import ChatSession
 
 
@@ -17,23 +17,14 @@ class CommandRegistryProtocol(Protocol):
     def suggestions(self) -> object: ...
 
 
+@dataclass(slots=True)
 class CommandResult:
-    __slots__ = ("new_session", "output", "should_exit")
-
-    def __init__(
-        self,
-        output: str | None = None,
-        should_exit: bool = False,
-        new_session: ChatSession | None = None,
-    ) -> None:
-        self.output = output
-        self.should_exit = should_exit
-        self.new_session = new_session
+    output: str | None = None
+    should_exit: bool = False
+    new_session: ChatSession | None = None
 
 
 class Command:
-    """Base class for slash commands. Subclasses set class-level attributes."""
-
     name: str = ""
     description: str = ""
     aliases: tuple[str, ...] = ()
@@ -54,7 +45,6 @@ def set_registry_fn(fn: Callable[[], CommandRegistryProtocol]) -> None:
 
 
 def get_registry_lazy() -> CommandRegistryProtocol:
-    """Return the CommandRegistry by calling the lazy getter set by __init__.py."""
     if _registry_fn is None:
         msg = "Registry not initialized — call set_registry_fn first"
         raise RuntimeError(msg)
@@ -78,12 +68,6 @@ def format_duration(seconds: int) -> str:
 
 
 def pct(part: int, total: int) -> str:
-    """Return a percentage string like '42%'."""
     if total == 0:
         return "0%"
     return f"{part * 100 // total}%"
-
-
-def do_compact(session: ChatSession) -> None:
-    """Run the compact logic: summarize conversation and replace messages."""
-    compact_session(session)

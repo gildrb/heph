@@ -5,9 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from hephaistos.chat.engine import ChatConfig
 from hephaistos.cli.main import build_parser, run_argv
 from hephaistos.parameters import cli as params_cli
+from hephaistos.parameters import settings as settings_store
+from hephaistos.runtime import ChatConfig
 
 
 def test_config_show_uses_registered_handler(
@@ -29,11 +30,9 @@ def test_config_show_uses_registered_handler(
         lambda key: {
             "theme": "forge",
             "default_armory_path": "(not set)",
-            "interface_mode": "tui",
+            "activity_trace_mode": "tool_calls",
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
-            "supermemory_enabled": "false",
-            "supermemory_profile": "heph-learning",
         }[key],
     )
 
@@ -46,7 +45,6 @@ def test_config_show_uses_registered_handler(
     assert "max_tokens: 1234" in out
     assert "rag_context_budget: 4321" in out
     assert "theme: forge" in out
-    assert "interface_mode: tui" in out
     assert "analytics_enabled: false [unavailable]" in out
 
 
@@ -152,7 +150,7 @@ def test_parse_toml_simple_handles_comments_and_literals(
         encoding="utf-8",
     )
 
-    assert params_cli._parse_toml_simple(isolated_config_dir.defaults_file) == {
+    assert settings_store.parse_toml_simple(isolated_config_dir.defaults_file) == {
         "base_url": "https://example.com/v1",
         "max_tokens": "2048",
         "enabled": "true",
@@ -246,13 +244,13 @@ def test_config_set_unknown_key_exits_with_code_1(capsys: pytest.CaptureFixture[
 
 
 def test_parse_feature_flags_normalizes() -> None:
-    assert params_cli._parse_feature_flags("alpha, Beta , ,GAMMA") == frozenset(
+    assert settings_store.parse_feature_flags("alpha, Beta , ,GAMMA") == frozenset(
         {"alpha", "beta", "gamma"}
     )
 
 
 def test_parse_feature_flags_empty_string() -> None:
-    assert params_cli._parse_feature_flags("") == frozenset()
+    assert settings_store.parse_feature_flags("") == frozenset()
 
 
 def test_config_set_feature_flags_persists(
@@ -286,11 +284,9 @@ def test_config_show_displays_feature_flags(
         lambda key: {
             "theme": "forge",
             "default_armory_path": "(not set)",
-            "interface_mode": "tui",
+            "activity_trace_mode": "tool_calls",
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
-            "supermemory_enabled": "false",
-            "supermemory_profile": "heph-learning",
         }[key],
     )
 
@@ -319,11 +315,9 @@ def test_config_show_displays_no_feature_flags(
         lambda key: {
             "theme": "forge",
             "default_armory_path": "(not set)",
-            "interface_mode": "tui",
+            "activity_trace_mode": "tool_calls",
             "analytics_enabled": "false [unavailable]",
             "crash_reports_enabled": "false [unavailable]",
-            "supermemory_enabled": "false",
-            "supermemory_profile": "heph-learning",
         }[key],
     )
 
@@ -361,7 +355,6 @@ def test_config_list_includes_persistent_preferences(
     out = capsys.readouterr().out
     assert "theme: TUI theme preset" in out
     assert "analytics_enabled: Anonymous usage analytics opt-in" in out
-    assert "interface_mode: Interface mode" in out
 
 
 def test_config_unset_removes_persisted_setting(
@@ -374,17 +367,6 @@ def test_config_unset_removes_persisted_setting(
     assert "Unset theme" in out
     saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
     assert "theme" not in saved
-
-
-def test_config_set_interface_mode_persists(
-    isolated_config_dir: SimpleNamespace, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run_argv(build_parser(), ["config", "set", "interface_mode", "tui"])
-
-    out = capsys.readouterr().out
-    assert "Set interface_mode = tui" in out
-    saved = json.loads(isolated_config_dir.config_file.read_text(encoding="utf-8"))
-    assert saved["interface_mode"] == "tui"
 
 
 def test_load_config_feature_flags_env_overrides_user(

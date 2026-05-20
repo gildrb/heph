@@ -21,8 +21,6 @@ BLACK_RGB: Final[tuple[int, int, int]] = (0, 0, 0)
 
 @dataclass(frozen=True)
 class Theme:
-    """Semantic colour roles consumed by UI components."""
-
     bg_app: str
     bg_surface: str
     bg_raised: str
@@ -99,7 +97,6 @@ THEMES: Final[dict[str, Theme]] = {
 
 
 def ansi_fg(hex_color: str) -> str:
-    """Return a truecolor ANSI foreground sequence for a hex color."""
     color = hex_color.lstrip("#")
     r = int(color[0:2], 16)
     g = int(color[2:4], 16)

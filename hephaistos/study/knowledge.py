@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import PurePosixPath
-from typing import Protocol
+from typing import Protocol, cast
 
 _HEADING_RE = re.compile(r"^\s{0,3}(?:#{1,6}\s+|\d+(?:\.\d+)*[.)]\s+)(?P<text>.+?)\s*$")
 _HEADING_CONTEXT_PREFIX_RE = re.compile(
@@ -69,11 +69,15 @@ _ANSWER_RE = re.compile(
     re.IGNORECASE,
 )
 _WHITESPACE_RE = re.compile(r"\s+")
-_METADATA_CONCEPT_RE = re.compile(
-    r"\b(?:"
+_METADATA_TERMS = (
     r"all rights reserved|copyright|date|dozent|dozentin|email|instructor|lecturer|"
-    r"page|professor|seite|semester|slide|universität|university|www|http"
-    r")\b",
+    r"page|professor|seite|semester|slide"
+)
+_SOURCE_INTERNAL_TERMS = (
+    r"source[-\s]?backed|source[-\s]?supported|source field|chunk|filename|file name"
+)
+_METADATA_CONCEPT_RE = re.compile(
+    rf"\b(?:{_METADATA_TERMS}|universität|university|www|http)\b",
     re.IGNORECASE,
 )
 _DATE_ONLY_RE = re.compile(
@@ -94,19 +98,13 @@ _BAD_DEFINITION_TERMS = frozenset(
     }
 )
 _QUESTION_METADATA_OR_INTERNAL_RE = re.compile(
-    r"\b(?:"
-    r"all rights reserved|copyright|date|dozent|dozentin|email|instructor|lecturer|"
-    r"page|professor|seite|semester|slide|source[-\s]?backed|source[-\s]?supported|"
-    r"source question|source field|chunk|filename|file name|www|http"
-    r")\b|#chunk=|\bmaterials[/\\]",
+    rf"\b(?:{_METADATA_TERMS}|{_SOURCE_INTERNAL_TERMS}|source question|www|http)\b"
+    r"|#chunk=|\bmaterials[/\\]",
     re.IGNORECASE,
 )
 _SOURCE_LABEL_METADATA_RE = re.compile(
-    r"\b(?:"
-    r"all rights reserved|copyright|date|dozent|dozentin|email|instructor|lecturer|"
-    r"page|professor|seite|semester|slide|source[-\s]?backed|source[-\s]?supported|"
-    r"source field|chunk|filename|file name|www|http"
-    r")\b|#chunk=|\bmaterials[/\\]|[.](?:md|pdf|pptx?|docx?|txt)\b",
+    rf"\b(?:{_METADATA_TERMS}|{_SOURCE_INTERNAL_TERMS}|www|http)\b"
+    r"|#chunk=|\bmaterials[/\\]|[.](?:md|pdf|pptx?|docx?|txt)\b",
     re.IGNORECASE,
 )
 _ACTIVE_RECALL_PROMPT_RE = re.compile(
@@ -126,16 +124,12 @@ _QUESTION_SECOND_TASK_RE = re.compile(
 
 
 class KnowledgeChunk(Protocol):
-    """Minimal chunk shape needed to extract traceable academic items."""
-
     source: str
     index: int
     text: str
 
 
 class AcademicItemKind(StrEnum):
-    """Kinds of source-grounded academic items Hephaistos can extract locally."""
-
     CONCEPT = "concept"
     DEFINITION = "definition"
     FORMULA = "formula"
@@ -150,10 +144,33 @@ class AcademicItemKind(StrEnum):
     EXAM_SKILL = "exam_skill"
 
 
+_PARAGRAPH_ITEM_PATTERNS: tuple[tuple[re.Pattern[str], AcademicItemKind], ...] = (
+    (_EXAMPLE_RE, AcademicItemKind.EXAMPLE),
+    (_MISCONCEPTION_RE, AcademicItemKind.COMMON_MISCONCEPTION),
+    (_OBJECTIVE_RE, AcademicItemKind.LEARNING_OBJECTIVE),
+    (_RUBRIC_RE, AcademicItemKind.EXAM_SKILL),
+    (_FIGURE_RE, AcademicItemKind.FIGURE),
+    (_TABLE_RE, AcademicItemKind.TABLE),
+    (_EXAM_QUESTION_RE, AcademicItemKind.EXAM_QUESTION),
+    (_ANSWER_RE, AcademicItemKind.ANSWER),
+)
+_NODE_ITEM_FIELDS = {
+    AcademicItemKind.DEFINITION: "definitions",
+    AcademicItemKind.FORMULA: "formulas",
+    AcademicItemKind.EXAMPLE: "examples",
+    AcademicItemKind.FIGURE: "figures",
+    AcademicItemKind.TABLE: "tables",
+    AcademicItemKind.EXAM_QUESTION: "exam_questions",
+    AcademicItemKind.ANSWER: "answers",
+    AcademicItemKind.RUBRIC_POINT: "rubric_points",
+    AcademicItemKind.COMMON_MISCONCEPTION: "common_misconceptions",
+    AcademicItemKind.LEARNING_OBJECTIVE: "learning_objectives",
+    AcademicItemKind.EXAM_SKILL: "exam_skills",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class AcademicItem:
-    """A small source-traceable unit suitable for later graph construction."""
-
     kind: AcademicItemKind
     text: str
     source_ref: str
@@ -163,8 +180,6 @@ class AcademicItem:
 
 @dataclass(frozen=True, slots=True)
 class CourseKnowledgeNode:
-    """A concept-centered view of source-grounded academic items."""
-
     concept: str
     source_refs: tuple[str, ...] = ()
     source_labels: tuple[str, ...] = ()
@@ -183,16 +198,12 @@ class CourseKnowledgeNode:
 
 @dataclass(frozen=True, slots=True)
 class CourseKnowledgeGraph:
-    """Small deterministic course graph built only from extracted source items."""
-
     nodes: tuple[CourseKnowledgeNode, ...]
     unassigned_items: tuple[AcademicItem, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class GroundedStudyQuestion:
-    """A generated study question with explicit source grounding."""
-
     question: str
     question_type: str
     concept: str
@@ -206,12 +217,6 @@ def extract_academic_items(
     *,
     limit_per_chunk: int = 12,
 ) -> list[AcademicItem]:
-    """Extract traceable academic items from indexed material chunks.
-
-    This intentionally favors readable deterministic rules over broad recall:
-    unsupported model knowledge is never used, and every item points back to the
-    exact chunk that produced it.
-    """
     items: list[AcademicItem] = []
     seen: set[tuple[AcademicItemKind, str, str]] = set()
     for chunk in chunks:
@@ -228,12 +233,6 @@ def extract_academic_items(
 
 
 def build_course_knowledge_graph(items: Sequence[AcademicItem]) -> CourseKnowledgeGraph:
-    """Group extracted academic items into concept-centered graph nodes.
-
-    Items without an explicit concept are attached to the latest concept seen in
-    the same source chunk. If no such concept exists, they stay unassigned so the
-    caller can avoid pretending unsupported graph edges exist.
-    """
     builders: dict[str, _NodeBuilder] = {}
     active_concept_by_source_ref: dict[str, str] = {}
     unassigned: list[AcademicItem] = []
@@ -258,7 +257,6 @@ def generate_grounded_study_questions(
     *,
     limit_per_concept: int = 4,
 ) -> list[GroundedStudyQuestion]:
-    """Generate high-yield active-recall questions only from grounded graph nodes."""
     questions: list[GroundedStudyQuestion] = []
     seen: set[tuple[str, str]] = set()
     for node in graph.nodes:
@@ -275,7 +273,6 @@ def generate_grounded_study_questions(
 
 
 def grounded_study_question_quality_issues(question: GroundedStudyQuestion) -> tuple[str, ...]:
-    """Return conservative quality issues for a generated active-recall question."""
     issues: list[str] = []
     text = question.question.strip()
     if not question.grounding_source_refs:
@@ -315,93 +312,60 @@ def _items_from_chunk(text: str, source_ref: str, source_label: str) -> list[Aca
                 )
             )
     for paragraph in _paragraphs(text):
-        definition = _definition(paragraph, source_ref, source_label)
-        if definition is not None:
-            items.append(definition)
-        formula = _formula(paragraph, source_ref, source_label)
-        if formula is not None:
-            items.append(formula)
-        example = _captured_item(
-            _EXAMPLE_RE,
-            paragraph,
-            source_ref,
-            AcademicItemKind.EXAMPLE,
-            source_label,
-        )
-        if example is not None:
-            items.append(example)
-        misconception = _captured_item(
-            _MISCONCEPTION_RE,
-            paragraph,
-            source_ref,
-            AcademicItemKind.COMMON_MISCONCEPTION,
-            source_label,
-        )
-        if misconception is not None:
-            items.append(misconception)
-        objective = _captured_item(
-            _OBJECTIVE_RE,
-            paragraph,
-            source_ref,
-            AcademicItemKind.LEARNING_OBJECTIVE,
-            source_label,
-        )
-        if objective is not None:
-            items.append(objective)
-        rubric = _captured_item(
-            _RUBRIC_RE,
-            paragraph,
-            source_ref,
-            AcademicItemKind.EXAM_SKILL,
-            source_label,
-        )
-        if rubric is not None:
-            items.append(rubric)
-            items.append(
-                AcademicItem(
-                    kind=AcademicItemKind.RUBRIC_POINT,
-                    text=rubric.text,
-                    source_ref=rubric.source_ref,
-                    concept=rubric.concept,
-                    source_label=rubric.source_label,
+        definition_match = _DEFINITION_RE.match(paragraph)
+        if definition_match is not None:
+            concept = _clean(definition_match.group("term")).rstrip(":")
+            body = _clean(definition_match.group("body"))
+            if (
+                concept
+                and body
+                and "," not in concept
+                and len(concept.split()) <= 8
+                and concept.casefold() not in _BAD_DEFINITION_TERMS
+            ):
+                items.append(
+                    AcademicItem(
+                        kind=AcademicItemKind.DEFINITION,
+                        text=f"{concept}: {body}",
+                        source_ref=source_ref,
+                        concept=concept,
+                        source_label=source_label,
+                    )
                 )
+        formula_match = _FORMULA_RE.search(paragraph)
+        if formula_match is not None:
+            formula_text = _clean(
+                formula_match.group("labelled") or formula_match.group("symbolic") or ""
             )
-        figure = _captured_item(
-            _FIGURE_RE,
-            paragraph,
-            source_ref,
-            AcademicItemKind.FIGURE,
-            source_label,
-        )
-        if figure is not None:
-            items.append(figure)
-        table = _captured_item(
-            _TABLE_RE,
-            paragraph,
-            source_ref,
-            AcademicItemKind.TABLE,
-            source_label,
-        )
-        if table is not None:
-            items.append(table)
-        exam_question = _captured_item(
-            _EXAM_QUESTION_RE,
-            paragraph,
-            source_ref,
-            AcademicItemKind.EXAM_QUESTION,
-            source_label,
-        )
-        if exam_question is not None:
-            items.append(exam_question)
-        answer = _captured_item(
-            _ANSWER_RE,
-            paragraph,
-            source_ref,
-            AcademicItemKind.ANSWER,
-            source_label,
-        )
-        if answer is not None:
-            items.append(answer)
+            if len(formula_text) >= 4:
+                items.append(
+                    AcademicItem(
+                        kind=AcademicItemKind.FORMULA,
+                        text=formula_text,
+                        source_ref=source_ref,
+                        source_label=source_label,
+                    )
+                )
+        for pattern, kind in _PARAGRAPH_ITEM_PATTERNS:
+            match = pattern.search(paragraph)
+            if match is not None and (item_text := _clean(match.group("body"))):
+                item = AcademicItem(
+                    kind=kind,
+                    text=item_text,
+                    source_ref=source_ref,
+                    source_label=source_label,
+                )
+                items.append(item)
+                if kind is AcademicItemKind.EXAM_SKILL:
+                    items.append(
+                        AcademicItem(
+                            kind=AcademicItemKind.RUBRIC_POINT,
+                            text=item.text,
+                            source_ref=item.source_ref,
+                            concept=item.concept,
+                            source_label=item.source_label,
+                        )
+                    )
     return items
 
 
@@ -409,86 +373,20 @@ def _heading(line: str) -> str | None:
     match = _HEADING_RE.match(line)
     if match is None:
         return None
-    heading = _heading_context_prefix_removed(_clean(match.group("text")))
+    heading = _clean(_HEADING_CONTEXT_PREFIX_RE.sub("", _clean(match.group("text")), count=1))
     if len(heading) < 3 or len(heading.split()) > 10:
         return None
     return heading
-
-
-def _heading_context_prefix_removed(heading: str) -> str:
-    return _clean(_HEADING_CONTEXT_PREFIX_RE.sub("", heading, count=1))
-
-
-def _definition(line: str, source_ref: str, source_label: str) -> AcademicItem | None:
-    match = _DEFINITION_RE.match(line)
-    if match is None:
-        return None
-    concept = _clean(match.group("term")).rstrip(":")
-    body = _clean(match.group("body"))
-    if (
-        not concept
-        or not body
-        or "," in concept
-        or len(concept.split()) > 8
-        or concept.casefold() in _BAD_DEFINITION_TERMS
-    ):
-        return None
-    return AcademicItem(
-        kind=AcademicItemKind.DEFINITION,
-        text=f"{concept}: {body}",
-        source_ref=source_ref,
-        concept=concept,
-        source_label=source_label,
-    )
-
-
-def _formula(line: str, source_ref: str, source_label: str) -> AcademicItem | None:
-    match = _FORMULA_RE.search(line)
-    if match is None:
-        return None
-    text = _clean(match.group("labelled") or match.group("symbolic") or "")
-    if not text or len(text) < 4:
-        return None
-    return AcademicItem(
-        kind=AcademicItemKind.FORMULA,
-        text=text,
-        source_ref=source_ref,
-        source_label=source_label,
-    )
-
-
-def _captured_item(
-    pattern: re.Pattern[str],
-    line: str,
-    source_ref: str,
-    kind: AcademicItemKind,
-    source_label: str,
-) -> AcademicItem | None:
-    match = pattern.search(line)
-    if match is None:
-        return None
-    text = _clean(match.group("body"))
-    if not text:
-        return None
-    return AcademicItem(kind=kind, text=text, source_ref=source_ref, source_label=source_label)
 
 
 def _source_label_for_chunk(chunk: KnowledgeChunk) -> str:
     heading = _clean(str(getattr(chunk, "heading", "")))
     if heading:
         return _canonical_source_label_text(heading)
-    heading_label = _source_label_from_text_heading(chunk.text)
-    if heading_label:
-        return heading_label
-    return _source_label_from_ref(f"{chunk.source}#chunk={chunk.index}")
-
-
-def _source_label_from_text_heading(text: str) -> str:
-    for line in text.splitlines():
-        match = _HEADING_RE.match(line)
-        if match is not None:
+    for line in chunk.text.splitlines():
+        if match := _HEADING_RE.match(line):
             return _canonical_source_label_text(match.group("text"))
-    return ""
+    return _source_label_from_ref(f"{chunk.source}#chunk={chunk.index}")
 
 
 def _source_label_from_ref(source_ref: str) -> str:
@@ -561,114 +459,62 @@ def _questions_for_node(node: CourseKnowledgeNode) -> list[GroundedStudyQuestion
     questions: list[GroundedStudyQuestion] = []
     if not _node_is_question_worthy(node):
         return questions
+
+    def add(text: str, question_type: str, difficulty: str) -> None:
+        questions.append(
+            _question(text, question_type=question_type, node=node, difficulty=difficulty)
+        )
+
     if node.definitions:
-        questions.append(
-            _question(
-                f"Define {node.concept} using the course material.",
-                question_type="free_recall",
-                node=node,
-                difficulty="core",
-            )
-        )
-        questions.append(
-            _question(
-                f"Cloze deletion: {node.concept} is _____. Fill the blank.",
-                question_type="cloze_deletion",
-                node=node,
-                difficulty="core",
-            )
-        )
-        questions.append(
-            _question(
-                f"In one or two sentences, state the key idea of {node.concept}.",
-                question_type="short_answer",
-                node=node,
-                difficulty="core",
-            )
+        add(f"Define {node.concept} using the course material.", "free_recall", "core")
+        add(f"Cloze deletion: {node.concept} is _____. Fill the blank.", "cloze_deletion", "core")
+        add(
+            f"In one or two sentences, state the key idea of {node.concept}.",
+            "short_answer",
+            "core",
         )
     if node.formulas:
-        questions.append(
-            _question(
-                f"State the formula or formal condition associated with {node.concept}.",
-                question_type="formula_recall",
-                node=node,
-                difficulty="core",
-            )
+        add(
+            f"State the formula or formal condition associated with {node.concept}.",
+            "formula_recall",
+            "core",
         )
     if node.examples:
-        questions.append(
-            _question(
-                f"Why does this example fit {node.concept}: {node.examples[0]}?",
-                question_type="application_scenario",
-                node=node,
-                difficulty="transfer",
-            )
+        add(
+            f"Why does this example fit {node.concept}: {node.examples[0]}?",
+            "application_scenario",
+            "transfer",
         )
     if node.tables:
-        questions.append(
-            _question(
-                f"What key pattern does the table show for {node.concept}?",
-                question_type="data_interpretation",
-                node=node,
-                difficulty="transfer",
-            )
+        add(
+            f"What key pattern does the table show for {node.concept}?",
+            "data_interpretation",
+            "transfer",
         )
     if node.exam_questions:
-        questions.append(
-            _question(
-                f"Past-exam style: {node.exam_questions[0]}",
-                question_type="past_exam_style",
-                node=node,
-                difficulty="exam",
-            )
-        )
+        add(f"Past-exam style: {node.exam_questions[0]}", "past_exam_style", "exam")
     if node.common_misconceptions:
-        questions.append(
-            _question(
-                f"Correct this misconception about {node.concept}: "
-                f"{node.common_misconceptions[0]}",
-                question_type="error_correction",
-                node=node,
-                difficulty="misconception",
-            )
+        add(
+            f"Correct this misconception about {node.concept}: {node.common_misconceptions[0]}",
+            "error_correction",
+            "misconception",
         )
         if node.definitions:
-            questions.append(
-                _question(
-                    f"Multiple choice: which statement best matches {node.concept}? "
-                    f"A. {node.definitions[0]} B. {node.common_misconceptions[0]}",
-                    question_type="multiple_choice",
-                    node=node,
-                    difficulty="misconception",
-                )
+            add(
+                f"Multiple choice: which statement best matches {node.concept}? "
+                f"A. {node.definitions[0]} B. {node.common_misconceptions[0]}",
+                "multiple_choice",
+                "misconception",
             )
     if node.exam_skills:
-        questions.append(
-            _question(
-                f"Past-exam style: {node.exam_skills[0]}",
-                question_type="past_exam_style",
-                node=node,
-                difficulty="exam",
-            )
-        )
+        add(f"Past-exam style: {node.exam_skills[0]}", "past_exam_style", "exam")
         if "compar" in node.exam_skills[0].casefold():
-            questions.append(
-                _question(
-                    f"Compare and contrast: {node.exam_skills[0]}",
-                    question_type="compare_and_contrast",
-                    node=node,
-                    difficulty="transfer",
-                )
-            )
+            add(f"Compare and contrast: {node.exam_skills[0]}", "compare_and_contrast", "transfer")
     if node.learning_objectives:
-        questions.append(
-            _question(
-                f"Explain the learning objective for {node.concept}: "
-                f"{node.learning_objectives[0]}",
-                question_type="explain_the_mechanism",
-                node=node,
-                difficulty="core",
-            )
+        add(
+            f"Explain the learning objective for {node.concept}: {node.learning_objectives[0]}",
+            "explain_the_mechanism",
+            "core",
         )
     return questions
 
@@ -687,21 +533,19 @@ def _question(
     node: CourseKnowledgeNode,
     difficulty: str,
 ) -> GroundedStudyQuestion:
+    if node.source_labels:
+        source_label = "; ".join(node.source_labels)
+    else:
+        labels = tuple(_source_label_from_ref(ref) for ref in node.source_refs)
+        source_label = "; ".join(dict.fromkeys(label for label in labels if label))
     return GroundedStudyQuestion(
         question=text,
         question_type=question_type,
         concept=node.concept,
         grounding_source_refs=node.source_refs,
-        source_label=_question_source_label(node),
+        source_label=source_label,
         difficulty=difficulty,
     )
-
-
-def _question_source_label(node: CourseKnowledgeNode) -> str:
-    if node.source_labels:
-        return "; ".join(node.source_labels)
-    labels = tuple(_source_label_from_ref(ref) for ref in node.source_refs)
-    return "; ".join(dict.fromkeys(label for label in labels if label))
 
 
 @dataclass(slots=True)
@@ -724,28 +568,9 @@ class _NodeBuilder:
     def add(self, item: AcademicItem) -> None:
         _append_unique(self.source_refs, item.source_ref)
         _append_unique(self.source_labels, item.source_label)
-        if item.kind is AcademicItemKind.DEFINITION:
-            _append_unique(self.definitions, item.text)
-        elif item.kind is AcademicItemKind.FORMULA:
-            _append_unique(self.formulas, item.text)
-        elif item.kind is AcademicItemKind.EXAMPLE:
-            _append_unique(self.examples, item.text)
-        elif item.kind is AcademicItemKind.FIGURE:
-            _append_unique(self.figures, item.text)
-        elif item.kind is AcademicItemKind.TABLE:
-            _append_unique(self.tables, item.text)
-        elif item.kind is AcademicItemKind.EXAM_QUESTION:
-            _append_unique(self.exam_questions, item.text)
-        elif item.kind is AcademicItemKind.ANSWER:
-            _append_unique(self.answers, item.text)
-        elif item.kind is AcademicItemKind.RUBRIC_POINT:
-            _append_unique(self.rubric_points, item.text)
-        elif item.kind is AcademicItemKind.COMMON_MISCONCEPTION:
-            _append_unique(self.common_misconceptions, item.text)
-        elif item.kind is AcademicItemKind.LEARNING_OBJECTIVE:
-            _append_unique(self.learning_objectives, item.text)
-        elif item.kind is AcademicItemKind.EXAM_SKILL:
-            _append_unique(self.exam_skills, item.text)
+        field_name = _NODE_ITEM_FIELDS.get(item.kind)
+        if field_name is not None:
+            _append_unique(cast("list[str]", getattr(self, field_name)), item.text)
 
     def to_node(self) -> CourseKnowledgeNode:
         return CourseKnowledgeNode(

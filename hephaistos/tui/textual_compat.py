@@ -24,3 +24,7 @@ class ClassableWidget(Protocol):
     def add_class(self, *_class_names: str) -> object: ...
 
     def remove_class(self, *_class_names: str) -> object: ...
+
+
+def sidebar_text(content: str) -> str:
+    return "\n".join(f"  {line}" if line else "" for line in content.splitlines())

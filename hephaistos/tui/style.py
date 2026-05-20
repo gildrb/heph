@@ -5,7 +5,6 @@ from hephaistos.terminal.palette import TRANSPARENT
 
 
 def _tui_css(theme: Theme | None = None) -> str:
-    """Generate TUI CSS from the selected theme palette."""
     p = theme or current_palette()
     app_bg = TRANSPARENT
     bg = TRANSPARENT

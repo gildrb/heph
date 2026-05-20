@@ -26,12 +26,13 @@ from hephaistos.rag.chunker import (
     ChunkedDocument,
     ChunkStrategy,
     _can_convert_binary_file,
-    _is_docling_available,
+    _is_docling_available,  # noqa: F401 - compatibility monkeypatch surface
     _is_docling_file,
     _is_text_file,
     _normalize_extracted_text,
     chunk_file,
 )
+from hephaistos.rag.retrieval_types import RetrieverCacheKey
 
 _log = get_logger("rag.index")
 
@@ -43,6 +44,7 @@ _FILE_TIMEOUT_ENV = "HEPHAISTOS_INDEX_FILE_TIMEOUT_SECONDS"
 
 # Persisted index format version — bump when layout changes.
 _INDEX_VERSION = 8
+_SUPPORTED_INDEX_VERSIONS = frozenset({1, 2, 3, 5, 6, 7, 8})
 IndexProgress = Callable[[str, str], None]
 _CACHE_SIGNING_KEY_FILE = "rag_cache.key"
 _CACHE_SIGNING_KEY_PATH_ENV = "HEPHAISTOS_RAG_CACHE_KEY_FILE"
@@ -51,15 +53,10 @@ _DEFAULT_DOCUMENT_DIGEST_VERIFY_LIMIT = 10_000
 
 
 class _IndexFileTimeoutError(TimeoutError):
-    """Raised when a single material file exceeds the configured index budget."""
+    pass
 
 
 def _file_hash(path: Path) -> str | None:
-    """Compute a content hash for a file.
-
-    Uses ``read_bytes()`` so binary files (PDF, DOCX, etc.) are hashed
-    correctly without decode errors.
-    """
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
     except OSError:
@@ -67,7 +64,6 @@ def _file_hash(path: Path) -> str | None:
 
 
 def _unindexable_reason(path: Path) -> str:
-    """Return a human-readable reason why a file could not be indexed."""
     if _is_docling_file(path):
         if _can_convert_binary_file(path):
             return "document conversion failed (empty or corrupt document)"
@@ -76,10 +72,6 @@ def _unindexable_reason(path: Path) -> str:
             "(update or reinstall Hephaistos, then rebuild the index)"
         )
     return "binary file; unsupported format"
-
-
-def _timeout_reason(seconds: int) -> str:
-    return f"document conversion timed out after {seconds} second(s)"
 
 
 def _file_timeout_seconds() -> int:
@@ -117,7 +109,9 @@ def _chunk_file_with_timeout(
     def _handle_timeout(_signum: int, _frame: object) -> None:
         nonlocal timed_out
         timed_out = True
-        raise _IndexFileTimeoutError(_timeout_reason(timeout_seconds))
+        raise _IndexFileTimeoutError(
+            f"document conversion timed out after {timeout_seconds} second(s)"
+        )
 
     signal.signal(signal.SIGALRM, _handle_timeout)
     signal.alarm(timeout_seconds)
@@ -180,15 +174,11 @@ def _document_digest_verify_limit() -> int:
         return _DEFAULT_DOCUMENT_DIGEST_VERIFY_LIMIT
 
 
-def _cache_signing_key_path() -> Path:
-    raw_path = os.environ.get(_CACHE_SIGNING_KEY_PATH_ENV, "").strip()
-    if raw_path:
-        return Path(raw_path).expanduser()
-    return user_config_dir() / _CACHE_SIGNING_KEY_FILE
-
-
 def _cache_signing_key() -> bytes | None:
-    key_path = _cache_signing_key_path()
+    raw_path = os.environ.get(_CACHE_SIGNING_KEY_PATH_ENV, "").strip()
+    key_path = (
+        Path(raw_path).expanduser() if raw_path else user_config_dir() / _CACHE_SIGNING_KEY_FILE
+    )
     try:
         key_path.parent.mkdir(parents=True, exist_ok=True)
         if key_path.is_file():
@@ -243,9 +233,98 @@ def _normalized_text_contains(source_text: str, chunk_text: str) -> bool:
     return bool(compact_chunk) and compact_chunk in compact_source
 
 
-class ArmoryIndex:
-    """Manages the chunk index for an armory."""
+def _string_field(data: Mapping[str, object], key: str) -> str:
+    value = data.get(key, "")
+    return value if isinstance(value, str) else ""
 
+
+def _int_field(data: Mapping[str, object], key: str) -> int:
+    value = data.get(key, 0)
+    return value if isinstance(value, int) else 0
+
+
+def _read_index_data(index_path: Path) -> dict[str, object] | None:
+    try:
+        data: object = json.loads(index_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if is_string_mapping(data) else None
+
+
+def _index_data_version(data: Mapping[str, object]) -> int | None:
+    raw_version = data.get("version", 1)
+    version = raw_version if isinstance(raw_version, int) else 1
+    return version if version in _SUPPORTED_INDEX_VERSIONS else None
+
+
+def _index_data_documents(data: Mapping[str, object]) -> list[object] | None:
+    raw_documents = data.get("documents", [])
+    return raw_documents if is_object_list(raw_documents) else None
+
+
+def _index_documents_signature_valid(
+    data: Mapping[str, object],
+    raw_documents: list[object],
+    version: int,
+) -> bool:
+    raw_documents_digest = data.get("documents_digest")
+    if version >= 7:
+        if not isinstance(raw_documents_digest, str):
+            return False
+        if len(
+            raw_documents
+        ) <= _document_digest_verify_limit() and raw_documents_digest != _documents_digest(
+            raw_documents
+        ):
+            return False
+        return _index_signature_matches(data)
+    return not (
+        version >= 4
+        and isinstance(raw_documents_digest, str)
+        and raw_documents_digest != _documents_digest(raw_documents)
+    )
+
+
+def _trust_large_signed_cache(raw_documents: list[object], version: int) -> bool:
+    return version >= 8 and len(raw_documents) > _document_digest_verify_limit()
+
+
+def _parse_cached_chunk(raw_chunk: object, version: int) -> Chunk | None:
+    if not is_string_mapping(raw_chunk):
+        return None
+    text = _string_field(raw_chunk, "text")
+    if version < 8:
+        text = _normalize_extracted_text(text)
+    return Chunk(
+        text=text,
+        source=_string_field(raw_chunk, "source"),
+        index=_int_field(raw_chunk, "index"),
+        char_start=_int_field(raw_chunk, "char_start"),
+        char_end=_int_field(raw_chunk, "char_end"),
+        heading=_string_field(raw_chunk, "heading"),
+        heading_level=_int_field(raw_chunk, "heading_level"),
+    )
+
+
+def _parse_cached_document(doc_data: object, version: int) -> ChunkedDocument | None:
+    if not is_string_mapping(doc_data):
+        return None
+    raw_chunks = doc_data.get("chunks", [])
+    if not is_object_list(raw_chunks):
+        return None
+    chunks = [
+        chunk
+        for raw_chunk in raw_chunks
+        if (chunk := _parse_cached_chunk(raw_chunk, version)) is not None
+    ]
+    return ChunkedDocument(
+        source=_string_field(doc_data, "source"),
+        chunks=chunks,
+        content_hash=_string_field(doc_data, "content_hash"),
+    )
+
+
+class ArmoryIndex:
     def __init__(
         self,
         armory_path: Path,
@@ -257,24 +336,7 @@ class ArmoryIndex:
         self.documents: list[ChunkedDocument] = []
         self._file_hashes: dict[str, str] = {}  # rel_path -> hash
         self._retriever: object | None = None  # cached default retriever instance
-        self._retriever_cache: dict[
-            tuple[
-                str,
-                int | None,
-                str,
-                int,
-                str | None,
-                str | None,
-                str,
-                str,
-                float,
-                float,
-                int,
-                int,
-                float,
-            ],
-            object,
-        ] = {}
+        self._retriever_cache: dict[RetrieverCacheKey, object] = {}
         self.unindexable_files: dict[str, str] = {}  # rel_path -> reason
 
     @property
@@ -286,14 +348,12 @@ class ArmoryIndex:
 
     @property
     def retriever_backend_names(self) -> tuple[str, ...]:
-        """Names of retriever implementations created for this index."""
         return tuple(
             sorted({type(retriever).__name__ for retriever in self._retriever_cache.values()})
         )
 
     @property
     def content_hash(self) -> str:
-        """Stable hash of the index content for cache invalidation."""
         hasher = hashlib.sha256()
         for doc in self.documents:
             hasher.update(doc.content_hash.encode())
@@ -307,6 +367,13 @@ class ArmoryIndex:
             slug = f"{slug}_{digest}"
         return self.armory_path / ".hephaistos" / f"embeddings_{self.content_hash}_{slug}.json"
 
+    def _retriever_state_path(self, retriever_type: str) -> Path:
+        return (
+            self.armory_path
+            / ".hephaistos"
+            / f"retriever_{self.content_hash}_{retriever_type.replace('/', '_')}.json"
+        )
+
     def save_embeddings(
         self,
         embeddings: list[list[float]],
@@ -314,7 +381,6 @@ class ArmoryIndex:
         *,
         cache_key: str | None = None,
     ) -> Path | None:
-        """Persist computed embeddings keyed by content hash + model name."""
         if not embeddings:
             return None
         embed_path = self._embedding_cache_path(model_name, cache_key)
@@ -342,7 +408,6 @@ class ArmoryIndex:
         *,
         cache_key: str | None = None,
     ) -> list[list[float]] | None:
-        """Load persisted embeddings if they match the current index."""
         embed_path = self._embedding_cache_path(model_name, cache_key)
         if not embed_path.is_file():
             return None
@@ -381,12 +446,7 @@ class ArmoryIndex:
         return typed
 
     def save_retriever_state(self, retriever_type: str, state: dict[str, object]) -> Path | None:
-        """Persist retriever state keyed by index content hash and retriever type."""
-        state_path = (
-            self.armory_path
-            / ".hephaistos"
-            / f"retriever_{self.content_hash}_{retriever_type.replace('/', '_')}.json"
-        )
+        state_path = self._retriever_state_path(retriever_type)
         data = {
             "content_hash": self.content_hash,
             "retriever_type": retriever_type,
@@ -404,12 +464,7 @@ class ArmoryIndex:
         return state_path
 
     def load_retriever_state(self, retriever_type: str) -> dict[str, object] | None:
-        """Load retriever state if it matches the current index content hash."""
-        state_path = (
-            self.armory_path
-            / ".hephaistos"
-            / f"retriever_{self.content_hash}_{retriever_type.replace('/', '_')}.json"
-        )
+        state_path = self._retriever_state_path(retriever_type)
         if not state_path.is_file():
             return None
         try:
@@ -436,7 +491,6 @@ class ArmoryIndex:
         return sum(len(doc.chunks) for doc in self.documents)
 
     def build(self, *, progress: IndexProgress | None = None) -> None:
-        """Scan material files and build the chunk index."""
         self._reset_build_state()
         timer = Timer()
         rebuilt = 0
@@ -463,7 +517,6 @@ class ArmoryIndex:
         *,
         progress: IndexProgress | None = None,
     ) -> None:
-        """Rebuild changed material files while reusing unchanged documents."""
         previous_documents = {document.source: document for document in previous.documents}
         self._reset_build_state()
         timer = Timer()
@@ -545,7 +598,9 @@ class ArmoryIndex:
                 progress("indexed", f"{rel} ({len(doc.chunks)} chunks)")
         elif not _is_text_file(file_path):
             reason = (
-                _timeout_reason(timeout_seconds) if timed_out else _unindexable_reason(file_path)
+                f"document conversion timed out after {timeout_seconds} second(s)"
+                if timed_out
+                else _unindexable_reason(file_path)
             )
             self.unindexable_files[rel] = reason
             if progress is not None:
@@ -553,7 +608,6 @@ class ArmoryIndex:
         return 1
 
     def save(self) -> Path:
-        """Persist the index to ``.hephaistos/rag_index.json``."""
         index_path = self.armory_path / ".hephaistos" / _INDEX_FILE
         index_path.parent.mkdir(parents=True, exist_ok=True)
         documents = [
@@ -592,137 +646,106 @@ class ArmoryIndex:
         return index_path
 
     def load(self, *, allow_stale: bool = False) -> bool:
-        """Load the index from disk. Returns False if index is missing/corrupt."""
         index_path = self.armory_path / ".hephaistos" / _INDEX_FILE
         if not index_path.is_file():
             return False
 
-        try:
-            data: object = json.loads(index_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return False
-        if not is_string_mapping(data):
+        data = _read_index_data(index_path)
+        if data is None:
             return False
 
-        raw_version = data.get("version", 1)
-        version = raw_version if isinstance(raw_version, int) else 1
-        if version not in (1, 2, 3, 5, 6, 7, 8):
+        version = _index_data_version(data)
+        if version is None:
             return False
-        if version >= 2 and "strategy" in data:
-            raw_strategy = data["strategy"]
-            if isinstance(raw_strategy, str):
-                with contextlib.suppress(ValueError):
-                    self.strategy = ChunkStrategy(raw_strategy)
 
-        self.documents = []
-        self._file_hashes = {}
-        self._retriever = None
-        self._retriever_cache = {}
-        self.unindexable_files = {}
-        file_hashes_raw = data.get("file_hashes", {})
-        if is_string_mapping(file_hashes_raw):
-            self._file_hashes = {key: str(value) for key, value in file_hashes_raw.items()}
+        self._reset_build_state()
+        self._restore_cached_strategy(data, version)
+        self._restore_cached_file_hashes(data)
 
-        raw_documents = data.get("documents", [])
-        if not is_object_list(raw_documents):
+        raw_documents = _index_data_documents(data)
+        if raw_documents is None:
             return False
-        raw_documents_digest = data.get("documents_digest")
-        should_verify_documents_digest = len(raw_documents) <= _document_digest_verify_limit()
-        trust_large_signed_cache = version >= 8 and not should_verify_documents_digest
-        if version >= 7:
-            if not isinstance(raw_documents_digest, str):
-                return False
-            if should_verify_documents_digest and raw_documents_digest != _documents_digest(
-                raw_documents
-            ):
-                return False
-            if not _index_signature_matches(data):
-                return False
-        elif (
-            version >= 4
-            and isinstance(raw_documents_digest, str)
-            and raw_documents_digest != _documents_digest(raw_documents)
+        trust_large_signed_cache = _trust_large_signed_cache(raw_documents, version)
+        if not _index_documents_signature_valid(data, raw_documents, version):
+            return False
+        self._restore_cached_documents(raw_documents, version)
+
+        if not self._cached_file_hashes_are_usable(
+            allow_stale=allow_stale,
+            trust_large_signed_cache=trust_large_signed_cache,
         ):
             return False
-        for doc_data in raw_documents:
-            if not is_string_mapping(doc_data):
-                continue
-            raw_chunks = doc_data.get("chunks", [])
-            if not is_object_list(raw_chunks):
-                continue
-            chunks: list[Chunk] = []
-            for raw_chunk in raw_chunks:
-                if not is_string_mapping(raw_chunk):
-                    continue
-                raw_text = raw_chunk.get("text", "")
-                text = raw_text if isinstance(raw_text, str) else ""
-                if version < 8:
-                    text = _normalize_extracted_text(text)
-                raw_source = raw_chunk.get("source", "")
-                source = raw_source if isinstance(raw_source, str) else ""
-                raw_index = raw_chunk.get("index", 0)
-                index = raw_index if isinstance(raw_index, int) else 0
-                raw_char_start = raw_chunk.get("char_start", 0)
-                char_start = raw_char_start if isinstance(raw_char_start, int) else 0
-                raw_char_end = raw_chunk.get("char_end", 0)
-                char_end = raw_char_end if isinstance(raw_char_end, int) else 0
-                raw_heading = raw_chunk.get("heading", "")
-                heading = raw_heading if isinstance(raw_heading, str) else ""
-                raw_heading_level = raw_chunk.get("heading_level", 0)
-                heading_level = raw_heading_level if isinstance(raw_heading_level, int) else 0
-                chunks.append(
-                    Chunk(
-                        text=text,
-                        source=source,
-                        index=index,
-                        char_start=char_start,
-                        char_end=char_end,
-                        heading=heading,
-                        heading_level=heading_level,
-                    )
-                )
-            raw_doc_source = doc_data.get("source", "")
-            doc_source = raw_doc_source if isinstance(raw_doc_source, str) else ""
-            raw_content_hash = doc_data.get("content_hash", "")
-            content_hash = raw_content_hash if isinstance(raw_content_hash, str) else ""
-            doc = ChunkedDocument(
-                source=doc_source,
-                chunks=chunks,
-                content_hash=content_hash,
-            )
-            self.documents.append(doc)
-            if doc.content_hash and doc.source not in self._file_hashes:
-                self._file_hashes[doc.source] = doc.content_hash
-
-        if not trust_large_signed_cache and not self._file_hashes_match_material_files():
-            _log.warning(
-                "rag index cache does not match material files",
-                extra={"fields": {"armory": str(self.armory_path)}},
-            )
-            if not allow_stale:
-                self.documents = []
-                self._file_hashes = {}
-                return False
-            return True
-
-        if not trust_large_signed_cache and not self._documents_match_material_sources(
-            allow_binary_cache=version >= 7,
-            trust_text_cache=version >= 7,
+        if not self._cached_documents_are_usable(
+            version=version,
+            trust_large_signed_cache=trust_large_signed_cache,
         ):
-            _log.warning(
-                "rag index cache chunks do not match material files",
-                extra={"fields": {"armory": str(self.armory_path)}},
-            )
-            self.documents = []
-            self._file_hashes = {}
             return False
-
         if not trust_large_signed_cache:
             self._rebuild_unindexable_files()
         return True
 
+    def _restore_cached_strategy(self, data: Mapping[str, object], version: int) -> None:
+        if version < 2 or "strategy" not in data:
+            return
+        raw_strategy = data["strategy"]
+        if isinstance(raw_strategy, str):
+            with contextlib.suppress(ValueError):
+                self.strategy = ChunkStrategy(raw_strategy)
+
+    def _restore_cached_file_hashes(self, data: Mapping[str, object]) -> None:
+        file_hashes_raw = data.get("file_hashes", {})
+        if is_string_mapping(file_hashes_raw):
+            self._file_hashes = {key: str(value) for key, value in file_hashes_raw.items()}
+
+    def _restore_cached_documents(self, raw_documents: list[object], version: int) -> None:
+        for doc_data in raw_documents:
+            doc = _parse_cached_document(doc_data, version)
+            if doc is None:
+                continue
+            self.documents.append(doc)
+            if doc.content_hash and doc.source not in self._file_hashes:
+                self._file_hashes[doc.source] = doc.content_hash
+
+    def _cached_file_hashes_are_usable(
+        self,
+        *,
+        allow_stale: bool,
+        trust_large_signed_cache: bool,
+    ) -> bool:
+        if trust_large_signed_cache or self._file_hashes_match_material_files():
+            return True
+        _log.warning(
+            "rag index cache does not match material files",
+            extra={"fields": {"armory": str(self.armory_path)}},
+        )
+        if allow_stale:
+            return True
+        self._clear_loaded_cache()
+        return False
+
+    def _cached_documents_are_usable(
+        self,
+        *,
+        version: int,
+        trust_large_signed_cache: bool,
+    ) -> bool:
+        if trust_large_signed_cache or self._documents_match_material_sources(
+            allow_binary_cache=version >= 7,
+            trust_text_cache=version >= 7,
+        ):
+            return True
+        _log.warning(
+            "rag index cache chunks do not match material files",
+            extra={"fields": {"armory": str(self.armory_path)}},
+        )
+        self._clear_loaded_cache()
+        return False
+
+    def _clear_loaded_cache(self) -> None:
+        self.documents = []
+        self._file_hashes = {}
+
     def is_stale(self) -> bool:
-        """Check if any material files changed since last index build."""
         if not self._file_hashes:
             return True
         if len(self._file_hashes) > _document_digest_verify_limit():
@@ -743,44 +766,13 @@ class ArmoryIndex:
             ):
                 return True
 
-        return len(self._file_hashes) != self._count_source_files()
-
-    def _count_source_files(self) -> int:
-        return sum(1 for _ in self._iter_source_files())
+        return len(self._file_hashes) != sum(1 for _ in self._iter_source_files())
 
     def _iter_source_files(self) -> Iterator[Path]:
         for file_path in iter_source_files(self.armory_path):
             if _resolved_path_within_materials(file_path, self.armory_path) is None:
                 continue
             yield file_path
-
-    def _preserve_unavailable_docling_documents_from(self, previous: ArmoryIndex) -> None:
-        """Keep converted Docling chunks when this runtime cannot recreate them."""
-        if _is_docling_available():
-            return
-        indexed_sources = {doc.source for doc in self.documents}
-        for document in previous.documents:
-            if document.source in indexed_sources or not _is_docling_file(Path(document.source)):
-                continue
-            if self._file_hashes.get(document.source) != document.content_hash:
-                continue
-            self.documents.append(document)
-            self.unindexable_files.pop(document.source, None)
-
-    def _preserve_failed_binary_documents_from(self, previous: ArmoryIndex) -> None:
-        """Keep unchanged converted binary docs when conversion fails transiently."""
-        indexed_sources = {doc.source for doc in self.documents}
-        for document in previous.documents:
-            if document.source in indexed_sources:
-                continue
-            if document.source not in self.unindexable_files:
-                continue
-            if _is_text_file(self.armory_path / document.source):
-                continue
-            if self._file_hashes.get(document.source) != document.content_hash:
-                continue
-            self.documents.append(document)
-            self.unindexable_files.pop(document.source, None)
 
     def _documents_match_material_sources(
         self,
@@ -833,7 +825,6 @@ class ArmoryIndex:
         return self._file_hashes == file_hashes
 
     def _rebuild_unindexable_files(self) -> None:
-        """Populate ``unindexable_files`` by comparing scanned files against indexed docs."""
         indexed_sources = {doc.source for doc in self.documents}
         self.unindexable_files = {}
         for file_path in self._iter_source_files():
@@ -843,16 +834,10 @@ class ArmoryIndex:
 
 
 def iter_source_files(armory_path: Path) -> Iterator[Path]:
-    """Compatibility wrapper for visible material files."""
     yield from iter_material_files(armory_path)
 
 
 def scan_unindexable_files(armory_path: Path) -> dict[str, str]:
-    """Return a mapping of material files that cannot be indexed to the reason.
-
-    This is a lightweight scan that does not require building the full RAG index.
-    Used to inform the system prompt about files the LLM cannot read or search.
-    """
     result: dict[str, str] = {}
     for file_path in iter_source_files(armory_path):
         if _resolved_path_within_materials(file_path, armory_path) is None:
@@ -870,7 +855,6 @@ def build_index(
     progress: IndexProgress | None = None,
     previous: ArmoryIndex | None = None,
 ) -> ArmoryIndex:
-    """Build a fresh index for the armory and persist it."""
     previous_loaded = previous is not None
     if previous is None:
         previous = ArmoryIndex(armory_path, strategy=strategy)
@@ -903,7 +887,6 @@ def load_or_build(
     strategy: ChunkStrategy = ChunkStrategy.AUTO,
     progress: IndexProgress | None = None,
 ) -> ArmoryIndex:
-    """Load existing index if fresh, otherwise rebuild."""
     index = ArmoryIndex(armory_path, strategy=strategy)
     loaded = index.load(allow_stale=True)
     if loaded and index.strategy == strategy and not index.is_stale():

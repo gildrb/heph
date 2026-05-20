@@ -1,15 +1,4 @@
-"""Circuit breaker for LLM API calls.
-
-Prevents cascading failures when an LLM provider is degraded.  The circuit
-breaker wraps API calls and tracks consecutive failures.  After a configurable
-threshold it opens, rejecting further calls for a cooldown period before
-probing again (half-open state).
-
-States:
-    CLOSED    — normal operation, calls pass through
-    OPEN      — blocking, calls raise ``CircuitOpenError``
-    HALF_OPEN — allowing one probe call to test recovery
-"""
+"""Circuit breaker and offline guidance for LLM API calls."""
 
 from __future__ import annotations
 
@@ -37,19 +26,11 @@ class CircuitState(enum.IntEnum):
 
 
 class CircuitOpenError(Exception):
-    """Raised when the circuit breaker is open and rejecting calls."""
+    pass
 
 
 @dataclass
 class CircuitBreaker:
-    """Thread-safe circuit breaker for a single endpoint.
-
-    Args:
-        failure_threshold: Consecutive failures before opening.
-        recovery_timeout: Seconds to wait before allowing a probe.
-        name: Identifier for logging and metrics.
-    """
-
     failure_threshold: int = 5
     recovery_timeout: float = 60.0
     name: str = "default"
@@ -66,18 +47,12 @@ class CircuitBreaker:
             return self._state
 
     def allow_request(self) -> bool:
-        """Check whether a request is allowed.
-
-        Returns True if the call should proceed, False if the circuit is open.
-        In HALF_OPEN state, one probe call is allowed.
-        """
         with self._lock:
             self._maybe_transition_to_half_open()
 
             return self._state != CircuitState.OPEN
 
     def record_success(self) -> None:
-        """Record a successful call — resets failure count and closes circuit."""
         with self._lock:
             prev = self._state
             self._failure_count = 0
@@ -90,7 +65,6 @@ class CircuitBreaker:
                 _state_gauge.set(CircuitState.CLOSED, {"circuit": self.name})
 
     def record_failure(self) -> None:
-        """Record a failed call — may open the circuit if threshold reached."""
         with self._lock:
             self._failure_count += 1
             self._last_failure_time = time.monotonic()
@@ -119,14 +93,12 @@ class CircuitBreaker:
                 _state_gauge.set(CircuitState.OPEN, {"circuit": self.name})
 
     def reset(self) -> None:
-        """Reset to CLOSED state, clearing all failure tracking."""
         with self._lock:
             self._state = CircuitState.CLOSED
             self._failure_count = 0
             self._last_failure_time = 0.0
 
     def _maybe_transition_to_half_open(self) -> None:
-        """Transition OPEN → HALF_OPEN if recovery_timeout has elapsed."""
         if self._state != CircuitState.OPEN:
             return
         elapsed = time.monotonic() - self._last_failure_time
@@ -157,7 +129,6 @@ def is_network_error(exc: BaseException) -> bool:
 
 
 def offline_message(provider_name: str) -> str:
-    """Return a friendly message for when the LLM API is unreachable."""
     return (
         f"Can't reach {provider_name}. "
         "You're offline — but you can still:\n"

@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 
 from hephaistos.armory.storage import initialize
-from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import SessionError, create_session, resume_session, save_session
 from hephaistos.rag.health import ExtractionHealthIssue
+from hephaistos.runtime import ChatConfig
 from hephaistos.study import (
     StudyAutonomyMode,
     StudyFeedbackType,

@@ -48,19 +48,23 @@ _SOURCE_LABELS = {
     "zai": "Z.AI",
 }
 
+_PROVIDER_LABELS = {
+    "openai-codex": "OpenAI",
+    "zai": "Z.AI",
+}
+
 
 def configured_model_choices(
     pc: ProviderConfig | None = None,
     *,
     refresh_live: bool = False,
 ) -> list[tuple[str, str, str, bool]]:
-    """Return configured models as (provider slug, model, display label, free)."""
     pc = pc or ProviderConfig.load()
     eligible_slugs: set[str] = set()
     for slug, provider in pc.providers.items():
         if slug == "custom" and not provider.models:
             continue
-        if not provider.active and not provider_is_accessible(
+        if not provider_is_accessible(
             provider,
             refresh_oauth=refresh_live,
         ):
@@ -101,22 +105,22 @@ def model_picker_columns(
     is_free: bool,
     is_current: bool,
 ) -> tuple[str, str, str, str]:
-    """Return display columns as provider, model, source, tags."""
     provider = _model_provider_label(slug, model, display_name)
     model_label = model.rsplit("/", 1)[1] if "/" in model else model
     source = _SOURCE_LABELS.get(slug, display_name.removesuffix(" (free)"))
-    free_tag = _free_tag(endpoint) if is_free else ""
-    tags = " ".join(tag for tag in (free_tag, "current" if is_current else "") if tag)
+    tags = " ".join(
+        tag
+        for tag in (
+            _free_model_tag(endpoint) if is_free else "",
+            "current" if is_current else "",
+        )
+        if tag
+    )
     return provider, model_label, source, tags
 
 
 def model_free_description(endpoint: str) -> str:
-    """Return user-facing free-model auth context for a provider endpoint."""
     return "free, no API key" if is_keyless_endpoint(endpoint) else "free, API key required"
-
-
-def _free_tag(endpoint: str) -> str:
-    return "free" if is_keyless_endpoint(endpoint) else "free+key"
 
 
 def _model_provider_label(slug: str, model: str, display_name: str) -> str:
@@ -124,12 +128,12 @@ def _model_provider_label(slug: str, model: str, display_name: str) -> str:
         owner, _model_name = model.split("/", 1)
         return _OWNER_LABELS.get(owner, owner.replace("-", " ").title())
     if slug == "pollinations":
-        for prefix, label in _POLLINATIONS_FAMILIES:
-            if model.startswith(prefix):
-                return label
-        return "Pollinations"
-    if slug == "openai-codex":
-        return "OpenAI"
-    if slug == "zai":
-        return "Z.AI"
-    return display_name.removesuffix(" (free)")
+        return next(
+            (label for prefix, label in _POLLINATIONS_FAMILIES if model.startswith(prefix)),
+            "Pollinations",
+        )
+    return _PROVIDER_LABELS.get(slug, display_name.removesuffix(" (free)"))
+
+
+def _free_model_tag(endpoint: str) -> str:
+    return "free" if is_keyless_endpoint(endpoint) else "free+key"

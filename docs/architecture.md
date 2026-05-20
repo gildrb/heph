@@ -15,9 +15,10 @@ not depend on product workflows.
 - **Application services**: `chat` and focused workflow modules. These compose
   core/domain packages into session lifecycle, evidence, memory workflows, and
   turn orchestration.
-- **Adapters**: `cli`, `commands`, `tui`, `source`, and shell compatibility
-  modules. These may depend broadly, but reusable decisions should be promoted
-  into services or domain packages instead of staying in adapter code.
+- **Adapters**: `tui`, `cli`, `commands`, and shell compatibility
+  modules. The TUI is the human interface; the CLI is the command and automation
+  skeleton. Adapters may depend broadly, but reusable decisions should be
+  promoted into services or domain packages instead of staying in adapter code.
 
 ## Dependency flow
 
@@ -78,9 +79,10 @@ graph TD
     Chat -->|Session state| FileStore
 ```
 
-The top layer is the adapter surface: **cli**, **commands**, **tui**, **shell**,
-and **terminal**. `cli` is the public command dispatcher, `commands` contains
-slash-command handlers, `tui` is the interactive Textual adapter, `shell` holds
+The top layer is the adapter surface: **tui**, **cli**, **commands**, **shell**,
+and **terminal**. `tui` is the primary interactive Textual interface; `cli` is
+the public command dispatcher for launching the TUI, automation, and one-shot
+commands. `commands` contains slash-command handlers, `shell` holds
 plain-terminal session actions, and `terminal` owns low-level terminal I/O,
 styling, history, and shell-input dispatch. Reusable packages communicate
 through their public APIs and must not import adapter packages. Shared LLM
@@ -92,7 +94,7 @@ helpers.
 
 ```
 hephaistos/
-  cli/          Public command dispatcher and CLI argument parsing
+  cli/          Command and automation dispatcher; launches the TUI by default
   commands/     Slash-command handlers for shell/TUI adapters
   tui/          Textual interactive adapter: widgets, key handling, rendering
   shell/        Plain-terminal session, armory, and saved-chat actions
@@ -110,7 +112,6 @@ hephaistos/
   parameters/   Parameter management CLI — no adapter imports
   privacy/      Consent, anonymous install ID, release-time diagnostics config
   diagnostics/  Anonymous events, local diagnostics, redacted crash reports
-  source/       Deprecated CLI compatibility alias for materials
   vocab/        Vocabulary drill, scheduler, state — no adapter imports
   logging.py    Shared logging — must NOT import adapters
   terminal/palette.py  ANSI color primitives — must NOT import adapters
@@ -134,7 +135,6 @@ The following packages cannot import anything from adapter packages:
 - `hephaistos.memory`
 - `hephaistos.parameters`
 - `hephaistos.materials`
-- `hephaistos.source`
 - `hephaistos.runtime`
 - `hephaistos.vocab`
 - `hephaistos.logging`
@@ -205,12 +205,8 @@ Hephaistos is local-first by default: extracted study concepts are written to
 `<armory>/.hephaistos/memory.json` and injected into future prompts so the
 assistant can avoid repeating material the user already covered.
 
-Users can opt in to Supermemory through `/memory setup`. When enabled,
-Hephaistos writes extracted concepts to an armory-specific Supermemory
-container tag and to a dedicated global learning profile tag. This gives semantic
-recall across armories while keeping setup explicit and reversible. If
-Supermemory is disabled, unconfigured, or unavailable, session creation falls
-back to the local JSON memory store.
+Memory stays armory-scoped. `/memory status` reports the active local store and
+entry count for the current armory session.
 
 ## Diagnostics
 
@@ -223,7 +219,7 @@ graph TD
     CLI --> Traces[Armory trace files]
     CLI --> Profiles[CPU / memory profiles]
 
-    Engine[chat.engine] --> Logs
+    Engine[runtime.engine] --> Logs
     Orchestrator[chat.orchestrator] --> Traces
 
     Traces --> Armory[<armory>/.hephaistos/traces/]

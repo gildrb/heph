@@ -1,5 +1,3 @@
-"""Local extraction of active-recall exam questions."""
-
 from __future__ import annotations
 
 import random
@@ -47,8 +45,6 @@ _EXAM_PROMPT_NOISE_RE = re.compile(r"[�©@]|(?:\?[^.!?\n]{0,24}[=+\-*/^])")
 
 
 class ExamChunk(Protocol):
-    """Minimal chunk shape needed to extract exam prompts."""
-
     source: str
     index: int
     text: str
@@ -56,15 +52,12 @@ class ExamChunk(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ExamQuestion:
-    """A question found in a past-exam source."""
-
     question: str
     source_ref: str
     marks: int | None = None
 
     @property
     def time_limit_minutes(self) -> int:
-        """Derive light exam pressure from mark value."""
         if self.marks is None:
             return 5
         if self.marks <= 4:
@@ -80,7 +73,6 @@ def select_exam_question(
     topic: str = "",
     rng: random.Random | None = None,
 ) -> ExamQuestion | None:
-    """Select a random question from indexed past-exam chunks."""
     questions = list(_iter_exam_questions(chunks))
     if topic:
         topic_lower = topic.lower()
@@ -99,7 +91,6 @@ def supporting_source_refs(
     *,
     limit: int = 3,
 ) -> list[str]:
-    """Find supporting non-exam chunks for assessing a selected question."""
     question_terms = _content_terms(question)
     if not question_terms:
         return []
@@ -127,63 +118,47 @@ def _iter_exam_questions(chunks: Sequence[ExamChunk]) -> list[ExamQuestion]:
         if role != "past_exam":
             continue
         text = _contextual_exam_text(chunk_list, position)
-        for question in _questions_from_text(text):
-            normalized_question = _dedupe_key(question)
-            if normalized_question in seen_questions:
-                continue
-            seen_questions.add(normalized_question)
-            questions.append(
-                ExamQuestion(
-                    question=question,
-                    source_ref=f"{chunk.source}#chunk={chunk.index}",
-                    marks=_marks_from_text(question),
+        for section in _problem_sections(text):
+            for question in _questions_from_section(section):
+                normalized_question = _WHITESPACE_RE.sub(" ", question.casefold()).strip()
+                if normalized_question in seen_questions:
+                    continue
+                seen_questions.add(normalized_question)
+                marks_match = _MARK_RE.search(question)
+                questions.append(
+                    ExamQuestion(
+                        question=question,
+                        source_ref=f"{chunk.source}#chunk={chunk.index}",
+                        marks=int(marks_match.group("marks")) if marks_match else None,
+                    )
                 )
-            )
     return questions
 
 
 def _contextual_exam_text(chunks: Sequence[ExamChunk], position: int) -> str:
-    """Include neighboring same-source text so split PDF chunks keep problem stems."""
     chunk = chunks[position]
     parts: list[str] = []
     if position > 0 and chunks[position - 1].source == chunk.source:
         parts.append(chunks[position - 1].text)
     parts.append(chunk.text)
+    chunk_lines = [line.strip() for line in chunk.text.splitlines() if line.strip()]
+    looks_truncated = bool(chunk_lines) and chunk_lines[-1].endswith(
+        (",", ";", ":", "=", "->", "→", "↦", "{", "[", "(")
+    )
     if (
         position + 1 < len(chunks)
         and chunks[position + 1].source == chunk.source
-        and _looks_truncated(chunk.text)
+        and looks_truncated
     ):
-        continuation = _leading_continuation(chunks[position + 1].text)
+        continuation_lines: list[str] = []
+        for line in chunks[position + 1].text.splitlines():
+            if _PROBLEM_START_RE.match(line):
+                break
+            continuation_lines.append(line)
+        continuation = "\n".join(continuation_lines).strip()
         if continuation:
             parts.append(continuation)
     return "\n".join(parts)
-
-
-def _looks_truncated(text: str) -> bool:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if not lines:
-        return False
-    tail = lines[-1]
-    return tail.endswith((",", ";", ":", "=", "->", "→", "↦", "{", "[", "("))
-
-
-def _leading_continuation(text: str) -> str:
-    """Return text before the next full problem starts."""
-    lines = text.splitlines()
-    continuation: list[str] = []
-    for line in lines:
-        if _PROBLEM_START_RE.match(line):
-            break
-        continuation.append(line)
-    return "\n".join(continuation).strip()
-
-
-def _questions_from_text(text: str) -> list[str]:
-    questions: list[str] = []
-    for section in _problem_sections(text):
-        questions.extend(_questions_from_section(section))
-    return questions
 
 
 def _problem_sections(text: str) -> list[str]:
@@ -232,16 +207,10 @@ def _questions_from_section(section: str) -> list[str]:
         subpart = _clean_question_text("\n".join(lines[start:end]))
         if not (_is_question_like(subpart) or stem_is_prompt):
             continue
-        question = _join_stem_and_subpart(stem, subpart)
-        if _is_answerable_exam_prompt(question) and not _has_extraction_noise(question):
+        question = subpart if not stem else f"{stem}\n{subpart}"
+        if _is_answerable_exam_prompt(question) and _EXAM_PROMPT_NOISE_RE.search(question) is None:
             questions.append(question)
     return questions
-
-
-def _join_stem_and_subpart(stem: str, subpart: str) -> str:
-    if not stem:
-        return subpart
-    return f"{stem}\n{subpart}"
 
 
 def _question_from_line(line: str) -> str | None:
@@ -254,7 +223,7 @@ def _question_from_line(line: str) -> str | None:
     if prefix is not None and prefix.group("marks") and not _MARK_RE.search(question):
         question = f"{question} {prefix.group('marks')}"
     cleaned = _clean_question_text(question)
-    if _has_extraction_noise(cleaned):
+    if _EXAM_PROMPT_NOISE_RE.search(cleaned) is not None:
         return None
     return cleaned
 
@@ -267,26 +236,17 @@ def _is_question_like(text: str) -> bool:
 
 
 def _is_answerable_exam_prompt(text: str) -> bool:
-    """Reject orphaned subparts that need a missing stem to be answerable."""
     lines = [line for line in text.splitlines() if line.strip()]
     if not lines:
         return False
     starts_with_subpart = _SUBQUESTION_START_RE.match(lines[0]) is not None
     if starts_with_subpart and len(lines) == 1:
-        return not _references_external_context(lines[0])
+        lowered = lines[0].casefold()
+        return not (
+            re.search(r"\b(?:f|g|h|it|this|the|above|given|diese[rs]?|obige[rs]?|dazu)\b", lowered)
+            or re.search(r"\b(?:auf|on|in)\s+[A-Z]\b", lines[0])
+        )
     return not starts_with_subpart
-
-
-def _references_external_context(text: str) -> bool:
-    lowered = text.casefold()
-    return bool(
-        re.search(r"\b(?:f|g|h|it|this|the|above|given|diese[rs]?|obige[rs]?|dazu)\b", lowered)
-        or re.search(r"\b(?:auf|on|in)\s+[A-Z]\b", text)
-    )
-
-
-def _has_extraction_noise(text: str) -> bool:
-    return _EXAM_PROMPT_NOISE_RE.search(text) is not None
 
 
 def _clean_question_text(text: str) -> str:
@@ -305,17 +265,6 @@ def _clean_question_text(text: str) -> str:
     while compacted and not compacted[0]:
         compacted.pop(0)
     return "\n".join(compacted)
-
-
-def _dedupe_key(text: str) -> str:
-    return _WHITESPACE_RE.sub(" ", text.casefold()).strip()
-
-
-def _marks_from_text(text: str) -> int | None:
-    match = _MARK_RE.search(text)
-    if match is None:
-        return None
-    return int(match.group("marks"))
 
 
 def _content_terms(text: str) -> set[str]:

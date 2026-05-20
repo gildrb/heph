@@ -31,8 +31,6 @@ class ToolSchema(TypedDict):
 
 @dataclass(frozen=True, slots=True)
 class ToolResult:
-    """Structured result from a tool handler."""
-
     success: bool
     content: str
     metadata: dict[str, object] = field(default_factory=dict)
@@ -44,8 +42,6 @@ ToolHandlerResult = str | ToolResult
 
 @dataclass(frozen=True, slots=True)
 class ToolSpec:
-    """A single tool: its JSON schema and its handler function."""
-
     schema: ToolSchema
     handler: Callable[..., ToolHandlerResult]
     kind: Literal["normal", "control"] = "normal"

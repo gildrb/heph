@@ -1,10 +1,4 @@
-"""Typed turn evidence for retrieval-grounded answers.
-
-Builds a first-class evidence object from retrieved chunks, assigns stable
-IDs (``E1``, ``E2``, ...), and renders that evidence into the prompt format
-shown to the model. The rendered prompt requires the assistant to cite
-those evidence IDs instead of raw filenames.
-"""
+"""Typed turn evidence for retrieval-grounded answers."""
 
 from __future__ import annotations
 
@@ -38,8 +32,6 @@ _TRUNCATION_MARKER = "[... truncated]"
 
 @dataclass(frozen=True, slots=True)
 class EvidenceChunk:
-    """A retrieved chunk promoted into a stable, citable evidence block."""
-
     evidence_id: str
     chunk: Chunk
     score: float
@@ -56,8 +48,6 @@ class EvidenceChunk:
 
 @dataclass(frozen=True, slots=True)
 class TurnEvidence:
-    """Evidence assembled for a single user turn."""
-
     items: tuple[EvidenceChunk, ...] = ()
     sampled_source_count: int = 0
     total_source_count: int = 0
@@ -77,20 +67,16 @@ class TurnEvidence:
         if not self.items:
             return ""
 
-        parts = [_EVIDENCE_PROMPT_PREFIX]
-        rendered_items = [_render_evidence_item(item) for item in self.items]
-        parts.append("\n\n".join(rendered_items))
-        return "".join(parts)
-
-
-def _render_evidence_item(item: EvidenceChunk) -> str:
-    header = _EVIDENCE_HEADER_TEMPLATE.format(
-        evidence_id=item.evidence_id,
-        source=item.source,
-        index=item.chunk_index,
-        score=item.score,
-    )
-    return f"{header}\n{item.content}"
+        rendered_items: list[str] = []
+        for item in self.items:
+            header = _EVIDENCE_HEADER_TEMPLATE.format(
+                evidence_id=item.evidence_id,
+                source=item.source,
+                index=item.chunk_index,
+                score=item.score,
+            )
+            rendered_items.append(f"{header}\n{item.content}")
+        return _EVIDENCE_PROMPT_PREFIX + "\n\n".join(rendered_items)
 
 
 def build_turn_evidence(
@@ -175,12 +161,10 @@ def build_context(
     scored_chunks: list[ScoredChunk],
     max_tokens: int = 2000,
 ) -> str:
-    """Backward-compatible wrapper that renders typed turn evidence."""
     return build_turn_evidence(scored_chunks, max_tokens=max_tokens).render()
 
 
 def estimate_tokens(text: str) -> int:
-    """Rough token estimate for budget tracking."""
     if _encoder is not None:
         return len(_encoder.encode(text))
     return len(text) // _CHARS_PER_TOKEN

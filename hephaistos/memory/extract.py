@@ -1,14 +1,4 @@
-"""Memory extraction: pull learned concepts from conversation turns.
-
-After each exchange, this module uses the LLM to extract key concepts
-and facts that the user has learned or discussed.  The extracted items
-are stored in the armory's memory store to prevent repetition.
-
-Extraction is deliberately conservative:
-- Only extract when there's substantial content (not greetings, corrections)
-- Only extract facts and concepts, not opinions or guesses
-- Always attribute to the source (document name, conversation, etc.)
-"""
+"""Memory extraction: pull learned concepts from conversation turns."""
 
 from __future__ import annotations
 
@@ -20,7 +10,6 @@ from typing import TYPE_CHECKING, TypedDict
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.logging import Timer, get_logger
 from hephaistos.memory import MemoryStore, save_memory
-from hephaistos.memory.supermemory import SupermemoryStore
 from hephaistos.runtime import (
     ChatConfig,
     Conversation,
@@ -34,10 +23,8 @@ if TYPE_CHECKING:
 _log = get_logger("memory.extract")
 _EXTRACTION_MODEL_ENV = "HEPHAISTOS_EXTRACTION_MODEL"
 
-# Minimum characters in the assistant's response before we bother extracting
 _MIN_CONTENT_LENGTH = 100
 
-# Prompt for extraction
 _EXTRACTION_SYSTEM_PROMPT = (
     "You are a knowledge extraction assistant. Your job is to identify "
     "concepts, facts, and definitions that the user has learned or discussed "
@@ -81,11 +68,6 @@ def extract_from_exchange(
     assistant_message: str,
     sources: str = "",
 ) -> list[ExtractedConcept]:
-    """Extract learned concepts from a single exchange.
-
-    Returns a list of dicts with keys: topic, content, source.
-    Returns empty list if nothing substantive was found.
-    """
     if len(assistant_message) < _MIN_CONTENT_LENGTH:
         return []
     extraction_model = os.environ.get(_EXTRACTION_MODEL_ENV, "").strip()
@@ -175,17 +157,11 @@ def extract_and_store(
     assistant_message: str,
     sources: str = "",
 ) -> int:
-    """Extract concepts from an exchange and store them in memory.
-
-    Returns the number of new entries actually added.
-    """
     entries = extract_from_exchange(config, user_message, assistant_message, sources)
     if not entries:
         return 0
 
     added = memory.add_batch(entries, source="conversation", confidence="discussed")
-    if isinstance(memory, SupermemoryStore):
-        memory.add_batch_to_profile(entries, source="conversation", confidence="discussed")
     if added > 0:
         save_memory(memory)
     return added

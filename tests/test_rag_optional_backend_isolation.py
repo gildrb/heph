@@ -13,4 +13,4 @@ def test_default_tests_pin_optional_rag_backends_off() -> None:
     assert optional_backends.sentence_transformers_available() is False
     assert optional_backends.sentence_transformer() is None
     assert optional_backends.cross_encoder() is None
-    assert chunker._is_st_available() is False
+    assert chunker._sentence_transformer_factory() is None

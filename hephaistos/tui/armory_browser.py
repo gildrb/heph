@@ -119,6 +119,7 @@ _TEXT_PREVIEW_EXTENSIONS: frozenset[str] = frozenset(
 )
 _PREVIEW_MAX_CHARS = 2048
 _PREVIEW_MAX_LINES = 30
+_BROWSER_HINT = "arrows navigate  enter open  n new  / filter  esc cancel"
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +128,6 @@ _PREVIEW_MAX_LINES = 30
 
 
 def _list_entries(path: Path, *, show_files: bool = False) -> list[Path]:
-    """Return sorted child entries (dirs, and optionally files), skipping hidden."""
     try:
         entries = sorted(path.iterdir())
     except OSError:
@@ -141,14 +141,6 @@ def _list_entries(path: Path, *, show_files: bool = False) -> list[Path]:
     return result
 
 
-def _list_child_dirs(path: Path) -> list[Path]:
-    """Return sorted child directories, skipping hidden ones.
-
-    Backward-compatible wrapper kept for existing tests.
-    """
-    return [e for e in _list_entries(path) if e.is_dir()]
-
-
 def _is_armory(path: Path) -> bool:
     try:
         return (path / MARKER_FILE).is_file()
@@ -157,7 +149,6 @@ def _is_armory(path: Path) -> bool:
 
 
 def _armory_root_from(path: Path) -> Path | None:
-    """Return the armory root containing *path*, or None."""
     current = path
     for _ in range(32):
         if _is_armory(current):
@@ -170,7 +161,6 @@ def _armory_root_from(path: Path) -> Path | None:
 
 
 def _format_size(size: int) -> str:
-    """Human-readable file size."""
     if size < 1024:
         return f"{size} B"
     if size < 1024 * 1024:
@@ -179,12 +169,10 @@ def _format_size(size: int) -> str:
 
 
 def _is_writable_directory(path: Path) -> bool:
-    """Return True when *path* is a directory Hephaistos may create inside."""
     return path.exists() and path.is_dir() and os.access(path, os.W_OK | os.X_OK)
 
 
 def default_armory_home() -> Path:
-    """Return the default parent directory used when creating new armories."""
     configured = os.environ.get(_DEFAULT_ARMORY_HOME_ENV, "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
@@ -192,7 +180,6 @@ def default_armory_home() -> Path:
 
 
 def _is_within_armory_home(path: Path) -> bool:
-    """Return True when *path* resolves to the armory home or one of its descendants."""
     try:
         path.expanduser().resolve(strict=False).relative_to(default_armory_home())
     except (OSError, RuntimeError, ValueError):
@@ -201,7 +188,6 @@ def _is_within_armory_home(path: Path) -> bool:
 
 
 def _creation_parent_error(path: Path) -> str | None:
-    """Return a user-facing create error for *path*, or None when writable."""
     armory_home = default_armory_home()
 
     if not _is_within_armory_home(path):
@@ -223,7 +209,6 @@ def _creation_parent_error(path: Path) -> str | None:
 
 
 def new_armory_path(parent: Path, name: str) -> tuple[Path | None, str | None]:
-    """Return a safe child path for a new armory name, or a user-facing error."""
     candidate = Path(name)
     if candidate.is_absolute() or ".." in candidate.parts:
         return None, "Armory name must stay inside the selected folder."
@@ -238,14 +223,12 @@ def new_armory_path(parent: Path, name: str) -> tuple[Path | None, str | None]:
 
 
 def _default_start_path(start: Path | None) -> Path:
-    """Return a safe initial browser location."""
     if start is not None and _is_within_armory_home(start):
         return start.expanduser().resolve(strict=False)
     return default_armory_home()
 
 
 def _file_preview_text(path: Path) -> str:
-    """Return a short text preview for a file, or empty string."""
     suffix = path.suffix.lower()
     if suffix not in _TEXT_PREVIEW_EXTENSIONS:
         return ""
@@ -269,8 +252,6 @@ def _file_preview_text(path: Path) -> str:
 
 
 class _DirEntry:
-    """Lightweight wrapper pairing a display label with a Path or action."""
-
     __slots__ = (
         "is_create",
         "is_file",
@@ -308,7 +289,6 @@ class _DirEntry:
 
 
 def _place_entries() -> list[_DirEntry]:
-    """Return quick navigation entries for common user locations."""
     armory_home = default_armory_home()
     candidates = (
         ("armories", armory_home),
@@ -331,7 +311,6 @@ def _place_entries() -> list[_DirEntry]:
 
 
 def _recent_entries() -> list[_DirEntry]:
-    """Return recent armories as quick-open entries."""
     discover_available_armories()
     entries: list[_DirEntry] = []
     recent = load_recent_armory_entries()
@@ -355,7 +334,6 @@ def _recent_entries() -> list[_DirEntry]:
 
 
 def _available_armory_entries() -> list[_DirEntry]:
-    """Return all valid armories under the configured armory home."""
     armories = discover_available_armories()
     child_entries = [
         _DirEntry(f"{_DIR_PREFIX}{path.name}{_ARMORY_BADGE}", path=path)
@@ -384,7 +362,6 @@ def build_entries(
     filter_query: str = "",
     show_places: bool = False,
 ) -> list[_DirEntry]:
-    """Build the ordered armory selector entries for the current column."""
     place_entries = _place_entries() if show_places and not filter_query.strip() else []
     recent_entries = _recent_entries()
     entries: list[_DirEntry] = []
@@ -419,13 +396,7 @@ def build_entries(
     return entries
 
 
-def _format_entry(entry: _DirEntry) -> str:
-    """Return the display string for an OptionList option."""
-    return entry.label
-
-
 def build_parent_entries(current: Path) -> list[tuple[str, Path]]:
-    """Build entries for the parent (left) column: siblings of *current*."""
     parent = current.parent
 
     if parent == current or not parent.exists():
@@ -450,7 +421,6 @@ def build_parent_entries(current: Path) -> list[tuple[str, Path]]:
 
 
 def armory_detail(path: Path) -> str:
-    """Return the detail panel text for a directory entry."""
     if not path.exists():
         return (
             f"{path.name}\n\n"
@@ -472,7 +442,6 @@ def armory_detail(path: Path) -> str:
 
 
 def file_detail(path: Path) -> str:
-    """Return the preview panel text for a file entry."""
     if not path.exists():
         return f"{path.name}\n\nfile not found\n\n{path}"
     try:
@@ -483,14 +452,12 @@ def file_detail(path: Path) -> str:
     lines: list[str] = [path.name, ""]
     lines.append(f"Size: {_format_size(st.st_size)}")
 
-    # Permissions
     mode = stat.filemode(st.st_mode)
     lines.append(f"Mode: {mode}")
 
     mtime = time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))
     lines.append(f"Modified: {mtime}")
 
-    # Extension hint
     suffix = path.suffix.lower()
     if suffix:
         lines.append(f"Type: {suffix}")
@@ -498,7 +465,6 @@ def file_detail(path: Path) -> str:
     lines.append("")
     lines.append(str(path))
 
-    # Text preview
     preview = _file_preview_text(path)
     if preview:
         lines.append("")
@@ -704,17 +670,13 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
                     id="armory-new-input",
                 )
             yield Static("", id="armory-error")
-            yield Static(
-                "arrows navigate  enter open  n new  / filter  esc cancel",
-                id="armory-hint",
-            )
+            yield Static(_BROWSER_HINT, id="armory-hint")
 
     def on_mount(self) -> None:
         self._refresh()
         self._focus_current_col()
 
     def render_line(self, y: int) -> Strip:
-        """Strip Textual's synthetic black modal background in transparent themes."""
         return transparent_strip(super().render_line(y), self.size.width)
 
     def on_app_focus(self, event: events.AppFocus) -> None:
@@ -753,17 +715,15 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         path_widget = self.query_one("#armory-path", Static)
         path_widget.update(str(self._current))
 
-        # Current column
         cur_ol = self.query_one("#armory-current-col", OptionList)
         cur_ol.clear_options()
         for entry in self._entries:
-            cur_ol.add_option(_format_entry(entry))
+            cur_ol.add_option(entry.label)
         cur_ol.highlighted = self._first_selectable_index()
 
         self._update_preview()
 
     def _should_show_files(self) -> bool:
-        """Show files when inside an armory's materials directory."""
         armory_root = _armory_root_from(self._current)
         if armory_root is None:
             return False
@@ -776,6 +736,17 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     def _set_error(self, message: str) -> None:
         error = self.query_one("#armory-error", Static)
         error.update(message)
+
+    def _set_hint(self, message: str) -> None:
+        hint = self.query_one("#armory-hint", Static)
+        hint.update(message)
+
+    def _set_input_panel_active(self, container_id: str, *, active: bool) -> None:
+        container = self.query_one(container_id, Vertical)
+        if active:
+            container.add_class("active")
+        else:
+            container.remove_class("active")
 
     def _update_preview(self) -> None:
         preview = self.query_one("#armory-preview", Static)
@@ -861,7 +832,6 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     # -----------------------------------------------------------------------
 
     def action_activate(self) -> None:
-        """Enter key: open the highlighted armory or activate special entry."""
         if self._creating or self._filtering:
             return
         entry = self._highlighted_entry()
@@ -869,7 +839,6 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             self._navigate_into(entry)
 
     def action_cancel(self) -> None:
-        """escape/q: cancel or stop creating/filtering."""
         if self._filtering:
             self._stop_filter()
             return
@@ -879,14 +848,12 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         self.dismiss(None)
 
     def action_new_armory(self) -> None:
-        """n key: start creating a new armory."""
         if self._creating or self._filtering:
             return
         if self._allow_create:
             self._start_new_armory()
 
     def action_start_filter(self) -> None:
-        """Slash key: activate fuzzy filter bar."""
         if self._creating or self._filtering:
             return
         self._start_filter()
@@ -897,48 +864,22 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def _start_filter(self) -> None:
         self._filtering = True
-        container = self.query_one("#armory-filter-container", Vertical)
-        container.add_class("active")
+        self._set_input_panel_active("#armory-filter-container", active=True)
         inp = self.query_one("#armory-filter", Input)
         inp.value = self._filter_query
         inp.focus()
-        hint = self.query_one("#armory-hint", Static)
-        hint.update("type to filter  enter accept  esc cancel")
+        self._set_hint("type to filter  enter accept  esc cancel")
 
     def _stop_filter(self) -> None:
         self._filtering = False
-        container = self.query_one("#armory-filter-container", Vertical)
-        container.remove_class("active")
-        hint = self.query_one("#armory-hint", Static)
-        hint.update("arrows navigate  enter open  n new  / filter  esc cancel")
-        self._focus_current_col()
-
-    def _accept_filter(self) -> None:
-        """Accept the current filter and return focus to the list."""
-        self._filtering = False
-        container = self.query_one("#armory-filter-container", Vertical)
-        container.remove_class("active")
-        hint = self.query_one("#armory-hint", Static)
-        hint.update("arrows navigate  enter open  n new  / filter  esc cancel")
+        self._set_input_panel_active("#armory-filter-container", active=False)
+        self._set_hint(_BROWSER_HINT)
         self._focus_current_col()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "armory-filter":
             self._filter_query = event.value
-            show_files = self._should_show_files()
-            self._entries = build_entries(
-                self._current,
-                self._allow_create,
-                show_files=show_files,
-                filter_query=self._filter_query,
-                show_places=True,
-            )
-            cur_ol = self.query_one("#armory-current-col", OptionList)
-            cur_ol.clear_options()
-            for entry in self._entries:
-                cur_ol.add_option(_format_entry(entry))
-            cur_ol.highlighted = self._first_selectable_index()
-            self._update_preview()
+            self._refresh()
             return
         if event.input.id == "armory-new-input":
             return
@@ -946,7 +887,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "armory-filter":
             event.stop()
-            self._accept_filter()
+            self._stop_filter()
             return
         if event.input.id != "armory-new-input":
             return
@@ -976,20 +917,16 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
 
     def _start_new_armory(self) -> None:
         self._creating = True
-        container = self.query_one("#armory-new-input-container", Vertical)
-        container.add_class("active")
+        self._set_input_panel_active("#armory-new-input-container", active=True)
         inp = self.query_one("#armory-new-input", Input)
         inp.value = ""
         inp.focus()
-        hint = self.query_one("#armory-hint", Static)
-        hint.update("enter confirm  esc cancel")
+        self._set_hint("enter confirm  esc cancel")
 
     def _stop_new_armory(self) -> None:
         self._creating = False
-        container = self.query_one("#armory-new-input-container", Vertical)
-        container.remove_class("active")
-        hint = self.query_one("#armory-hint", Static)
-        hint.update("arrows navigate  enter open  n new  / filter  esc cancel")
+        self._set_input_panel_active("#armory-new-input-container", active=False)
+        self._set_hint(_BROWSER_HINT)
         self._focus_current_col()
 
     # -----------------------------------------------------------------------

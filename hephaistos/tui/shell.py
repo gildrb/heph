@@ -34,7 +34,7 @@ def command_output_text(stdout: StringIO, stderr: StringIO) -> str:
 
 
 def filter_command_activity_details(text: str) -> str:
-    kept = [line for line in text.splitlines() if not _is_command_activity_detail(line)]
+    kept = [line for line in text.splitlines() if _command_activity_detail(line) is None]
     return "\n".join(kept).strip()
 
 
@@ -50,10 +50,6 @@ def format_command_activity_line(line: str) -> str:
     return f"{_ACTIVITY_TRACE_INDENT}{detail}"
 
 
-def _is_command_activity_detail(line: str) -> bool:
-    return _command_activity_detail(line) is not None
-
-
 def _command_activity_detail(line: str) -> str | None:
     clean = _ANSI_ESCAPE_RE.sub("", line).strip()
     if not clean.casefold().startswith("info:"):
@@ -65,7 +61,6 @@ def _command_activity_detail(line: str) -> str | None:
 
 
 def run_shell_escape_captured(command: str) -> str:
-    """Run a user-requested shell escape and return output for the TUI transcript."""
     if not command:
         return ""
 

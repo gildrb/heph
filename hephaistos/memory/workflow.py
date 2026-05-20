@@ -21,7 +21,6 @@ def schedule_memory_extraction(
     reply: str,
     evidence: str,
 ) -> None:
-    """Start best-effort background memory extraction for a completed turn."""
     if memory is None or len(reply) < _MIN_REPLY_LENGTH_FOR_EXTRACTION:
         return
 

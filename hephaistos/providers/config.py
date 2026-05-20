@@ -1,10 +1,4 @@
-"""Provider configuration: multi-provider LLM API management.
-
-Stores provider definitions (endpoint, API key env var, models) in a TOML file
-at ``~/.config/hephaistos/providers.toml``.  API keys are resolved at runtime
-from the OS keychain → environment variable → volatile in-memory store, and
-are **never** written to config files or persisted inside ChatConfig objects.
-"""
+"""Provider configuration for swappable LLM API backends."""
 
 from __future__ import annotations
 
@@ -17,6 +11,7 @@ from typing import TYPE_CHECKING
 from hephaistos._types import is_object_list, is_string_mapping
 from hephaistos.providers.keyring_store import resolve_key
 from hephaistos.providers.model_support import filter_supported_models
+from hephaistos.providers.registry import builtin_models
 
 if TYPE_CHECKING:
     from hephaistos.runtime import ChatConfig
@@ -44,7 +39,6 @@ def _provider_file_stamp(path: Path) -> tuple[bool, int | None, int | None]:
 
 
 def _provider_cache(path: Path) -> ProviderConfig | None:
-    """Return the cached ProviderConfig for a path, if the file is unchanged."""
     if _provider_cache_ref.config is None or _provider_cache_ref.path != path:
         return None
     if _provider_cache_ref.stamp != _provider_file_stamp(path):
@@ -77,7 +71,6 @@ def _merge_default_providers(config: ProviderConfig) -> ProviderConfig:
 def invalidate_provider_cache(
     replacement: ProviderConfig | None = None, *, path: Path | None = None
 ) -> None:
-    """Update or clear the in-process provider config cache."""
     if replacement is None:
         _provider_cache_ref.path = None
         _provider_cache_ref.stamp = None
@@ -101,7 +94,6 @@ class Provider:
 
     @property
     def api_key(self) -> str:
-        """Resolve the API key from keychain → env var → volatile store."""
         return resolve_key(self.slug, self.api_key_env)
 
     @property
@@ -183,8 +175,25 @@ class ProviderConfig:
         for slug, section in data.items():
             if not is_string_mapping(section):
                 continue
-            providers[slug] = _sanitize_provider(slug, section)
-        _merge_missing_default_providers(providers)
+            raw_models = section.get("models", [])
+            models = (
+                filter_supported_models([str(model) for model in raw_models], slug)
+                if is_object_list(raw_models)
+                else []
+            )
+            raw_current_model = section.get("current_model", "")
+            current_model = str(raw_current_model) if raw_current_model else ""
+            if "models" in section and current_model and current_model not in models:
+                current_model = ""
+            providers[slug] = Provider(
+                slug=slug,
+                display_name=str(section.get("display_name", slug)),
+                endpoint=str(section.get("endpoint", "")),
+                api_key_env=str(section.get("api_key_env", "")),
+                models=models,
+                active=bool(section.get("active", False)),
+                current_model=current_model,
+            )
         cfg = _merge_default_providers(cls(providers=providers))
         invalidate_provider_cache(cfg, path=path)
         return cfg
@@ -194,18 +203,7 @@ def providers_dir() -> Path:
     return _CONFIG_DIR
 
 
-def _merge_missing_default_providers(providers: dict[str, Provider]) -> None:
-    """Restore built-in providers omitted by older persisted config files."""
-    has_active_provider = any(provider.active for provider in providers.values())
-    for slug, provider in default_config().providers.items():
-        if slug not in providers:
-            if has_active_provider:
-                provider.active = False
-            providers[slug] = provider
-
-
 def _refresh_builtin_provider(provider: Provider, default: Provider) -> bool:
-    """Refresh built-in provider metadata while preserving user selection."""
     changed = False
     for attr in ("display_name", "endpoint", "api_key_env"):
         if getattr(provider, attr) != getattr(default, attr):
@@ -223,6 +221,10 @@ def _refresh_builtin_provider(provider: Provider, default: Provider) -> bool:
         changed = True
 
     return changed
+
+
+def _default_provider_models(provider: str) -> list[str]:
+    return [model.name for model in builtin_models() if model.provider == provider]
 
 
 def default_config() -> ProviderConfig:
@@ -245,88 +247,28 @@ def default_config() -> ProviderConfig:
                 display_name="OpenRouter",
                 endpoint="https://openrouter.ai/api/v1",
                 api_key_env="OPENROUTER_API_KEY",
-                models=[
-                    "openrouter/free",
-                    "qwen/qwen3.6-plus:free",
-                    "openai/gpt-5.5",
-                    "openai/gpt-5.4",
-                    "openai/gpt-5.4-mini",
-                    "openai/gpt-5.4-pro",
-                    "openai/gpt-5.4-nano",
-                    "openai/gpt-5.3-codex",
-                    "google/gemini-3-pro-preview",
-                    "google/gemini-3-flash-preview",
-                    "google/gemini-3.1-pro-preview",
-                    "google/gemini-3.1-flash-lite-preview",
-                    "qwen/qwen3.5-plus-02-15",
-                    "qwen/qwen3.5-35b-a3b",
-                    "stepfun/step-3.5-flash",
-                    "minimax/minimax-m2.7",
-                    "minimax/minimax-m2.5",
-                    "z-ai/glm-5",
-                    "z-ai/glm-5-turbo",
-                    "moonshotai/kimi-k2.5",
-                    "xiaomi/mimo-v2-pro",
-                    "x-ai/grok-4.20-beta",
-                    "nvidia/nemotron-3-super-120b-a12b",
-                    "nvidia/nemotron-3-super-120b-a12b:free",
-                    "arcee-ai/trinity-large-preview:free",
-                ],
+                models=_default_provider_models("openrouter"),
             ),
             "openai": Provider(
                 slug="openai",
                 display_name="OpenAI API",
                 endpoint="https://api.openai.com/v1",
                 api_key_env="OPENAI_API_KEY",
-                models=[
-                    "gpt-5.5",
-                    "gpt-5.4",
-                    "gpt-5.4-mini",
-                    "gpt-5.4-pro",
-                    "gpt-5.4-nano",
-                    "gpt-5.3-codex",
-                    "gpt-5.2-codex",
-                    "gpt-5.2",
-                    "gpt-5.1-codex-max",
-                    "gpt-5.1-codex-mini",
-                    "gpt-5.3-codex-spark",
-                    "gpt-4o",
-                    "gpt-4o-mini",
-                ],
+                models=_default_provider_models("openai"),
             ),
             "openai-codex": Provider(
                 slug="openai-codex",
                 display_name="OpenAI Codex",
                 endpoint="https://api.openai.com/v1",
                 api_key_env="",
-                models=[
-                    "gpt-5.5",
-                    "gpt-5.4",
-                    "gpt-5.4-mini",
-                    "gpt-5.4-pro",
-                    "gpt-5.4-nano",
-                    "gpt-5.3-codex",
-                    "gpt-5.2-codex",
-                    "gpt-5.2",
-                    "gpt-5.1-codex-max",
-                    "gpt-5.1-codex-mini",
-                    "gpt-5.3-codex-spark",
-                    "gpt-4o",
-                    "gpt-4o-mini",
-                ],
+                models=_default_provider_models("openai-codex"),
             ),
             "zai": Provider(
                 slug="zai",
                 display_name="Z.AI / GLM",
                 endpoint="https://api.z.ai/api/paas/v4/",
                 api_key_env="ZAI_API_KEY",
-                models=[
-                    "glm-5",
-                    "glm-5-turbo",
-                    "glm-4.7",
-                    "glm-4.5",
-                    "glm-4.5-flash",
-                ],
+                models=_default_provider_models("zai"),
             ),
             "custom": Provider(
                 slug="custom",
@@ -336,31 +278,4 @@ def default_config() -> ProviderConfig:
                 models=[],
             ),
         }
-    )
-
-
-def _sanitize_provider(
-    slug: str,
-    section: dict[str, object],
-) -> Provider:
-    has_models_catalog = "models" in section
-    raw_models = section.get("models", [])
-    models = (
-        filter_supported_models([str(model) for model in raw_models], slug)
-        if is_object_list(raw_models)
-        else []
-    )
-    raw_current_model = section.get("current_model", "")
-    current_model = str(raw_current_model) if raw_current_model else ""
-    if has_models_catalog and current_model and current_model not in models:
-        current_model = ""
-    raw_active = section.get("active", False)
-    return Provider(
-        slug=slug,
-        display_name=str(section.get("display_name", slug)),
-        endpoint=str(section.get("endpoint", "")),
-        api_key_env=str(section.get("api_key_env", "")),
-        models=models,
-        active=bool(raw_active),
-        current_model=current_model,
     )

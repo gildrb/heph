@@ -1,16 +1,4 @@
-"""Token usage tracking, cost estimation, and context window budget management.
-
-Tracks prompt/completion tokens per session from API responses, estimates
-cost based on model pricing, and manages the context window budget so
-the agent knows how much room it has left.
-
-Token counts come from:
-  1. The ``usage`` field in OpenAI-compatible streaming chunk responses
-     (available on the final chunk with ``finish_reason`` set).
-  2. Fallback character-based estimation (4 chars ≈ 1 token).
-
-Cost estimates use a model pricing table that can be extended via env vars.
-"""
+"""Token usage, cost estimation, and context window budgeting."""
 
 from __future__ import annotations
 
@@ -32,67 +20,29 @@ else:
 
 from hephaistos._types import is_string_mapping
 from hephaistos.logging import get_logger
-from hephaistos.runtime import ApiMessage, ContentPart, UsagePayload
+from hephaistos.providers.registry import ModelInfo, builtin_models, get_registry
+from hephaistos.runtime import ApiMessage, UsagePayload
 
 _log = get_logger("chat.usage")
-_MODEL_PRICING: dict[str, tuple[float, float]] = {
-    "gpt-4o": (0.0025, 0.01),
-    "gpt-4o-mini": (0.00015, 0.0006),
-    "gpt-5.5": (0.005, 0.03),
-    "gpt-5.4": (0.002, 0.008),
-    "gpt-5.4-mini": (0.00015, 0.0006),
-    "gpt-5.4-pro": (0.005, 0.015),
-    "gpt-5.4-nano": (0.00005, 0.0002),
-    "gpt-5.3-codex": (0.002, 0.008),
-    "gpt-5.2-codex": (0.002, 0.008),
-    "gpt-5.2": (0.002, 0.008),
-    "gpt-5.1-codex-max": (0.005, 0.015),
-    "gpt-5.1-codex-mini": (0.0005, 0.0015),
-    "gpt-5.3-codex-spark": (0.001, 0.003),
-    # Google (via OpenRouter)
-    "google/gemini-3-pro-preview": (0.00125, 0.005),
-    "google/gemini-3-flash-preview": (0.000075, 0.0003),
-    "google/gemini-3.1-pro-preview": (0.00125, 0.005),
-    "google/gemini-3.1-flash-lite-preview": (0.00003, 0.0001),
-    "qwen/qwen3.6-plus:free": (0.0, 0.0),
-    "qwen/qwen3.5-plus-02-15": (0.0004, 0.0012),
-    "qwen/qwen3.5-35b-a3b": (0.0001, 0.0003),
-    "glm-5": (0.001, 0.001),
-    "glm-5-turbo": (0.0001, 0.0001),
-    "glm-4.7": (0.0005, 0.0005),
-    "glm-4.5": (0.0003, 0.0003),
-    "glm-4.5-flash": (0.00005, 0.00005),
-    "z-ai/glm-5": (0.001, 0.001),
-    "z-ai/glm-5-turbo": (0.0001, 0.0001),
-}
 _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
-    "gpt-4o": 128_000,
-    "gpt-5.5": 1_000_000,
-    "gpt-5.4": 128_000,
     "gpt-5.3": 128_000,
-    "gpt-5.2": 128_000,
     "gpt-5.1": 128_000,
     "gemini-3": 1_000_000,
-    "glm-5": 128_000,
     "glm-4": 128_000,
     "qwen": 32_000,
 }
 
-_DEFAULT_CONTEXT_WINDOW = 128_000
 _CHARS_PER_TOKEN = 4
 
 
 @dataclass
 class TokenUsage:
-    """Token counts from a single API response."""
-
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
 
     @classmethod
     def from_api_response(cls, usage: UsagePayload | None) -> TokenUsage:
-        """Extract token usage from an OpenAI-compatible usage dict."""
         if usage is None:
             return cls()
         return cls(
@@ -104,8 +54,6 @@ class TokenUsage:
 
 @dataclass
 class SessionUsage:
-    """Accumulated token usage and cost for a session."""
-
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
     total_tokens: int = 0
@@ -114,7 +62,6 @@ class SessionUsage:
     per_call: deque[TokenUsage] = field(default_factory=lambda: deque(maxlen=50))
 
     def record(self, usage: TokenUsage, model: str) -> None:
-        """Record a single API call's usage."""
         self.total_prompt_tokens += usage.prompt_tokens
         self.total_completion_tokens += usage.completion_tokens
         self.total_tokens += usage.total_tokens
@@ -143,7 +90,6 @@ class SessionUsage:
         )
 
     def estimate_from_chars(self, prompt_chars: int, completion_chars: int, model: str) -> None:
-        """Fallback estimation when API doesn't report usage."""
         est_prompt = prompt_chars // _CHARS_PER_TOKEN
         est_completion = completion_chars // _CHARS_PER_TOKEN
         self.record(
@@ -156,7 +102,6 @@ class SessionUsage:
         )
 
     def summary(self) -> dict[str, int | float]:
-        """Return a summary dict for display."""
         return {
             "api_calls": self.api_calls,
             "prompt_tokens": self.total_prompt_tokens,
@@ -166,61 +111,55 @@ class SessionUsage:
         }
 
 
-def _get_pricing(model: str) -> tuple[float, float]:
-    """Get (prompt_price_per_1k, completion_price_per_1k) for a model.
+def _builtin_model_match(model: str) -> ModelInfo | None:
+    return next(
+        (
+            info
+            for info in sorted(builtin_models(), key=lambda info: len(info.name), reverse=True)
+            if model.startswith(info.name)
+        ),
+        None,
+    )
 
-    Checks exact match first, then longest-prefix match.
-    """
-    if model in _MODEL_PRICING:
-        return _MODEL_PRICING[model]
-    for key in sorted(_MODEL_PRICING, key=len, reverse=True):
-        if model.startswith(key):  # ty:ignore[invalid-argument-type]
-            return _MODEL_PRICING[key]  # ty:ignore[invalid-argument-type]
+
+def _get_pricing(model: str) -> tuple[float, float]:
     if "free" in model.lower():
         return (0.0, 0.0)
-    return (0.002, 0.008)
+    info = get_registry().get(model) or _builtin_model_match(model)
+    if info is None:
+        return (0.002, 0.008)
+    return (info.prompt_price_per_1k, info.completion_price_per_1k)
 
 
 def get_context_window(model: str) -> int:
-    """Get the context window size for a model.
-
-    Checks exact match, then longest-prefix match, then default.
-    """
-    if model in _MODEL_CONTEXT_WINDOWS:
-        return _MODEL_CONTEXT_WINDOWS[model]
-
-    for key in sorted(_MODEL_CONTEXT_WINDOWS, key=len, reverse=True):
-        if model.startswith(key):  # ty:ignore[invalid-argument-type]
-            return _MODEL_CONTEXT_WINDOWS[key]  # ty:ignore[invalid-argument-type]
-
-    return _DEFAULT_CONTEXT_WINDOW
+    info = get_registry().get(model) or _builtin_model_match(model)
+    if info is not None:
+        return info.context_window
+    for prefix, context_window in sorted(
+        _MODEL_CONTEXT_WINDOWS.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        if model.startswith(prefix):
+            return context_window
+    return 128_000
 
 
 def estimate_message_tokens(content: str) -> int:
-    """Estimate token count for a message string."""
     if _encoder is not None:
         return len(_encoder.encode(content))
     return len(content) // _CHARS_PER_TOKEN
 
 
-def _estimate_content_tokens(content: str | None | list[ContentPart]) -> int:
-    if isinstance(content, str):
-        return estimate_message_tokens(content)
-    if content is None:
-        return 0
-    total = 0
-    for part in content:
-        text = part.get("text", "") or part.get("content", "")
-        total += estimate_message_tokens(text)
-    return total
-
-
 def estimate_conversation_tokens(messages: Sequence[ApiMessage]) -> int:
-    """Estimate total token count for a list of API messages."""
     total = 0
     for msg in messages:
         total += 4
-        total += _estimate_content_tokens(msg["content"])
+        content = msg["content"]
+        if isinstance(content, str):
+            total += estimate_message_tokens(content)
+        elif content is not None:
+            for part in content:
+                text = part.get("text", "") or part.get("content", "")
+                total += estimate_message_tokens(text)
         for tc in msg.get("tool_calls", []):
             function = tc.get("function", {})
             args = function.get("arguments", "")
@@ -231,8 +170,6 @@ def estimate_conversation_tokens(messages: Sequence[ApiMessage]) -> int:
 
 @dataclass
 class ContextBudget:
-    """Tracks how much of the context window is consumed."""
-
     model: str
     max_tokens: int  # max_tokens config (completion budget)
     context_window: int = 0
@@ -243,16 +180,13 @@ class ContextBudget:
 
     @property
     def prompt_budget(self) -> int:
-        """Tokens available for prompt (context window minus completion budget)."""
         return self.context_window - self.max_tokens
 
     def tokens_remaining(self, current_messages: Sequence[ApiMessage]) -> int:
-        """How many tokens are left before hitting the context window."""
         used = estimate_conversation_tokens(current_messages)
         return max(0, self.prompt_budget - used)
 
     def compaction_urgency(self, current_messages: Sequence[ApiMessage]) -> str:
-        """Return urgency level: 'none', 'low', 'medium', 'high'."""
         used = estimate_conversation_tokens(current_messages)
         ratio = used / max(1, self.prompt_budget)
         if ratio > 0.95:
@@ -272,7 +206,6 @@ def save_usage(
     session_id: str,
     usage: SessionUsage,
 ) -> Path | None:
-    """Persist session usage to the armory."""
     if armory_path is None:
         return None
 
@@ -301,7 +234,6 @@ def save_usage(
 
 
 def load_usage_summaries(armory_path: Path) -> list[dict[str, int | float | str]]:
-    """Load persisted usage summaries for an armory."""
     usage_dir = armory_path / ".hephaistos" / _USAGE_DIR
     if not usage_dir.exists():
         return []
@@ -320,39 +252,25 @@ def load_usage_summaries(armory_path: Path) -> list[dict[str, int | float | str]
         summaries.append(
             {
                 "session_id": session_id,
-                "api_calls": _int_value(raw.get("api_calls")),
-                "prompt_tokens": _int_value(raw.get("prompt_tokens")),
-                "completion_tokens": _int_value(raw.get("completion_tokens")),
-                "total_tokens": _int_value(raw.get("total_tokens")),
-                "cost_usd": _float_value(raw.get("cost_usd")),
+                "api_calls": _number_value(raw.get("api_calls")),
+                "prompt_tokens": _number_value(raw.get("prompt_tokens")),
+                "completion_tokens": _number_value(raw.get("completion_tokens")),
+                "total_tokens": _number_value(raw.get("total_tokens")),
+                "cost_usd": _number_value(raw.get("cost_usd"), as_float=True),
             }
         )
     return summaries
 
 
-def _int_value(value: object) -> int:
+def _number_value(value: object, *, as_float: bool = False) -> int | float:
+    default = 0.0 if as_float else 0
     if isinstance(value, bool):
-        return 0
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(value)
-        except ValueError:
-            return 0
-    return 0
-
-
-def _float_value(value: object) -> float:
-    if isinstance(value, bool):
-        return 0.0
+        return default
     if isinstance(value, int | float):
-        return float(value)
+        return float(value) if as_float else int(value)
     if isinstance(value, str):
         try:
-            return float(value)
+            return float(value) if as_float else int(value)
         except ValueError:
-            return 0.0
-    return 0.0
+            return default
+    return default

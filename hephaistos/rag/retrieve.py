@@ -37,16 +37,18 @@ from hephaistos.rag.query_transform import (
     TransformStrategy,
     create_transformer,
 )
-from hephaistos.rag.retrieval_types import RerankerProtocol, RetrieverProtocol, ScoredChunk
-from hephaistos.rag.scoring import cosine_similarity, reciprocal_rank_fusion, tokenize
+from hephaistos.rag.retrieval_types import (
+    RerankerProtocol,
+    RetrieverCacheKey,
+    RetrieverProtocol,
+    ScoredChunk,
+)
+from hephaistos.rag.scoring import tokenize
 from hephaistos.rag.semantic import CrossEncoderReranker, EmbeddingRetriever
 from hephaistos.rag.sparse import Bm25Retriever, DocumentBm25Retriever, TfidfRetriever
 
 _log = get_logger("rag.retrieve")
 
-_tokenize = tokenize
-_cosine_similarity = cosine_similarity
-_reciprocal_rank_fusion = reciprocal_rank_fusion
 _EMBED_MODEL_ENV = "HEPHAISTOS_EMBED_MODEL"
 _RERANK_MODEL_ENV = "HEPHAISTOS_RERANK_MODEL"
 _MAX_QUERY_TOKENS = 160
@@ -167,36 +169,19 @@ def _create_retriever(
     pseudo_feedback_terms: int = DEFAULT_PSEUDO_FEEDBACK_TERMS,
     pseudo_feedback_weight: float = DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
 ) -> TfidfRetriever | Bm25Retriever | DocumentBm25Retriever | EmbeddingRetriever | HybridRetriever:
-    """Create the best available retriever for the given index.
-
-    Strategy:
-    1. If sentence-transformers is available → ``HybridRetriever`` (sparse + embeddings)
-       with an optional ``CrossEncoderReranker`` for post-retrieval re-scoring.
-    2. Otherwise → ``Bm25Retriever`` when available, else ``TfidfRetriever``.
-
-    A ``query_transformer`` can be attached to any retriever type.
-    """
     if retrieval_mode == RetrievalMode.TFIDF:
         return TfidfRetriever(index)
     if retrieval_mode == RetrievalMode.BM25:
-        bm25_only = Bm25Retriever(index)
-        if bm25_only.available:
-            return bm25_only
-        return TfidfRetriever(index)
+        return _available_sparse_or_tfidf(index, Bm25Retriever(index))
     if retrieval_mode == RetrievalMode.BM25_DOCUMENT:
-        bm25_document = DocumentBm25Retriever(index)
-        if bm25_document.available:
-            return bm25_document
-        return TfidfRetriever(index)
-    if retrieval_mode == RetrievalMode.DENSE:
-        if _is_sentence_transformers_available():
-            return EmbeddingRetriever(
-                index,
-                model_name=embed_model,
-                query_prefix=embed_query_prefix,
-                document_prefix=embed_document_prefix,
-            )
-        return TfidfRetriever(index)
+        return _available_sparse_or_tfidf(index, DocumentBm25Retriever(index))
+    if retrieval_mode == RetrievalMode.DENSE and _is_sentence_transformers_available():
+        return EmbeddingRetriever(
+            index,
+            model_name=embed_model,
+            query_prefix=embed_query_prefix,
+            document_prefix=embed_document_prefix,
+        )
 
     use_reranker = retrieval_mode in (RetrievalMode.AUTO, RetrievalMode.HYBRID_RERANK)
     if _is_sentence_transformers_available():
@@ -226,13 +211,11 @@ def _create_retriever(
             retrieval_mode == RetrievalMode.HYBRID_PRF and hybrid_dense_weight == 0.0
         ):
             return hybrid
-    bm25 = Bm25Retriever(index)
-    if bm25.available:
-        return bm25
-    return TfidfRetriever(index)
+    return _available_sparse_or_tfidf(index, Bm25Retriever(index))
 
 
 def _retriever_cache_key(
+    *,
     transform_strategy: TransformStrategy,
     prompt_fn: PromptFn | None,
     retrieval_mode: RetrievalMode,
@@ -246,23 +229,8 @@ def _retriever_cache_key(
     pseudo_feedback_docs: int,
     pseudo_feedback_terms: int,
     pseudo_feedback_weight: float,
-) -> tuple[
-    str,
-    int | None,
-    str,
-    int,
-    str | None,
-    str | None,
-    str,
-    str,
-    float,
-    float,
-    int,
-    int,
-    float,
-]:
-    """Build a cache key for retrievers bound to a query-transform config."""
-    prompt_key: int | None = None
+) -> RetrieverCacheKey:
+    prompt_key = None
     if transform_strategy in (TransformStrategy.HYDE, TransformStrategy.MULTI_QUERY):
         prompt_key = id(prompt_fn) if prompt_fn is not None else None
     return (
@@ -280,6 +248,61 @@ def _retriever_cache_key(
         pseudo_feedback_terms,
         pseudo_feedback_weight,
     )
+
+
+def _cached_retriever(
+    index: ArmoryIndex,
+    cache_key: RetrieverCacheKey,
+    *,
+    embed_model: str | None,
+    embed_query_prefix: str,
+    embed_document_prefix: str,
+    rerank_model: str | None,
+    transformer: QueryTransformerProtocol | None,
+    retrieval_mode: RetrievalMode,
+    candidate_multiplier: int,
+    hybrid_sparse_weight: float,
+    hybrid_dense_weight: float,
+    pseudo_feedback_docs: int,
+    pseudo_feedback_terms: int,
+    pseudo_feedback_weight: float,
+) -> RetrieverProtocol:
+    retriever = cast("RetrieverProtocol | None", index._retriever_cache.get(cache_key))
+    if retriever is not None:
+        return retriever
+
+    if cache_key == _IDENTITY_CACHE_KEY:
+        retriever = cast("RetrieverProtocol | None", index._retriever)
+        if retriever is not None:
+            index._retriever_cache[cache_key] = retriever
+            return retriever
+
+    retriever = _create_retriever(
+        index,
+        embed_model=embed_model,
+        embed_query_prefix=embed_query_prefix,
+        embed_document_prefix=embed_document_prefix,
+        rerank_model=rerank_model,
+        query_transformer=transformer,
+        retrieval_mode=retrieval_mode,
+        candidate_multiplier=candidate_multiplier,
+        hybrid_sparse_weight=hybrid_sparse_weight,
+        hybrid_dense_weight=hybrid_dense_weight,
+        pseudo_feedback_docs=pseudo_feedback_docs,
+        pseudo_feedback_terms=pseudo_feedback_terms,
+        pseudo_feedback_weight=pseudo_feedback_weight,
+    )
+    if cache_key == _IDENTITY_CACHE_KEY:
+        index._retriever = retriever
+    index._retriever_cache[cache_key] = retriever
+    return retriever
+
+
+def _available_sparse_or_tfidf(
+    index: ArmoryIndex,
+    retriever: Bm25Retriever | DocumentBm25Retriever,
+) -> TfidfRetriever | Bm25Retriever | DocumentBm25Retriever:
+    return retriever if retriever.available else TfidfRetriever(index)
 
 
 def _normalize_query_for_retrieval(query: str) -> str:
@@ -309,27 +332,19 @@ def _compound_query_variants(query: str) -> list[str]:
         return [normalized]
 
     raw_focus = focus_match.group("focus")
-    parts = [_clean_compound_query_part(part) for part in _COMPOUND_SPLIT_RE.split(raw_focus)]
+    parts = [
+        " ".join(part.strip(" \t\n\r,;:.?!").split())
+        for part in _COMPOUND_SPLIT_RE.split(raw_focus)
+    ]
     query_parts = [part for part in parts if len(tokenize(part)) >= _MIN_COMPOUND_QUERY_TOKENS]
     if len(query_parts) < 2:
         return [normalized]
     return [normalized, *query_parts[:_MAX_COMPOUND_QUERY_PARTS]]
 
 
-def _clean_compound_query_part(part: str) -> str:
-    cleaned = part.strip(" \t\n\r,;:.?!")
-    return " ".join(cleaned.split())
-
-
 def _has_negation_marker(text: str) -> bool:
     normalized = f" {text.lower()} "
     return any(marker in normalized for marker in _NEGATION_MARKERS)
-
-
-def _query_is_negated(query: str) -> bool:
-    if _has_negation_marker(query):
-        return True
-    return bool(set(tokenize(query)) & _NEGATION_QUERY_INTENT_TOKENS)
 
 
 def _has_query_relevant_negation(query_tokens: set[str], text: str) -> bool:
@@ -350,16 +365,9 @@ def _apply_negation_precision_penalty(
     query: str,
     results: list[ScoredChunk],
 ) -> list[ScoredChunk]:
-    """Down-rank negative contrast passages for affirmative factual queries.
-
-    Sparse retrieval can over-rank a passage that says "X is not the answer"
-    because it shares nearly every topical token with the question.  That kind
-    of passage is useful context, but it should not outrank an affirmative
-    answer for ordinary "what/which/how" questions.
-    """
-    if _query_is_negated(query):
-        return results
     query_tokens = set(tokenize(query))
+    if _has_negation_marker(query) or query_tokens & _NEGATION_QUERY_INTENT_TOKENS:
+        return results
     reranked: list[ScoredChunk] = []
     changed = False
     for result in results:
@@ -380,9 +388,7 @@ def _apply_source_path_boost(
     results: list[ScoredChunk],
 ) -> list[ScoredChunk]:
     query_tokens = set(tokenize(query))
-    if not query_tokens or not results:
-        return results
-    if not (query_tokens & _SOURCE_INTENT_TOKENS):
+    if not results or not (query_tokens & _SOURCE_INTENT_TOKENS):
         return results
     boosted: list[ScoredChunk] = []
     changed = False
@@ -452,31 +458,10 @@ def _apply_explicit_hint_boost(
     return boosted
 
 
-def _retrieve_query_variants(
-    retriever: RetrieverProtocol,
-    query_variants: list[str],
-    top_k: int,
-) -> list[ScoredChunk]:
-    if top_k <= 0:
-        return []
-    if len(query_variants) <= 1:
-        return retriever.retrieve(query_variants[0], top_k)
-
-    ranked_lists = [
-        results for query in query_variants if (results := retriever.retrieve(query, top_k))
-    ]
-    if not ranked_lists:
-        return []
-    if len(ranked_lists) == 1:
-        return ranked_lists[0][:top_k]
-    return _merge_compound_query_results(ranked_lists, top_k)
-
-
 def _merge_compound_query_results(
     ranked_lists: list[list[ScoredChunk]],
     top_k: int,
 ) -> list[ScoredChunk]:
-    """Merge compound-query results while preserving each clause's top hit."""
     entries: dict[tuple[str, int], _CompoundMergeEntry] = {}
     promoted_keys: list[tuple[str, int]] = []
     promoted_seen: set[tuple[str, int]] = set()
@@ -533,36 +518,63 @@ def _entry_to_scored_chunk(entry: _CompoundMergeEntry) -> ScoredChunk:
     return ScoredChunk(chunk=entry.scored_chunk.chunk, score=entry.best_score)
 
 
-def _diversify_sources(results: list[ScoredChunk], top_k: int) -> list[ScoredChunk]:
+def _retrieval_pool_size(
+    index: ArmoryIndex,
+    retriever: RetrieverProtocol,
+    *,
+    requested_top_k: int,
+    candidate_multiplier: int,
+    diversify_sources: bool,
+) -> int:
+    if requested_top_k <= 0:
+        return 0
+
+    pool_size = requested_top_k * candidate_multiplier if diversify_sources else requested_top_k
+    if isinstance(retriever, HybridRetriever):
+        return pool_size
+
+    pool_size = max(
+        pool_size,
+        requested_top_k * _POST_PROCESS_CANDIDATE_MULTIPLIER,
+        requested_top_k + _POST_PROCESS_MIN_EXTRA_CANDIDATES,
+    )
+    chunk_count = len(index.all_chunks)
+    return min(chunk_count, pool_size) if chunk_count > 0 else pool_size
+
+
+def _retrieve_query_variants(
+    retriever: RetrieverProtocol,
+    query_variants: list[str],
+    top_k: int,
+) -> list[ScoredChunk]:
+    if top_k <= 0:
+        return []
+    if len(query_variants) <= 1:
+        return retriever.retrieve(query_variants[0], top_k)
+
+    ranked_lists = [
+        results
+        for query_variant in query_variants
+        if (results := retriever.retrieve(query_variant, top_k))
+    ]
+    if len(ranked_lists) > 1:
+        return _merge_compound_query_results(ranked_lists, top_k)
+    if ranked_lists:
+        return ranked_lists[0][:top_k]
+    return []
+
+
+def _diversify_by_source(results: list[ScoredChunk], top_k: int) -> list[ScoredChunk]:
     best_by_source: dict[str, ScoredChunk] = {}
     for result in results:
         existing = best_by_source.get(result.chunk.source)
         if existing is None or result.score > existing.score:
             best_by_source[result.chunk.source] = result
-    diversified = list(best_by_source.values())
-    diversified.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
-    return diversified[:top_k]
-
-
-def _post_process_candidate_top_k(
-    index: ArmoryIndex,
-    retriever: RetrieverProtocol,
-    requested_top_k: int,
-    retrieval_top_k: int,
-) -> int:
-    if isinstance(retriever, HybridRetriever):
-        return retrieval_top_k
-    if requested_top_k <= 0:
-        return retrieval_top_k
-    desired_top_k = max(
-        retrieval_top_k,
-        requested_top_k * _POST_PROCESS_CANDIDATE_MULTIPLIER,
-        requested_top_k + _POST_PROCESS_MIN_EXTRA_CANDIDATES,
-    )
-    chunk_count = len(index.all_chunks)
-    if chunk_count <= 0:
-        return desired_top_k
-    return min(chunk_count, desired_top_k)
+    return sorted(
+        best_by_source.values(),
+        key=lambda scored_chunk: scored_chunk.score,
+        reverse=True,
+    )[:top_k]
 
 
 def retrieve(
@@ -586,24 +598,6 @@ def retrieve(
     pseudo_feedback_terms: int = DEFAULT_PSEUDO_FEEDBACK_TERMS,
     pseudo_feedback_weight: float = DEFAULT_PSEUDO_FEEDBACK_WEIGHT,
 ) -> list[ScoredChunk]:
-    """Retrieve the top-k most relevant chunks for *query*.
-
-    Automatically selects the best retriever backend based on available
-    dependencies.  When *transform_strategy* is set to something other
-    than ``IDENTITY``, the query is transformed before retrieval.
-
-    LLM-based strategies (``HYDE``, ``MULTI_QUERY``) require *prompt_fn*
-    to be provided — a callable that sends a prompt to the model and
-    returns the text response.
-
-    *min_score* filters out chunks whose relevance score falls below the
-    threshold.  Set to 0.0 (default) to disable filtering.  Typical
-    values: 0.1 for sparse retrieval, 0.15 for dense embeddings, 0.2
-    when high precision is critical.  When all chunks score below the
-    threshold an empty list is returned — the caller should inject a
-    "no relevant documents" signal instead of garbage context.
-    """
-    # Build query transformer if requested
     transformer = None
     if transform_strategy != TransformStrategy.IDENTITY:
         transformer = create_transformer(transform_strategy, prompt_fn)
@@ -615,67 +609,52 @@ def retrieve(
     pseudo_feedback_terms = max(1, pseudo_feedback_terms)
     pseudo_feedback_weight = max(0.0, pseudo_feedback_weight)
     cache_key = _retriever_cache_key(
-        transform_strategy,
-        prompt_fn,
-        retrieval_mode,
-        candidate_multiplier,
-        embed_model,
-        rerank_model,
-        embed_query_prefix,
-        embed_document_prefix,
-        hybrid_sparse_weight,
-        hybrid_dense_weight,
-        pseudo_feedback_docs,
-        pseudo_feedback_terms,
-        pseudo_feedback_weight,
+        transform_strategy=transform_strategy,
+        prompt_fn=prompt_fn,
+        retrieval_mode=retrieval_mode,
+        candidate_multiplier=candidate_multiplier,
+        embed_model=embed_model,
+        rerank_model=rerank_model,
+        embed_query_prefix=embed_query_prefix,
+        embed_document_prefix=embed_document_prefix,
+        hybrid_sparse_weight=hybrid_sparse_weight,
+        hybrid_dense_weight=hybrid_dense_weight,
+        pseudo_feedback_docs=pseudo_feedback_docs,
+        pseudo_feedback_terms=pseudo_feedback_terms,
+        pseudo_feedback_weight=pseudo_feedback_weight,
     )
-    retriever = cast(
-        "RetrieverProtocol | None",
-        index._retriever_cache.get(cache_key),
+    retriever = _cached_retriever(
+        index,
+        cache_key,
+        embed_model=embed_model,
+        embed_query_prefix=embed_query_prefix,
+        embed_document_prefix=embed_document_prefix,
+        rerank_model=rerank_model,
+        transformer=transformer,
+        retrieval_mode=retrieval_mode,
+        candidate_multiplier=candidate_multiplier,
+        hybrid_sparse_weight=hybrid_sparse_weight,
+        hybrid_dense_weight=hybrid_dense_weight,
+        pseudo_feedback_docs=pseudo_feedback_docs,
+        pseudo_feedback_terms=pseudo_feedback_terms,
+        pseudo_feedback_weight=pseudo_feedback_weight,
     )
-    if retriever is None:
-        if cache_key == _IDENTITY_CACHE_KEY:
-            retriever = cast(
-                "RetrieverProtocol | None",
-                index._retriever,
-            )
-        if retriever is None:
-            retriever = _create_retriever(
-                index,
-                embed_model=embed_model,
-                embed_query_prefix=embed_query_prefix,
-                embed_document_prefix=embed_document_prefix,
-                rerank_model=rerank_model,
-                query_transformer=transformer,
-                retrieval_mode=retrieval_mode,
-                candidate_multiplier=candidate_multiplier,
-                hybrid_sparse_weight=hybrid_sparse_weight,
-                hybrid_dense_weight=hybrid_dense_weight,
-                pseudo_feedback_docs=pseudo_feedback_docs,
-                pseudo_feedback_terms=pseudo_feedback_terms,
-                pseudo_feedback_weight=pseudo_feedback_weight,
-            )
-            if cache_key == _IDENTITY_CACHE_KEY:
-                index._retriever = retriever
-        index._retriever_cache[cache_key] = retriever
     requested_top_k = max(0, top_k)
     search_query = _normalize_query_for_retrieval(query)
     query_variants = _compound_query_variants(search_query)
-    retrieval_top_k = (
-        requested_top_k * candidate_multiplier if diversify_sources else requested_top_k
-    )
-    retrieval_top_k = _post_process_candidate_top_k(
+    retrieval_top_k = _retrieval_pool_size(
         index,
         retriever,
-        requested_top_k,
-        retrieval_top_k,
+        requested_top_k=requested_top_k,
+        candidate_multiplier=candidate_multiplier,
+        diversify_sources=diversify_sources,
     )
     results = _retrieve_query_variants(retriever, query_variants, retrieval_top_k)
     results = _apply_negation_precision_penalty(search_query, results)
     results = _apply_source_path_boost(search_query, results)
     results = _apply_explicit_hint_boost(search_query, results)
     if diversify_sources:
-        results = _diversify_sources(results, requested_top_k)
+        results = _diversify_by_source(results, requested_top_k)
 
     # Filter by minimum relevance score
     if min_score > 0.0 and results:

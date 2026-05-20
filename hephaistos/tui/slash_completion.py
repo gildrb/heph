@@ -67,8 +67,6 @@ def slash_command_name(value: str) -> str:
 
 
 class SlashCompletionEngine:
-    """Context-aware slash completion for the TUI."""
-
     def __init__(
         self,
         *,
@@ -79,7 +77,6 @@ class SlashCompletionEngine:
         self.refresh()
 
     def refresh(self) -> None:
-        """Reload provider/model suggestions from cached configuration."""
         self._cached_providers = dict(self._provider_config_loader().providers)
 
     def candidates(
@@ -108,6 +105,13 @@ class SlashCompletionEngine:
         if ends_with_space:
             arg_parts.append("")
 
+        return self._argument_candidates(cmd_name, arg_parts)
+
+    def _argument_candidates(
+        self,
+        cmd_name: str,
+        arg_parts: list[str],
+    ) -> list[CompletionCandidate]:
         candidates = []
         for suggestion, description in self._argument_suggestions(cmd_name, arg_parts):
             current = arg_parts[-1] if arg_parts else ""
@@ -150,13 +154,7 @@ class SlashCompletionEngine:
             replacement = self._matching_command_token(command, prefix)
             if replacement is None:
                 continue
-            candidates.append(
-                CompletionCandidate(
-                    text=replacement + " ",
-                    description=command.description,
-                    start_position=-len(body),
-                )
-            )
+            candidates.append(self._command_candidate(replacement, command.description, body))
         if candidates or not prefix:
             return candidates
         return self._closest_command_candidates(prefix, body, commands)
@@ -176,27 +174,38 @@ class SlashCompletionEngine:
                 (
                     score,
                     -index,
-                    CompletionCandidate(
-                        text=replacement + " ",
-                        description=command.description,
-                        start_position=-len(body),
-                    ),
+                    self._command_candidate(replacement, command.description, body),
                 )
             )
         ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
         return [candidate for _score, _index, candidate in ranked]
+
+    def _command_candidate(
+        self,
+        replacement: str,
+        description: str,
+        body: str,
+    ) -> CompletionCandidate:
+        return CompletionCandidate(
+            text=replacement + " ",
+            description=description,
+            start_position=-len(body),
+        )
+
+    def _command_tokens(self, command: CommandSuggestion) -> tuple[str, ...]:
+        return (command.name, *command.aliases)
 
     def _closest_command_token(
         self,
         command: CommandSuggestion,
         prefix: str,
     ) -> tuple[str, float]:
-        best_token = command.name
-        best_score = self._token_similarity(command.name, prefix)
-        for alias in command.aliases:
-            score = self._token_similarity(alias, prefix)
+        best_token = ""
+        best_score = 0.0
+        for token in self._command_tokens(command):
+            score = self._token_similarity(token, prefix)
             if score > best_score:
-                best_token = alias
+                best_token = token
                 best_score = score
         return best_token, best_score
 
@@ -205,11 +214,9 @@ class SlashCompletionEngine:
         command: CommandSuggestion,
         prefix: str,
     ) -> str | None:
-        if self._token_matches(command.name, prefix):
-            return command.name
-        for alias in command.aliases:
-            if self._token_matches(alias, prefix):
-                return alias
+        for token in self._command_tokens(command):
+            if self._token_matches(token, prefix):
+                return token
         return None
 
     def _token_matches(self, token: str, prefix: str) -> bool:
@@ -246,10 +253,7 @@ class SlashCompletionEngine:
     ) -> list[tuple[str, str]]:
         if cmd_name == "memory":
             return [
-                ("status", "Show memory backend and Supermemory setup"),
-                ("setup", "Connect Supermemory for cross-armory armory memory"),
-                ("profile", "View or change the Supermemory profile"),
-                ("disable", "Use local memory only"),
+                ("status", "Show local memory status"),
             ]
 
         if cmd_name == "sessions":

@@ -7,6 +7,22 @@ from typing import Protocol, runtime_checkable
 
 from hephaistos.rag.chunker import Chunk
 
+type RetrieverCacheKey = tuple[
+    str,
+    int | None,
+    str,
+    int,
+    str | None,
+    str | None,
+    str,
+    str,
+    float,
+    float,
+    int,
+    int,
+    float,
+]
+
 
 @dataclass(frozen=True, slots=True)
 class ScoredChunk:
@@ -16,8 +32,6 @@ class ScoredChunk:
 
 @dataclass(frozen=True, slots=True)
 class EvidenceReference:
-    """Stable reference to a source chunk used as turn evidence."""
-
     source: str
     chunk_index: int
 
@@ -42,15 +56,11 @@ class EvidenceReference:
 
 @runtime_checkable
 class RetrieverProtocol(Protocol):
-    """Minimal interface every retriever must implement."""
-
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]: ...
 
 
 @runtime_checkable
 class RerankerProtocol(Protocol):
-    """Interface for post-retrieval re-rankers."""
-
     def rerank(
         self,
         query: str,

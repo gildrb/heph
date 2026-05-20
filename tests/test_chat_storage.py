@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from hephaistos.armory.storage import initialize
-from hephaistos.chat.engine import Conversation
 from hephaistos.chat.storage import (
     ChatStorageError,
     list_sessions,
@@ -17,6 +16,7 @@ from hephaistos.chat.storage import (
     new_session_id,
     save,
 )
+from hephaistos.runtime import Conversation
 
 
 def _init_armory(tmp_path: Path) -> Path:
@@ -96,6 +96,15 @@ def test_load_nonexistent_raises(tmp_path: Path) -> None:
     armory = _init_armory(tmp_path)
     with pytest.raises(ChatStorageError):
         load(armory, "does-not-exist")
+
+
+def test_session_id_cannot_escape_chats_directory(tmp_path: Path) -> None:
+    armory = _init_armory(tmp_path)
+    conv = Conversation()
+    conv.add("user", "hello")
+
+    with pytest.raises(ChatStorageError, match="invalid session id"):
+        save(armory, "../escape", conv)
 
 
 def test_list_sessions_empty(tmp_path: Path) -> None:

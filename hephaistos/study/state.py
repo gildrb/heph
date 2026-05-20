@@ -1,17 +1,13 @@
-"""Explicit study-session state for the drill loop."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from hephaistos._types import is_object_list, is_string_mapping
 
 
 class StudyPhase(StrEnum):
-    """Stable phases in the study loop."""
-
     PRESENTING = "presenting"
     WAITING_FOR_READY = "waiting_for_ready"
     RECALL = "recall"
@@ -19,16 +15,12 @@ class StudyPhase(StrEnum):
 
 
 class StudyAutonomyMode(StrEnum):
-    """How strongly Hephaistos should steer the session."""
-
     MANUAL = "manual"
     GUIDED = "guided"
     AUTOPILOT = "autopilot"
 
 
 class StudyAction(StrEnum):
-    """Controller actions for a single user turn."""
-
     CHAT = "chat"
     CALIBRATE = "calibrate"
     PRIORITY = "priority"
@@ -44,8 +36,6 @@ class StudyAction(StrEnum):
 
 
 class StudyFeedbackType(StrEnum):
-    """Coarse feedback emitted by the controller after a turn."""
-
     NONE = "none"
     CALIBRATING = "calibrating"
     NO_SOURCE = "no_source"
@@ -62,8 +52,6 @@ class StudyFeedbackType(StrEnum):
 
 
 class StudyRecallRating(StrEnum):
-    """Recall effort derived from correctness and response latency."""
-
     NONE = "none"
     HARD = "hard"
     GOOD = "good"
@@ -72,8 +60,6 @@ class StudyRecallRating(StrEnum):
 
 @dataclass(slots=True)
 class StudyState:
-    """Persistent study-loop state stored with the chat session."""
-
     phase: StudyPhase = StudyPhase.PRESENTING
     current_item: str = ""
     expected_source_refs: list[str] = field(default_factory=list)
@@ -94,11 +80,32 @@ class StudyState:
     autopilot_stop_reason: str = ""
 
     def clone(self) -> StudyState:
-        """Return a deep-enough copy for rollback and persistence."""
         return StudyState.from_dict(self.to_dict())
 
+    def clear_autopilot_session(self) -> None:
+        self.session_goal = ""
+        self.time_budget_minutes = None
+        self.autopilot_session_type = ""
+        self.autopilot_started_at = None
+        self.autopilot_turns = 0
+        self.autopilot_stop_reason = ""
+
+    def start_autopilot_session(
+        self,
+        *,
+        session_type: str,
+        session_goal: str,
+        time_budget_minutes: int | None,
+    ) -> None:
+        self.autonomy_mode = StudyAutonomyMode.AUTOPILOT
+        self.session_goal = session_goal
+        self.time_budget_minutes = time_budget_minutes
+        self.autopilot_session_type = session_type
+        self.autopilot_started_at = datetime.now(UTC)
+        self.autopilot_turns = 0
+        self.autopilot_stop_reason = ""
+
     def to_dict(self) -> dict[str, object]:
-        """Serialize for chat persistence."""
         return {
             "phase": self.phase.value,
             "current_item": self.current_item,
@@ -128,56 +135,13 @@ class StudyState:
 
     @classmethod
     def from_dict(cls, data: object | None) -> StudyState:
-        """Deserialize persisted state, falling back safely on bad input."""
         if not is_string_mapping(data):
             return cls()
-
-        phase = StudyPhase.PRESENTING
-        raw_phase = data.get("phase")
-        if isinstance(raw_phase, str):
-            try:
-                phase = StudyPhase(raw_phase)
-            except ValueError:
-                phase = StudyPhase.PRESENTING
-
-        feedback = StudyFeedbackType.NONE
-        raw_feedback = data.get("last_feedback_type")
-        if isinstance(raw_feedback, str):
-            try:
-                feedback = StudyFeedbackType(raw_feedback)
-            except ValueError:
-                feedback = StudyFeedbackType.NONE
 
         raw_refs = data.get("expected_source_refs")
         expected_source_refs = (
             [ref for ref in raw_refs if isinstance(ref, str)] if is_object_list(raw_refs) else []
         )
-
-        raw_attempt = data.get("attempt_count", 0)
-        attempt_count = raw_attempt if isinstance(raw_attempt, int) and raw_attempt >= 0 else 0
-
-        raw_item = data.get("current_item", "")
-        current_item = raw_item if isinstance(raw_item, str) else ""
-
-        raw_query = data.get("retrieval_query", "")
-        retrieval_query = raw_query if isinstance(raw_query, str) else ""
-
-        recall_started_at = _parse_datetime(data.get("recall_started_at"))
-
-        raw_last_recall_seconds = data.get("last_recall_seconds")
-        last_recall_seconds = (
-            raw_last_recall_seconds
-            if isinstance(raw_last_recall_seconds, int) and raw_last_recall_seconds >= 0
-            else None
-        )
-
-        recall_rating = StudyRecallRating.NONE
-        raw_recall_rating = data.get("last_recall_rating")
-        if isinstance(raw_recall_rating, str):
-            try:
-                recall_rating = StudyRecallRating(raw_recall_rating)
-            except ValueError:
-                recall_rating = StudyRecallRating.NONE
 
         raw_confidence = data.get("last_confidence")
         last_confidence = (
@@ -188,65 +152,61 @@ class StudyState:
             else None
         )
 
-        raw_hint_level = data.get("hint_level", 0)
-        hint_level = (
-            raw_hint_level
-            if isinstance(raw_hint_level, int) and not isinstance(raw_hint_level, bool)
-            else 0
-        )
-        hint_level = min(5, max(0, hint_level))
-
-        autonomy_mode = StudyAutonomyMode.GUIDED
-        raw_autonomy_mode = data.get("autonomy_mode")
-        if isinstance(raw_autonomy_mode, str):
-            try:
-                autonomy_mode = StudyAutonomyMode(raw_autonomy_mode)
-            except ValueError:
-                autonomy_mode = StudyAutonomyMode.GUIDED
-
-        raw_goal = data.get("session_goal", "")
-        session_goal = raw_goal if isinstance(raw_goal, str) else ""
-
-        raw_budget = data.get("time_budget_minutes")
-        time_budget_minutes = (
-            raw_budget if isinstance(raw_budget, int) and raw_budget > 0 else None
-        )
-
-        raw_session_type = data.get("autopilot_session_type", "")
-        autopilot_session_type = raw_session_type if isinstance(raw_session_type, str) else ""
-
-        autopilot_started_at = _parse_datetime(data.get("autopilot_started_at"))
-
-        raw_autopilot_turns = data.get("autopilot_turns", 0)
-        autopilot_turns = (
-            raw_autopilot_turns
-            if isinstance(raw_autopilot_turns, int) and raw_autopilot_turns >= 0
-            else 0
-        )
-
-        raw_stop_reason = data.get("autopilot_stop_reason", "")
-        autopilot_stop_reason = raw_stop_reason if isinstance(raw_stop_reason, str) else ""
-
         return cls(
-            phase=phase,
-            current_item=current_item,
+            phase=_parse_enum(StudyPhase, data.get("phase"), StudyPhase.PRESENTING),
+            current_item=_parse_string(data.get("current_item")),
             expected_source_refs=expected_source_refs,
-            attempt_count=attempt_count,
-            last_feedback_type=feedback,
-            retrieval_query=retrieval_query,
-            recall_started_at=recall_started_at,
-            last_recall_seconds=last_recall_seconds,
-            last_recall_rating=recall_rating,
+            attempt_count=_parse_nonnegative_int(data.get("attempt_count")) or 0,
+            last_feedback_type=_parse_enum(
+                StudyFeedbackType,
+                data.get("last_feedback_type"),
+                StudyFeedbackType.NONE,
+            ),
+            retrieval_query=_parse_string(data.get("retrieval_query")),
+            recall_started_at=_parse_datetime(data.get("recall_started_at")),
+            last_recall_seconds=_parse_nonnegative_int(data.get("last_recall_seconds")),
+            last_recall_rating=_parse_enum(
+                StudyRecallRating,
+                data.get("last_recall_rating"),
+                StudyRecallRating.NONE,
+            ),
             last_confidence=last_confidence,
-            hint_level=hint_level,
-            autonomy_mode=autonomy_mode,
-            session_goal=session_goal,
-            time_budget_minutes=time_budget_minutes,
-            autopilot_session_type=autopilot_session_type,
-            autopilot_started_at=autopilot_started_at,
-            autopilot_turns=autopilot_turns,
-            autopilot_stop_reason=autopilot_stop_reason,
+            hint_level=min(5, _parse_nonnegative_int(data.get("hint_level")) or 0),
+            autonomy_mode=_parse_enum(
+                StudyAutonomyMode,
+                data.get("autonomy_mode"),
+                StudyAutonomyMode.GUIDED,
+            ),
+            session_goal=_parse_string(data.get("session_goal")),
+            time_budget_minutes=_parse_nonnegative_int(data.get("time_budget_minutes")) or None,
+            autopilot_session_type=_parse_string(data.get("autopilot_session_type")),
+            autopilot_started_at=_parse_datetime(data.get("autopilot_started_at")),
+            autopilot_turns=_parse_nonnegative_int(data.get("autopilot_turns")) or 0,
+            autopilot_stop_reason=_parse_string(data.get("autopilot_stop_reason")),
         )
+
+
+def _parse_enum[EnumT: StrEnum](
+    enum_type: type[EnumT],
+    value: object,
+    default: EnumT,
+) -> EnumT:
+    if not isinstance(value, str):
+        return default
+    try:
+        return enum_type(value)
+    except ValueError:
+        return default
+
+
+def _parse_string(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _parse_nonnegative_int(value: object) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
 
 
 def _parse_datetime(value: object) -> datetime | None:

@@ -17,8 +17,6 @@ _HELP_EXAMPLES_HEADER = "Examples:"
 
 
 class HephaistosArgumentParser(argparse.ArgumentParser):
-    """Top-level help that stays compact while deriving commands from argparse."""
-
     def __init__(self, *args: object, compact_help: bool = False, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)  # ty:ignore[invalid-argument-type]
         self._compact_help = compact_help
@@ -37,11 +35,6 @@ def _package_version() -> str:
         return "0.1.0"
 
 
-def _version_string() -> str:
-    """Lazy version string - avoids importlib.metadata scan at import time."""
-    return f"%(prog)s {_package_version()}"
-
-
 def _hide_subparser(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     name: str,
@@ -52,7 +45,6 @@ def _hide_subparser(
 
 
 def _resolve_armory_argument(path: str | None) -> Path | None:
-    """Resolve a path or known armory shortcut for TUI startup."""
     if not path:
         return None
     candidate = Path(path)
@@ -60,16 +52,15 @@ def _resolve_armory_argument(path: str | None) -> Path | None:
         return candidate
 
     search_index = importlib.import_module("hephaistos.armory.search")
+    entries = search_index.load_known_armory_entries()
     matches = [
-        entry.path
-        for entry in search_index.load_known_armory_entries()
-        if entry.valid and entry.path.name.lower() == path.lower()
+        entry.path for entry in entries if entry.valid and entry.path.name.lower() == path.lower()
     ]
     if len(matches) == 1:
         return matches[0]
     prefix_matches = [
         entry.path
-        for entry in search_index.load_known_armory_entries()
+        for entry in entries
         if entry.valid and entry.path.name.lower().startswith(path.lower())
     ]
     if len(prefix_matches) == 1:
@@ -81,7 +72,6 @@ def _resolve_armory_argument(path: str | None) -> Path | None:
 
 
 def _cmd_tui(args: argparse.Namespace) -> None:
-    """Start the Textual shell."""
     tui = importlib.import_module("hephaistos.tui")
 
     try:
@@ -93,15 +83,8 @@ def _cmd_tui(args: argparse.Namespace) -> None:
 
 
 def _cmd_materials_index(args: argparse.Namespace) -> None:
-    """Build or refresh the RAG index for materials."""
     rag_index = importlib.import_module("hephaistos.rag.index")
-    armory_storage = importlib.import_module("hephaistos.armory.storage")
-    try:
-        armory_path = armory_storage.normalize_path(args.path)
-        armory_storage.validate(armory_path)
-    except (armory_storage.ArmoryError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
+    armory_path = _validated_armory_path(args.path)
 
     def progress(action: str, detail: str) -> None:
         labels = {
@@ -117,15 +100,8 @@ def _cmd_materials_index(args: argparse.Namespace) -> None:
 
 
 def _cmd_health(args: argparse.Namespace) -> None:
-    """Run generic extraction health checks for indexed materials."""
-    armory_storage = importlib.import_module("hephaistos.armory.storage")
     rag_health = importlib.import_module("hephaistos.rag.health")
-    try:
-        armory_path = armory_storage.normalize_path(args.path)
-        armory_storage.validate(armory_path)
-    except (armory_storage.ArmoryError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
+    armory_path = _validated_armory_path(args.path)
 
     report = rag_health.scan_extraction_health(armory_path)
     print(f"Extraction health: {report.documents} indexed document(s)")
@@ -140,6 +116,17 @@ def _cmd_health(args: argparse.Namespace) -> None:
     print("No generic extraction poison found.")
 
 
+def _validated_armory_path(path: str) -> Path:
+    armory_storage = importlib.import_module("hephaistos.armory.storage")
+    try:
+        armory_path = armory_storage.normalize_path(path)
+        armory_storage.validate(armory_path)
+    except (armory_storage.ArmoryError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    return armory_path
+
+
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -148,21 +135,12 @@ def _is_source_checkout(root: Path) -> bool:
     return (root / "pyproject.toml").is_file() and (root / "hephaistos").is_dir()
 
 
-def _path_is_relative_to(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
-
-
 def _docling_available() -> bool:
     importlib_util = importlib.import_module("importlib.util")
     return importlib_util.find_spec("docling") is not None
 
 
 def _runtime_diagnostic_messages() -> list[str]:
-    """Return startup warnings for split source/runtime installs."""
     root = _project_root()
     if _docling_available():
         return []
@@ -177,7 +155,7 @@ def _runtime_diagnostic_messages() -> list[str]:
         ]
 
     expected_venv = root / ".venv"
-    if _path_is_relative_to(executable, expected_venv):
+    if executable.is_relative_to(expected_venv):
         return []
 
     return [
@@ -186,22 +164,11 @@ def _runtime_diagnostic_messages() -> list[str]:
         f"  active Python: {executable}",
         f"  source checkout: {root}",
         "  run from the checkout with `uv run heph`, or update this executable with "
-        "`uv tool upgrade hephaistos`.",
+        "`uv tool upgrade heph`.",
     ]
 
 
-def _source_venv_heph(root: Path) -> Path | None:
-    if sys.platform == "win32":
-        candidate = root / ".venv" / "Scripts" / "heph.exe"
-    else:
-        candidate = root / ".venv" / "bin" / "heph"
-    if candidate.is_file():
-        return candidate
-    return None
-
-
 def _maybe_reexec_source_venv() -> None:
-    """Avoid mixing a source checkout with a different Python environment."""
     if os.environ.get("HEPHAISTOS_NO_VENV_REEXEC") == "1":
         return
     root = _project_root()
@@ -209,23 +176,18 @@ def _maybe_reexec_source_venv() -> None:
         return
     executable = Path(sys.executable).resolve()
     expected_venv = root / ".venv"
-    if _path_is_relative_to(executable, expected_venv):
+    if executable.is_relative_to(expected_venv):
         return
-    venv_heph = _source_venv_heph(root)
-    if venv_heph is None:
+    binary = ("Scripts", "heph.exe") if sys.platform == "win32" else ("bin", "heph")
+    venv_heph = root / ".venv" / binary[0] / binary[1]
+    if not venv_heph.is_file():
         return
     env = os.environ.copy()
     env["HEPHAISTOS_NO_VENV_REEXEC"] = "1"
     os.execve(str(venv_heph), [str(venv_heph), *sys.argv[1:]], env)
 
 
-def _emit_runtime_diagnostics() -> None:
-    for message in _runtime_diagnostic_messages():
-        print(message, file=sys.stderr)
-
-
 def _cmd_update(_args: argparse.Namespace) -> None:
-    """Explain how to update the active Hephaistos installation."""
     root = _project_root()
     executable = Path(sys.executable).resolve()
     print("Hephaistos update")
@@ -242,52 +204,20 @@ def _cmd_update(_args: argparse.Namespace) -> None:
         print("  uv run heph")
         print()
         print("For a global uv tool install, run:")
-        print("  uv tool upgrade hephaistos")
+        print("  uv tool upgrade heph")
         return
 
-    executable_text = str(executable)
-    if ".local/share/uv/tools/hephaistos" in executable_text or "/uv/tools/hephaistos/" in (
-        executable_text
-    ):
+    uv_tool_markers = (".local/share/uv/tools/heph", "/uv/tools/heph/")
+    if any(marker in str(executable) for marker in uv_tool_markers):
         print()
         print("Upgrade this uv tool install with:")
-        print("  uv tool upgrade hephaistos")
+        print("  uv tool upgrade heph")
         return
 
     print()
     print("Could not detect the installer for this executable.")
     print("If you installed with uv, run:")
-    print("  uv tool upgrade hephaistos")
-
-
-def _get_subcommand_names(parser: argparse.ArgumentParser) -> set[str]:
-    """Return the set of registered subcommand names."""
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            return set(action.choices.keys())
-    return set()
-
-
-def _get_visible_subcommands(parser: argparse.ArgumentParser) -> list[tuple[str, str]]:
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            return [
-                (choice.dest, choice.help or "")
-                for choice in action._choices_actions
-                if choice.help is not argparse.SUPPRESS
-            ]
-    return []
-
-
-def _get_visible_options(parser: argparse.ArgumentParser) -> list[tuple[str, str]]:
-    options: list[tuple[str, str]] = []
-    for action in parser._actions:
-        if not action.option_strings or action.help is argparse.SUPPRESS:
-            continue
-        option = ", ".join(action.option_strings)
-        help_text = action.help or ""
-        options.append((option, help_text))
-    return options
+    print("  uv tool upgrade heph")
 
 
 def _format_rows(rows: list[tuple[str, str]]) -> list[str]:
@@ -298,8 +228,20 @@ def _format_rows(rows: list[tuple[str, str]]) -> list[str]:
 
 
 def _format_compact_help(parser: argparse.ArgumentParser) -> str:
-    commands = _get_visible_subcommands(parser)
-    options = _get_visible_options(parser)
+    commands: list[tuple[str, str]] = []
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            commands = [
+                (choice.dest, choice.help or "")
+                for choice in action._choices_actions
+                if choice.help is not argparse.SUPPRESS
+            ]
+            break
+    options = [
+        (", ".join(action.option_strings), action.help or "")
+        for action in parser._actions
+        if action.option_strings and action.help is not argparse.SUPPRESS
+    ]
     lines = [
         f"Usage: {parser.prog} [options] [command] [path]",
         "",
@@ -325,7 +267,6 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
 
 
 def _inject_default_subcommand(argv: list[str], known_commands: set[str]) -> list[str]:
-    """Prepend the default subcommand when no explicit subcommand is given."""
     # No args at all → inject the TUI.
     if not argv:
         return ["tui"]
@@ -335,18 +276,6 @@ def _inject_default_subcommand(argv: list[str], known_commands: set[str]) -> lis
                 return [*argv[:i], "tui", *argv[i:]]
             break
     return argv
-
-
-def _known_armory_homes() -> list[Path]:
-    search_index = importlib.import_module("hephaistos.armory.search")
-    homes: list[Path] = []
-    for entry in search_index.load_known_armory_entries():
-        if not entry.valid or entry.path.parent.name != ".armories":
-            continue
-        home = entry.path.parent
-        if home not in homes:
-            homes.append(home)
-    return homes
 
 
 def _confirm_move_armory_home(current_home: Path, target_home: Path) -> bool:
@@ -377,7 +306,14 @@ def _move_armory_home(current_home: Path, target_home: Path) -> None:
 
 
 def _validate_armory_home(target_home: Path) -> Path:
-    known_homes = _known_armory_homes()
+    search_index = importlib.import_module("hephaistos.armory.search")
+    known_homes: list[Path] = []
+    for entry in search_index.load_known_armory_entries():
+        if not entry.valid or entry.path.parent.name != ".armories":
+            continue
+        home = entry.path.parent
+        if home not in known_homes:
+            known_homes.append(home)
     if not known_homes or target_home in known_homes:
         return target_home
     current_home = known_homes[0]
@@ -389,15 +325,13 @@ def _validate_armory_home(target_home: Path) -> Path:
 
 
 def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
-    """Accept `heph armory <name>` as create-armory shorthand."""
-    if len(argv) < 2 or argv[0] != "armory":
-        return argv
-    subcommand = argv[1]
-    if subcommand in ("init", "open", "-h", "--help", "help"):
-        return argv
-    if subcommand.startswith("-"):
-        return argv
-    if len(argv) > 3:
+    if (
+        len(argv) < 2
+        or argv[0] != "armory"
+        or argv[1] in ("init", "open", "-h", "--help", "help")
+        or argv[1].startswith("-")
+        or len(argv) > 3
+    ):
         return argv
     if len(argv) == 3:
         print(
@@ -407,21 +341,9 @@ def _normalise_armory_shortcut(argv: list[str]) -> list[str]:
         )
         raise SystemExit(2)
     armory_cli = importlib.import_module("hephaistos.armory.cli")
-    target = armory_cli.armory_shortcut_path(subcommand)
+    target = armory_cli.armory_shortcut_path(argv[1])
     target_home = _validate_armory_home(target.parent)
     return ["armory", "init", str(target_home / target.name)]
-
-
-def _normalise_tui_alias(argv: list[str]) -> list[str]:
-    """Accept common flag-shaped TUI aliases as shorthand for ``tui``."""
-    if not argv:
-        return argv
-    if argv[0] not in ("--tui", "-tui"):
-        return argv
-    rest = argv[1:]
-    if rest and rest[0] in ("help", "-h", "--help"):
-        return ["tui", "--help", *rest[1:]]
-    return ["tui", *rest]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -435,7 +357,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="version",
-        version=_version_string(),
+        version=f"%(prog)s {_package_version()}",
     )
     parser.add_argument(
         "--profile",
@@ -473,7 +395,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     materials_cli = importlib.import_module("hephaistos.materials.cli")
     materials_cli.register(subparsers, index_handler=_cmd_materials_index)
-    materials_cli.register_source_alias(subparsers, index_handler=_cmd_materials_index)
 
     index = subparsers.add_parser(
         "index",
@@ -518,8 +439,6 @@ def build_parser() -> argparse.ArgumentParser:
     def _chat_handler(
         chat_cmd: str,
     ) -> Callable[[argparse.Namespace], None]:
-        """Return a stub handler that lazily loads chat.cli and dispatches."""
-
         def _handler(args: argparse.Namespace) -> None:
             chat_cli = importlib.import_module("hephaistos.chat.cli")
             if chat_cmd == "ask":
@@ -573,7 +492,12 @@ def _remember_initialized_armory(path: Path) -> None:
 
 
 def _normalise_argv(argv: list[str]) -> list[str]:
-    return _normalise_armory_shortcut(_normalise_tui_alias(argv))
+    if not argv or argv[0] not in ("--tui", "-tui"):
+        return _normalise_armory_shortcut(argv)
+    rest = argv[1:]
+    if rest and rest[0] in ("help", "-h", "--help"):
+        return _normalise_armory_shortcut(["tui", "--help", *rest[1:]])
+    return _normalise_armory_shortcut(["tui", *rest])
 
 
 def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
@@ -585,15 +509,6 @@ def run_argv(parser: argparse.ArgumentParser, argv: list[str]) -> None:
     handler(args)
 
 
-def _increment_session_count() -> None:
-    """Bump the persisted session count (used for progressive keybind hints)."""
-    settings_mod = importlib.import_module("hephaistos.parameters.settings")
-    settings = settings_mod.load_raw_settings()
-    count = int(settings.get("session_count", 0) or 0) + 1  # ty:ignore[invalid-argument-type]
-    settings["session_count"] = count
-    settings_mod.save_raw_settings(settings)
-
-
 def main() -> None:
     _maybe_reexec_source_venv()
 
@@ -602,10 +517,15 @@ def main() -> None:
 
     analytics.init_analytics()
     diagnostics.init_diagnostics()
-    _emit_runtime_diagnostics()
+    for message in _runtime_diagnostic_messages():
+        print(message, file=sys.stderr)
 
     # Track session count for progressive keybind hints.
-    _increment_session_count()
+    settings_mod = importlib.import_module("hephaistos.parameters.settings")
+    settings = settings_mod.load_raw_settings()
+    count = int(settings.get("session_count", 0) or 0) + 1  # ty:ignore[invalid-argument-type]
+    settings["session_count"] = count
+    settings_mod.save_raw_settings(settings)
 
     # Detect profile flags before argparse (so profiling covers argparse itself)
     _profile = "--profile" in sys.argv[1:]
@@ -627,31 +547,29 @@ def main() -> None:
 
         # If the first non-flag arg isn't a known subcommand (e.g. a path),
         # transparently inject the default interface subcommand so `heph /my/armory` just works.
-        known_commands = _get_subcommand_names(parser)
+        known_commands: set[str] = set()
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                known_commands = set(action.choices.keys())
+                break
         argv = _inject_default_subcommand(argv, known_commands)
 
         run_argv(parser, argv)
     finally:
         if _profile_memory:
-            _report_memory()
+            tracemalloc = importlib.import_module("tracemalloc")
+            snapshot = tracemalloc.take_snapshot()
+            tracemalloc.stop()
+            top = snapshot.statistics("lineno")[:20]
+            sys.stderr.write("\n=== Memory Profile (top 20) ===\n")
+            for stat in top:
+                sys.stderr.write(f"  {stat}\n")
+            sys.stderr.write("\n")
         if _profile and _prof is not None:
             _prof.disable()
             _report_profile(_prof)
         analytics.shutdown_analytics()
         diagnostics.shutdown_diagnostics()
-
-
-def _report_memory() -> None:
-    """Print top memory allocations from tracemalloc."""
-    tracemalloc = importlib.import_module("tracemalloc")
-
-    snapshot = tracemalloc.take_snapshot()
-    tracemalloc.stop()
-    top = snapshot.statistics("lineno")[:20]
-    sys.stderr.write("\n=== Memory Profile (top 20) ===\n")
-    for stat in top:
-        sys.stderr.write(f"  {stat}\n")
-    sys.stderr.write("\n")
 
 
 def _report_profile(prof: object) -> None:

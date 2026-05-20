@@ -1,28 +1,4 @@
-"""Memory system: extract and persist learned concepts per armory.
-
-The memory system ensures the agent does NOT repeat information the user
-has already extracted or studied.  It works by:
-
-1. **Extraction**: After each exchange, key concepts/facts are extracted
-   from the conversation and stored as memory entries.
-2. **Injection**: Before each LLM call, relevant memory entries are
-   injected into the system prompt so the agent knows what's been covered.
-3. **Deduplication**: New extractions are compared against existing memory
-   to avoid storing duplicates.
-
-Memory entries are stored per-armory in ``.hephaistos/memory.json`` and
-carry:
-- ``topic``: what this memory is about
-- ``content``: the learned fact/concept
-- ``source``: where it came from (document name, conversation, web)
-- ``confidence``: "extracted" (from docs), "discussed" (from conversation),
-  or "verified" (confirmed by user)
-- ``created_at``: when it was stored
-- ``access_count``: how many times it's been referenced (for relevance decay)
-
-This is NOT a vector store — it's a structured knowledge base optimized
-for a document workspace that needs to know what the user already understands.
-"""
+"""Armory-scoped learning memory."""
 
 from __future__ import annotations
 
@@ -42,8 +18,6 @@ _MEMORY_FILE = "memory.json"
 
 
 class MemoryEntryPayload(TypedDict):
-    """Serialized representation of a memory entry."""
-
     topic: str
     content: str
     source: str
@@ -61,10 +35,13 @@ def _normalize_tags(value: object) -> list[str]:
     return [tag for tag in value if isinstance(tag, str)]
 
 
+def _string_field(data: Mapping[str, object], key: str, default: str = "") -> str:
+    value = data.get(key, default)
+    return value if isinstance(value, str) else default
+
+
 @dataclass
 class MemoryEntry:
-    """A single learned concept or fact."""
-
     topic: str
     content: str
     source: str = ""
@@ -90,23 +67,15 @@ class MemoryEntry:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> MemoryEntry:
-        raw_topic = data.get("topic", "")
-        topic = raw_topic if isinstance(raw_topic, str) else ""
-        raw_content = data.get("content", "")
-        content = raw_content if isinstance(raw_content, str) else ""
-        raw_source = data.get("source", "")
-        source = raw_source if isinstance(raw_source, str) else ""
-        raw_confidence = data.get("confidence", "discussed")
-        confidence = raw_confidence if isinstance(raw_confidence, str) else "discussed"
         raw_created_at = data.get("created_at", 0.0)
         created_at = float(raw_created_at) if isinstance(raw_created_at, int | float) else 0.0
         raw_access_count = data.get("access_count", 0)
         access_count = raw_access_count if isinstance(raw_access_count, int) else 0
         return cls(
-            topic=topic,
-            content=content,
-            source=source,
-            confidence=confidence,
+            topic=_string_field(data, "topic"),
+            content=_string_field(data, "content"),
+            source=_string_field(data, "source"),
+            confidence=_string_field(data, "confidence", "discussed"),
             created_at=created_at,
             access_count=access_count,
             tags=_normalize_tags(data.get("tags", [])),
@@ -114,12 +83,6 @@ class MemoryEntry:
 
 
 class MemoryStore:
-    """Persistent memory store for an armory.
-
-    Stores learned concepts, tracks what the user has already covered,
-    and prevents the agent from repeating information.
-    """
-
     def __init__(self, armory_path: Path) -> None:
         self.armory_path = armory_path
         self.entries: list[MemoryEntry] = []
@@ -130,7 +93,6 @@ class MemoryStore:
         return self.armory_path / ".hephaistos" / _MEMORY_FILE
 
     def load(self) -> bool:
-        """Load memory from disk. Returns False if no memory file exists."""
         if not self._path.is_file():
             return False
         try:
@@ -165,7 +127,6 @@ class MemoryStore:
             return False
 
     def save(self) -> Path:
-        """Persist memory to disk."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 1,
@@ -189,7 +150,6 @@ class MemoryStore:
         return self._path
 
     def topics_covered(self) -> list[str]:
-        """Return all topics the user has already studied."""
         return [e.topic for e in self.entries if e.topic]
 
     def add(
@@ -201,7 +161,6 @@ class MemoryStore:
         confidence: str = "discussed",
         tags: list[str] | None = None,
     ) -> MemoryEntry | None:
-        """Add a memory entry. Returns None if it duplicates an existing entry."""
         topic_lower = topic.lower().strip()
 
         for existing in self.entries:
@@ -252,23 +211,14 @@ class MemoryStore:
         source: str = "",
         confidence: str = "discussed",
     ) -> int:
-        """Add multiple entries at once. Returns the number actually added."""
         added = 0
         for entry in entries:
-            raw_topic = entry.get("topic", "")
-            topic = raw_topic if isinstance(raw_topic, str) else ""
-            raw_content = entry.get("content", "")
-            content = raw_content if isinstance(raw_content, str) else ""
-            raw_source = entry.get("source", source)
-            entry_source = raw_source if isinstance(raw_source, str) else source
-            raw_confidence = entry.get("confidence", confidence)
-            entry_confidence = raw_confidence if isinstance(raw_confidence, str) else confidence
             tags = _normalize_tags(entry.get("tags", []))
             result = self.add(
-                topic=topic,
-                content=content,
-                source=entry_source,
-                confidence=entry_confidence,
+                topic=_string_field(entry, "topic"),
+                content=_string_field(entry, "content"),
+                source=_string_field(entry, "source", source),
+                confidence=_string_field(entry, "confidence", confidence),
                 tags=tags,
             )
             if result is not None:
@@ -276,11 +226,6 @@ class MemoryStore:
         return added
 
     def build_system_context(self, *, max_entries: int = 20, max_chars: int = 3000) -> str:
-        """Build a system-prompt section summarizing what the user already knows.
-
-        This is injected into the system prompt so the agent knows what's
-        been covered and avoids repeating it.
-        """
         if not self.entries:
             return ""
 
@@ -311,35 +256,14 @@ class MemoryStore:
         return header + "\n" + "\n".join(parts)
 
 
-from hephaistos.memory.supermemory import (  # noqa: E402
-    SupermemoryStore,
-    supermemory_configured,
-)
-
-
 def load_memory(armory_path: Path) -> MemoryStore:
-    """Load memory for an armory.
-
-    Uses Supermemory when an API key is available.  Falls back to the
-    local JSON store when the key is missing or the API is unreachable.
-    """
-    try:
-        if supermemory_configured():
-            store = SupermemoryStore(armory_path)
-            store.load()
-            return store
-    except Exception as exc:
-        _log.warning(
-            "supermemory unavailable, falling back to local memory",
-            extra={"fields": {"error": str(exc)}},
-        )
+    """Load local memory for an armory."""
     store = MemoryStore(armory_path)
     store.load()
     return store
 
 
 def save_memory(store: MemoryStore) -> Path:
-    """Save memory if it has changed."""
     if store._dirty:
         return store.save()
     return store._path
@@ -349,8 +273,6 @@ __all__ = [
     "MemoryEntry",
     "MemoryEntryPayload",
     "MemoryStore",
-    "SupermemoryStore",
     "load_memory",
     "save_memory",
-    "supermemory_configured",
 ]

@@ -20,8 +20,6 @@ _log = get_logger("runtime.prompt_cache")
 
 @dataclass(frozen=True, slots=True)
 class PromptSegment:
-    """One prompt-cache segment and its stable diagnostics."""
-
     name: Literal["stable_prefix", "dynamic_tail"]
     messages: tuple[ApiMessage, ...]
     fingerprint: str
@@ -31,14 +29,11 @@ class PromptSegment:
 
 @dataclass(frozen=True, slots=True)
 class PromptCacheRequest:
-    """A request split into cache-friendly stable prefix and dynamic tail."""
-
     stable_prefix: PromptSegment
     dynamic_tail: PromptSegment
 
     @property
     def messages(self) -> list[ApiMessage]:
-        """Return the model request messages in their original order."""
         return [*self.stable_prefix.messages, *self.dynamic_tail.messages]
 
     @property
@@ -47,19 +42,24 @@ class PromptCacheRequest:
 
 
 class StablePrefixBuilder:
-    """Build the provider-cacheable leading system-message prefix."""
-
     def build(self, messages: list[ApiMessage]) -> PromptSegment:
         prefix: list[ApiMessage] = []
         for message in messages:
-            if message.get("role") != "system" or _is_conversation_summary(message):
+            content = message.get("content")
+            is_summary = isinstance(content, str) and content.lstrip().startswith(
+                ("[Conversation summary]", "[Earlier conversation summary]")
+            )
+            if message.get("role") != "system" or is_summary:
                 break
             prefix.append(_copy_message(message))
         return _segment("stable_prefix", prefix)
 
     def build_request(self, messages: list[ApiMessage]) -> PromptCacheRequest:
         stable = self.build(messages)
-        dynamic = DynamicTailBuilder().build(messages, stable_prefix_messages=stable.message_count)
+        dynamic = _segment(
+            "dynamic_tail",
+            [_copy_message(message) for message in messages[stable.message_count :]],
+        )
         return PromptCacheRequest(stable_prefix=stable, dynamic_tail=dynamic)
 
 
@@ -71,31 +71,27 @@ def annotate_anthropic_cache_breakpoints(
     if ("claude" not in slug and "anthropic" not in slug) or not request.stable_prefix.messages:
         return request
     messages = [_copy_message(message) for message in request.stable_prefix.messages]
-    messages[-1] = _with_cache_control(messages[-1])
+    cached_message = messages[-1]
+    content = cached_message.get("content")
+    parts: list[ContentPart]
+    if isinstance(content, str):
+        parts = [{"type": "text", "text": content}]
+    elif isinstance(content, list):
+        parts = [cast("ContentPart", dict(part)) for part in content]
+    else:
+        parts = [{"type": "text", "text": ""}]
+    if not parts:
+        parts.append({"type": "text", "text": ""})
+    parts[-1]["cache_control"] = {"type": "ephemeral"}
+    cached_message["content"] = parts
+    messages[-1] = cached_message
     return PromptCacheRequest(
         stable_prefix=_segment("stable_prefix", messages),
         dynamic_tail=request.dynamic_tail,
     )
 
 
-class DynamicTailBuilder:
-    """Build the per-turn tail: user, assistant, tool, and summary messages."""
-
-    def build(
-        self,
-        messages: list[ApiMessage],
-        *,
-        stable_prefix_messages: int,
-    ) -> PromptSegment:
-        return _segment(
-            "dynamic_tail",
-            [_copy_message(message) for message in messages[stable_prefix_messages:]],
-        )
-
-
 class MetricsLogger:
-    """Log prompt-cache structure and usage without recording prompt text."""
-
     def record_request(self, request: PromptCacheRequest, *, model: str) -> None:
         _log.info(
             "prompt_cache_request",
@@ -133,31 +129,6 @@ def _copy_message(message: ApiMessage) -> ApiMessage:
     return cast("ApiMessage", copied)
 
 
-def _with_cache_control(message: ApiMessage) -> ApiMessage:
-    copied = _copy_message(message)
-    content = copied.get("content")
-    parts: list[ContentPart]
-    if isinstance(content, str):
-        parts = [{"type": "text", "text": content}]
-    elif isinstance(content, list):
-        parts = [cast("ContentPart", dict(part)) for part in content]
-    else:
-        parts = [{"type": "text", "text": ""}]
-    if not parts:
-        parts.append({"type": "text", "text": ""})
-    parts[-1]["cache_control"] = {"type": "ephemeral"}
-    copied["content"] = parts
-    return copied
-
-
-def _is_conversation_summary(message: ApiMessage) -> bool:
-    content = message.get("content")
-    if not isinstance(content, str):
-        return False
-    stripped = content.lstrip()
-    return stripped.startswith(("[Conversation summary]", "[Earlier conversation summary]"))
-
-
 def _segment(
     name: Literal["stable_prefix", "dynamic_tail"],
     messages: list[ApiMessage],
@@ -166,30 +137,14 @@ def _segment(
     return PromptSegment(
         name=name,
         messages=copied,
-        fingerprint=_fingerprint(copied),
+        fingerprint=hashlib.sha256(_canonical_json(list(copied)).encode("utf-8")).hexdigest()[:16],
         message_count=len(copied),
-        char_count=sum(_message_chars(message) for message in copied),
+        char_count=sum(len(_canonical_json(message)) for message in copied),
     )
 
 
-def _fingerprint(messages: tuple[ApiMessage, ...]) -> str:
-    encoded = json.dumps(
-        list(messages),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
-
-
-def _message_chars(message: ApiMessage) -> int:
-    encoded = json.dumps(
-        message,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return len(encoded)
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _metrics_fields(request: PromptCacheRequest, *, model: str) -> dict[str, object]:

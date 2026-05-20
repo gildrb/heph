@@ -29,6 +29,7 @@ SOURCE_DIR = REPO_ROOT / "hephaistos"
 # Known feature flags and their descriptions.
 # Update this set when adding new flags.
 KNOWN_FLAGS: dict[str, str] = {
+    "disable_memory_extraction": "Skip background memory extraction in benchmarks/tests",
     "priority_web_prereqs": "Allow /priority to enrich prerequisite hints via web search",
 }
 

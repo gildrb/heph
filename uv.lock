@@ -1046,7 +1046,7 @@ wheels = [
 ]
 
 [[package]]
-name = "hephaistos"
+name = "heph"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -1055,7 +1055,6 @@ dependencies = [
     { name = "keyring" },
     { name = "openai" },
     { name = "rich" },
-    { name = "supermemory" },
     { name = "textual" },
     { name = "unicodeit" },
 ]
@@ -1116,7 +1115,6 @@ requires-dist = [
     { name = "rich", specifier = ">=14.0.0" },
     { name = "scikit-learn", marker = "extra == 'embeddings'", specifier = ">=1.0.0" },
     { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=3.0.0" },
-    { name = "supermemory", specifier = ">=3.0.0" },
     { name = "textual", specifier = ">=6.0.0" },
     { name = "tiktoken", marker = "extra == 'rag'", specifier = ">=0.13.0" },
     { name = "unicodeit", specifier = ">=0.7.0" },
@@ -3576,23 +3574,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/6d/90764092216fa560f6587f83bb70113a8ba510ba436c6476a2b47359057c/stevedore-5.7.0.tar.gz", hash = "sha256:31dd6fe6b3cbe921e21dcefabc9a5f1cf848cf538a1f27543721b8ca09948aa3", size = 516200, upload-time = "2026-02-20T13:27:06.765Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/69/06/36d260a695f383345ab5bbc3fd447249594ae2fa8dfd19c533d5ae23f46b/stevedore-5.7.0-py3-none-any.whl", hash = "sha256:fd25efbb32f1abb4c9e502f385f0018632baac11f9ee5d1b70f88cc5e22ad4ed", size = 54483, upload-time = "2026-02-20T13:27:05.561Z" },
-]
-
-[[package]]
-name = "supermemory"
-version = "3.36.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "distro" },
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "sniffio" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/99/18/34676cade8db969c28816532941f57ffa5d5b985c72fb98d2f7f7cb89527/supermemory-3.36.0.tar.gz", hash = "sha256:1a74c32897920cff0ef2b21277faa7104e75a93f1b9846f07a2d6ac831830f87", size = 167959, upload-time = "2026-04-25T21:27:36.987Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/1f/b792e7d84a0d0a3499d28ad62c4553064a697a23a6be4f1e4c04b3b3b1b5/supermemory-3.36.0-py3-none-any.whl", hash = "sha256:1e21fc8d736fe5bb6851379c710d70544f45d1749a0b28be8ca6f6b29da8c892", size = 150903, upload-time = "2026-04-25T21:27:35.797Z" },
 ]
 
 [[package]]

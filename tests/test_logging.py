@@ -147,9 +147,10 @@ class TestGetLogger:
 
     def test_stderr_handler_added(self) -> None:
         get_logger("test")
-        root = logging.getLogger("hephaistos")
-        assert len(root.handlers) >= 1
-        assert isinstance(root.handlers[0], logging.StreamHandler)
+        hephaistos_logger = logging.getLogger("hephaistos")
+        assert len(hephaistos_logger.handlers) >= 1
+        assert isinstance(hephaistos_logger.handlers[0], logging.StreamHandler)
+        assert hephaistos_logger.propagate is False
 
     def test_file_handler_when_env_set(
         self,
@@ -159,26 +160,26 @@ class TestGetLogger:
         log_file = tmp_path / "test.log"
         monkeypatch.setenv("HEPHAISTOS_LOG_FILE", str(log_file))
         get_logger("test")
-        root = logging.getLogger("hephaistos")
-        assert any(isinstance(h, logging.FileHandler) for h in root.handlers)
+        hephaistos_logger = logging.getLogger("hephaistos")
+        assert any(isinstance(h, logging.FileHandler) for h in hephaistos_logger.handlers)
 
     def test_level_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HEPHAISTOS_LOG_LEVEL", "DEBUG")
         get_logger("test")
-        root = logging.getLogger("hephaistos")
-        assert root.level == logging.DEBUG
+        hephaistos_logger = logging.getLogger("hephaistos")
+        assert hephaistos_logger.level == logging.DEBUG
 
     def test_text_format_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HEPHAISTOS_LOG_FORMAT", "text")
         get_logger("test")
-        root = logging.getLogger("hephaistos")
-        assert isinstance(root.handlers[0].formatter, _TextFormatter)
+        hephaistos_logger = logging.getLogger("hephaistos")
+        assert isinstance(hephaistos_logger.handlers[0].formatter, _TextFormatter)
 
     def test_json_format_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("HEPHAISTOS_LOG_FORMAT", raising=False)
         get_logger("test")
-        root = logging.getLogger("hephaistos")
-        assert isinstance(root.handlers[0].formatter, _JsonFormatter)
+        hephaistos_logger = logging.getLogger("hephaistos")
+        assert isinstance(hephaistos_logger.handlers[0].formatter, _JsonFormatter)
 
     def test_file_logging(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         log_file = tmp_path / "output.log"
@@ -345,6 +346,6 @@ class TestLoggingIntegration:
         monkeypatch.setenv("HEPHAISTOS_LOG_LEVEL", "DEBUG")
         get_logger("module1")
         get_logger("module2")
-        root = logging.getLogger("hephaistos")
+        hephaistos_logger = logging.getLogger("hephaistos")
         # Both share the same root handler
-        assert len(root.handlers) == 1  # only stderr, no file
+        assert len(hephaistos_logger.handlers) == 1  # only stderr, no file

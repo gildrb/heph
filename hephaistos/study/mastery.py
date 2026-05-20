@@ -10,7 +10,6 @@ def next_recall_mastery(
     rating: StudyRecallRating,
     hint_level_needed: int | None,
 ) -> float:
-    """Return the next bounded mastery estimate after one recall attempt."""
     correctness = {
         StudyRecallRating.EASY: 1.0,
         StudyRecallRating.GOOD: 0.82,

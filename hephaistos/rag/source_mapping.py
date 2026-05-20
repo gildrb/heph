@@ -23,10 +23,8 @@ def resolve_source_path(armory_path: Path, source: str) -> Path:
     if source_path.is_absolute():
         raise SourceMappingError(f"Evidence source is not relative: {source}")
     resolved = (base / source_path).resolve()
-    try:
-        resolved.relative_to(base)
-    except ValueError as exc:
-        raise SourceMappingError(f"Evidence source escapes armory: {source}") from exc
+    if not resolved.is_relative_to(base):
+        raise SourceMappingError(f"Evidence source escapes armory: {source}")
     return resolved
 
 
@@ -68,7 +66,6 @@ def line_label(span: SourceLineSpan | None) -> str:
 
 
 def evidence_location_label(source: str, chunk: Chunk, span: SourceLineSpan | None) -> str:
-    """Return a reader-facing source location label without exposing chunk jargon."""
     if span is not None:
         return line_label(span)
 

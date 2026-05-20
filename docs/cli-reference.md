@@ -27,9 +27,6 @@
 | `heph chat list <path>` | List chat sessions in an armory. |
 | `heph start [path]` | Hidden backwards-compatible alias for `heph [path]`. |
 | `heph tui [path]` | Explicit alias for the default Textual TUI. |
-| `heph source list <path>` | Deprecated alias for `heph materials list <path>`. |
-| `heph source count <path>` | Deprecated alias for `heph materials count <path>`. |
-| `heph source index <path>` | Deprecated alias for `heph materials index <path>`. |
 
 `heph` is the canonical public command. `hephaistos` is an
 equivalent long entrypoint. `heph start [path]` stays available as
@@ -62,7 +59,7 @@ new docs.
 | /edit | Edit and resend the last user message |
 | /models | Pick the active model |
 | /recommend | Recommend models for sessions |
-| /memory | Manage armory memory and Supermemory setup |
+| /memory | Manage local armory memory |
 | /persona | Show or switch the agent persona |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |
@@ -95,6 +92,4 @@ new docs.
 | `HEPHAISTOS_TRUST_ARMORY_PLUGINS` | Allow trusted armories to load `.hephaistos/tools/*.py` plugins. |
 | `OPENAI_API_KEY` | API key for the OpenAI API provider. |
 | `OPENROUTER_API_KEY` | API key for OpenRouter. |
-| `SUPERMEMORY_API_KEY` | API key for Supermemory armory memory. |
-| `SUPERMEMORY_URL` | Override the Supermemory API base URL. |
 | `ZAI_API_KEY` | API key for Z.AI / GLM. |

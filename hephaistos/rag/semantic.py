@@ -26,15 +26,7 @@ def _chunk_model_text(source: str, heading: str, text: str) -> str:
     return "\n".join(parts)
 
 
-def _embedding_cache_key(model_name: str, document_prefix: str) -> str | None:
-    if not document_prefix:
-        return None
-    return f"{model_name}\ndocument_prefix={document_prefix}"
-
-
 class EmbeddingRetriever:
-    """Dense vector retriever using sentence-transformers embeddings."""
-
     def __init__(
         self,
         index: ArmoryIndex,
@@ -52,7 +44,6 @@ class EmbeddingRetriever:
         self._model: SentenceTransformerProtocol | None = None
 
     def _ensure_model(self) -> SentenceTransformerProtocol:
-        """Lazy-load the sentence-transformers model."""
         if self._model is not None:
             return self._model
         factory = optional_backends.sentence_transformer()
@@ -62,7 +53,6 @@ class EmbeddingRetriever:
         return self._model
 
     def _ensure_embeddings(self) -> list[list[float]]:
-        """Build chunk embeddings if not yet computed."""
         if self._embeddings is not None:
             return self._embeddings
 
@@ -70,7 +60,11 @@ class EmbeddingRetriever:
             self._embeddings = []
             return self._embeddings
 
-        cache_key = _embedding_cache_key(self._model_name, self._document_prefix)
+        cache_key = (
+            f"{self._model_name}\ndocument_prefix={self._document_prefix}"
+            if self._document_prefix
+            else None
+        )
         cached = self._index.load_embeddings(self._model_name, cache_key=cache_key)
         if cached is not None and len(cached) == len(self._chunks):
             self._embeddings = cached
@@ -96,7 +90,6 @@ class EmbeddingRetriever:
         return self._embeddings
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
-        """Return the top-k chunks by embedding cosine similarity."""
         if not self._chunks:
             return []
 
@@ -120,19 +113,15 @@ class EmbeddingRetriever:
 
 
 class CrossEncoderReranker:
-    """Cross-encoder re-ranker for improved retrieval precision."""
-
     def __init__(self, model_name: str | None = None) -> None:
         self._model_name = model_name or os.environ.get(_RERANK_MODEL_ENV, _RERANK_MODEL_DEFAULT)
         self._model: CrossEncoderProtocol | None = None
 
     @property
     def model_name(self) -> str:
-        """Name of the cross-encoder model."""
         return self._model_name
 
     def _ensure_model(self) -> CrossEncoderProtocol:
-        """Lazy-load the CrossEncoder model."""
         if self._model is not None:
             return self._model
         factory = optional_backends.cross_encoder()
@@ -147,7 +136,6 @@ class CrossEncoderReranker:
         candidates: list[ScoredChunk],
         top_k: int = 5,
     ) -> list[ScoredChunk]:
-        """Re-score candidates with the cross-encoder and return top_k."""
         if not candidates:
             return []
 

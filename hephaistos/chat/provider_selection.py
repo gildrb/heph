@@ -16,7 +16,6 @@ def activate_provider_for_session(
     session: ChatSession,
     slug: str,
 ) -> Provider:
-    """Activate a provider, persist it, and apply it to a chat session."""
     provider = activate_provider_config(pc, slug)
     pc.apply_to_config(session.config)
     pc.save()

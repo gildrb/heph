@@ -6,10 +6,10 @@ import pytest
 
 import hephaistos.commands.auth as _commands_auth
 from hephaistos import commands
-from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.oauth import OAuthCredentials
+from hephaistos.runtime import ChatConfig, Conversation
 
 
 def test_login_switches_active_provider(monkeypatch: pytest.MonkeyPatch) -> None:

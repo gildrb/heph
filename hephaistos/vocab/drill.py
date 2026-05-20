@@ -9,8 +9,8 @@ from typing import Protocol
 
 from hephaistos.logging import get_logger
 from hephaistos.vocab.parser import scan_armory
-from hephaistos.vocab.scheduler import Rating, ScheduleResult, schedule_card, select_due_cards
-from hephaistos.vocab.state import VocabCardState, load_schedule, save_schedule
+from hephaistos.vocab.scheduler import Rating, schedule_card, select_due_cards
+from hephaistos.vocab.state import load_schedule, save_schedule
 
 _log = get_logger("vocab.drill")
 
@@ -33,16 +33,10 @@ class DrillUi(Protocol):
 
 @dataclass(slots=True)
 class DrillResult:
-    """Summary of a completed drill session."""
-
     cards_reviewed: int = 0
     hard_count: int = 0
     good_count: int = 0
     easy_count: int = 0
-
-    @property
-    def total(self) -> int:
-        return self.hard_count + self.good_count + self.easy_count
 
 
 def _format_interval(days: int) -> str:
@@ -59,41 +53,7 @@ def _format_interval(days: int) -> str:
     return f"{days // 365} year{'s' if days // 365 != 1 else ''}"
 
 
-def _answers_match(user_answer: str, correct_answer: str) -> bool:
-    """Case-insensitive fuzzy match for answer comparison."""
-    user = user_answer.strip().lower()
-    correct = correct_answer.strip().lower()
-    return user == correct or user in correct or correct in user
-
-
-def _apply_schedule(state: VocabCardState, result: ScheduleResult) -> VocabCardState:
-    """Apply a schedule result to a card state and advance timestamps."""
-    now = datetime.now(UTC)
-    state.repetitions = result.repetitions
-    state.easiness = result.easiness
-    state.interval = result.interval_days
-    state.last_review = now
-    state.next_review = now + timedelta(days=result.interval_days)
-    return state
-
-
-def _print_header(ui: DrillUi, card_num: int, total: int) -> None:
-    ui.print_line()
-    ui.print_line(ui.format_dim(f"  -- Card {card_num}/{total} --"))
-    ui.print_line()
-
-
-def _show_answer_comparison(ui: DrillUi, user_answer: str, correct_answer: str) -> None:
-    ui.print_line()
-    match = _answers_match(user_answer, correct_answer)
-    formatted_answer = ui.format_prompt(user_answer) if match else ui.format_dim(user_answer)
-    ui.print_line(f"  Your answer:    {formatted_answer}")
-    ui.print_line(f"  Correct answer: {ui.format_accent(correct_answer)}")
-    ui.print_line()
-
-
 def run_drill(armory_path: Path, ui: DrillUi, *, card_limit: int = 0) -> DrillResult | None:
-    """Run an interactive vocabulary drill session."""
     deck = scan_armory(armory_path)
     store = load_schedule(armory_path)
     new_cards = store.sync_with_deck(deck)
@@ -136,7 +96,9 @@ def run_drill(armory_path: Path, ui: DrillUi, *, card_limit: int = 0) -> DrillRe
     result = DrillResult()
 
     for i, card_state in enumerate(due):
-        _print_header(ui, i + 1, total_due)
+        ui.print_line()
+        ui.print_line(ui.format_dim(f"  -- Card {i + 1}/{total_due} --"))
+        ui.print_line()
         ui.print_line(f"  {ui.format_prompt('Word:')}   {card_state.front}")
 
         try:
@@ -150,7 +112,14 @@ def run_drill(armory_path: Path, ui: DrillUi, *, card_limit: int = 0) -> DrillRe
             ui.print_line(ui.format_dim("  (skipped)"))
             continue
 
-        _show_answer_comparison(ui, user_answer, card_state.back)
+        ui.print_line()
+        user = user_answer.strip().lower()
+        correct = card_state.back.strip().lower()
+        match = user == correct or user in correct or correct in user
+        formatted_answer = ui.format_prompt(user_answer) if match else ui.format_dim(user_answer)
+        ui.print_line(f"  Your answer:    {formatted_answer}")
+        ui.print_line(f"  Correct answer: {ui.format_accent(card_state.back)}")
+        ui.print_line()
 
         rating = ui.prompt_rating()
         if rating is None:
@@ -158,7 +127,12 @@ def run_drill(armory_path: Path, ui: DrillUi, *, card_limit: int = 0) -> DrillRe
             break
 
         schedule_result = schedule_card(card_state, rating)
-        _apply_schedule(card_state, schedule_result)
+        review_time = datetime.now(UTC)
+        card_state.repetitions = schedule_result.repetitions
+        card_state.easiness = schedule_result.easiness
+        card_state.interval = schedule_result.interval_days
+        card_state.last_review = review_time
+        card_state.next_review = review_time + timedelta(days=schedule_result.interval_days)
         store.update_card(card_state)
 
         result.cards_reviewed += 1
@@ -174,40 +148,29 @@ def run_drill(armory_path: Path, ui: DrillUi, *, card_limit: int = 0) -> DrillRe
         ui.print_line()
 
     save_schedule(store)
-    _print_summary(ui, store.card_list, result)
-    _log_result(result)
-    return result
+    if result.cards_reviewed > 0:
+        ui.print_line()
+        ui.print_line(ui.format_prompt("  -- Session Complete --"))
+        ui.print_line(f"  Reviewed: {result.cards_reviewed} cards")
+        ui.print_line(
+            f"  Hard: {result.hard_count} | Good: {result.good_count} | Easy: {result.easy_count}"
+        )
 
-
-def _print_summary(ui: DrillUi, cards: list[VocabCardState], result: DrillResult) -> None:
-    if result.cards_reviewed <= 0:
-        return
-
-    ui.print_line()
-    ui.print_line(ui.format_prompt("  -- Session Complete --"))
-    ui.print_line(f"  Reviewed: {result.cards_reviewed} cards")
-    summary = (
-        f"  Hard: {result.hard_count} | Good: {result.good_count} | Easy: {result.easy_count}"
-    )
-    ui.print_line(summary)
-
-    remaining_due = select_due_cards(cards)
-    if remaining_due:
-        ui.print_line(f"  Next session: ~{len(remaining_due)} cards due")
-        return
-
-    soonest = min(
-        (card.next_review for card in cards if card.next_review is not None),
-        default=None,
-    )
-    if soonest:
-        days_ahead = max(0, (soonest - datetime.now(UTC)).days)
-        ui.print_line(f"  All caught up! Next review in ~{_format_interval(max(1, days_ahead))}")
-    else:
-        ui.print_line("  All cards reviewed!")
-
-
-def _log_result(result: DrillResult) -> None:
+        remaining_due = select_due_cards(store.card_list)
+        if remaining_due:
+            ui.print_line(f"  Next session: ~{len(remaining_due)} cards due")
+        else:
+            soonest = min(
+                (card.next_review for card in store.card_list if card.next_review is not None),
+                default=None,
+            )
+            if soonest:
+                days_ahead = max(0, (soonest - datetime.now(UTC)).days)
+                ui.print_line(
+                    f"  All caught up! Next review in ~{_format_interval(max(1, days_ahead))}"
+                )
+            else:
+                ui.print_line("  All cards reviewed!")
     _log.info(
         "drill session complete",
         extra={
@@ -219,3 +182,4 @@ def _log_result(result: DrillResult) -> None:
             }
         },
     )
+    return result

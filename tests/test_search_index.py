@@ -16,13 +16,6 @@ from hephaistos.armory.search import (
     remove_known_armory,
 )
 from hephaistos.armory.storage import initialize
-from hephaistos.parameters.settings import invalidate_settings_cache
-
-
-@pytest.fixture(autouse=True)
-def _clear_settings_cache() -> None:
-    """Ensure settings cache is clean between tests."""
-    invalidate_settings_cache()
 
 
 def _make_material_file(armory: Path, name: str, content: str) -> Path:

@@ -29,7 +29,6 @@ class TuiInputRoute(Enum):
 
 
 def pending_input_requires_terminal(value: str) -> bool:
-    """Return True when a shared slash command should own the real terminal."""
     stripped = value.strip()
     if not stripped.startswith("/"):
         return False
@@ -40,8 +39,6 @@ def pending_input_requires_terminal(value: str) -> bool:
 
     if command_name in {"login", "logout", "settings"}:
         return False
-    if command_name == "memory":
-        return arg_text.lower().startswith("setup")
     if command_name == "persona":
         return not arg_text
     if command_name == "vocab":
@@ -51,25 +48,17 @@ def pending_input_requires_terminal(value: str) -> bool:
 
 
 def is_armory_command(value: str) -> bool:
-    """Return True when *value* is a /armory command handled inline by the TUI."""
     stripped = value.strip().lower()
     return stripped == "/armory" or stripped.startswith("/armory ")
 
 
-def is_sessions_command(value: str) -> bool:
-    """Return True when *value* is a saved-session command handled inline."""
-    stripped = value.strip().lower()
-    return stripped == "/sessions" or stripped.startswith("/sessions ")
-
-
 def tui_input_route(value: str) -> TuiInputRoute:
-    """Classify submitted TUI input before dispatching side effects."""
     stripped = value.strip()
     if not stripped:
         return TuiInputRoute.EMPTY
     if stripped == "/materials" or stripped.startswith("/materials "):
         return TuiInputRoute.MATERIALS
-    if is_sessions_command(stripped):
+    if stripped == "/sessions" or stripped.startswith("/sessions "):
         return TuiInputRoute.SESSIONS
     if stripped == "/new":
         return TuiInputRoute.NEW

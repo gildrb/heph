@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -77,11 +78,6 @@ ALLOWED_DYNAMIC_IMPORT_CALLS: Final[dict[str, frozenset[str]]] = {
             "importlib.util.spec_from_file_location",
         }
     ),
-    "hephaistos/source/cli.py": frozenset(
-        {
-            "importlib.import_module",
-        }
-    ),
     "hephaistos/parameters/cli.py": frozenset(
         {
             "importlib.import_module",
@@ -131,11 +127,6 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
         {
             "hephaistos.chat.events",
             "hephaistos.chat.orchestrator",
-        }
-    ),
-    "hephaistos/memory/supermemory.py": frozenset(
-        {
-            "supermemory",
         }
     ),
     "hephaistos/runtime/engine.py": frozenset(
@@ -338,7 +329,7 @@ class PolicyVisitor(ast.NodeVisitor):
             return False
         return True
 
-    def _deferred_import_is_allowed(self, modules: list[str | None]) -> bool:
+    def _deferred_import_is_allowed(self, modules: Sequence[str | None]) -> bool:
         allowed = ALLOWED_DEFERRED_IMPORT_MODULES.get(self.rel_path, frozenset())
         return bool(allowed) and all(_module_is_allowed(module, allowed) for module in modules)
 

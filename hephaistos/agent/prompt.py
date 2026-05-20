@@ -153,8 +153,6 @@ _CUSTOM_PROMPT_FILE = Path(".hephaistos/system_prompt.md")
 
 @dataclass(frozen=True, slots=True)
 class SystemPrompt:
-    """Structured system prompt sections."""
-
     role: str
     study_loop: str
     verification_first: str
@@ -185,7 +183,6 @@ class SystemPrompt:
 
 
 def render_tool_docs(schemas: list[ToolSchema]) -> str:
-    """Render Markdown tool documentation from OpenAI-compatible schemas."""
     lines = [
         "## Tools",
         "",
@@ -203,43 +200,6 @@ def render_tool_docs(schemas: list[ToolSchema]) -> str:
     return "\n".join(lines)
 
 
-def _material_role_summary(source_files: list[str]) -> str:
-    """Render cheap material role hints for the model."""
-    counts: dict[MaterialRole, int] = {}
-    examples: dict[MaterialRole, str] = {}
-    for rel_path in source_files:
-        role, _confidence, _reason = infer_material_role(rel_path)
-        counts[role] = counts.get(role, 0) + 1
-        examples.setdefault(role, rel_path)
-    if not counts:
-        return ""
-    lines = ["Material role hints:"]
-    for role, count in sorted(counts.items()):
-        label = role.replace("_", " ")
-        example = examples[role]
-        plural = "s" if count != 1 else ""
-        lines.append(f"  - {label}: {count} file{plural}; e.g. {example}")
-    return "\n".join(lines)
-
-
-def _load_custom_prompt(armory_path: Path) -> str | None:
-    """Load a custom system prompt from the armory, if one exists.
-
-    Looks for ``.hephaistos/system_prompt.md`` in the armory root.
-    Returns its contents stripped, or ``None`` if the file is absent.
-    """
-    prompt_file = armory_path / _CUSTOM_PROMPT_FILE
-    if prompt_file.is_file():
-        content = prompt_file.read_text(encoding="utf-8").strip()
-        if content:
-            _log.info(
-                "using custom system prompt",
-                extra={"fields": {"armory": str(armory_path), "file": str(_CUSTOM_PROMPT_FILE)}},
-            )
-            return content
-    return None
-
-
 def build_system_prompt_sections(
     *,
     armory_path: Path | None = None,
@@ -250,34 +210,6 @@ def build_system_prompt_sections(
     persona: Persona | None = None,
     registry: ToolRegistry | None = None,
 ) -> SystemPrompt:
-    """Build structured system prompt sections.
-
-    Parameters
-    ----------
-    armory_path :
-        Path to the armory workspace (for context and custom prompt).
-    source_files :
-        List of material file names available in the armory.
-    extraction_health_issues :
-        Indexed documents with generic extraction poison markers.  These are
-        corpus-quality failures, independent of subject, university, or language.
-    memory_context :
-        Pre-built memory context string (from MemoryStore.build_system_context).
-    persona :
-        The active persona.  Falls back to the default drill persona.
-
-    Returns
-    -------
-    str
-        The complete system prompt.
-
-    Notes
-    -----
-    If the armory contains ``.hephaistos/system_prompt.md``, its contents
-        replace the hardcoded core role and recall loop sections.  This lets an
-    armory define its own persona (quiz mode, debate mode, etc.) without
-    touching Python code.
-    """
     if persona is None:
         persona = _DEFAULT_PERSONA
     date = datetime.now(UTC).strftime("%Y-%m-%d")
@@ -286,10 +218,18 @@ def build_system_prompt_sections(
     role = persona.role_block
     study_loop = _STUDY_LOOP
     if armory_path is not None:
-        custom = _load_custom_prompt(armory_path)
-        if custom is not None:
-            role = custom
-            study_loop = ""
+        custom_prompt_file = armory_path / _CUSTOM_PROMPT_FILE
+        if custom_prompt_file.is_file():
+            custom_prompt = custom_prompt_file.read_text(encoding="utf-8").strip()
+            if custom_prompt:
+                _log.info(
+                    "using custom system prompt",
+                    extra={
+                        "fields": {"armory": str(armory_path), "file": str(_CUSTOM_PROMPT_FILE)}
+                    },
+                )
+                role = custom_prompt
+                study_loop = ""
 
     tool_registry = default_registry if registry is None else registry
     tool_docs = render_tool_docs(tool_registry.schemas)
@@ -301,9 +241,21 @@ def build_system_prompt_sections(
         if source_files:
             file_list = "\n".join(f"  - {f}" for f in source_files[:50])
             context_parts.append(f"Available material files:\n{file_list}")
-            role_summary = _material_role_summary(source_files)
-            if role_summary:
-                context_parts.append(role_summary)
+            role_counts: dict[MaterialRole, int] = {}
+            role_examples: dict[MaterialRole, str] = {}
+            for rel_path in source_files:
+                material_role, _confidence, _reason = infer_material_role(rel_path)
+                role_counts[material_role] = role_counts.get(material_role, 0) + 1
+                role_examples.setdefault(material_role, rel_path)
+            if role_counts:
+                role_lines = ["Material role hints:"]
+                for material_role, count in sorted(role_counts.items()):
+                    label = material_role.replace("_", " ")
+                    plural = "s" if count != 1 else ""
+                    role_lines.append(
+                        f"  - {label}: {count} file{plural}; e.g. {role_examples[material_role]}"
+                    )
+                context_parts.append("\n".join(role_lines))
         if unindexable_files:
             lines = ["WARNING: The following files could not be indexed for retrieval:"]
             for rel, reason in sorted(unindexable_files.items()):
@@ -354,8 +306,6 @@ def build_system_prompt(
     persona: Persona | None = None,
     registry: ToolRegistry | None = None,
 ) -> str:
-    """Build the complete system prompt."""
-
     return build_system_prompt_sections(
         armory_path=armory_path,
         source_files=source_files,

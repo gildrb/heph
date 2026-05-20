@@ -17,10 +17,8 @@ from pathlib import Path
 
 from hephaistos.logging import Timer, get_logger
 
-_log = get_logger("agent.mutation_queue")
-
-# Type for mutation functions: takes kwargs, returns result string
 MutationFn = Callable[..., str]
+_log = get_logger("agent.mutation_queue")
 
 
 class FileMutationQueue:
@@ -36,35 +34,15 @@ class FileMutationQueue:
         self._pending: int = 0
         self._pending_lock = threading.Lock()
 
-    def _get_lock(self, path: Path) -> threading.Lock:
-        """Get (or create) a lock for a specific file path."""
-        key = str(path.resolve())
-        with self._global_lock:
-            return self._locks[key]
-
     def execute(
         self,
         path: Path,
         fn: MutationFn,
         **kwargs: object,
     ) -> str:
-        """Execute a file mutation under a per-file lock.
-
-        Parameters
-        ----------
-        path :
-            The target file path (used as the lock key).
-        fn :
-            The mutation function to call. Receives **kwargs.
-        **kwargs :
-            Arguments passed through to fn.
-
-        Returns
-        -------
-        str
-            The result from fn.
-        """
-        lock = self._get_lock(path)
+        key = str(path.resolve())
+        with self._global_lock:
+            lock = self._locks[key]
 
         with self._pending_lock:
             self._pending += 1
@@ -103,7 +81,6 @@ class FileMutationQueue:
         return result
 
     def clear(self) -> None:
-        """Remove all cached locks (for testing / cleanup)."""
         with self._global_lock:
             self._locks.clear()
 
@@ -113,7 +90,6 @@ _queues_lock = threading.Lock()
 
 
 def get_queue(workspace: Path) -> FileMutationQueue:
-    """Get or create a mutation queue for a workspace."""
     key = str(workspace.resolve())
     with _queues_lock:
         if key not in _queues:

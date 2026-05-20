@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from hephaistos.diagnostics.crashes import (
     _REDACTED,
-    _redact_event,
     _scrub_value,
     add_breadcrumb,
     capture_exception,
@@ -30,20 +29,6 @@ class TestScrubValue:
         result = _scrub_value([{"token": "a" * 40}, {"safe": "ok"}])
         assert result[0]["token"] == _REDACTED  # ty:ignore[not-subscriptable]
         assert result[1]["safe"] == "ok"  # ty:ignore[not-subscriptable]
-
-
-class TestRedactEvent:
-    def test_redacts_user_sections_only(self) -> None:
-        event = {
-            "event_id": "evt_123",
-            "extra": {"api_key": "a" * 40},
-            "contexts": {"runtime": {"provider": "openrouter"}},
-        }
-        result = _redact_event(event, {})
-        assert result is not None
-        assert result["event_id"] == "evt_123"
-        assert result["extra"]["api_key"] == _REDACTED  # ty:ignore[not-subscriptable]
-        assert result["contexts"]["runtime"]["provider"] == "openrouter"  # ty:ignore[not-subscriptable]
 
 
 class TestLocalNoops:

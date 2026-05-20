@@ -55,12 +55,6 @@ def hydrate_provider_models(
     allow_network: bool = False,
     provider_slugs: set[str] | None = None,
 ) -> None:
-    """Update provider model lists from cached live catalogs when available.
-
-    The default path never waits on the network. If a live catalog is stale or missing,
-    a daemon refresh is scheduled and the caller keeps the static/stale model list.
-    Pass ``allow_network=True`` only from a worker or an explicitly blocking command.
-    """
     if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
         return
 
@@ -87,7 +81,6 @@ def prefetch_provider_model_catalogs(
     *,
     provider_slugs: set[str] | None = None,
 ) -> None:
-    """Start live model catalog refreshes without blocking the caller."""
     if os.environ.get(_DISABLE_LIVE_CATALOG_ENV, "").strip():
         return
 
@@ -98,7 +91,6 @@ def prefetch_provider_model_catalogs(
 
 
 def invalidate_catalog_cache() -> None:
-    """Clear live catalog cache, mostly for tests."""
     with _catalog_lock:
         _catalog_cache.clear()
         _catalog_refreshing.clear()
@@ -221,11 +213,11 @@ def _openrouter_model_info(raw_model: object) -> ModelInfo | None:
     if not _is_text_output_model(raw_model):
         return None
 
-    pricing = _mapping_field(raw_model, "pricing")
-    top_provider = _mapping_field(raw_model, "top_provider")
+    pricing = _mapping_field(raw_model, "pricing") or {}
+    top_provider = _mapping_field(raw_model, "top_provider") or {}
 
-    prompt_price = _price_per_1k(pricing.get("prompt") if pricing is not None else None)
-    completion_price = _price_per_1k(pricing.get("completion") if pricing is not None else None)
+    prompt_price = _price_per_1k(pricing.get("prompt"))
+    completion_price = _price_per_1k(pricing.get("completion"))
     context_window = _int_field(raw_model, "context_length") or _int_field(
         top_provider, "context_length"
     )
@@ -235,10 +227,8 @@ def _openrouter_model_info(raw_model: object) -> ModelInfo | None:
     if prompt_price == 0.0 and completion_price == 0.0:
         tags.append("free")
     supported_parameters = raw_model.get("supported_parameters")
-    if is_object_list(supported_parameters) and "reasoning" in supported_parameters:
-        tags.append("reasoning")
-    if is_object_list(supported_parameters) and "tools" in supported_parameters:
-        tags.append("tools")
+    if is_object_list(supported_parameters):
+        tags.extend(tag for tag in ("reasoning", "tools") if tag in supported_parameters)
 
     return ModelInfo(
         name=model_id,
@@ -265,9 +255,7 @@ def _is_text_output_model(raw_model: dict[str, object]) -> bool:
 
 
 def _mapping_field(raw: dict[str, object] | None, key: str) -> dict[str, object] | None:
-    if raw is None:
-        return None
-    value = raw.get(key)
+    value = raw.get(key) if raw is not None else None
     return value if is_string_mapping(value) else None
 
 
@@ -276,9 +264,7 @@ def _string_field(raw: dict[str, object], key: str) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _int_field(raw: dict[str, object] | None, key: str) -> int:
-    if raw is None:
-        return 0
+def _int_field(raw: dict[str, object], key: str) -> int:
     value = raw.get(key)
     if isinstance(value, int):
         return value
@@ -288,11 +274,9 @@ def _int_field(raw: dict[str, object] | None, key: str) -> int:
 
 
 def _price_per_1k(value: object) -> float:
-    if isinstance(value, int | float):
-        return float(value) * 1000
     if isinstance(value, str):
         try:
             return float(value) * 1000
         except ValueError:
             return 0.0
-    return 0.0
+    return float(value) * 1000 if isinstance(value, int | float) else 0.0

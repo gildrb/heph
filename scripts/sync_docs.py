@@ -15,7 +15,6 @@ from hephaistos.cli.main import build_parser
 from hephaistos.commands import get_registry
 from hephaistos.logging import _LOG_FILE_ENV, _LOG_FORMAT_ENV, _LOG_LEVEL_ENV
 from hephaistos.memory.extract import _EXTRACTION_MODEL_ENV
-from hephaistos.memory.supermemory import SUPERMEMORY_API_KEY_ENV, SUPERMEMORY_URL_ENV
 from hephaistos.parameters import cli as parameters_cli
 from hephaistos.privacy.consent import (
     ANALYTICS_ENABLED_ENV,
@@ -124,8 +123,6 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "HEPHAISTOS_SENTRY_DSN": "Supply a Sentry DSN for a custom or forked build.",
     "OPENAI_API_KEY": "API key for the OpenAI API provider.",
     "OPENROUTER_API_KEY": "API key for OpenRouter.",
-    "SUPERMEMORY_API_KEY": "API key for Supermemory armory memory.",
-    "SUPERMEMORY_URL": "Override the Supermemory API base URL.",
     "ZAI_API_KEY": "API key for Z.AI / GLM.",
     "CUSTOM_API_KEY": "API key for the custom provider entry.",
 }
@@ -151,9 +148,6 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph health [path]": (
         "Check indexed materials for generic extraction problems; defaults to the current armory."
     ),
-    "heph source list <path>": "Deprecated alias for `heph materials list <path>`.",
-    "heph source count <path>": "Deprecated alias for `heph materials count <path>`.",
-    "heph source index <path>": "Deprecated alias for `heph materials index <path>`.",
     "heph index [path]": "Build or refresh the materials index; defaults to the current armory.",
 }
 
@@ -232,7 +226,6 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     required_visible = {
         "armory",
         "materials",
-        "source",
         "index",
         "health",
         "update",
@@ -303,18 +296,6 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
             f"{short_command} tui [path]",
             CLI_COMMAND_DESCRIPTIONS[f"{short_command} tui [path]"],
         ),
-        CommandLine(
-            f"{short_command} source list <path>",
-            CLI_COMMAND_DESCRIPTIONS[f"{short_command} source list <path>"],
-        ),
-        CommandLine(
-            f"{short_command} source count <path>",
-            CLI_COMMAND_DESCRIPTIONS[f"{short_command} source count <path>"],
-        ),
-        CommandLine(
-            f"{short_command} source index <path>",
-            CLI_COMMAND_DESCRIPTIONS[f"{short_command} source index <path>"],
-        ),
     )
 
 
@@ -378,8 +359,6 @@ def collect_env_vars() -> tuple[EnvVarDoc, ...]:
             _EMBED_MODEL_ENV,
             _EXTRACTION_MODEL_ENV,
             _RERANK_MODEL_ENV,
-            SUPERMEMORY_API_KEY_ENV,
-            SUPERMEMORY_URL_ENV,
             ARMORY_PLUGINS_TRUST_ENV,
             *provider_envs,
         }
@@ -455,11 +434,15 @@ def render_markdown_table(headers: tuple[str, str], rows: tuple[tuple[str, str],
 def render_install_block(model: DocsModel) -> str:
     return (
         "```bash\n"
-        "uv tool install hephaistos\n"
+        "uv tool install heph@latest\n"
         f"{model.short_command}\n"
         f"{model.short_command} --version\n"
         "```"
     )
+
+
+def render_pip_install_block() -> str:
+    return "```bash\npip install heph\n```"
 
 
 def render_create_armory_block(model: DocsModel) -> str:
@@ -467,7 +450,7 @@ def render_create_armory_block(model: DocsModel) -> str:
         "```bash\n"
         f"{model.short_command} armory init ~/armories/exams\n"
         "# Add source files to ~/armories/exams/materials\n"
-        f"{model.short_command} ~/armories/exams\n"
+        f"{model.short_command} start ~/armories/exams\n"
         "```"
     )
 
@@ -499,13 +482,15 @@ def render_home_footer(*, docs_index: bool) -> str:
 def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
     long_entry = f"`{model.long_command}`"
     compatibility = (
-        f"{long_entry} is an equivalent long entrypoint. "
-        f"`{model.short_command} start [path]` remains a hidden compatibility alias."
+        f"`{model.short_command} start [path]` opens the TUI explicitly. "
+        f"`{model.short_command} [path]` is the shorthand, "
+        f"and {long_entry} is the long entrypoint."
     )
     replacements = {
         "GENERATED_NOTICE": GENERATED_NOTICE,
         "INSTALL_BLOCK": render_install_block(model),
-        "UPGRADE_BLOCK": "```bash\nuv tool upgrade hephaistos\n```",
+        "PIP_INSTALL_BLOCK": render_pip_install_block(),
+        "UPGRADE_BLOCK": "```bash\nuv tool upgrade heph\n```",
         "GIT_INSTALL_BLOCK": "```bash\nuv tool install git+https://github.com/gildrb/hephaistos\n```",
         "CREATE_ARMORY_BLOCK": render_create_armory_block(model),
         "EQUIVALENT_ENTRYPOINT_NOTE": compatibility,

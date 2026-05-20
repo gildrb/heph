@@ -42,8 +42,6 @@ _TABLE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|$")
 
 @dataclass(frozen=True, slots=True)
 class VocabCard:
-    """A single vocabulary flashcard."""
-
     front: str
     back: str
     source_file: str
@@ -51,8 +49,6 @@ class VocabCard:
 
 @dataclass(slots=True)
 class VocabDeck:
-    """A collection of vocabulary cards parsed from armory files."""
-
     cards: list[VocabCard] = field(default_factory=list)
     source_files: list[str] = field(default_factory=list)
 
@@ -61,16 +57,11 @@ class VocabDeck:
         return len(self.cards)
 
 
-def _normalize_header(text: str) -> str:
-    return text.strip().lower().replace(" ", "_").replace("-", "_")
-
-
 def _detect_vocab_columns(headers: list[str]) -> tuple[int, int] | None:
-    """Return (front_idx, back_idx) if the headers look like a vocab table."""
     front_idx: int | None = None
     back_idx: int | None = None
     for i, h in enumerate(headers):
-        norm = _normalize_header(h)
+        norm = h.strip().lower().replace(" ", "_").replace("-", "_")
         if front_idx is None and norm in _FRONT_ALIASES:
             front_idx = i
         elif back_idx is None and norm in _BACK_ALIASES:

@@ -44,17 +44,11 @@ def _service_name(slug: str) -> str:
 
 
 def store_key(slug: str, api_key: str) -> None:
-    """Persist an API key to the OS keychain for the given provider slug."""
     keyring.set_password(_service_name(slug), _USERNAME, api_key)
     _keychain_cache[slug] = api_key
 
 
 def retrieve_key(slug: str) -> str | None:
-    """Retrieve an API key from the OS keychain.
-
-    Results are cached in-process to avoid repeated OS keychain round-trips.
-    Returns the key string, or ``None`` if not found (or keychain unavailable).
-    """
     if slug in _keychain_cache:
         return _keychain_cache[slug]
     try:
@@ -66,7 +60,6 @@ def retrieve_key(slug: str) -> str | None:
 
 
 def clear_key(slug: str) -> bool:
-    """Remove a stored or volatile API key for the given provider slug."""
     removed = _volatile_keys.clear_volatile_key(slug)
     cached = _keychain_cache.pop(slug, None)
     if cached is not None:
@@ -81,22 +74,15 @@ def clear_key(slug: str) -> bool:
 
 
 def has_key(slug: str) -> bool:
-    """Return ``True`` if a key exists in the OS keychain for this slug."""
     return retrieve_key(slug) is not None
 
 
 def set_volatile(slug: str, api_key: str) -> None:
-    """Store a key in volatile memory only (not persisted).
-
-    Used when keychain storage is unavailable or when the user explicitly
-    wants a session-scoped key.
-    """
     _volatile_keys.set_volatile_key(slug, api_key)
     _keychain_cache.pop(slug, None)
 
 
 def get_volatile(slug: str) -> str | None:
-    """Return a volatile (in-memory) key, or ``None``."""
     return _volatile_keys.get_volatile_key(slug)
 
 
@@ -142,11 +128,6 @@ def resolve_key(slug: str, env_var: str = "", *, refresh_oauth: bool = True) -> 
 
 
 def mask_key(key: str) -> str:
-    """Return a masked representation of an API key for display.
-
-    Shows first 4 and last 4 characters with a mask in between.
-    Short keys are fully masked.
-    """
     if not key:
         return ""
     if len(key) <= 12:

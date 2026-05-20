@@ -1,5 +1,3 @@
-"""Typed access to persisted cross-session settings."""
-
 from __future__ import annotations
 
 import contextlib
@@ -16,8 +14,6 @@ _USER_CONFIG_FILE = _USER_CONFIG_DIR / "config.json"
 
 DEFAULT_THEME: Final[str] = "forge"
 THEME_PRESETS: Final[tuple[str, ...]] = ("forge", "light", "high_contrast")
-INTERFACE_MODES: Final[tuple[str, ...]] = ("tui",)
-DEFAULT_INTERFACE_MODE: Final[str] = "tui"
 ACTIVITY_TRACE_TOOL_CALLS: Final[str] = "tool_calls"
 ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: Final[str] = "minimal_tool_calls"
 ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: Final[str] = "hidden_tool_calls"
@@ -27,12 +23,15 @@ ACTIVITY_TRACE_MODES: Final[tuple[str, ...]] = (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
 )
 DEFAULT_ACTIVITY_TRACE_MODE: Final[str] = ACTIVITY_TRACE_TOOL_CALLS
+ACTIVITY_TRACE_LABELS: Final[dict[str, str]] = {
+    ACTIVITY_TRACE_TOOL_CALLS: "Tool calls",
+    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "Minimal tool calls",
+    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "Hidden tool calls",
+}
 BOOL_KEYS: Final[frozenset[str]] = frozenset(
     {
         "analytics_enabled",
         "crash_reports_enabled",
-        "supermemory_enabled",
-        "supermemory_onboarding_seen",
         "privacy_notice_seen",
     }
 )
@@ -41,11 +40,9 @@ STRING_KEYS: Final[frozenset[str]] = frozenset(
         "base_url",
         "model",
         "feature_flags",
-        "supermemory_profile",
         "theme",
         "default_armory_path",
         "last_armory_path",
-        "interface_mode",
         "activity_trace_mode",
     }
 )
@@ -56,38 +53,27 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "max_tokens",
     "rag_context_budget",
     "feature_flags",
-    "supermemory_profile",
     "theme",
     "default_armory_path",
-    "interface_mode",
     "activity_trace_mode",
     "analytics_enabled",
     "crash_reports_enabled",
-    "supermemory_enabled",
 )
 INTERNAL_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "known_armories",
     "recent_armories",
     "last_armory_path",
-    "supermemory_onboarding_seen",
     "privacy_notice_seen",
     "session_count",
 )
 ALLOWED_CONFIG_KEYS: Final[frozenset[str]] = frozenset(
     (*PUBLIC_CONFIG_KEYS, *INTERNAL_CONFIG_KEYS)
 )
-DEFAULT_INT_VALUES: Final[dict[str, int]] = {
-    "max_tokens": 4096,
-    "rag_context_budget": 2000,
-    "session_count": 0,
-}
-
 _TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
 
 
 def user_config_dir() -> Path:
-    """Return the user configuration directory."""
     return _USER_CONFIG_DIR
 
 
@@ -96,25 +82,14 @@ class AppSettings:
     theme: str = DEFAULT_THEME
     default_armory_path: str = ""
     last_armory_path: str = ""
-    interface_mode: str = DEFAULT_INTERFACE_MODE
     activity_trace_mode: str = DEFAULT_ACTIVITY_TRACE_MODE
     analytics_enabled: bool = False
     crash_reports_enabled: bool = False
-    supermemory_enabled: bool = False
-    supermemory_profile: str = "heph-learning"
-    supermemory_onboarding_seen: bool = False
     privacy_notice_seen: bool = False
     session_count: int = 0
 
 
-@dataclass
-class _SettingsCache:
-    path: Path | None = None
-    data: dict[str, object] | None = None
-
-
 def parse_toml_simple(path: Path) -> dict[str, str]:
-    """Minimal TOML parser for flat key=value files."""
     result: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -136,7 +111,6 @@ def parse_toml_simple(path: Path) -> dict[str, str]:
 
 
 def parse_feature_flags(raw: str) -> frozenset[str]:
-    """Parse comma-separated feature-flag slugs into a frozenset."""
     return frozenset(slug.strip().lower() for slug in raw.split(",") if slug.strip())
 
 
@@ -154,24 +128,7 @@ def _coerce_bool(value: object, default: bool = False) -> bool:
     return default
 
 
-def _coerce_int(value: object, default: int = 0) -> int:
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        raw = value.strip()
-        if not raw:
-            return default
-        with contextlib.suppress(ValueError):
-            return int(raw)
-    return default
-
-
 def normalize_setting_value(key: str, value: object) -> object:
-    """Normalize a user-facing config value to a JSON-safe representation."""
     if key in BOOL_KEYS:
         return _coerce_bool(value)
     if key in INT_KEYS:
@@ -183,11 +140,6 @@ def normalize_setting_value(key: str, value: object) -> object:
         if theme not in THEME_PRESETS:
             raise ValueError(f"theme must be one of: {', '.join(THEME_PRESETS)}")
         return theme
-    if key == "interface_mode":
-        mode = str(value).strip().lower()
-        if mode not in INTERFACE_MODES:
-            raise ValueError(f"interface_mode must be one of: {', '.join(INTERFACE_MODES)}")
-        return mode
     if key == "activity_trace_mode":
         mode = str(value).strip().lower()
         if mode not in ACTIVITY_TRACE_MODES:
@@ -195,12 +147,7 @@ def normalize_setting_value(key: str, value: object) -> object:
                 f"activity_trace_mode must be one of: {', '.join(ACTIVITY_TRACE_MODES)}"
             )
         return mode
-    if key == "default_armory_path":
-        raw = str(value).strip()
-        if not raw:
-            return ""
-        return str(Path(raw).expanduser().resolve())
-    if key == "last_armory_path":
+    if key in {"default_armory_path", "last_armory_path"}:
         raw = str(value).strip()
         if not raw:
             return ""
@@ -208,9 +155,6 @@ def normalize_setting_value(key: str, value: object) -> object:
     if key == "feature_flags":
         flags = parse_feature_flags(str(value))
         return ",".join(sorted(flags))
-    if key == "supermemory_profile":
-        profile = str(value).strip()
-        return profile or "heph-learning"
     if key in STRING_KEYS:
         return str(value)
     if key in ("known_armories", "recent_armories"):
@@ -220,95 +164,61 @@ def normalize_setting_value(key: str, value: object) -> object:
     raise KeyError(key)
 
 
-_settings_cache = _SettingsCache()
-
-
-def _update_settings_cache(path: Path, settings: dict[str, object]) -> dict[str, object]:
-    _settings_cache.path = path
-    _settings_cache.data = settings
-    return settings
-
-
-def invalidate_settings_cache() -> None:
-    """Clear the in-process settings cache (used by tests and edge cases)."""
-    _settings_cache.path = None
-    _settings_cache.data = None
-
-
 def load_raw_settings() -> dict[str, object]:
-    """Load persisted settings from ``~/.config/hephaistos/config.json``.
-
-    Results are cached in-process and refreshed automatically when the
-    config path or backing file changes.
-    """
     path = _USER_CONFIG_FILE
     if not path.is_file():
-        return _update_settings_cache(path, {})
+        return {}
     with contextlib.suppress(Exception):
         raw = json.loads(path.read_text(encoding="utf-8"))
         if is_string_mapping(raw):
-            filtered = {key: value for key, value in raw.items() if key in ALLOWED_CONFIG_KEYS}
-            return _update_settings_cache(path, filtered)
-    return _update_settings_cache(path, {})
+            return {key: value for key, value in raw.items() if key in ALLOWED_CONFIG_KEYS}
+    return {}
 
 
 def save_raw_settings(settings: dict[str, object]) -> None:
-    """Persist the full settings mapping to disk and update the in-process cache."""
     _USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     filtered = {key: settings[key] for key in sorted(settings) if key in ALLOWED_CONFIG_KEYS}
     _USER_CONFIG_FILE.write_text(json.dumps(filtered, indent=2) + "\n", encoding="utf-8")
-    _update_settings_cache(_USER_CONFIG_FILE, filtered)
 
 
 def save_setting(key: str, value: object) -> None:
-    """Persist one normalized setting value."""
     settings = load_raw_settings()
     settings[key] = normalize_setting_value(key, value)
     save_raw_settings(settings)
 
 
 def clear_setting(key: str) -> None:
-    """Remove a persisted setting."""
     settings = load_raw_settings()
     settings.pop(key, None)
     save_raw_settings(settings)
 
 
 def load_app_settings() -> AppSettings:
-    """Return typed app settings for the shell and privacy and diagnostics surfaces."""
     raw = load_raw_settings()
     theme = str(raw.get("theme", DEFAULT_THEME)).strip().lower() or DEFAULT_THEME
     if theme not in THEME_PRESETS:
         theme = DEFAULT_THEME
     default_armory = str(raw.get("default_armory_path", "")).strip()
     last_armory = str(raw.get("last_armory_path", "")).strip()
-    interface_mode = str(raw.get("interface_mode", DEFAULT_INTERFACE_MODE)).strip().lower()
-    if interface_mode not in INTERFACE_MODES:
-        interface_mode = DEFAULT_INTERFACE_MODE
     activity_trace_mode = (
         str(raw.get("activity_trace_mode", DEFAULT_ACTIVITY_TRACE_MODE)).strip().lower()
     )
     if activity_trace_mode not in ACTIVITY_TRACE_MODES:
         activity_trace_mode = DEFAULT_ACTIVITY_TRACE_MODE
+    raw_session_count = raw.get("session_count")
+    session_count = 0
+    if isinstance(raw_session_count, bool | int | float):
+        session_count = int(raw_session_count)
+    elif isinstance(raw_session_count, str):
+        with contextlib.suppress(ValueError):
+            session_count = int(raw_session_count.strip())
     return AppSettings(
         theme=theme,
         default_armory_path=default_armory,
         last_armory_path=last_armory,
-        interface_mode=interface_mode,
         activity_trace_mode=activity_trace_mode,
         analytics_enabled=_coerce_bool(raw.get("analytics_enabled"), default=False),
         crash_reports_enabled=_coerce_bool(raw.get("crash_reports_enabled"), default=False),
-        supermemory_enabled=_coerce_bool(raw.get("supermemory_enabled"), default=False),
-        supermemory_profile=str(raw.get("supermemory_profile", "heph-learning")).strip()
-        or "heph-learning",
-        supermemory_onboarding_seen=_coerce_bool(
-            raw.get("supermemory_onboarding_seen"), default=False
-        ),
         privacy_notice_seen=_coerce_bool(raw.get("privacy_notice_seen"), default=False),
-        session_count=_coerce_int(raw.get("session_count"), default=0),
+        session_count=session_count,
     )
-
-
-def effective_config_value(key: str) -> object | None:
-    """Return the raw persisted value for a config key."""
-    return load_raw_settings().get(key)

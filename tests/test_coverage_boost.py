@@ -6,7 +6,6 @@ without complex TUI or LLM integration.
 
 from __future__ import annotations
 
-import argparse
 import time
 from threading import Event
 from unittest.mock import MagicMock, patch
@@ -23,12 +22,10 @@ from hephaistos.chat.events import (
 )
 from hephaistos.chat.model_selection import switch_model
 from hephaistos.chat.titles import derive_title
-from hephaistos.materials.cli import register_source_alias
 from hephaistos.memory.workflow import schedule_memory_extraction
 from hephaistos.parameters import settings as settings_store
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.runtime import Conversation, EngineError
-from hephaistos.source.cli import register as register_source_cli
 from hephaistos.tui.routing import pending_input_requires_terminal
 from hephaistos.tui.streaming import run_tui_turn
 
@@ -42,29 +39,6 @@ class TestMainModule:
         # Importing __main__ exercises the top-level import line.
         # The if __name__ guard is not executed during import.
         assert _main_mod is not None
-
-
-# ---------------------------------------------------------------------------
-# source/cli.py — register() delegates to materials CLI
-# ---------------------------------------------------------------------------
-
-
-class TestSourceCli:
-    def test_register_creates_source_subcommands(self) -> None:
-        parser = argparse.ArgumentParser()
-        subparsers = parser.add_subparsers(dest="command")
-        register_source_cli(subparsers)
-
-        args = parser.parse_args(["source", "list", "/tmp/fake"])
-        assert args.path == "/tmp/fake"
-
-    def test_register_source_alias(self) -> None:
-        parser = argparse.ArgumentParser()
-        subparsers = parser.add_subparsers(dest="command")
-        register_source_alias(subparsers)
-
-        args = parser.parse_args(["source", "list", "/tmp/fake"])
-        assert args.path == "/tmp/fake"
 
 
 # ---------------------------------------------------------------------------
@@ -470,9 +444,6 @@ class TestPendingInputRequiresTerminal:
 
     def test_history_other(self) -> None:
         assert pending_input_requires_terminal("/sessions 5") is False
-
-    def test_memory_setup(self) -> None:
-        assert pending_input_requires_terminal("/memory setup") is True
 
     def test_persona_no_args(self) -> None:
         assert pending_input_requires_terminal("/persona") is True

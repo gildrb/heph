@@ -8,7 +8,7 @@ import pytest
 from hephaistos.providers import catalog
 from hephaistos.providers.catalog import LiveProviderCatalog
 from hephaistos.providers.config import default_config
-from hephaistos.providers.model_choices import configured_model_choices
+from hephaistos.providers.model_choices import configured_model_choices, model_picker_columns
 from hephaistos.providers.registry import ModelInfo, get_registry
 
 
@@ -42,10 +42,46 @@ def _openrouter_live_catalog() -> LiveProviderCatalog:
     )
 
 
+def test_model_picker_columns_use_readable_labels() -> None:
+    assert model_picker_columns(
+        slug="openrouter",
+        model="openai/gpt-5.4",
+        display_name="OpenRouter",
+        endpoint="https://openrouter.ai/api/v1",
+        is_free=False,
+        is_current=False,
+    ) == ("OpenAI", "gpt-5.4", "OpenRouter", "")
+    assert model_picker_columns(
+        slug="pollinations",
+        model="gemini-thinking",
+        display_name="Pollinations AI (free)",
+        endpoint="https://text.pollinations.ai/openai",
+        is_free=True,
+        is_current=True,
+    ) == ("Google", "gemini-thinking", "Pollinations", "free current")
+    assert model_picker_columns(
+        slug="openai-codex",
+        model="gpt-5.5",
+        display_name="OpenAI Codex",
+        endpoint="https://api.openai.com/v1",
+        is_free=False,
+        is_current=True,
+    ) == ("OpenAI", "gpt-5.5", "OpenAI Codex", "current")
+    assert model_picker_columns(
+        slug="openrouter",
+        model="poolside/laguna-m.1:free",
+        display_name="OpenRouter",
+        endpoint="https://openrouter.ai/api/v1",
+        is_free=True,
+        is_current=False,
+    ) == ("Poolside", "laguna-m.1:free", "OpenRouter", "free+key")
+
+
 def test_configured_choices_uses_cached_openrouter_live_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     catalog.invalidate_catalog_cache()
     catalog._catalog_cache["openrouter"] = catalog._CatalogCacheEntry(
         fetched_at=100.0,
@@ -70,6 +106,7 @@ def test_configured_choices_schedules_refresh_without_waiting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HEPHAISTOS_DISABLE_LIVE_MODELS", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     catalog.invalidate_catalog_cache()
     scheduled: list[str] = []
 

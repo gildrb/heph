@@ -17,8 +17,6 @@ if TYPE_CHECKING:
 
 
 class CommandResultLike(Protocol):
-    """Subset of CommandResult consumed by input dispatchers."""
-
     output: str | None
     should_exit: bool
     new_session: ChatSession | None
@@ -26,8 +24,6 @@ class CommandResultLike(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class SlashCommandInvocation:
-    """A parsed slash command invocation."""
-
     raw: str
     name: str
     args: str
@@ -35,15 +31,12 @@ class SlashCommandInvocation:
 
 @dataclass(frozen=True, slots=True)
 class SlashCommandDispatch:
-    """Result of dispatching a slash command."""
-
     found: bool
     result: CommandResultLike | None
     invocation: SlashCommandInvocation
 
 
 def parse_slash_command(value: str) -> SlashCommandInvocation:
-    """Parse a raw slash-command string into command name and args."""
     stripped = value.strip()
     if not stripped.startswith("/"):
         raise ValueError("slash command must start with '/'")
@@ -61,7 +54,6 @@ def parse_slash_command(value: str) -> SlashCommandInvocation:
 
 
 def dispatch_slash_command(session: object, value: str) -> SlashCommandDispatch:
-    """Execute one slash command against the global command registry."""
     invocation = parse_slash_command(value)
     registry = get_registry()
     cmd = registry.find(invocation.name)

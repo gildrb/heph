@@ -51,10 +51,8 @@ def test_collect_docs_model_reads_live_surfaces() -> None:
         for command in model.cli_reference_commands
     )
     assert any(command.command == "heph index [path]" for command in model.cli_reference_commands)
-    assert any(
-        command.command == "heph source index <path>" for command in model.cli_reference_commands
-    )
     assert not any("reindex" in command.command for command in model.cli_reference_commands)
+    assert not any("heph source" in command.command for command in model.cli_reference_commands)
     assert any(command.command == "/vocab" for command in model.slash_commands)
     assert any(env.name == "HEPHAISTOS_POSTHOG_PROJECT_TOKEN" for env in model.env_vars)
 

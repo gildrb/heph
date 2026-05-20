@@ -1,5 +1,3 @@
-"""Persistent study-item scheduling driven by recall timing."""
-
 from __future__ import annotations
 
 import contextlib
@@ -63,8 +61,6 @@ class PolicyMoveStatsPayload(TypedDict):
 
 @dataclass(slots=True)
 class StudyItemState:
-    """Scheduling state for one material-backed study item."""
-
     item: str
     concept: str = ""
     retrieval_query: str = ""
@@ -93,12 +89,13 @@ class StudyItemState:
     next_review: datetime | None = None
 
     def retrievability(self, *, now: datetime | None = None) -> float:
-        """Estimate recall probability using the FSRS forgetting curve shape."""
         if self.last_review is None:
             return 0.0
         current_time = now or datetime.now(UTC)
         elapsed_days = max(0.0, (current_time - self.last_review).total_seconds() / 86400)
-        return _retrievability(self.stability, elapsed_days)
+        if self.stability <= 0:
+            return 0.0
+        return max(0.0, min(1.0, 0.9 ** (elapsed_days / self.stability)))
 
     @property
     def key(self) -> str:
@@ -144,16 +141,14 @@ class StudyItemState:
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> StudyItemState:
-        raw_refs = data.get("source_refs", [])
-        refs = (
-            [ref for ref in raw_refs if isinstance(ref, str)] if isinstance(raw_refs, list) else []
-        )
+        refs = _string_list(data.get("source_refs"))
         raw_rating = data.get("last_rating", "")
         rating = StudyRecallRating.NONE
         if isinstance(raw_rating, str):
             with contextlib.suppress(ValueError):
                 rating = StudyRecallRating(raw_rating)
         raw_seconds = data.get("last_recall_seconds")
+        raw_hint_level = data.get("hint_level_needed")
         return cls(
             item=_str_or(data.get("item"), ""),
             concept=_str_or(data.get("concept"), ""),
@@ -172,7 +167,9 @@ class StudyItemState:
             error_type=_str_or(data.get("error_type"), ""),
             mastery=_bounded_float_or(data.get("mastery"), 0.0, 0.0, 1.0),
             calibration_gap=_optional_bounded_float(data.get("calibration_gap"), 0.0, 1.0),
-            hint_level_needed=_optional_int(data.get("hint_level_needed"), 0),
+            hint_level_needed=(
+                raw_hint_level if isinstance(raw_hint_level, int) and raw_hint_level >= 0 else None
+            ),
             solved_after_hint=_bool_or(data.get("solved_after_hint"), False),
             common_errors=_string_list(data.get("common_errors")),
             successful_interventions=_string_list(data.get("successful_interventions")),
@@ -186,8 +183,6 @@ class StudyItemState:
 
 @dataclass(slots=True)
 class PolicyMoveStats:
-    """Aggregate local outcome stats for one teaching move."""
-
     uses: int = 0
     successes: int = 0
     total_mastery_delta: float = 0.0
@@ -197,15 +192,11 @@ class PolicyMoveStats:
 
     @property
     def success_rate(self) -> float:
-        if self.uses <= 0:
-            return 0.0
-        return self.successes / self.uses
+        return self.successes / self.uses if self.uses > 0 else 0.0
 
     @property
     def avg_mastery_delta(self) -> float:
-        if self.uses <= 0:
-            return 0.0
-        return self.total_mastery_delta / self.uses
+        return self.total_mastery_delta / self.uses if self.uses > 0 else 0.0
 
     def to_dict(self) -> PolicyMoveStatsPayload:
         return {
@@ -230,8 +221,6 @@ class PolicyMoveStats:
 
 
 class StudyScheduleStore:
-    """Armory-local store for material-backed study review state."""
-
     def __init__(self, armory_path: Path) -> None:
         self.armory_path = armory_path
         self.items: dict[str, StudyItemState] = {}
@@ -248,22 +237,20 @@ class StudyScheduleStore:
 
     def due_items(self, *, now: datetime | None = None, limit: int = 0) -> list[StudyItemState]:
         current_time = now or datetime.now(UTC)
-        due = [
-            item
-            for item in self.items.values()
-            if item.next_review is not None and item.next_review <= current_time
-        ]
-        due.sort(
+        due = sorted(
+            (
+                item
+                for item in self.items.values()
+                if item.next_review is not None and item.next_review <= current_time
+            ),
             key=lambda item: (
                 item.next_review or current_time,
                 -item.exam_importance,
                 -item.failures,
                 -item.difficulty,
-            )
+            ),
         )
-        if limit > 0:
-            return due[:limit]
-        return due
+        return due[:limit] if limit > 0 else due
 
     def load(self) -> bool:
         if not self._path.is_file():
@@ -284,7 +271,7 @@ class StudyScheduleStore:
                 self.policy_stats = {
                     key: PolicyMoveStats.from_dict(value)
                     for key, value in raw_policy_stats.items()
-                    if isinstance(key, str) and is_string_mapping(value)
+                    if is_string_mapping(value)
                 }
             return True
         return False
@@ -322,24 +309,14 @@ class StudyScheduleStore:
         now: datetime | None = None,
     ) -> StudyItemState:
         current_time = now or datetime.now(UTC)
-        bounded_exam_importance = min(1.0, max(0.0, exam_importance))
-        state = StudyItemState(
+        state = self._review_state(
             item=item,
             concept=concept,
             retrieval_query=retrieval_query,
             source_refs=source_refs,
             error_type=error_type,
-            exam_importance=bounded_exam_importance,
+            exam_importance=exam_importance,
         )
-        existing = self.items.get(state.key)
-        if existing is not None:
-            state = existing
-            state.item = item
-            state.concept = concept or state.concept
-            state.retrieval_query = retrieval_query
-            state.source_refs = list(source_refs)
-            state.error_type = error_type or state.error_type
-            state.exam_importance = max(state.exam_importance, bounded_exam_importance)
 
         state.reviews += 1
         state.last_rating = rating
@@ -351,26 +328,18 @@ class StudyScheduleStore:
         state.last_retrieval_success = (
             bool(source_refs) if retrieval_success is None else retrieval_success
         )
-        state.last_transfer_success = (
-            state.last_correct and _looks_like_transfer_item(item)
-            if transfer_success is None
-            else transfer_success
+        state.last_transfer_success = _transfer_success(
+            item,
+            correct=state.last_correct,
+            explicit=transfer_success,
         )
         state.hint_level_needed = hint_level_needed
         state.solved_after_hint = state.last_correct and hint_level_needed is not None
-        if state.common_errors is None:
-            state.common_errors = []
-        if state.successful_interventions is None:
-            state.successful_interventions = []
-        if state.failed_interventions is None:
-            state.failed_interventions = []
-        if error_type and error_type not in {"", "none", "correct"} and not state.last_correct:
-            _append_unique(state.common_errors, error_type)
-        if intervention:
-            if state.last_correct:
-                _append_unique(state.successful_interventions, intervention)
-            else:
-                _append_unique(state.failed_interventions, intervention)
+        _record_error_and_intervention(
+            state,
+            error_type=error_type,
+            intervention=intervention,
+        )
         state.mastery = next_recall_mastery(state.mastery, rating, hint_level_needed)
         state.calibration_gap = (
             round(abs(confidence - state.mastery), 4) if confidence is not None else None
@@ -382,12 +351,45 @@ class StudyScheduleStore:
             hint_level_needed=hint_level_needed,
         )
         state.last_review = current_time
-        state.difficulty = _next_difficulty(state.difficulty, rating, elapsed_seconds)
-        state.stability = _next_stability(state.stability, rating, elapsed_seconds)
-        state.next_review = current_time + _review_interval(state.stability, rating)
+        state.difficulty, state.stability = _next_difficulty_and_stability(
+            state,
+            rating=rating,
+            elapsed_seconds=elapsed_seconds,
+        )
+        state.next_review = current_time + _review_interval(rating, state.stability)
         self.items[state.key] = state
         self._dirty = True
         return state
+
+    def _review_state(
+        self,
+        *,
+        item: str,
+        concept: str,
+        retrieval_query: str,
+        source_refs: list[str],
+        error_type: str,
+        exam_importance: float,
+    ) -> StudyItemState:
+        bounded_exam_importance = _clamp(exam_importance, 0.0, 1.0)
+        state = StudyItemState(
+            item=item,
+            concept=concept,
+            retrieval_query=retrieval_query,
+            source_refs=source_refs,
+            error_type=error_type,
+            exam_importance=bounded_exam_importance,
+        )
+        existing = self.items.get(state.key)
+        if existing is None:
+            return state
+        existing.item = item
+        existing.concept = concept or existing.concept
+        existing.retrieval_query = retrieval_query
+        existing.source_refs = list(source_refs)
+        existing.error_type = error_type or existing.error_type
+        existing.exam_importance = max(existing.exam_importance, bounded_exam_importance)
+        return existing
 
     def record_policy_outcome(
         self,
@@ -399,13 +401,8 @@ class StudyScheduleStore:
         time_cost_seconds: int,
         frustration_signal: bool = False,
     ) -> PolicyMoveStats:
-        """Record whether a teaching move helped this learner locally."""
-        if not move_type:
-            move_type = "unknown"
-        stats = self.policy_stats.get(move_type)
-        if stats is None:
-            stats = PolicyMoveStats()
-            self.policy_stats[move_type] = stats
+        move_type = move_type or "unknown"
+        stats = self.policy_stats.setdefault(move_type, PolicyMoveStats())
         stats.uses += 1
         if success:
             stats.successes += 1
@@ -425,115 +422,7 @@ def load_study_schedule(armory_path: Path) -> StudyScheduleStore:
 
 
 def save_study_schedule(store: StudyScheduleStore) -> Path:
-    if store._dirty:
-        return store.save()
-    return store._path
-
-
-def _next_difficulty(
-    current: float,
-    rating: StudyRecallRating,
-    elapsed_seconds: int | None = None,
-) -> float:
-    delta = _difficulty_delta(rating)
-    if elapsed_seconds is not None and elapsed_seconds >= _SLOW_RECALL_SECONDS:
-        delta += 0.25
-    elif elapsed_seconds is not None and elapsed_seconds <= _FAST_RECALL_SECONDS:
-        delta -= 0.1
-    return min(10.0, max(1.0, round(current + delta, 3)))
-
-
-def _next_stability(
-    current: float,
-    rating: StudyRecallRating,
-    elapsed_seconds: int | None,
-) -> float:
-    speed_factor = _elapsed_stability_factor(elapsed_seconds)
-    multiplier = {
-        StudyRecallRating.EASY: 2.6,
-        StudyRecallRating.GOOD: 1.8,
-        StudyRecallRating.HARD: 0.6,
-        StudyRecallRating.NONE: 1.0,
-    }[rating]
-    return max(0.25, min(float(_MAX_INTERVAL_DAYS), round(current * multiplier * speed_factor, 3)))
-
-
-def _review_interval(stability: float, rating: StudyRecallRating) -> timedelta:
-    if rating is StudyRecallRating.HARD:
-        return timedelta(days=1)
-    if rating is StudyRecallRating.NONE:
-        return timedelta(0)
-    return timedelta(days=_interval_days_for_retention(stability, _DESIRED_RETENTION))
-
-
-def _next_best_action(
-    rating: StudyRecallRating,
-    *,
-    mastery: float,
-    confidence: float | None,
-    hint_level_needed: int | None,
-) -> str:
-    high_confidence_gap = confidence is not None and confidence >= 0.75 and mastery < 0.55
-    if high_confidence_gap:
-        return "contrastive_question"
-    if rating is StudyRecallRating.HARD and hint_level_needed is None:
-        return "give_hint"
-    if rating is StudyRecallRating.HARD:
-        return "prerequisite_repair"
-    if rating is StudyRecallRating.GOOD and mastery < 0.75:
-        return "ask_recall"
-    if rating is StudyRecallRating.EASY and confidence is not None and confidence >= 0.75:
-        return "move_to_harder_question"
-    if rating is StudyRecallRating.EASY:
-        return "interleave_related_topic"
-    return "ask_recall"
-
-
-def _difficulty_delta(rating: StudyRecallRating) -> float:
-    return {
-        StudyRecallRating.EASY: -0.45,
-        StudyRecallRating.GOOD: -0.15,
-        StudyRecallRating.HARD: 0.65,
-        StudyRecallRating.NONE: 0.0,
-    }[rating]
-
-
-def _elapsed_stability_factor(elapsed_seconds: int | None) -> float:
-    if elapsed_seconds is None:
-        return 1.0
-    if elapsed_seconds <= _FAST_RECALL_SECONDS:
-        return 1.15
-    if elapsed_seconds >= _SLOW_RECALL_SECONDS:
-        return 0.75
-    return 1.0
-
-
-def _interval_days_for_retention(stability: float, desired_retention: float) -> int:
-    retention = min(0.99, max(0.7, desired_retention))
-    days = stability * log(retention) / log(0.9)
-    return min(_MAX_INTERVAL_DAYS, max(1, round(days)))
-
-
-def _retrievability(stability: float, elapsed_days: float) -> float:
-    if stability <= 0:
-        return 0.0
-    return max(0.0, min(1.0, 0.9 ** (elapsed_days / stability)))
-
-
-def _looks_like_transfer_item(item: str) -> bool:
-    lowered = item.casefold()
-    return any(
-        marker in lowered
-        for marker in (
-            "apply",
-            "application",
-            "scenario",
-            "compare",
-            "contrast",
-            "why",
-            "explain why",
-        )
-    )
+    return store.save() if store._dirty else store._path
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -561,21 +450,15 @@ def _float_or(value: object, default: float) -> float:
     return float(value)
 
 
-def _optional_int(value: object, minimum: int) -> int | None:
-    if isinstance(value, int) and value >= minimum:
-        return value
-    return None
-
-
 def _bounded_float_or(value: object, default: float, minimum: float, maximum: float) -> float:
     parsed = _float_or(value, default)
-    return min(maximum, max(minimum, parsed))
+    return _clamp(parsed, minimum, maximum)
 
 
 def _optional_bounded_float(value: object, minimum: float, maximum: float) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return min(maximum, max(minimum, float(value)))
+    return _clamp(float(value), minimum, maximum)
 
 
 def _string_list(value: object) -> list[str]:
@@ -591,3 +474,113 @@ def _append_unique(items: list[str], value: str) -> None:
 
 def _str_or(value: object, default: str) -> str:
     return value if isinstance(value, str) else default
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return min(maximum, max(minimum, value))
+
+
+def _transfer_success(
+    item: str,
+    *,
+    correct: bool,
+    explicit: bool | None,
+) -> bool:
+    if explicit is not None:
+        return explicit
+    transfer_markers = (
+        "apply",
+        "application",
+        "scenario",
+        "compare",
+        "contrast",
+        "why",
+        "explain why",
+    )
+    return correct and any(marker in item.casefold() for marker in transfer_markers)
+
+
+def _record_error_and_intervention(
+    state: StudyItemState,
+    *,
+    error_type: str,
+    intervention: str,
+) -> None:
+    state.common_errors = state.common_errors or []
+    state.successful_interventions = state.successful_interventions or []
+    state.failed_interventions = state.failed_interventions or []
+    if error_type and error_type not in {"", "none", "correct"} and not state.last_correct:
+        _append_unique(state.common_errors, error_type)
+    if not intervention:
+        return
+    if state.last_correct:
+        _append_unique(state.successful_interventions, intervention)
+    else:
+        _append_unique(state.failed_interventions, intervention)
+
+
+def _next_best_action(
+    rating: StudyRecallRating,
+    *,
+    mastery: float,
+    confidence: float | None,
+    hint_level_needed: int | None,
+) -> str:
+    high_confidence_gap = confidence is not None and confidence >= 0.75 and mastery < 0.55
+    if high_confidence_gap:
+        return "contrastive_question"
+    if rating is StudyRecallRating.HARD and hint_level_needed is None:
+        return "give_hint"
+    if rating is StudyRecallRating.HARD:
+        return "prerequisite_repair"
+    if rating is StudyRecallRating.GOOD and mastery < 0.75:
+        return "ask_recall"
+    if rating is StudyRecallRating.EASY and confidence is not None and confidence >= 0.75:
+        return "move_to_harder_question"
+    if rating is StudyRecallRating.EASY:
+        return "interleave_related_topic"
+    return "ask_recall"
+
+
+def _next_difficulty_and_stability(
+    state: StudyItemState,
+    *,
+    rating: StudyRecallRating,
+    elapsed_seconds: int | None,
+) -> tuple[float, float]:
+    difficulty_delta = {
+        StudyRecallRating.EASY: -0.45,
+        StudyRecallRating.GOOD: -0.15,
+        StudyRecallRating.HARD: 0.65,
+        StudyRecallRating.NONE: 0.0,
+    }[rating]
+    speed_factor = 1.0
+    if elapsed_seconds is not None and elapsed_seconds <= _FAST_RECALL_SECONDS:
+        difficulty_delta -= 0.1
+        speed_factor = 1.15
+    elif elapsed_seconds is not None and elapsed_seconds >= _SLOW_RECALL_SECONDS:
+        difficulty_delta += 0.25
+        speed_factor = 0.75
+    stability_multiplier = {
+        StudyRecallRating.EASY: 2.6,
+        StudyRecallRating.GOOD: 1.8,
+        StudyRecallRating.HARD: 0.6,
+        StudyRecallRating.NONE: 1.0,
+    }[rating]
+    difficulty = _clamp(round(state.difficulty + difficulty_delta, 3), 1.0, 10.0)
+    stability = _clamp(
+        round(state.stability * stability_multiplier * speed_factor, 3),
+        0.25,
+        float(_MAX_INTERVAL_DAYS),
+    )
+    return difficulty, stability
+
+
+def _review_interval(rating: StudyRecallRating, stability: float) -> timedelta:
+    if rating is StudyRecallRating.HARD:
+        return timedelta(days=1)
+    if rating is StudyRecallRating.NONE:
+        return timedelta(0)
+    retention = _clamp(_DESIRED_RETENTION, 0.7, 0.99)
+    days = stability * log(retention) / log(0.9)
+    return timedelta(days=min(_MAX_INTERVAL_DAYS, max(1, round(days))))

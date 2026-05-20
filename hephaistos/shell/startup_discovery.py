@@ -43,6 +43,4 @@ def discover_startup_armory() -> Path | None:
         return last
 
     valid = discover_available_armories()
-    if len(valid) == 1:
-        return valid[0]
-    return None
+    return valid[0] if len(valid) == 1 else None

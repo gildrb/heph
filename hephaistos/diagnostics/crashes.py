@@ -1,5 +1,3 @@
-"""Local diagnostics plus optional maintainer-facing crash reporting."""
-
 from __future__ import annotations
 
 import json
@@ -28,8 +26,6 @@ _log = get_logger("diagnostics")
 
 
 class _NoopSpan:
-    """No-op span for local diagnostics mode."""
-
     __slots__ = ()
 
     def set_attribute(self, _key: str, _value: object) -> object:
@@ -46,8 +42,6 @@ class _NoopSpan:
 
 
 class _NoopTracer:
-    """No-op tracer for local diagnostics mode."""
-
     __slots__ = ()
 
     def start_span(self, name: str, **kwargs: object) -> _NoopSpan:
@@ -57,49 +51,37 @@ class _NoopTracer:
         return _NoopSpan()
 
 
-class _NoopHistogram:
-    """No-op histogram for local diagnostics mode."""
-
+class _NoopInstrument:
     __slots__ = ()
 
     def record(self, value: float, _attributes: dict[str, str] | None = None) -> None:
         pass
 
-
-class _NoopCounter:
-    """No-op counter for local diagnostics mode."""
-
-    __slots__ = ()
-
     def add(self, value: float, _attributes: dict[str, str] | None = None) -> None:
         pass
-
-
-class _NoopGauge:
-    """No-op gauge for local diagnostics mode."""
-
-    __slots__ = ()
 
     def set(self, value: float, _attributes: dict[str, str] | None = None) -> None:
         pass
 
 
-class _NoopMeter:
-    """No-op meter for local diagnostics mode."""
+_NoopHistogram = _NoopInstrument
+_NoopCounter = _NoopInstrument
+_NoopGauge = _NoopInstrument
 
+
+class _NoopMeter:
     __slots__ = ()
 
-    def create_histogram(self, name: str, **kwargs: object) -> _NoopHistogram:
-        return _NoopHistogram()
+    def create_histogram(self, name: str, **kwargs: object) -> _NoopInstrument:
+        return _NoopInstrument()
 
-    def create_counter(self, name: str, **kwargs: object) -> _NoopCounter:
-        return _NoopCounter()
+    def create_counter(self, name: str, **kwargs: object) -> _NoopInstrument:
+        return _NoopInstrument()
 
-    def create_up_down_counter(self, name: str, **kwargs: object) -> _NoopCounter:
-        return _NoopCounter()
+    create_up_down_counter = create_counter
 
-    def create_gauge(self, _name: str, **_kwargs: object) -> _NoopGauge:
-        return _NoopGauge()
+    def create_gauge(self, _name: str, **_kwargs: object) -> _NoopInstrument:
+        return _NoopInstrument()
 
 
 _SENSITIVE_KEY_PATTERNS: Final[list[_re.Pattern[str]]] = [
@@ -107,14 +89,9 @@ _SENSITIVE_KEY_PATTERNS: Final[list[_re.Pattern[str]]] = [
     _re.compile(r"(?i)(bearer|credential|private.?key)"),
 ]
 _REDACTED = "***REDACTED***"
-_SCRUB_SECTIONS = frozenset({"extra", "tags", "contexts", "breadcrumbs", "request", "user"})
 _DROP_KEYS = frozenset({"prompt", "content", "message", "path", "filename", "armory", "text"})
 _BREADCRUMBS: deque[dict[str, object]] = deque(maxlen=25)
 _SESSION_CONTEXT: dict[str, str] = {}
-
-
-def _is_sensitive_key(key: str) -> bool:
-    return any(p.search(key) for p in _SENSITIVE_KEY_PATTERNS)
 
 
 def _safe_string(key: str, value: str) -> str | None:
@@ -129,12 +106,11 @@ def _safe_string(key: str, value: str) -> str | None:
 
 
 def _scrub_value(value: object) -> object:
-    """Recursively redact sensitive keys and values from nested data."""
     if is_string_mapping(value):
         cleaned: dict[str, object] = {}
         for key, nested in value.items():
             lowered = key.lower()
-            if lowered in _DROP_KEYS or _is_sensitive_key(key):
+            if lowered in _DROP_KEYS or any(p.search(key) for p in _SENSITIVE_KEY_PATTERNS):
                 cleaned[key] = _REDACTED
                 continue
             if isinstance(nested, str):
@@ -149,18 +125,6 @@ def _scrub_value(value: object) -> object:
         safe = _safe_string("value", value)
         return safe if safe is not None else _REDACTED
     return value
-
-
-def _redact_event(
-    event: Mapping[str, object],
-    _hint: Mapping[str, object],
-) -> dict[str, object] | None:
-    """Compatibility hook retained for tests and future integrations."""
-    redacted = dict(event)
-    for section in _SCRUB_SECTIONS:
-        if section in redacted:
-            redacted[section] = _scrub_value(redacted[section])
-    return redacted
 
 
 def _parse_sentry_dsn(dsn: str) -> tuple[str, str]:
@@ -239,7 +203,6 @@ def _exception_payload(
 
 
 def init_sentry() -> None:
-    """Warm crash-reporting configuration when available."""
     if crash_reports_backend_available():
         _log.debug("crash reporting configured")
 
@@ -251,7 +214,6 @@ def set_session_context(
     provider: str = "",
     model: str = "",
 ) -> None:
-    """Set sanitized session-level context for later crash reports."""
     if session_id:
         _SESSION_CONTEXT["session_id"] = session_id
     if armory:
@@ -269,7 +231,6 @@ def add_breadcrumb(
     level: str = "info",
     **data: object,
 ) -> None:
-    """Store a redacted breadcrumb for later crash reports."""
     breadcrumb: dict[str, object] = {
         "timestamp": datetime.now(UTC).isoformat(),
         "category": redact_text(category),
@@ -286,7 +247,6 @@ def capture_exception(
     *,
     context: dict[str, object] | None = None,
 ) -> str | None:
-    """Record an exception locally and optionally send a redacted remote report."""
     if exc is None:
         return None
 
@@ -321,47 +281,42 @@ def capture_exception(
 
 
 def init_tracing() -> None:
-    """Compatibility no-op for remote tracing."""
+    pass
 
 
 def get_tracer(_name: str) -> _NoopTracer:
-    """Return a reusable no-op tracer."""
     return _NOOP_TRACER
 
 
 def init_metrics() -> None:
-    """Compatibility no-op for remote metrics."""
+    pass
 
 
 def get_meter(_name: str) -> _NoopMeter:
-    """Return a reusable no-op meter."""
     return _NOOP_METER
 
 
 def init_alerting() -> None:
-    """Compatibility no-op for remote alerting."""
+    pass
 
 
 def send_alert(level: int, title: str, body: str) -> None:
-    """Compatibility no-op retained for the public CLI."""
+    pass
 
 
 def init_diagnostics() -> None:
-    """Initialise local diagnostics helpers and optional crash reporting."""
     init_sentry()
 
 
 def shutdown_diagnostics() -> None:
-    """Flush local diagnostics helpers."""
+    pass
 
 
 def get_current_trace_id() -> str:
-    """Return the current trace ID, which is always empty in the CLI."""
     return ""
 
 
 def reset_state() -> None:
-    """Reset process-global state for tests."""
     _BREADCRUMBS.clear()
     _SESSION_CONTEXT.clear()
 

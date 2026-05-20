@@ -10,8 +10,6 @@ _log = get_logger("agent.steering")
 
 
 class Steering:
-    """Thread-safe single steering message typed while the agent works."""
-
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._message: str | None = None

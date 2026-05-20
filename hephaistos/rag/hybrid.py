@@ -42,8 +42,6 @@ def _embedding_retriever_factory() -> Callable[..., EmbeddingRetriever]:
 
 
 class HybridRetriever:
-    """Hybrid retriever combining sparse and embedding retrieval via RRF."""
-
     def __init__(
         self,
         index: ArmoryIndex,
@@ -91,13 +89,15 @@ class HybridRetriever:
 
     @property
     def has_embeddings(self) -> bool:
-        """Whether the embedding backend is active."""
         return self._embedding is not None
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
-        """Retrieve with sparse+dense fusion and optional reranking."""
         pool = top_k * self._candidate_multiplier
-        mode_specific_transformer = self._mode_specific_transformer()
+        mode_specific_transformer = (
+            self._query_transformer
+            if isinstance(self._query_transformer, ModeSpecificQueryTransformerProtocol)
+            else None
+        )
         if mode_specific_transformer is not None:
             candidates = self._retrieve_mode_specific(query, pool, mode_specific_transformer)
         else:
@@ -112,11 +112,6 @@ class HybridRetriever:
             return self._reranker.rerank(query, candidates, top_k=top_k)
 
         return candidates[:top_k]
-
-    def _mode_specific_transformer(self) -> ModeSpecificQueryTransformerProtocol | None:
-        if isinstance(self._query_transformer, ModeSpecificQueryTransformerProtocol):
-            return self._query_transformer
-        return None
 
     def _retrieve_mode_specific(
         self,

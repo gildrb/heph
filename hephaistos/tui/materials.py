@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, overload
 
+from hephaistos.materials import material_display_name
 from hephaistos.terminal import current_palette
 from hephaistos.tui.textual_compat import (
     ClassableWidget as _ClassableWidget,
@@ -11,6 +12,7 @@ from hephaistos.tui.textual_compat import (
     OptionList,
     RichLog,
     Static,
+    sidebar_text,
 )
 from hephaistos.tui.textual_compat import (
     RichText as _RichText,
@@ -29,10 +31,6 @@ if TYPE_CHECKING:
 
 _MATERIALS_LIST_IDS = ("materials-list", "materials-list-right")
 _MATERIALS_MIN_TWO_COLUMN_WIDTH = 72
-
-
-def _sidebar_text(content: str) -> str:
-    return "\n".join(f"  {line}" if line else "" for line in content.splitlines())
 
 
 class _MaterialsHost(Protocol):
@@ -89,10 +87,6 @@ class _MaterialsHost(Protocol):
 
     def _materials_visible_rows(self) -> int: ...
 
-    def _materials_column_start(self, list_id: str) -> int: ...
-
-    def _materials_column_entries(self, list_id: str) -> list[str]: ...
-
     def _materials_local_index(
         self,
         list_id: str,
@@ -118,6 +112,12 @@ class _MaterialsHost(Protocol):
     def _set_material_enabled(self, file: str, enabled: bool) -> None: ...
 
     def _handle_materials_key(self, event: events.Key) -> bool: ...
+
+
+def _active_material_count(host: _MaterialsHost) -> int:
+    return sum(
+        1 for file in host.session.source_files if file not in host.session.disabled_source_files
+    )
 
 
 class TuiMaterialsMixin:
@@ -170,11 +170,7 @@ class TuiMaterialsMixin:
             files = [file for file in files if query in file.lower()]
         self._materials_entries = files
         total = len(self.session.source_files)
-        enabled = sum(
-            1
-            for file in self.session.source_files
-            if file not in self.session.disabled_source_files
-        )
+        enabled = _active_material_count(self)
         header = (
             f"materials  {enabled}/{total} active"
             if self._materials_mode == "toggle"
@@ -208,7 +204,7 @@ class TuiMaterialsMixin:
             ("materials-list-right", right, right_entries),
         ):
             material_list.clear_options()
-            start = self._materials_column_start(list_id)
+            start = len(left_entries) if list_id == "materials-list-right" else 0
             for local_index, file in enumerate(entries):
                 global_index = start + local_index
                 material_list.add_option(
@@ -236,11 +232,7 @@ class TuiMaterialsMixin:
         sidebar = self.query_one("#info-panel", Static)
         idx = self._materials_highlighted_index
         total = len(self.session.source_files)
-        enabled = sum(
-            1
-            for file in self.session.source_files
-            if file not in self.session.disabled_source_files
-        )
+        enabled = _active_material_count(self)
         title = "Materials" if self._materials_mode == "toggle" else "Sources"
         if idx is None or idx < 0 or idx >= len(self._materials_entries):
             if self._materials_filter:
@@ -254,10 +246,10 @@ class TuiMaterialsMixin:
                 content = f"{title}\n\n{enabled}/{total} active\nNo material selected"
         else:
             file = self._materials_entries[idx]
-            label = file.removeprefix("materials/")
+            label = material_display_name(file)
             state = "active" if file not in self.session.disabled_source_files else "disabled"
             content = f"{title}\n\n@{label}\n{state}\n\n{file}"
-        sidebar.update(_sidebar_text(content))
+        sidebar.update(sidebar_text(content))
 
     def _format_material_option(
         self: _MaterialsHost,
@@ -268,7 +260,7 @@ class TuiMaterialsMixin:
         _ = selected
         palette = current_palette()
         enabled_file = file not in self.session.disabled_source_files
-        label = file.removeprefix("materials/")
+        label = material_display_name(file)
         state_color = palette.action_primary_bg if enabled_file else palette.status_error_text
         if _RichText is None:
             return f"@{label}"
@@ -285,11 +277,11 @@ class TuiMaterialsMixin:
         return entries[:split_at], entries[split_at:]
 
     def _materials_should_use_two_columns(self: _MaterialsHost) -> bool:
-        if len(self._materials_entries) <= 1:
-            return False
-        if self.size.width < _MATERIALS_MIN_TWO_COLUMN_WIDTH:
-            return False
-        return len(self._materials_entries) > self._materials_visible_rows()
+        return (
+            len(self._materials_entries) > 1
+            and self.size.width >= _MATERIALS_MIN_TWO_COLUMN_WIDTH
+            and len(self._materials_entries) > self._materials_visible_rows()
+        )
 
     def _materials_visible_rows(self: _MaterialsHost) -> int:
         columns = self.query_one("#materials-columns")
@@ -298,16 +290,6 @@ class TuiMaterialsMixin:
             height = max(1, self.size.height - 8)
         return max(1, height)
 
-    def _materials_column_start(self: _MaterialsHost, list_id: str) -> int:
-        if list_id == "materials-list-right":
-            return len(self._materials_columns[0])
-        return 0
-
-    def _materials_column_entries(self: _MaterialsHost, list_id: str) -> list[str]:
-        if list_id == "materials-list-right":
-            return self._materials_columns[1]
-        return self._materials_columns[0]
-
     def _materials_local_index(
         self: _MaterialsHost,
         list_id: str,
@@ -315,17 +297,20 @@ class TuiMaterialsMixin:
     ) -> int | None:
         if global_index is None:
             return None
-        start = self._materials_column_start(list_id)
+        column = 1 if list_id == "materials-list-right" else 0
+        start = len(self._materials_columns[0]) if column == 1 else 0
         local_index = global_index - start
-        if 0 <= local_index < len(self._materials_column_entries(list_id)):
+        if 0 <= local_index < len(self._materials_columns[column]):
             return local_index
         return None
 
     def _materials_global_index(self: _MaterialsHost, list_id: str, index: int) -> int | None:
-        entries = self._materials_column_entries(list_id)
+        column = 1 if list_id == "materials-list-right" else 0
+        entries = self._materials_columns[column]
         if index < 0 or index >= len(entries):
             return None
-        return self._materials_column_start(list_id) + index
+        start = len(self._materials_columns[0]) if column == 1 else 0
+        return start + index
 
     def _materials_list_for_index(self: _MaterialsHost, index: int) -> OptionList:
         right_start = len(self._materials_columns[0])

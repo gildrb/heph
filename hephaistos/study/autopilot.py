@@ -49,8 +49,6 @@ type EvidenceAction = Literal[
 
 
 class AutopilotSessionType(StrEnum):
-    """Named bounded autopilot session profiles."""
-
     GENERAL = "general"
     EXAM = "exam"
     WEAK_TOPICS = "weak-topics"
@@ -62,8 +60,6 @@ class AutopilotSessionType(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ReviewItem:
-    """Compact due-review signal for the policy."""
-
     item: str
     concept: str = ""
     failures: int = 0
@@ -72,8 +68,6 @@ class ReviewItem:
 
 @dataclass(frozen=True, slots=True)
 class TurnSummary:
-    """Small prior-turn summary used by the policy when available."""
-
     role: str
     text: str
     feedback: StudyFeedbackType = StudyFeedbackType.NONE
@@ -82,8 +76,6 @@ class TurnSummary:
 
 @dataclass(frozen=True, slots=True)
 class MemoryState:
-    """Learner-memory signal consumed by the autonomy policy."""
-
     weak_topics: tuple[str, ...] = ()
     misconceptions: tuple[str, ...] = ()
     successful_interventions: tuple[str, ...] = ()
@@ -92,8 +84,6 @@ class MemoryState:
 
 @dataclass(frozen=True, slots=True)
 class MaterialStatus:
-    """Summary of the currently enabled material index."""
-
     has_materials: bool = False
     has_indexed_evidence: bool = False
     evidence_refs: tuple[str, ...] = ()
@@ -103,8 +93,6 @@ class MaterialStatus:
 
 @dataclass(frozen=True, slots=True)
 class AutopilotInput:
-    """Inputs used by the policy to choose one learning move."""
-
     user_message: str
     mode: StudyAutonomyMode
     session_goal: str | None
@@ -118,8 +106,6 @@ class AutopilotInput:
 
 @dataclass(frozen=True, slots=True)
 class StudyMove:
-    """The next pedagogical move selected for a turn."""
-
     kind: StudyMoveKind
     reason: str
     requires_evidence: bool
@@ -131,8 +117,6 @@ class StudyMove:
 
 @dataclass(frozen=True, slots=True)
 class EvidenceAssessment:
-    """Conservative material sufficiency judgement for a turn."""
-
     sufficient: bool
     confidence: float
     supporting_refs: tuple[str, ...]
@@ -144,8 +128,6 @@ class EvidenceAssessment:
 
 @dataclass(frozen=True, slots=True)
 class LearnerAssessment:
-    """Separated correctness and confidence signal for the learner model."""
-
     topic: str
     correctness: float
     reasoning_quality: float
@@ -158,8 +140,6 @@ class LearnerAssessment:
 
 @dataclass(frozen=True, slots=True)
 class PedagogyValidation:
-    """Local validator output for response-shape checks."""
-
     valid: bool
     issues: tuple[str, ...]
     rewrite_instruction: str | None
@@ -168,8 +148,6 @@ class PedagogyValidation:
 
 @dataclass(frozen=True, slots=True)
 class ChoiceAssessment:
-    """Assessment of a learner's learning-path choice and self-diagnosis."""
-
     selected_option: str | None
     has_reason: bool
     confidence: float | None
@@ -182,8 +160,6 @@ class ChoiceAssessment:
 
 @dataclass(frozen=True, slots=True)
 class PolicyOutcome:
-    """One observed intervention outcome for harness-level reinforcement."""
-
     move_type: StudyMoveKind
     topic: str
     correctness_delta: float
@@ -194,7 +170,6 @@ class PolicyOutcome:
 
     @property
     def score(self) -> float:
-        """Return a simple local policy score for future move selection."""
         time_penalty = min(0.4, self.time_cost_seconds / 1800)
         frustration_penalty = 0.25 if self.frustration_signal else 0.0
         return (
@@ -236,13 +211,23 @@ _RATIONALE_RE = re.compile(
     r"\b(?:because|reason|helps?|beneficial|benefit|so that|so you|useful)\b",
     re.IGNORECASE,
 )
+_SESSION_TYPE_CUES = (
+    ("exam", AutopilotSessionType.EXAM),
+    ("weak", AutopilotSessionType.WEAK_TOPICS),
+    ("review", AutopilotSessionType.REVIEW),
+    ("socratic", AutopilotSessionType.SOCRATIC),
+    ("cram", AutopilotSessionType.CRAM),
+    ("deep", AutopilotSessionType.DEEP),
+)
+_NEXT_ACTION_BY_FEEDBACK: dict[StudyFeedbackType, StudyMoveKind] = {
+    StudyFeedbackType.CORRECT: "schedule_review",
+    StudyFeedbackType.PARTIAL: "give_hint",
+    StudyFeedbackType.WRONG: "ask_recall",
+}
 
 
 class StudyAutopilot:
-    """Deterministic next-move policy for manual, guided, and autopilot modes."""
-
     def next_turn(self, input_data: AutopilotInput) -> StudyMove:
-        """Choose the next useful learning move."""
         mode = input_data.mode
         if mode is StudyAutonomyMode.MANUAL:
             return _manual_move(input_data)
@@ -252,7 +237,6 @@ class StudyAutopilot:
 
 
 def infer_turn_mode(state: StudyState, user_message: str) -> StudyAutonomyMode:
-    """Resolve explicit persistent mode plus lightweight language inference."""
     text = user_message.casefold()
     if _JUST_ANSWER_RE.search(text):
         return StudyAutonomyMode.MANUAL
@@ -271,7 +255,6 @@ def assess_evidence(
     source_only: bool = False,
     missing_hint: str = "more targeted indexed source evidence",
 ) -> EvidenceAssessment:
-    """Score whether retrieved evidence is enough to answer safely."""
     sources = {ref.split("#chunk=", maxsplit=1)[0] for ref in refs}
     diversity = min(1.0, len(sources) / 3) if refs else 0.0
     if not refs:
@@ -311,7 +294,6 @@ def learner_assessment_from_state(
     topic: str = "",
     hint_level_used: int | None = None,
 ) -> LearnerAssessment:
-    """Build a separated correctness/confidence learner signal from study state."""
     correctness = {
         StudyFeedbackType.CORRECT: 1.0,
         StudyFeedbackType.PARTIAL: 0.55,
@@ -334,29 +316,39 @@ def learner_assessment_from_state(
         calibration_gap=calibration_gap,
         misconception_tags=misconception_tags,
         hint_level_used=hint_level_used,
-        next_action=_next_action_from_feedback(state),
+        next_action=(
+            "contrastive_question"
+            if _high_confidence_gap(state)
+            else _NEXT_ACTION_BY_FEEDBACK.get(state.last_feedback_type, "answer")
+        ),
     )
 
 
 def validate_pedagogy(reply: str, move: StudyMove, mode: StudyAutonomyMode) -> PedagogyValidation:
-    """Check basic response-shape requirements for the selected learning move."""
     issues: list[str] = []
     normalized = reply.casefold()
     if move.requires_user_commitment and "confidence" not in normalized:
         issues.append("missing confidence request")
-    if move.kind in {"ask_recall", "contrastive_question"} and _looks_like_answer_leak(reply):
+    if move.kind in {"ask_recall", "contrastive_question"} and any(
+        marker in normalized for marker in ("the answer is", "solution:", "full solution")
+    ):
         issues.append("possible answer leakage during recall")
     if (
         mode is not StudyAutonomyMode.MANUAL
         and move.kind != "ask_clarifying_question"
-        and not _has_next_action(reply, move)
+        and not (
+            "next" in normalized
+            or move.kind in normalized
+            or "try this" in normalized
+            or "answer from memory" in normalized
+        )
     ):
         issues.append("missing explicit next action")
     if (
         mode is StudyAutonomyMode.GUIDED
         and move.expected_output_shape is not None
         and "recommend" in move.expected_output_shape.casefold()
-        and not _has_recommendation_rationale(reply)
+        and not _RATIONALE_RE.search(reply)
     ):
         issues.append("missing recommendation rationale")
     if not issues:
@@ -364,7 +356,11 @@ def validate_pedagogy(reply: str, move: StudyMove, mode: StudyAutonomyMode) -> P
     return PedagogyValidation(
         valid=False,
         issues=tuple(issues),
-        rewrite_instruction=_rewrite_instruction(move),
+        rewrite_instruction=(
+            "Rewrite to require an attempt and confidence before revealing more."
+            if move.requires_user_commitment
+            else "Rewrite to match the selected learning move and include one clear next step."
+        ),
         suggested_next_action=move.expected_output_shape,
     )
 
@@ -378,7 +374,6 @@ def move_for_plan(
     due_reviews: tuple[ReviewItem, ...] = (),
     memory_state: MemoryState | None = None,
 ) -> StudyMove:
-    """Select a learning move using a controller action as the strongest signal."""
     material_status = MaterialStatus(
         has_materials=bool(evidence_refs),
         has_indexed_evidence=bool(evidence_refs),
@@ -410,7 +405,6 @@ def append_policy_prompt(
     move: StudyMove,
     action: StudyAction,
 ) -> str:
-    """Append concise mode and next-action instructions to a model prompt."""
     if not prompt or mode is StudyAutonomyMode.MANUAL or action is StudyAction.CHAT:
         return prompt
 
@@ -477,13 +471,14 @@ def append_policy_prompt(
                     "- Ask for the smallest necessary user input and begin immediately.",
                 ]
             )
-    if action is StudyAction.ASSESS and _high_confidence_gap_from_move(move):
+    if action is StudyAction.ASSESS and (
+        move.kind == "contrastive_question" or "confidence" in move.reason
+    ):
         lines.append("- Prefer a contrastive correction before another explanation.")
     return f"{prompt}\n" + "\n".join(lines)
 
 
 def choice_prompt(reason: str, options: tuple[str, ...]) -> str:
-    """Build a productive-friction choice prompt."""
     rendered = "\n".join(f"{chr(65 + index)}. {option}" for index, option in enumerate(options))
     return (
         f"{reason}\n\n"
@@ -499,11 +494,23 @@ def assess_choice_response(
     *,
     recommended_option: str | None = None,
 ) -> ChoiceAssessment:
-    """Assess whether a learner choice includes metacognitive evidence."""
-    selected = _parse_choice_option(text)
-    confidence = _parse_choice_confidence(text)
+    selected_match = _CHOICE_OPTION_RE.search(text)
+    selected = selected_match.group("option").upper() if selected_match is not None else None
+    confidence_match = _CHOICE_CONFIDENCE_RE.search(text)
+    if confidence_match is None:
+        confidence = None
+    else:
+        confidence = normalize_confidence_value(
+            float(confidence_match.group("value")),
+            confidence_match.group("unit") or "",
+        )
     has_reason = bool(_CHOICE_REASON_RE.search(text))
-    self_diagnosis = _parse_self_diagnosis(text)
+    if _CHOICE_WEAKNESS_RE.search(text):
+        self_diagnosis = " ".join(text.strip().split())
+        if len(self_diagnosis) > 160:
+            self_diagnosis = self_diagnosis[:159].rstrip() + "…"
+    else:
+        self_diagnosis = ""
     issues: list[str] = []
     if selected is None:
         issues.append("missing option")
@@ -514,7 +521,12 @@ def assess_choice_response(
     if not self_diagnosis:
         issues.append("missing weakest-point self-diagnosis")
 
-    normalized_recommendation = _normalize_option(recommended_option)
+    recommendation_match = (
+        None if recommended_option is None else _CHOICE_OPTION_RE.search(recommended_option)
+    )
+    normalized_recommendation = (
+        recommendation_match.group("option").upper() if recommendation_match is not None else None
+    )
     should_override = (
         selected is not None
         and normalized_recommendation is not None
@@ -537,7 +549,6 @@ def assess_choice_response(
 
 
 def normalize_confidence_value(raw_value: float, unit: str = "") -> float | None:
-    """Normalize common learner confidence formats onto a 0-1 scale."""
     if unit == "%":
         confidence = raw_value / 100
     elif unit == "/10":
@@ -556,7 +567,6 @@ def normalize_confidence_value(raw_value: float, unit: str = "") -> float | None
 
 
 def parse_time_budget_minutes(text: str) -> int | None:
-    """Parse a compact time budget such as ``45m`` or ``1h``."""
     match = re.search(r"\b(?P<value>\d{1,3})\s*(?P<unit>m|min|mins|minutes|h|hr|hour)s?\b", text)
     if match is None:
         return None
@@ -567,20 +577,10 @@ def parse_time_budget_minutes(text: str) -> int | None:
 
 
 def session_type_from_text(text: str) -> AutopilotSessionType:
-    """Infer a named autopilot session profile from command text."""
     normalized = text.casefold()
-    if "exam" in normalized:
-        return AutopilotSessionType.EXAM
-    if "weak" in normalized:
-        return AutopilotSessionType.WEAK_TOPICS
-    if "review" in normalized:
-        return AutopilotSessionType.REVIEW
-    if "socratic" in normalized:
-        return AutopilotSessionType.SOCRATIC
-    if "cram" in normalized:
-        return AutopilotSessionType.CRAM
-    if "deep" in normalized:
-        return AutopilotSessionType.DEEP
+    for cue, session_type in _SESSION_TYPE_CUES:
+        if cue in normalized:
+            return session_type
     return AutopilotSessionType.GENERAL
 
 
@@ -590,12 +590,11 @@ def _manual_move(input_data: AutopilotInput) -> StudyMove:
     return _move("answer", "manual mode should answer the user's direct request")
 
 
-def _intervention_succeeded(memory_state: MemoryState, move_kind: StudyMoveKind) -> bool:
-    return move_kind in memory_state.successful_interventions
-
-
-def _intervention_failed(memory_state: MemoryState, move_kind: StudyMoveKind) -> bool:
-    return move_kind in memory_state.failed_interventions
+def _hint_preferred_over_contrast(memory_state: MemoryState) -> bool:
+    return (
+        "contrastive_question" in memory_state.failed_interventions
+        and "give_hint" in memory_state.successful_interventions
+    )
 
 
 def _intervention_reason(
@@ -603,116 +602,144 @@ def _intervention_reason(
     move_kind: StudyMoveKind,
     fallback: str,
 ) -> str:
-    if _intervention_succeeded(memory_state, move_kind):
+    if move_kind in memory_state.successful_interventions:
         return f"{fallback}, and local policy outcomes favor {move_kind}"
     return fallback
 
 
-def _guided_move(input_data: AutopilotInput) -> StudyMove:
-    state = input_data.study_state
-    if input_data.due_reviews:
-        topic = input_data.due_reviews[0].concept or input_data.due_reviews[0].item
+def _due_review_move(input_data: AutopilotInput) -> StudyMove | None:
+    if not input_data.due_reviews:
+        return None
+    topic = input_data.due_reviews[0].concept or input_data.due_reviews[0].item
+    return _move(
+        "review_due",
+        "a scheduled material-backed review is due",
+        target_topic=topic,
+        requires_user_commitment=True,
+        expected_output_shape="Ask one due active-recall question before explaining.",
+    )
+
+
+def _active_recall_move(state: StudyState) -> StudyMove | None:
+    if state.phase is not StudyPhase.RECALL:
+        return None
+    if _high_confidence_gap(state):
         return _move(
-            "review_due",
-            "a scheduled material-backed review is due",
-            target_topic=topic,
-            requires_user_commitment=True,
-            expected_output_shape="Ask one due active-recall question before explaining.",
-        )
-    if state.phase is StudyPhase.RECALL:
-        if _high_confidence_gap(state):
-            return _move(
-                "contrastive_question",
-                "high confidence with weak performance needs contrastive repair",
-                target_topic=state.retrieval_query or state.current_item,
-                requires_user_commitment=True,
-                difficulty="medium",
-                expected_output_shape=(
-                    "Give a minimal correction, then ask a contrastive recall question."
-                ),
-            )
-        return _move(
-            "assess",
-            "the learner has an active recall item",
+            "contrastive_question",
+            "high confidence with weak performance needs contrastive repair",
             target_topic=state.retrieval_query or state.current_item,
-            requires_user_commitment=False,
-            expected_output_shape="Assess, correct the smallest useful point, then ask one retry.",
+            requires_user_commitment=True,
+            difficulty="medium",
+            expected_output_shape=(
+                "Give a minimal correction, then ask a contrastive recall question."
+            ),
         )
-    if _CHOICE_RE.search(input_data.user_message) or _CHOICE_RESPONSE_RE.search(
-        input_data.user_message
+    return _move(
+        "assess",
+        "the learner has an active recall item",
+        target_topic=state.retrieval_query or state.current_item,
+        requires_user_commitment=False,
+        expected_output_shape="Assess, correct the smallest useful point, then ask one retry.",
+    )
+
+
+def _recommended_choice_option(input_data: AutopilotInput) -> str:
+    state = input_data.study_state
+    repair_signal = (
+        input_data.memory_state.misconceptions
+        or _high_confidence_gap(state)
+        or state.last_feedback_type in {StudyFeedbackType.PARTIAL, StudyFeedbackType.WRONG}
+    )
+    return "C" if repair_signal else "A"
+
+
+def _choice_reply_move(input_data: AutopilotInput) -> StudyMove | None:
+    if not (
+        _CHOICE_RE.search(input_data.user_message)
+        or _CHOICE_RESPONSE_RE.search(input_data.user_message)
     ):
-        recommended = _recommended_choice_option(input_data)
-        choice_assessment = assess_choice_response(
-            input_data.user_message,
-            recommended_option=recommended,
-        )
-        if choice_assessment.selected_option is not None:
-            if choice_assessment.should_override and choice_assessment.recommendation is not None:
-                return _move_for_choice_option(
-                    input_data,
-                    choice_assessment.recommendation,
-                    reason=(
-                        "the selected path conflicts with the learner signal, so guided mode "
-                        "overrides to the stronger pedagogical option"
-                    ),
-                )
-            if choice_assessment.valid:
-                return _move_for_choice_option(
-                    input_data,
-                    choice_assessment.selected_option,
-                    reason="guided mode follows the learner's justified learning-path choice",
-                )
-            issues = ", ".join(choice_assessment.issues)
-            return _move(
-                "offer_choices",
-                f"the choice reply is incomplete ({issues})",
-                requires_user_commitment=True,
-                expected_output_shape=(
-                    "Require option, reason, confidence 0-100%, and weakest-point diagnosis."
-                ),
-            )
+        return None
+
+    choice_assessment = assess_choice_response(
+        input_data.user_message,
+        recommended_option=_recommended_choice_option(input_data),
+    )
+    if choice_assessment.selected_option is None:
         return _move(
             "offer_choices",
             "the user is choosing a study path",
             requires_user_commitment=True,
             expected_output_shape="Offer choices that require reason, confidence, and weakness.",
         )
-    if input_data.memory_state.misconceptions:
-        if _intervention_failed(input_data.memory_state, "contrastive_question") and (
-            _intervention_succeeded(input_data.memory_state, "give_hint")
-        ):
-            return _move(
+    if choice_assessment.should_override and choice_assessment.recommendation is not None:
+        return _move_for_choice_option(
+            input_data,
+            choice_assessment.recommendation,
+            reason=(
+                "the selected path conflicts with the learner signal, so guided mode "
+                "overrides to the stronger pedagogical option"
+            ),
+        )
+    if choice_assessment.valid:
+        return _move_for_choice_option(
+            input_data,
+            choice_assessment.selected_option,
+            reason="guided mode follows the learner's justified learning-path choice",
+        )
+    issues = ", ".join(choice_assessment.issues)
+    return _move(
+        "offer_choices",
+        f"the choice reply is incomplete ({issues})",
+        requires_user_commitment=True,
+        expected_output_shape=(
+            "Require option, reason, confidence 0-100%, and weakest-point diagnosis."
+        ),
+    )
+
+
+def _stored_memory_move(input_data: AutopilotInput) -> StudyMove | None:
+    memory_state = input_data.memory_state
+    if memory_state.misconceptions:
+        if _hint_preferred_over_contrast(memory_state):
+            return _learning_move(
                 "give_hint",
                 "local policy outcomes suggest a scaffolded hint works better than contrast",
-                target_topic=input_data.memory_state.misconceptions[0],
-                requires_evidence=True,
-                requires_user_commitment=True,
+                target_topic=memory_state.misconceptions[0],
                 difficulty="easy",
                 expected_output_shape="Give one hint level, then ask the learner to continue.",
             )
-        return _move(
+        return _learning_move(
             "contrastive_question",
             _intervention_reason(
-                input_data.memory_state,
+                memory_state,
                 "contrastive_question",
                 "stored learner state shows a recurring misconception",
             ),
-            target_topic=input_data.memory_state.misconceptions[0],
-            requires_evidence=True,
-            requires_user_commitment=True,
+            target_topic=memory_state.misconceptions[0],
             difficulty="medium",
             expected_output_shape="Ask a contrastive question before giving another summary.",
         )
-    if input_data.memory_state.weak_topics and _STUDY_RE.search(input_data.user_message):
-        return _move(
+    if memory_state.weak_topics and _STUDY_RE.search(input_data.user_message):
+        return _learning_move(
             "ask_recall",
             "stored learner state points to a weak topic",
-            target_topic=input_data.memory_state.weak_topics[0],
-            requires_evidence=True,
-            requires_user_commitment=True,
+            target_topic=memory_state.weak_topics[0],
             difficulty="medium",
             expected_output_shape="Ask one recall task on the weakest topic with confidence.",
         )
+    return None
+
+
+def _guided_move(input_data: AutopilotInput) -> StudyMove:
+    for maybe_move in (
+        _due_review_move(input_data),
+        _active_recall_move(input_data.study_state),
+        _choice_reply_move(input_data),
+        _stored_memory_move(input_data),
+    ):
+        if maybe_move is not None:
+            return maybe_move
+
     if (
         input_data.material_status.has_materials
         and not input_data.material_status.has_indexed_evidence
@@ -726,11 +753,9 @@ def _guided_move(input_data: AutopilotInput) -> StudyMove:
             ),
         )
     if _STUDY_RE.search(input_data.user_message):
-        return _move(
+        return _learning_move(
             "ask_recall",
             "the user asked to study, so active recall should come before more exposition",
-            requires_evidence=True,
-            requires_user_commitment=True,
             difficulty="easy",
             expected_output_shape="Ask one material-backed recall question with confidence.",
         )
@@ -751,48 +776,38 @@ def _autopilot_move(input_data: AutopilotInput) -> StudyMove:
         topic = ""
         if input_data.due_reviews:
             topic = input_data.due_reviews[0].concept or input_data.due_reviews[0].item
-        return _move(
+        return _learning_move(
             "review_due",
             "autopilot review prioritizes due recall before new explanation",
             target_topic=topic or None,
-            requires_evidence=True,
-            requires_user_commitment=True,
             expected_output_shape="Run the next due recall item and require confidence.",
         )
     if session_type is AutopilotSessionType.WEAK_TOPICS and input_data.memory_state.weak_topics:
-        if _intervention_succeeded(input_data.memory_state, "contrastive_question"):
-            return _move(
+        if "contrastive_question" in input_data.memory_state.successful_interventions:
+            return _learning_move(
                 "contrastive_question",
                 "local policy outcomes favor contrastive repair for this learner",
                 target_topic=input_data.memory_state.weak_topics[0],
-                requires_evidence=True,
-                requires_user_commitment=True,
                 difficulty="medium",
                 expected_output_shape="Ask a contrastive weak-topic diagnostic with confidence.",
             )
-        return _move(
+        return _learning_move(
             "ask_recall",
             "weak-topic autopilot should test the highest-priority weak topic first",
             target_topic=input_data.memory_state.weak_topics[0],
-            requires_evidence=True,
-            requires_user_commitment=True,
             difficulty="medium",
             expected_output_shape="Start weak-topic repair with one diagnostic recall question.",
         )
     if input_data.memory_state.misconceptions:
-        if _intervention_failed(input_data.memory_state, "contrastive_question") and (
-            _intervention_succeeded(input_data.memory_state, "give_hint")
-        ):
-            return _move(
+        if _hint_preferred_over_contrast(input_data.memory_state):
+            return _learning_move(
                 "give_hint",
                 "local policy outcomes suggest hint scaffolding before another contrast",
                 target_topic=input_data.memory_state.misconceptions[0],
-                requires_evidence=True,
-                requires_user_commitment=True,
                 difficulty="easy",
                 expected_output_shape="Give one hint level, then ask the learner to continue.",
             )
-        return _move(
+        return _learning_move(
             "contrastive_question",
             _intervention_reason(
                 input_data.memory_state,
@@ -800,44 +815,34 @@ def _autopilot_move(input_data: AutopilotInput) -> StudyMove:
                 "autopilot is repairing a stored misconception",
             ),
             target_topic=input_data.memory_state.misconceptions[0],
-            requires_evidence=True,
-            requires_user_commitment=True,
             difficulty="medium",
             expected_output_shape="Ask a contrastive repair question and require confidence.",
         )
     if session_type in {AutopilotSessionType.EXAM, AutopilotSessionType.CRAM}:
-        return _move(
+        return _learning_move(
             "diagnose_priority",
             "bounded exam prep should start by finding high-yield weak topics",
-            requires_evidence=True,
-            requires_user_commitment=True,
             difficulty="medium",
             expected_output_shape="Give a bounded plan, then start a diagnostic recall question.",
         )
     if session_type is AutopilotSessionType.SOCRATIC:
-        return _move(
+        return _learning_move(
             "ask_recall",
             "Socratic mode should ask before revealing",
-            requires_evidence=True,
-            requires_user_commitment=True,
             expected_output_shape="Ask one targeted question and withhold the answer.",
         )
     if session_type is AutopilotSessionType.DEEP:
-        return _move(
+        return _learning_move(
             "contrastive_question",
             "deep understanding benefits from why and contrastive questions",
-            requires_evidence=True,
-            requires_user_commitment=True,
             difficulty="hard",
             expected_output_shape="Ask a why or contrastive transfer question with confidence.",
         )
     if state.phase is StudyPhase.RECALL:
         return _guided_move(input_data)
-    return _move(
+    return _learning_move(
         "ask_recall",
         "autopilot should drive the next useful active-learning step",
-        requires_evidence=True,
-        requires_user_commitment=True,
         expected_output_shape="State the session objective, then ask one recall task.",
     )
 
@@ -851,11 +856,9 @@ def _move_from_action(action: StudyAction, input_data: AutopilotInput) -> StudyM
             requires_user_commitment=False,
         )
     if action in {StudyAction.CALIBRATE, StudyAction.PROMPT_RECALL, StudyAction.SIMPLIFY}:
-        return _move(
+        return _learning_move(
             "ask_recall",
             "the controller selected an active recall turn",
-            requires_evidence=True,
-            requires_user_commitment=True,
             expected_output_shape="Ask one recall task and request confidence from 0-100%.",
         )
     if action is StudyAction.PRIORITY:
@@ -922,13 +925,23 @@ def _move(
     )
 
 
-def _recommended_choice_option(input_data: AutopilotInput) -> str:
-    state = input_data.study_state
-    if input_data.memory_state.misconceptions or _high_confidence_gap(state):
-        return "C"
-    if state.last_feedback_type in {StudyFeedbackType.PARTIAL, StudyFeedbackType.WRONG}:
-        return "C"
-    return "A"
+def _learning_move(
+    kind: StudyMoveKind,
+    reason: str,
+    *,
+    difficulty: StudyMoveDifficulty | None = None,
+    target_topic: str | None = None,
+    expected_output_shape: str | None = None,
+) -> StudyMove:
+    return _move(
+        kind,
+        reason,
+        requires_evidence=True,
+        requires_user_commitment=True,
+        difficulty=difficulty,
+        target_topic=target_topic,
+        expected_output_shape=expected_output_shape,
+    )
 
 
 def _move_for_choice_option(
@@ -939,45 +952,31 @@ def _move_for_choice_option(
 ) -> StudyMove:
     normalized = option.upper()
     if normalized == "A":
-        return _move(
+        return _learning_move(
             "ask_recall",
             reason,
-            requires_evidence=True,
-            requires_user_commitment=True,
             difficulty="medium",
             expected_output_shape="Ask one targeted recall question and require confidence.",
         )
     if normalized == "B":
-        return _move(
+        return _learning_move(
             "worked_example",
             reason,
-            requires_evidence=True,
-            requires_user_commitment=True,
             difficulty="easy",
             expected_output_shape=(
                 "Give one concise worked step, then ask a similar recall check with confidence."
             ),
         )
-    if _intervention_failed(
-        input_data.memory_state,
-        "contrastive_question",
-    ) and _intervention_succeeded(
-        input_data.memory_state,
-        "give_hint",
-    ):
-        return _move(
+    if _hint_preferred_over_contrast(input_data.memory_state):
+        return _learning_move(
             "give_hint",
             reason,
-            requires_evidence=True,
-            requires_user_commitment=True,
             difficulty="easy",
             expected_output_shape="Give one hint level, then ask the learner to continue.",
         )
-    return _move(
+    return _learning_move(
         "contrastive_question",
         reason,
-        requires_evidence=True,
-        requires_user_commitment=True,
         difficulty="medium",
         target_topic=(
             input_data.memory_state.misconceptions[0]
@@ -996,78 +995,3 @@ def _high_confidence_gap(state: StudyState) -> bool:
         and state.last_confidence >= 0.75
         and state.last_feedback_type in {StudyFeedbackType.PARTIAL, StudyFeedbackType.WRONG}
     )
-
-
-def _next_action_from_feedback(state: StudyState) -> StudyMoveKind:
-    if _high_confidence_gap(state):
-        return "contrastive_question"
-    if state.last_feedback_type is StudyFeedbackType.CORRECT:
-        return "schedule_review"
-    if state.last_feedback_type is StudyFeedbackType.PARTIAL:
-        return "give_hint"
-    if state.last_feedback_type is StudyFeedbackType.WRONG:
-        return "ask_recall"
-    return "answer"
-
-
-def _looks_like_answer_leak(reply: str) -> bool:
-    normalized = reply.casefold()
-    return any(marker in normalized for marker in ("the answer is", "solution:", "full solution"))
-
-
-def _has_next_action(reply: str, move: StudyMove) -> bool:
-    normalized = reply.casefold()
-    return (
-        "next" in normalized
-        or move.kind in normalized
-        or "try this" in normalized
-        or "answer from memory" in normalized
-    )
-
-
-def _has_recommendation_rationale(reply: str) -> bool:
-    return bool(_RATIONALE_RE.search(reply))
-
-
-def _rewrite_instruction(move: StudyMove) -> str:
-    if move.requires_user_commitment:
-        return "Rewrite to require an attempt and confidence before revealing more."
-    return "Rewrite to match the selected learning move and include one clear next step."
-
-
-def _high_confidence_gap_from_move(move: StudyMove) -> bool:
-    return move.kind == "contrastive_question" or "confidence" in move.reason
-
-
-def _parse_choice_option(text: str) -> str | None:
-    match = _CHOICE_OPTION_RE.search(text)
-    if match is None:
-        return None
-    return match.group("option").upper()
-
-
-def _normalize_option(value: str | None) -> str | None:
-    if value is None:
-        return None
-    match = _CHOICE_OPTION_RE.search(value)
-    if match is None:
-        return None
-    return match.group("option").upper()
-
-
-def _parse_choice_confidence(text: str) -> float | None:
-    match = _CHOICE_CONFIDENCE_RE.search(text)
-    if match is None:
-        return None
-    raw_value = float(match.group("value"))
-    unit = match.group("unit") or ""
-    return normalize_confidence_value(raw_value, unit)
-
-
-def _parse_self_diagnosis(text: str) -> str:
-    if not _CHOICE_WEAKNESS_RE.search(text):
-        return ""
-    normalized = " ".join(text.strip().split())
-    if len(normalized) <= 160:
-        return normalized
-    return normalized[:159].rstrip() + "…"

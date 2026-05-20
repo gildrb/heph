@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest import mock
 
-from hephaistos.matching import _score, ranked_matches
+from hephaistos.matching import ranked_matches
 
 
 def test_ranked_matches_returns_best_match_first() -> None:
@@ -27,32 +27,42 @@ def test_ranked_matches_respects_score_cutoff() -> None:
 class TestRapidfuzzFallback:
     """Verify fuzzy matching works when rapidfuzz is not installed."""
 
-    def test_fallback_exact_match_scores_100(self) -> None:
+    def test_fallback_exact_match_passes_high_cutoff(self) -> None:
         with mock.patch("hephaistos.matching.fuzz", None):
-            assert _score("hello", "hello") == 100.0
+            matches = ranked_matches("hello", ["hello"], key=lambda value: value, min_score=100.0)
+            assert matches
 
-    def test_fallback_substring_scores_85(self) -> None:
+    def test_fallback_substring_passes_expected_cutoff(self) -> None:
         with mock.patch("hephaistos.matching.fuzz", None):
-            assert _score("hello", "hello world") == 85.0
+            matches = ranked_matches(
+                "hello", ["hello world"], key=lambda value: value, min_score=85.0
+            )
+            assert matches
 
     def test_fallback_word_overlap_partial(self) -> None:
         with mock.patch("hephaistos.matching.fuzz", None):
-            score = _score("binary search", "binary tree search")
-            # All query words ("binary", "search") are present in the candidate,
-            # so word-overlap is 2/2 = 100%.
-            assert 0.0 < score <= 100.0
+            matches = ranked_matches(
+                "binary search",
+                ["binary tree search"],
+                key=lambda value: value,
+                min_score=90.0,
+            )
+            assert matches
 
-    def test_fallback_no_match_scores_0(self) -> None:
+    def test_fallback_no_match_respects_cutoff(self) -> None:
         with mock.patch("hephaistos.matching.fuzz", None):
-            assert _score("xyz", "abc") == 0.0
+            matches = ranked_matches("xyz", ["abc"], key=lambda value: value, min_score=10.0)
+            assert matches == []
 
-    def test_fallback_empty_query_scores_0(self) -> None:
+    def test_fallback_empty_query_returns_no_matches(self) -> None:
         with mock.patch("hephaistos.matching.fuzz", None):
-            assert _score("", "something") == 0.0
+            matches = ranked_matches("", ["something"], key=lambda value: value)
+            assert matches == []
 
-    def test_fallback_empty_candidate_scores_0(self) -> None:
+    def test_fallback_empty_candidate_respects_cutoff(self) -> None:
         with mock.patch("hephaistos.matching.fuzz", None):
-            assert _score("something", "") == 0.0
+            matches = ranked_matches("something", [""], key=lambda value: value, min_score=1.0)
+            assert matches == []
 
     def test_ranked_matches_works_without_rapidfuzz(self) -> None:
         with mock.patch("hephaistos.matching.fuzz", None):

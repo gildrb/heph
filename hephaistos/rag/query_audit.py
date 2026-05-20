@@ -13,8 +13,6 @@ _QUERY_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:-]*")
 
 @dataclass(frozen=True, slots=True)
 class RetrievalAuditConfig:
-    """Observable retrieval knobs recorded in benchmark and chat traces."""
-
     retrieval_mode: str
     transform_strategy: str
     top_k: int
@@ -28,7 +26,6 @@ class RetrievalAuditConfig:
 
 
 def query_class(query: str) -> str:
-    """Classify retrieval intent from query text only."""
     normalized = query.casefold()
     tokens = set(_QUERY_TOKEN_RE.findall(normalized))
     if {

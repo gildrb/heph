@@ -14,7 +14,6 @@ from hephaistos.agent.dispatch import iter_agent_events
 from hephaistos.armory.search import add_known_armory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat import cli as chat_cli
-from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
@@ -27,6 +26,7 @@ from hephaistos.cli.main import main as cli_main
 from hephaistos.cli.main import sys as cli_sys
 from hephaistos.rag.health import ExtractionHealthIssue, ExtractionHealthReport
 from hephaistos.rag.index import load_or_build
+from hephaistos.runtime import ChatConfig
 from hephaistos.tui import TuiDependencyError
 
 cli_main_module = sys.modules[cli_main.__module__]
@@ -52,7 +52,8 @@ def test_parser_includes_expected_top_level_commands() -> None:
     assert "start           " not in help_text
     assert "shell           " not in help_text
     assert "Chat with an LLM" not in help_text
-    assert "source" in help_text
+    assert "materials" in help_text
+    assert "source" not in help_text
     assert "tui" not in help_text
     assert "parameters" not in help_text
 
@@ -66,7 +67,7 @@ def test_update_command_is_not_treated_as_armory(
 
     out = capsys.readouterr().out
     assert "Hephaistos update" in out
-    assert "uv tool upgrade hephaistos" in out
+    assert "uv tool upgrade heph" in out
 
 
 def test_source_runtime_reexecs_repo_venv(
@@ -605,7 +606,7 @@ def test_golden_path_init_source_index_dry_run(tmp_path: Path) -> None:
 
 def test_inject_default_subcommand_empty_args() -> None:
     """No args at all → inject 'tui'."""
-    result = _inject_default_subcommand([], {"armory", "tui", "source"})
+    result = _inject_default_subcommand([], {"armory", "tui", "materials"})
     assert result == ["tui"]
 
 
@@ -613,7 +614,7 @@ def test_inject_default_subcommand_bare_path() -> None:
     """A bare path that isn't a known command → inject 'tui' before it."""
     result = _inject_default_subcommand(
         ["/tmp/my-armory"],
-        {"armory", "tui", "source"},
+        {"armory", "tui", "materials"},
     )
     assert result == ["tui", "/tmp/my-armory"]
 
@@ -622,7 +623,7 @@ def test_inject_default_subcommand_flags_before_path() -> None:
     """Flags before the path are skipped, 'tui' injected before the path."""
     result = _inject_default_subcommand(
         ["--profile", "/tmp/armory"],
-        {"armory", "tui", "source"},
+        {"armory", "tui", "materials"},
     )
     assert result == ["--profile", "tui", "/tmp/armory"]
 
@@ -631,7 +632,7 @@ def test_inject_default_subcommand_known_command_unchanged() -> None:
     """A known subcommand is left unchanged — argparse handles it."""
     result = _inject_default_subcommand(
         ["armory", "init", "/tmp/armory"],
-        {"armory", "tui", "source"},
+        {"armory", "tui", "materials"},
     )
     assert result == ["armory", "init", "/tmp/armory"]
 
@@ -640,7 +641,7 @@ def test_inject_default_subcommand_flags_only() -> None:
     """Only flags, no positional → return unchanged (argparse will show help or error)."""
     result = _inject_default_subcommand(
         ["--version"],
-        {"armory", "tui", "source"},
+        {"armory", "tui", "materials"},
     )
     assert result == ["--version"]
 
@@ -649,7 +650,7 @@ def test_inject_default_subcommand_relative_path() -> None:
     """Relative paths that aren't known commands get 'tui' injected."""
     result = _inject_default_subcommand(
         ["./my-armory"],
-        {"armory", "tui", "source"},
+        {"armory", "tui", "materials"},
     )
     assert result == ["tui", "./my-armory"]
 

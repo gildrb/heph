@@ -41,20 +41,6 @@ _SENSITIVE_KEYS: Final[frozenset[str]] = frozenset(
 )
 
 
-def _is_safe_scalar(value: object) -> bool:
-    return value is None or isinstance(value, bool | int | float)
-
-
-def _sanitize_string(key: str, value: str) -> str | None:
-    if key in _SENSITIVE_KEYS:
-        return None
-    if len(value) > 120:
-        return None
-    if key.endswith(("_path", "path", "filename", "file")) and value:
-        return None
-    return redact_text(value)
-
-
 def _sanitize_properties(properties: Mapping[str, object] | None) -> dict[str, object]:
     cleaned: dict[str, object] = dict(runtime_context())
     if not properties:
@@ -63,13 +49,13 @@ def _sanitize_properties(properties: Mapping[str, object] | None) -> dict[str, o
         lowered = key.strip().lower()
         if lowered in _SENSITIVE_KEYS:
             continue
-        if _is_safe_scalar(value):
+        if value is None or isinstance(value, bool | int | float):
             cleaned[key] = value
             continue
         if isinstance(value, str):
-            safe_value = _sanitize_string(lowered, value)
-            if safe_value is not None:
-                cleaned[key] = safe_value
+            is_sensitive_name = lowered.endswith(("_path", "path", "filename", "file"))
+            if len(value) <= 120 and not (is_sensitive_name and value):
+                cleaned[key] = redact_text(value)
     return cleaned
 
 

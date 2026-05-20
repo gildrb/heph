@@ -26,8 +26,6 @@ from hephaistos.chat.session import ChatSession, save_session
 
 @dataclass(frozen=True, slots=True)
 class AutomationRunResult:
-    """Summary for a completed non-interactive chat turn."""
-
     reply: str
     saved_path: Path | None = None
 
@@ -38,7 +36,6 @@ def iter_chat_events(
     *,
     abort: threading.Event | None = None,
 ) -> Iterator[TurnEvent]:
-    """Yield structured events for one UI-agnostic chat turn."""
     session.mark_activity()
     orchestrator = TurnOrchestrator(session)
     yield from orchestrator.iter_events(prompt, abort=abort)
@@ -46,7 +43,6 @@ def iter_chat_events(
 
 
 def run_chat_turn(session: ChatSession, prompt: str, *, save: bool = False) -> AutomationRunResult:
-    """Run one chat turn and return a machine-friendly summary."""
     reply = ""
     for event in iter_chat_events(session, prompt):
         if isinstance(event, TurnCompleteEvent):
@@ -56,7 +52,6 @@ def run_chat_turn(session: ChatSession, prompt: str, *, save: bool = False) -> A
 
 
 def event_to_json_object(event: TurnEvent) -> dict[str, object]:
-    """Convert a turn event into a stable JSON-serializable object."""
     if isinstance(event, AssistantDeltaEvent):
         return {"type": event.kind, "delta": event.delta}
     if isinstance(event, ToolCallEvent):

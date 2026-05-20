@@ -14,7 +14,7 @@ from typing import cast
 from hephaistos._types import is_string_mapping
 from hephaistos.logging import get_logger
 from hephaistos.rag import optional_backends
-from hephaistos.rag.chunker import Chunk, ChunkedDocument
+from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.index import ArmoryIndex
 from hephaistos.rag.optional_backends import Bm25Protocol, SklearnVectorizerProtocol
 from hephaistos.rag.retrieval_types import ScoredChunk
@@ -29,7 +29,6 @@ _SOURCE_PATH_WEIGHT = 1
 
 
 def _chunk_search_text(chunk_text: str, source: str, heading: str) -> str:
-    """Return the text used for sparse retrieval scoring."""
     if len(tokenize(chunk_text)) < 3:
         return chunk_text
     content = "\n".join(part for part in (heading, chunk_text) if part)
@@ -91,32 +90,95 @@ def _bm25_stdlib_idf(corpus_tokens: Sequence[list[str]]) -> dict[str, float]:
     }
 
 
-def _bm25_score(
-    tokens: list[str],
-    query_terms: set[str],
+def _bm25_stdlib_state(corpus_tokens: list[list[str]]) -> tuple[dict[str, float], float]:
+    documents = [tokens for tokens in corpus_tokens if tokens]
+    if not documents:
+        return {}, 0.0
+    document_count = len(corpus_tokens)
+    avg_doc_len = sum(len(tokens) for tokens in corpus_tokens) / document_count
+    return _bm25_stdlib_idf(corpus_tokens), avg_doc_len
+
+
+def _build_bm25_backend(
+    index: ArmoryIndex,
+    corpus_tokens: list[list[str]],
+    cache_key: str,
+    *,
+    warning: str,
+) -> object | None:
+    if not any(corpus_tokens):
+        return None
+    bm25_factory = optional_backends.bm25_class()
+    if bm25_factory is None:
+        return None
+    try:
+        retriever = bm25_factory()
+        retriever.index(corpus_tokens, show_progress=False)
+    except Exception:
+        _log.warning(warning, exc_info=True)
+        return None
+    _save_bm25_backend_cache(index, cache_key, retriever)
+    return retriever
+
+
+def _bm25_backend_results(
+    retriever: object,
+    chunks: list[Chunk],
+    query_tokens: list[str],
+    top_k: int,
+) -> list[ScoredChunk]:
+    result_count = min(top_k, len(chunks))
+    if result_count <= 0:
+        return []
+    bm25_retriever = cast("Bm25Protocol", retriever)
+    results, scores = bm25_retriever.retrieve([query_tokens], k=result_count, show_progress=False)
+    result_rows = object_rows(results)
+    score_rows = object_rows(scores)
+    if not result_rows or not score_rows:
+        return []
+
+    scored: list[ScoredChunk] = []
+    for raw_idx, raw_score in zip(result_rows[0], score_rows[0], strict=False):
+        if not isinstance(raw_idx, int) or not isinstance(raw_score, int | float):
+            continue
+        if raw_score <= 0 or raw_idx < 0 or raw_idx >= len(chunks):
+            continue
+        scored.append(ScoredChunk(chunk=chunks[raw_idx], score=float(raw_score)))
+    return scored
+
+
+def _bm25_stdlib_results(
+    chunks: list[Chunk],
+    corpus_tokens: list[list[str]],
+    query_tokens: list[str],
     *,
     idf: dict[str, float],
     avg_doc_len: float,
-) -> float:
-    if not tokens or avg_doc_len <= 0:
-        return 0.0
-    frequencies = Counter(tokens)
-    score = 0.0
-    k1 = 1.5
-    b = 0.75
-    length_ratio = len(tokens) / avg_doc_len
-    for term in query_terms:
-        frequency = frequencies.get(term, 0)
-        if frequency <= 0:
+    top_k: int,
+) -> list[ScoredChunk]:
+    if not idf or avg_doc_len <= 0:
+        return []
+    query_terms = set(query_tokens)
+    scored: list[ScoredChunk] = []
+    for index, tokens in enumerate(corpus_tokens):
+        if not tokens:
             continue
-        denominator = frequency + k1 * (1 - b + b * length_ratio)
-        score += idf.get(term, 0.0) * (frequency * (k1 + 1)) / denominator
-    return score
+        frequencies = Counter(tokens)
+        length_ratio = len(tokens) / avg_doc_len
+        score = 0.0
+        for term in query_terms:
+            frequency = frequencies.get(term, 0)
+            if frequency <= 0:
+                continue
+            denominator = frequency + 1.5 * (1 - 0.75 + 0.75 * length_ratio)
+            score += idf.get(term, 0.0) * (frequency * 2.5) / denominator
+        if score > 0:
+            scored.append(ScoredChunk(chunk=chunks[index], score=score))
+    scored.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
+    return scored[:top_k]
 
 
 class TfidfRetriever:
-    """TF-IDF cosine-similarity retriever over an ``ArmoryIndex``."""
-
     def __init__(self, index: ArmoryIndex) -> None:
         self._chunks: list[Chunk] = index.all_chunks
         self._vectorizer: SklearnVectorizerProtocol | None = None
@@ -190,7 +252,6 @@ class TfidfRetriever:
         }
 
     def _build_sklearn(self) -> None:
-        """Build TF-IDF matrix using scikit-learn when available."""
         vectorizer_factory = optional_backends.sklearn_tfidf_vectorizer()
         assert vectorizer_factory is not None
         texts = [
@@ -205,7 +266,6 @@ class TfidfRetriever:
         self._matrix = self._vectorizer.fit_transform(texts)
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
-        """Return the top-k chunks most relevant to *query*."""
         if not self._chunks:
             return []
         if self._matrix is not None:
@@ -269,8 +329,6 @@ class TfidfRetriever:
 
 
 class Bm25Retriever:
-    """Sparse BM25 retriever using ``bm25s`` or a pure-Python fallback."""
-
     def __init__(self, index: ArmoryIndex) -> None:
         self._chunks = index.all_chunks
         self._retriever: object | None = None
@@ -285,13 +343,12 @@ class Bm25Retriever:
             if cached_state is not None and self._load_corpus_tokens(cached_state):
                 self._build_retriever(index)
                 if self._retriever is None:
-                    self._build_stdlib()
+                    self._idf, self._avg_doc_len = _bm25_stdlib_state(self._corpus_tokens)
             else:
                 self._build(index)
 
     @property
     def available(self) -> bool:
-        """Whether the BM25 backend was built successfully."""
         return self._retriever is not None or bool(self._idf)
 
     def _load_corpus_tokens(self, state: dict[str, object]) -> bool:
@@ -321,7 +378,7 @@ class Bm25Retriever:
         index.save_retriever_state(_BM25_TOKEN_CACHE_KEY, {"corpus_tokens": self._corpus_tokens})
         self._build_retriever(index)
         if self._retriever is None:
-            self._build_stdlib()
+            self._idf, self._avg_doc_len = _bm25_stdlib_state(self._corpus_tokens)
         else:
             self._corpus_tokens = []
 
@@ -330,80 +387,33 @@ class Bm25Retriever:
             return
         if self._load_backend_cache(index):
             return
-        bm25_factory = optional_backends.bm25_class()
-        if bm25_factory is None:
-            return
-        try:
-            retriever = bm25_factory()
-            retriever.index(self._corpus_tokens, show_progress=False)
-        except Exception:
-            _log.warning("bm25 build failed; falling back to tf-idf", exc_info=True)
-            return
-        self._retriever = retriever
-        _save_bm25_backend_cache(index, _BM25_BACKEND_CACHE_KEY, retriever)
+        self._retriever = _build_bm25_backend(
+            index,
+            self._corpus_tokens,
+            _BM25_BACKEND_CACHE_KEY,
+            warning="bm25 build failed; falling back to tf-idf",
+        )
 
     def _load_backend_cache(self, index: ArmoryIndex) -> bool:
         self._retriever = _load_bm25_backend_cache(index, _BM25_BACKEND_CACHE_KEY)
         return self._retriever is not None
 
-    def _build_stdlib(self) -> None:
-        documents = [tokens for tokens in self._corpus_tokens if tokens]
-        if not documents:
-            return
-        document_count = len(self._corpus_tokens)
-        self._idf = _bm25_stdlib_idf(self._corpus_tokens)
-        self._avg_doc_len = sum(len(tokens) for tokens in self._corpus_tokens) / document_count
-
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
-        """Return the top-k chunks by BM25 score."""
         if not self._chunks:
             return []
         query_tokens = tokenize(query)
         if not query_tokens:
             return []
         if self._retriever is None:
-            return self._retrieve_stdlib(query_tokens, top_k)
-
-        result_count = min(top_k, len(self._chunks))
-        if result_count <= 0:
-            return []
-        retriever = cast("Bm25Protocol", self._retriever)
-        results, scores = retriever.retrieve([query_tokens], k=result_count, show_progress=False)
-        result_rows = object_rows(results)
-        score_rows = object_rows(scores)
-        if not result_rows or not score_rows:
-            return []
-
-        scored: list[ScoredChunk] = []
-        for raw_idx, raw_score in zip(result_rows[0], score_rows[0], strict=False):
-            if not isinstance(raw_idx, int) or not isinstance(raw_score, int | float):
-                continue
-            if raw_score <= 0:
-                continue
-            if raw_idx < 0 or raw_idx >= len(self._chunks):
-                continue
-            scored.append(ScoredChunk(chunk=self._chunks[raw_idx], score=float(raw_score)))
-        return scored
-
-    def _retrieve_stdlib(self, query_tokens: list[str], top_k: int) -> list[ScoredChunk]:
-        if not self._idf or self._avg_doc_len <= 0:
-            return []
-        query_terms = set(query_tokens)
-        scored: list[ScoredChunk] = []
-        for index, tokens in enumerate(self._corpus_tokens):
-            score = self._bm25_score(tokens, query_terms)
-            if score > 0:
-                scored.append(ScoredChunk(chunk=self._chunks[index], score=score))
-        scored.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
-        return scored[:top_k]
-
-    def _bm25_score(self, tokens: list[str], query_terms: set[str]) -> float:
-        return _bm25_score(
-            tokens,
-            query_terms,
-            idf=self._idf,
-            avg_doc_len=self._avg_doc_len,
-        )
+            return _bm25_stdlib_results(
+                self._chunks,
+                self._corpus_tokens,
+                query_tokens,
+                idf=self._idf,
+                avg_doc_len=self._avg_doc_len,
+                top_k=top_k,
+            )
+        return _bm25_backend_results(self._retriever, self._chunks, query_tokens, top_k)
 
 
 class DocumentBm25Retriever:
@@ -431,106 +441,56 @@ class DocumentBm25Retriever:
 
     @property
     def available(self) -> bool:
-        """Whether document-level BM25 can serve retrieval requests."""
         return self._retriever is not None or bool(self._idf)
 
     def _build(self, index: ArmoryIndex) -> None:
-        self._corpus_tokens = [
-            tokenize(self._document_search_text(index, document)) for document in self._documents
-        ]
+        document_texts: list[str] = []
+        for document in self._documents:
+            material_path = index.armory_path / document.source
+            try:
+                if material_path.is_file():
+                    document_texts.append(material_path.read_text(encoding="utf-8"))
+                    continue
+            except OSError:
+                pass
+
+            parts: list[str] = []
+            previous_heading = ""
+            for chunk in sorted(document.chunks, key=lambda item: item.index):
+                if chunk.heading and chunk.heading != previous_heading:
+                    parts.append(chunk.heading)
+                    previous_heading = chunk.heading
+                parts.append(chunk.text)
+            document_texts.append("\n\n".join(parts))
+
+        self._corpus_tokens = [tokenize(text) for text in document_texts]
         self._build_retriever(index)
         if self._retriever is None:
-            self._build_stdlib()
+            self._idf, self._avg_doc_len = _bm25_stdlib_state(self._corpus_tokens)
         else:
             self._corpus_tokens = []
 
-    def _document_search_text(self, index: ArmoryIndex, document: ChunkedDocument) -> str:
-        material_path = index.armory_path / document.source
-        try:
-            if material_path.is_file():
-                return material_path.read_text(encoding="utf-8")
-        except OSError:
-            pass
-        return _document_text_from_chunks(document)
-
     def _build_retriever(self, index: ArmoryIndex) -> None:
-        if not any(self._corpus_tokens):
-            return
-        bm25_factory = optional_backends.bm25_class()
-        if bm25_factory is None:
-            return
-        try:
-            retriever = bm25_factory()
-            retriever.index(self._corpus_tokens, show_progress=False)
-        except Exception:
-            _log.warning("document bm25 build failed; falling back to stdlib bm25", exc_info=True)
-            return
-        self._retriever = retriever
-        _save_bm25_backend_cache(index, _BM25_DOCUMENT_BACKEND_CACHE_KEY, retriever)
-
-    def _build_stdlib(self) -> None:
-        documents = [tokens for tokens in self._corpus_tokens if tokens]
-        if not documents:
-            return
-        document_count = len(self._corpus_tokens)
-        self._idf = _bm25_stdlib_idf(self._corpus_tokens)
-        self._avg_doc_len = sum(len(tokens) for tokens in self._corpus_tokens) / document_count
+        self._retriever = _build_bm25_backend(
+            index,
+            self._corpus_tokens,
+            _BM25_DOCUMENT_BACKEND_CACHE_KEY,
+            warning="document bm25 build failed; falling back to stdlib bm25",
+        )
 
     def retrieve(self, query: str, top_k: int = 5) -> list[ScoredChunk]:
-        """Return the top-k documents, represented by each document's first chunk."""
         if not self._documents:
             return []
         query_tokens = tokenize(query)
         if not query_tokens:
             return []
         if self._retriever is None:
-            return self._retrieve_stdlib(query_tokens, top_k)
-
-        result_count = min(top_k, len(self._documents))
-        if result_count <= 0:
-            return []
-        retriever = cast("Bm25Protocol", self._retriever)
-        results, scores = retriever.retrieve([query_tokens], k=result_count, show_progress=False)
-        result_rows = object_rows(results)
-        score_rows = object_rows(scores)
-        if not result_rows or not score_rows:
-            return []
-
-        scored: list[ScoredChunk] = []
-        for raw_idx, raw_score in zip(result_rows[0], score_rows[0], strict=False):
-            if not isinstance(raw_idx, int) or not isinstance(raw_score, int | float):
-                continue
-            if raw_score <= 0:
-                continue
-            if raw_idx < 0 or raw_idx >= len(self._chunks):
-                continue
-            scored.append(ScoredChunk(chunk=self._chunks[raw_idx], score=float(raw_score)))
-        return scored
-
-    def _retrieve_stdlib(self, query_tokens: list[str], top_k: int) -> list[ScoredChunk]:
-        if not self._idf or self._avg_doc_len <= 0:
-            return []
-        query_terms = set(query_tokens)
-        scored: list[ScoredChunk] = []
-        for index, tokens in enumerate(self._corpus_tokens):
-            score = _bm25_score(
-                tokens,
-                query_terms,
+            return _bm25_stdlib_results(
+                self._chunks,
+                self._corpus_tokens,
+                query_tokens,
                 idf=self._idf,
                 avg_doc_len=self._avg_doc_len,
+                top_k=top_k,
             )
-            if score > 0:
-                scored.append(ScoredChunk(chunk=self._chunks[index], score=score))
-        scored.sort(key=lambda scored_chunk: scored_chunk.score, reverse=True)
-        return scored[:top_k]
-
-
-def _document_text_from_chunks(document: ChunkedDocument) -> str:
-    parts: list[str] = []
-    previous_heading = ""
-    for chunk in sorted(document.chunks, key=lambda item: item.index):
-        if chunk.heading and chunk.heading != previous_heading:
-            parts.append(chunk.heading)
-            previous_heading = chunk.heading
-        parts.append(chunk.text)
-    return "\n\n".join(parts)
+        return _bm25_backend_results(self._retriever, self._chunks, query_tokens, top_k)

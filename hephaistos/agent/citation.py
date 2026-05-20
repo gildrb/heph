@@ -27,15 +27,11 @@ _NO_CITATION_CHAR_THRESHOLD = 200
 
 @dataclass(frozen=True, slots=True)
 class ExtractedCitation:
-    """An evidence citation found in response text."""
-
     evidence_id: str
 
 
 @dataclass
 class VerificationResult:
-    """Outcome of evidence-citation verification."""
-
     verified: list[str]
     unverified: list[str]
     citation_count: int

@@ -1,5 +1,5 @@
 [project]
-name = "hephaistos"
+name = "heph"
 version = "0.1.0"
 description = "Local-first document workspace for grounded answers, citations, memory, and recall practice with any LLM"
 readme = "README.md"
@@ -26,7 +26,6 @@ dependencies = [
     "openai>=1.0.0",
     "rich>=14.0.0",
     "certifi>=2024.0.0",
-    "supermemory>=3.0.0",
     "textual>=6.0.0",
     "docling>=2.0.0",
     "unicodeit>=0.7.0",
@@ -154,6 +153,7 @@ mark-parentheses = false
 raises-require-match-for = ["Exception", "ValueError", "TypeError", "RuntimeError", "OSError"]
 
 [tool.uv.build-backend]
+module-name = "hephaistos"
 module-root = ""
 
 [tool.ty.environment]
@@ -219,7 +219,6 @@ source_modules = [
     "hephaistos.memory",
     "hephaistos.materials",
     "hephaistos.parameters",
-    "hephaistos.source",
     "hephaistos.runtime",
     "hephaistos.logging",
     "hephaistos.terminal.palette",

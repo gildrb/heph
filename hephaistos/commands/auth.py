@@ -32,12 +32,9 @@ class LoginCommand(Command):
             return CommandResult()
         if selected == 0:
             return self._login_openai_codex(session)
-        if selected == 1:
-            return self._login_api_key(session, "openai")
-        if selected == 2:
-            return self._login_api_key(session, "openrouter")
-        if selected == 3:
-            return self._login_api_key(session, "zai")
+        api_key_providers = ("openai", "openrouter", "zai")
+        if 1 <= selected <= len(api_key_providers):
+            return self._login_api_key(session, api_key_providers[selected - 1])
         return self._login_custom_endpoint(session)
 
     @staticmethod
@@ -86,12 +83,7 @@ class LoginCommand(Command):
         provider.endpoint = endpoint
         provider.models = [model]
         provider.current_model = model
-        try:
-            store_key("custom", raw_key)
-            storage = "keychain"
-        except Exception:
-            set_volatile("custom", raw_key)
-            storage = "this session only (keychain unavailable)"
+        storage = _store_api_key("custom", raw_key)
 
         p = activate_provider_for_session(pc, s, "custom")
         print_success(
@@ -114,12 +106,7 @@ class LoginCommand(Command):
             print_error("API key is required.")
             return CommandResult()
 
-        try:
-            store_key(slug, raw_key)
-            storage = "keychain"
-        except Exception:
-            set_volatile(slug, raw_key)
-            storage = "this session only (keychain unavailable)"
+        storage = _store_api_key(slug, raw_key)
 
         p = activate_provider_for_session(pc, s, slug)
         print_success(
@@ -163,6 +150,15 @@ def _clear_logout_target(slug: str, kind: str) -> None:
         oauth.clear_credentials(slug)
         return
     clear_key(slug)
+
+
+def _store_api_key(slug: str, raw_key: str) -> str:
+    try:
+        store_key(slug, raw_key)
+        return "keychain"
+    except Exception:
+        set_volatile(slug, raw_key)
+        return "this session only (keychain unavailable)"
 
 
 class LogoutCommand(Command):

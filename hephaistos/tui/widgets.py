@@ -240,12 +240,6 @@ def selectable_transparent_option_list_class(base: type) -> type:
 
 
 _WidgetClasses = WidgetClasses
-_input_without_ctrl_a_class = input_without_ctrl_a_class
-_nonselectable_transparent_cls = selection_passthrough_transparent_cls
-_selection_passthrough_transparent_cls = selection_passthrough_transparent_cls
-_selectable_transparent_static_class = selectable_transparent_static_class
-_selectable_transparent_input_class = selectable_transparent_input_class
-_selectable_transparent_option_list_class = selectable_transparent_option_list_class
 _transparent_screen_class = transparent_screen_class
 _transparent_vertical_class = transparent_vertical_class
 _transparent_horizontal_class = transparent_horizontal_class

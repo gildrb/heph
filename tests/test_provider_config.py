@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.chat.engine import ChatConfig
 from hephaistos.providers.config import (
     ProviderConfig,
     default_config,
 )
 from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.registry import ModelInfo, ModelRegistry
+from hephaistos.runtime import ChatConfig
 
 
 def test_default_openrouter_models_match_supported_families() -> None:

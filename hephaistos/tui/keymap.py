@@ -13,13 +13,11 @@ _TMUX_PREFIX_TIMEOUT_SECONDS = 0.2
 
 
 def armory_binding_keys() -> str:
-    """Return all keys that should open the armory browser."""
     return f"{_ARMORY_SHORTCUT},{_ARMORY_TMUX_FALLBACK_SHORTCUT}"
 
 
 @lru_cache(maxsize=1)
 def tmux_uses_ctrl_a_prefix() -> bool:
-    """Return True when tmux will consume the first physical ctrl+a press."""
     if not os.environ.get("TMUX"):
         return False
     try:
@@ -38,7 +36,4 @@ def tmux_uses_ctrl_a_prefix() -> bool:
 
 
 def armory_shortcut_key() -> str:
-    """Return the armory shortcut to show for this terminal session."""
-    if tmux_uses_ctrl_a_prefix():
-        return _ARMORY_TMUX_FALLBACK_SHORTCUT
-    return _ARMORY_SHORTCUT
+    return _ARMORY_TMUX_FALLBACK_SHORTCUT if tmux_uses_ctrl_a_prefix() else _ARMORY_SHORTCUT

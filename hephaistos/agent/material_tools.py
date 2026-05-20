@@ -47,10 +47,13 @@ def run_search_materials(
 
     lines = [f"Material search results for: {query}"]
     metadata_items: list[dict[str, object]] = []
+    excerpt_limit = 900
     for result_index, scored in enumerate(results, 1):
         chunk = scored.chunk
         heading = f" under {chunk.heading}" if chunk.heading else ""
-        excerpt = _material_tool_excerpt(chunk.text)
+        excerpt = " ".join(chunk.text.split())
+        if len(excerpt) > excerpt_limit:
+            excerpt = excerpt[: excerpt_limit - 1].rstrip() + "..."
         lines.extend(
             [
                 "",
@@ -139,13 +142,6 @@ def run_open_material(
         content=_trim_tool_content("\n".join(lines)),
         metadata={"source": source, "start_chunk": start, "end_chunk": end - 1},
     )
-
-
-def _material_tool_excerpt(text: str, *, limit: int = 900) -> str:
-    normalized = " ".join(text.split())
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 1].rstrip() + "..."
 
 
 def _trim_tool_content(content: str) -> str:

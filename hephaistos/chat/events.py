@@ -7,16 +7,12 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True, slots=True)
 class AssistantDeltaEvent:
-    """A streamed assistant text delta."""
-
     delta: str
     kind: str = field(default="assistant_delta", init=False)
 
 
 @dataclass(frozen=True, slots=True)
 class ToolCallEvent:
-    """A tool call requested by the model."""
-
     call_id: str
     name: str
     arguments: dict[str, object]
@@ -26,8 +22,6 @@ class ToolCallEvent:
 
 @dataclass(frozen=True, slots=True)
 class ToolResultEvent:
-    """The result of an executed tool call."""
-
     call_id: str
     name: str
     content: str
@@ -40,8 +34,6 @@ class ToolResultEvent:
 
 @dataclass(frozen=True, slots=True)
 class MaterialOperationEvent:
-    """A user-visible internal material/index/retrieval operation."""
-
     operation: str
     message: str
     metadata: dict[str, object] = field(default_factory=dict)
@@ -50,8 +42,6 @@ class MaterialOperationEvent:
 
 @dataclass(frozen=True, slots=True)
 class CompactRequestEvent:
-    """A model-requested conversation compaction control event."""
-
     call_id: str
     name: str
     arguments: dict[str, object]
@@ -60,8 +50,6 @@ class CompactRequestEvent:
 
 @dataclass(frozen=True, slots=True)
 class TurnCompleteEvent:
-    """The final completion signal for an agent turn."""
-
     full_text: str
     turn_index: int
     latency_ms: float
@@ -72,8 +60,6 @@ class TurnCompleteEvent:
 
 @dataclass(frozen=True, slots=True)
 class NoticeEvent:
-    """A non-token notice emitted during turn processing."""
-
     message: str
     code: str = "notice"
     metadata: dict[str, object] = field(default_factory=dict)
@@ -92,7 +78,6 @@ TurnEvent = (
 
 
 def render_turn_event(event: TurnEvent) -> str:
-    """Render a turn event for the legacy stdout-based UI."""
     if isinstance(event, AssistantDeltaEvent):
         return event.delta
     if isinstance(event, ToolCallEvent):

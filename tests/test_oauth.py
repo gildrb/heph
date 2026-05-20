@@ -241,6 +241,17 @@ class TestCredentialPersistence:
 
         assert mode == 0o600
 
+    def test_save_repairs_existing_auth_file_permissions(
+        self, isolated_auth_dir: SimpleNamespace
+    ) -> None:
+        isolated_auth_dir.auth_file.write_text("{}", encoding="utf-8")
+        isolated_auth_dir.auth_file.chmod(0o644)
+
+        save_credentials(self._make_creds())
+
+        mode = isolated_auth_dir.auth_file.stat().st_mode & 0o777
+        assert mode == 0o600
+
     def test_auth_json_format(self, isolated_auth_dir: SimpleNamespace) -> None:
         creds = self._make_creds()
         save_credentials(creds)
@@ -311,6 +322,36 @@ class TestCredentialPersistence:
 
         mock_refresh.assert_not_called()
         assert loaded is None
+
+    @pytest.mark.usefixtures("isolated_auth_dir")
+    def test_refresh_credentials_uses_json_refresh_request(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        requests: list[tuple[str, dict[str, str]]] = []
+
+        def fake_post_json(url: str, data: dict[str, str]) -> dict[str, object]:
+            requests.append((url, data))
+            return {
+                "access_token": "new_at",
+                "refresh_token": "new_rt",
+                "expires_in": 3600,
+            }
+
+        monkeypatch.setattr(oauth_mod, "_post_json", fake_post_json)
+
+        refreshed = oauth_mod.refresh_credentials(self._make_creds())
+
+        assert refreshed.access_token == "new_at"
+        assert requests == [
+            (
+                oauth_mod._TOKEN_URL,
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": "rt_456",
+                    "client_id": oauth_mod._CLIENT_ID,
+                },
+            )
+        ]
 
 
 # --- LoginCommand / LogoutCommand -------------------------------------------

@@ -14,33 +14,17 @@ _ASCII_LOGO = (
 )
 
 
-def ascii_logo(*, color: bool = True) -> str:
-    """Return the Hephaistos ASCII logo.
-
-    When *color* is True, the logo is rendered in ember color.
-    """
-    logo = _ASCII_LOGO
-    if not color:
-        return logo
-    return f"{STYLE_BRAND}{logo}{RESET}"
+def ascii_logo() -> str:
+    return f"{STYLE_BRAND}{_ASCII_LOGO}{RESET}"
 
 
-def wordmark(*, color: bool = True) -> str:
-    """Return the inline wordmark: forge-mark glyph + name.
-
-    Uses the ⌁ (spark) dingbat as a compact inline logo substitute.
-    """
+def wordmark() -> str:
     spark = "\u2301"
-    if color:
-        brand = current_palette().brand_primary
-        dim = current_palette().text_muted
-        return f"{ansi_fg(brand)}{spark} Hephaistos{ansi_fg(dim)}"
-    return f"{spark} Hephaistos"
+    brand = current_palette().brand_primary
+    dim = current_palette().text_muted
+    return f"{ansi_fg(brand)}{spark} Hephaistos{ansi_fg(dim)}"
 
 
-def separator_line(width: int = 40, *, color: bool = True) -> str:
-    """Return a horizontal separator line using straight horizontal chars."""
+def separator_line(width: int = 40) -> str:
     line = "\u2500" * width
-    if not color:
-        return line
     return f"{STYLE_DIM}{line}{RESET}"

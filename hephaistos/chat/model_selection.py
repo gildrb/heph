@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hephaistos.providers.access import provider_is_accessible
 from hephaistos.providers.config import ProviderConfig
 
 if TYPE_CHECKING:
@@ -11,10 +12,11 @@ if TYPE_CHECKING:
 
 
 def switch_model(session: ChatSession, slug: str, model: str) -> bool:
-    """Persist a selected provider model and apply it to a chat session."""
     pc = ProviderConfig.load()
     provider = pc.providers.get(slug)
     if provider is None or model not in provider.models:
+        return False
+    if not provider_is_accessible(provider, refresh_oauth=False):
         return False
     pc.set_active(slug)
     provider.current_model = model

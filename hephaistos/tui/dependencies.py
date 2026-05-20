@@ -6,7 +6,7 @@ import sys
 
 
 class TuiDependencyError(RuntimeError):
-    """Raised when the optional Textual dependency group is missing."""
+    pass
 
 
 def tui_dependency_message() -> str:

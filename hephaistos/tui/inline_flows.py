@@ -16,6 +16,7 @@ from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.matching import ranked_matches
 from hephaistos.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+    ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
     ACTIVITY_TRACE_MODES,
     ACTIVITY_TRACE_TOOL_CALLS,
@@ -46,6 +47,7 @@ from hephaistos.terminal import current_palette, set_theme
 from hephaistos.terminal.palette import TRANSPARENT
 from hephaistos.tui.flow_state import InlineFlow
 from hephaistos.tui.session_state import TuiRuntimeState
+from hephaistos.tui.slash_completion import changed_highlight_indices
 from hephaistos.tui.style import _tui_css
 
 try:
@@ -67,17 +69,12 @@ if TYPE_CHECKING:
 _P = ParamSpec("_P")
 _WidgetT = TypeVar("_WidgetT")
 
-_ACTIVITY_TRACE_LABELS = {
-    ACTIVITY_TRACE_TOOL_CALLS: "Tool calls",
-    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "Minimal tool calls",
-    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "Hidden tool calls",
-}
 _ACTIVITY_TRACE_DESCRIPTIONS = {
     ACTIVITY_TRACE_TOOL_CALLS: "live reads, commands, model calls, results",
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "compact status and final summary",
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "hide internal activity lines",
 }
-_ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in _ACTIVITY_TRACE_LABELS.items()}
+_ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in ACTIVITY_TRACE_LABELS.items()}
 _OVERVIEW_TOPIC_SECTION_HEADING = "These are the topics I found in the material:"
 _OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
 _OVERVIEW_TOPIC_PROMPT = "Choose a topic to explore next. In the shell, use ↑/↓"
@@ -118,6 +115,12 @@ class _LogoutTarget:
 class OverviewTopicMenu:
     options: list[tuple[str, str]]
     prompts: dict[str, str]
+
+
+@dataclass(frozen=True)
+class _OverviewRecommendation:
+    label: str
+    prompt: str
 
 
 class _StyleObject(Protocol):
@@ -261,15 +264,19 @@ class _InlineFlowHost(Protocol):
 
     def _environment_logout_credentials(self) -> list[str]: ...
 
-    def _format_sessions_listing(self, sessions: list[chat_storage.SessionRecord]) -> str: ...
-
-    def _open_sessions_flow(self, sessions: list[chat_storage.SessionRecord]) -> None: ...
-
     def _select_inline_flow_option(self, index: int) -> None: ...
 
     def _submit_inline_flow(self, value: str) -> None: ...
 
     def _handle_inline_menu_choice(self, label: str) -> None: ...
+
+    def _handle_study_topic_choice(self, label: str) -> None: ...
+
+    def _open_study_topic_action_menu(self, label: str) -> None: ...
+
+    def _handle_settings_choice(self, label: str) -> None: ...
+
+    def _handle_login_choice(self, label: str) -> None: ...
 
     def _handle_privacy_choice(self, label: str) -> None: ...
 
@@ -286,6 +293,8 @@ class _InlineFlowHost(Protocol):
     def _handle_inline_text(self, value: str) -> None: ...
 
     def _store_provider_key(self, slug: str, key: str) -> None: ...
+
+    def _activate_provider(self, slug: str) -> None: ...
 
     def _login_openai_worker(self) -> None: ...
 
@@ -312,19 +321,6 @@ def _inline_menu_option_text(
         text.append("  ", style=palette.text_muted)
         text.append(description, style=palette.text_muted)
     return text
-
-
-def _changed_highlight_indices(
-    previous: int | None,
-    highlighted: int,
-    option_count: int,
-) -> tuple[int, ...]:
-    indices = [
-        index
-        for index in (previous, highlighted)
-        if index is not None and 0 <= index < option_count
-    ]
-    return tuple(dict.fromkeys(indices))
 
 
 class TuiInlineFlowMixin:
@@ -411,7 +407,7 @@ class TuiInlineFlowMixin:
         if previous == highlighted:
             return
         options = self._inline_flow.options
-        for option_index in _changed_highlight_indices(previous, highlighted, len(options)):
+        for option_index in changed_highlight_indices(previous, highlighted, len(options)):
             label, description = options[option_index]
             suggestions.replace_option_prompt_at_index(
                 option_index,
@@ -471,7 +467,7 @@ class TuiInlineFlowMixin:
 
     def _activity_trace_summary(self: _InlineFlowHost) -> str:
         mode = load_app_settings().activity_trace_mode
-        return _ACTIVITY_TRACE_LABELS.get(mode, _ACTIVITY_TRACE_LABELS[ACTIVITY_TRACE_TOOL_CALLS])
+        return ACTIVITY_TRACE_LABELS.get(mode, ACTIVITY_TRACE_LABELS[ACTIVITY_TRACE_TOOL_CALLS])
 
     def _privacy_option_description(
         self: _InlineFlowHost,
@@ -533,7 +529,7 @@ class TuiInlineFlowMixin:
             title="Settings  Activity trace",
             options=[
                 (
-                    _ACTIVITY_TRACE_LABELS[mode],
+                    ACTIVITY_TRACE_LABELS[mode],
                     (
                         f"{_ACTIVITY_TRACE_DESCRIPTIONS[mode]}  current"
                         if mode == current
@@ -652,10 +648,25 @@ class TuiInlineFlowMixin:
             self._append_notice("No saved chats found.")
             return
         if subcmd in {"list", "recent"}:
-            self._append_plain(self._format_sessions_listing(sessions))
+            lines = [f"Saved sessions for {self.session.armory_path}:"]
+            for entry in sessions:
+                title = entry["title"] or "(untitled)"
+                lines.append(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
+            self._append_plain("\n".join(lines))
             return
         if subcmd in {"", "browse", "menu"}:
-            self._open_sessions_flow(sessions)
+            self._open_inline_menu(
+                name="sessions",
+                step="menu",
+                title="Sessions  choose a chat to resume",
+                options=[
+                    (
+                        entry["session_id"],
+                        f"{entry['title'] or '(untitled)'}  {entry['updated_at']}",
+                    )
+                    for entry in sessions
+                ],
+            )
             return
         if subcmd in {"resume", "last", "latest"}:
             self._perform_session_resume(sessions[0]["session_id"])
@@ -666,32 +677,6 @@ class TuiInlineFlowMixin:
             return
         self._append_error("Usage: /sessions [list|recent|browse|resume]")
 
-    def _format_sessions_listing(
-        self: _InlineFlowHost,
-        sessions: list[chat_storage.SessionRecord],
-    ) -> str:
-        lines = [f"Saved sessions for {self.session.armory_path}:"]
-        for entry in sessions:
-            title = entry["title"] or "(untitled)"
-            lines.append(f"  {entry['session_id']}  {title}  ({entry['updated_at']})")
-        return "\n".join(lines)
-
-    def _open_sessions_flow(
-        self: _InlineFlowHost, sessions: list[chat_storage.SessionRecord]
-    ) -> None:
-        self._open_inline_menu(
-            name="sessions",
-            step="menu",
-            title="Sessions  choose a chat to resume",
-            options=[
-                (
-                    entry["session_id"],
-                    f"{entry['title'] or '(untitled)'}  {entry['updated_at']}",
-                )
-                for entry in sessions
-            ],
-        )
-
     def _logout_targets(self: _InlineFlowHost) -> list[_LogoutTarget]:
         pc = ProviderConfig.load()
         targets: list[_LogoutTarget] = []
@@ -701,7 +686,7 @@ class TuiInlineFlowMixin:
                 _LogoutTarget(
                     slug=slug,
                     kind="oauth",
-                    label=_oauth_logout_label(slug, display),
+                    label="ChatGPT Plus/Pro" if slug == "openai-codex" else display,
                     description="configured",
                 )
             )
@@ -710,11 +695,19 @@ class TuiInlineFlowMixin:
             has_volatile_key = get_volatile(slug) is not None
             if not has_keychain_key and not has_volatile_key:
                 continue
+            display_label = {
+                "Pollinations AI (free)": "Pollinations",
+                "Z.AI / GLM": "Z.AI",
+            }.get(provider.display_name)
+            if display_label is None:
+                display_label = provider.display_name
+                if not display_label.casefold().endswith((" api", " api key")):
+                    display_label = f"{display_label} API key"
             targets.append(
                 _LogoutTarget(
                     slug=slug,
                     kind="api_key",
-                    label=_api_key_logout_label(provider.display_name),
+                    label=display_label,
                     description="configured",
                 )
             )
@@ -764,26 +757,24 @@ class TuiInlineFlowMixin:
 
     def _submit_inline_flow(self: _InlineFlowHost, value: str) -> None:
         composer = self.query_one("#composer", Input)
-        if self._inline_flow.all_options:
-            if not self._inline_flow.options:
-                self._append_error(f"No {self._inline_flow.name} matches: {value}")
-                return
-            suggestions = self.query_one("#suggestions", OptionList)
-            selected = suggestions.highlighted if suggestions.highlighted is not None else 0
-            selected = min(selected, len(self._inline_flow.options) - 1)
-            label = _inline_option_label(
-                value,
-                self._inline_flow.options,
-                self._inline_flow.all_options,
-            )
-            if not label:
-                label = self._inline_flow.options[selected][0]
-            self._handle_inline_menu_choice(label)
+        if self._inline_flow.all_options and not self._inline_flow.options:
+            self._append_error(f"No {self._inline_flow.name} matches: {value}")
             return
         if self._inline_flow.options:
             suggestions = self.query_one("#suggestions", OptionList)
             selected = suggestions.highlighted if suggestions.highlighted is not None else 0
-            label = self._inline_flow.options[selected][0]
+            selected = min(selected, len(self._inline_flow.options) - 1)
+            cleaned = value.strip().casefold()
+            label = ""
+            if cleaned:
+                for candidate, _description in [
+                    *self._inline_flow.options,
+                    *self._inline_flow.all_options,
+                ]:
+                    if candidate.casefold() == cleaned:
+                        label = candidate
+                        break
+            label = label or self._inline_flow.options[selected][0]
             self._handle_inline_menu_choice(label)
             return
         self._handle_inline_text(value)
@@ -791,58 +782,10 @@ class TuiInlineFlowMixin:
 
     def _handle_inline_menu_choice(self: _InlineFlowHost, label: str) -> None:
         if self._inline_flow.name == "study_topic":
-            if self._inline_flow.step == "topic":
-                if prompt := self._inline_flow.prompts.get(label):
-                    self._close_inline_flow(f"selected: {label}")
-                    self._submit_inline_chat_value(prompt)
-                    return
-                if label == _CUSTOM_STUDY_PROMPT_LABEL:
-                    self._prompt_inline_text(
-                        "study_topic",
-                        "custom_prompt",
-                        _CUSTOM_STUDY_PROMPT_PLACEHOLDER,
-                    )
-                    return
-                self._open_inline_menu(
-                    name="study_topic",
-                    step="action",
-                    title=f"Study {label}",
-                    options=[
-                        ("Explain it", "build intuition from the selected topic"),
-                        ("Practice it", "try one source-grounded exercise"),
-                        ("Recall drill", "answer from memory, then get feedback"),
-                    ],
-                )
-                self._inline_flow.slug = label
-                return
-            if self._inline_flow.step == "action":
-                topic = self._inline_flow.slug
-                prompt = _study_topic_action_prompt(label, topic)
-                self._close_inline_flow(f"selected: {topic}")
-                self._submit_inline_chat_value(prompt)
-                return
+            self._handle_study_topic_choice(label)
+            return
         if self._inline_flow.name == "settings":
-            if self._inline_flow.step == "menu":
-                if label == "Privacy & Diagnostics":
-                    self._open_privacy_flow()
-                elif label == "Appearance":
-                    self._open_appearance_flow()
-                elif label == "Activity trace":
-                    self._open_activity_trace_flow()
-                elif label == "Login":
-                    self._open_login_flow()
-                elif label == "Logout":
-                    self._open_logout_flow()
-                return
-            if self._inline_flow.step == "privacy":
-                self._handle_privacy_choice(label)
-                return
-            if self._inline_flow.step == "appearance":
-                self._handle_appearance_choice(label)
-                return
-            if self._inline_flow.step == "activity_trace":
-                self._handle_activity_trace_choice(label)
-                return
+            self._handle_settings_choice(label)
             return
         if self._inline_flow.name == "models":
             self._perform_model_switch(label)
@@ -853,6 +796,61 @@ class TuiInlineFlowMixin:
         if self._inline_flow.name == "sessions":
             self._perform_session_resume(label)
             return
+        self._handle_login_choice(label)
+
+    def _handle_study_topic_choice(self: _InlineFlowHost, label: str) -> None:
+        if self._inline_flow.step == "topic":
+            if prompt := self._inline_flow.prompts.get(label):
+                self._close_inline_flow(f"selected: {label}")
+                self._submit_inline_chat_value(prompt)
+                return
+            if label == _CUSTOM_STUDY_PROMPT_LABEL:
+                self._prompt_inline_text(
+                    "study_topic",
+                    "custom_prompt",
+                    _CUSTOM_STUDY_PROMPT_PLACEHOLDER,
+                )
+                return
+            self._open_study_topic_action_menu(label)
+            return
+        if self._inline_flow.step == "action":
+            topic = self._inline_flow.slug
+            self._close_inline_flow(f"selected: {topic}")
+            self._submit_inline_chat_value(_study_topic_action_prompt(topic, label))
+
+    def _open_study_topic_action_menu(self: _InlineFlowHost, label: str) -> None:
+        self._open_inline_menu(
+            name="study_topic",
+            step="action",
+            title=f"Study {label}",
+            options=[
+                ("Explain it", "build intuition from the selected topic"),
+                ("Practice it", "try one source-grounded exercise"),
+                ("Recall drill", "answer from memory, then get feedback"),
+            ],
+        )
+        self._inline_flow.slug = label
+
+    def _handle_settings_choice(self: _InlineFlowHost, label: str) -> None:
+        if self._inline_flow.step == "menu":
+            action = {
+                "Privacy & Diagnostics": self._open_privacy_flow,
+                "Appearance": self._open_appearance_flow,
+                "Activity trace": self._open_activity_trace_flow,
+                "Login": self._open_login_flow,
+                "Logout": self._open_logout_flow,
+            }.get(label)
+            if action is not None:
+                action()
+            return
+        if self._inline_flow.step == "privacy":
+            self._handle_privacy_choice(label)
+        elif self._inline_flow.step == "appearance":
+            self._handle_appearance_choice(label)
+        elif self._inline_flow.step == "activity_trace":
+            self._handle_activity_trace_choice(label)
+
+    def _handle_login_choice(self: _InlineFlowHost, label: str) -> None:
         if label == "OpenAI Codex":
             self._close_inline_flow("Opening browser login for OpenAI Codex...")
             self.run_worker(self._login_openai_worker, thread=True)
@@ -904,7 +902,7 @@ class TuiInlineFlowMixin:
         if mode is None:
             return
         save_setting("activity_trace_mode", mode)
-        self._append_notice(f"activity trace: {_ACTIVITY_TRACE_LABELS[mode]}")
+        self._append_notice(f"activity trace: {ACTIVITY_TRACE_LABELS[mode]}")
         self._open_activity_trace_flow()
 
     def _refresh_tui_css(self: _InlineFlowHost) -> None:
@@ -990,16 +988,16 @@ class TuiInlineFlowMixin:
                 store_key("custom", value)
             except Exception:
                 set_volatile("custom", value)
-            p = activate_provider_for_session(pc, self.session, "custom")
-            self._close_inline_flow(f"provider: {p.display_name}")
-            self._refresh_status("ready")
-            self._update_info_panel()
+            self._activate_provider("custom")
 
     def _store_provider_key(self: _InlineFlowHost, slug: str, key: str) -> None:
         try:
             store_key(slug, key)
         except Exception:
             set_volatile(slug, key)
+        self._activate_provider(slug)
+
+    def _activate_provider(self: _InlineFlowHost, slug: str) -> None:
         pc = ProviderConfig.load()
         p = activate_provider_for_session(pc, self.session, slug)
         self._close_inline_flow(f"provider: {p.display_name}")
@@ -1025,18 +1023,12 @@ class TuiInlineFlowMixin:
         targets = self._logout_targets()
         if label == "All":
             for target in targets:
-                if target.kind == "oauth":
-                    oauth.clear_credentials(target.slug)
-                else:
-                    clear_key(target.slug)
+                _clear_logout_target(target)
             self._close_inline_flow("logged out: all providers")
             return
         for target in targets:
             if target.label == label:
-                if target.kind == "oauth":
-                    oauth.clear_credentials(target.slug)
-                else:
-                    clear_key(target.slug)
+                _clear_logout_target(target)
                 self._close_inline_flow(f"logged out: {target.label}")
                 return
 
@@ -1097,7 +1089,6 @@ def _filtered_inline_options(
 
 
 def _dedupe_inline_options(options: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    """Keep inline menus compact when provider/model sources return duplicate rows."""
     seen: set[tuple[str, str]] = set()
     deduped: list[tuple[str, str]] = []
     for label, description in options:
@@ -1109,15 +1100,11 @@ def _dedupe_inline_options(options: list[tuple[str, str]]) -> list[tuple[str, st
     return deduped
 
 
-def _study_topic_action_prompt(action: str, topic: str) -> str:
-    suffix = _LANGUAGE_PRESERVING_TOPIC_PROMPT
-    if action == "Explain it":
-        return (
-            f"Teach me {topic} in simple terms, grounded in the evidence for this topic.{suffix}"
-        )
-    if action == "Practice it":
-        return f"Give me one source-grounded practice question about {topic}.{suffix}"
-    return f"Start a quick recall drill about {topic}.{suffix}"
+def _clear_logout_target(target: _LogoutTarget) -> None:
+    if target.kind == "oauth":
+        oauth.clear_credentials(target.slug)
+    else:
+        clear_key(target.slug)
 
 
 def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
@@ -1138,7 +1125,10 @@ def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
             in_topics = False
             in_recommendations = True
             continue
-        standalone_recommendation = _overview_standalone_recommendation_option(stripped)
+        standalone_recommendation = _overview_recommendation_match_option(
+            _OVERVIEW_STANDALONE_RECOMMENDATION_RE,
+            stripped,
+        )
         if standalone_recommendation is not None:
             option, prompt = standalone_recommendation
             recommendation_options.append(option)
@@ -1152,7 +1142,10 @@ def overview_topic_menu(reply: str) -> OverviewTopicMenu | None:
                 in_recommendations = False
             continue
         if in_recommendations:
-            recommendation = _overview_recommendation_option(stripped)
+            recommendation = _overview_recommendation_match_option(
+                _OVERVIEW_RECOMMENDATION_LINE_RE,
+                stripped,
+            )
             if recommendation is not None:
                 option, prompt = recommendation
                 recommendation_options.append(option)
@@ -1203,8 +1196,18 @@ def _study_topic_menu_options(options: list[tuple[str, str]]) -> list[tuple[str,
     ]
 
 
+def _study_topic_action_prompt(topic: str, label: str) -> str:
+    suffix = _LANGUAGE_PRESERVING_TOPIC_PROMPT
+    if label == "Explain it":
+        return (
+            f"Teach me {topic} in simple terms, grounded in the evidence for this topic.{suffix}"
+        )
+    if label == "Practice it":
+        return f"Give me one source-grounded practice question about {topic}.{suffix}"
+    return f"Start a quick recall drill about {topic}.{suffix}"
+
+
 def _overview_topic_description(topic: str) -> str:
-    """Return a short, topic-specific hint for the study-topic menu."""
     words = _strip_overview_citations(topic).strip(" .")
     if not words:
         return "key ideas"
@@ -1236,47 +1239,34 @@ def _overview_topic_description(topic: str) -> str:
     return _trim_inline_option_label(f"what {normalized} means", limit=34)
 
 
-def _overview_recommendation_option(
+def _overview_recommendation_match_option(
+    pattern: re.Pattern[str],
     line: str,
 ) -> tuple[tuple[str, str], str] | None:
-    match = _OVERVIEW_RECOMMENDATION_LINE_RE.match(line)
+    match = pattern.match(line)
     if match is None:
         return None
     recommendation = match.group("label").strip()
     if not recommendation:
         return None
+    parsed = _parse_overview_recommendation(recommendation)
     return (
-        (_overview_recommendation_label(recommendation), "recommended"),
-        _overview_recommendation_prompt(recommendation),
+        (parsed.label, "recommended"),
+        parsed.prompt,
     )
 
 
-def _overview_standalone_recommendation_option(
-    line: str,
-) -> tuple[tuple[str, str], str] | None:
-    match = _OVERVIEW_STANDALONE_RECOMMENDATION_RE.match(line)
-    if match is None:
-        return None
-    recommendation = match.group("label").strip()
-    if not recommendation:
-        return None
-    return (
-        (_overview_recommendation_label(recommendation), "recommended"),
-        _overview_recommendation_prompt(recommendation),
-    )
-
-
-def _overview_recommendation_prompt(recommendation: str) -> str:
+def _parse_overview_recommendation(recommendation: str) -> _OverviewRecommendation:
     question = _OVERVIEW_QUOTED_QUESTION_RE.search(recommendation)
-    if question is not None:
-        return question.group("question").strip()
+    quoted_prompt = question.group("question").strip() if question is not None else ""
     clean = _strip_overview_citations(recommendation).rstrip(".")
     explanation = re.fullmatch(r"Start with a guided explanation of (?P<topic>.+)", clean)
     if explanation is not None:
         topic = explanation.group("topic").strip()
-        return (
+        return _OverviewRecommendation(
+            f"Explain {topic}",
             f"Teach me {topic} in simple terms, grounded in the evidence for this topic."
-            f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
+            f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
         )
     practice = re.fullmatch(
         r"Practice one exam-style or exercise question on (?P<topic>.+?)(?: using)?",
@@ -1284,9 +1274,10 @@ def _overview_recommendation_prompt(recommendation: str) -> str:
     )
     if practice is not None:
         topic = practice.group("topic").strip()
-        return (
+        return _OverviewRecommendation(
+            f"Practice {topic}",
             f"Give me one source-grounded practice question about {topic}."
-            f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
+            f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
         )
     compare = re.fullmatch(
         r"Compare (?P<left>.+?) and (?P<right>.+?) so you can separate the ideas",
@@ -1295,37 +1286,23 @@ def _overview_recommendation_prompt(recommendation: str) -> str:
     if compare is not None:
         left = compare.group("left").strip()
         right = compare.group("right").strip()
-        return (
+        return _OverviewRecommendation(
+            f"Compare {left} and {right}",
             f"Compare {left} and {right}, grounded in the evidence for these topics."
-            f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
+            f"{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
         )
-    if clean.startswith("Make a short learning order"):
-        return f"{clean}, grounded in the source material.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
-    return f"{clean}.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
-
-
-def _overview_recommendation_label(recommendation: str) -> str:
-    clean = _strip_overview_citations(recommendation)
-    explanation = re.fullmatch(r"Start with a guided explanation of (?P<topic>.+)", clean)
-    if explanation is not None:
-        return f"Explain {explanation.group('topic')}"
-    practice = re.fullmatch(
-        r"Practice one exam-style or exercise question on (?P<topic>.+?)(?: using)?",
-        clean,
-    )
-    if practice is not None:
-        return f"Practice {practice.group('topic')}"
-    compare = re.fullmatch(
-        r"Compare (?P<left>.+?) and (?P<right>.+?) so you can separate the ideas",
-        clean,
-    )
-    if compare is not None:
-        return f"Compare {compare.group('left')} and {compare.group('right')}"
     if "contrastive question" in clean.casefold():
-        return "Ask a contrastive question"
+        prompt = quoted_prompt or f"{clean}.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
+        return _OverviewRecommendation("Ask a contrastive question", prompt)
     if clean.startswith("Make a short learning order"):
-        return "Make a learning order"
-    return _trim_inline_option_label(clean)
+        return _OverviewRecommendation(
+            "Make a learning order",
+            f"{clean}, grounded in the source material.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
+        )
+    return _OverviewRecommendation(
+        _trim_inline_option_label(clean),
+        quoted_prompt or f"{clean}.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
+    )
 
 
 def _strip_overview_citations(text: str) -> str:
@@ -1336,38 +1313,6 @@ def _trim_inline_option_label(label: str, *, limit: int = 52) -> str:
     if len(label) <= limit:
         return label
     return label[: limit - 1].rstrip(" ,;:.") + "…"
-
-
-def _api_key_logout_label(display_name: str) -> str:
-    if display_name == "Pollinations AI (free)":
-        return "Pollinations"
-    if display_name == "Z.AI / GLM":
-        return "Z.AI"
-    if display_name.casefold().endswith(" api"):
-        return display_name
-    if display_name.casefold().endswith(" api key"):
-        return display_name
-    return f"{display_name} API key"
-
-
-def _oauth_logout_label(slug: str, display_name: str) -> str:
-    if slug == "openai-codex":
-        return "ChatGPT Plus/Pro"
-    return display_name
-
-
-def _inline_option_label(
-    value: str,
-    options: list[tuple[str, str]],
-    all_options: list[tuple[str, str]],
-) -> str:
-    cleaned = value.strip().casefold()
-    if not cleaned:
-        return ""
-    for label, _description in [*options, *all_options]:
-        if label.casefold() == cleaned:
-            return label
-    return ""
 
 
 def _duplicate_model_names(choices: list[tuple[str, str, str, bool]]) -> set[str]:
@@ -1390,7 +1335,11 @@ def _model_choice_from_label(
     label: str,
     choices: list[tuple[str, str, str, bool]],
 ) -> tuple[str, str, str, bool] | None:
-    model, provider = _parse_model_choice_label(label)
+    model = label.strip()
+    provider: str | None = None
+    if model.endswith("]") and " [" in model:
+        model, bracketed_provider = model.rsplit(" [", 1)
+        provider = bracketed_provider[:-1]
     for choice in choices:
         _slug, choice_model, display_name, _is_free = choice
         if choice_model != model:
@@ -1399,11 +1348,3 @@ def _model_choice_from_label(
             continue
         return choice
     return None
-
-
-def _parse_model_choice_label(label: str) -> tuple[str, str | None]:
-    stripped = label.strip()
-    if stripped.endswith("]") and " [" in stripped:
-        model, provider = stripped.rsplit(" [", 1)
-        return model, provider[:-1]
-    return stripped, None

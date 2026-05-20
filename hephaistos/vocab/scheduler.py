@@ -17,8 +17,6 @@ _MAX_INTERVAL_DAYS = 365
 
 
 class Rating(IntEnum):
-    """User recall rating mapped to SM-2 quality levels."""
-
     HARD = 3
     GOOD = 4
     EASY = 5
@@ -26,17 +24,9 @@ class Rating(IntEnum):
 
 @dataclass(frozen=True, slots=True)
 class ScheduleResult:
-    """Result of scheduling a card after a rating."""
-
     repetitions: int
     easiness: float
     interval_days: int
-
-
-def _update_easiness(current: float, quality: int) -> float:
-    """SM-2 easiness factor update."""
-    new = current + 0.1 - (5.0 - quality) * (0.08 + (5.0 - quality) * 0.02)
-    return max(_MIN_EASINESS, new)
 
 
 def schedule_card(card: VocabCardState, rating: Rating) -> ScheduleResult:
@@ -60,7 +50,10 @@ def schedule_card(card: VocabCardState, rating: Rating) -> ScheduleResult:
         New repetitions, easiness, and interval (in days).
     """
     quality = int(rating)
-    easiness = _update_easiness(card.easiness, quality)
+    easiness = max(
+        _MIN_EASINESS,
+        card.easiness + 0.1 - (5.0 - quality) * (0.08 + (5.0 - quality) * 0.02),
+    )
     repetitions = 0 if quality < 3 else card.repetitions + 1
 
     if repetitions <= 1:
@@ -97,15 +90,12 @@ def select_due_cards(cards: list[VocabCardState], *, limit: int = 0) -> list[Voc
     due = [card for card in cards if card.next_review is None or card.next_review <= now]
 
     # Sort: overdue first (largest gap), then new cards.
-    def _sort_key(c: VocabCardState) -> tuple[int, float]:
-        if c.next_review is None:
-            # New cards come after overdue ones.
-            return (1, 0.0)
-        # Negative timedelta so most overdue sorts first.
-        overdue = (now - c.next_review).total_seconds()
-        return (0, -overdue)
-
-    due.sort(key=_sort_key)
+    due.sort(
+        key=lambda card: (
+            1 if card.next_review is None else 0,
+            0.0 if card.next_review is None else -(now - card.next_review).total_seconds(),
+        )
+    )
 
     if limit > 0:
         due = due[:limit]

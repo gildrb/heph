@@ -12,7 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from openai import APITimeoutError, AuthenticationError
 
-from hephaistos.chat.engine import (
+from hephaistos.chat.session import ChatSession
+from hephaistos.runtime import (
     ChatConfig,
     Conversation,
     EngineError,
@@ -21,7 +22,6 @@ from hephaistos.chat.engine import (
     stream_completion,
     stream_reply,
 )
-from hephaistos.chat.session import ChatSession
 from hephaistos.runtime._api_types import ApiMessage
 from hephaistos.runtime.engine import stream_completion as runtime_stream_completion
 

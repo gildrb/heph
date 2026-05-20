@@ -10,7 +10,7 @@ from typing import Never, Self
 
 import pytest
 
-from hephaistos.chat.engine import (
+from hephaistos.runtime import (
     ChatConfig,
     Conversation,
     EngineError,

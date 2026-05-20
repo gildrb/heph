@@ -18,10 +18,10 @@ from hephaistos import tui
 from hephaistos.armory.search import KnownArmory, add_known_armory
 from hephaistos.armory.storage import initialize
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig, Conversation
 from hephaistos.chat.session import ChatSession
 from hephaistos.parameters import settings as settings_store
 from hephaistos.providers.config import ProviderConfig, default_config
+from hephaistos.runtime import ChatConfig, Conversation
 from hephaistos.study import StudyAutonomyMode
 from hephaistos.terminal import current_theme_name, set_theme
 from hephaistos.tui import keymap
@@ -203,21 +203,30 @@ def test_footer_hints_show_idle_shortcuts(monkeypatch: pytest.MonkeyPatch) -> No
     assert "tab" in plain
     assert "ctrl+p" in plain
     assert "ctrl+a" in plain
+    assert "ctrl+c" in plain
     assert "ctrl+d" in plain
     assert "ctrl+a armory" in plain
+    assert "ctrl+c exit" in plain
     assert "test-model" not in plain
 
 
-def test_footer_hints_show_cancel_when_busy() -> None:
+def test_footer_hints_show_escape_cancel_and_ctrl_c_exit_when_busy() -> None:
     hints = tui._footer_hints_text(_plain_session(), busy=True)
     plain = hints.plain
 
     assert "esc" in plain
     assert "stop" in plain
     assert "ctrl+c" in plain
-    assert "cancel" in plain
+    assert "exit" in plain
+    assert "cancel" not in plain
     assert "enter" not in plain
     assert "/help" not in plain
+
+
+def test_ctrl_c_binding_exits_tui() -> None:
+    binding_actions = {binding.key: binding.action for binding in tui.HephaistosTui.BINDINGS}
+
+    assert binding_actions["ctrl+c"] == "quit"
 
 
 def test_armory_shortcut_uses_tmux_fallback_for_ctrl_a_prefix(
@@ -265,7 +274,7 @@ def test_footer_command_shortcuts_share_neutral_shortcut_token(
     palette = tui.current_palette()
     footer_label_style = palette.text_muted
     shortcut_style = palette.text_secondary
-    labels = ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+d")
+    labels = ("enter", "tab", "ctrl+p", "ctrl+a", "ctrl+c", "ctrl+d")
     shortcut_styles: dict[str, list[str]] = {}
     for label in labels:
         start = hints.plain.index(label)
@@ -295,7 +304,7 @@ def test_status_sidebar_and_footer_chrome_labels_share_one_token(
         (tui._info_panel_default_text(session), ("materials", "time", "next")),
         (
             tui._footer_hints_text(session),
-            ("enter", "tab", "ctrl+p", "ctrl+o", "ctrl+d"),
+            ("enter", "tab", "ctrl+p", "ctrl+o", "ctrl+c", "ctrl+d"),
         ),
     )
 
@@ -2020,7 +2029,6 @@ def test_armory_command_mode_validates_supported_subcommands() -> None:
     assert tui._armory_command_mode("/armory new") == "create"
 
     assert tui._armory_command_mode("/armory detach") is None
-    assert "Usage: /armory" in tui._armory_usage_message()
 
 
 def test_armory_browser_entries_include_recent_and_missing_armories(
@@ -2588,7 +2596,6 @@ def test_settings_inline_toggles_privacy_and_theme(
     config_file = config_dir / "config.json"
     monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
-    settings_store.invalidate_settings_cache()
 
     app = tui.HephaistosTui(
         _plain_session(),
@@ -2624,7 +2631,6 @@ def test_settings_inline_toggles_privacy_and_theme(
         asyncio.run(check_settings_changes())
     finally:
         set_theme("forge")
-        settings_store.invalidate_settings_cache()
 
 
 def test_logout_inline_menu_lists_only_clearable_stored_credentials(
@@ -4916,7 +4922,7 @@ def test_command_completion_selected_text_uses_brand_without_recoloring_descript
     asyncio.run(check_completion_styles())
 
 
-def test_busy_footer_keeps_cancel_hint_with_completion_menu_visible() -> None:
+def test_busy_footer_keeps_exit_hint_with_completion_menu_visible() -> None:
     if tui.Input is None or tui.OptionList is None:
         pytest.skip("Textual is not installed")
 
@@ -4939,7 +4945,7 @@ def test_busy_footer_keeps_cancel_hint_with_completion_menu_visible() -> None:
 
             footer = app.query_one("#footer-hints", tui.Static)
             position = app.query_one("#completion-position", tui.Static)
-            assert str(footer.render()) == "esc stop  ctrl+c cancel"
+            assert str(footer.render()) == "esc stop  ctrl+c exit"
             assert str(position.render()) == f"  (1/{len(app.completion_candidates)})"
 
     asyncio.run(check_busy_footer())

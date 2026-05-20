@@ -16,8 +16,7 @@ from hephaistos.agent.compact import (
     micro_compact,
 )
 from hephaistos.agent.dispatch import _sync_conversation
-from hephaistos.chat._api_types import ApiMessage, ToolCallDelta
-from hephaistos.chat.engine import Conversation
+from hephaistos.runtime import ApiMessage, Conversation, ToolCallDelta
 
 # ---------------------------------------------------------------------------
 # Helpers

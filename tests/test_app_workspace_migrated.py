@@ -18,14 +18,13 @@ from hephaistos.armory.search import (
     set_last_armory,
 )
 from hephaistos.armory.storage import initialize
-from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import (
     ChatSession,
     create_plain_session,
     create_session,
 )
 from hephaistos.commands import CommandResult
-from hephaistos.parameters.settings import invalidate_settings_cache
+from hephaistos.runtime import ChatConfig
 from hephaistos.shell.lifecycle import (
     create_startup_session,
     discover_startup_armory,
@@ -51,7 +50,6 @@ def clean_armory_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
-    invalidate_settings_cache()
     save_known_armories([])
     return armory_home
 
@@ -520,7 +518,7 @@ class TestHandleInput:
         assert calls == ["alias args"]
         assert history.entries[-1] == f"/{alias} alias args"
 
-    def test_help_command_output_is_printed_by_input_dispatch(
+    def test_help_command_output_is_printed_by_handle_input(
         self,
         capsys: pytest.CaptureFixture[str],
     ) -> None:

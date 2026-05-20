@@ -25,6 +25,7 @@ from hephaistos.tui.textual_compat import (
     OptionList,
     RichLog,
     Static,
+    sidebar_text,
 )
 from hephaistos.tui.textual_compat import (
     RichText as _RichText,
@@ -91,7 +92,7 @@ class _ArmoryHost(Protocol):
 
     def _close_armory_inline(self) -> None: ...
 
-    def _refresh_armory_inline(self, *, mode: str = "manage") -> None: ...
+    def _refresh_armory_inline(self) -> None: ...
 
     def _render_armory_options(self, highlighted: int | None = None) -> None: ...
 
@@ -113,32 +114,26 @@ class _ArmoryHost(Protocol):
 
 
 def _armory_command_mode(value: str) -> str | None:
-    """Return the TUI armory browser mode, or None for invalid usage."""
-    parts = value.strip().lower().split()
-    command = tuple(parts)
-    if command in (("/armory",), ("/armory", "menu")):
-        return "manage"
-    if command == ("/armory", "open"):
-        return "open"
-    if command in (("/armory", "create"), ("/armory", "new")):
-        return "create"
-    return None
+    modes: dict[tuple[str, ...], str] = {
+        ("/armory",): "manage",
+        ("/armory", "menu"): "manage",
+        ("/armory", "open"): "open",
+        ("/armory", "create"): "create",
+        ("/armory", "new"): "create",
+    }
+    return modes.get(tuple(value.strip().lower().split()))
 
 
-def _armory_usage_message() -> str:
-    return "Usage: /armory [open|create]\nBrowse, open, or create a local document armory."
+_ARMORY_USAGE_MESSAGE = (
+    "Usage: /armory [open|create]\nBrowse, open, or create a local document armory."
+)
 
 
 def _display_path(path: Path) -> str:
-    """Return a compact path label that keeps home-relative paths readable."""
     try:
         return f"~/{path.relative_to(Path.home())}"
     except ValueError:
         return str(path)
-
-
-def _sidebar_text(content: str) -> str:
-    return "\n".join(f"  {line}" if line else "" for line in content.splitlines())
 
 
 _ACTIVE_TURN_BADGE = "  working"
@@ -177,7 +172,7 @@ class TuiArmoryMixin:
         mode = _armory_command_mode(value)
         composer = self.query_one("#composer", Input)
         if mode is None:
-            self._append_error(_armory_usage_message())
+            self._append_error(_ARMORY_USAGE_MESSAGE)
             composer.focus()
             return
         self._open_armory_inline(mode)
@@ -198,7 +193,7 @@ class TuiArmoryMixin:
             "Module or topic name..." if self._armory_creating else "Filter armory paths..."
         )
         self._hide_completions()
-        self._refresh_armory_inline(mode=mode)
+        self._refresh_armory_inline()
         self._refresh_footer_hints()
         composer.focus()
         self.set_focus(composer)
@@ -221,7 +216,7 @@ class TuiArmoryMixin:
         composer.focus()
         self.set_focus(composer)
 
-    def _refresh_armory_inline(self: _ArmoryHost, *, mode: str = "manage") -> None:
+    def _refresh_armory_inline(self: _ArmoryHost) -> None:
         if not _is_within_armory_home(self._armory_current):
             self._armory_current = default_armory_home()
         previous_key = self._armory_selection_key()
@@ -349,7 +344,7 @@ class TuiArmoryMixin:
             if self._turn_key_for_armory_path(entry.path) in self._active_turn_sessions:
                 content = f"{content}\n\nassistant working"
         preview.update(content)
-        sidebar.update(_sidebar_text(content))
+        sidebar.update(sidebar_text(content))
 
     def _move_armory_highlight(self: _ArmoryHost, offset: int) -> None:
         if not self._armory_entries:

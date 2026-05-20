@@ -38,6 +38,7 @@ from hephaistos.providers.model_support import is_supported_model_for_endpoint
 from hephaistos.providers.oauth import load_credentials
 from hephaistos.providers.registry import get_registry as get_provider_registry
 from hephaistos.runtime._api_types import ApiMessage, ToolCallDelta, UsagePayload
+from hephaistos.runtime.messages import message_content_text
 from hephaistos.runtime.prompt_cache import (
     MetricsLogger as PromptCacheMetricsLogger,
 )
@@ -122,12 +123,10 @@ class ChatConfig:
 
     @property
     def provider_slug(self) -> str:
-        """Public read-only accessor for the active provider slug."""
         return self._provider_slug
 
     @property
     def resolved_api_key(self) -> str:
-        """Resolve the API key via keychain → env → volatile."""
         if self._provider_slug:
             if not self._provider_env:
                 return self.api_key
@@ -140,7 +139,7 @@ class ChatConfig:
 
 
 class EngineError(Exception):
-    """Raised when the engine cannot communicate with the LLM."""
+    pass
 
 
 class StreamRecoveryError(EngineError):
@@ -159,40 +158,39 @@ class StreamRecoveryError(EngineError):
         self.__cause__ = last_error
 
 
+class _RetryOpenAIStreamError(Exception):
+    def __init__(self, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+
+
 @dataclass
 class RetryConfig:
-    """Configuration for automatic retry of transient failures."""
-
     max_retries: int = 3
     base_delay: float = 1.0  # seconds
     max_delay: float = 30.0  # seconds
 
 
-@dataclass
-class _RetryableTypesCache:
-    value: tuple[type[Exception], ...] | None = None
-
-
-_retryable_types_cache = _RetryableTypesCache()
+_retryable_types_cache: list[tuple[type[Exception], ...]] = []
 
 
 def _get_retryable_types() -> tuple[type[Exception], ...]:
-    retryable_types = _retryable_types_cache.value
-    if retryable_types is None:
-        from openai import (
-            APIConnectionError,
-            APITimeoutError,
-            InternalServerError,
-            RateLimitError,
-        )
+    if _retryable_types_cache:
+        return _retryable_types_cache[0]
+    from openai import (
+        APIConnectionError,
+        APITimeoutError,
+        InternalServerError,
+        RateLimitError,
+    )
 
-        retryable_types = (
-            APIConnectionError,
-            APITimeoutError,
-            InternalServerError,
-            RateLimitError,
-        )
-        _retryable_types_cache.value = retryable_types
+    retryable_types = (
+        APIConnectionError,
+        APITimeoutError,
+        InternalServerError,
+        RateLimitError,
+    )
+    _retryable_types_cache.append(retryable_types)
     return retryable_types
 
 
@@ -225,16 +223,12 @@ _MAX_PROVIDER_DETAIL_CHARS = 260
 
 @dataclass
 class Message:
-    """A single message in a conversation."""
-
     role: str  # "system", "user", or "assistant"
     content: str
 
 
 @dataclass
 class Conversation:
-    """An ordered list of messages forming a conversation."""
-
     messages: list[Message] = field(default_factory=list)
     _api_cache: list[ApiMessage] | None = field(default=None, init=False, repr=False)
 
@@ -243,7 +237,6 @@ class Conversation:
         self._api_cache = None
 
     def to_api_messages(self) -> list[ApiMessage]:
-        """Convert to the format expected by the OpenAI client."""
         if self._api_cache is not None:
             return self._api_cache
         self._api_cache = [{"role": msg.role, "content": msg.content} for msg in self.messages]
@@ -251,30 +244,22 @@ class Conversation:
 
 
 def to_chat_completion_messages(messages: list[ApiMessage]) -> list[ChatCompletionMessageParam]:
-    """Cast validated local API messages to the SDK request type."""
     return cast("list[ChatCompletionMessageParam]", messages)
 
 
-def _provider_error_body(exc: Exception) -> dict[str, object] | None:
-    """Return a structured provider error body, when the SDK exposes one."""
-    body = getattr(exc, "body", None)
-    if is_string_mapping(body):
-        return body
-
-    response = getattr(exc, "response", None)
-    json_fn = getattr(response, "json", None)
-    if not callable(json_fn):
-        return None
-    try:
-        response_body = json_fn()
-    except Exception:
-        return None
-    return response_body if is_string_mapping(response_body) else None
-
-
 def _provider_error_fields(exc: Exception) -> tuple[str, str]:
-    """Return a short provider error message and code without SDK noise."""
-    body = _provider_error_body(exc)
+    body = getattr(exc, "body", None)
+    if not is_string_mapping(body):
+        response = getattr(exc, "response", None)
+        json_fn = getattr(response, "json", None)
+        if callable(json_fn):
+            try:
+                response_body = json_fn()
+            except Exception:
+                response_body = None
+            body = response_body if is_string_mapping(response_body) else None
+        else:
+            body = None
     code = ""
     message = ""
 
@@ -297,16 +282,7 @@ def _provider_error_fields(exc: Exception) -> tuple[str, str]:
     return message or exc.__class__.__name__, code
 
 
-def _clean_provider_detail(detail: str) -> str:
-    """Trim noisy provider detail before showing it to the user."""
-    cleaned = _PROVIDER_IP_RE.sub("this connection", detail)
-    if len(cleaned) <= _MAX_PROVIDER_DETAIL_CHARS:
-        return cleaned
-    return f"{cleaned[: _MAX_PROVIDER_DETAIL_CHARS - 3].rstrip()}..."
-
-
 def _is_account_setup_error(exc: Exception) -> bool:
-    """Return True when retrying cannot fix the provider/account state."""
     from openai import AuthenticationError, PermissionDeniedError, RateLimitError
 
     if isinstance(exc, AuthenticationError | PermissionDeniedError):
@@ -323,7 +299,6 @@ def _is_account_setup_error(exc: Exception) -> bool:
 
 
 def _is_provider_capacity_error(exc: Exception) -> bool:
-    """Return True when an upstream free/shared provider is temporarily saturated."""
     from openai import RateLimitError
 
     if not isinstance(exc, RateLimitError):
@@ -340,30 +315,24 @@ def _with_hint(message: str, hint: str) -> str:
     return f"{message} {hint}"
 
 
-def _request_failure_message(exc: Exception) -> str:
-    """Build a user-facing request failure message."""
+def _failure_message(exc: Exception, *, stream: bool) -> str:
+    account_prefix, capacity_prefix, default_prefix = (
+        ("Provider rejected the stream", "Provider stream is busy", "LLM stream failed")
+        if stream
+        else ("Provider rejected the request", "Provider is busy", "LLM request failed")
+    )
     detail, _code = _provider_error_fields(exc)
-    detail = _clean_provider_detail(redact_text(detail))
+    detail = _PROVIDER_IP_RE.sub("this connection", redact_text(detail))
+    if len(detail) > _MAX_PROVIDER_DETAIL_CHARS:
+        detail = f"{detail[: _MAX_PROVIDER_DETAIL_CHARS - 3].rstrip()}..."
     if _is_account_setup_error(exc):
-        return _with_hint(f"Provider rejected the request: {detail}", _ACCOUNT_SETUP_HINT)
+        return _with_hint(f"{account_prefix}: {detail}", _ACCOUNT_SETUP_HINT)
     if _is_provider_capacity_error(exc):
-        return _with_hint(f"Provider is busy: {detail}", _PROVIDER_CAPACITY_HINT)
-    return f"LLM request failed: {detail}"
-
-
-def _stream_failure_message(exc: Exception) -> str:
-    """Build a user-facing streaming failure message."""
-    detail, _code = _provider_error_fields(exc)
-    detail = _clean_provider_detail(redact_text(detail))
-    if _is_account_setup_error(exc):
-        return _with_hint(f"Provider rejected the stream: {detail}", _ACCOUNT_SETUP_HINT)
-    if _is_provider_capacity_error(exc):
-        return _with_hint(f"Provider stream is busy: {detail}", _PROVIDER_CAPACITY_HINT)
-    return f"LLM stream failed: {detail}"
+        return _with_hint(f"{capacity_prefix}: {detail}", _PROVIDER_CAPACITY_HINT)
+    return f"{default_prefix}: {detail}"
 
 
 def _log_error_summary(exc: Exception) -> str:
-    """Return a compact log summary for expected provider setup failures."""
     if _is_account_setup_error(exc):
         detail, code = _provider_error_fields(exc)
         return f"{code}: {detail}" if code else detail
@@ -371,7 +340,6 @@ def _log_error_summary(exc: Exception) -> str:
 
 
 def build_client(config: ChatConfig) -> OpenAI:
-    """Create an OpenAI client from the given config."""
     from openai import OpenAI
 
     if not config.base_url:
@@ -390,7 +358,6 @@ def build_client(config: ChatConfig) -> OpenAI:
 
 
 def missing_api_key_message(config: ChatConfig) -> str:
-    """Return a precise missing-key message for the active provider/model."""
     if config.provider_slug == "openai-codex":
         return (
             "OpenAI Codex subscription requires /login OAuth credentials. "
@@ -407,7 +374,6 @@ def missing_api_key_message(config: ChatConfig) -> str:
 
 
 def is_retryable_error(exc: Exception) -> bool:
-    """Return True if *exc* is a transient error worth retrying."""
     if _is_account_setup_error(exc) or _is_provider_capacity_error(exc):
         return False
     return isinstance(exc, _get_retryable_types())
@@ -418,7 +384,6 @@ def _wait_backoff(
     config: RetryConfig,
     abort: threading.Event | None = None,
 ) -> bool:
-    """Sleep with exponential backoff + jitter.  Returns False if aborted."""
     delay = min(config.base_delay * (2**attempt), config.max_delay)
     jitter = random.uniform(0, delay * 0.5)
     if abort is not None:
@@ -429,8 +394,6 @@ def _wait_backoff(
 
 @dataclass(frozen=True, slots=True)
 class CompletionDelta:
-    """A streamed completion delta from the model."""
-
     content: str | None = None
     tool_calls: list[ToolCallDelta] | None = None
     finish_reason: str = ""
@@ -438,7 +401,6 @@ class CompletionDelta:
 
 
 def _normalize_tool_calls(tool_calls: list[ChoiceDeltaToolCall]) -> list[ToolCallDelta]:
-    """Convert SDK tool-call delta objects to plain typed dicts."""
     result: list[ToolCallDelta] = []
     for tc in tool_calls:
         tool_call: ToolCallDelta = {}
@@ -501,7 +463,6 @@ def _record_usage(
     *,
     prompt_request: PromptCacheRequest | None = None,
 ) -> None:
-    """Record token usage metrics and span attributes."""
     prompt = usage.get("prompt_tokens", 0) or 0
     completion = usage.get("completion_tokens", 0) or 0
     cached_prompt_tokens = usage.get("cached_prompt_tokens")
@@ -520,6 +481,11 @@ def _record_usage(
     )
 
 
+def _mark_span_error(span: _SpanProtocol, error_type: str) -> None:
+    span.set_attribute("error", True)
+    span.set_attribute("error.type", error_type)
+
+
 def _codex_backend_auth(config: ChatConfig) -> tuple[str, str] | None:
     if config.provider_slug != "openai-codex":
         return None
@@ -530,30 +496,11 @@ def _codex_backend_auth(config: ChatConfig) -> tuple[str, str] | None:
 
 
 def has_configured_access(config: ChatConfig, *, refresh_oauth: bool = True) -> bool:
-    """Return whether the configured provider has usable auth."""
     if is_keyless_endpoint(config.base_url):
         return True
     if config.provider_slug == "openai-codex":
         return load_credentials("openai-codex", refresh_expired=refresh_oauth) is not None
     return bool(config.resolved_api_key)
-
-
-def _content_part_text(part: object) -> str:
-    if not is_string_mapping(part):
-        return ""
-    text = part.get("text", part.get("content", ""))
-    return text if isinstance(text, str) else ""
-
-
-def _api_message_text(message: ApiMessage) -> str:
-    content = message.get("content")
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "\n".join(part for item in content if (part := _content_part_text(item)))
-    return str(content)
 
 
 def _codex_input_item(role: str, text: str) -> dict[str, object]:
@@ -573,7 +520,7 @@ def _codex_payload(
     inputs: list[dict[str, object]] = []
     for message in api_messages:
         role = message["role"]
-        text = _api_message_text(message)
+        text = message_content_text(message.get("content"))
         if not text:
             continue
         if role == "system":
@@ -590,18 +537,6 @@ def _codex_payload(
         "store": False,
         "stream": True,
     }
-
-
-def _codex_headers(access_token: str, account_id: str) -> dict[str, str]:
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-        "User-Agent": "hephaistos-cli",
-    }
-    if account_id:
-        headers["ChatGPT-Account-ID"] = account_id
-    return headers
 
 
 def _int_value(value: object) -> int:
@@ -663,10 +598,18 @@ def _stream_codex_backend_completion(
     prompt_request: PromptCacheRequest | None = None,
 ) -> Iterator[CompletionDelta]:
     access_token, account_id = auth
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "User-Agent": "hephaistos-cli",
+    }
+    if account_id:
+        headers["ChatGPT-Account-ID"] = account_id
     request = urllib.request.Request(
         _CODEX_BACKEND_RESPONSES_URL,
         data=json.dumps(_codex_payload(config, api_messages)).encode("utf-8"),
-        headers=_codex_headers(access_token, account_id),
+        headers=headers,
         method="POST",
     )
     try:
@@ -715,6 +658,200 @@ def _stream_codex_backend_completion(
                 raise EngineError(f"ChatGPT Codex request failed: {_codex_failure_detail(parsed)}")
 
 
+def _stream_codex_completion(
+    config: ChatConfig,
+    api_messages: list[ApiMessage],
+    auth: tuple[str, str],
+    *,
+    abort: threading.Event | None,
+    span: _SpanProtocol,
+    prompt_request: PromptCacheRequest,
+    message_count: int,
+    tool_count: int,
+) -> Iterator[CompletionDelta]:
+    if not _circuit_breaker.allow_request():
+        span.end()
+        raise EngineError("LLM provider circuit breaker is open — too many recent failures")
+
+    timer = Timer()
+    try:
+        with timer:
+            yield from _stream_codex_backend_completion(
+                config,
+                api_messages,
+                auth,
+                abort=abort,
+                span=span,
+                prompt_request=prompt_request,
+            )
+    except EngineError as exc:
+        _circuit_breaker.record_failure()
+        _mark_span_error(span, type(exc).__name__)
+        span.end()
+        raise
+    except Exception as exc:
+        _circuit_breaker.record_failure()
+        _mark_span_error(span, type(exc).__name__)
+        span.end()
+        raise EngineError(f"ChatGPT Codex request failed: {redact_text(str(exc))}") from exc
+
+    _log.info(
+        "stream_completion complete",
+        extra={
+            "fields": {
+                "model": config.model,
+                "latency_ms": timer.ms,
+                "message_count": message_count,
+                "tool_count": tool_count,
+                "transport": "chatgpt-codex",
+            }
+        },
+    )
+    _circuit_breaker.record_success()
+    span.set_attribute("gen_ai.response.latency_ms", timer.ms)
+    _llm_duration_hist.record(timer.ms, {"model": config.model})
+    span.end()
+
+
+def _request_kwargs(
+    config: ChatConfig,
+    api_messages: list[ApiMessage],
+    *,
+    tools: Sequence[object] | None,
+    tool_choice: object | None,
+) -> dict[str, object]:
+    kwargs: dict[str, object] = {
+        "model": config.model,
+        "messages": to_chat_completion_messages(api_messages),
+        "max_tokens": config.max_tokens,
+        "stream": True,
+    }
+    if tools:
+        kwargs["tools"] = list(tools)
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
+    return kwargs
+
+
+def _completion_delta_from_chunk(
+    chunk: ChatCompletionChunk,
+    config: ChatConfig,
+    span: _SpanProtocol,
+    *,
+    prompt_request: PromptCacheRequest,
+) -> CompletionDelta | None:
+    usage = _extract_usage(chunk)
+    if not chunk.choices:
+        if usage is not None:
+            _record_usage(usage, config.model, span, prompt_request=prompt_request)
+            return CompletionDelta(usage=usage)
+        return None
+
+    choice = chunk.choices[0]
+    delta = choice.delta
+    finish_reason = choice.finish_reason or ""
+    if usage is not None:
+        _record_usage(usage, config.model, span, prompt_request=prompt_request)
+    if not (delta.content or delta.tool_calls or finish_reason or usage is not None):
+        return None
+    return CompletionDelta(
+        content=delta.content or None,
+        tool_calls=_normalize_tool_calls(delta.tool_calls) if delta.tool_calls else None,
+        finish_reason=finish_reason,
+        usage=usage,
+    )
+
+
+def _iter_openai_stream_deltas(
+    stream: Stream[ChatCompletionChunk],
+    config: ChatConfig,
+    *,
+    abort: threading.Event | None,
+    span: _SpanProtocol,
+    prompt_request: PromptCacheRequest,
+    timer: Timer,
+    attempt: int,
+    retry: RetryConfig,
+) -> Iterator[CompletionDelta]:
+    partial_parts: list[str] = []
+    saw_output = False
+    try:
+        for chunk in stream:
+            if abort is not None and abort.is_set():
+                stream.close()
+                _log.info(
+                    "stream_completion aborted",
+                    extra={"fields": {"model": config.model, "latency_ms": timer.ms}},
+                )
+                span.end()
+                return
+
+            delta = _completion_delta_from_chunk(
+                chunk,
+                config,
+                span,
+                prompt_request=prompt_request,
+            )
+            if delta is None:
+                continue
+            if delta.content:
+                partial_parts.append(delta.content)
+            if delta.content or delta.tool_calls:
+                saw_output = True
+            yield delta
+    except Exception as exc:
+        partial_content = "".join(partial_parts)
+        log = (
+            _log.info
+            if is_retryable_error(exc) and not saw_output and attempt < retry.max_retries
+            else _log.error
+        )
+        log(
+            "stream_completion mid-stream failure (attempt %d/%d, %d chars received)",
+            attempt + 1,
+            retry.max_retries + 1,
+            len(partial_content),
+            extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
+        )
+        if saw_output:
+            _mark_span_error(span, "StreamRecoveryError")
+            span.end()
+            raise StreamRecoveryError(partial_content, exc) from exc
+        if is_retryable_error(exc):
+            _circuit_breaker.record_failure()
+            if attempt < retry.max_retries:
+                raise _RetryOpenAIStreamError(exc) from exc
+        _mark_span_error(span, type(exc).__name__)
+        span.end()
+        raise EngineError(_failure_message(exc, stream=True)) from exc
+
+
+def _handle_openai_request_error(
+    exc: Exception,
+    *,
+    attempt: int,
+    retry: RetryConfig,
+    abort: threading.Event | None,
+    span: _SpanProtocol,
+    timer: Timer,
+) -> bool:
+    retryable = is_retryable_error(exc)
+    if retryable:
+        _circuit_breaker.record_failure()
+    log = _log.info if retryable and attempt < retry.max_retries else _log.warning
+    log(
+        "stream_completion request failed (attempt %d/%d)",
+        attempt + 1,
+        retry.max_retries + 1,
+        extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
+    )
+    if retryable and attempt < retry.max_retries:
+        return _wait_backoff(attempt, retry, abort)
+    _mark_span_error(span, type(exc).__name__)
+    span.end()
+    raise EngineError(_failure_message(exc, stream=False)) from exc
+
+
 def stream_completion(
     config: ChatConfig,
     messages: Conversation | list[ApiMessage],
@@ -725,7 +862,6 @@ def stream_completion(
     client_factory: Callable[[ChatConfig], OpenAI] | None = None,
     tool_choice: object | None = None,
 ) -> Iterator[CompletionDelta]:
-    """Stream raw completion deltas with shared retry/recovery handling."""
     span = _tracer.start_span("llm.completion")
     span.set_attribute("gen_ai.system", config.provider_slug or "unknown")
     span.set_attribute("gen_ai.request.model", config.model)
@@ -767,49 +903,16 @@ def stream_completion(
 
     codex_auth = _codex_backend_auth(config)
     if codex_auth is not None:
-        if not _circuit_breaker.allow_request():
-            span.end()
-            raise EngineError("LLM provider circuit breaker is open — too many recent failures")
-        timer = Timer()
-        try:
-            with timer:
-                for delta in _stream_codex_backend_completion(
-                    config,
-                    api_messages,
-                    codex_auth,
-                    abort=abort,
-                    span=span,
-                    prompt_request=prompt_request,
-                ):
-                    yield delta
-        except EngineError as exc:
-            _circuit_breaker.record_failure()
-            span.set_attribute("error", True)
-            span.set_attribute("error.type", type(exc).__name__)
-            span.end()
-            raise
-        except Exception as exc:
-            _circuit_breaker.record_failure()
-            span.set_attribute("error", True)
-            span.set_attribute("error.type", type(exc).__name__)
-            span.end()
-            raise EngineError(f"ChatGPT Codex request failed: {redact_text(str(exc))}") from exc
-        _log.info(
-            "stream_completion complete",
-            extra={
-                "fields": {
-                    "model": config.model,
-                    "latency_ms": timer.ms,
-                    "message_count": msg_count,
-                    "tool_count": len(tools or []),
-                    "transport": "chatgpt-codex",
-                }
-            },
+        yield from _stream_codex_completion(
+            config,
+            api_messages,
+            codex_auth,
+            abort=abort,
+            span=span,
+            prompt_request=prompt_request,
+            message_count=msg_count,
+            tool_count=len(tools or []),
         )
-        _circuit_breaker.record_success()
-        span.set_attribute("gen_ai.response.latency_ms", timer.ms)
-        _llm_duration_hist.record(timer.ms, {"model": config.model})
-        span.end()
         return
     if config.provider_slug == "openai-codex":
         span.end()
@@ -830,16 +933,12 @@ def stream_completion(
             raise EngineError("LLM provider circuit breaker is open — too many recent failures")
 
         timer = Timer()
-        request_kwargs: dict[str, object] = {
-            "model": config.model,
-            "messages": to_chat_completion_messages(api_messages),
-            "max_tokens": config.max_tokens,
-            "stream": True,
-        }
-        if tools:
-            request_kwargs["tools"] = list(tools)
-            if tool_choice is not None:
-                request_kwargs["tool_choice"] = tool_choice
+        request_kwargs = _request_kwargs(
+            config,
+            api_messages,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
 
         try:
             with timer:
@@ -849,111 +948,33 @@ def stream_completion(
                 )
         except Exception as exc:
             last_error = exc
-            if is_retryable_error(exc):
-                _circuit_breaker.record_failure()
-            log = (
-                _log.info
-                if is_retryable_error(exc) and attempt < retry.max_retries
-                else _log.warning
-            )
-            log(
-                "stream_completion request failed (attempt %d/%d)",
-                attempt + 1,
-                retry.max_retries + 1,
-                extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
-            )
-            if is_retryable_error(exc) and attempt < retry.max_retries:
-                if not _wait_backoff(attempt, retry, abort):
-                    return
+            if _handle_openai_request_error(
+                exc,
+                attempt=attempt,
+                retry=retry,
+                abort=abort,
+                span=span,
+                timer=timer,
+            ):
                 continue
-            span.set_attribute("error", True)
-            span.set_attribute("error.type", type(exc).__name__)
-            span.end()
-            raise EngineError(_request_failure_message(exc)) from exc
+            return
 
-        partial_parts: list[str] = []
-        saw_output = False
         try:
-            for chunk in stream:
-                if abort is not None and abort.is_set():
-                    stream.close()
-                    _log.info(
-                        "stream_completion aborted",
-                        extra={
-                            "fields": {
-                                "model": config.model,
-                                "latency_ms": timer.ms,
-                            }
-                        },
-                    )
-                    span.end()
-                    return
-
-                usage = _extract_usage(chunk)
-                if not chunk.choices:
-                    if usage is not None:
-                        _record_usage(
-                            usage,
-                            config.model,
-                            span,
-                            prompt_request=prompt_request,
-                        )
-                        yield CompletionDelta(usage=usage)
-                    continue
-
-                choice = chunk.choices[0]
-                delta = choice.delta
-                finish_reason = choice.finish_reason or ""
-                if delta.content:
-                    partial_parts.append(delta.content)
-                if delta.content or delta.tool_calls:
-                    saw_output = True
-                if delta.content or delta.tool_calls or finish_reason or usage is not None:
-                    if usage is not None:
-                        _record_usage(
-                            usage,
-                            config.model,
-                            span,
-                            prompt_request=prompt_request,
-                        )
-                    yield CompletionDelta(
-                        content=delta.content or None,
-                        tool_calls=(
-                            _normalize_tool_calls(delta.tool_calls) if delta.tool_calls else None
-                        ),
-                        finish_reason=finish_reason,
-                        usage=usage,
-                    )
-        except Exception as exc:
-            partial_content = "".join(partial_parts)
-            log = (
-                _log.info
-                if is_retryable_error(exc) and not saw_output and attempt < retry.max_retries
-                else _log.error
+            yield from _iter_openai_stream_deltas(
+                stream,
+                config,
+                abort=abort,
+                span=span,
+                prompt_request=prompt_request,
+                timer=timer,
+                attempt=attempt,
+                retry=retry,
             )
-            log(
-                "stream_completion mid-stream failure (attempt %d/%d, %d chars received)",
-                attempt + 1,
-                retry.max_retries + 1,
-                len(partial_content),
-                extra={"fields": {"error": _log_error_summary(exc), "latency_ms": timer.ms}},
-            )
-            if saw_output:
-                span.set_attribute("error", True)
-                span.set_attribute("error.type", "StreamRecoveryError")
-                span.end()
-                raise StreamRecoveryError(partial_content, exc) from exc
-            last_error = exc
-            if is_retryable_error(exc):
-                _circuit_breaker.record_failure()
-            if is_retryable_error(exc) and attempt < retry.max_retries:
-                if not _wait_backoff(attempt, retry, abort):
-                    return
-                continue
-            span.set_attribute("error", True)
-            span.set_attribute("error.type", type(exc).__name__)
-            span.end()
-            raise EngineError(_stream_failure_message(exc)) from exc
+        except _RetryOpenAIStreamError as retry_stream:
+            last_error = retry_stream.cause
+            if not _wait_backoff(attempt, retry, abort):
+                return
+            continue
 
         _log.info(
             "stream_completion complete",
@@ -972,10 +993,10 @@ def stream_completion(
         span.end()
         return
 
-    span.set_attribute("error", True)
+    _mark_span_error(span, "EngineError")
     span.end()
     raise EngineError(
-        _request_failure_message(last_error)
+        _failure_message(last_error, stream=False)
         if last_error is not None
         else f"LLM request failed after {retry.max_retries + 1} attempts"
     ) from last_error
@@ -988,7 +1009,6 @@ def stream_reply(
     abort: threading.Event | None = None,
     retry: RetryConfig | None = None,
 ) -> Iterator[str]:
-    """Send the conversation to the LLM and yield response chunks."""
     for delta in stream_completion(
         config,
         conversation,
@@ -1007,12 +1027,6 @@ def get_reply(
     abort: threading.Event | None = None,
     retry: RetryConfig | None = None,
 ) -> str:
-    """Send the conversation and return the full reply as a string.
-
-    Also prints streamed chunks to stdout in real time.
-    On :class:`StreamRecoveryError` the partial text is preserved in the
-    exception for the caller to inspect.
-    """
     parts: list[str] = []
     try:
         for chunk in stream_reply(config, conversation, abort=abort, retry=retry):

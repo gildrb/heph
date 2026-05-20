@@ -26,13 +26,14 @@ from hephaistos.rag.retrieve import (
     TfidfRetriever,
     _apply_negation_precision_penalty,
     _compound_query_variants,
-    _cosine_similarity,
     _create_retriever,
     _normalize_query_for_retrieval,
-    _reciprocal_rank_fusion,
-    _retrieve_query_variants,
-    _tokenize,
     retrieve,
+)
+from hephaistos.rag.scoring import (
+    cosine_similarity,
+    reciprocal_rank_fusion,
+    tokenize,
 )
 
 # ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@ def test_normalize_query_for_retrieval_preserves_long_prompt_tail_signal() -> No
 
     normalized = _normalize_query_for_retrieval(query)
 
-    assert len(_tokenize(normalized)) <= 180
+    assert len(tokenize(normalized)) <= 180
     assert "exact sentinel phrase amber forge" in normalized
     assert normalized.count("filler") <= 2
 
@@ -219,8 +220,14 @@ def test_compound_query_variants_extracts_both_clauses() -> None:
     ]
 
 
-def test_retrieve_query_variants_promotes_each_compound_clause_head() -> None:
-    original_query = "answer both calculus and physics"
+def test_retrieve_promotes_each_compound_clause_head(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    query = (
+        "answer both: what rule does integration by parts follow from, "
+        "and what do Fourier transforms decompose periodic signals into?"
+    )
+    normalized_query = " ".join(query.split())
     calculus_query = "what rule does integration by parts follow from"
     physics_query = "what do Fourier transforms decompose periodic signals into"
     calculus = ScoredChunk(
@@ -245,15 +252,17 @@ def test_retrieve_query_variants_promotes_each_compound_clause_head() -> None:
     )
     retriever = _VariantRetriever(
         {
-            original_query: [calculus, calculus_neighbor],
+            normalized_query: [calculus, calculus_neighbor],
             calculus_query: [calculus],
             physics_query: [physics],
         }
     )
+    retrieve_module = import_module("hephaistos.rag.retrieve")
+    monkeypatch.setattr(retrieve_module, "_create_retriever", lambda *_args, **_kwargs: retriever)
 
-    results = _retrieve_query_variants(
-        retriever,
-        [original_query, calculus_query, physics_query],
+    results = retrieve(
+        query,
+        _make_index_with_chunks([calculus.chunk, calculus_neighbor.chunk, physics.chunk]),
         top_k=2,
     )
 
@@ -550,10 +559,10 @@ class TestBm25Retriever:
 
         assert state_path.is_file()
 
-        def fail_tokenize(_text: str) -> list[str]:
+        def failtokenize(_text: str) -> list[str]:
             raise AssertionError("cached corpus tokens should be reused")
 
-        monkeypatch.setattr(sparse_module, "tokenize", fail_tokenize)
+        monkeypatch.setattr(sparse_module, "tokenize", failtokenize)
         retriever = Bm25Retriever(index)
 
         assert retriever.available
@@ -652,14 +661,14 @@ class TestDocumentBm25Retriever:
         cache_dir.mkdir(parents=True)
         retrieve_module = import_module("hephaistos.rag.optional_backends")
         monkeypatch.setattr(retrieve_module, "BM25_CLASS", FakeBm25)
-        original_tokenize = sparse_module.tokenize
+        originaltokenize = sparse_module.tokenize
 
-        def fail_tokenize(_text: str) -> list[str]:
+        def failtokenize(_text: str) -> list[str]:
             raise AssertionError("backend cache should avoid rebuilding document tokens")
 
-        monkeypatch.setattr(sparse_module, "tokenize", fail_tokenize)
+        monkeypatch.setattr(sparse_module, "tokenize", failtokenize)
         retriever = DocumentBm25Retriever(index)
-        monkeypatch.setattr(sparse_module, "tokenize", original_tokenize)
+        monkeypatch.setattr(sparse_module, "tokenize", originaltokenize)
 
         assert retriever.available
         assert retriever.retrieve("alpha")[0].chunk.source == "materials/doc.md"
@@ -672,31 +681,31 @@ class TestDocumentBm25Retriever:
 
 class TestTokenize:
     def test_splits_on_non_alnum(self) -> None:
-        assert "python" in _tokenize("Python, is; great!")
+        assert "python" in tokenize("Python, is; great!")
 
     def test_removes_stop_words(self) -> None:
-        tokens = _tokenize("the cat is on the mat")
+        tokens = tokenize("the cat is on the mat")
         assert "the" not in tokens
         assert "cat" in tokens
         assert "mat" in tokens
 
     def test_removes_single_chars(self) -> None:
-        tokens = _tokenize("a big c")
+        tokens = tokenize("a big c")
         assert "a" not in tokens
         assert "c" not in tokens
         assert "big" in tokens
 
     def test_keeps_single_digit_section_tokens(self) -> None:
-        tokens = _tokenize("neural-networks-1 neural-networks-3")
+        tokens = tokenize("neural-networks-1 neural-networks-3")
         assert "1" in tokens
         assert "3" in tokens
 
     def test_lowercase(self) -> None:
-        tokens = _tokenize("Python PYTHON python")
+        tokens = tokenize("Python PYTHON python")
         assert tokens == ["python", "python", "python"]
 
     def test_adds_conservative_plural_variants(self) -> None:
-        tokens = _tokenize("therapies receptors")
+        tokens = tokenize("therapies receptors")
         assert "therapy" in tokens
         assert "receptor" in tokens
 
@@ -708,20 +717,20 @@ class TestTokenize:
 
 class TestCosineSimilarity:
     def test_identical_vectors(self) -> None:
-        assert abs(_cosine_similarity([1, 0, 0], [1, 0, 0]) - 1.0) < 1e-9
+        assert abs(cosine_similarity([1, 0, 0], [1, 0, 0]) - 1.0) < 1e-9
 
     def test_orthogonal_vectors(self) -> None:
-        assert abs(_cosine_similarity([1, 0], [0, 1])) < 1e-9
+        assert abs(cosine_similarity([1, 0], [0, 1])) < 1e-9
 
     def test_opposite_vectors(self) -> None:
-        assert abs(_cosine_similarity([1, 0], [-1, 0]) - (-1.0)) < 1e-9
+        assert abs(cosine_similarity([1, 0], [-1, 0]) - (-1.0)) < 1e-9
 
     def test_zero_vector(self) -> None:
-        assert _cosine_similarity([0, 0], [1, 1]) == 0.0
+        assert cosine_similarity([0, 0], [1, 1]) == 0.0
 
     def test_arbitrary_vectors(self) -> None:
         # [1,2,3] · [4,5,6] = 32, |a|=√14, |b|=√77
-        sim = _cosine_similarity([1, 2, 3], [4, 5, 6])
+        sim = cosine_similarity([1, 2, 3], [4, 5, 6])
         expected = 32.0 / (14.0**0.5 * 77.0**0.5)
         assert abs(sim - expected) < 1e-6
 
@@ -741,7 +750,7 @@ class TestReciprocalRankFusion:
             ScoredChunk(chunk=chunks[0], score=0.9),
             ScoredChunk(chunk=chunks[1], score=0.5),
         ]
-        result = _reciprocal_rank_fusion([ranked])
+        result = reciprocal_rank_fusion([ranked])
         assert len(result) == 2
         assert result[0].chunk.source == "a.md"
 
@@ -761,7 +770,7 @@ class TestReciprocalRankFusion:
             ScoredChunk(chunk=c_c, score=0.6),
             ScoredChunk(chunk=c_b, score=0.4),
         ]
-        result = _reciprocal_rank_fusion([list1, list2])
+        result = reciprocal_rank_fusion([list1, list2])
         # c_a is rank 0 in both lists → highest RRF score
         assert result[0].chunk.source == "a.md"
 
@@ -773,16 +782,16 @@ class TestReciprocalRankFusion:
         list1 = [ScoredChunk(chunk=c_a, score=0.9)]
         list2 = [ScoredChunk(chunk=c_b, score=0.9)]
 
-        result = _reciprocal_rank_fusion([list1, list2])
+        result = reciprocal_rank_fusion([list1, list2])
         assert len(result) == 2
 
     def test_empty_lists_return_empty(self) -> None:
-        result = _reciprocal_rank_fusion([[], []])
+        result = reciprocal_rank_fusion([[], []])
         assert result == []
 
     def test_one_empty_one_nonempty(self) -> None:
         c_a = _make_chunk("hello", "a.md", 0)
-        result = _reciprocal_rank_fusion(
+        result = reciprocal_rank_fusion(
             [
                 [ScoredChunk(chunk=c_a, score=0.5)],
                 [],
@@ -794,7 +803,7 @@ class TestReciprocalRankFusion:
     def test_rrf_scores_are_positive(self) -> None:
         c_a = _make_chunk("alpha", "a.md", 0)
         ranked = [ScoredChunk(chunk=c_a, score=0.9)]
-        result = _reciprocal_rank_fusion([ranked])
+        result = reciprocal_rank_fusion([ranked])
         assert result[0].score > 0
 
     def test_k_parameter_affects_scores(self) -> None:
@@ -804,8 +813,8 @@ class TestReciprocalRankFusion:
             ScoredChunk(chunk=c_a, score=0.9),
             ScoredChunk(chunk=c_b, score=0.5),
         ]
-        r1 = _reciprocal_rank_fusion([ranked], k=1)
-        r2 = _reciprocal_rank_fusion([ranked], k=100)
+        r1 = reciprocal_rank_fusion([ranked], k=1)
+        r2 = reciprocal_rank_fusion([ranked], k=100)
         # Higher k flattens scores — gap should be smaller
         gap1 = r1[0].score - r1[1].score
         gap2 = r2[0].score - r2[1].score
@@ -817,13 +826,13 @@ class TestReciprocalRankFusion:
         sparse = [ScoredChunk(chunk=c_sparse, score=1.0)]
         dense = [ScoredChunk(chunk=c_dense, score=1.0)]
 
-        result = _reciprocal_rank_fusion([sparse, dense], weights=[1.0, 2.0])
+        result = reciprocal_rank_fusion([sparse, dense], weights=[1.0, 2.0])
 
         assert result[0].chunk.source == "dense.md"
 
     def test_weights_must_match_ranked_lists(self) -> None:
         with pytest.raises(ValueError, match="weights"):
-            _reciprocal_rank_fusion([[]], weights=[1.0, 1.0])
+            reciprocal_rank_fusion([[]], weights=[1.0, 1.0])
 
 
 # ---------------------------------------------------------------------------

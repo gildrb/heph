@@ -82,15 +82,7 @@ SENTENCE_TRANSFORMER: SentenceTransformerFactory | None | object = _UNSET
 BM25_CLASS: Bm25Factory | None | object = _UNSET
 
 
-def _find_spec(module_name: str) -> bool:
-    try:
-        return importlib.util.find_spec(module_name) is not None
-    except (ImportError, AttributeError, ValueError):
-        return False
-
-
 def sklearn_tfidf_vectorizer() -> SklearnVectorizerFactory | None:
-    """Return the scikit-learn TF-IDF vectorizer, importing it only when needed."""
     global HAS_SKLEARN, SKLEARN_TFIDF_VECTORIZER  # noqa: PLW0603
     if SKLEARN_TFIDF_VECTORIZER is _UNSET:
         try:
@@ -108,14 +100,12 @@ def sklearn_tfidf_vectorizer() -> SklearnVectorizerFactory | None:
 
 
 def has_sklearn() -> bool:
-    """Return whether the sklearn backend is available."""
     if isinstance(HAS_SKLEARN, bool):
         return HAS_SKLEARN
     return sklearn_tfidf_vectorizer() is not None
 
 
 def bm25_class() -> Bm25Factory | None:
-    """Return the BM25 backend class, importing bm25s only when needed."""
     global BM25_CLASS  # noqa: PLW0603
     if BM25_CLASS is _UNSET:
         try:
@@ -130,7 +120,6 @@ def bm25_class() -> Bm25Factory | None:
 
 
 def sentence_transformer() -> SentenceTransformerFactory | None:
-    """Return the sentence-transformers factory, importing the package lazily."""
     global SENTENCE_TRANSFORMER, _sentence_transformers_available  # noqa: PLW0603
     if SENTENCE_TRANSFORMER is _UNSET:
         try:
@@ -150,7 +139,6 @@ def sentence_transformer() -> SentenceTransformerFactory | None:
 
 
 def cross_encoder() -> CrossEncoderFactory | None:
-    """Return the cross-encoder factory, importing sentence-transformers lazily."""
     global CROSS_ENCODER, _sentence_transformers_available  # noqa: PLW0603
     if CROSS_ENCODER is _UNSET:
         try:
@@ -167,10 +155,14 @@ def cross_encoder() -> CrossEncoderFactory | None:
 
 
 def sentence_transformers_available() -> bool:
-    """Return True when dense retrieval dependencies are importable."""
     global _sentence_transformers_available  # noqa: PLW0603
     if SENTENCE_TRANSFORMER is not _UNSET:
         return SENTENCE_TRANSFORMER is not None
     if _sentence_transformers_available is None:
-        _sentence_transformers_available = _find_spec("sentence_transformers")
+        try:
+            _sentence_transformers_available = (
+                importlib.util.find_spec("sentence_transformers") is not None
+            )
+        except (ImportError, AttributeError, ValueError):
+            _sentence_transformers_available = False
     return _sentence_transformers_available

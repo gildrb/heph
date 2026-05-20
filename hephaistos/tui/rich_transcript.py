@@ -37,8 +37,6 @@ _MAX_VISIBLE_SOURCE_ITEMS = 3
 
 @dataclass(frozen=True, slots=True)
 class EnrichedReply:
-    """An assistant reply enriched with citation metadata."""
-
     markdown_text: str
     evidence: TurnEvidence | None
 
@@ -61,12 +59,10 @@ def _replace_latex_commands(text: str) -> str:
 
 
 def _format_math_expression(expression: str) -> str:
-    """Render LaTeX math fragments as terminal-friendly Unicode text."""
     return _replace_latex_commands(expression.strip())
 
 
 def _normalize_latex_delimiters(text: str) -> str:
-    """Use terminal-friendly math rendering for model output."""
     text = _LATEX_BLOCK_RE.sub(
         lambda match: f"\n{_format_math_expression(match.group(1))}\n",
         text,
@@ -110,12 +106,10 @@ def _render_evidence_panel(evidence: TurnEvidence, cited_ids: list[str]) -> str:
 
 
 def evidence_citation_spans(text: str) -> list[tuple[int, int]]:
-    """Return text spans for visible evidence citation markers."""
     return [(match.start(), match.end()) for match in _CITATION_RE.finditer(text)]
 
 
 def is_evidence_sources_line(text: str) -> bool:
-    """Return whether rendered text starts the appended evidence sources footer."""
     return text.lstrip().startswith("sources:")
 
 
@@ -150,7 +144,6 @@ def enrich_reply(text: str, evidence: TurnEvidence | None) -> EnrichedReply:
 
 
 def extract_cited_ids(text: str) -> list[str]:
-    """Extract unique evidence IDs cited in the text, in order of appearance."""
     seen: set[str] = set()
     ids: list[str] = []
     for match in _CITATION_RE.finditer(text):
@@ -163,7 +156,6 @@ def extract_cited_ids(text: str) -> list[str]:
 
 
 def evidence_summary_text(evidence: TurnEvidence | None) -> str:
-    """Return a one-line summary of evidence for the info panel."""
     if not evidence or not evidence.items:
         return "no evidence"
     sources = {chunk.source for chunk in evidence.items}

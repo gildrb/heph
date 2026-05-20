@@ -9,14 +9,12 @@ from hephaistos.runtime import Conversation, Message, stream_reply
 
 
 def compact_session(session: ChatSession) -> None:
-    """Summarize a session conversation and replace non-system messages."""
     non_system = [m for m in session.conversation.messages if m.role != "system"]
     summary_prompt = (
         "Summarize the following conversation in a concise paragraph. "
         "Preserve key facts, decisions, and context needed to continue.\n\n"
+        + "".join(f"{msg.role}: {msg.content}\n" for msg in non_system)
     )
-    for msg in non_system:
-        summary_prompt += f"{msg.role}: {msg.content}\n"
 
     temp = Conversation()
     temp.add("system", "You are a helpful assistant that summarizes conversations.")

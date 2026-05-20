@@ -46,7 +46,6 @@ _COMPACTION_CACHE_DIR: str = ".hephaistos/compaction_cache"
 
 
 def estimate_messages_tokens(messages: list[ApiMessage]) -> int:
-    """Rough token estimate for a list of API-format messages."""
     total = 0
     for msg in messages:
         content = msg.get("content")
@@ -82,7 +81,17 @@ def micro_compact(messages: list[ApiMessage], *, keep_recent: int = KEEP_RECENT)
     for idx in to_replace:
         content = messages[idx]["content"]
         if isinstance(content, str) and len(content) > PLACEHOLDER_THRESHOLD:
-            tool_name = _find_tool_name(messages, idx)
+            call_id = messages[idx].get("tool_call_id", "")
+            tool_name = "tool"
+            found_tool_name = False
+            for previous in range(idx - 1, -1, -1):
+                for tool_call in messages[previous].get("tool_calls", []):
+                    if tool_call.get("id") == call_id:
+                        tool_name = tool_call.get("function", {}).get("name", "tool")
+                        found_tool_name = True
+                        break
+                if found_tool_name:
+                    break
             messages[idx]["content"] = f"[Previous: used {tool_name}]"
             replaced += 1
 
@@ -90,16 +99,6 @@ def micro_compact(messages: list[ApiMessage], *, keep_recent: int = KEEP_RECENT)
         _log.info("micro_compact", extra={"fields": {"replaced": replaced}})
 
     return replaced
-
-
-def _find_tool_name(messages: list[ApiMessage], tool_result_idx: int) -> str:
-    """Walk backwards to find the tool-call name that produced a result."""
-    call_id = messages[tool_result_idx].get("tool_call_id", "")
-    for i in range(tool_result_idx - 1, -1, -1):
-        for tc in messages[i].get("tool_calls", []):
-            if tc.get("id") == call_id:
-                return tc.get("function", {}).get("name", "tool")
-    return "tool"
 
 
 def auto_compact(
@@ -118,7 +117,11 @@ def auto_compact(
     If summarisation fails (network error, API key missing, etc.) the
     original messages are returned unchanged and the error is logged.
     """
-    _save_transcript(messages, workspace)
+    transcript_dir = workspace / TRANSCRIPTS_DIR
+    transcript_dir.mkdir(parents=True, exist_ok=True)
+    transcript_path = transcript_dir / f"transcript_{int(time.time())}.jsonl"
+    with transcript_path.open("w", encoding="utf-8") as f:
+        f.writelines(json.dumps(msg, default=str, ensure_ascii=False) + "\n" for msg in messages)
 
     system_msgs = [m for m in messages if m.get("role") == "system"]
     non_system = [m for m in messages if m.get("role") != "system"]
@@ -137,7 +140,8 @@ def auto_compact(
 
     serialized = json.dumps(old_messages, default=str, ensure_ascii=False, sort_keys=True)
     messages_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-    summary = _load_cached_summary(workspace, messages_hash)
+    cache_path = workspace / _COMPACTION_CACHE_DIR / f"{messages_hash}.txt"
+    summary = cache_path.read_text(encoding="utf-8") if cache_path.is_file() else None
 
     try:
         if summary is None:
@@ -174,7 +178,8 @@ def auto_compact(
             message_content = response.choices[0].message.content
             if isinstance(message_content, str) and message_content.strip():
                 summary = message_content
-                _save_cached_summary(workspace, messages_hash, summary)
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(summary, encoding="utf-8")
             else:
                 summary = "(summary unavailable)"
     except Exception as exc:
@@ -211,31 +216,3 @@ def auto_compact(
     )
 
     return compressed
-
-
-def _compaction_cache_path(workspace: Path, messages_hash: str) -> Path:
-    return workspace / _COMPACTION_CACHE_DIR / f"{messages_hash}.txt"
-
-
-def _load_cached_summary(workspace: Path, messages_hash: str) -> str | None:
-    path = _compaction_cache_path(workspace, messages_hash)
-    if not path.is_file():
-        return None
-    return path.read_text(encoding="utf-8")
-
-
-def _save_cached_summary(workspace: Path, messages_hash: str, summary: str) -> Path:
-    path = _compaction_cache_path(workspace, messages_hash)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(summary, encoding="utf-8")
-    return path
-
-
-def _save_transcript(messages: list[ApiMessage], workspace: Path) -> Path:
-    """Persist messages as JSONL under ``<workspace>/.transcripts/``."""
-    transcript_dir = workspace / TRANSCRIPTS_DIR
-    transcript_dir.mkdir(parents=True, exist_ok=True)
-    path = transcript_dir / f"transcript_{int(time.time())}.jsonl"
-    with path.open("w", encoding="utf-8") as f:
-        f.writelines(json.dumps(msg, default=str, ensure_ascii=False) + "\n" for msg in messages)
-    return path

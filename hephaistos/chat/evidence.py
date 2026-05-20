@@ -22,6 +22,7 @@ from hephaistos.rag import (
     load_or_build,
     retrieve,
 )
+from hephaistos.rag.chunker import ChunkedDocument
 from hephaistos.rag.query_audit import (
     RetrievalAuditConfig,
     query_classification_payload,
@@ -152,8 +153,6 @@ _TOPIC_FOLLOWUP_STOPWORDS = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class ResolvedTurnPlan:
-    """A controller plan plus any retrieved turn evidence."""
-
     study_plan: StudyTurnPlan | None = None
     turn_evidence: TurnEvidence | None = None
     evidence_assessment: EvidenceAssessment | None = None
@@ -162,12 +161,23 @@ class ResolvedTurnPlan:
 
 
 def evidence_refs(turn_evidence: TurnEvidence | None) -> list[str]:
-    """Return stable source/chunk references for turn evidence."""
     if not turn_evidence:
         return []
     return [
         EvidenceReference(item.source, item.chunk_index).render() for item in turn_evidence.items
     ]
+
+
+def _enabled_documents(index: ArmoryIndex, disabled_sources: set[str]) -> list[ChunkedDocument]:
+    return [
+        document
+        for document in index.documents
+        if document.source not in disabled_sources and document.chunks
+    ]
+
+
+def _enabled_chunks(index: ArmoryIndex, disabled_sources: set[str]) -> list[Chunk]:
+    return [chunk for chunk in index.all_chunks if chunk.source not in disabled_sources]
 
 
 def _excerpt(text: str, *, limit: int = 240) -> str:
@@ -178,7 +188,6 @@ def _excerpt(text: str, *, limit: int = 240) -> str:
 
 
 def evidence_trace_items(turn_evidence: TurnEvidence | None) -> list[dict[str, object]]:
-    """Return compact evidence metadata for local session traces."""
     if not turn_evidence:
         return []
     return [
@@ -193,7 +202,6 @@ def evidence_trace_items(turn_evidence: TurnEvidence | None) -> list[dict[str, o
 
 
 def evidence_trace_coverage(turn_evidence: TurnEvidence | None) -> dict[str, int]:
-    """Return compact evidence coverage metadata for local session traces."""
     if not turn_evidence:
         return {
             "evidence_blocks": 0,
@@ -214,7 +222,6 @@ def assess_turn_evidence(
     plan: StudyTurnPlan,
     turn_evidence: TurnEvidence | None,
 ) -> EvidenceAssessment:
-    """Assess whether the resolved evidence is enough for this turn."""
     query = plan.retrieval_query or ""
     source_only = plan.action is StudyAction.SOURCE_QA or query_demands_source_only_answer(query)
     if plan.action is StudyAction.PRIORITY:
@@ -246,7 +253,6 @@ def assess_turn_evidence(
 def evidence_assessment_trace(
     assessment: EvidenceAssessment | None,
 ) -> dict[str, object]:
-    """Return JSON-friendly evidence sufficiency metadata."""
     if assessment is None:
         return {}
     return {
@@ -282,9 +288,13 @@ def retrieval_audit_metadata(
         "candidate_budget": config.candidate_budget,
         "retrieved_count": coverage["evidence_blocks"],
         "returned_count": coverage["evidence_blocks"],
-        "top_score": _top_evidence_score(resolved.turn_evidence),
-        "sufficiency": _audit_sufficiency(assessment),
-        "stop_reason": _audit_stop_reason(assessment),
+        "top_score": (
+            round(resolved.turn_evidence.items[0].score, 4)
+            if resolved.turn_evidence is not None and resolved.turn_evidence.items
+            else None
+        ),
+        "sufficiency": _audit_status(assessment, "sufficient"),
+        "stop_reason": _audit_status(assessment, "sufficient_evidence"),
         "items": items,
     }
     if resolved.retrieval_latency_ms is not None:
@@ -307,32 +317,14 @@ def _retrieval_audit_config(session: ChatSession) -> RetrievalAuditConfig:
     )
 
 
-def _top_evidence_score(turn_evidence: TurnEvidence | None) -> float | None:
-    if turn_evidence is None or not turn_evidence.items:
-        return None
-    return round(turn_evidence.items[0].score, 4)
-
-
-def _audit_sufficiency(assessment: Mapping[str, object]) -> str:
+def _audit_status(assessment: Mapping[str, object], sufficient: str) -> str:
     if assessment.get("sufficient") is True:
-        return "sufficient"
+        return sufficient
     recommended = assessment.get("recommended_action")
-    if isinstance(recommended, str) and recommended:
-        return recommended
-    return "no_evidence"
-
-
-def _audit_stop_reason(assessment: Mapping[str, object]) -> str:
-    if assessment.get("sufficient") is True:
-        return "sufficient_evidence"
-    recommended = assessment.get("recommended_action")
-    if isinstance(recommended, str) and recommended:
-        return recommended
-    return "no_evidence"
+    return recommended if isinstance(recommended, str) and recommended else "no_evidence"
 
 
 def parse_source_ref(ref: str) -> tuple[str, int] | None:
-    """Parse ``path#chunk=N`` evidence references."""
     parsed = EvidenceReference.parse(ref)
     if parsed is None:
         return None
@@ -347,7 +339,6 @@ _FLAG_STRATEGY_MAP: dict[str, TransformStrategy] = {
 
 
 def resolve_transform_strategy(config: ChatConfig) -> TransformStrategy:
-    """Resolve RAG query-transform strategy from feature flags."""
     for flag, strategy in _FLAG_STRATEGY_MAP.items():
         if config.is_feature_enabled(flag):
             return strategy
@@ -355,8 +346,6 @@ def resolve_transform_strategy(config: ChatConfig) -> TransformStrategy:
 
 
 def build_prompt_fn(config: ChatConfig) -> PromptFn:
-    """Build a prompt function for LLM-based query transforms."""
-
     def _prompt(prompt_text: str) -> str:
         conv = Conversation()
         conv.add("user", prompt_text)
@@ -375,7 +364,6 @@ def build_prompt_fn(config: ChatConfig) -> PromptFn:
 
 
 def ensure_rag_index(session: ChatSession) -> ArmoryIndex | None:
-    """Load and cache the armory RAG index on the session."""
     if session.armory_path is None:
         return None
     if session.rag_index is None or session.rag_index.is_stale():
@@ -422,21 +410,17 @@ def _filter_weak_source_only_evidence(
 
 
 def _topic_followup_queries(query: str) -> tuple[str, ...]:
-    """Extract the compact topic from TUI-generated follow-up prompts."""
-    candidates: list[str] = []
+    queries: list[str] = []
+    seen: set[str] = set()
     for pattern in _TOPIC_FOLLOWUP_PATTERNS:
         match = pattern.search(query)
         if match is None:
             continue
         topic = _clean_topic_followup_query(match.group("topic"))
-        if topic:
-            candidates.append(topic)
-
-    queries: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        _add_topic_query(queries, seen, candidate)
-        for part in _TOPIC_SPLIT_RE.split(candidate):
+        if not topic:
+            continue
+        _add_topic_query(queries, seen, topic)
+        for part in _TOPIC_SPLIT_RE.split(topic):
             _add_topic_query(queries, seen, part)
     return tuple(queries)
 
@@ -449,19 +433,15 @@ def _clean_topic_followup_query(value: str) -> str:
 
 def _add_topic_query(queries: list[str], seen: set[str], candidate: str) -> None:
     cleaned = _clean_topic_followup_query(candidate)
-    if not _is_specific_topic_query(cleaned):
+    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(cleaned)]
+    useful = [word for word in words if word not in _TOPIC_FOLLOWUP_STOPWORDS]
+    if not useful or len(useful) > 6:
         return
     key = cleaned.casefold()
     if key in seen:
         return
     seen.add(key)
     queries.append(cleaned)
-
-
-def _is_specific_topic_query(candidate: str) -> bool:
-    words = [word.casefold() for word in _TOPIC_WORD_RE.findall(candidate)]
-    useful = [word for word in words if word not in _TOPIC_FOLLOWUP_STOPWORDS]
-    return bool(useful) and len(useful) <= 6
 
 
 def _retrieve_topic_followup_chunks(
@@ -555,21 +535,14 @@ def _topic_query_variants(topic_query: str) -> tuple[str, ...]:
     _add_topic_variant(variants, seen, phrase)
     for word in useful_words:
         _add_topic_variant(variants, seen, word)
-        for variant in _singular_topic_variants(word):
-            _add_topic_variant(variants, seen, variant)
-    return tuple(variants)
-
-
-def _singular_topic_variants(word: str) -> tuple[str, ...]:
-    variants: list[str] = []
-    if word.endswith("ungen") and len(word) > 7:
-        variants.append(word[:-2])
-    if word.endswith("n") and len(word) > 5:
-        variants.append(word[:-1])
-    if word.endswith("e") and len(word) > 5:
-        variants.append(word[:-1])
-    if word.endswith("s") and len(word) > 5:
-        variants.append(word[:-1])
+        if word.endswith("ungen") and len(word) > 7:
+            _add_topic_variant(variants, seen, word[:-2])
+        if word.endswith("n") and len(word) > 5:
+            _add_topic_variant(variants, seen, word[:-1])
+        if word.endswith("e") and len(word) > 5:
+            _add_topic_variant(variants, seen, word[:-1])
+        if word.endswith("s") and len(word) > 5:
+            _add_topic_variant(variants, seen, word[:-1])
     return tuple(variants)
 
 
@@ -590,24 +563,17 @@ def _topic_variant_count(haystack: str, variant: str) -> int:
 
 
 def adaptive_rag_budget(session: ChatSession) -> int:
-    """Allocate a bounded retrieval context budget for the current session."""
     budget = ContextBudget(model=session.config.model, max_tokens=session.config.max_tokens)
     api_msgs = session.conversation.to_api_messages()
     remaining = budget.tokens_remaining(api_msgs)
     return min(session.config.rag_context_budget, max(200, int(remaining * 0.3)))
 
 
-def _is_overview_query(query: str) -> bool:
+def is_overview_query(query: str) -> bool:
     return bool(OVERVIEW_REQUEST_RE.search(query.strip()))
 
 
-def is_overview_query(query: str) -> bool:
-    """Return whether a query asks for broad material/corpus overview."""
-    return _is_overview_query(query)
-
-
 def build_turn_evidence_from_query(session: ChatSession, query: str) -> TurnEvidence | None:
-    """Retrieve and build evidence for a free-text query."""
     if session.armory_path is None:
         return None
     try:
@@ -709,7 +675,6 @@ def _expand_with_neighbor_chunks(
     index: ArmoryIndex,
     scored: list[ScoredChunk],
 ) -> list[ScoredChunk]:
-    """Add nearby chunks so heading hits carry their local explanatory context."""
     if not scored:
         return scored
     by_source = {document.source: document for document in index.documents}
@@ -786,20 +751,18 @@ def _expand_assessment_survey_chunks(
 
 
 def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | None:
-    """Build starter evidence from the beginning of available material files."""
     try:
         index = ensure_rag_index(session)
         if index is None:
             return None
 
         scored: list[ScoredChunk] = []
-        enabled_documents = [
-            document
-            for document in index.documents
-            if document.source not in session.disabled_source_files and document.chunks
-        ]
+        enabled_documents = _enabled_documents(index, session.disabled_source_files)
         overview_chunks_by_document = [
-            _overview_chunks_for_document(document.chunks) for document in enabled_documents
+            document.chunks[1:]
+            if len(document.chunks) > 1 and _looks_like_front_matter(document.chunks[0].text)
+            else document.chunks
+            for document in enabled_documents
         ]
         for offset in range(_OVERVIEW_CHUNKS_PER_DOCUMENT):
             for document_chunks in overview_chunks_by_document:
@@ -816,8 +779,7 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
         if not scored:
             scored = [
                 ScoredChunk(chunk=_compact_overview_chunk(chunk), score=1.0)
-                for chunk in index.all_chunks
-                if chunk.source not in session.disabled_source_files
+                for chunk in _enabled_chunks(index, session.disabled_source_files)
             ][:_OVERVIEW_CHUNK_LIMIT]
         if not scored:
             return None
@@ -834,14 +796,6 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
     except Exception:
         _log.warning("turn overview evidence build failed", exc_info=True)
         return None
-
-
-def _overview_chunks_for_document(chunks: list[Chunk]) -> list[Chunk]:
-    if len(chunks) <= 1:
-        return chunks
-    if _looks_like_front_matter(chunks[0].text):
-        return chunks[1:]
-    return chunks
 
 
 def _compact_overview_chunk(chunk: Chunk) -> Chunk:
@@ -867,16 +821,11 @@ def _looks_like_front_matter(text: str) -> bool:
 
 
 def build_overview_context(session: ChatSession) -> str:
-    """Return deterministic model-facing corpus context for overview requests."""
     try:
         index = ensure_rag_index(session)
         if index is None:
             return ""
-        enabled_documents = [
-            document
-            for document in index.documents
-            if document.source not in session.disabled_source_files and document.chunks
-        ]
+        enabled_documents = _enabled_documents(index, session.disabled_source_files)
         if not enabled_documents:
             return ""
 
@@ -924,9 +873,7 @@ def build_overview_context(session: ChatSession) -> str:
 
 
 def _priority_scored_chunks(session: ChatSession, index: ArmoryIndex) -> list[ScoredChunk]:
-    enabled_chunks = [
-        chunk for chunk in index.all_chunks if chunk.source not in session.disabled_source_files
-    ]
+    enabled_chunks = _enabled_chunks(index, session.disabled_source_files)
     analysis = analyze_priority(enabled_chunks, limit=12)
     scored: list[ScoredChunk] = []
     selected: set[tuple[str, int]] = set()
@@ -960,7 +907,6 @@ def _priority_scored_chunks(session: ChatSession, index: ArmoryIndex) -> list[Sc
 
 
 def build_priority_turn_evidence(session: ChatSession) -> TurnEvidence | None:
-    """Build priority evidence from the deterministic whole-corpus priority analyzer."""
     try:
         index = ensure_rag_index(session)
         if index is None:
@@ -975,16 +921,11 @@ def build_priority_turn_evidence(session: ChatSession) -> TurnEvidence | None:
 
 
 def build_priority_context(session: ChatSession, *, limit: int = 8) -> str:
-    """Return concise model-facing priority context from all enabled indexed chunks."""
     try:
         index = ensure_rag_index(session)
         if index is None:
             return ""
-        enabled_chunks = [
-            chunk
-            for chunk in index.all_chunks
-            if chunk.source not in session.disabled_source_files
-        ]
+        enabled_chunks = _enabled_chunks(index, session.disabled_source_files)
         analysis = analyze_priority(enabled_chunks, limit=12)
         if not analysis.topics:
             return ""
@@ -1003,7 +944,6 @@ def build_priority_context(session: ChatSession, *, limit: int = 8) -> str:
 
 
 def build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> TurnEvidence | None:
-    """Rebuild evidence from persisted source/chunk references."""
     try:
         index = ensure_rag_index(session)
         if index is None or not refs:
@@ -1029,7 +969,6 @@ def build_turn_evidence_from_refs(session: ChatSession, refs: list[str]) -> Turn
 
 
 def resolve_turn_evidence(session: ChatSession, plan: StudyTurnPlan) -> TurnEvidence | None:
-    """Resolve the best evidence for a study turn plan."""
     if plan.action is StudyAction.CALIBRATE:
         if plan.retrieval_query:
             return build_turn_evidence_from_query(session, plan.retrieval_query) or (
@@ -1046,7 +985,7 @@ def resolve_turn_evidence(session: ChatSession, plan: StudyTurnPlan) -> TurnEvid
         if turn_evidence:
             return turn_evidence
     if plan.retrieval_query:
-        if plan.action is StudyAction.PRESENT and _is_overview_query(plan.retrieval_query):
+        if plan.action is StudyAction.PRESENT and is_overview_query(plan.retrieval_query):
             return build_turn_evidence_from_overview(session)
         return build_turn_evidence_from_query(session, plan.retrieval_query)
     return None

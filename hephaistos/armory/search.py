@@ -16,8 +16,6 @@ MAX_RECENT_ARMORIES = 3
 
 @dataclass(frozen=True, slots=True)
 class KnownArmory:
-    """Persisted armory path with current filesystem status."""
-
     path: Path
     exists: bool
     valid: bool
@@ -29,8 +27,6 @@ class KnownArmory:
 
 @dataclass(frozen=True, slots=True)
 class SearchResult:
-    """A single search hit from a cross-armory query."""
-
     armory_path: Path
     source_rel: str
     chunk_index: int
@@ -49,7 +45,6 @@ class SearchResult:
 
 
 def _load_armory_entries(key: str) -> list[KnownArmory]:
-    """Load persisted armory paths for *key* with current filesystem status."""
     raw = load_raw_settings()
     entries = raw.get(key)
     if not isinstance(entries, list):
@@ -68,27 +63,22 @@ def _load_armory_entries(key: str) -> list[KnownArmory]:
 
 
 def load_known_armory_entries() -> list[KnownArmory]:
-    """Load persisted armory paths with current filesystem status."""
     return _load_armory_entries(_SETTINGS_KEY)
 
 
 def load_recent_armory_entries() -> list[KnownArmory]:
-    """Load recently opened armory paths with current filesystem status."""
     return _load_armory_entries(_RECENT_SETTINGS_KEY)
 
 
 def load_known_armories() -> list[Path]:
-    """Load known armory paths that still exist on disk."""
     return [entry.path for entry in load_known_armory_entries() if entry.exists]
 
 
 def save_known_armories(paths: list[Path]) -> None:
-    """Persist the list of known armory paths."""
     save_setting(_SETTINGS_KEY, [str(p) for p in paths])
 
 
 def add_known_armory(path: Path) -> list[Path]:
-    """Add an armory to the known list. Returns the updated list."""
     path = path.expanduser().resolve()
     paths = [entry.path for entry in load_known_armory_entries()]
     if path not in paths:
@@ -98,7 +88,6 @@ def add_known_armory(path: Path) -> list[Path]:
 
 
 def remove_known_armory(path: Path) -> list[Path]:
-    """Remove an armory from the known list. Returns the updated list."""
     path = path.expanduser().resolve()
     paths = [entry.path for entry in load_known_armory_entries()]
     paths = [p for p in paths if p != path]
@@ -107,7 +96,6 @@ def remove_known_armory(path: Path) -> list[Path]:
 
 
 def get_last_armory() -> Path | None:
-    """Return the last-opened armory path, or None if unset or invalid."""
     raw = load_raw_settings().get("last_armory_path")
     if not isinstance(raw, str) or not raw.strip():
         return None
@@ -118,7 +106,6 @@ def get_last_armory() -> Path | None:
 
 
 def set_last_armory(path: Path) -> None:
-    """Persist *path* as the most-recently-opened armory."""
     resolved = path.expanduser().resolve()
     save_setting("last_armory_path", str(resolved))
     recent_paths = [entry.path for entry in _load_armory_entries(_RECENT_SETTINGS_KEY)]
@@ -142,36 +129,29 @@ class CrossArmoryIndex:
     entries: list[SearchResult] = field(default_factory=list)
 
     def build(self, armories: list[Path]) -> None:
-        """Build the index from a list of armory paths."""
         self.entries.clear()
         for armory_path in armories:
             try:
-                self._index_armory(armory_path)
+                for material_file in iter_material_files(armory_path):
+                    try:
+                        text = material_file.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        continue
+                    rel = str(material_file.relative_to(armory_path))
+                    for idx, chunk in enumerate(_chunk_text(text, max_chars=500, overlap=100)):
+                        self.entries.append(
+                            SearchResult(
+                                armory_path=armory_path,
+                                source_rel=rel,
+                                chunk_index=idx,
+                                chunk_text=chunk,
+                                score=0.0,
+                            )
+                        )
             except Exception:  # nosec B112
                 continue
 
-    def _index_armory(self, armory_path: Path) -> None:
-        """Index material files from a single armory."""
-        for material_file in iter_material_files(armory_path):
-            try:
-                text = material_file.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            rel = str(material_file.relative_to(armory_path))
-            chunks = _chunk_text(text, max_chars=500, overlap=100)
-            for idx, chunk in enumerate(chunks):
-                self.entries.append(
-                    SearchResult(
-                        armory_path=armory_path,
-                        source_rel=rel,
-                        chunk_index=idx,
-                        chunk_text=chunk,
-                        score=0.0,
-                    )
-                )
-
     def search(self, query: str, limit: int = 20) -> list[SearchResult]:
-        """Search across all indexed armories. Returns results sorted by score."""
         if not query.strip():
             return []
         terms = [t.lower() for t in query.split() if len(t) >= 2]
@@ -196,7 +176,6 @@ class CrossArmoryIndex:
 
 
 def _chunk_text(text: str, max_chars: int = 500, overlap: int = 100) -> list[str]:
-    """Split text into overlapping chunks by paragraph boundaries."""
     if len(text) <= max_chars:
         return [text] if text.strip() else []
     chunks: list[str] = []

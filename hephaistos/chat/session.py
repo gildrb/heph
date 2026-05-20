@@ -103,7 +103,7 @@ class ChatSession:
 
 
 class SessionError(Exception):
-    """Raised when a session cannot be created or used."""
+    pass
 
 
 _SYSTEM_PROMPT_FALLBACK = (
@@ -125,43 +125,13 @@ _TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on", "enabled"})
 
 
 def no_armory_guidance_reply() -> str:
-    """Return the local guardrail reply for study prompts without an armory."""
     return (
         "No armory is attached. Open or create an armory with /armory, then add "
         "materials so I can answer from your sources."
     )
 
 
-def _metadata_datetime(metadata: dict[str, object], key: str) -> datetime | None:
-    value = metadata.get(key)
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
-
-
-def _metadata_string_set(metadata: dict[str, object], key: str) -> set[str]:
-    value = metadata.get(key)
-    if not isinstance(value, list):
-        return set()
-    return {item for item in value if isinstance(item, str)}
-
-
-def _restore_disabled_source_files(
-    metadata: dict[str, object],
-    source_files: list[str],
-) -> set[str]:
-    active_sources = set(source_files)
-    return _metadata_string_set(metadata, "disabled_source_files") & active_sources
-
-
 def validate_armory_path(path_str: str) -> Path:
-    """Validate and return the resolved armory path."""
     armory_path = normalize_path(path_str)
     validate(armory_path)
     read_marker(armory_path)
@@ -169,7 +139,6 @@ def validate_armory_path(path_str: str) -> Path:
 
 
 def empty_armory_guidance(armory_path: Path) -> str:
-    """Return actionable setup guidance for an armory with no visible materials."""
     module_name = armory_path.name
     materials_path = armory_path / "materials"
     return "\n".join(
@@ -186,17 +155,13 @@ def empty_armory_guidance(armory_path: Path) -> str:
 
 
 def _scan_source_files(armory_path: Path) -> tuple[int, list[str]]:
-    """Count material files and collect relative paths in a single pass."""
-    count = 0
-    names: list[str] = []
-    for file_path in iter_material_files(armory_path):
-        count += 1
-        names.append(str(file_path.relative_to(armory_path)))
-    return count, names
+    names = [
+        str(file_path.relative_to(armory_path)) for file_path in iter_material_files(armory_path)
+    ]
+    return len(names), names
 
 
 def refresh_armory_sources(session: ChatSession) -> None:
-    """Refresh material metadata for a running armory session."""
     if session.armory_path is None:
         return
     source_file_count, source_files = _scan_source_files(session.armory_path)
@@ -207,16 +172,11 @@ def refresh_armory_sources(session: ChatSession) -> None:
     _replace_system_prompt(session)
 
 
-def _armory_plugins_enabled() -> bool:
-    raw = os.environ.get(ARMORY_PLUGINS_TRUST_ENV, "")
-    return raw.strip().lower() in _TRUTHY_ENV_VALUES
-
-
 def _load_armory_tools(armory_path: Path) -> ToolRegistry:
-    """Create a child registry and load explicitly trusted armory tool plugins."""
     registry = default_registry.child()
     tools_dir = armory_path / ".hephaistos" / "tools"
-    if not _armory_plugins_enabled():
+    raw_trust = os.environ.get(ARMORY_PLUGINS_TRUST_ENV, "")
+    if raw_trust.strip().lower() not in _TRUTHY_ENV_VALUES:
         if tools_dir.is_dir() and any(
             path.is_file() and not path.name.startswith("_") for path in tools_dir.glob("*.py")
         ):
@@ -247,7 +207,6 @@ def _build_plain_system_prompt(persona: Persona) -> str:
 
 
 def _scan_extraction_health_issues(armory_path: Path) -> tuple[ExtractionHealthIssue, ...]:
-    """Return generic corpus extraction failures without blocking chat on health crashes."""
     try:
         return scan_extraction_health(armory_path).issues
     except Exception:
@@ -260,7 +219,6 @@ def _scan_extraction_health_issues(armory_path: Path) -> tuple[ExtractionHealthI
 
 
 def _replace_system_prompt(session: ChatSession) -> None:
-    """Replace the system prompt in the conversation with the current persona."""
     if session.armory_path is None:
         new_prompt = _build_plain_system_prompt(session.persona)
     else:
@@ -289,7 +247,6 @@ replace_system_prompt = _replace_system_prompt
 
 
 def create_plain_session(config: ChatConfig) -> ChatSession:
-    """Create a fresh chat session without an attached armory."""
     conversation = Conversation()
     conversation.add("system", _build_plain_system_prompt(resolve_persona(None)))
     session = ChatSession(
@@ -313,7 +270,6 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
 
 
 def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
-    """Create a fresh chat session scoped to an armory."""
     if armory_path is None:
         raise SessionError("An armory is required. Create one with: hephaistos armory init <path>")
 
@@ -381,11 +337,25 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
 
 
 def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> ChatSession:
-    """Load a saved session from an armory."""
     conversation, title = chat_storage.load(armory_path, session_id)
     metadata = chat_storage.load_metadata(armory_path, session_id)
     source_file_count, source_files = _scan_source_files(armory_path)
     now = datetime.now(UTC)
+    disabled = metadata.get("disabled_source_files")
+    active_sources = set(source_files)
+    disabled_source_files = (
+        {item for item in disabled if isinstance(item, str)} & active_sources
+        if isinstance(disabled, list)
+        else set()
+    )
+    raw_started_at = metadata.get("started_at")
+    started_at = now
+    if isinstance(raw_started_at, str):
+        with contextlib.suppress(ValueError):
+            parsed = datetime.fromisoformat(raw_started_at)
+            started_at = (
+                parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+            )
     session = ChatSession(
         config=config,
         conversation=conversation,
@@ -395,8 +365,8 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
         source_file_count=source_file_count,
         source_files=tuple(source_files),
         study_state=StudyState.from_dict(metadata.get("study_state")),
-        disabled_source_files=_restore_disabled_source_files(metadata, source_files),
-        started_at=_metadata_datetime(metadata, "started_at") or now,
+        disabled_source_files=disabled_source_files,
+        started_at=started_at,
         resumed_at=now,
         last_activity_at=now,
     )
@@ -435,7 +405,6 @@ def resume_session(config: ChatConfig, armory_path: Path, session_id: str) -> Ch
 
 
 def session_has_messages(session: ChatSession) -> bool:
-    """Return ``True`` when the session contains non-system messages."""
     return any(message.role != "system" for message in session.conversation.messages)
 
 
@@ -486,7 +455,6 @@ def send_user_message(
 
 
 def save_session(session: ChatSession) -> Path:
-    """Persist the session to the active armory."""
     if session.armory_path is None:
         raise chat_storage.ChatStorageError(
             "cannot save chat without an active armory; use /armory first"
@@ -528,5 +496,4 @@ def save_session(session: ChatSession) -> Path:
 
 
 def list_armory_sessions(armory_path: Path) -> list[chat_storage.SessionRecord]:
-    """Return saved sessions for the given armory."""
     return chat_storage.list_sessions(armory_path)

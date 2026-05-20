@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -15,8 +15,6 @@ from hephaistos.study.state import StudyRecallRating
 
 
 class StudyArtifactKind(StrEnum):
-    """Source-grounded study artifact families."""
-
     FLASHCARD = "flashcard"
     CLOZE_CARD = "cloze_card"
     QUIZ = "quiz"
@@ -27,8 +25,6 @@ class StudyArtifactKind(StrEnum):
 
 
 class StudyArtifactDifficulty(StrEnum):
-    """Human-readable study difficulty labels."""
-
     INTRO = "intro"
     CORE = "core"
     ADVANCED = "advanced"
@@ -36,8 +32,6 @@ class StudyArtifactDifficulty(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class StudyArtifactSourceSpan:
-    """A source excerpt that supports a study artifact."""
-
     source_ref: str
     text: str
     start: int | None = None
@@ -46,8 +40,6 @@ class StudyArtifactSourceSpan:
 
 @dataclass(frozen=True, slots=True)
 class StudyArtifactReviewState:
-    """Deterministic review metadata for a study artifact."""
-
     reviews: int = 0
     lapses: int = 0
     mastery: float = 0.0
@@ -57,8 +49,6 @@ class StudyArtifactReviewState:
 
 @dataclass(frozen=True, slots=True)
 class StudyArtifact:
-    """A source-grounded artifact that can enter a study workflow."""
-
     artifact_id: str
     kind: StudyArtifactKind
     prompt: str
@@ -73,8 +63,6 @@ class StudyArtifact:
 
 @dataclass(frozen=True, slots=True)
 class StudyArtifactIssue:
-    """A validation issue attached to one artifact."""
-
     artifact_id: str
     code: str
     message: str
@@ -82,8 +70,6 @@ class StudyArtifactIssue:
 
 @dataclass(frozen=True, slots=True)
 class StudyArtifactValidationResult:
-    """Validation result for one study artifact."""
-
     artifact: StudyArtifact
     issues: tuple[StudyArtifactIssue, ...] = ()
 
@@ -94,8 +80,6 @@ class StudyArtifactValidationResult:
 
 @dataclass(frozen=True, slots=True)
 class StudyArtifactValidationReport:
-    """Batch validation result for source-grounded study artifacts."""
-
     results: tuple[StudyArtifactValidationResult, ...]
 
     @property
@@ -157,22 +141,88 @@ _STOPWORDS = frozenset(
     }
 )
 _MAX_ARTIFACT_REVIEW_INTERVAL_DAYS = 365
+type _ArtifactRule = tuple[str, str, Callable[[StudyArtifact], bool]]
+
+
+def _valid_flashcard(artifact: StudyArtifact) -> bool:
+    return bool(_clean(artifact.prompt) and _clean(artifact.answer))
+
+
+def _valid_cloze_card(artifact: StudyArtifact) -> bool:
+    return bool(_CLOZE_RE.search(_clean(artifact.content) or _clean(artifact.prompt)))
+
+
+def _valid_quiz(artifact: StudyArtifact) -> bool:
+    return "?" in _clean(artifact.prompt) and bool(_clean(artifact.answer))
+
+
+def _valid_summary(artifact: StudyArtifact) -> bool:
+    return len(_TOKEN_RE.findall(_clean(artifact.content) or _clean(artifact.answer))) >= 8
+
+
+def _valid_misconception(artifact: StudyArtifact) -> bool:
+    return bool(_clean(artifact.content) or _clean(artifact.answer))
+
+
+def _valid_concept_tag(artifact: StudyArtifact) -> bool:
+    return bool(artifact.concept_tags)
+
+
+def _valid_prerequisite(artifact: StudyArtifact) -> bool:
+    return bool(artifact.prerequisite_tags)
+
+
+_ARTIFACT_KIND_RULES: dict[StudyArtifactKind, _ArtifactRule] = {
+    StudyArtifactKind.FLASHCARD: (
+        "invalid_flashcard",
+        "flashcards need prompt and answer",
+        _valid_flashcard,
+    ),
+    StudyArtifactKind.CLOZE_CARD: (
+        "invalid_cloze",
+        "cloze cards need {{c1::...}} text",
+        _valid_cloze_card,
+    ),
+    StudyArtifactKind.QUIZ: (
+        "invalid_quiz",
+        "quizzes need a question and answer",
+        _valid_quiz,
+    ),
+    StudyArtifactKind.SUMMARY: (
+        "invalid_summary",
+        "summaries need supported content",
+        _valid_summary,
+    ),
+    StudyArtifactKind.MISCONCEPTION: (
+        "invalid_misconception",
+        "misconceptions need a correction",
+        _valid_misconception,
+    ),
+    StudyArtifactKind.CONCEPT_TAG: (
+        "invalid_concept_tag",
+        "concept tags are required",
+        _valid_concept_tag,
+    ),
+    StudyArtifactKind.PREREQUISITE: (
+        "invalid_prerequisite",
+        "prerequisite tags are required",
+        _valid_prerequisite,
+    ),
+}
 
 
 def validate_study_artifact(
     artifact: StudyArtifact,
     source_text_by_ref: Mapping[str, str] | None = None,
 ) -> StudyArtifactValidationResult:
-    """Validate one artifact against declared source text."""
-    issues = list(_artifact_issues(artifact, source_text_by_ref or {}))
-    return StudyArtifactValidationResult(artifact=artifact, issues=tuple(issues))
+    source_map = source_text_by_ref or {}
+    return StudyArtifactValidationResult(artifact, _artifact_issues(artifact, source_map))
 
 
 def validate_study_artifacts(
     artifacts: Sequence[StudyArtifact],
     source_text_by_ref: Mapping[str, str] | None = None,
 ) -> StudyArtifactValidationReport:
-    """Validate artifacts and reject duplicates inside the batch."""
     seen: dict[str, str] = {}
     results: list[StudyArtifactValidationResult] = []
     source_map = source_text_by_ref or {}
@@ -197,7 +247,6 @@ def study_artifacts_to_anki_tsv(
     artifacts: Sequence[StudyArtifact],
     source_text_by_ref: Mapping[str, str] | None = None,
 ) -> str:
-    """Return Anki-compatible TSV rows for validated flashcard-like artifacts."""
     report = validate_study_artifacts(artifacts, source_text_by_ref)
     if report.rejected:
         failures = [
@@ -208,7 +257,12 @@ def study_artifacts_to_anki_tsv(
 
     rows: list[tuple[str, str, str, str, str]] = []
     for artifact in report.accepted:
-        front, back = _anki_card_fields(artifact)
+        if artifact.kind is StudyArtifactKind.CLOZE_CARD:
+            front, back = artifact.content or artifact.prompt, artifact.answer
+        elif artifact.kind in {StudyArtifactKind.FLASHCARD, StudyArtifactKind.QUIZ}:
+            front, back = artifact.prompt, artifact.answer or artifact.content
+        else:
+            continue
         if not front:
             continue
         rows.append(
@@ -216,7 +270,10 @@ def study_artifacts_to_anki_tsv(
                 front,
                 back,
                 ", ".join(span.source_ref for span in artifact.source_spans),
-                " ".join(_anki_tag(tag) for tag in _anki_tags(artifact)),
+                " ".join(
+                    re.sub(r"[^A-Za-z0-9_]+", "_", tag.strip().casefold()).strip("_") or "source"
+                    for tag in _anki_tags(artifact)
+                ),
                 artifact.difficulty.value,
             )
         )
@@ -236,7 +293,6 @@ def next_study_artifact_review_state(
     reviewed_at: datetime,
     hint_level_needed: int | None = None,
 ) -> StudyArtifactReviewState:
-    """Return the next deterministic review state for one study artifact."""
     if not isinstance(rating, StudyRecallRating):
         raise TypeError("rating must be a StudyRecallRating")
     if reviewed_at.tzinfo is None or reviewed_at.utcoffset() is None:
@@ -248,13 +304,22 @@ def next_study_artifact_review_state(
     lapse = rating in {StudyRecallRating.HARD, StudyRecallRating.NONE}
     lapses = state.lapses + (1 if lapse else 0)
     mastery = next_recall_mastery(state.mastery, rating, hint_level_needed)
-    due_at = reviewed_at + _artifact_review_interval(rating, reviews=reviews, mastery=mastery)
+    if rating is StudyRecallRating.NONE:
+        interval = timedelta(0)
+    elif rating is StudyRecallRating.HARD:
+        interval = timedelta(days=1)
+    else:
+        base_days = 7 if rating is StudyRecallRating.EASY else 3
+        review_multiplier = 1.0 + (min(max(reviews - 1, 0), 8) * 0.35)
+        mastery_multiplier = 1.0 + (mastery * (0.65 if rating is StudyRecallRating.EASY else 0.35))
+        days = round(base_days * review_multiplier * mastery_multiplier)
+        interval = timedelta(days=min(_MAX_ARTIFACT_REVIEW_INTERVAL_DAYS, max(1, days)))
     return StudyArtifactReviewState(
         reviews=reviews,
         lapses=lapses,
         mastery=mastery,
         last_reviewed_at=reviewed_at,
-        due_at=due_at,
+        due_at=reviewed_at + interval,
     )
 
 
@@ -265,7 +330,6 @@ def record_study_artifact_review(
     reviewed_at: datetime,
     hint_level_needed: int | None = None,
 ) -> StudyArtifact:
-    """Return a copy of ``artifact`` with review state advanced after recall."""
     return replace(
         artifact,
         review_state=next_study_artifact_review_state(
@@ -285,7 +349,9 @@ def _artifact_issues(
     issues.extend(_shape_issues(artifact))
     issues.extend(_source_span_issues(artifact, source_text_by_ref))
     issues.extend(_review_state_issues(artifact))
-    source_tokens = _source_tokens(artifact)
+    source_tokens = {
+        token for span in artifact.source_spans for token in _significant_tokens(span.text)
+    }
     issues.extend(_support_issues(artifact, source_tokens))
     return tuple(issues)
 
@@ -294,7 +360,8 @@ def _shape_issues(artifact: StudyArtifact) -> tuple[StudyArtifactIssue, ...]:
     issues: list[StudyArtifactIssue] = []
     if not artifact.artifact_id.strip():
         issues.append(_issue(artifact, "missing_id", "artifact_id is required"))
-    if not isinstance(artifact.kind, StudyArtifactKind):
+    valid_kind = isinstance(artifact.kind, StudyArtifactKind)
+    if not valid_kind:
         issues.append(_issue(artifact, "invalid_kind", "kind must be a StudyArtifactKind"))
     if not isinstance(artifact.difficulty, StudyArtifactDifficulty):
         issues.append(
@@ -303,31 +370,20 @@ def _shape_issues(artifact: StudyArtifact) -> tuple[StudyArtifactIssue, ...]:
     prompt = _clean(artifact.prompt)
     answer = _clean(artifact.answer)
     content = _clean(artifact.content)
-    if _is_vague(prompt) or _is_vague(answer) or _is_vague(content):
+    if any(_is_vague(text) for text in (prompt, answer, content)):
         issues.append(_issue(artifact, "vague_artifact", "artifact text is too vague"))
-    if _is_overly_broad(prompt) or _is_overly_broad(answer) or _is_overly_broad(content):
+    if any(
+        _BROAD_RE.search(text) or len(_TOKEN_RE.findall(text)) > 180
+        for text in (prompt, answer, content)
+    ):
         issues.append(
             _issue(artifact, "overly_broad_artifact", "artifact asks for too broad a scope")
         )
 
-    if artifact.kind is StudyArtifactKind.FLASHCARD and (not prompt or not answer):
-        issues.append(_issue(artifact, "invalid_flashcard", "flashcards need prompt and answer"))
-    elif artifact.kind is StudyArtifactKind.CLOZE_CARD:
-        cloze_text = content or prompt
-        if not _CLOZE_RE.search(cloze_text):
-            issues.append(_issue(artifact, "invalid_cloze", "cloze cards need {{c1::...}} text"))
-    elif artifact.kind is StudyArtifactKind.QUIZ and ("?" not in prompt or not answer):
-        issues.append(_issue(artifact, "invalid_quiz", "quizzes need a question and answer"))
-    elif artifact.kind is StudyArtifactKind.SUMMARY and _word_count(content or answer) < 8:
-        issues.append(_issue(artifact, "invalid_summary", "summaries need supported content"))
-    elif artifact.kind is StudyArtifactKind.MISCONCEPTION and not (content or answer):
-        issues.append(
-            _issue(artifact, "invalid_misconception", "misconceptions need a correction")
-        )
-    elif artifact.kind is StudyArtifactKind.CONCEPT_TAG and not artifact.concept_tags:
-        issues.append(_issue(artifact, "invalid_concept_tag", "concept tags are required"))
-    elif artifact.kind is StudyArtifactKind.PREREQUISITE and not artifact.prerequisite_tags:
-        issues.append(_issue(artifact, "invalid_prerequisite", "prerequisite tags are required"))
+    if valid_kind:
+        code, message, is_valid = _ARTIFACT_KIND_RULES[artifact.kind]
+        if not is_valid(artifact):
+            issues.append(_issue(artifact, code, message))
     return tuple(issues)
 
 
@@ -339,42 +395,65 @@ def _source_span_issues(
         return (_issue(artifact, "missing_source_span", "at least one source span is required"),)
     issues: list[StudyArtifactIssue] = []
     for span in artifact.source_spans:
-        if not span.source_ref.strip() or not span.text.strip():
-            issues.append(_issue(artifact, "invalid_source_span", "source ref and text required"))
-            continue
-        offsets_invalid = False
-        if (span.start is None) != (span.end is None):
-            issues.append(_issue(artifact, "invalid_source_span", "span offsets must be paired"))
-            offsets_invalid = True
-        elif span.start is not None and span.end is not None:
-            if span.start < 0 or span.end <= span.start:
-                issues.append(_issue(artifact, "invalid_source_span", "span offsets are invalid"))
-                offsets_invalid = True
-        source_text = source_text_by_ref.get(span.source_ref)
-        if source_text is None:
-            if source_text_by_ref:
-                issues.append(
-                    _issue(
-                        artifact,
-                        "source_mismatch",
-                        f"source ref is not available: {span.source_ref}",
-                    )
-                )
-            continue
-        if span.start is not None and span.end is not None and span.end > len(source_text):
-            issues.append(_issue(artifact, "invalid_source_span", "span offsets are invalid"))
-            offsets_invalid = True
-        if offsets_invalid:
-            continue
-        if not _span_matches_source(span, source_text):
-            issues.append(
-                _issue(
-                    artifact,
-                    "source_mismatch",
-                    f"source span text is not present in {span.source_ref}",
-                )
-            )
+        issues.extend(_single_source_span_issues(artifact, span, source_text_by_ref))
     return tuple(issues)
+
+
+def _single_source_span_issues(
+    artifact: StudyArtifact,
+    span: StudyArtifactSourceSpan,
+    source_text_by_ref: Mapping[str, str],
+) -> tuple[StudyArtifactIssue, ...]:
+    if not span.source_ref.strip() or not span.text.strip():
+        return (_issue(artifact, "invalid_source_span", "source ref and text required"),)
+    if offset_issue := _source_span_offset_issue(artifact, span):
+        return (offset_issue,)
+
+    source_text = source_text_by_ref.get(span.source_ref)
+    if source_text is None:
+        if not source_text_by_ref:
+            return ()
+        return (
+            _issue(
+                artifact,
+                "source_mismatch",
+                f"source ref is not available: {span.source_ref}",
+            ),
+        )
+    if offset_issue := _source_span_bounds_issue(artifact, span, source_text):
+        return (offset_issue,)
+    if _span_matches_source(span, source_text):
+        return ()
+    return (
+        _issue(
+            artifact,
+            "source_mismatch",
+            f"source span text is not present in {span.source_ref}",
+        ),
+    )
+
+
+def _source_span_offset_issue(
+    artifact: StudyArtifact,
+    span: StudyArtifactSourceSpan,
+) -> StudyArtifactIssue | None:
+    if (span.start is None) != (span.end is None):
+        return _issue(artifact, "invalid_source_span", "span offsets must be paired")
+    if span.start is None or span.end is None:
+        return None
+    if span.start < 0 or span.end <= span.start:
+        return _issue(artifact, "invalid_source_span", "span offsets are invalid")
+    return None
+
+
+def _source_span_bounds_issue(
+    artifact: StudyArtifact,
+    span: StudyArtifactSourceSpan,
+    source_text: str,
+) -> StudyArtifactIssue | None:
+    if span.end is not None and span.end > len(source_text):
+        return _issue(artifact, "invalid_source_span", "span offsets are invalid")
+    return None
 
 
 def _review_state_issues(artifact: StudyArtifact) -> tuple[StudyArtifactIssue, ...]:
@@ -407,8 +486,8 @@ def _support_issues(
         return ()
     issues: list[StudyArtifactIssue] = []
     for label, text in (("answer", artifact.answer), ("content", artifact.content)):
-        tokens = _significant_tokens(_plain_study_text(text))
-        if tokens and _support_rate(tokens, source_tokens) < 0.55:
+        tokens = _significant_tokens(_CLOZE_RE.sub(lambda match: match.group("text"), text))
+        if tokens and len(tokens & source_tokens) / len(tokens) < 0.55:
             issues.append(
                 _issue(
                     artifact,
@@ -441,37 +520,10 @@ def _span_matches_source(span: StudyArtifactSourceSpan, source_text: str) -> boo
     return normalized_span in _normalized_for_match(source_text)
 
 
-def _source_tokens(artifact: StudyArtifact) -> set[str]:
-    return {token for span in artifact.source_spans for token in _significant_tokens(span.text)}
-
-
 def _significant_tokens(text: str) -> set[str]:
     return {
         token.casefold() for token in _TOKEN_RE.findall(text) if token.casefold() not in _STOPWORDS
     }
-
-
-def _support_rate(tokens: set[str], source_tokens: set[str]) -> float:
-    if not tokens:
-        return 1.0
-    return len(tokens & source_tokens) / len(tokens)
-
-
-def _artifact_review_interval(
-    rating: StudyRecallRating,
-    *,
-    reviews: int,
-    mastery: float,
-) -> timedelta:
-    if rating is StudyRecallRating.NONE:
-        return timedelta(0)
-    if rating is StudyRecallRating.HARD:
-        return timedelta(days=1)
-    base_days = 7 if rating is StudyRecallRating.EASY else 3
-    review_multiplier = 1.0 + (min(max(reviews - 1, 0), 8) * 0.35)
-    mastery_multiplier = 1.0 + (mastery * (0.65 if rating is StudyRecallRating.EASY else 0.35))
-    days = round(base_days * review_multiplier * mastery_multiplier)
-    return timedelta(days=min(_MAX_ARTIFACT_REVIEW_INTERVAL_DAYS, max(1, days)))
 
 
 def _artifact_fingerprint(artifact: StudyArtifact) -> str:
@@ -487,28 +539,11 @@ def _artifact_fingerprint(artifact: StudyArtifact) -> str:
     return "\n".join(parts)
 
 
-def _anki_card_fields(artifact: StudyArtifact) -> tuple[str, str]:
-    if artifact.kind is StudyArtifactKind.CLOZE_CARD:
-        return artifact.content or artifact.prompt, artifact.answer
-    if artifact.kind in {StudyArtifactKind.FLASHCARD, StudyArtifactKind.QUIZ}:
-        return artifact.prompt, artifact.answer or artifact.content
-    return "", ""
-
-
 def _anki_tags(artifact: StudyArtifact) -> tuple[str, ...]:
     source_tags = tuple(
         span.source_ref.split("#", maxsplit=1)[0] for span in artifact.source_spans
     )
     return artifact.concept_tags + artifact.prerequisite_tags + source_tags
-
-
-def _anki_tag(text: str) -> str:
-    tag = re.sub(r"[^A-Za-z0-9_]+", "_", text.strip().casefold()).strip("_")
-    return tag or "source"
-
-
-def _plain_study_text(text: str) -> str:
-    return _CLOZE_RE.sub(lambda match: match.group("text"), text)
 
 
 def _is_vague(text: str) -> bool:
@@ -519,14 +554,6 @@ def _is_vague(text: str) -> bool:
         return True
     tokens = _significant_tokens(text)
     return len(tokens) <= 1 and any(word in normalized for word in ("concept", "topic", "this"))
-
-
-def _is_overly_broad(text: str) -> bool:
-    return bool(_BROAD_RE.search(text)) or _word_count(text) > 180
-
-
-def _word_count(text: str) -> int:
-    return len(_TOKEN_RE.findall(text))
 
 
 def _clean(text: str) -> str:

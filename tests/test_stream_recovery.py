@@ -11,20 +11,18 @@ import pytest
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
 from hephaistos.agent.dispatch import agent_loop
-from hephaistos.chat.engine import (
+from hephaistos.chat.events import AssistantDeltaEvent
+from hephaistos.chat.orchestrator import TurnOrchestrator
+from hephaistos.chat.session import ChatSession, send_user_message
+from hephaistos.runtime import (
     ChatConfig,
     Conversation,
     EngineError,
     RetryConfig,
     StreamRecoveryError,
-    _wait_backoff,
-    get_reply,
-    is_retryable_error,
     stream_reply,
 )
-from hephaistos.chat.events import AssistantDeltaEvent
-from hephaistos.chat.orchestrator import TurnOrchestrator
-from hephaistos.chat.session import ChatSession, send_user_message
+from hephaistos.runtime.engine import _wait_backoff, get_reply, is_retryable_error
 
 # ---------------------------------------------------------------------------
 # Helpers

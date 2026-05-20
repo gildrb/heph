@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import subprocess  # nosec B404
 import sys
-from pathlib import Path
 from typing import ClassVar
 
 from hephaistos.armory.search import CrossArmoryIndex, SearchResult
@@ -30,18 +29,7 @@ except ImportError:
     Static = None  # ty:ignore[invalid-assignment]
 
 
-def _open_file_at_system(path: Path) -> None:
-    """Open a file with the system default application."""
-    if sys.platform == "darwin":
-        subprocess.Popen(["open", str(path)])  # nosec B603 B607
-    elif sys.platform == "linux":
-        subprocess.Popen(["xdg-open", str(path)])  # nosec B603 B607
-    else:
-        subprocess.Popen(["start", str(path)])  # nosec B603 B607
-
-
 def _search_screen_css(p: Theme) -> str:
-    """Generate CSS from the active theme palette."""
     bg = p.bg_surface
     border_color = p.bg_app
     text_color = p.text_primary
@@ -84,7 +72,6 @@ def _search_screen_css(p: Theme) -> str:
 
 
 def _format_result(result: SearchResult) -> str:
-    """Format a search result for display in the option list."""
     preview = result.chunk_text.replace("\n", " ").strip()
     if len(preview) > 80:
         preview = preview[:77] + "..."
@@ -93,8 +80,6 @@ def _format_result(result: SearchResult) -> str:
 
 
 class SearchScreen(ModalScreen[SearchResult | None]):
-    """Modal search screen that searches across all indexed armories."""
-
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "cancel", "Cancel"),
         Binding("enter", "select", "Select"),
@@ -185,7 +170,10 @@ class SearchScreen(ModalScreen[SearchResult | None]):
         result = self._results[idx]
         source_path = result.source_path
         if source_path.exists():
-            _open_file_at_system(source_path)
+            opener = "open" if sys.platform == "darwin" else "xdg-open"
+            if sys.platform not in {"darwin", "linux"}:
+                opener = "start"
+            subprocess.Popen([opener, str(source_path)])  # nosec B603 B607
 
     def action_select(self) -> None:
         results_list = self.query_one("#search-results", OptionList)

@@ -7,8 +7,8 @@ import pytest
 
 from hephaistos.armory.storage import initialize
 from hephaistos.chat import storage as chat_storage
-from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_plain_session
+from hephaistos.runtime import ChatConfig
 from hephaistos.shell import session_support
 
 

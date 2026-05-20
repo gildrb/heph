@@ -18,10 +18,10 @@ class CommandSuggestion:
     aliases: tuple[str, ...] = ()
 
 
-def _command_registry_suggestions() -> list[CommandSuggestion]:
+def tui_command_suggestions() -> list[CommandSuggestion]:
     from hephaistos.commands import get_registry
 
-    return [
+    suggestions = [
         CommandSuggestion(
             name=suggestion.name,
             description=suggestion.description,
@@ -29,10 +29,6 @@ def _command_registry_suggestions() -> list[CommandSuggestion]:
         )
         for suggestion in get_registry().suggestions()
     ]
-
-
-def tui_command_suggestions() -> list[CommandSuggestion]:
-    suggestions = _command_registry_suggestions()
     suggestions.append(
         CommandSuggestion(
             name="materials",

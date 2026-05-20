@@ -10,6 +10,7 @@ from hephaistos.commands.auth import LoginCommand, LogoutCommand
 from hephaistos.commands.memory import MemoryCommand
 from hephaistos.parameters.settings import (
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+    ACTIVITY_TRACE_LABELS,
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
     ACTIVITY_TRACE_MODES,
     ACTIVITY_TRACE_TOOL_CALLS,
@@ -36,11 +37,6 @@ from hephaistos.terminal import (
 )
 from hephaistos.terminal.display import STYLE_DIM, print_error, print_info, print_success, styled
 
-_ACTIVITY_TRACE_LABELS = {
-    ACTIVITY_TRACE_TOOL_CALLS: "Tool calls",
-    ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "Minimal tool calls",
-    ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "Hidden tool calls",
-}
 _ACTIVITY_TRACE_DESCRIPTIONS = {
     ACTIVITY_TRACE_TOOL_CALLS: "Show live reads, commands, model calls, tool results",
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "Show compact status and final activity summary",
@@ -57,12 +53,7 @@ class SettingsCommand(Command):
         while True:
             settings = load_app_settings()
             default_armory = settings.default_armory_path or "none"
-            mode_label = settings.interface_mode.upper()
             options = [
-                MenuOption(
-                    "Interface",
-                    f"Mode: {mode_label}",
-                ),
                 MenuOption(
                     "Privacy & Diagnostics",
                     "Usage analytics and crash reports",
@@ -73,7 +64,10 @@ class SettingsCommand(Command):
                 ),
                 MenuOption(
                     "Activity trace",
-                    self._activity_trace_summary(settings.activity_trace_mode),
+                    ACTIVITY_TRACE_LABELS.get(
+                        settings.activity_trace_mode,
+                        ACTIVITY_TRACE_LABELS[ACTIVITY_TRACE_TOOL_CALLS],
+                    ),
                 ),
                 MenuOption(
                     "Startup",
@@ -81,7 +75,7 @@ class SettingsCommand(Command):
                 ),
                 MenuOption(
                     "Study memory",
-                    "Local memory and Supermemory setup",
+                    "Local armory learning memory",
                 ),
                 MenuOption(
                     "Accounts & credentials",
@@ -91,33 +85,15 @@ class SettingsCommand(Command):
             selected = select_option("Settings", options)
             if selected is None:
                 return CommandResult()
-            if selected == 0:
-                self._interface_menu()
-            elif selected == 1:
-                self._privacy_menu()
-            elif selected == 2:
-                self._appearance_menu()
-            elif selected == 3:
-                self._activity_trace_menu()
-            elif selected == 4:
-                self._startup_menu()
-            elif selected == 5:
-                MemoryCommand().handle(s, "status")
-            else:
-                self._provider_credentials_menu(s)
-
-    def _interface_menu(self) -> None:
-        while True:
-            options = [
-                MenuOption(
-                    "TUI",
-                    "The only interface mode (Textual TUI)",
-                    is_current=True,
-                ),
-            ]
-            selected = select_option("Interface", options)
-            if selected is None:
-                return
+            actions = (
+                self._privacy_menu,
+                self._appearance_menu,
+                self._activity_trace_menu,
+                self._startup_menu,
+                lambda: MemoryCommand().handle(s, "status"),
+                lambda: self._provider_credentials_menu(s),
+            )
+            actions[selected]()
 
     @staticmethod
     def _privacy_description(
@@ -193,16 +169,12 @@ class SettingsCommand(Command):
             save_setting("theme", theme)
             set_theme(theme)
 
-    @staticmethod
-    def _activity_trace_summary(mode: str) -> str:
-        return _ACTIVITY_TRACE_LABELS.get(mode, _ACTIVITY_TRACE_LABELS[ACTIVITY_TRACE_TOOL_CALLS])
-
     def _activity_trace_menu(self) -> None:
         while True:
             current = load_app_settings().activity_trace_mode
             options = [
                 MenuOption(
-                    _ACTIVITY_TRACE_LABELS[mode],
+                    ACTIVITY_TRACE_LABELS[mode],
                     _ACTIVITY_TRACE_DESCRIPTIONS[mode],
                     is_current=(mode == current),
                 )
@@ -213,7 +185,7 @@ class SettingsCommand(Command):
                 return
             mode = ACTIVITY_TRACE_MODES[selected]
             save_setting("activity_trace_mode", mode)
-            print_success(f"Activity trace: {_ACTIVITY_TRACE_LABELS[mode]}")
+            print_success(f"Activity trace: {ACTIVITY_TRACE_LABELS[mode]}")
 
     def _startup_menu(self) -> None:
         while True:
@@ -259,7 +231,6 @@ class SettingsCommand(Command):
             if selected is None:
                 return
             if selected == 0:
-                active = ProviderConfig.load().get_active()
                 if active:
                     print_success(f"Current: {active.display_name} / {active.current_model}")
                     print_info("Use /models to change the active model.")

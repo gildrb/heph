@@ -63,11 +63,11 @@ def _make_armory(parent: Path, name: str) -> Path:
     return path
 
 
-def test_list_child_dirs_skips_hidden_and_files(tmp_path: Path) -> None:
+def test_list_entries_skips_hidden_and_files_by_default(tmp_path: Path) -> None:
     _make_dirs(tmp_path, "visible", ".hidden")
     (tmp_path / "a-file.txt").touch()
 
-    dirs = armory_browser._list_child_dirs(tmp_path)
+    dirs = armory_browser._list_entries(tmp_path)
 
     names = [d.name for d in dirs]
     assert "visible" in names

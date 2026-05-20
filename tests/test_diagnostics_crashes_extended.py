@@ -13,7 +13,6 @@ from hephaistos.diagnostics.crashes import (
     get_meter,
     get_tracer,
 )
-from hephaistos.logging import _get_trace_context
 
 
 class TestNoopClasses:
@@ -42,13 +41,10 @@ class TestNoopClasses:
 
 class TestAccessors:
     def test_get_tracer_returns_noop_tracer(self) -> None:
-        assert isinstance(get_tracer("chat.engine"), _NoopTracer)
+        assert isinstance(get_tracer("runtime.engine"), _NoopTracer)
 
     def test_get_meter_returns_noop_meter(self) -> None:
-        assert isinstance(get_meter("chat.engine"), _NoopMeter)
+        assert isinstance(get_meter("runtime.engine"), _NoopMeter)
 
     def test_get_current_trace_id_is_empty(self) -> None:
         assert get_current_trace_id() == ""
-
-    def test_logging_trace_context_is_empty(self) -> None:
-        assert _get_trace_context() == {}

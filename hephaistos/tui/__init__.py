@@ -10,7 +10,6 @@ import sys
 import threading
 import time
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -33,9 +32,6 @@ from hephaistos.tui.armory import TuiArmoryMixin
 from hephaistos.tui.armory_browser import _DirEntry
 from hephaistos.tui.dependencies import (
     TuiDependencyError as TuiDependencyError,
-)
-from hephaistos.tui.dependencies import (
-    tui_dependency_message,
 )
 from hephaistos.tui.display_text import (
     armory_footer_hints_text,
@@ -159,7 +155,6 @@ def get_registry() -> CommandRegistry:
     return commands_get_registry()
 
 
-_tui_dependency_message = tui_dependency_message
 _status_lines = status_lines
 _status_text = status_text
 _armory_footer_hints_text = armory_footer_hints_text
@@ -171,7 +166,6 @@ _new_chat_card_text = new_chat_card_text
 _config_error = config_error
 
 _armory_command_mode = _tui_armory._armory_command_mode
-_armory_usage_message = _tui_armory._armory_usage_message
 
 _THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _WidgetClasses = _tui_widgets._WidgetClasses
@@ -214,6 +208,20 @@ _RESEND_PREFIX = "__RESEND__:"
 _TUI_MANAGED_RESEND_COMMANDS = {"autopilot", "exam", "mode"}
 
 
+def _captured_command_output(
+    stdout: _TuiCaptureWriter,
+    stderr: _TuiCaptureWriter,
+    activity_trace_mode: str,
+) -> str:
+    output = _command_output_text(stdout, stderr)
+    if activity_trace_mode in {
+        ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
+        ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
+    }:
+        return _filter_command_activity_details(output)
+    return _format_command_activity_details(output)
+
+
 _InlineFlow = InlineFlow
 
 
@@ -233,7 +241,7 @@ class HephaistosTui(
         Binding(armory_binding_keys(), "open_armory_home", "Armory", show=False, priority=True),
         Binding("ctrl+s", "open_search", "Search", show=False, priority=True),
         Binding("f8", "evidence", "Evidence", show=False, priority=True),
-        Binding("ctrl+c", "cancel_turn", "Cancel", show=False, priority=True),
+        Binding("ctrl+c", "quit", "Quit", priority=True),
         Binding("ctrl+l", "clear_transcript", "Screen", priority=True),
         Binding("ctrl+d", "quit", "Quit", priority=True),
     ]
@@ -418,64 +426,61 @@ class HephaistosTui(
 
     def on_key(self, event: events.Key) -> None:
         composer = self.query_one("#composer", Input)
-        if self._inline_flow.active and self._handle_inline_flow_key(event):
+        if self._handle_active_overlay_key(event):
             return
-        if self._armory_inline_active and self._handle_armory_key(event):
+        if self._handle_composer_shortcut(event):
             return
-        if self._materials_inline_active and self._handle_materials_key(event):
+        self._redirect_printable_key_to_composer(event, composer)
+
+    def _handle_active_overlay_key(self, event: events.Key) -> bool:
+        return (
+            (self._inline_flow.active and self._handle_inline_flow_key(event))
+            or (self._armory_inline_active and self._handle_armory_key(event))
+            or (self._materials_inline_active and self._handle_materials_key(event))
+        )
+
+    def _handle_composer_shortcut(self, event: events.Key) -> bool:
+        match event.key:
+            case "escape" if self.busy:
+                self.action_cancel_turn()
+            case "ctrl+up":
+                self._focus_message(-1)
+            case "ctrl+down":
+                self._focus_message(1)
+            case "up":
+                if self._completion_menu_visible():
+                    self._move_completion(-1)
+                else:
+                    self._history_previous()
+            case "down":
+                if self._completion_menu_visible():
+                    self._move_completion(1)
+                else:
+                    self._history_next()
+            case "escape" if self._completion_menu_visible():
+                self._hide_completions()
+            case "shift+tab":
+                self.action_cycle_study_mode()
+            case "tab":
+                self.action_complete()
+            case _:
+                return False
+
+        self._consume_key(event)
+        return True
+
+    def _redirect_printable_key_to_composer(self, event: events.Key, composer: Input) -> None:
+        if self.focused is composer or not event.character or not event.is_printable:
             return
-        if event.key == "escape" and self.busy:
-            self.action_cancel_turn()
-            event.prevent_default()
-            event.stop()
-            return
-        if event.key == "ctrl+up":
-            self._focus_message(-1)
-            event.prevent_default()
-            event.stop()
-            return
-        if event.key == "ctrl+down":
-            self._focus_message(1)
-            event.prevent_default()
-            event.stop()
-            return
-        if event.key == "up":
-            if self._completion_menu_visible():
-                self._move_completion(-1)
-            else:
-                self._history_previous()
-            event.prevent_default()
-            event.stop()
-            return
-        if event.key == "down":
-            if self._completion_menu_visible():
-                self._move_completion(1)
-            else:
-                self._history_next()
-            event.prevent_default()
-            event.stop()
-            return
-        if event.key == "escape" and self._completion_menu_visible():
-            self._hide_completions()
-            event.prevent_default()
-            event.stop()
-            return
-        if event.key == "shift+tab":
-            self.action_cycle_study_mode()
-            event.prevent_default()
-            event.stop()
-            return
-        if event.key == "tab":
-            self.action_complete()
-            event.prevent_default()
-            event.stop()
-            return
-        if self.focused is not composer and event.character and event.is_printable:
-            composer.focus()
-            self.set_focus(composer)
-            composer.insert_text_at_cursor(event.character)
-            event.prevent_default()
-            event.stop()
+        composer.focus()
+        self.set_focus(composer)
+        composer.insert_text_at_cursor(event.character)
+        self._consume_key(event)
+
+    @staticmethod
+    def _consume_key(event: events.Key) -> None:
+        event.prevent_default()
+        event.stop()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "composer":
@@ -742,11 +747,18 @@ class HephaistosTui(
             return
         current = self.session.study_state.autonomy_mode
         if current is StudyAutonomyMode.GUIDED:
-            self._set_autopilot_cycle_mode()
+            self.session.study_state.start_autopilot_session(
+                session_type=AutopilotSessionType.GENERAL.value,
+                session_goal="autonomous learning",
+                time_budget_minutes=None,
+            )
         elif current is StudyAutonomyMode.AUTOPILOT:
-            self._set_manual_cycle_mode()
+            self.session.study_state.autonomy_mode = StudyAutonomyMode.MANUAL
+            self.session.study_state.clear_autopilot_session()
         else:
-            self._set_guided_cycle_mode()
+            self.session.study_state.autonomy_mode = StudyAutonomyMode.GUIDED
+            self.session.study_state.clear_autopilot_session()
+        self.session.dirty = True
         self._hide_completions()
         self._refresh_status("ready")
         self._update_info_panel()
@@ -761,33 +773,6 @@ class HephaistosTui(
                 self._reflow_transcript_entries()
                 return
         self._append_notice(text)
-
-    def _set_guided_cycle_mode(self) -> None:
-        self.session.study_state.autonomy_mode = StudyAutonomyMode.GUIDED
-        self._clear_cycle_autopilot_session()
-
-    def _set_manual_cycle_mode(self) -> None:
-        self.session.study_state.autonomy_mode = StudyAutonomyMode.MANUAL
-        self._clear_cycle_autopilot_session()
-
-    def _set_autopilot_cycle_mode(self) -> None:
-        self.session.study_state.autonomy_mode = StudyAutonomyMode.AUTOPILOT
-        self.session.study_state.session_goal = "autonomous learning"
-        self.session.study_state.time_budget_minutes = None
-        self.session.study_state.autopilot_session_type = AutopilotSessionType.GENERAL.value
-        self.session.study_state.autopilot_started_at = datetime.now(UTC)
-        self.session.study_state.autopilot_turns = 0
-        self.session.study_state.autopilot_stop_reason = ""
-        self.session.dirty = True
-
-    def _clear_cycle_autopilot_session(self) -> None:
-        self.session.study_state.session_goal = ""
-        self.session.study_state.time_budget_minutes = None
-        self.session.study_state.autopilot_session_type = ""
-        self.session.study_state.autopilot_started_at = None
-        self.session.study_state.autopilot_turns = 0
-        self.session.study_state.autopilot_stop_reason = ""
-        self.session.dirty = True
 
     def _apply_highlighted_completion(self) -> None:
         suggestions = self.query_one("#suggestions", OptionList)
@@ -871,14 +856,7 @@ class HephaistosTui(
         if streamed_line:
             output = ""
         else:
-            output = _command_output_text(stdout, stderr)
-            if activity_trace_mode in {
-                ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
-                ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
-            }:
-                output = _filter_command_activity_details(output)
-            else:
-                output = _format_command_activity_details(output)
+            output = _captured_command_output(stdout, stderr, activity_trace_mode)
         self.call_from_thread(
             self._finish_external_command, new_session, history.entries, output, should_continue
         )
@@ -903,14 +881,7 @@ class HephaistosTui(
         if result.new_session is not None:
             self.session = result.new_session
 
-        output = _command_output_text(stdout, stderr)
-        if activity_trace_mode in {
-            ACTIVITY_TRACE_MINIMAL_TOOL_CALLS,
-            ACTIVITY_TRACE_HIDDEN_TOOL_CALLS,
-        }:
-            output = _filter_command_activity_details(output)
-        else:
-            output = _format_command_activity_details(output)
+        output = _captured_command_output(stdout, stderr, activity_trace_mode)
 
         resend_input = ""
         if result.output:
@@ -923,24 +894,21 @@ class HephaistosTui(
         if output:
             self.call_from_thread(self._append_notice, output)
 
-        if result.should_exit:
+        def finish(output: str = "", should_continue: bool = True) -> None:
             self.call_from_thread(
                 self._finish_external_command,
                 self.session,
                 history.entries,
-                "",
-                False,
+                output,
+                should_continue,
             )
+
+        if result.should_exit:
+            finish(should_continue=False)
             return True
 
         if not resend_input:
-            self.call_from_thread(
-                self._finish_external_command,
-                self.session,
-                history.entries,
-                "",
-                True,
-            )
+            finish()
             return True
 
         history.add(resend_input)
@@ -948,25 +916,13 @@ class HephaistosTui(
         if self.session.armory_path is None:
             reply = record_no_armory_turn(self.session, resend_input)
             self.call_from_thread(self._append_assistant_reply, reply)
-            self.call_from_thread(
-                self._finish_external_command,
-                self.session,
-                history.entries,
-                "",
-                True,
-            )
+            finish()
             return True
 
         config_error = _config_error(self.session)
         if config_error is not None:
             self.call_from_thread(self._append_error, config_error)
-            self.call_from_thread(
-                self._finish_external_command,
-                self.session,
-                history.entries,
-                "",
-                True,
-            )
+            finish()
             return True
 
         def on_reply(reply: str) -> None:
@@ -1018,8 +974,6 @@ class HephaistosTui(
             self.exit()
 
     def _open_search(self) -> None:
-        """Open the cross-armory search screen."""
-
         def on_search_result(result: object) -> None:
             if result is None:
                 return

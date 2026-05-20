@@ -15,21 +15,16 @@ if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
 
 
-def _armory_status_label(path: Path | None, *, max_length: int = 48) -> str:
-    if path is None:
-        return "none"
-    try:
-        label = f"~/{path.expanduser().resolve(strict=False).relative_to(Path.home())}"
-    except ValueError:
-        label = str(path)
-    if len(label) <= max_length:
-        return label
-    return f"...{label[-(max_length - 3) :]}"
-
-
 def status_lines(session: ChatSession, state: str = "ready") -> str:
-    _ = state
-    armory = _armory_status_label(session.armory_path)
+    armory = "none"
+    if session.armory_path is not None:
+        try:
+            path = session.armory_path.expanduser().resolve(strict=False)
+            armory = f"~/{path.relative_to(Path.home())}"
+        except ValueError:
+            armory = str(session.armory_path)
+        if len(armory) > 48:
+            armory = f"...{armory[-45:]}"
     model = session.config.model or "none"
     study_mode = session.study_state.autonomy_mode.value
     return f"Heph armory {armory} model {model} mode {study_mode}"

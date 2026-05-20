@@ -10,7 +10,6 @@ from hephaistos.providers.oauth import resolve_oauth_key
 
 
 def provider_is_accessible(provider: Provider, *, refresh_oauth: bool = True) -> bool:
-    """Return whether the user can call models from this provider now."""
     if provider.slug == "openai-codex":
         return bool(resolve_oauth_key(provider.slug, refresh_expired=refresh_oauth))
     if is_keyless_endpoint(provider.endpoint):
@@ -25,7 +24,6 @@ def provider_is_accessible(provider: Provider, *, refresh_oauth: bool = True) ->
 
 
 def activate_provider_config(pc: ProviderConfig, slug: str) -> Provider:
-    """Activate a provider and refresh its model catalog."""
     pc.set_active(slug)
     hydrate_provider_models(pc, provider_slugs={slug})
     provider = pc.providers[slug]

@@ -1,29 +1,9 @@
-"""Query transformation strategies for improved RAG retrieval.
+"""Query transformation strategies for RAG retrieval.
 
-Transforms user queries into alternative forms to improve recall and
-precision before passing them to the retriever.  Three strategies are
-provided:
-
-- **HyDE** (Hypothetical Document Embeddings): generates a hypothetical
-  answer to the query using an LLM, then uses that answer (which
-  lexically resembles real documents) for retrieval.
-- **Multi-Query**: asks an LLM to produce multiple reformulations of the
-  query, retrieves for each, and merges the results with Reciprocal Rank
-  Fusion.
-- **Query Expansion**: extracts keywords from the query and expands them
-  with related terms (using NLTK WordNet when available, otherwise a
-  simple heuristic expansion).  No LLM call is required.
-
-All transformers implement the ``QueryTransformerProtocol`` so they can
-be plugged into the retrieval pipeline interchangeably.  The top-level
-``transform_query()`` function applies a chain of transformers and
-returns the expanded set of query strings.
-
-LLM-based transformers (HyDE, Multi-Query) require a *prompt function* —
-a ``Callable[[str], str]`` that sends a prompt to the model and returns
-the text response.  This keeps the RAG layer decoupled from the chat
-engine.  When no prompt function is available these transformers degrade
-gracefully to identity (returning the original query unchanged).
+Transformers can expand queries deterministically, ask an optional LLM
+prompt function for HyDE or multi-query rewrites, or split hybrid
+retrieval into sparse and dense formulations. LLM-backed strategies
+degrade to identity when no prompt function is available.
 """
 
 from __future__ import annotations
@@ -51,19 +31,15 @@ else:
 
 
 class TransformStrategy(Enum):
-    """Selects which query transformation strategy to apply."""
-
-    IDENTITY = "identity"  # no transformation (passthrough)
-    HYDE = "hyde"  # Hypothetical Document Embeddings
-    MULTI_QUERY = "multi_query"  # multi-query reformulation
-    EXPANSION = "expansion"  # keyword expansion (no LLM needed)
-    MODE_SPECIFIC = "mode_specific"  # sparse keyword bag + dense semantic description
+    IDENTITY = "identity"
+    HYDE = "hyde"
+    MULTI_QUERY = "multi_query"
+    EXPANSION = "expansion"
+    MODE_SPECIFIC = "mode_specific"
 
 
 @runtime_checkable
 class QueryTransformerProtocol(Protocol):
-    """Minimal interface every query transformer must implement."""
-
     def transform(self, query: str) -> list[str]:
         """Return one or more transformed query strings.
 
@@ -76,29 +52,15 @@ class QueryTransformerProtocol(Protocol):
 
 @runtime_checkable
 class ModeSpecificQueryTransformerProtocol(QueryTransformerProtocol, Protocol):
-    """Query transformer that can tailor formulations per retrieval mode."""
+    def transform_sparse(self, query: str) -> list[str]: ...
 
-    def transform_sparse(self, query: str) -> list[str]:
-        """Return sparse-retrieval formulations such as keyword bags."""
-        ...
-
-    def transform_dense(self, query: str) -> list[str]:
-        """Return dense-retrieval formulations such as semantic descriptions."""
-        ...
+    def transform_dense(self, query: str) -> list[str]: ...
 
 
-#: Type alias for the LLM prompt function used by HyDE and Multi-Query.
-#: Must accept a prompt string and return the model's text response.
 PromptFn = Callable[[str], str]
 
 
 class IdentityTransformer:
-    """Returns the original query unchanged.
-
-    Useful as a no-op placeholder or the default when no transformation
-    is requested.
-    """
-
     def transform(self, query: str) -> list[str]:
         return [query]
 
@@ -143,7 +105,6 @@ _SYNONYM_MAP: dict[str, list[str]] = {
 
 
 def _expand_with_wordnet(word: str) -> list[str]:
-    """Try to expand a word using NLTK WordNet.  Returns empty list on failure."""
     if _wordnet is None:
         return []
     try:
@@ -170,24 +131,10 @@ def _expand_with_wordnet(word: str) -> list[str]:
 
 
 class QueryExpander:
-    """Keyword-based query expansion without LLM calls.
-
-    Extracts content words from the query, looks up synonyms via
-    NLTK WordNet (when available) and a built-in synonym map, then
-    constructs expanded query strings combining the original with
-    additional terms.
-
-    Produces exactly two query strings:
-
-    1. The original query (preserved for exact-match retrieval).
-    2. An expanded query with synonyms/related terms appended.
-    """
-
     def __init__(self, *, use_wordnet: bool = True) -> None:
         self._use_wordnet = use_wordnet
 
     def transform(self, query: str) -> list[str]:
-        """Expand the query with related terms."""
         words = _WORD_RE.findall(query.lower())
         if not words:
             return [query]
@@ -228,20 +175,12 @@ _MODE_SPECIFIC_PROMPT = (
 
 
 class ModeSpecificQueryPlanner:
-    """Sparse/dense query planner for hybrid retrieval.
-
-    Sparse retrieval benefits from compact keyword bags.  Dense retrieval
-    benefits from natural-language descriptions that make implicit document
-    intent explicit.  Without an LLM prompt function this planner stays
-    conservative and returns the original query only; deterministic domain
-    expansion was measured as too noisy on NFCorpus.
-    """
-
     def __init__(self, prompt_fn: PromptFn | None = None) -> None:
         self._prompt_fn = prompt_fn
 
     def transform(self, query: str) -> list[str]:
-        return _dedupe_queries([*self.transform_sparse(query), *self.transform_dense(query)])
+        sparse_query, dense_query = self._planned_queries(query)
+        return _dedupe_queries([query, sparse_query, dense_query])
 
     def transform_sparse(self, query: str) -> list[str]:
         sparse_query, _dense_query = self._planned_queries(query)
@@ -298,22 +237,10 @@ _HYDE_SYSTEM_PROMPT = (
 
 
 class HyDETransformer:
-    """Hypothetical Document Embeddings transformer.
-
-    Uses an LLM to generate a hypothetical answer to the user's query.
-    The generated passage (which lexically resembles real documents in the
-    corpus) is then used for retrieval instead of the raw query, typically
-    yielding better similarity matches.
-
-    Returns exactly one query string: the hypothetical document.  The
-    original query is also included so exact-match retrieval still works.
-    """
-
     def __init__(self, prompt_fn: PromptFn | None = None) -> None:
         self._prompt_fn = prompt_fn
 
     def transform(self, query: str) -> list[str]:
-        """Generate a hypothetical document and return it alongside the original query."""
         if self._prompt_fn is None:
             _log.debug("HyDE: no prompt function, returning original query")
             return [query]
@@ -341,8 +268,6 @@ class HyDETransformer:
             },
         )
 
-        # Return both the hypothetical document (primary) and the original
-        # query (for fallback keyword matching)
         return [hypothetical_doc.strip(), query]
 
 
@@ -357,16 +282,6 @@ _MULTI_QUERY_PROMPT = (
 
 
 class MultiQueryTransformer:
-    """Multi-query reformulation transformer.
-
-    Uses an LLM to generate multiple alternative phrasings of the user's
-    query.  Each alternative is a different angle on the same information
-    need.  The retriever is then called for each query and results are
-    merged with Reciprocal Rank Fusion.
-
-    Returns the original query plus the generated alternatives.
-    """
-
     def __init__(
         self,
         prompt_fn: PromptFn | None = None,
@@ -377,7 +292,6 @@ class MultiQueryTransformer:
         self._max_alternatives = max_alternatives
 
     def transform(self, query: str) -> list[str]:
-        """Generate alternative query phrasings."""
         if self._prompt_fn is None:
             _log.debug("multi-query: no prompt function, returning original query")
             return [query]
@@ -422,18 +336,10 @@ class MultiQueryTransformer:
 
 
 class CompositeTransformer:
-    """Applies a chain of transformers sequentially.
-
-    Each transformer receives the output of the previous one.  The final
-    result is the union of all produced queries (deduplicated, order
-    preserved).
-    """
-
     def __init__(self, transformers: list[QueryTransformerProtocol]) -> None:
         self._transformers = transformers
 
     def transform(self, query: str) -> list[str]:
-        """Apply all transformers in sequence, collecting unique queries."""
         seen: set[str] = set()
         result: list[str] = []
         current_queries = [query]

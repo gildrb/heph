@@ -9,13 +9,6 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from hephaistos.chat.engine import (
-    ChatConfig,
-    CompletionDelta,
-    Conversation,
-    EngineError,
-    StreamRecoveryError,
-)
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
     MaterialOperationEvent,
@@ -65,6 +58,13 @@ from hephaistos.chat.session import ChatSession
 from hephaistos.rag import ArmoryIndex, ScoredChunk, TurnEvidence
 from hephaistos.rag.chunker import Chunk, ChunkedDocument
 from hephaistos.rag.context import EvidenceChunk
+from hephaistos.runtime import (
+    ChatConfig,
+    CompletionDelta,
+    Conversation,
+    EngineError,
+    StreamRecoveryError,
+)
 from hephaistos.study import (
     StudyAction,
     StudyAutonomyMode,

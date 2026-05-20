@@ -6,12 +6,10 @@ from hephaistos.runtime import Conversation
 
 
 def derive_title(conversation: Conversation) -> str:
-    """Derive a session title from the first user message in the conversation."""
-    first_user_content = ""
-    for message in conversation.messages:
-        if message.role == "user":
-            first_user_content = message.content
-            break
+    first_user_content = next(
+        (message.content for message in conversation.messages if message.role == "user"),
+        "",
+    )
     if not first_user_content:
         return ""
     prefix = first_user_content[:60]

@@ -17,23 +17,20 @@ from hephaistos.armory.storage import (
 IndexHandler = Callable[[argparse.Namespace], None]
 
 
-def _validate_armory(args: argparse.Namespace) -> Path:
-    """Validate and return the resolved armory path."""
-    armory_path = normalize_path(args.path)
-    validate(armory_path)
-    return armory_path
-
-
-def _cmd_materials_list(args: argparse.Namespace) -> None:
-    """List material files in an armory."""
+def _validated_armory_path(path: str) -> Path:
     try:
-        armory_path = _validate_armory(args)
+        armory_path = normalize_path(path)
+        validate(armory_path)
+        return armory_path
     except (ArmoryError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    _materials = importlib.import_module("hephaistos.materials")
-    files = list(_materials.iter_material_files(armory_path))
+
+def _cmd_materials_list(args: argparse.Namespace) -> None:
+    armory_path = _validated_armory_path(args.path)
+    materials = importlib.import_module("hephaistos.materials")
+    files = list(materials.iter_material_files(armory_path))
     if not files:
         print("No materials found.")
         return
@@ -43,19 +40,12 @@ def _cmd_materials_list(args: argparse.Namespace) -> None:
 
 
 def _cmd_materials_count(args: argparse.Namespace) -> None:
-    """Show the count of material files in an armory."""
-    try:
-        armory_path = _validate_armory(args)
-    except (ArmoryError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
-
-    _materials = importlib.import_module("hephaistos.materials")
-    print(_materials.count_material_files(armory_path))
+    armory_path = _validated_armory_path(args.path)
+    materials = importlib.import_module("hephaistos.materials")
+    print(materials.count_material_files(armory_path))
 
 
 def _cmd_missing_index_handler(_args: argparse.Namespace) -> None:
-    """Guard against registering the CLI without an application index handler."""
     print("error: materials index is unavailable in this context", file=sys.stderr)
     raise SystemExit(2)
 
@@ -88,7 +78,6 @@ def register(
     *,
     index_handler: IndexHandler | None = None,
 ) -> None:
-    """Register preferred materials subcommands."""
     _register_material_commands(
         subparsers,
         name="materials",
@@ -97,21 +86,6 @@ def register(
     )
 
 
-def register_source_alias(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
-    *,
-    index_handler: IndexHandler | None = None,
-) -> None:
-    """Register the compatibility ``source`` command namespace."""
-    _register_material_commands(
-        subparsers,
-        name="source",
-        help_text="Manage materials in an armory.",
-        index_handler=index_handler,
-    )
-
-
 __all__ = [
     "register",
-    "register_source_alias",
 ]

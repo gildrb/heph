@@ -1,11 +1,4 @@
-"""Slash command registry and handlers.
-
-Public API::
-
-    from hephaistos.commands import (
-        Command, CommandResult, CommandRegistry, get_registry,
-    )
-"""
+"""Slash command registry and handlers."""
 
 from __future__ import annotations
 
@@ -22,17 +15,7 @@ from hephaistos.commands.display import (
     UsageCommand,
 )
 from hephaistos.commands.help import ExitCommand, HelpCommand, QuitCommand
-
-# Re-export helpers that tests monkeypatch via the commands namespace.
-# These are imported into the sub-modules and re-exported here so that
-# test code doing ``commands.resolve_supermemory_key`` still works.
-from hephaistos.commands.memory import (
-    MemoryCommand,
-    mask_key,
-    resolve_supermemory_key,
-    set_volatile,
-    store_key,
-)
+from hephaistos.commands.memory import MemoryCommand
 from hephaistos.commands.model import ModelsCommand, RecommendCommand
 from hephaistos.commands.persona import PersonaCommand
 from hephaistos.commands.session import (
@@ -69,9 +52,6 @@ class CommandRegistry:
     def __init__(self) -> None:
         self.commands: list[Command] = []
 
-    def register(self, cmd: Command) -> None:
-        self.commands.append(cmd)
-
     def find(self, name: str) -> Command | None:
         name_lower = name.lower()
         for cmd in self.commands:
@@ -94,38 +74,40 @@ def get_registry() -> CommandRegistry:
     global _registry  # noqa: PLW0603
     if _registry is None:
         _registry = CommandRegistry()
-        for cmd_class in (
-            HelpCommand,
-            ExitCommand,
-            LoginCommand,
-            LogoutCommand,
-            StatusCommand,
-            NewCommand,
-            ArmoryCommand,
-            CompactCommand,
-            EvidenceCommand,
-            TokensCommand,
-            CostCommand,
-            StatsCommand,
-            PriorityCommand,
-            ModeCommand,
-            AutopilotCommand,
-            ExamCommand,
-            ExportCommand,
-            ImportCommand,
-            RemindCommand,
-            EditCommand,
-            ModelsCommand,
-            RecommendCommand,
-            MemoryCommand,
-            PersonaCommand,
-            SettingsCommand,
-            SessionsCommand,
-            IndexCommand,
-            UsageCommand,
-            VocabCommand,
-        ):
-            _registry.register(cmd_class())
+        _registry.commands.extend(
+            cmd_class()
+            for cmd_class in (
+                HelpCommand,
+                ExitCommand,
+                LoginCommand,
+                LogoutCommand,
+                StatusCommand,
+                NewCommand,
+                ArmoryCommand,
+                CompactCommand,
+                EvidenceCommand,
+                TokensCommand,
+                CostCommand,
+                StatsCommand,
+                PriorityCommand,
+                ModeCommand,
+                AutopilotCommand,
+                ExamCommand,
+                ExportCommand,
+                ImportCommand,
+                RemindCommand,
+                EditCommand,
+                ModelsCommand,
+                RecommendCommand,
+                MemoryCommand,
+                PersonaCommand,
+                SettingsCommand,
+                SessionsCommand,
+                IndexCommand,
+                UsageCommand,
+                VocabCommand,
+            )
+        )
     return _registry
 
 
@@ -177,12 +159,8 @@ __all__ = [
     # Re-exported helpers (for test monkeypatching)
     "confirm",
     "get_registry",
-    "mask_key",
     "print_error",
     "print_info",
     "print_success",
-    "resolve_supermemory_key",
     "save_session",
-    "set_volatile",
-    "store_key",
 ]

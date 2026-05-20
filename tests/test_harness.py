@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -23,11 +24,10 @@ from hephaistos.agent.tools import (
     run_edit_file,
     run_list_files,
     run_read_file,
+    run_search_files,
     run_write_file,
     safe_path,
 )
-from hephaistos.chat._api_types import ApiMessage
-from hephaistos.chat.engine import ChatConfig, CompletionDelta, Conversation
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
     CompactRequestEvent,
@@ -36,6 +36,7 @@ from hephaistos.chat.events import (
     ToolResultEvent,
     TurnCompleteEvent,
 )
+from hephaistos.runtime import ApiMessage, ChatConfig, CompletionDelta, Conversation
 
 # ---------------------------------------------------------------------------
 # safe_path
@@ -178,6 +179,36 @@ class TestListFiles:
     def test_list_empty(self, tmp_path: Path) -> None:
         result = run_list_files(workspace=tmp_path)
         assert "no files" in result.lower()
+
+
+class TestSearchFiles:
+    def test_search_finds_matching_lines(self, workspace: Path) -> None:
+        result = run_search_files("hello", workspace=workspace)
+
+        assert isinstance(result, str)
+        assert "hello.py:1:" in result
+        assert 'print("hello")' in result
+
+    def test_search_skips_hidden_and_binary_document_files(self, workspace: Path) -> None:
+        hidden_dir = workspace / ".hephaistos"
+        hidden_dir.mkdir()
+        (hidden_dir / "trace.txt").write_text("needle\n")
+        (workspace / "slides.pdf").write_text("needle\n")
+
+        result = run_search_files("needle", workspace=workspace)
+
+        assert isinstance(result, str)
+        assert "No matches found" in result
+
+    def test_search_can_cancel_before_scan(self, workspace: Path) -> None:
+        abort = threading.Event()
+        abort.set()
+
+        result = run_search_files("hello", workspace=workspace, abort=abort)
+
+        assert not isinstance(result, str)
+        assert result.error == "cancelled"
+        assert result.metadata == {"files_scanned": 0, "matches": 0}
 
 
 # ---------------------------------------------------------------------------

@@ -38,7 +38,6 @@ def _matches_prefixes(model_name: str, prefixes: tuple[str, ...]) -> bool:
 
 
 def filter_supported_models(models: list[str], provider_slug: str) -> list[str]:
-    """Keep only models that belong to the built-in catalog for a provider."""
     prefixes = _PROVIDER_PREFIXES.get(provider_slug)
     if prefixes is None:
         return list(models)
@@ -46,7 +45,6 @@ def filter_supported_models(models: list[str], provider_slug: str) -> list[str]:
 
 
 def is_supported_model_for_endpoint(model_name: str, base_url: str) -> bool:
-    """Return True when a model matches the known families for an endpoint."""
     prefixes = _ENDPOINT_PREFIXES.get(_normalize_endpoint(base_url))
     if prefixes is None:
         return True
@@ -54,7 +52,6 @@ def is_supported_model_for_endpoint(model_name: str, base_url: str) -> bool:
 
 
 def is_supported_model_for_provider(model_name: str, provider_slug: str) -> bool:
-    """Return True when a model matches the known families for a provider."""
     prefixes = _PROVIDER_PREFIXES.get(provider_slug)
     if prefixes is None:
         return True

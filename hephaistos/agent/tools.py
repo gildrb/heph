@@ -28,7 +28,7 @@ import subprocess  # nosec B404
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -54,7 +54,6 @@ from hephaistos.armory.storage import (
 
 
 def safe_path(workspace: Path, rel_path: str) -> Path:
-    """Resolve *rel_path* inside *workspace* and ensure it doesn't escape."""
     resolved = (workspace / rel_path).resolve()
     if not resolved.is_relative_to(workspace.resolve()):
         raise ValueError(f"Path escapes workspace: {rel_path}")
@@ -62,14 +61,6 @@ def safe_path(workspace: Path, rel_path: str) -> Path:
 
 
 class ToolRegistry:
-    """Extensible registry of :class:`ToolSpec` entries.
-
-    Supports hierarchical scoping via :meth:`child` — a child registry
-    inherits everything from its parent and can override or add tools
-    without mutating the parent.  This is the mechanism used for
-    per-armory tool loading.
-    """
-
     def __init__(self, parent: ToolRegistry | None = None) -> None:
         self._tools: dict[str, ToolSpec] = {}
         self._parent = parent
@@ -77,22 +68,15 @@ class ToolRegistry:
         self._schemas_cache: list[ToolSchema] | None = None
         self._schemas_cache_key: tuple[int, int] | None = None
 
-    # -- mutation -----------------------------------------------------------
-
     def register(self, spec: ToolSpec) -> None:
-        """Add or replace a tool by name."""
         self._tools[spec.name] = spec
         self._generation += 1
 
     def unregister(self, name: str) -> None:
-        """Remove a locally-registered tool (does not affect parent)."""
         self._tools.pop(name, None)
         self._generation += 1
 
-    # -- query --------------------------------------------------------------
-
     def get(self, name: str) -> ToolSpec | None:
-        """Look up a tool by name, checking local then parent."""
         spec = self._tools.get(name)
         if spec is not None:
             return spec
@@ -101,12 +85,10 @@ class ToolRegistry:
         return None
 
     def get_handler(self, name: str) -> Callable[..., ToolHandlerResult] | None:
-        """Return the handler for *name*, or ``None``."""
         spec = self.get(name)
         return spec.handler if spec else None
 
     def is_control_tool(self, name: str) -> bool:
-        """Return whether *name* is a control-flow tool."""
         spec = self.get(name)
         return spec.kind == "control" if spec is not None else False
 
@@ -116,7 +98,6 @@ class ToolRegistry:
 
     @property
     def schemas(self) -> list[ToolSchema]:
-        """All visible tool schemas (local + inherited, local overrides first)."""
         parent_generation = self._parent._visible_generation() if self._parent is not None else 0
         cache_key = (self._generation, parent_generation)
         if self._schemas_cache is not None and self._schemas_cache_key == cache_key:
@@ -141,25 +122,10 @@ class ToolRegistry:
     def tool_names(self) -> list[str]:
         return [s["function"]["name"] for s in self.schemas]
 
-    # -- hierarchy ----------------------------------------------------------
-
     def child(self) -> ToolRegistry:
-        """Create a child registry that inherits from this one."""
         return ToolRegistry(parent=self)
 
-    # -- armory plugin discovery --------------------------------------------
-
     def load_plugins(self, tools_dir: Path) -> int:
-        """Load ``*.py`` plugin modules from *tools_dir*.
-
-        Each module may define a ``register(registry: ToolRegistry) -> None``
-        function.  Returns the number of plugins loaded.
-
-        **Security note**: plugins are loaded from the armory's
-        ``.hephaistos/tools/`` directory.  Only trusted armories should
-        have tool plugins.  Each plugin is executed with full process
-        privileges.
-        """
         if not tools_dir.is_dir():
             return 0
         # Resolve tools directory so symlink checks below are reliable.
@@ -190,26 +156,12 @@ class ToolRegistry:
         return loaded
 
 
-# ---------------------------------------------------------------------------
-# Built-in tool definitions
-# ---------------------------------------------------------------------------
-
-
-def _param(json_type: str, description: str) -> ToolParameter:
-    """Build a JSON-schema property for a tool parameter."""
-    return {"type": json_type, "description": description}
-
-
 def _string(description: str) -> ToolParameter:
-    return _param("string", description)
+    return {"type": "string", "description": description}
 
 
 def _integer(description: str) -> ToolParameter:
-    return _param("integer", description)
-
-
-def _boolean(description: str) -> ToolParameter:
-    return _param("boolean", description)
+    return {"type": "integer", "description": description}
 
 
 def _tool(
@@ -219,7 +171,6 @@ def _tool(
     *,
     required: tuple[str, ...] = (),
 ) -> ToolSchema:
-    """Build the OpenAI-compatible function tool schema."""
     return {
         "type": "function",
         "function": {
@@ -313,7 +264,10 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
         {
             "pattern": _string("Text or regex pattern to search for."),
             "path": _string("Directory to search in. Defaults to workspace root."),
-            "case_sensitive": _boolean("Whether the search is case-sensitive. Default: false."),
+            "case_sensitive": {
+                "type": "boolean",
+                "description": "Whether the search is case-sensitive. Default: false.",
+            },
         },
         required=("pattern",),
     ),
@@ -365,14 +319,13 @@ _BASH_TIMEOUT = 30
 _MAX_READ_CHARS = 50_000
 _RTK_TIMEOUT_BUFFER_SECONDS = 5
 _MAX_SEARCH_RESULTS = 50
+_SEARCH_SKIP_SUFFIXES = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".tar", ".gz"})
 _RTK_SHELL_META_CHARS = frozenset("|&;<>(){}[]*$?`!~\n")
 _RTK_TRUTHY = frozenset({"1", "true", "yes", "on", "enabled"})
 
 
 @dataclass(frozen=True, slots=True)
 class BashResult:
-    """Structured result from a bash command execution."""
-
     stdout: str
     stderr: str
     exit_code: int
@@ -380,7 +333,6 @@ class BashResult:
     duration_seconds: float
 
     def to_display(self) -> str:
-        """Format for display to the LLM."""
         parts: list[str] = []
         if self.stdout:
             parts.append(self.stdout)
@@ -393,40 +345,16 @@ class BashResult:
         return "\n".join(parts) if parts else "(no output)"
 
 
-def _rtk_enabled() -> bool:
-    """Return whether model-generated bash calls should go through RTK.
-
-    RTK is reliability-safe only as a best-effort filter for simple command
-    output: missing RTK falls back to the original command, and commands with
-    shell metacharacters are never rewritten.  Enable that safe path by default
-    when available; allow operators to opt out with ``HEPHAISTOS_RTK=0``.
-    """
-    raw = os.environ.get("HEPHAISTOS_RTK")
-    if raw is None:
-        return True
-    return raw.strip().lower() in _RTK_TRUTHY
-
-
-def _rtk_ultra_compact() -> bool:
-    """Return whether RTK should use its ultra-compact output mode."""
-    return os.environ.get("HEPHAISTOS_RTK_ULTRA", "").strip().lower() in _RTK_TRUTHY
-
-
-def _rtk_min_command_chars() -> int:
-    """Return the minimum command length for RTK rewrites."""
-    raw = os.environ.get("HEPHAISTOS_RTK_MIN_COMMAND_CHARS", "0").strip()
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return 0
-
-
 def _rtk_command_prefix(command: str) -> list[str] | None:
-    """Return an RTK argv prefix for a simple shell command, if safe to rewrite."""
     stripped = command.strip()
     if not stripped or stripped.startswith("rtk "):
         return None
-    if len(stripped) < _rtk_min_command_chars():
+    raw_min_chars = os.environ.get("HEPHAISTOS_RTK_MIN_COMMAND_CHARS", "0").strip()
+    try:
+        min_chars = max(0, int(raw_min_chars))
+    except ValueError:
+        min_chars = 0
+    if len(stripped) < min_chars:
         return None
     if any(char in stripped for char in _RTK_SHELL_META_CHARS):
         return None
@@ -443,13 +371,23 @@ def _rtk_command_prefix(command: str) -> list[str] | None:
         return None
 
     prefix = [rtk_path]
-    if _rtk_ultra_compact():
+    if os.environ.get("HEPHAISTOS_RTK_ULTRA", "").strip().lower() in _RTK_TRUTHY:
         prefix.append("--ultra-compact")
     return [*prefix, *argv]
 
 
+def _run_shell_command(command: str, timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # nosec B602
+        command,
+        shell=True,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )  # nosec B602
+
+
 def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str:
-    """Execute a shell command and return structured output."""
     # Block destructive and dangerous commands (LLM-generated).
     # Note: this is a safety net, not a sandbox. Trivial bypasses exist
     # via encoding, variable expansion, etc. Treat as best-effort.
@@ -475,17 +413,12 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
 
     actual_timeout = _BASH_TIMEOUT if timeout is None else timeout
     start = time.monotonic()
-    rtk_argv = _rtk_command_prefix(command) if _rtk_enabled() else None
+    rtk_setting = os.environ.get("HEPHAISTOS_RTK")
+    rtk_enabled = rtk_setting is None or rtk_setting.strip().lower() in _RTK_TRUTHY
+    rtk_argv = _rtk_command_prefix(command) if rtk_enabled else None
     try:
         if rtk_argv is None:
-            result = subprocess.run(  # nosec B602
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=actual_timeout,
-                check=False,
-            )  # nosec B602
+            result = _run_shell_command(command, actual_timeout)
         else:
             try:
                 result = subprocess.run(  # nosec B603
@@ -497,14 +430,7 @@ def run_bash(command: str, timeout: int | None = None, **_kwargs: object) -> str
                     check=False,
                 )
             except OSError as exc:
-                fallback = subprocess.run(  # nosec B602
-                    command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=actual_timeout,
-                    check=False,
-                )  # nosec B602
+                fallback = _run_shell_command(command, actual_timeout)
                 fallback.stdout = (
                     f"[rtk unavailable: {exc}; used original command output]\n"
                     f"{fallback.stdout or ''}"
@@ -542,7 +468,6 @@ def run_read_file(
     limit: int | None = None,
     **_kwargs: object,
 ) -> str:
-    """Read a file from the workspace."""
     try:
         target = safe_path(workspace, path)
     except ValueError as exc:
@@ -582,7 +507,6 @@ def run_write_file(
     workspace: Path,
     **_kwargs: object,
 ) -> str:
-    """Write content to a file in the workspace."""
     try:
         target = safe_path(workspace, path)
     except ValueError as exc:
@@ -603,7 +527,6 @@ def run_edit_file(
     workspace: Path,
     **_kwargs: object,
 ) -> str:
-    """Replace old_text with new_text in a workspace file."""
     try:
         target = safe_path(workspace, path)
     except ValueError as exc:
@@ -636,7 +559,6 @@ def run_list_files(
     pattern: str = "*",
     **_kwargs: object,
 ) -> str:
-    """List files in a workspace directory."""
     try:
         target = safe_path(workspace, path or ".")
     except ValueError as exc:
@@ -663,7 +585,6 @@ def run_create_armory(
     workspace: Path,
     **_kwargs: object,
 ) -> ToolResult:
-    """Create or repair a Hephaistos armory inside the workspace."""
     try:
         target = safe_path(workspace, path)
     except ValueError as exc:
@@ -706,7 +627,6 @@ def run_validate_armory(
     workspace: Path,
     **_kwargs: object,
 ) -> ToolResult:
-    """Validate a Hephaistos armory inside the workspace."""
     try:
         target = safe_path(workspace, path)
     except ValueError as exc:
@@ -734,6 +654,46 @@ def run_validate_armory(
     )
 
 
+def _is_searchable_file(file_path: Path, workspace: Path) -> bool:
+    rel = file_path.relative_to(workspace)
+    return (
+        file_path.is_file()
+        and not any(part.startswith(".") for part in rel.parts)
+        and file_path.suffix.lower() not in _SEARCH_SKIP_SUFFIXES
+    )
+
+
+def _search_file(file_path: Path, workspace: Path, regex: re.Pattern[str]) -> list[str]:
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    rel = file_path.relative_to(workspace)
+    return [
+        f"{rel}:{line_no}: {line.strip()}"
+        for line_no, line in enumerate(text.splitlines(), 1)
+        if regex.search(line)
+    ]
+
+
+def _cancelled_search_result(file_count: int, matches: Sequence[str]) -> ToolResult:
+    return ToolResult(
+        success=False,
+        content=f"Search cancelled after scanning {file_count} files.",
+        metadata={"files_scanned": file_count, "matches": len(matches)},
+        error="cancelled",
+    )
+
+
+def _format_search_results(pattern: str, file_count: int, matches: Sequence[str]) -> str:
+    if not matches:
+        return f"No matches found for '{pattern}' in {file_count} files."
+    header = f"Found {len(matches)} matches for '{pattern}':"
+    if len(matches) >= _MAX_SEARCH_RESULTS:
+        header += f" (showing first {_MAX_SEARCH_RESULTS})"
+    return header + "\n" + "\n".join(matches)
+
+
 def run_search_files(
     pattern: str,
     *,
@@ -743,7 +703,6 @@ def run_search_files(
     abort: threading.Event | None = None,
     **_kwargs: object,
 ) -> ToolHandlerResult:
-    """Search for text patterns across armory documents."""
     try:
         target = safe_path(workspace, path or ".")
     except ValueError as exc:
@@ -762,50 +721,25 @@ def run_search_files(
 
     for file_path in sorted(target.rglob("*")):
         if abort is not None and abort.is_set():
-            return ToolResult(
-                success=False,
-                content=f"Search cancelled after scanning {file_count} files.",
-                metadata={"files_scanned": file_count, "matches": len(matches)},
-                error="cancelled",
-            )
-        if not file_path.is_file():
-            continue
-        rel = file_path.relative_to(workspace)
-        if any(part.startswith(".") for part in rel.parts):
-            continue
-        suffix = file_path.suffix.lower()
-        if suffix in (".pdf", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".tar", ".gz"):
+            return _cancelled_search_result(file_count, matches)
+        if not _is_searchable_file(file_path, workspace):
             continue
 
-        try:
-            text = file_path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-
-        for line_no, line in enumerate(text.splitlines(), 1):
-            if regex.search(line):
-                matches.append(f"{rel}:{line_no}: {line.strip()}")
-                if len(matches) >= _MAX_SEARCH_RESULTS:
-                    break
+        matches.extend(_search_file(file_path, workspace, regex))
         file_count += 1
         if len(matches) >= _MAX_SEARCH_RESULTS:
+            matches = matches[:_MAX_SEARCH_RESULTS]
             break
 
-    if not matches:
-        return f"No matches found for '{pattern}' in {file_count} files."
-
-    header = f"Found {len(matches)} matches for '{pattern}':"
-    if len(matches) >= _MAX_SEARCH_RESULTS:
-        header += f" (showing first {_MAX_SEARCH_RESULTS})"
-    return header + "\n" + "\n".join(matches)
+    return _format_search_results(pattern, file_count, matches)
 
 
-def _mutation_wrap(path_str: str, fn: Callable[..., str], **kwargs: object) -> str:
-    """Wrap a file mutation handler with the mutation queue for safety."""
+def _mutation_wrap(fn: Callable[..., str], **kwargs: object) -> str:
+    path = kwargs.get("path")
     workspace = kwargs.get("workspace")
-    if workspace and isinstance(workspace, Path):
+    if isinstance(path, str) and isinstance(workspace, Path):
         try:
-            target = safe_path(workspace, str(path_str))
+            target = safe_path(workspace, path)
             queue = get_queue(workspace)
             return queue.execute(target, fn, **kwargs)
         except ValueError:
@@ -814,59 +748,15 @@ def _mutation_wrap(path_str: str, fn: Callable[..., str], **kwargs: object) -> s
 
 
 def get_handler(name: str):
-    """Return the handler function for a tool name, or None.
-
-    Delegates to the global :data:`default_registry`.
-    """
     return default_registry.get_handler(name)
 
 
-def _queued_write_file(
-    path: str,
-    content: str,
-    *,
-    workspace: Path,
-    **kwargs: object,
-) -> str:
-    return _mutation_wrap(
-        path,
-        run_write_file,
-        path=path,
-        content=content,
-        workspace=workspace,
-        **kwargs,
-    )
-
-
-def _queued_edit_file(
-    path: str,
-    old_text: str,
-    new_text: str,
-    *,
-    workspace: Path,
-    **kwargs: object,
-) -> str:
-    return _mutation_wrap(
-        path,
-        run_edit_file,
-        path=path,
-        old_text=old_text,
-        new_text=new_text,
-        workspace=workspace,
-        **kwargs,
-    )
-
-
-def _compact_handler(**_kw: object) -> str:
-    return "[compact triggered]"
-
-
 _HANDLERS: dict[str, Callable[..., ToolHandlerResult]] = {
-    "compact": _compact_handler,
+    "compact": lambda **_kw: "[compact triggered]",
     "bash": run_bash,
     "read_file": run_read_file,
-    "write_file": _queued_write_file,
-    "edit_file": _queued_edit_file,
+    "write_file": lambda **kwargs: _mutation_wrap(run_write_file, **kwargs),
+    "edit_file": lambda **kwargs: _mutation_wrap(run_edit_file, **kwargs),
     "list_files": run_list_files,
     "create_armory": run_create_armory,
     "validate_armory": run_validate_armory,
@@ -875,10 +765,6 @@ _HANDLERS: dict[str, Callable[..., ToolHandlerResult]] = {
     "open_material": run_open_material,
     "web_fetch": run_web_fetch,
 }
-
-# ---------------------------------------------------------------------------
-# Global default registry — pre-loaded with all built-in tools
-# ---------------------------------------------------------------------------
 
 default_registry = ToolRegistry()
 

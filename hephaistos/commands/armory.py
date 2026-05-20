@@ -77,26 +77,19 @@ class ExportCommand(Command):
         if path.is_dir():
             path = path / f"session-{s.session_id[:8]}.md"
 
+        messages = [msg for msg in s.conversation.messages if msg.role in {"user", "assistant"}]
+        if not messages:
+            print_info("Nothing to export — the session has no messages yet.")
+            return CommandResult()
+
         lines: list[str] = []
         if s.title:
             lines.append(f"# {s.title}")
             lines.append("")
 
-        for msg in s.conversation.messages:
-            if msg.role == "user":
-                lines.append("## You")
-                lines.append("")
-                lines.append(msg.content)
-                lines.append("")
-            elif msg.role == "assistant":
-                lines.append("## Hephaistos")
-                lines.append("")
-                lines.append(msg.content)
-                lines.append("")
-
-        if not any(m.role in ("user", "assistant") for m in s.conversation.messages):
-            print_info("Nothing to export — the session has no messages yet.")
-            return CommandResult()
+        for msg in messages:
+            heading = "You" if msg.role == "user" else "Hephaistos"
+            lines.extend((f"## {heading}", "", msg.content, ""))
 
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines), encoding="utf-8")
@@ -114,42 +107,32 @@ class IndexCommand(Command):
         value = parts[1].strip() if len(parts) > 1 else ""
 
         if subcmd == "list":
-            return self._list()
+            armories = load_known_armories()
+            if not armories:
+                print_info("No armories indexed. Use /index add <path> to add one.")
+                return CommandResult()
+            lines = ["Indexed armories:"]
+            lines.extend(f"  {p}" for p in armories)
+            print("\n".join(lines))
+            return CommandResult()
         if subcmd == "add":
             if not value:
                 print_error("Usage: /index add <path>")
                 return CommandResult()
-            return self._add(Path(value).expanduser().resolve())
+            path = Path(value).expanduser().resolve()
+            if not path.is_dir():
+                print_error(f"Not a directory: {path}")
+                return CommandResult()
+            paths = add_known_armory(path)
+            print_success(f"Added {path}. {len(paths)} armory/armories indexed.")
+            return CommandResult()
         if subcmd in ("remove", "rm", "delete"):
             if not value:
                 print_error("Usage: /index remove <path>")
                 return CommandResult()
-            return self._remove(Path(value).expanduser().resolve())
+            path = Path(value).expanduser().resolve()
+            paths = remove_known_armory(path)
+            print_success(f"Removed {path}. {len(paths)} armory/armories indexed.")
+            return CommandResult()
         print_error("Usage: /index [list | add <path> | remove <path>]")
-        return CommandResult()
-
-    @staticmethod
-    def _list() -> CommandResult:
-        armories = load_known_armories()
-        if not armories:
-            print_info("No armories indexed. Use /index add <path> to add one.")
-            return CommandResult()
-        lines = ["Indexed armories:"]
-        lines.extend(f"  {p}" for p in armories)
-        print("\n".join(lines))
-        return CommandResult()
-
-    @staticmethod
-    def _add(path: Path) -> CommandResult:
-        if not path.is_dir():
-            print_error(f"Not a directory: {path}")
-            return CommandResult()
-        paths = add_known_armory(path)
-        print_success(f"Added {path}. {len(paths)} armory/armories indexed.")
-        return CommandResult()
-
-    @staticmethod
-    def _remove(path: Path) -> CommandResult:
-        paths = remove_known_armory(path)
-        print_success(f"Removed {path}. {len(paths)} armory/armories indexed.")
         return CommandResult()

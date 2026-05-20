@@ -44,7 +44,6 @@ _command_registry_fn: Callable[[], CommandRegistryProtocol] | None = None
 
 
 def set_command_registry_fn(fn: Callable[[], CommandRegistryProtocol]) -> None:
-    """Install the slash-command registry used by shell input handling."""
     global _command_registry_fn  # noqa: PLW0603
     _command_registry_fn = fn
 
@@ -57,7 +56,6 @@ def _get_command_registry() -> CommandRegistryProtocol:
 
 
 def run_shell_command(cmd: str) -> None:
-    """Execute a user-requested shell escape and display output."""
     print(styled(f"$ {cmd}", STYLE_DIM))
     try:
         subprocess.run(cmd, shell=True, capture_output=False, text=True, check=False)  # nosec B602
@@ -66,7 +64,6 @@ def run_shell_command(cmd: str) -> None:
 
 
 def _preflight_config_check(session: ChatSession) -> str | None:
-    """Return an error message if the session config is unusable, else None."""
     if not session.config.base_url:
         return "No model source configured. Use /login, then /models."
     if not session.config.model:
@@ -82,7 +79,6 @@ def _report_engine_error(
     exc: BaseException,
     session: ChatSession,
 ) -> None:
-    """Display an engine error and capture local diagnostic context."""
     from hephaistos.runtime import (
         StreamRecoveryError,
         is_network_error,
@@ -90,8 +86,15 @@ def _report_engine_error(
     )
 
     provider = session.config.provider_slug or "the provider"
+    context: dict[str, object] = {
+        "provider": provider,
+        "model": session.config.model,
+    }
+    kind = "engine_error"
 
     if isinstance(exc, StreamRecoveryError):
+        kind = "stream_recovery"
+        context["partial_content_length"] = len(exc.partial_content)
         if is_network_error(exc):
             print(offline_message(provider))
         else:
@@ -102,43 +105,12 @@ def _report_engine_error(
             if exc.partial_content:
                 msg += f" ({len(exc.partial_content)} chars received)"
             print(msg)
-        capture_exception(
-            exc,
-            context={
-                "provider": provider,
-                "model": session.config.model,
-                "partial_content_length": len(exc.partial_content),
-            },
-        )
-        capture_analytics(
-            "request_failed",
-            {
-                "provider": provider,
-                "model": session.config.model,
-                "kind": "stream_recovery",
-                "partial_content_length": len(exc.partial_content),
-            },
-        )
+    elif is_network_error(exc):
+        print(offline_message(provider))
     else:
-        if is_network_error(exc):
-            print(offline_message(provider))
-        else:
-            print_error(str(exc))
-        capture_exception(
-            exc,
-            context={
-                "provider": provider,
-                "model": session.config.model,
-            },
-        )
-        capture_analytics(
-            "request_failed",
-            {
-                "provider": provider,
-                "model": session.config.model,
-                "kind": "engine_error",
-            },
-        )
+        print_error(str(exc))
+    capture_exception(exc, context=context)
+    capture_analytics("request_failed", {**context, "kind": kind})
 
 
 def handle_input(
@@ -147,8 +119,7 @@ def handle_input(
     history: InputHistory,
     streaming: bool = False,
 ) -> tuple[ChatSession, bool]:
-    """Process a single input and return ``(session, should_continue)``."""
-    if not user_input or not user_input.strip():
+    if not user_input.strip():
         return session, True
     if streaming:
         session.steering.enqueue(user_input)
@@ -161,7 +132,8 @@ def handle_input(
         return session, True
     if user_input.startswith("/"):
         return _handle_slash_input(session, user_input, history)
-    return _send_chat_input(session, user_input, history)
+    history.add(user_input)
+    return _send_message(session, user_input), True
 
 
 def _handle_slash_input(
@@ -177,13 +149,9 @@ def _handle_slash_input(
         if cmd:
             cmd.handle(session, "")
         return session, True
-    space_idx = stripped.find(" ")
-    if space_idx == -1:
-        cmd_name = stripped[1:].lower()
-        cmd_args = ""
-    else:
-        cmd_name = stripped[1:space_idx].lower()
-        cmd_args = stripped[space_idx + 1 :].strip()
+    cmd_name, _, cmd_args = stripped[1:].partition(" ")
+    cmd_name = cmd_name.lower()
+    cmd_args = cmd_args.strip()
 
     registry = _get_command_registry()
     cmd = registry.find(cmd_name)
@@ -206,15 +174,6 @@ def _handle_slash_input(
     return session, True
 
 
-def _send_chat_input(
-    session: ChatSession,
-    user_input: str,
-    history: InputHistory,
-) -> tuple[ChatSession, bool]:
-    history.add(user_input)
-    return _send_message(session, user_input), True
-
-
 def _send_message(session: ChatSession, user_input: str) -> ChatSession:
     from hephaistos.chat.session import send_user_message
     from hephaistos.runtime import EngineError, StreamRecoveryError
@@ -231,9 +190,8 @@ def _send_message(session: ChatSession, user_input: str) -> ChatSession:
         print_error(config_error)
         return session
     abort = threading.Event()
-    reply_prefix = ""
     try:
-        send_user_message(session, user_input, abort=abort, reply_prefix=reply_prefix)
+        send_user_message(session, user_input, abort=abort, reply_prefix="")
     except (StreamRecoveryError, EngineError) as exc:
         _report_engine_error(exc, session)
     return session

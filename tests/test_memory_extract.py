@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hephaistos.chat.engine import ChatConfig
 from hephaistos.memory import MemoryStore
 from hephaistos.memory.extract import extract_and_store, extract_from_exchange
+from hephaistos.runtime import ChatConfig
 
 
 def _make_config() -> ChatConfig:

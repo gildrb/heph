@@ -45,41 +45,7 @@ def print_info(msg: str) -> None:
 
 
 def print_success(msg: str) -> None:
-    print(f"{styled(msg, STYLE_SUCCESS)}")
-
-
-def _progressive_hints(session_count: int) -> list[str]:
-    """Return keybind hint lines that evolve with user experience.
-
-    Tier 0 (new):     enter, tab, ctrl+c, ctrl+d, /help
-    Tier 1 (3+):      + /vocab, /models, /theme
-    Tier 2 (5+):      + ! shell, \\ continuation
-    Always:           /help
-    """
-    parts: list[str] = [
-        f"{styled('enter', STYLE_CHROME_LABEL)} {styled('send', STYLE_CHROME_DETAIL)}  "
-        f"{styled('tab', STYLE_CHROME_LABEL)} {styled('complete', STYLE_CHROME_DETAIL)}"
-    ]
-    essentials = (
-        f"{styled('ctrl+c', STYLE_CHROME_LABEL)} {styled('interrupt', STYLE_CHROME_DETAIL)}"
-        f"  {styled('ctrl+d', STYLE_CHROME_LABEL)} {styled('exit', STYLE_CHROME_DETAIL)}"
-        f"  {styled('/help', STYLE_ACCENT)} {styled('commands', STYLE_CHROME_DETAIL)}"
-    )
-    parts.append(essentials)
-    if session_count >= 3:
-        tier1 = (
-            f"{styled('/vocab', STYLE_ACCENT)} drill"
-            f"  {styled('/models', STYLE_ACCENT)} model"
-            f"  {styled('/theme', STYLE_ACCENT)} theme"
-        )
-        parts.append(tier1)
-    if session_count >= 5:
-        tier2 = (
-            f"{styled('!', STYLE_ACCENT)} shell  "
-            f"{styled('\\', STYLE_CHROME_LABEL)} {styled('continuation', STYLE_CHROME_DETAIL)}"
-        )
-        parts.append(tier2)
-    return parts
+    print(styled(msg, STYLE_SUCCESS))
 
 
 def print_shell_intro(
@@ -92,24 +58,48 @@ def print_shell_intro(
     *,
     is_keyless: bool = False,
 ) -> None:
-    """Print a compact startup screen with essential status and input hints."""
     if has_api_key and not is_keyless:
         api_status = styled("configured", STYLE_SUCCESS)
     elif is_keyless:
         api_status = styled("free", STYLE_DIM)
     else:
         api_status = styled("missing", STYLE_ERROR)
-    source_status = (
-        styled(_format_source_summary(source_file_count, source_files), STYLE_DIM)
-        if source_file_count
-        else styled("none", STYLE_DIM)
-    )
+    visible_sources = source_files[:3]
+    if not source_file_count:
+        source_text = "none"
+    elif not visible_sources:
+        source_text = f"{source_file_count} file{'s' if source_file_count != 1 else ''}"
+    else:
+        suffix = (
+            f" +{source_file_count - len(visible_sources)}"
+            if source_file_count > len(visible_sources)
+            else ""
+        )
+        source_text = f"{', '.join(visible_sources)}{suffix}"
+    source_status = styled(source_text, STYLE_DIM)
     armory_style = STYLE_CHROME_DETAIL if armory_path != "none" else STYLE_WARNING
     model_text = model or "none"
     model_style = STYLE_CHROME_DETAIL if model else STYLE_WARNING
 
     settings = load_app_settings()
-    hints = _progressive_hints(settings.session_count)
+    hints = [
+        f"{styled('enter', STYLE_CHROME_LABEL)} {styled('send', STYLE_CHROME_DETAIL)}  "
+        f"{styled('tab', STYLE_CHROME_LABEL)} {styled('complete', STYLE_CHROME_DETAIL)}",
+        f"{styled('ctrl+c', STYLE_CHROME_LABEL)} {styled('interrupt', STYLE_CHROME_DETAIL)}"
+        f"  {styled('ctrl+d', STYLE_CHROME_LABEL)} {styled('exit', STYLE_CHROME_DETAIL)}"
+        f"  {styled('/help', STYLE_ACCENT)} {styled('commands', STYLE_CHROME_DETAIL)}",
+    ]
+    if settings.session_count >= 3:
+        hints.append(
+            f"{styled('/vocab', STYLE_ACCENT)} drill"
+            f"  {styled('/models', STYLE_ACCENT)} model"
+            f"  {styled('/theme', STYLE_ACCENT)} theme"
+        )
+    if settings.session_count >= 5:
+        hints.append(
+            f"{styled('!', STYLE_ACCENT)} shell  "
+            f"{styled('\\', STYLE_CHROME_LABEL)} {styled('continuation', STYLE_CHROME_DETAIL)}"
+        )
 
     print(ascii_logo())
     print()
@@ -133,75 +123,3 @@ def print_shell_intro(
             f"  {styled('connect model access', STYLE_WARNING)} {styled('/login', STYLE_ACCENT)}"
         )
     print()
-
-
-def format_shell_header(
-    version: str,
-    armory_path: str,
-    source_file_count: int,
-    model: str,
-    has_api_key: bool,
-    source_files: tuple[str, ...] = (),
-    *,
-    is_keyless: bool = False,
-) -> list[tuple[str, str]]:
-    """Return FormattedText fragments for the fullscreen header bar."""
-    if has_api_key and not is_keyless:
-        api_status = "configured"
-        api_style = "class:header.success"
-    elif is_keyless:
-        api_status = "free"
-        api_style = "class:header.dim"
-    else:
-        api_status = "missing"
-        api_style = "class:header.error"
-    model_text = model or "none"
-    model_style = "class:header.configured" if model else "class:header.warning"
-    source_text = _format_source_summary(source_file_count, source_files)
-    source_style = "class:header.dim" if source_file_count else "class:header.warning"
-    armory_style = "class:header.detail" if armory_path != "none" else "class:header.warning"
-
-    fragments: list[tuple[str, str]] = [
-        ("class:header.title", "\u2301 Hephaistos"),
-        ("class:header.dim", f" v{version}"),
-        ("class:header.dim", "  \u2502  "),
-        ("class:header.metadata", "armory "),
-        (armory_style, armory_path),
-        ("class:header.dim", " \u00b7 "),
-        ("class:header.metadata", "model "),
-        (model_style, model_text),
-        ("class:header.dim", " \u00b7 "),
-        ("class:header.metadata", "api "),
-        (api_style, api_status),
-        ("class:header.dim", " \u00b7 "),
-        ("class:header.metadata", "materials "),
-        (source_style, source_text),
-        ("", "\n"),
-        ("class:header.metadata", "  enter "),
-        ("class:header.detail", "send  "),
-        ("class:header.metadata", "tab "),
-        ("class:header.detail", "complete  "),
-        ("class:header.metadata", "ctrl+c "),
-        ("class:header.detail", "interrupt  "),
-        ("class:header.metadata", "ctrl+d "),
-        ("class:header.detail", "exit"),
-    ]
-    if not has_api_key and not is_keyless:
-        fragments.extend(
-            [
-                ("", "\n"),
-                ("class:header.warning", "  connect model access "),
-                ("class:header.accent", "/login"),
-            ]
-        )
-    return fragments
-
-
-def _format_source_summary(source_file_count: int, source_files: tuple[str, ...]) -> str:
-    if source_file_count == 0:
-        return "none"
-    visible = source_files[:3]
-    if not visible:
-        return f"{source_file_count} file{'s' if source_file_count != 1 else ''}"
-    suffix = f" +{source_file_count - len(visible)}" if source_file_count > len(visible) else ""
-    return f"{', '.join(visible)}{suffix}"

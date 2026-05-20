@@ -1,13 +1,4 @@
-"""OAuth authentication for subscription-based LLM providers.
-
-Implements the Authorization Code + PKCE flow for OpenAI Codex
-(ChatGPT Plus/Pro).  Tokens are stored in ``~/.config/hephaistos/auth.json``
-with ``0600`` permissions and auto-refreshed when expired.
-
-Token resolution is wired into the key resolution chain so that
-``resolve_key()`` transparently returns a fresh access token when
-the active provider has OAuth credentials stored.
-"""
+"""OAuth authentication for subscription-based LLM providers."""
 
 from __future__ import annotations
 
@@ -40,8 +31,6 @@ _log = get_logger("providers.oauth")
 _AUTH_DIR = Path.home() / ".config" / "hephaistos"
 _AUTH_FILE = _AUTH_DIR / "auth.json"
 
-# --- OpenAI Codex OAuth constants -------------------------------------------
-
 _CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 _AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
 _TOKEN_URL = "https://auth.openai.com/oauth/token"
@@ -65,14 +54,7 @@ _ERROR_HTML_TEMPLATE = (
     "<p>{error}</p></body></html>"
 )
 
-# Shared mutable state for the OAuth callback handler.
-# Using a module-level dict instead of class variables avoids
-# stale state if the handler class is subclassed or if tests
-# run concurrently.
 _callback_state: dict[str, str | None] = {}
-
-
-# --- Data classes -----------------------------------------------------------
 
 
 @dataclass
@@ -90,18 +72,12 @@ class OAuthCredentials:
         return time.time() * 1000 >= self.expires_at
 
 
-# --- PKCE helpers -----------------------------------------------------------
-
-
 def generate_pkce() -> tuple[str, str]:
     """Return ``(verifier, challenge)`` for PKCE S256."""
     verifier = secrets.token_urlsafe(32)
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
     return verifier, challenge
-
-
-# --- JWT helpers ------------------------------------------------------------
 
 
 def _decode_jwt_payload(token: str) -> dict[str, object]:
@@ -128,9 +104,6 @@ def _extract_account_id(access_token: str) -> str | None:
         return None
     account_id = auth_info.get("chatgpt_account_id")
     return account_id if isinstance(account_id, str) and account_id else None
-
-
-# --- Callback server --------------------------------------------------------
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
@@ -213,9 +186,6 @@ def _wait_for_callback(server: HTTPServer) -> None:
         server.handle_request()
 
 
-# --- Token exchange ---------------------------------------------------------
-
-
 def _ssl_context() -> ssl.SSLContext:
     """Build an SSL context that can verify server certificates on macOS.
 
@@ -246,31 +216,14 @@ def _post_form(url: str, data: dict[str, str]) -> dict[str, object]:
         return {}
 
 
-def _exchange_code(code: str, verifier: str) -> dict[str, object]:
-    return _post_form(
-        _TOKEN_URL,
-        {
-            "grant_type": "authorization_code",
-            "client_id": _CLIENT_ID,
-            "code": code,
-            "code_verifier": verifier,
-            "redirect_uri": _REDIRECT_URI,
-        },
-    )
-
-
-def _refresh_access_token(refresh_token: str) -> dict[str, object]:
-    return _post_form(
-        _TOKEN_URL,
-        {
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "client_id": _CLIENT_ID,
-        },
-    )
-
-
-# --- High-level login / refresh ---------------------------------------------
+def _post_json(url: str, data: dict[str, str]) -> dict[str, object]:
+    body = json.dumps(data).encode("utf-8")
+    req = Request(url, data=body, headers={"Content-Type": "application/json"})
+    with urlopen(req, timeout=30, context=_ssl_context()) as resp:  # nosec B310
+        payload: object = json.loads(resp.read())
+        if is_string_mapping(payload):
+            return payload
+        return {}
 
 
 def _parse_token_response(
@@ -300,14 +253,7 @@ def _parse_token_response(
 
 
 def login_openai_codex() -> OAuthCredentials:
-    """Run the OpenAI Codex (ChatGPT) OAuth login flow.
-
-    1. Generate PKCE pair and random state.
-    2. Start a local HTTP server on port 1455.
-    3. Open the browser for the user to authenticate.
-    4. Receive the callback, exchange code for tokens.
-    5. Persist credentials to ``auth.json``.
-    """
+    """Run the OpenAI Codex OAuth login flow."""
     verifier, challenge = generate_pkce()
     state = secrets.token_hex(16)
 
@@ -329,7 +275,6 @@ def login_openai_codex() -> OAuthCredentials:
     server = _start_callback_server()
 
     if server is None:
-        # Fallback: manual paste
         print("  Could not start local callback server.")
         print(f"  Open this URL in your browser:\n\n    {auth_url}\n")
         redirect = input("  Paste the full redirect URL: ").strip()
@@ -359,7 +304,16 @@ def login_openai_codex() -> OAuthCredentials:
             raise RuntimeError("No authorization code received.")
 
     print("  Exchanging authorization code for tokens...")
-    token_data = _exchange_code(code, verifier)
+    token_data = _post_form(
+        _TOKEN_URL,
+        {
+            "grant_type": "authorization_code",
+            "client_id": _CLIENT_ID,
+            "code": code,
+            "code_verifier": verifier,
+            "redirect_uri": _REDIRECT_URI,
+        },
+    )
     creds = _parse_token_response(token_data, provider="openai-codex")
 
     save_credentials(creds)
@@ -368,7 +322,14 @@ def login_openai_codex() -> OAuthCredentials:
 
 def refresh_credentials(creds: OAuthCredentials) -> OAuthCredentials:
     """Refresh an expired token and persist the new credentials."""
-    token_data = _refresh_access_token(creds.refresh_token)
+    token_data = _post_json(
+        _TOKEN_URL,
+        {
+            "grant_type": "refresh_token",
+            "refresh_token": creds.refresh_token,
+            "client_id": _CLIENT_ID,
+        },
+    )
     new_creds = _parse_token_response(
         token_data,
         provider=creds.provider,
@@ -376,9 +337,6 @@ def refresh_credentials(creds: OAuthCredentials) -> OAuthCredentials:
     )
     save_credentials(new_creds)
     return new_creds
-
-
-# --- Persistence ------------------------------------------------------------
 
 
 def _load_all() -> dict[str, dict[str, object]]:
@@ -393,9 +351,17 @@ def _load_all() -> dict[str, dict[str, object]]:
         return {}
 
 
-def save_credentials(creds: OAuthCredentials) -> None:
+def _write_all(data: dict[str, dict[str, object]]) -> None:
     _AUTH_DIR.mkdir(parents=True, exist_ok=True)
     _AUTH_DIR.chmod(0o700)
+    raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
+    fd = os.open(str(_AUTH_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(raw)
+
+
+def save_credentials(creds: OAuthCredentials) -> None:
     data = _load_all()
     data[creds.provider] = {
         "type": "oauth",
@@ -404,14 +370,8 @@ def save_credentials(creds: OAuthCredentials) -> None:
         "expires_at": creds.expires_at,
         "account_id": creds.account_id,
     }
-    raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
-    fd = os.open(str(_AUTH_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    _write_all(data)
 
-    with os.fdopen(fd, "wb") as f:
-        f.write(raw)
-
-
-# --- In-process credentials cache -------------------------------------------
 
 _creds_cache: dict[str, OAuthCredentials] = {}
 
@@ -478,19 +438,7 @@ def clear_credentials(provider: str) -> bool:
     if provider not in data:
         return removed_volatile or removed_cached
     del data[provider]
-    _AUTH_DIR.mkdir(parents=True, exist_ok=True)
-    _AUTH_DIR.chmod(0o700)
-    raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
-
-    fd = os.open(
-        str(_AUTH_FILE),
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-        0o600,
-    )
-
-    with os.fdopen(fd, "wb") as f:
-        f.write(raw)
-
+    _write_all(data)
     return True
 
 

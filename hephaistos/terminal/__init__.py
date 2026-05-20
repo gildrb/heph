@@ -1,9 +1,4 @@
-"""Shared terminal utilities: styling, I/O primitives, and menu helpers.
-
-This module is the single source of truth for low-level terminal interaction
-used by adapter packages and leaf packages like ``vocab``. No code in this
-module may import from CLI, command, or TUI adapters.
-"""
+"""Shared terminal styling, I/O primitives, and menu helpers."""
 
 from __future__ import annotations
 
@@ -76,7 +71,6 @@ _current_theme_name = DEFAULT_THEME
 
 
 def set_theme(theme_name: str) -> str:
-    """Set the active theme and return the normalized preset name."""
     global _current_theme_name  # noqa: PLW0603
     normalized = theme_name.strip().lower()
     if normalized not in _PALETTES:
@@ -95,23 +89,16 @@ def current_palette() -> Theme:
 
 def style_code(style_name: str) -> str:
     palette = current_palette()
-    if style_name in {"accent", "warning"}:
-        return f"{BOLD}{ansi_fg(palette.action_primary_bg)}"
-    if style_name in {"prompt", "assistant", "emphasis"}:
-        return f"{BOLD}{ansi_fg(palette.text_primary)}"
-    if style_name in {"brand", "ember"}:
-        return f"{BOLD}{ansi_fg(palette.brand_primary)}"
-    if style_name in {"chrome_label", "shortcut", "metadata"}:
-        return ansi_fg(palette.text_secondary)
-    if style_name == "chrome_detail":
-        return ansi_fg(palette.text_muted)
-    if style_name == "dim":
-        return f"{DIM}{ansi_fg(palette.text_muted)}"
-    if style_name == "error":
-        return f"{BOLD}{ansi_fg(palette.status_error_text)}"
-    if style_name == "success":
-        return f"{BOLD}{ansi_fg(palette.action_primary_bg)}"
-    return ""
+    style_groups: tuple[tuple[set[str], str], ...] = (
+        ({"accent", "warning", "success"}, f"{BOLD}{ansi_fg(palette.action_primary_bg)}"),
+        ({"prompt", "assistant", "emphasis"}, f"{BOLD}{ansi_fg(palette.text_primary)}"),
+        ({"brand", "ember"}, f"{BOLD}{ansi_fg(palette.brand_primary)}"),
+        ({"chrome_label", "shortcut", "metadata"}, ansi_fg(palette.text_secondary)),
+        ({"chrome_detail"}, ansi_fg(palette.text_muted)),
+        ({"dim"}, f"{DIM}{ansi_fg(palette.text_muted)}"),
+        ({"error"}, f"{BOLD}{ansi_fg(palette.status_error_text)}"),
+    )
+    return next((code for names, code in style_groups if style_name in names), "")
 
 
 class _StyleToken:
@@ -156,7 +143,6 @@ _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 
 def visible_len(text: str) -> int:
-    """Return the visible (non-ANSI) character count of a string."""
     return len(_ANSI_RE.sub("", text))
 
 
@@ -178,7 +164,6 @@ class _TextOutput(Protocol):
 
 
 def _real_stdout() -> _TextOutput:
-    """Return the real terminal stdout, bypassing any ``patch_stdout`` proxy."""
     out: object = sys.stdout
     while isinstance(out, _StdoutProxy):
         out = out.original_stdout
@@ -188,14 +173,12 @@ def _real_stdout() -> _TextOutput:
 
 
 def direct_print(text: str, end: str = "\n") -> None:
-    """Write directly to the real terminal, bypassing ``patch_stdout``."""
     out = _real_stdout()
     out.write(text + end)
     out.flush()
 
 
 def direct_input(prompt: str = "") -> str:
-    """Read a line from stdin, bypassing any ``patch_stdout`` proxy."""
     with redirect_stdout(_real_stdout()):
         return builtins.input(prompt)
 
@@ -212,7 +195,10 @@ class MenuOption:
     is_current: bool = False
 
 
-def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
+def select_option(title: str, options: list[MenuOption]) -> int | None:
+    if not options:
+        return None
+
     direct_print(styled(title, STYLE_PROMPT))
     for option in options:
         label = styled(option.label, BOLD)
@@ -246,32 +232,11 @@ def _select_with_prompt(title: str, options: list[MenuOption]) -> int | None:
         direct_print("Unknown option.")
 
 
-def select_option(
-    title: str,
-    options: list[MenuOption],
-    *,
-    keybindings: dict[str, str | list[str]] | None = None,
-) -> int | None:
-    """Return the selected option index or ``None`` when cancelled.
-
-    *keybindings* is accepted for API compatibility but is no longer used;
-    selection always goes through the plain-text prompt.
-    """
-    if not options:
-        return None
-
-    return _select_with_prompt(title, options)
-
-
 def confirm(title: str, default: bool = False) -> bool:
-    """Show a yes/no confirmation menu.  Returns True for yes."""
     opts = [
-        MenuOption("Yes", ""),
+        MenuOption("Yes", "", is_current=default),
         MenuOption("No", "", is_current=not default),
     ]
-    if default:
-        opts[0] = MenuOption("Yes", "", is_current=True)
-        opts[1] = MenuOption("No", "")
     selected = select_option(title, opts)
     return selected == 0
 
@@ -284,7 +249,6 @@ _PARENT_LABEL = "..  (parent)"
 
 
 def _list_child_dirs(path: Path) -> list[Path]:
-    """Return sorted list of child directories, skipping hidden ones."""
     try:
         entries = sorted(path.iterdir())
     except PermissionError:
@@ -292,9 +256,11 @@ def _list_child_dirs(path: Path) -> list[Path]:
     return [e for e in entries if e.is_dir() and not e.name.startswith(".")]
 
 
-def _browse_with_prompt(title: str, start: Path) -> Path | None:
-    """Directory browser using a plain-text prompt."""
-    current = start.resolve()
+def browse_directory(
+    title: str = "Select Directory",
+    start: Path | None = None,
+) -> Path | None:
+    current = (start or Path.home()).resolve()
     while True:
         direct_print(styled(f"{title}: {current}", STYLE_PROMPT))
         entries = [_PARENT_LABEL] + [d.name for d in _list_child_dirs(current)]
@@ -325,15 +291,3 @@ def _browse_with_prompt(title: str, start: Path) -> Path | None:
                 current = children[child_idx]
         else:
             direct_print("Unknown option.")
-
-
-def browse_directory(
-    title: str = "Select Directory",
-    start: Path | None = None,
-) -> Path | None:
-    """Open an interactive directory browser and return the chosen path.
-
-    Returns ``None`` when the user cancels.
-    """
-    root = start or Path.home()
-    return _browse_with_prompt(title, root)

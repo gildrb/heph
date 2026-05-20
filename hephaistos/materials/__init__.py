@@ -1,9 +1,4 @@
-"""Study material discovery for armories.
-
-User source files live under ``materials/``. Hephaistos infers the role of files
-inside that folder instead of requiring users to classify them into separate
-buckets.
-"""
+"""Study material discovery and role inference for armories."""
 
 from __future__ import annotations
 
@@ -101,8 +96,6 @@ _NUMBERED_TEXTBOOK_SECTION_RE = re.compile(
 
 @dataclass(frozen=True, slots=True)
 class MaterialFile:
-    """A material file discovered inside an armory."""
-
     path: Path
     rel_path: str
     kind: MaterialKind
@@ -112,11 +105,18 @@ class MaterialFile:
 
 
 def material_kind(rel_path: str | Path) -> MaterialKind | None:
-    """Return the material kind for a relative armory path."""
     first = Path(rel_path).parts[0] if Path(rel_path).parts else ""
     if first == MATERIALS_DIR:
         return "materials"
     return None
+
+
+def material_display_name(rel_path: str | Path) -> str:
+    return str(rel_path).removeprefix(f"{MATERIALS_DIR}/")
+
+
+def _path_has(normalized: str, tokens: tuple[str, ...]) -> bool:
+    return any(token in normalized for token in tokens)
 
 
 def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]:
@@ -130,9 +130,9 @@ def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]
     normalized = "/".join(part.lower() for part in path.parts)
     suffix = path.suffix.lower()
 
-    if any(
-        token in normalized
-        for token in (
+    if _path_has(
+        normalized,
+        (
             "exam",
             "past-paper",
             "past_paper",
@@ -142,25 +142,22 @@ def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]
             "nachklausur",
             "pruefung",
             "prüfung",
-        )
+        ),
     ):
         return "past_exam", 0.9, "path suggests an exam or past paper"
-    if any(token in normalized for token in ("assignment", "homework", "problem-set", "pset")):
+    if _path_has(normalized, ("assignment", "homework", "problem-set", "pset")):
         return "assignment", 0.85, "path suggests assigned problems"
-    if any(token in normalized for token in ("vocab", "glossary", "flashcard")):
+    if _path_has(normalized, ("vocab", "glossary", "flashcard")):
         return "vocabulary", 0.85, "path suggests vocabulary practice"
     if path.stem.lower() in {"summary", "reference"}:
         return "reference", 0.76, "path suggests a summary or reference page"
-    if any(token in normalized for token in ("folie", "folien", "slides")):
+    if _path_has(normalized, ("folie", "folien", "slides")):
         return "slides", 0.9, "path suggests lecture slides"
-    if any(token in normalized for token in ("lecture", "seminar", "class-notes")):
+    if _path_has(normalized, ("lecture", "seminar", "class-notes")):
         return "lecture", 0.8, "path suggests lecture material"
-    if any(token in normalized for token in ("slide", "deck", "presentation")) or suffix in (
-        ".ppt",
-        ".pptx",
-    ):
+    if _path_has(normalized, ("slide", "deck", "presentation")) or suffix in (".ppt", ".pptx"):
         return "slides", 0.8, "path or file type suggests slides"
-    if any(token in normalized for token in ("book", "textbook", "chapter")):
+    if _path_has(normalized, ("book", "textbook", "chapter")):
         return "textbook", 0.8, "path suggests a textbook or chapter"
     if suffix in (".py", ".js", ".ts", ".java", ".go", ".rs", ".cpp", ".c", ".h"):
         return "codebase", 0.75, "file extension suggests source code"
@@ -285,18 +282,14 @@ def iter_materials(armory_path: Path) -> Iterator[MaterialFile]:
 
 
 def iter_material_files(armory_path: Path) -> Iterator[Path]:
-    """Yield visible material paths in stable order."""
-    for material in iter_materials(armory_path):
-        yield material.path
+    yield from (material.path for material in iter_materials(armory_path))
 
 
 def count_material_files(armory_path: Path) -> int:
-    """Return the number of visible material files in an armory."""
     return sum(1 for _material in iter_materials(armory_path))
 
 
 def material_manifest(armory_path: Path) -> tuple[MaterialFile, ...]:
-    """Return all visible materials with classification metadata."""
     return tuple(iter_materials(armory_path))
 
 

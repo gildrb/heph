@@ -1,10 +1,4 @@
-"""Persona definitions for agent behavior switching.
-
-Each persona defines a system-role block that replaces the default
-drill-instructor personality in the system prompt.  The recall loop,
-anti-hallucination rules, tool docs, and format rules remain unchanged
-— only the tone and behavioral framing varies.
-"""
+"""Persona definitions for agent behavior switching."""
 
 from __future__ import annotations
 
@@ -13,8 +7,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class Persona:
-    """A single agent persona definition."""
-
     slug: str
     display_name: str
     description: str
@@ -155,21 +147,12 @@ source material.
 
 
 def get_persona(slug: str) -> Persona | None:
-    """Look up a persona by slug."""
     return _PERSONAS.get(slug)
 
 
 def list_personas() -> list[Persona]:
-    """Return all registered personas, with the default first."""
-    result = [DEFAULT]
-    result.extend(p for p in _PERSONAS.values() if p.slug != DEFAULT.slug)
-    return result
+    return [DEFAULT, *(p for p in _PERSONAS.values() if p.slug != DEFAULT.slug)]
 
 
 def resolve_persona(slug: str | None) -> Persona:
-    """Return the persona for *slug*, falling back to the default."""
-    if slug:
-        persona = _PERSONAS.get(slug)
-        if persona is not None:
-            return persona
-    return DEFAULT
+    return _PERSONAS.get(slug, DEFAULT) if slug else DEFAULT

@@ -26,18 +26,6 @@ def _onboarding_armory_home() -> Path:
     return _DEFAULT_ARMORY_HOME or default_armory_home()
 
 
-def _module_name_error(name: str) -> str | None:
-    if len(name.encode("utf-8")) > 120:
-        return "Module name is too long; use a shorter armory name."
-    if name in {".", ".."} or Path(name).is_absolute():
-        return "Module name must be a simple folder name, not a path."
-    if any(part in {"", ".", ".."} for part in Path(name).parts) or len(Path(name).parts) != 1:
-        return "Module name must be a simple folder name, not a path."
-    if "/" in name or "\\" in name:
-        return "Module name must not contain path separators."
-    return None
-
-
 def _prompt_module_name() -> str | None:
     print_info(
         "What module, project, or topic should this armory cover? "
@@ -53,8 +41,20 @@ def _prompt_module_name() -> str | None:
             return None
         if not name or name.lower() in {"q", "quit", "cancel"}:
             return None
-        if error := _module_name_error(name):
-            print_error(error)
+        name_path = Path(name)
+        if len(name.encode("utf-8")) > 120:
+            print_error("Module name is too long; use a shorter armory name.")
+            continue
+        if (
+            name in {".", ".."}
+            or name_path.is_absolute()
+            or any(part in {"", ".", ".."} for part in name_path.parts)
+            or len(name_path.parts) != 1
+        ):
+            print_error("Module name must be a simple folder name, not a path.")
+            continue
+        if "/" in name or "\\" in name:
+            print_error("Module name must not contain path separators.")
             continue
         return name
 

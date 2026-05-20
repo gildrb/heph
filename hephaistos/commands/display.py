@@ -1,5 +1,3 @@
-"""Display and statistics commands: evidence, tokens, cost, stats, usage."""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -31,19 +29,8 @@ from hephaistos.terminal.source_open import open_source_file
 from hephaistos.vocab.parser import scan_armory
 from hephaistos.vocab.state import load_schedule, save_schedule
 
-
-def _parse_evidence_args(args: str) -> tuple[str | None, bool]:
-    tokens = args.strip().split()
-    if not tokens:
-        return None, False
-    open_requested = any(token.lower() in {"open", "source"} for token in tokens)
-    for token in tokens:
-        cleaned = token.strip("[](),;:").upper()
-        if cleaned.startswith("E") and cleaned[1:].isdigit():
-            return cleaned, open_requested
-        if cleaned.isdigit():
-            return f"E{cleaned}", open_requested
-    return None, open_requested
+_VISIBILITY_ON = ("show", "on", "yes", "true", "1")
+_VISIBILITY_OFF = ("hide", "off", "no", "false", "0")
 
 
 def _item_path_and_span(
@@ -59,30 +46,6 @@ def _item_path_and_span(
     return path, chunk_line_span(path, item.chunk)
 
 
-def _preview(content: str, max_chars: int = 160) -> str:
-    preview = " ".join(content.split())
-    if len(preview) <= max_chars:
-        return preview
-    return f"{preview[: max_chars - 3]}..."
-
-
-def _format_evidence_summary(session: ChatSession, item: EvidenceChunk) -> list[str]:
-    path, span = _item_path_and_span(session, item)
-    location = evidence_location_label(item.source, item.chunk, span)
-    details = [
-        f"  {item.evidence_id}  {location}; score={item.score:.3f}",
-    ]
-    if item.chunk.heading:
-        details.append(f"      heading: {item.chunk.heading}")
-    preview = _preview(item.content)
-    if preview:
-        details.append(f"      {preview}")
-    details.append(f"      expand: /evidence {item.evidence_id}")
-    if path is not None:
-        details.append(f"      open:   /evidence {item.evidence_id} open")
-    return details
-
-
 def _format_evidence_overview(session: ChatSession, items: tuple[EvidenceChunk, ...]) -> str:
     by_source: dict[str, list[EvidenceChunk]] = {}
     for item in items:
@@ -92,7 +55,19 @@ def _format_evidence_overview(session: ChatSession, items: tuple[EvidenceChunk, 
     for source, source_items in by_source.items():
         lines.append(f"{source}")
         for item in source_items:
-            lines.extend(_format_evidence_summary(session, item))
+            path, span = _item_path_and_span(session, item)
+            location = evidence_location_label(item.source, item.chunk, span)
+            lines.append(f"  {item.evidence_id}  {location}; score={item.score:.3f}")
+            if item.chunk.heading:
+                lines.append(f"      heading: {item.chunk.heading}")
+            preview = " ".join(item.content.split())
+            if len(preview) > 160:
+                preview = f"{preview[:157]}..."
+            if preview:
+                lines.append(f"      {preview}")
+            lines.append(f"      expand: /evidence {item.evidence_id}")
+            if path is not None:
+                lines.append(f"      open:   /evidence {item.evidence_id} open")
     lines.append("")
     lines.append("Expand exact source text: /evidence E1")
     lines.append("Open source at line:      /evidence E1 open")
@@ -109,18 +84,10 @@ def _format_evidence_detail(session: ChatSession, item: EvidenceChunk) -> str:
     ]
     if item.chunk.heading:
         lines.append(f"heading: {item.chunk.heading}")
-    lines.append("")
-    lines.append("Source text:")
-    if path is not None:
-        excerpt = source_excerpt(path, item.chunk)
-        if excerpt:
-            lines.append(excerpt)
-        else:
-            lines.append(item.content)
-    else:
-        lines.append(item.content)
-    lines.append("")
-    lines.append(f"Open source: /evidence {item.evidence_id} open")
+    lines += ["", "Source text:"]
+    excerpt = source_excerpt(path, item.chunk) if path is not None else ""
+    lines.append(excerpt or item.content)
+    lines += ["", f"Open source: /evidence {item.evidence_id} open"]
     return "\n".join(lines)
 
 
@@ -146,6 +113,22 @@ def _open_evidence_item(session: ChatSession, item: EvidenceChunk) -> None:
     print_success(result.message)
 
 
+def _update_visibility(session: ChatSession, args: str, attr: str, label: str, usage: str) -> None:
+    value = args.strip().lower()
+    if value in _VISIBILITY_ON:
+        visible = True
+    elif value in _VISIBILITY_OFF:
+        visible = False
+    elif value:
+        print_error(usage)
+        return
+    else:
+        visible = not bool(getattr(session, attr))
+    setattr(session, attr, visible)
+    state = "shown" if visible else "hidden"
+    print_success(f"{label} {state}.")
+
+
 class EvidenceCommand(Command):
     name = "evidence"
     description = "Show retrieved evidence for the last turn"
@@ -158,7 +141,17 @@ class EvidenceCommand(Command):
             print_info("No evidence was retrieved for the last turn.")
             return CommandResult()
 
-        evidence_id, open_requested = _parse_evidence_args(args)
+        evidence_id: str | None = None
+        tokens = args.strip().split()
+        open_requested = any(token.lower() in {"open", "source"} for token in tokens)
+        for token in tokens:
+            cleaned = token.strip("[](),;:").upper()
+            if cleaned.startswith("E") and cleaned[1:].isdigit():
+                evidence_id = cleaned
+                break
+            if cleaned.isdigit():
+                evidence_id = f"E{cleaned}"
+                break
         if evidence_id is not None:
             item = evidence.get(evidence_id)
             if item is None:
@@ -184,18 +177,9 @@ class TokensCommand(Command):
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
-        value = args.strip().lower()
-        if value in ("show", "on", "yes", "true", "1"):
-            s.live_tokens_visible = True
-        elif value in ("hide", "off", "no", "false", "0"):
-            s.live_tokens_visible = False
-        elif value:
-            print_error("Usage: /tokens [show|hide]")
-            return CommandResult()
-        else:
-            s.live_tokens_visible = not s.live_tokens_visible
-        state = "shown" if s.live_tokens_visible else "hidden"
-        print_success(f"Live tokens {state}.")
+        _update_visibility(
+            s, args, "live_tokens_visible", "Live tokens", "Usage: /tokens [show|hide]"
+        )
         return CommandResult()
 
 
@@ -205,18 +189,7 @@ class CostCommand(Command):
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
-        value = args.strip().lower()
-        if value in ("show", "on", "yes", "true", "1"):
-            s.live_cost_visible = True
-        elif value in ("hide", "off", "no", "false", "0"):
-            s.live_cost_visible = False
-        elif value:
-            print_error("Usage: /cost [show|hide]")
-            return CommandResult()
-        else:
-            s.live_cost_visible = not s.live_cost_visible
-        state = "shown" if s.live_cost_visible else "hidden"
-        print_success(f"Live cost {state}.")
+        _update_visibility(s, args, "live_cost_visible", "Live cost", "Usage: /cost [show|hide]")
         return CommandResult()
 
 
@@ -265,7 +238,6 @@ class StatsCommand(Command):
 
     @staticmethod
     def _vocab_stats(armory_path: Path) -> list[str]:
-        """Return vocabulary scheduling statistics for the armory."""
         deck = scan_armory(armory_path)
         store = load_schedule(armory_path)
         store.sync_with_deck(deck)
@@ -304,13 +276,11 @@ class StatsCommand(Command):
             for card in cards
             if card.next_review is not None and card.next_review <= now + timedelta(days=1)
         )
-        lines.append(f"  Due tomorrow: {due_tomorrow}")
-        lines.append(f"  Due this week: {due_this_week}")
+        lines.extend([f"  Due tomorrow: {due_tomorrow}", f"  Due this week: {due_this_week}"])
         return lines
 
     @staticmethod
     def _study_stats(session: ChatSession) -> list[str]:
-        """Return study mode feedback from the current session state."""
         study = session.study_state
         if study.last_feedback_type == StudyFeedbackType.NONE:
             return []

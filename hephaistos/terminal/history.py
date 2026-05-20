@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
 
 
 class InputHistory:
-    """Tracks user inputs and supports arrow-key navigation."""
-
     def __init__(self, entries: list[str] | None = None) -> None:
         self._entries: list[str] = entries or []
 
@@ -38,8 +35,7 @@ class InputHistory:
         try:
             raw = json.loads(path.read_text())
             if isinstance(raw, list):
-                string_list = cast("list[str | int | float]", raw)
-                return cls([str(e) for e in string_list])
+                return cls([str(e) for e in raw])
         except (json.JSONDecodeError, OSError):
             pass
         return cls()

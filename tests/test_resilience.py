@@ -1,10 +1,10 @@
-"""Tests for the circuit breaker in hephaistos.chat.resilience."""
+"""Tests for runtime circuit-breaker helpers."""
 
 from __future__ import annotations
 
 import time
 
-from hephaistos.chat.resilience import (
+from hephaistos.runtime.resilience import (
     CircuitBreaker,
     CircuitState,
     is_network_error,

@@ -7,21 +7,22 @@ from pathlib import Path
 import pytest
 
 import hephaistos.commands.display as _commands_display
-import hephaistos.commands.memory as _commands_memory
 import hephaistos.commands.model as _commands_model
 import hephaistos.commands.persona as _commands_persona
 import hephaistos.commands.session as _commands_session
 import hephaistos.commands.study as _commands_study
+import hephaistos.providers.model_choices as _model_choices
 from hephaistos import commands
 from hephaistos.armory.storage import initialize
-from hephaistos.chat.engine import ChatConfig, Conversation
+from hephaistos.chat import model_selection as _model_selection
 from hephaistos.chat.session import ChatSession, create_plain_session
 from hephaistos.providers import catalog
 from hephaistos.providers.catalog import LiveProviderCatalog
-from hephaistos.providers.config import default_config
+from hephaistos.providers.config import Provider, default_config
 from hephaistos.providers.registry import ModelInfo
 from hephaistos.rag.chunker import Chunk
 from hephaistos.rag.context import EvidenceChunk, TurnEvidence
+from hephaistos.runtime import ChatConfig, Conversation
 from hephaistos.study import StudyAutonomyMode, StudyFeedbackType, StudyPhase, StudyRecallRating
 from hephaistos.study.priority import PriorityAnalysis, PriorityPdfCompiler, PriorityReport
 from hephaistos.study.schedule import load_study_schedule
@@ -194,6 +195,46 @@ def test_import_command_refreshes_running_session_sources(tmp_path: Path) -> Non
     assert session.rag_index is None
 
 
+def test_export_command_writes_session_markdown(tmp_path: Path) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+    session.title = "Lesson notes"
+    session.conversation.add("system", "private setup")
+    session.conversation.add("user", "What matters here?")
+    session.conversation.add("assistant", "The cited material.")
+    export_path = tmp_path / "session.md"
+
+    commands.ExportCommand().handle(session, str(export_path))
+
+    assert export_path.read_text(encoding="utf-8") == "\n".join(
+        [
+            "# Lesson notes",
+            "",
+            "## You",
+            "",
+            "What matters here?",
+            "",
+            "## Hephaistos",
+            "",
+            "The cited material.",
+            "",
+        ]
+    )
+
+
+def test_export_command_skips_empty_sessions(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+    session.conversation.add("system", "private setup")
+    export_path = tmp_path / "session.md"
+
+    commands.ExportCommand().handle(session, str(export_path))
+
+    assert not export_path.exists()
+    assert "Nothing to export" in capsys.readouterr().out
+
+
 def test_exam_command_warns_and_resends_active_recall_prompt(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -310,28 +351,15 @@ def test_command_registry_includes_memory_and_recommend() -> None:
     assert "recommend" in names
 
 
-def test_memory_status_reports_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_memory_status_reports_local_memory(capsys: pytest.CaptureFixture[str]) -> None:
     session = create_plain_session(ChatConfig(api_key="test-key"))
-    monkeypatch.setattr(_commands_memory, "resolve_supermemory_key", lambda: "")
 
     result = commands.MemoryCommand().handle(session, "status")
 
     out = capsys.readouterr().out
     assert result.output is None
-    assert "Supermemory: disabled" in out
-    assert "Run /memory setup" in out
-
-
-def test_memory_disable_updates_settings(capsys: pytest.CaptureFixture[str]) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.MemoryCommand().handle(session, "disable")
-
-    out = capsys.readouterr().out
-    assert "Supermemory disabled" in out
+    assert "Backend:" in out
+    assert "Entries:" in out
 
 
 def test_recommend_command_lists_study_models(capsys: pytest.CaptureFixture[str]) -> None:
@@ -610,6 +638,51 @@ def test_models_command_shows_live_openrouter_models(
         "anthropic/claude-sonnet-latest",
     ]
     assert visible_options[0].description == "via OpenRouter  free, API key required"
+
+
+def test_model_choices_hide_active_openai_codex_without_oauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pc = default_config()
+    pc.set_active("openai-codex")
+    pc.providers["openai-codex"].current_model = "gpt-5.5"
+
+    def accessible(provider: Provider, *, refresh_oauth: bool = True) -> bool:
+        return provider.slug != "openai-codex"
+
+    monkeypatch.setattr(_model_choices, "provider_is_accessible", accessible)
+
+    choices = _model_choices.configured_model_choices(pc)
+
+    assert all(slug != "openai-codex" for slug, _model, _display, _free in choices)
+    assert any(slug == "pollinations" for slug, _model, _display, _free in choices)
+
+
+def test_switch_model_rejects_inaccessible_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pc = default_config()
+    pc.set_active("openai-codex")
+    pc.providers["openai-codex"].current_model = "gpt-5.5"
+    session = ChatSession(
+        config=ChatConfig(base_url="https://api.openai.com/v1", model="openai"),
+        conversation=Conversation(),
+        session_id="session-1",
+    )
+
+    monkeypatch.setattr(
+        _model_selection.ProviderConfig,
+        "load",
+        classmethod(lambda _cls: pc),
+    )
+    monkeypatch.setattr(
+        _model_selection,
+        "provider_is_accessible",
+        lambda _provider, *, refresh_oauth=True: False,
+    )
+
+    assert not _model_selection.switch_model(session, "openai-codex", "gpt-5.5")
+    assert session.config.model == "openai"
 
 
 def test_clear_command_supports_plain_chat(monkeypatch: pytest.MonkeyPatch) -> None:

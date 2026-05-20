@@ -101,10 +101,6 @@ class _TranscriptHost(Protocol):
         ansi: bool = False,
     ) -> None: ...
 
-    def _write_user_transcript_lines(self, log: RichLog, text: str) -> None: ...
-
-    def _write_startup_card_lines(self, log: RichLog, text: str) -> None: ...
-
     def _write_padded_panel_lines(
         self,
         log: RichLog,
@@ -194,14 +190,11 @@ def _evidence_metadata_style() -> _RichStyle:
     return _RichStyle.parse(f"dim {current_palette().text_muted}")
 
 
-def _markdown_renderable(entry: TuiTranscriptEntry) -> RenderableType:
-    if entry.evidence and entry.evidence.items:
-        return _EvidenceMarkdown(entry.content, _evidence_metadata_style())
-    return Markdown(entry.content)
-
-
 def _reply_renderable(entry: TuiTranscriptEntry) -> RenderableType:
-    renderable = _markdown_renderable(entry)
+    if entry.evidence and entry.evidence.items:
+        renderable = _EvidenceMarkdown(entry.content, _evidence_metadata_style())
+    else:
+        renderable = Markdown(entry.content)
     if Padding is None:
         return renderable
     return Padding(renderable, (0, _REPLY_TRANSCRIPT_HORIZONTAL_PADDING))
@@ -300,15 +293,6 @@ class TuiTranscriptMixin:
                 renderable = line
             self._write_transcript_renderable(log, renderable)
 
-    def _write_user_transcript_lines(self: _TranscriptHost, log: RichLog, text: str) -> None:
-        p = current_palette()
-        style = _RichStyle(color=p.text_primary, bgcolor=p.bg_raised, bold=True)
-        self._write_padded_panel_lines(log, text, style=style)
-
-    def _write_startup_card_lines(self: _TranscriptHost, log: RichLog, text: str) -> None:
-        p = current_palette()
-        self._write_transcript_lines(log, text, style=_RichStyle(color=p.text_muted))
-
     def _write_padded_panel_lines(
         self: _TranscriptHost,
         log: RichLog,
@@ -347,9 +331,19 @@ class TuiTranscriptMixin:
         if entry.kind == "markdown":
             self._write_transcript_renderable(log, _reply_renderable(entry))
         elif entry.kind == "user":
-            self._write_user_transcript_lines(log, entry.content)
+            p = current_palette()
+            self._write_padded_panel_lines(
+                log,
+                entry.content,
+                style=_RichStyle(color=p.text_primary, bgcolor=p.bg_raised, bold=True),
+            )
         elif entry.kind == "startup":
-            self._write_startup_card_lines(log, entry.content)
+            p = current_palette()
+            self._write_transcript_lines(
+                log,
+                entry.content,
+                style=_RichStyle(color=p.text_muted),
+            )
         elif entry.kind == "ansi":
             if _RichText is None:
                 self._write_transcript_lines(log, entry.content)
@@ -431,9 +425,10 @@ class TuiTranscriptMixin:
     def _refresh_footer_hints(self: _TranscriptHost) -> None:
         self._refresh_completion_position()
         hints = self.query_one("#footer-hints", Static)
+        tui_module = sys.modules["hephaistos.tui"]
         if self._armory_inline_active:
             hints.update(
-                sys.modules["hephaistos.tui"]._armory_footer_hints_text(
+                tui_module._armory_footer_hints_text(
                     creating=self._armory_creating,
                     filtering=bool(self._armory_filter),
                 )
@@ -442,11 +437,6 @@ class TuiTranscriptMixin:
         if self._materials_inline_active:
             hints.update("")
             return
-        if self.busy:
-            tui_module = sys.modules["hephaistos.tui"]
-            hints.update(tui_module._footer_hints_text(self.session, busy=True))
-            return
-        tui_module = sys.modules["hephaistos.tui"]
         hints.update(tui_module._footer_hints_text(self.session, busy=self.busy))
 
     def _focus_message(self: _TranscriptHost, direction: int) -> None:

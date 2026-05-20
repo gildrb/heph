@@ -22,6 +22,7 @@ from hephaistos.runtime.engine import (
     stream_reply,
     to_chat_completion_messages,
 )
+from hephaistos.runtime.messages import api_content_text, message_content_text
 from hephaistos.runtime.resilience import (
     CircuitBreaker,
     CircuitState,
@@ -43,10 +44,12 @@ __all__ = [
     "StreamRecoveryError",
     "ToolCallDelta",
     "UsagePayload",
+    "api_content_text",
     "build_client",
     "has_configured_access",
     "is_keyless_endpoint",
     "is_network_error",
+    "message_content_text",
     "missing_api_key_message",
     "offline_message",
     "stream_completion",

@@ -1,33 +1,15 @@
-"""Model registry: unified catalog of models, context windows, and pricing.
-
-Centralizes model metadata that was previously scattered across
-``chat/usage.py`` and ``providers/config.py``.  The registry provides:
-
-- Context window sizes per model
-- Pricing (prompt + completion per 1K tokens)
-- Capabilities (reasoning, tool support, vision)
-- Provider mapping (which endpoint serves which model)
-- Lookup by model name (with prefix matching)
-
-Loaded once at startup and used by the context budget manager,
-the model picker, and cost tracking.
-"""
+"""Model catalog and lookup helpers."""
 
 from __future__ import annotations
 
 import functools
 from dataclasses import dataclass
 
-from hephaistos.logging import get_logger
 from hephaistos.providers.model_support import is_supported_model_for_provider
-
-_log = get_logger("providers.registry")
 
 
 @dataclass(frozen=True)
 class ModelInfo:
-    """Metadata for a single model."""
-
     name: str  # canonical name (e.g. "openai/gpt-5.4")
     provider: str  # provider slug (e.g. "openrouter", "openai-codex")
     display_name: str  # human-readable name
@@ -42,148 +24,92 @@ class ModelInfo:
         return self.prompt_price_per_1k == 0 and self.completion_price_per_1k == 0
 
 
-_BUILTIN_MODELS: list[ModelInfo] = [
-    # --- Pollinations AI (free, no API key required) ---
-    ModelInfo(
-        "openai",
-        "pollinations",
-        "GPT (Pollinations)",
-        128_000,
-        16_384,
-        0.0,
-        0.0,
-        tags=("free", "study"),
-    ),
-    ModelInfo(
-        "openai-large",
-        "pollinations",
-        "GPT Large (Pollinations)",
-        128_000,
-        16_384,
-        0.0,
-        0.0,
-        tags=("free",),
-    ),
-    ModelInfo(
-        "openai-reasoning",
-        "pollinations",
-        "o4-mini (Pollinations)",
-        128_000,
-        16_384,
-        0.0,
-        0.0,
-        tags=("free", "reasoning"),
-    ),
-    ModelInfo(
-        "openai-fast",
-        "pollinations",
-        "GPT Nano (Pollinations)",
-        128_000,
-        16_384,
-        0.0,
-        0.0,
-        tags=("free",),
-    ),
-    ModelInfo(
-        "mistral",
-        "pollinations",
-        "Mistral (Pollinations)",
-        32_000,
-        8_192,
-        0.0,
-        0.0,
-        tags=("free",),
-    ),
-    ModelInfo(
-        "mistral-large",
-        "pollinations",
-        "Mistral Large (Pollinations)",
-        32_000,
-        8_192,
-        0.0,
-        0.0,
-        tags=("free",),
-    ),
-    ModelInfo(
+_OPENAI_MODEL_ROWS: tuple[tuple[str, str, int, int, float, float, tuple[str, ...]], ...] = (
+    ("gpt-5.5", "GPT-5.5", 1_000_000, 128_000, 0.005, 0.03, ("study", "reasoning")),
+    ("gpt-5.4", "GPT-5.4", 128_000, 16_384, 0.002, 0.008, ()),
+    ("gpt-5.4-mini", "GPT-5.4 Mini", 128_000, 16_384, 0.00015, 0.0006, ("study",)),
+    ("gpt-5.4-pro", "GPT-5.4 Pro", 128_000, 16_384, 0.005, 0.015, ()),
+    ("gpt-5.4-nano", "GPT-5.4 Nano", 128_000, 16_384, 0.00005, 0.0002, ("study",)),
+    ("gpt-5.3-codex", "GPT-5.3 Codex", 128_000, 16_384, 0.002, 0.008, ()),
+    ("gpt-5.2-codex", "GPT-5.2 Codex", 128_000, 16_384, 0.002, 0.008, ()),
+    ("gpt-5.2", "GPT-5.2", 128_000, 16_384, 0.002, 0.008, ()),
+    ("gpt-5.1-codex-max", "GPT-5.1 Codex Max", 128_000, 16_384, 0.005, 0.015, ()),
+    ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", 128_000, 16_384, 0.0005, 0.0015, ()),
+    ("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", 128_000, 16_384, 0.001, 0.003, ()),
+    ("gpt-4o", "GPT-4o", 128_000, 16_384, 0.0025, 0.01, ()),
+    ("gpt-4o-mini", "GPT-4o Mini", 128_000, 16_384, 0.00015, 0.0006, ()),
+)
+
+
+def _openai_models(provider: str) -> list[ModelInfo]:
+    return [
+        ModelInfo(
+            name,
+            provider,
+            display_name,
+            context_window,
+            max_output,
+            prompt_price,
+            completion_price,
+            tags=tags,
+        )
+        for (
+            name,
+            display_name,
+            context_window,
+            max_output,
+            prompt_price,
+            completion_price,
+            tags,
+        ) in _OPENAI_MODEL_ROWS
+    ]
+
+
+_POLLINATIONS_MODEL_ROWS: tuple[tuple[str, str, int, int, tuple[str, ...]], ...] = (
+    ("openai", "GPT (Pollinations)", 128_000, 16_384, ("free", "study")),
+    ("openai-large", "GPT Large (Pollinations)", 128_000, 16_384, ("free",)),
+    ("openai-reasoning", "o4-mini (Pollinations)", 128_000, 16_384, ("free", "reasoning")),
+    ("openai-fast", "GPT Nano (Pollinations)", 128_000, 16_384, ("free",)),
+    ("mistral", "Mistral (Pollinations)", 32_000, 8_192, ("free",)),
+    ("mistral-large", "Mistral Large (Pollinations)", 32_000, 8_192, ("free",)),
+    (
         "mistral-reasoning",
-        "pollinations",
         "Mistral Reasoning (Pollinations)",
         32_000,
         8_192,
-        0.0,
-        0.0,
-        tags=("free", "reasoning"),
+        ("free", "reasoning"),
     ),
-    ModelInfo(
-        "qwen-coder",
-        "pollinations",
-        "Qwen Coder (Pollinations)",
-        32_000,
-        8_192,
-        0.0,
-        0.0,
-        tags=("free",),
-    ),
-    ModelInfo(
+    ("qwen-coder", "Qwen Coder (Pollinations)", 32_000, 8_192, ("free",)),
+    (
         "deepseek-reasoning",
-        "pollinations",
         "DeepSeek Reasoning (Pollinations)",
         64_000,
         8_192,
-        0.0,
-        0.0,
-        tags=("free", "reasoning"),
+        ("free", "reasoning"),
     ),
-    ModelInfo(
-        "deepseek",
-        "pollinations",
-        "DeepSeek (Pollinations)",
-        64_000,
-        8_192,
-        0.0,
-        0.0,
-        tags=("free",),
-    ),
-    ModelInfo(
-        "llama",
-        "pollinations",
-        "Llama (Pollinations)",
-        32_000,
-        8_192,
-        0.0,
-        0.0,
-        tags=("free",),
-    ),
-    ModelInfo(
-        "llama-scaleway",
-        "pollinations",
-        "Llama Scaleway (Pollinations)",
-        32_000,
-        8_192,
-        0.0,
-        0.0,
-        tags=("free",),
-    ),
-    ModelInfo(
-        "gemini",
-        "pollinations",
-        "Gemini (Pollinations)",
-        1_000_000,
-        8_192,
-        0.0,
-        0.0,
-        tags=("free",),
-    ),
-    ModelInfo(
-        "gemini-thinking",
-        "pollinations",
-        "Gemini Thinking (Pollinations)",
-        1_000_000,
-        8_192,
-        0.0,
-        0.0,
-        tags=("free", "reasoning"),
-    ),
+    ("deepseek", "DeepSeek (Pollinations)", 64_000, 8_192, ("free",)),
+    ("llama", "Llama (Pollinations)", 32_000, 8_192, ("free",)),
+    ("llama-scaleway", "Llama Scaleway (Pollinations)", 32_000, 8_192, ("free",)),
+    ("gemini", "Gemini (Pollinations)", 1_000_000, 8_192, ("free",)),
+    ("gemini-thinking", "Gemini Thinking (Pollinations)", 1_000_000, 8_192, ("free", "reasoning")),
+)
+
+
+_BUILTIN_MODELS: list[ModelInfo] = [
+    # --- Pollinations AI (free, no API key required) ---
+    *[
+        ModelInfo(
+            name,
+            "pollinations",
+            display_name,
+            context_window,
+            max_output,
+            0.0,
+            0.0,
+            tags=tags,
+        )
+        for name, display_name, context_window, max_output, tags in _POLLINATIONS_MODEL_ROWS
+    ],
     # --- OpenRouter Free Router ---
     ModelInfo(
         "openrouter/free",
@@ -196,135 +122,9 @@ _BUILTIN_MODELS: list[ModelInfo] = [
         tags=("free", "router"),
     ),
     # --- OpenAI API ---
-    ModelInfo(
-        "gpt-5.5",
-        "openai",
-        "GPT-5.5",
-        1_000_000,
-        128_000,
-        0.005,
-        0.03,
-        tags=("study", "reasoning"),
-    ),
-    ModelInfo("gpt-5.4", "openai", "GPT-5.4", 128_000, 16_384, 0.002, 0.008),
-    ModelInfo(
-        "gpt-5.4-mini",
-        "openai",
-        "GPT-5.4 Mini",
-        128_000,
-        16_384,
-        0.00015,
-        0.0006,
-        tags=("study",),
-    ),
-    ModelInfo("gpt-5.4-pro", "openai", "GPT-5.4 Pro", 128_000, 16_384, 0.005, 0.015),
-    ModelInfo(
-        "gpt-5.4-nano",
-        "openai",
-        "GPT-5.4 Nano",
-        128_000,
-        16_384,
-        0.00005,
-        0.0002,
-        tags=("study",),
-    ),
-    ModelInfo("gpt-5.3-codex", "openai", "GPT-5.3 Codex", 128_000, 16_384, 0.002, 0.008),
-    ModelInfo("gpt-5.2-codex", "openai", "GPT-5.2 Codex", 128_000, 16_384, 0.002, 0.008),
-    ModelInfo("gpt-5.2", "openai", "GPT-5.2", 128_000, 16_384, 0.002, 0.008),
-    ModelInfo(
-        "gpt-5.1-codex-max",
-        "openai",
-        "GPT-5.1 Codex Max",
-        128_000,
-        16_384,
-        0.005,
-        0.015,
-    ),
-    ModelInfo(
-        "gpt-5.1-codex-mini",
-        "openai",
-        "GPT-5.1 Codex Mini",
-        128_000,
-        16_384,
-        0.0005,
-        0.0015,
-    ),
-    ModelInfo(
-        "gpt-5.3-codex-spark",
-        "openai",
-        "GPT-5.3 Codex Spark",
-        128_000,
-        16_384,
-        0.001,
-        0.003,
-    ),
-    ModelInfo("gpt-4o", "openai", "GPT-4o", 128_000, 16_384, 0.0025, 0.01),
-    ModelInfo("gpt-4o-mini", "openai", "GPT-4o Mini", 128_000, 16_384, 0.00015, 0.0006),
+    *_openai_models("openai"),
     # --- OpenAI Codex subscription ---
-    ModelInfo(
-        "gpt-5.5",
-        "openai-codex",
-        "GPT-5.5",
-        1_000_000,
-        128_000,
-        0.005,
-        0.03,
-        tags=("study", "reasoning"),
-    ),
-    ModelInfo("gpt-5.4", "openai-codex", "GPT-5.4", 128_000, 16_384, 0.002, 0.008),
-    ModelInfo(
-        "gpt-5.4-mini",
-        "openai-codex",
-        "GPT-5.4 Mini",
-        128_000,
-        16_384,
-        0.00015,
-        0.0006,
-        tags=("study",),
-    ),
-    ModelInfo("gpt-5.4-pro", "openai-codex", "GPT-5.4 Pro", 128_000, 16_384, 0.005, 0.015),
-    ModelInfo(
-        "gpt-5.4-nano",
-        "openai-codex",
-        "GPT-5.4 Nano",
-        128_000,
-        16_384,
-        0.00005,
-        0.0002,
-        tags=("study",),
-    ),
-    ModelInfo("gpt-5.3-codex", "openai-codex", "GPT-5.3 Codex", 128_000, 16_384, 0.002, 0.008),
-    ModelInfo("gpt-5.2-codex", "openai-codex", "GPT-5.2 Codex", 128_000, 16_384, 0.002, 0.008),
-    ModelInfo("gpt-5.2", "openai-codex", "GPT-5.2", 128_000, 16_384, 0.002, 0.008),
-    ModelInfo(
-        "gpt-5.1-codex-max",
-        "openai-codex",
-        "GPT-5.1 Codex Max",
-        128_000,
-        16_384,
-        0.005,
-        0.015,
-    ),
-    ModelInfo(
-        "gpt-5.1-codex-mini",
-        "openai-codex",
-        "GPT-5.1 Codex Mini",
-        128_000,
-        16_384,
-        0.0005,
-        0.0015,
-    ),
-    ModelInfo(
-        "gpt-5.3-codex-spark",
-        "openai-codex",
-        "GPT-5.3 Codex Spark",
-        128_000,
-        16_384,
-        0.001,
-        0.003,
-    ),
-    ModelInfo("gpt-4o", "openai-codex", "GPT-4o", 128_000, 16_384, 0.0025, 0.01),
-    ModelInfo("gpt-4o-mini", "openai-codex", "GPT-4o Mini", 128_000, 16_384, 0.00015, 0.0006),
+    *_openai_models("openai-codex"),
     # --- Google (via OpenRouter) ---
     ModelInfo(
         "google/gemini-3-pro-preview",
@@ -481,13 +281,10 @@ _BUILTIN_MODELS: list[ModelInfo] = [
 
 @functools.lru_cache(maxsize=1)
 def builtin_models() -> list[ModelInfo]:
-    """Return the built-in model catalog (constructed lazily on first access)."""
     return list(_BUILTIN_MODELS)
 
 
 class ModelRegistry:
-    """Lookup table for model metadata."""
-
     def __init__(self, models: list[ModelInfo] | None = None) -> None:
         self._models: dict[str, ModelInfo] = {}
         self._models_by_provider: dict[tuple[str, str], ModelInfo] = {}
@@ -495,7 +292,6 @@ class ModelRegistry:
             self.register(m)
 
     def get(self, model_name: str, provider: str | None = None) -> ModelInfo | None:
-        """Look up a model by exact name, then provider-prefix match."""
         if provider is not None and (info := self._models_by_provider.get((provider, model_name))):
             return info
 
@@ -516,21 +312,18 @@ class ModelRegistry:
         return None
 
     def get_context_window(self, model_name: str) -> int:
-        """Get context window size, with fallback."""
         info = self.get(model_name)
         return info.context_window if info else 128_000
 
     def list_models(self, provider: str | None = None) -> list[ModelInfo]:
-        """List all known models, optionally filtered by provider."""
         models = (
-            list(self._models_by_provider.values()) if provider else list(self._models.values())
+            (m for m in self._models_by_provider.values() if m.provider == provider)
+            if provider
+            else self._models.values()
         )
-        if provider:
-            models = [m for m in models if m.provider == provider]
         return sorted(models, key=lambda m: (m.provider, m.name))
 
     def register(self, model: ModelInfo) -> None:
-        """Add or replace a model in the registry."""
         if not is_supported_model_for_provider(model.name, model.provider):
             return
         self._models_by_provider[(model.provider, model.name)] = model
@@ -543,7 +336,6 @@ _registry: ModelRegistry | None = None
 
 
 def get_registry() -> ModelRegistry:
-    """Get the global model registry (lazy-loaded)."""
     global _registry  # noqa: PLW0603
     if _registry is None:
         _registry = ModelRegistry()

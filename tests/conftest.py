@@ -13,12 +13,9 @@ import pytest
 # Avoid writing .pyc files during test runs
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
-import hephaistos.chat.engine as _engine_mod
 import hephaistos.chat.orchestrator as _orch_mod
-import hephaistos.chat.resilience as _res_mod
 import hephaistos.diagnostics.crashes as _obs_mod
 import hephaistos.logging as _log_mod
-import hephaistos.parameters.cli as _params_cli
 import hephaistos.parameters.settings as _settings_mod
 import hephaistos.privacy.consent as _privacy_mod
 import hephaistos.providers.catalog as _provider_catalog_mod
@@ -27,11 +24,12 @@ import hephaistos.providers.keyring_store as _ks
 import hephaistos.providers.oauth as _oauth_mod
 import hephaistos.rag.chunker as _rag_chunker_mod
 import hephaistos.rag.optional_backends as _rag_optional_mod
+import hephaistos.runtime.engine as _engine_mod
+import hephaistos.runtime.resilience as _res_mod
 from hephaistos.agent.tools import ToolHandlerResult, ToolSpec
 from hephaistos.armory.storage import initialize
-from hephaistos.chat._api_types import ApiMessage
-from hephaistos.chat.engine import ChatConfig
 from hephaistos.chat.session import create_session
+from hephaistos.runtime import ApiMessage, ChatConfig
 from hephaistos.terminal import set_theme
 
 # Cache noop diagnostics objects to avoid recreating per test
@@ -48,14 +46,14 @@ def _reset_diagnostics_module_objects() -> None:
     _noop_meter = _NOOP_METER
 
     # engine.py
-    _engine_mod._tracer = _noop_tracer  # ty:ignore[unresolved-attribute]
-    _engine_mod._meter = _noop_meter  # ty:ignore[unresolved-attribute]
-    _engine_mod._llm_duration_hist = _NOOP_HISTOGRAM  # ty:ignore[unresolved-attribute]
-    _engine_mod._llm_token_counter = _NOOP_COUNTER  # ty:ignore[unresolved-attribute]
+    _engine_mod._tracer = _noop_tracer  # ty:ignore[invalid-assignment]
+    _engine_mod._meter = _noop_meter
+    _engine_mod._llm_duration_hist = _NOOP_HISTOGRAM
+    _engine_mod._llm_token_counter = _NOOP_COUNTER
 
     # resilience.py
-    _res_mod._meter = _noop_meter  # ty:ignore[unresolved-attribute]
-    _res_mod._state_gauge = _NOOP_GAUGE  # ty:ignore[unresolved-attribute]
+    _res_mod._meter = _noop_meter
+    _res_mod._state_gauge = _NOOP_GAUGE
 
     # orchestrator.py
     _orch_mod._tracer = _noop_tracer
@@ -85,7 +83,6 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     _ks._volatile.clear()
     _log_mod._root_initialised = False
     _engine_mod._circuit_breaker.reset()
-    _settings_mod.invalidate_settings_cache()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
     _oauth_mod._creds_cache.clear()
@@ -95,8 +92,6 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     set_theme("forge")
     monkeypatch.setattr(_settings_mod, "_USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr(_settings_mod, "_USER_CONFIG_FILE", config_file)
-    monkeypatch.setattr(_params_cli, "_USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr(_params_cli, "_USER_CONFIG_FILE", config_file)
     monkeypatch.setattr(_provider_config_mod, "_CONFIG_DIR", config_dir)
     monkeypatch.setattr(_provider_config_mod, "_PROVIDERS_FILE", providers_file)
     monkeypatch.setattr(_oauth_mod, "_AUTH_DIR", auth_dir)
@@ -116,7 +111,6 @@ def _isolate_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ge
     _ks._volatile.clear()
     _log_mod._root_initialised = False
     _engine_mod._circuit_breaker.reset()
-    _settings_mod.invalidate_settings_cache()
     _provider_config_mod.invalidate_provider_cache()
     _provider_catalog_mod.invalidate_catalog_cache()
     _oauth_mod._creds_cache.clear()
@@ -134,9 +128,6 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Simp
     config_dir = tmp_path / "hephaistos_config"
     config_file = config_dir / "config.json"
     defaults_file = tmp_path / "default.toml"
-    monkeypatch.setattr("hephaistos.parameters.cli._USER_CONFIG_DIR", config_dir)
-    monkeypatch.setattr("hephaistos.parameters.cli._USER_CONFIG_FILE", config_file)
-    monkeypatch.setattr("hephaistos.parameters.cli._DEFAULTS_FILE", defaults_file)
     monkeypatch.setattr("hephaistos.parameters.settings._USER_CONFIG_DIR", config_dir)
     monkeypatch.setattr("hephaistos.parameters.settings._USER_CONFIG_FILE", config_file)
     monkeypatch.setattr("hephaistos.parameters.settings._DEFAULTS_FILE", defaults_file)

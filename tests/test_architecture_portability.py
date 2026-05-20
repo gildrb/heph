@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import json
 import subprocess
 import sys
@@ -88,26 +87,6 @@ def test_public_reusable_package_apis_are_explicit() -> None:
     for module, names in expected_exports.items():
         exported = set(getattr(module, "__all__", ()))
         assert names.issubset(exported), module.__name__
-
-
-def test_source_cli_is_a_thin_compatibility_adapter() -> None:
-    source = PACKAGE_ROOT / "source" / "cli.py"
-    tree = ast.parse(source.read_text(encoding="utf-8"))
-    imports: list[str] = []
-    functions: list[str] = []
-    calls: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            imports.append(node.module)
-        if isinstance(node, ast.FunctionDef):
-            functions.append(node.name)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            calls.append(node.func.id)
-
-    assert functions == ["register"]
-    assert "hephaistos.materials.cli" in imports
-    assert "hephaistos.rag.index" not in imports
-    assert calls == ["register_source_alias"]
 
 
 def test_overworked_module_guardrails() -> None:
