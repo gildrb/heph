@@ -24,7 +24,7 @@ from hephaistos.rag.source_mapping import (
 )
 from hephaistos.study.schedule import load_study_schedule
 from hephaistos.study.state import StudyFeedbackType
-from hephaistos.terminal.display import print_error, print_info, print_success
+from hephaistos.terminal import print_error, print_info, print_success
 from hephaistos.terminal.source_open import open_source_file
 from hephaistos.vocab.parser import scan_armory
 from hephaistos.vocab.state import load_schedule, save_schedule
@@ -195,9 +195,10 @@ class CostCommand(Command):
 
 class StatsCommand(Command):
     name = "stats"
-    description = "Show session, armory, and learning progress stats"
+    description = "Show session, armory, and review stats"
 
     def handle(self, session: object, args: str) -> CommandResult:
+        del args
         s = ensure_session(session)
         user_msgs = sum(1 for message in s.conversation.messages if message.role == "user")
         assistant_msgs = sum(
@@ -248,7 +249,7 @@ class StatsCommand(Command):
             return [
                 "",
                 "Vocabulary:",
-                "  No vocab cards yet. Add Q&A pairs to your materials.",
+                "  No vocabulary cards yet. Add Q&A pairs to your materials.",
             ]
 
         cards = store.card_list
@@ -331,6 +332,7 @@ class UsageCommand(Command):
     description = "Show token usage and cost for this session"
 
     def handle(self, session: object, args: str) -> CommandResult:
+        del args
         s = ensure_session(session)
         summary = s.usage.summary()
         lines = [

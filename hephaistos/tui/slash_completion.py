@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from hephaistos.agent.persona import list_personas
 from hephaistos.providers.config import Provider, ProviderConfig
 
 _COMPLETION_MENU_MAX_VISIBLE_ROWS = 7
@@ -113,7 +112,7 @@ class SlashCompletionEngine:
         arg_parts: list[str],
     ) -> list[CompletionCandidate]:
         candidates = []
-        for suggestion, description in self._argument_suggestions(cmd_name, arg_parts):
+        for suggestion, description in self._argument_suggestions(cmd_name):
             current = arg_parts[-1] if arg_parts else ""
             if current and not suggestion.lower().startswith(current.lower()):
                 continue
@@ -246,11 +245,7 @@ class SlashCompletionEngine:
         gap_penalty = gaps / len(normalized)
         return coverage - start_penalty - gap_penalty
 
-    def _argument_suggestions(
-        self,
-        cmd_name: str,
-        arg_parts: list[str],
-    ) -> list[tuple[str, str]]:
+    def _argument_suggestions(self, cmd_name: str) -> list[tuple[str, str]]:
         if cmd_name == "memory":
             return [
                 ("status", "Show local memory status"),
@@ -265,17 +260,15 @@ class SlashCompletionEngine:
 
         if cmd_name == "mode":
             return [
-                ("manual", "Set manual learning mode"),
-                ("guided", "Set guided learning mode"),
-                ("autopilot", "Set bounded autopilot learning mode"),
+                ("manual", "Set manual review mode"),
+                ("guided", "Set guided review mode"),
+                ("autopilot", "Set bounded autopilot review mode"),
             ]
 
-        if cmd_name == "persona":
-            return self._persona_suggestions(arg_parts)
+        if cmd_name == "vocabulary":
+            return [
+                ("status", "Show vocabulary practice schedule"),
+                ("reset", "Reset vocabulary practice history"),
+            ]
 
         return []
-
-    def _persona_suggestions(self, arg_parts: list[str]) -> list[tuple[str, str]]:
-        if len(arg_parts) > 1:
-            return []
-        return [(persona.slug, persona.description) for persona in list_personas()]

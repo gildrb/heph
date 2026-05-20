@@ -117,7 +117,7 @@ class _TranscriptHost(Protocol):
 
     def _stop_thinking_animation(self) -> None: ...
 
-    def _refresh_status(self, state: str = "ready") -> None: ...
+    def _refresh_status(self) -> None: ...
 
     def _refresh_footer_hints(self) -> None: ...
 
@@ -412,15 +412,15 @@ class TuiTranscriptMixin:
         self.abort_event.clear()
         self._thinking_label = "thinking"
         self._stop_thinking_animation()
-        self._refresh_status("ready")
+        self._refresh_status()
         self._refresh_footer_hints()
         self._focused_msg_index = None
         self._update_info_panel()
 
-    def _refresh_status(self: _TranscriptHost, state: str = "ready") -> None:
+    def _refresh_status(self: _TranscriptHost) -> None:
         status = self.query_one("#status", Static)
         tui_module = sys.modules["hephaistos.tui"]
-        status.update(tui_module._status_text(self.session, state))
+        status.update(tui_module._status_text(self.session))
 
     def _refresh_footer_hints(self: _TranscriptHost) -> None:
         self._refresh_completion_position()

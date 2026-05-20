@@ -5,10 +5,7 @@ import sys
 
 import pytest
 
-from hephaistos.terminal import (
-    _real_stdout,
-    display,
-)
+from hephaistos.terminal import _real_stdout, direct_input, direct_print
 
 
 class _ProxyStdout:
@@ -28,7 +25,7 @@ def test_direct_print_writes_to_real_stdout(monkeypatch: pytest.MonkeyPatch) -> 
     proxy_stdout = _ProxyStdout(real_stdout)
     monkeypatch.setattr(sys, "stdout", proxy_stdout)
 
-    display.direct_print("hello", end="!")
+    direct_print("hello", end="!")
 
     assert real_stdout.getvalue() == "hello!"
 
@@ -45,6 +42,6 @@ def test_direct_input_swaps_stdout_and_restores_it(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(sys, "stdout", proxy_stdout)
     monkeypatch.setattr("builtins.input", fake_input)
 
-    assert display.direct_input("prompt> ") == "typed"
+    assert direct_input("prompt> ") == "typed"
     assert seen == [("prompt> ", real_stdout)]
     assert sys.stdout is proxy_stdout

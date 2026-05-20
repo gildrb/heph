@@ -229,7 +229,7 @@ class TestArmoryTools:
         result = run_validate_armory("exam-prep", workspace=tmp_path)
 
         assert result.success is True
-        assert "Valid Hephaistos armory" in result.content
+        assert "Valid Heph armory" in result.content
         assert result.metadata["materials_dir"] == "materials"
 
     def test_validate_armory_reports_missing_marker(self, tmp_path: Path) -> None:

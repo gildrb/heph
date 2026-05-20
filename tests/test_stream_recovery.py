@@ -10,8 +10,8 @@ import httpx
 import pytest
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
-from hephaistos.agent.dispatch import agent_loop
-from hephaistos.chat.events import AssistantDeltaEvent
+from hephaistos.agent.dispatch import iter_agent_events
+from hephaistos.chat.events import AssistantDeltaEvent, render_turn_event
 from hephaistos.chat.orchestrator import TurnOrchestrator
 from hephaistos.chat.session import ChatSession, send_user_message
 from hephaistos.runtime import (
@@ -599,8 +599,8 @@ class TestConversationConsistency:
 
 
 class TestAgentLoopRetry:
-    def test_agent_loop_retries_on_connection_error(self) -> None:
-        """Agent loop retries the API call on connection error."""
+    def test_iter_agent_events_retries_on_connection_error(self) -> None:
+        """Agent event stream retries the API call on connection error."""
         chunks = [_make_chunk("Done")]
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = [
@@ -609,39 +609,41 @@ class TestAgentLoopRetry:
         ]
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
-        with patch("hephaistos.agent.dispatch.build_client", return_value=mock_client):
-            result = list(agent_loop(_config(), _conv(), workspace=_workspace(), retry=retry))
+        with patch("hephaistos.agent.model_stream.build_client", return_value=mock_client):
+            events = list(
+                iter_agent_events(_config(), _conv(), workspace=_workspace(), retry=retry)
+            )
 
-        rendered = "".join(result)
+        rendered = "".join(render_turn_event(event) for event in events)
         assert "Acceptance criteria: inspect" in rendered
         assert rendered.endswith("Done")
         assert mock_client.chat.completions.create.call_count == 2
 
-    def test_agent_loop_raises_recovery_on_mid_stream_failure(self) -> None:
-        """Agent loop raises StreamRecoveryError when stream drops mid-content."""
+    def test_iter_agent_events_raises_recovery_on_mid_stream_failure(self) -> None:
+        """Agent event stream raises StreamRecoveryError when stream drops mid-content."""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = FailingIterator("Partial agent ")
 
         retry = RetryConfig(max_retries=2, base_delay=0.01)
         with (
-            patch("hephaistos.agent.dispatch.build_client", return_value=mock_client),
+            patch("hephaistos.agent.model_stream.build_client", return_value=mock_client),
             pytest.raises(StreamRecoveryError) as exc_info,
         ):
-            list(agent_loop(_config(), _conv(), workspace=_workspace(), retry=retry))
+            list(iter_agent_events(_config(), _conv(), workspace=_workspace(), retry=retry))
 
         assert exc_info.value.partial_content == "Partial agent "
 
-    def test_agent_loop_exhausts_retries(self) -> None:
-        """Agent loop raises EngineError after all retries exhausted."""
+    def test_iter_agent_events_exhausts_retries(self) -> None:
+        """Agent event stream raises EngineError after all retries exhausted."""
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = _connection_error()
 
         retry = RetryConfig(max_retries=1, base_delay=0.01)
         with (
-            patch("hephaistos.agent.dispatch.build_client", return_value=mock_client),
+            patch("hephaistos.agent.model_stream.build_client", return_value=mock_client),
             pytest.raises(EngineError, match="LLM request failed"),
         ):
-            list(agent_loop(_config(), _conv(), workspace=_workspace(), retry=retry))
+            list(iter_agent_events(_config(), _conv(), workspace=_workspace(), retry=retry))
 
         # Should have retried 2 times total (max_retries + 1)
         assert mock_client.chat.completions.create.call_count == 2

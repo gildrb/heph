@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from hephaistos.chat.session import ChatSession
 from hephaistos.commands._base import Command, CommandResult, ensure_session
-from hephaistos.terminal.display import (
+from hephaistos.terminal import (
     print_error,
 )
 

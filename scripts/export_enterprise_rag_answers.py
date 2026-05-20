@@ -1,11 +1,11 @@
-"""Export Hephaistos EnterpriseRAG retrieval results to leaderboard JSONL.
+"""Export Heph EnterpriseRAG retrieval results to leaderboard JSONL.
 
 The official EnterpriseRAG-Bench answer format requires original ``dsid_...``
 document identifiers:
 
 ``{"question_id": "qst_0001", "answer": "...", "document_ids": ["dsid_..."]}``
 
-This exporter reads a Hephaistos external-runner report and the suite's
+This exporter reads a Heph external-runner report and the suite's
 ``material_metadata.jsonl`` to convert retrieved ``materials/...`` references
 back into official document IDs. It can emit document-only rows for retrieval
 recall or include answer text from a separate JSONL file when full answer
@@ -212,7 +212,7 @@ def _official_doc_ids(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("report", type=Path, help="Hephaistos external runner JSON report")
+    parser.add_argument("report", type=Path, help="Heph external runner JSON report")
     parser.add_argument(
         "material_metadata",
         type=Path,

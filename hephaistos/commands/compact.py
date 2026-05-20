@@ -6,7 +6,7 @@ from hephaistos.chat.compaction import compact_session
 from hephaistos.chat.session import session_has_messages
 from hephaistos.commands._base import Command, CommandResult, ensure_session
 from hephaistos.diagnostics.events import capture as capture_analytics
-from hephaistos.terminal.display import STYLE_DIM, print_info, print_success, styled
+from hephaistos.terminal import STYLE_DIM, print_info, print_success, styled
 
 
 class CompactCommand(Command):
@@ -14,6 +14,7 @@ class CompactCommand(Command):
     description = "Summarize conversation to reduce context size"
 
     def handle(self, session: object, args: str) -> CommandResult:
+        del args
         s = ensure_session(session)
         if not session_has_messages(s):
             print_info("Nothing to compact.")

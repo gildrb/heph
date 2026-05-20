@@ -1,14 +1,14 @@
 <coding_guidelines>
-# Hephaistos — Agent Guide
+# Heph — Agent Guide
 
 ## Product Promise
 
-Hephaistos is a **local-first learning agent that works with your files and any LLM**.
+Heph is a **local document harness for accurate, cited answers**.
 Protect this shape in every change:
 
 - Armories stay portable normal directories.
 - Answers are grounded in user materials and citations remain verifiable.
-- Learning memory is scoped to the armory unless the user explicitly opts into a shared service.
+- Memory is scoped to the armory unless the user explicitly opts into a shared service.
 - Provider and model choices stay swappable; vendor-specific behavior remains optional.
 - Do not market bare-minimum plumbing as a feature in user-facing docs.
 
@@ -22,8 +22,8 @@ uv sync --group docling    # install optional document extraction extras
 
 ## Run
 ```bash
-uv run heph                # launch interactive shell
-uv run heph chat           # start a chat session
+uv run heph                # launch the TUI
+uv run heph PATH           # launch Heph for an armory
 uv run heph armory init PATH    # create a new armory
 ```
 
@@ -83,15 +83,14 @@ uv run heph armory init PATH    # create a new armory
 
 ## Import Architecture
 
-- Adapter surface: `cli`, `commands`, `tui`, `shell`, and most `terminal` modules.
+- Adapter surface: `cli`, `commands`, `tui`, and most `terminal` modules.
   Adapters may depend broadly, but reusable decisions should move into services or domains.
 - Core reusable packages: `runtime`, `providers`, `logging`, `matching`,
   `terminal.palette`, `_types`.
 - Domain reusable packages: `materials`, `rag`, `memory`, `armory`, `vocab`, `study`.
 - Application services: `chat` and focused workflow modules.
 - Reusable packages, including `privacy` and `diagnostics`, must not import adapters
-  (`cli`, `commands`, `tui`, `shell`, `terminal.banner`, `terminal.display`,
-  `terminal.history`, `terminal.input`).
+  (`cli`, `commands`, `tui`, `terminal.history`, `terminal.input`).
 - `logging` and `diagnostics` must not import adapters.
 - `materials` owns discovery/ignore policy and must not import `chat`, `agent`, `rag`, or `study`.
 - `rag` may import `materials`; it must not import `agent`, `chat`, `tui`, or `study`.
@@ -194,7 +193,7 @@ Testing rules:
 
 ## Documentation and Product Style
 
-- Voice: practical, local-first, learning-focused, and grounded in user files.
+- Voice: practical, private, verification-first, and grounded in user files.
 - Prefer concrete examples over abstract claims.
 - Use learning-oriented copy (`learn`, `learning`, `recall`, `practice`) in user-facing
   docs. Reserve `study` for code/package names, command names, and exact feature labels.

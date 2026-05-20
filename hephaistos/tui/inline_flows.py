@@ -21,6 +21,8 @@ from hephaistos.parameters.settings import (
     ACTIVITY_TRACE_MODES,
     ACTIVITY_TRACE_TOOL_CALLS,
     THEME_PRESETS,
+    VOCAB_STRICTNESS_LABELS,
+    VOCAB_STRICTNESS_MODES,
     load_app_settings,
     save_setting,
 )
@@ -77,7 +79,7 @@ _ACTIVITY_TRACE_DESCRIPTIONS = {
 _ACTIVITY_TRACE_MODE_BY_LABEL = {label: mode for mode, label in ACTIVITY_TRACE_LABELS.items()}
 _OVERVIEW_TOPIC_SECTION_HEADING = "These are the topics I found in the material:"
 _OVERVIEW_TOPIC_LINE_RE = re.compile(r"^- (?P<label>.+?)(?:\s+\[(?:e|E)\d+\])?\.?$")
-_OVERVIEW_TOPIC_PROMPT = "Choose a topic to explore next. In the shell, use ↑/↓"
+_OVERVIEW_TOPIC_PROMPT = "Choose a topic to explore next. In the menu, use ↑/↓"
 _OVERVIEW_RECOMMENDATION_LINE_RE = re.compile(r"^- (?P<label>.+?)\.?$")
 _OVERVIEW_RECOMMENDATION_HEADING_RE = re.compile(
     r"^Recommended options:?\s*$",
@@ -184,9 +186,9 @@ class _InlineFlowHost(Protocol):
 
     def _move_completion(self, offset: int) -> None: ...
 
-    def _refresh_status(self, state: str) -> None: ...
+    def _refresh_status(self) -> None: ...
 
-    def _sync_busy_to_current_session(self, *, idle_status: str = "ready") -> None: ...
+    def _sync_busy_to_current_session(self) -> None: ...
 
     def _refresh_footer_hints(self) -> None: ...
 
@@ -200,7 +202,7 @@ class _InlineFlowHost(Protocol):
 
     def _open_logout_flow(self) -> None: ...
 
-    def _open_settings_flow(self) -> None: ...
+    def _open_settings_flow(self, selected_label: str | None = None) -> None: ...
 
     def _open_models_flow(self) -> None: ...
 
@@ -218,6 +220,7 @@ class _InlineFlowHost(Protocol):
         title: str,
         options: list[tuple[str, str]],
         prompts: dict[str, str] | None = None,
+        selected_label: str | None = None,
     ) -> None: ...
 
     def _render_inline_menu_options(
@@ -241,11 +244,13 @@ class _InlineFlowHost(Protocol):
         overridden: bool,
     ) -> str: ...
 
-    def _open_privacy_flow(self) -> None: ...
+    def _open_privacy_flow(self, selected_label: str | None = None) -> None: ...
 
-    def _open_appearance_flow(self) -> None: ...
+    def _open_appearance_flow(self, selected_label: str | None = None) -> None: ...
 
-    def _open_activity_trace_flow(self) -> None: ...
+    def _open_activity_trace_flow(self, selected_label: str | None = None) -> None: ...
+
+    def _open_vocabulary_flow(self, selected_label: str | None = None) -> None: ...
 
     def _model_flow_options(
         self,
@@ -283,6 +288,8 @@ class _InlineFlowHost(Protocol):
     def _handle_appearance_choice(self, label: str) -> None: ...
 
     def _handle_activity_trace_choice(self, label: str) -> None: ...
+
+    def _handle_vocabulary_choice(self, label: str) -> None: ...
 
     def _refresh_tui_css(self) -> None: ...
 
@@ -349,8 +356,10 @@ class TuiInlineFlowMixin:
         title: str,
         options: list[tuple[str, str]],
         prompts: dict[str, str] | None = None,
+        selected_label: str | None = None,
     ) -> None:
         options = _dedupe_inline_options(options)
+        highlighted = _inline_option_index(options, selected_label)
         self._inline_flow = InlineFlow(
             name=name,
             step=step,
@@ -359,7 +368,7 @@ class TuiInlineFlowMixin:
             prompts=dict(prompts or {}),
         )
         self._hide_completions()
-        self._render_inline_menu_options(options)
+        self._render_inline_menu_options(options, highlighted=highlighted)
         composer = self.query_one("#composer", Input)
         composer.value = ""
         composer.placeholder = f"{title}  type to filter  ↑/↓ enter  esc"
@@ -443,7 +452,10 @@ class TuiInlineFlowMixin:
             ],
         )
 
-    def _open_settings_flow(self: _InlineFlowHost) -> None:
+    def _open_settings_flow(
+        self: _InlineFlowHost,
+        selected_label: str | None = None,
+    ) -> None:
         active = ProviderConfig.load().get_active()
         current = active.display_name if active is not None else "none"
         settings = load_app_settings()
@@ -455,9 +467,17 @@ class TuiInlineFlowMixin:
                 ("Privacy & Diagnostics", self._privacy_settings_summary()),
                 ("Appearance", f"theme: {settings.theme}"),
                 ("Activity trace", self._activity_trace_summary()),
+                (
+                    "Vocabulary practice",
+                    VOCAB_STRICTNESS_LABELS.get(
+                        settings.vocab_strictness,
+                        settings.vocab_strictness,
+                    ),
+                ),
                 ("Login", f"model source: {current}"),
                 ("Logout", "clear stored credentials"),
             ],
+            selected_label=selected_label,
         )
 
     def _privacy_settings_summary(self: _InlineFlowHost) -> str:
@@ -481,9 +501,10 @@ class TuiInlineFlowMixin:
         suffix = "  env override" if overridden else ""
         return f"{status}  {availability}{suffix}"
 
-    def _open_privacy_flow(self: _InlineFlowHost) -> None:
-        self._open_inline_menu(
-            name="settings",
+    def _open_privacy_flow(self: _InlineFlowHost, selected_label: str | None = None) -> None:
+        _open_settings_submenu(
+            self,
+            parent_label="Privacy & Diagnostics",
             step="privacy",
             title="Settings  Privacy & Diagnostics",
             options=[
@@ -504,12 +525,14 @@ class TuiInlineFlowMixin:
                     ),
                 ),
             ],
+            selected_label=selected_label,
         )
 
-    def _open_appearance_flow(self: _InlineFlowHost) -> None:
+    def _open_appearance_flow(self: _InlineFlowHost, selected_label: str | None = None) -> None:
         current = load_app_settings().theme
-        self._open_inline_menu(
-            name="settings",
+        _open_settings_submenu(
+            self,
+            parent_label="Appearance",
             step="appearance",
             title="Settings  Appearance",
             options=[
@@ -519,12 +542,17 @@ class TuiInlineFlowMixin:
                 )
                 for theme in THEME_PRESETS
             ],
+            selected_label=selected_label,
         )
 
-    def _open_activity_trace_flow(self: _InlineFlowHost) -> None:
+    def _open_activity_trace_flow(
+        self: _InlineFlowHost,
+        selected_label: str | None = None,
+    ) -> None:
         current = load_app_settings().activity_trace_mode
-        self._open_inline_menu(
-            name="settings",
+        _open_settings_submenu(
+            self,
+            parent_label="Activity trace",
             step="activity_trace",
             title="Settings  Activity trace",
             options=[
@@ -538,6 +566,24 @@ class TuiInlineFlowMixin:
                 )
                 for mode in ACTIVITY_TRACE_MODES
             ],
+            selected_label=selected_label,
+        )
+
+    def _open_vocabulary_flow(self: _InlineFlowHost, selected_label: str | None = None) -> None:
+        current = load_app_settings().vocab_strictness
+        _open_settings_submenu(
+            self,
+            parent_label="Vocabulary practice",
+            step="vocabulary",
+            title="Settings  Vocabulary practice",
+            options=[
+                (
+                    VOCAB_STRICTNESS_LABELS[mode],
+                    "current" if mode == current else "answer matching",
+                )
+                for mode in VOCAB_STRICTNESS_MODES
+            ],
+            selected_label=selected_label,
         )
 
     def _model_flow_options(
@@ -611,18 +657,17 @@ class TuiInlineFlowMixin:
             if environment_credentials:
                 self._append_notice(
                     "No stored credentials found. Environment credentials cannot be cleared "
-                    f"inside Hephaistos: {', '.join(environment_credentials)}."
+                    f"inside Heph: {', '.join(environment_credentials)}."
                 )
                 return
             self._append_notice(
-                "No stored credentials found. Env keys must be unset outside Hephaistos."
+                "No stored credentials found. Env keys must be unset outside Heph."
             )
             return
         options = [(target.label, target.description) for target in targets]
         if environment_credentials:
             self._append_notice(
-                "Environment credentials stay outside Hephaistos: "
-                f"{', '.join(environment_credentials)}."
+                f"Environment credentials stay outside Heph: {', '.join(environment_credentials)}."
             )
         options.append(("All", "clear shown"))
         title = "Logout  choose stored credentials to clear"
@@ -732,7 +777,7 @@ class TuiInlineFlowMixin:
                 composer.value = ""
                 self._filter_inline_menu_options("")
             elif self._inline_flow.name == "settings" and self._inline_flow.step != "menu":
-                self._open_settings_flow()
+                self._open_settings_flow(selected_label=self._inline_flow.slug)
             else:
                 self._close_inline_flow()
             event.prevent_default()
@@ -837,6 +882,7 @@ class TuiInlineFlowMixin:
                 "Privacy & Diagnostics": self._open_privacy_flow,
                 "Appearance": self._open_appearance_flow,
                 "Activity trace": self._open_activity_trace_flow,
+                "Vocabulary practice": self._open_vocabulary_flow,
                 "Login": self._open_login_flow,
                 "Logout": self._open_logout_flow,
             }.get(label)
@@ -849,6 +895,8 @@ class TuiInlineFlowMixin:
             self._handle_appearance_choice(label)
         elif self._inline_flow.step == "activity_trace":
             self._handle_activity_trace_choice(label)
+        elif self._inline_flow.step == "vocabulary":
+            self._handle_vocabulary_choice(label)
 
     def _handle_login_choice(self: _InlineFlowHost, label: str) -> None:
         if label == "OpenAI Codex":
@@ -886,7 +934,7 @@ class TuiInlineFlowMixin:
             save_setting("crash_reports_enabled", str(not settings.crash_reports_enabled).lower())
             if crash_reports_env_override():
                 self._append_notice("Crash-report preference saved; env override is active.")
-        self._open_privacy_flow()
+        self._open_privacy_flow(selected_label=label)
 
     def _handle_appearance_choice(self: _InlineFlowHost, label: str) -> None:
         if label not in THEME_PRESETS:
@@ -895,7 +943,7 @@ class TuiInlineFlowMixin:
         set_theme(label)
         self._refresh_tui_css()
         self._append_notice(f"theme: {label}")
-        self._open_appearance_flow()
+        self._open_appearance_flow(selected_label=label)
 
     def _handle_activity_trace_choice(self: _InlineFlowHost, label: str) -> None:
         mode = _ACTIVITY_TRACE_MODE_BY_LABEL.get(label)
@@ -903,7 +951,15 @@ class TuiInlineFlowMixin:
             return
         save_setting("activity_trace_mode", mode)
         self._append_notice(f"activity trace: {ACTIVITY_TRACE_LABELS[mode]}")
-        self._open_activity_trace_flow()
+        self._open_activity_trace_flow(selected_label=label)
+
+    def _handle_vocabulary_choice(self: _InlineFlowHost, label: str) -> None:
+        mode = _setting_value_from_label(VOCAB_STRICTNESS_LABELS, label)
+        if mode is None:
+            return
+        save_setting("vocab_strictness", mode)
+        self._append_notice(f"vocabulary practice: {VOCAB_STRICTNESS_LABELS[mode]}")
+        self._open_vocabulary_flow(selected_label=label)
 
     def _refresh_tui_css(self: _InlineFlowHost) -> None:
         self.CSS = _tui_css()
@@ -916,7 +972,7 @@ class TuiInlineFlowMixin:
         screen = cast("_ScreenObject", self.screen)
         screen.styles.background = TRANSPARENT
         screen.styles.background_tint = TRANSPARENT
-        self._refresh_status("ready")
+        self._refresh_status()
         self._refresh_footer_hints()
         self._update_info_panel()
         self._schedule_transcript_reflow()
@@ -1001,7 +1057,7 @@ class TuiInlineFlowMixin:
         pc = ProviderConfig.load()
         p = activate_provider_for_session(pc, self.session, slug)
         self._close_inline_flow(f"provider: {p.display_name}")
-        self._refresh_status("ready")
+        self._refresh_status()
         self._update_info_panel()
 
     def _login_openai_worker(self: _InlineFlowHost) -> None:
@@ -1016,7 +1072,7 @@ class TuiInlineFlowMixin:
             self._append_notice,
             f"provider: {p.display_name}",
         )
-        self.call_from_thread(self._refresh_status, "ready")
+        self.call_from_thread(self._refresh_status)
         self.call_from_thread(self._update_info_panel)
 
     def _perform_logout(self: _InlineFlowHost, label: str) -> None:
@@ -1049,7 +1105,7 @@ class TuiInlineFlowMixin:
             {"provider": slug, "from_model": old_model, "to_model": _model},
         )
         self._close_inline_flow(f"model: {_model}")
-        self._refresh_status("ready")
+        self._refresh_status()
         self._update_info_panel()
 
     def _close_inline_flow(self: _InlineFlowHost, notice: str = "") -> None:
@@ -1086,6 +1142,41 @@ def _filtered_inline_options(
         if option not in result:
             result.append(option)
     return result
+
+
+def _inline_option_index(options: list[tuple[str, str]], label: str | None) -> int:
+    if label is None:
+        return 0
+    for index, (option_label, _description) in enumerate(options):
+        if option_label == label:
+            return index
+    return 0
+
+
+def _open_settings_submenu(
+    host: _InlineFlowHost,
+    *,
+    parent_label: str,
+    step: str,
+    title: str,
+    options: list[tuple[str, str]],
+    selected_label: str | None = None,
+) -> None:
+    host._open_inline_menu(
+        name="settings",
+        step=step,
+        title=title,
+        options=options,
+        selected_label=selected_label,
+    )
+    host._inline_flow.slug = parent_label
+
+
+def _setting_value_from_label(labels_by_value: dict[str, str], label: str) -> str | None:
+    for value, value_label in labels_by_value.items():
+        if value_label == label:
+            return value
+    return None
 
 
 def _dedupe_inline_options(options: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -1294,9 +1385,9 @@ def _parse_overview_recommendation(recommendation: str) -> _OverviewRecommendati
     if "contrastive question" in clean.casefold():
         prompt = quoted_prompt or f"{clean}.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}"
         return _OverviewRecommendation("Ask a contrastive question", prompt)
-    if clean.startswith("Make a short learning order"):
+    if clean.startswith("Make a short review order"):
         return _OverviewRecommendation(
-            "Make a learning order",
+            "Make a review order",
             f"{clean}, grounded in the source material.{_LANGUAGE_PRESERVING_TOPIC_PROMPT}",
         )
     return _OverviewRecommendation(

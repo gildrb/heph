@@ -80,9 +80,9 @@ class _ArmoryHost(Protocol):
 
     def _schedule_transcript_reflow(self) -> None: ...
 
-    def _refresh_status(self, state: str) -> None: ...
+    def _refresh_status(self) -> None: ...
 
-    def _sync_busy_to_current_session(self, *, idle_status: str = "ready") -> None: ...
+    def _sync_busy_to_current_session(self) -> None: ...
 
     def _replace_transcript_from_session(self) -> None: ...
 
@@ -155,9 +155,6 @@ def _armory_entry_text(entry: _DirEntry, *, selected: bool, active: bool = False
     elif entry.is_create:
         style = f"bold {palette.brand_primary}" if selected else palette.text_primary
         text.append(label, style=style)
-    elif entry.is_missing:
-        style = f"bold {palette.status_error_text}" if selected else palette.status_error_text
-        text.append(label, style=style)
     else:
         style = f"bold {palette.brand_primary}" if selected else palette.text_primary
         text.append(label, style=style)
@@ -221,7 +218,6 @@ class TuiArmoryMixin:
             self._armory_current = default_armory_home()
         previous_key = self._armory_selection_key()
         self._armory_entries = build_entries(
-            self._armory_current,
             allow_create=self._armory_mode in ("manage", "create"),
             filter_query=self._armory_filter,
             show_places=False,

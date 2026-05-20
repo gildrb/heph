@@ -1,4 +1,4 @@
-"""Convert standard RAG QA manifests into Hephaistos benchmark armories."""
+"""Convert standard RAG QA manifests into Heph benchmark armories."""
 
 from __future__ import annotations
 

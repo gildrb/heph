@@ -10,8 +10,15 @@ from hephaistos.diagnostics.events import capture as capture_analytics
 from hephaistos.providers import keyring_store, oauth
 from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.keyring_store import clear_key, get_volatile, set_volatile, store_key
-from hephaistos.terminal import MenuOption, confirm, direct_input, select_option
-from hephaistos.terminal.display import print_error, print_info, print_success
+from hephaistos.terminal import (
+    MenuOption,
+    confirm,
+    direct_input,
+    print_error,
+    print_info,
+    print_success,
+    select_option,
+)
 
 
 class LoginCommand(Command):
@@ -19,6 +26,7 @@ class LoginCommand(Command):
     description = "Authenticate with a subscription or API key"
 
     def handle(self, session: object, args: str) -> CommandResult:
+        del args
         options = [
             MenuOption("OpenAI Codex", "ChatGPT Plus/Pro subscription"),
             MenuOption("OpenAI API key", "Use OpenAI API billing and models"),
@@ -166,13 +174,14 @@ class LogoutCommand(Command):
     description = "Clear stored subscription or API-key credentials"
 
     def handle(self, session: object, args: str) -> CommandResult:
+        del session, args
         credentials = _logout_targets()
         env_locked = _env_only_targets()
         if not credentials:
             if env_locked:
                 print_info(
                     "No stored credentials found. Environment-provided keys must be unset "
-                    "outside Hephaistos."
+                    "outside Heph."
                 )
             else:
                 print_info("No stored credentials found.")

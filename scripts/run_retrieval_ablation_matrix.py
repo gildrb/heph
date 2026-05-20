@@ -1,6 +1,6 @@
-"""Run a local Hephaistos retrieval ablation matrix over labelled RAG cases.
+"""Run a local Heph retrieval ablation matrix over labelled RAG cases.
 
-The matrix is intentionally benchmark-script-only: it calls Hephaistos retrieval APIs over a
+The matrix is intentionally benchmark-script-only: it calls Heph retrieval APIs over a
 materialized armory, records matched corpus/case/hash metadata for every row, and writes private
 artifacts under a caller-provided output directory.
 """
@@ -3012,7 +3012,7 @@ def _summary_markdown(report: Mapping[str, object]) -> str:
                 f"`{selected.get('primary_metric_delta_vs_baseline')}`"
             ),
             "",
-            "This is an internal Hephaistos-only retrieval matrix, not a head-to-head claim.",
+            "This is an internal Heph-only retrieval matrix, not a head-to-head claim.",
             "",
         ]
     )

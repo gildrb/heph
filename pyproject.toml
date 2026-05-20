@@ -230,9 +230,6 @@ source_modules = [
 forbidden_modules = [
     "hephaistos.cli",
     "hephaistos.commands",
-    "hephaistos.shell",
-    "hephaistos.terminal.banner",
-    "hephaistos.terminal.display",
     "hephaistos.terminal.history",
     "hephaistos.terminal.input",
     "hephaistos.tui",

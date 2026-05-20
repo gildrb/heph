@@ -1,5 +1,5 @@
 # Default parameters for Hephaistos.
-# Model access, model selection, and global shell preferences are configured via
+# Model access, model selection, and global app preferences are configured via
 # /login, /logout, /models, /settings, or environment variables — not here.
 
 max_tokens = 4096

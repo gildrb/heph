@@ -1,4 +1,4 @@
-"""Frontend-neutral command-line entrypoint for Hephaistos."""
+"""Frontend-neutral command-line entrypoint for Heph."""
 
 from __future__ import annotations
 

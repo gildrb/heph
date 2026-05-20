@@ -1,4 +1,4 @@
-"""No-armory local replies for the Textual shell."""
+"""No-armory local replies for the TUI."""
 
 from __future__ import annotations
 

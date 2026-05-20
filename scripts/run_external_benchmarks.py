@@ -563,7 +563,7 @@ def _validate_input_paths(armory_path: Path, cases_path: Path) -> None:
         raise RunnerError(
             "input_not_found",
             f"armory path does not exist or is not a directory: {armory_path}",
-            "Pass a materialized Hephaistos armory path.",
+            "Pass a materialized Heph armory path.",
         )
     materials_dir = armory_path / storage.MATERIALS_DIR
     if not materials_dir.is_dir():
@@ -2094,7 +2094,7 @@ def _run_native_flow(
         raise RunnerError(
             "input_not_found",
             f"native benchmark suite path does not exist: {suite_path}",
-            "Pass --suite pointing to an existing Hephaistos benchmark suite.",
+            "Pass --suite pointing to an existing Heph benchmark suite.",
         )
 
     native_status, native_report = _run_native_suite_once(suite_path, thresholds)
@@ -2711,7 +2711,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Materialized benchmark suite directory containing armory/ and rag.jsonl",
     )
-    parser.add_argument("--armory", type=Path, help="Materialized Hephaistos armory path")
+    parser.add_argument("--armory", type=Path, help="Materialized Heph armory path")
     parser.add_argument("--cases", type=Path, help="Generated rag.jsonl benchmark cases")
     parser.add_argument("--top-k", type=int, default=_DEFAULT_TOP_K)
     parser.add_argument("--min-score", type=float, default=_DEFAULT_MIN_SCORE)

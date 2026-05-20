@@ -1,10 +1,10 @@
-"""Convert EnterpriseRAG-Bench into a Hephaistos benchmark suite.
+"""Convert EnterpriseRAG-Bench into a Heph benchmark suite.
 
 EnterpriseRAG-Bench is an official large-scale RAG benchmark with 500k+
 enterprise-style documents and 500 questions. This adapter expects a local
 checkout or extracted dataset containing ``questions.jsonl`` and
 ``generated_data/sources``. It preserves the original ``dsid_...`` document
-identifiers in metadata so Hephaistos retrieval can be exported to the
+identifiers in metadata so Heph retrieval can be exported to the
 leaderboard answer format without weakening the benchmark.
 """
 

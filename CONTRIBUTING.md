@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Hephaistos.
+Thanks for helping improve Heph.
 
 ## Setup
 

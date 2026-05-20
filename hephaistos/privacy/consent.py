@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import os
 import platform
@@ -172,11 +171,6 @@ def install_id() -> str:
     with contextlib.suppress(Exception):
         _INSTALL_ID_PATH.write_text(json.dumps({"install_id": value}) + "\n", encoding="utf-8")
     return value
-
-
-def anonymize_identifier(value: str) -> str:
-    """Return a stable non-reversible digest for low-cardinality tagging."""
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
 def runtime_context() -> dict[str, str]:

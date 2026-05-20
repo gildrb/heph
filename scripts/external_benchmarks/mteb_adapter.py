@@ -1,4 +1,4 @@
-"""Convert local MTEB retrieval exports into Hephaistos benchmark armories.
+"""Convert local MTEB retrieval exports into Heph benchmark armories.
 
 The adapter intentionally handles local, reviewed exports instead of reaching
 out to Hugging Face at runtime. MTEB retrieval tasks have a corpus, queries, and

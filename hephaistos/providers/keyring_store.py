@@ -73,10 +73,6 @@ def clear_key(slug: str) -> bool:
     return True
 
 
-def has_key(slug: str) -> bool:
-    return retrieve_key(slug) is not None
-
-
 def set_volatile(slug: str, api_key: str) -> None:
     _volatile_keys.set_volatile_key(slug, api_key)
     _keychain_cache.pop(slug, None)

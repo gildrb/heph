@@ -106,6 +106,7 @@ from hephaistos.study.schedule import (
 
 if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
+    from hephaistos.rag import ArmoryIndex
 
 _log = get_logger("chat.orchestrator")
 _tracer = get_tracer("chat.orchestrator")
@@ -170,7 +171,7 @@ _OVERVIEW_WEB_TOPIC_SEARCH_LIMIT = 10
 _OVERVIEW_TOPIC_SECTION_HEADING = "These are the topics I found in the material:"
 _OVERVIEW_RECOMMENDATIONS_HEADING = "Recommended options:"
 _OVERVIEW_TOPIC_MENU_PROMPT = (
-    "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter."
+    "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter."
 )
 _ENGLISH_GUIDED_MENU_CUE_WORDS = frozenset(
     {
@@ -427,7 +428,7 @@ Classify a user's learning intent for a local source-grounded assistant. Interpr
 in whatever language the user wrote, but return an English-first control signal. Do not answer the
 request. Use material_overview only when the user asks for the broad picture of the enabled,
 uploaded, indexed, or provided materials as a corpus. Use source_qa for a specific fact or quote
-from the materials, source_only_policy when the user only instructs Hephaistos not to guess,
+from the materials, source_only_policy when the user only instructs Heph not to guess,
 hallucinate, invent, or use outside knowledge, topic_presentation for explaining a named concept,
 topic_drill for quiz or practice requests, ready_for_recall when the user says they are ready to
 answer from memory or continue the active recall step, recall_clarification when active recall is
@@ -515,16 +516,37 @@ def _localize_deterministic_reply(
     user_input: str,
     config: ChatConfig | None,
 ) -> str:
-    if (
-        not reply.strip()
-        or not user_input.strip()
-        or config is None
-        or not config.base_url
-        or not config.model
-        or _should_append_english_guided_menu(user_input)
-    ):
+    if not _should_localize_deterministic_reply(reply, user_input=user_input, config=config):
         return reply
 
+    localized = _localized_deterministic_reply(reply, user_input=user_input, config=config)
+    return localized if _valid_localized_deterministic_reply(localized, original=reply) else reply
+
+
+def _should_localize_deterministic_reply(
+    reply: str,
+    *,
+    user_input: str,
+    config: ChatConfig | None,
+) -> bool:
+    return (
+        bool(reply.strip())
+        and bool(user_input.strip())
+        and config is not None
+        and bool(config.base_url)
+        and bool(config.model)
+        and not _should_append_english_guided_menu(user_input)
+    )
+
+
+def _localized_deterministic_reply(
+    reply: str,
+    *,
+    user_input: str,
+    config: ChatConfig | None,
+) -> str:
+    if config is None:
+        return ""
     conversation = Conversation()
     conversation.add("system", _DETERMINISTIC_FALLBACK_LOCALIZATION_PROMPT)
     conversation.add(
@@ -544,64 +566,90 @@ def _localize_deterministic_reply(
             if delta.content
         )
     except EngineError:
-        return reply
-    localized = _strip_tool_call_markup("".join(parts)).strip()
+        return ""
+    return _strip_tool_call_markup("".join(parts)).strip()
+
+
+def _valid_localized_deterministic_reply(localized: str, *, original: str) -> bool:
     if not localized:
-        return reply
-    if len(localized) > max(len(reply) * 3, len(reply) + 600):
-        return reply
-    if _OVERVIEW_CITATION_ID_RE.search(localized) and not _OVERVIEW_CITATION_ID_RE.search(reply):
-        return reply
-    assessment_label = _ASSESSMENT_LABEL_RE.match(reply.strip())
+        return False
+    if len(localized) > max(len(original) * 3, len(original) + 600):
+        return False
+    if _OVERVIEW_CITATION_ID_RE.search(localized) and not _OVERVIEW_CITATION_ID_RE.search(
+        original
+    ):
+        return False
+    assessment_label = _ASSESSMENT_LABEL_RE.match(original.strip())
     if assessment_label is not None and not localized.startswith(assessment_label.group(0)):
-        return reply
-    for literal in _DETERMINISTIC_REPLY_LITERAL_RE.findall(reply):
+        return False
+    for literal in _DETERMINISTIC_REPLY_LITERAL_RE.findall(original):
         if literal not in localized:
-            return reply
-    return localized
+            return False
+    return True
 
 
 def _missing_indexed_material_reply(session: ChatSession, action: StudyAction) -> str:
-    if action not in _EVIDENCE_REQUIRED_ACTIONS:
+    if action not in _EVIDENCE_REQUIRED_ACTIONS or session.source_file_count <= 0:
         return ""
     index = session.rag_index
-    if session.source_file_count <= 0:
-        return ""
     if index is None:
-        return (
-            "The armory has visible materials, but Hephaistos could not prepare the "
-            "searchable materials index for this turn. I cannot answer from outside "
-            "knowledge. Check the material files or run `heph index <armory>` to see "
-            "the indexing error directly."
-        )
+        return _index_unavailable_reply()
     if index.chunk_count > 0:
-        indexed_enabled = any(
-            document.source not in session.disabled_source_files and document.chunks
-            for document in index.documents
-        )
-        if indexed_enabled:
+        if _has_enabled_indexed_material(session, index):
             return ""
-        return (
-            "The armory has searchable materials, but all indexed material is currently "
-            "disabled. Enable at least one material with /materials before asking."
-        )
+        return _all_material_disabled_reply()
 
-    unindexable_sources = [
+    if sources := _enabled_unindexable_sources(session, index):
+        materials = _material_list_label(sources)
+        reasons = [index.unindexable_files[source] for source in sources]
+        return _unindexable_material_reply(materials, reasons)
+
+    return _empty_material_index_reply()
+
+
+def _has_enabled_indexed_material(session: ChatSession, index: ArmoryIndex) -> bool:
+    return any(
+        document.source not in session.disabled_source_files and document.chunks
+        for document in index.documents
+    )
+
+
+def _enabled_unindexable_sources(session: ChatSession, index: ArmoryIndex) -> list[str]:
+    return [
         source
         for source in sorted(index.unindexable_files)
         if source not in session.disabled_source_files
     ]
-    if unindexable_sources:
-        labels = [_material_label(source) for source in unindexable_sources[:3]]
-        materials = ", ".join(labels)
-        if remaining := len(unindexable_sources) - len(labels):
-            materials = f"{materials}, and {remaining} more"
-        reasons = [index.unindexable_files[source] for source in unindexable_sources]
-        return _unindexable_material_reply(materials, reasons)
 
+
+def _material_list_label(sources: list[str]) -> str:
+    labels = [_material_label(source) for source in sources[:3]]
+    materials = ", ".join(labels)
+    if remaining := len(sources) - len(labels):
+        return f"{materials}, and {remaining} more"
+    return materials
+
+
+def _index_unavailable_reply() -> str:
+    return (
+        "The armory has visible materials, but Heph could not prepare the "
+        "searchable materials index for this turn. I cannot answer from outside "
+        "knowledge. Check the material files or run `heph index <armory>` to see "
+        "the indexing error directly."
+    )
+
+
+def _all_material_disabled_reply() -> str:
+    return (
+        "The armory has searchable materials, but all indexed material is currently "
+        "disabled. Enable at least one material with /materials before asking."
+    )
+
+
+def _empty_material_index_reply() -> str:
     return (
         "The armory has visible materials, but no searchable evidence is indexed yet. "
-        "I cannot answer from outside knowledge. Hephaistos prepares the index "
+        "I cannot answer from outside knowledge. Heph prepares the index "
         "automatically when possible; run `heph index <armory>` to inspect the failure."
     )
 
@@ -612,7 +660,7 @@ def _unindexable_material_reply(materials: str, reasons: list[str]) -> str:
         return (
             f"I can see {materials}, but PDF/document conversion is unavailable in this "
             "installation. I cannot answer from outside knowledge. Update or reinstall "
-            "Hephaistos, then ask again or run `heph index <armory>` to verify indexing."
+            "Heph, then ask again or run `heph index <armory>` to verify indexing."
         )
     if _all_reasons_contain(reason_text, "docling conversion failed"):
         return (
@@ -629,7 +677,7 @@ def _unindexable_material_reply(materials: str, reasons: list[str]) -> str:
     if _all_reasons_contain(reason_text, "docling"):
         return (
             f"I can see {materials}, but it is not searchable armory evidence yet. "
-            "I cannot answer from outside knowledge. Update Hephaistos, then ask again "
+            "I cannot answer from outside knowledge. Update Heph, then ask again "
             "or run `heph index <armory>` to verify indexing."
         )
     return (
@@ -789,13 +837,12 @@ def _material_operation_events(
     session: ChatSession,
     plan: StudyTurnPlan,
     resolved: ResolvedTurnPlan,
-) -> list[MaterialOperationEvent]:
+) -> Iterator[MaterialOperationEvent]:
     if plan.direct_reply is not None or plan.action is StudyAction.CALIBRATE:
-        return []
+        return
     if not (plan.retrieval_query or plan.use_expected_source_refs or resolved.turn_evidence):
-        return []
+        return
 
-    events: list[MaterialOperationEvent] = []
     enabled_documents = (
         [
             document
@@ -809,28 +856,28 @@ def _material_operation_events(
     indexed_chunks = sum(len(document.chunks) for document in enabled_documents)
     evidence = _visible_turn_evidence(resolved)
     index_counts = (indexed_sources, indexed_chunks)
-    events.extend(_index_ready_events(*index_counts))
-    events.extend(_material_operation_start_events(session, plan, evidence, index_counts))
-    events.extend(_material_evidence_events(plan, evidence, index_counts))
-    events.extend(_read_all_scope_events(plan, evidence, indexed_sources))
-    return events
+    yield from _index_ready_events(*index_counts)
+    yield from _material_operation_start_events(session, plan, evidence, index_counts)
+    yield from _material_evidence_events(plan, evidence, index_counts)
+    yield from _read_all_scope_events(plan, evidence, indexed_sources)
 
 
-def _index_ready_events(indexed_sources: int, indexed_chunks: int) -> list[MaterialOperationEvent]:
+def _index_ready_events(
+    indexed_sources: int,
+    indexed_chunks: int,
+) -> Iterator[MaterialOperationEvent]:
     if not (indexed_sources or indexed_chunks):
-        return []
-    return [
-        _material_operation_event(
-            "index_ready",
-            (
-                "Material index ready: "
-                f"{_count_label(indexed_sources, 'enabled source')}, "
-                f"{_count_label(indexed_chunks, 'chunk')}."
-            ),
-            indexed_sources=indexed_sources,
-            indexed_chunks=indexed_chunks,
-        )
-    ]
+        return
+    yield _material_operation_event(
+        "index_ready",
+        (
+            "Material index ready: "
+            f"{_count_label(indexed_sources, 'enabled source')}, "
+            f"{_count_label(indexed_chunks, 'chunk')}."
+        ),
+        indexed_sources=indexed_sources,
+        indexed_chunks=indexed_chunks,
+    )
 
 
 def _material_operation_start_events(
@@ -838,59 +885,54 @@ def _material_operation_start_events(
     plan: StudyTurnPlan,
     evidence: TurnEvidence | None,
     index_counts: tuple[int, int],
-) -> list[MaterialOperationEvent]:
+) -> Iterator[MaterialOperationEvent]:
     indexed_sources, indexed_chunks = index_counts
     if _overview_turn(plan):
         sampled_sources = evidence.sampled_source_count if evidence else 0
         total_sources = evidence.total_source_count if evidence else indexed_sources
         evidence_blocks = len(evidence.items) if evidence else 0
-        return [
-            _material_operation_event(
-                "sample_overview",
-                (
-                    f"Sampling corpus overview: {_count_label(evidence_blocks, 'excerpt')} "
-                    f"from {sampled_sources} of {_count_label(total_sources, 'indexed source')}."
-                ),
-                query=plan.retrieval_query,
-                evidence_blocks=evidence_blocks,
-                sampled_sources=sampled_sources,
-                total_sources=total_sources,
-                read_all_requested=_read_all_files_requested(plan.retrieval_query),
-            )
-        ]
+        yield _material_operation_event(
+            "sample_overview",
+            (
+                f"Sampling corpus overview: {_count_label(evidence_blocks, 'excerpt')} "
+                f"from {sampled_sources} of {_count_label(total_sources, 'indexed source')}."
+            ),
+            query=plan.retrieval_query,
+            evidence_blocks=evidence_blocks,
+            sampled_sources=sampled_sources,
+            total_sources=total_sources,
+            read_all_requested=_read_all_files_requested(plan.retrieval_query),
+        )
+        return
     if plan.use_expected_source_refs and session.study_state.expected_source_refs:
-        return [
-            _material_operation_event(
-                "open_stored_evidence",
-                (
-                    "Opening stored material evidence from the current recall item: "
-                    + ", ".join(session.study_state.expected_source_refs[:3])
-                ),
-                refs=list(session.study_state.expected_source_refs),
-            )
-        ]
+        yield _material_operation_event(
+            "open_stored_evidence",
+            (
+                "Opening stored material evidence from the current recall item: "
+                + ", ".join(session.study_state.expected_source_refs[:3])
+            ),
+            refs=list(session.study_state.expected_source_refs),
+        )
+        return
     if plan.retrieval_query:
-        return [
-            _material_operation_event(
-                "search_index",
-                f"Searching indexed materials for: {plan.retrieval_query}",
-                query=plan.retrieval_query,
-                indexed_sources=indexed_sources,
-                indexed_chunks=indexed_chunks,
-            )
-        ]
-    return []
+        yield _material_operation_event(
+            "search_index",
+            f"Searching indexed materials for: {plan.retrieval_query}",
+            query=plan.retrieval_query,
+            indexed_sources=indexed_sources,
+            indexed_chunks=indexed_chunks,
+        )
 
 
 def _material_evidence_events(
     plan: StudyTurnPlan,
     evidence: TurnEvidence | None,
     index_counts: tuple[int, int],
-) -> list[MaterialOperationEvent]:
+) -> Iterator[MaterialOperationEvent]:
     indexed_sources, indexed_chunks = index_counts
     if evidence is not None and evidence.items:
-        return [
-            _material_operation_event(
+        for item in evidence.items[:3]:
+            yield _material_operation_event(
                 "read_excerpt",
                 (
                     f"Opened {item.source}#chunk={item.chunk_index}: "
@@ -903,44 +945,38 @@ def _material_evidence_events(
                 score=round(item.score, 4),
                 text_excerpt=_trace_excerpt(item.content, limit=240),
             )
-            for item in evidence.items[:3]
-        ]
+        return
     if plan.retrieval_query:
-        return [
-            _material_operation_event(
-                "search_result",
-                "Material search returned no matching indexed evidence.",
-                query=plan.retrieval_query,
-                indexed_sources=indexed_sources,
-                indexed_chunks=indexed_chunks,
-            )
-        ]
-    return []
+        yield _material_operation_event(
+            "search_result",
+            "Material search returned no matching indexed evidence.",
+            query=plan.retrieval_query,
+            indexed_sources=indexed_sources,
+            indexed_chunks=indexed_chunks,
+        )
 
 
 def _read_all_scope_events(
     plan: StudyTurnPlan,
     evidence: TurnEvidence | None,
     indexed_sources: int,
-) -> list[MaterialOperationEvent]:
+) -> Iterator[MaterialOperationEvent]:
     if not _read_all_files_requested(plan.retrieval_query):
-        return []
+        return
     sampled_sources = evidence.sampled_source_count if evidence else 0
     total_sources = evidence.total_source_count if evidence else indexed_sources
-    return [
-        _material_operation_event(
-            "read_all_scope",
-            (
-                "Read-all scope: this turn samples indexed evidence; it did not read every "
-                "file end to end. Run `heph index <armory>` for a full index rebuild, then "
-                "ask a narrower source-grounded question."
-            ),
-            query=plan.retrieval_query,
-            sampled_sources=sampled_sources,
-            total_sources=total_sources,
-            command="heph index <armory>",
-        )
-    ]
+    yield _material_operation_event(
+        "read_all_scope",
+        (
+            "Read-all scope: this turn samples indexed evidence; it did not read every "
+            "file end to end. Run `heph index <armory>` for a full index rebuild, then "
+            "ask a narrower source-grounded question."
+        ),
+        query=plan.retrieval_query,
+        sampled_sources=sampled_sources,
+        total_sources=total_sources,
+        command="heph index <armory>",
+    )
 
 
 def _reading_notice(plan: StudyTurnPlan) -> str:
@@ -1497,13 +1533,10 @@ def _append_evidence_assessment_prompt(
     action = assessment.recommended_action.replace("_", " ")
     return (
         f"{prompt}\n\n"
-        "Evidence sufficiency gate:\n"
-        f"- Verdict: insufficient or partial evidence; confidence {assessment.confidence:.0%}.\n"
-        f"- Recommended action: {action}.\n"
-        f"- Supporting refs: {refs}.\n"
-        f"- Missing information: {missing}.\n"
-        "- Do not fill gaps from outside knowledge. If you answer, scope the answer to "
-        "the cited evidence and state what remains unsupported."
+        "Evidence gate: "
+        f"partial/insufficient ({assessment.confidence:.0%}); action={action}; "
+        f"refs={refs}; missing={missing}. "
+        "Do not fill gaps; scope any answer to cited evidence."
     )
 
 
@@ -2063,7 +2096,7 @@ def _overview_recommendation_items(
     if len(clean_topics) >= 3:
         citation = _overview_first_citation(cited_topics[2])
         recommendations.append(
-            f"Make a short learning order for {', '.join(clean_topics[:3])} {citation}."
+            f"Make a short review order for {', '.join(clean_topics[:3])} {citation}."
         )
     recommendations.append("Turn the selected topic into a quick recall drill.")
     return _dedupe_overview_recommendations(recommendations)[:3]
@@ -2341,37 +2374,11 @@ class TurnOrchestrator:
         try:
             with timer:
                 if session.armory_path is not None:
-                    due_reviews, memory_state = _study_autopilot_context(session)
-                    study_plan = plan_turn(
+                    resolved = yield from self._iter_armory_turn_events(
                         original_study_state,
                         user_input,
-                        due_reviews=due_reviews,
-                        memory_state=memory_state,
-                        allow_direct_chat=False,
-                    )
-                    study_plan = _model_normalized_study_plan(
-                        study_plan,
-                        original_study_state,
-                        user_input,
-                        session.config,
-                    )
-                    if notice := _reading_notice(study_plan):
-                        yield NoticeEvent(notice, code="reading")
-                    resolved = self._resolve_timed_turn_plan(study_plan)
-                    yield from self._iter_material_operation_events(study_plan, resolved)
-                    if notice := _evidence_notice(resolved):
-                        yield NoticeEvent(
-                            notice,
-                            code="evidence",
-                            metadata=_evidence_notice_metadata(resolved, session),
-                        )
-                    for event in self._iter_study_events(
-                        resolved,
-                        original_study_state,
-                        user_input=user_input,
                         abort=abort,
-                    ):
-                        yield event
+                    )
                 else:
                     session.last_turn_evidence = None
                     plain_plan = plan_turn(original_study_state, user_input)
@@ -2384,8 +2391,7 @@ class TurnOrchestrator:
                         )
                         yield from _final_reply_events(final_reply)
                         return
-                    for event in self._iter_plain_events(user_input=user_input, abort=abort):
-                        yield event
+                    yield from self._iter_plain_events(user_input=user_input, abort=abort)
 
             notice = self._finalize_successful_turn(user_input, resolved, latency_ms=timer.ms)
             if notice:
@@ -2430,6 +2436,46 @@ class TurnOrchestrator:
             )
             self._rollback_turn(original_messages, original_study_state)
             raise
+
+    def _iter_armory_turn_events(
+        self,
+        original_study_state: StudyState,
+        user_input: str,
+        *,
+        abort: threading.Event | None,
+    ) -> Generator[TurnEvent, None, ResolvedTurnPlan]:
+        session = self.session
+        due_reviews, memory_state = _study_autopilot_context(session)
+        study_plan = plan_turn(
+            original_study_state,
+            user_input,
+            due_reviews=due_reviews,
+            memory_state=memory_state,
+            allow_direct_chat=False,
+        )
+        study_plan = _model_normalized_study_plan(
+            study_plan,
+            original_study_state,
+            user_input,
+            session.config,
+        )
+        if notice := _reading_notice(study_plan):
+            yield NoticeEvent(notice, code="reading")
+        resolved = self._resolve_timed_turn_plan(study_plan)
+        yield from self._iter_material_operation_events(study_plan, resolved)
+        if notice := _evidence_notice(resolved):
+            yield NoticeEvent(
+                notice,
+                code="evidence",
+                metadata=_evidence_notice_metadata(resolved, session),
+            )
+        yield from self._iter_study_events(
+            resolved,
+            original_study_state,
+            user_input=user_input,
+            abort=abort,
+        )
+        return resolved
 
     def _iter_plain_events(
         self,
@@ -2558,14 +2604,12 @@ class TurnOrchestrator:
                 user_input=user_input,
                 config=session.config,
             )
-        session.study_state, final_reply = apply_turn_result(
+        final_reply = self._apply_study_reply(
             original_study_state,
             plan,
             fallback_reply,
-            _evidence_refs(resolved.turn_evidence),
+            source_refs=_evidence_refs(resolved.turn_evidence),
         )
-        self.last_reply = final_reply
-        self._append_assistant_message(final_reply)
         yield from _final_reply_events(final_reply)
 
     def _iter_final_study_reply_events(
@@ -2613,27 +2657,17 @@ class TurnOrchestrator:
         plan = resolved.study_plan
         assert plan is not None
 
-        def deterministic_events(
-            reply: str,
-            *,
-            source_refs: list[str] | None = None,
-        ) -> Iterator[TurnEvent]:
-            final_reply = self._apply_deterministic_reply(
-                original_study_state,
-                plan,
-                reply,
-                user_input=user_input,
-                source_refs=source_refs,
-            )
-            return _final_reply_events(final_reply)
-
         if deterministic_reply := _deterministic_study_reply(session, plan, resolved):
             if deterministic_reply.internal_passes is not None:
                 self.last_internal_passes = deterministic_reply.internal_passes
-            yield from deterministic_events(
+            final_reply = self._apply_deterministic_reply(
+                original_study_state,
+                plan,
                 deterministic_reply.reply,
+                user_input=user_input,
                 source_refs=deterministic_reply.source_refs,
             )
+            yield from _final_reply_events(final_reply)
             return
 
         if notice := _writing_notice(plan):
@@ -2671,16 +2705,17 @@ class TurnOrchestrator:
         self.last_internal_passes = processed_reply.pass_count
 
         if raw_reply:
-            session.study_state, final_reply = apply_turn_result(
+            source_refs = _evidence_refs(resolved.turn_evidence)
+            final_reply = self._apply_study_reply(
                 original_study_state,
                 plan,
                 visible_reply,
-                _evidence_refs(resolved.turn_evidence),
+                source_refs=source_refs,
             )
             self._record_study_review_if_needed(
                 original_study_state,
                 plan,
-                _evidence_refs(resolved.turn_evidence),
+                source_refs,
             )
         else:
             session.study_state = original_study_state
@@ -2711,11 +2746,26 @@ class TurnOrchestrator:
         result_plan = plan
         if plan.direct_reply == reply and localized_reply != reply:
             result_plan = replace(plan, direct_reply=localized_reply)
-        self.session.study_state, final_reply = apply_turn_result(
+        return self._apply_study_reply(
             original_study_state,
             result_plan,
             localized_reply,
-            source_refs or [],
+            source_refs=source_refs or [],
+        )
+
+    def _apply_study_reply(
+        self,
+        original_study_state: StudyState,
+        plan: StudyTurnPlan,
+        reply: str,
+        *,
+        source_refs: list[str],
+    ) -> str:
+        self.session.study_state, final_reply = apply_turn_result(
+            original_study_state,
+            plan,
+            reply,
+            source_refs,
         )
         self.last_reply = final_reply
         self._append_assistant_message(final_reply)
@@ -2820,7 +2870,15 @@ class TurnOrchestrator:
         plan: StudyTurnPlan,
         resolved: ResolvedTurnPlan,
     ) -> Iterator[MaterialOperationEvent]:
-        for event in _material_operation_events(self.session, plan, resolved):
+        yield from self._record_material_operation_events(
+            _material_operation_events(self.session, plan, resolved)
+        )
+
+    def _record_material_operation_events(
+        self,
+        events: Iterator[MaterialOperationEvent],
+    ) -> Iterator[MaterialOperationEvent]:
+        for event in events:
             self.session.trace.record_material_operation(
                 operation=event.operation,
                 message=event.message,

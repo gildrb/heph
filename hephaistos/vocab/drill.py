@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Protocol
 
 from hephaistos.logging import get_logger
+from hephaistos.parameters.settings import (
+    VOCAB_STRICTNESS_LENIENT,
+    load_app_settings,
+)
 from hephaistos.vocab.parser import scan_armory
 from hephaistos.vocab.scheduler import Rating, schedule_card, select_due_cards
 from hephaistos.vocab.state import load_schedule, save_schedule
@@ -51,6 +55,18 @@ def _format_interval(days: int) -> str:
     if days < 365:
         return f"{days // 30} month{'s' if days // 30 != 1 else ''}"
     return f"{days // 365} year{'s' if days // 365 != 1 else ''}"
+
+
+def _answer_matches(user_answer: str, correct_answer: str) -> bool:
+    user = user_answer.strip().casefold()
+    correct = correct_answer.strip().casefold()
+    if user == correct:
+        return True
+    if load_app_settings().vocab_strictness == VOCAB_STRICTNESS_LENIENT:
+        user = "".join(ch for ch in user if ch.isalnum() or ch.isspace())
+        correct = "".join(ch for ch in correct if ch.isalnum() or ch.isspace())
+        return " ".join(user.split()) == " ".join(correct.split())
+    return False
 
 
 def run_drill(armory_path: Path, ui: DrillUi, *, card_limit: int = 0) -> DrillResult | None:
@@ -113,9 +129,7 @@ def run_drill(armory_path: Path, ui: DrillUi, *, card_limit: int = 0) -> DrillRe
             continue
 
         ui.print_line()
-        user = user_answer.strip().lower()
-        correct = card_state.back.strip().lower()
-        match = user == correct or user in correct or correct in user
+        match = _answer_matches(user_answer, card_state.back)
         formatted_answer = ui.format_prompt(user_answer) if match else ui.format_dim(user_answer)
         ui.print_line(f"  Your answer:    {formatted_answer}")
         ui.print_line(f"  Correct answer: {ui.format_accent(card_state.back)}")

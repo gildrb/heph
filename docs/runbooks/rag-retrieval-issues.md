@@ -62,7 +62,7 @@ Large armories may take a few minutes.
 
 ## Embedding Model
 
-Hephaistos uses sentence-transformers for embeddings (optional dependency):
+Heph uses sentence-transformers for embeddings (optional dependency):
 ```bash
 uv sync --group rag
 ```

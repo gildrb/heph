@@ -17,28 +17,23 @@
 | `heph materials index <path>` | Build or refresh the RAG index. |
 | `heph index [path]` | Build or refresh the materials index; defaults to the current armory. |
 | `heph health [path]` | Check indexed materials for generic extraction problems; defaults to the current armory. |
-| `heph update` | Show how to update the active Hephaistos install. |
+| `heph update` | Show how to update the active Heph install. |
 | `heph config show` | Display current configuration. |
 | `heph config set <key> <value>` | Set a configuration parameter. |
-| `heph chat start <path>` | Start a new chat session in an armory. |
-| `heph chat resume <path> <id>` | Resume an existing chat session. |
 | `heph chat ask <path> [prompt]` | Ask one question without opening the TUI. |
 | `heph chat ask --jsonl <path> [prompt]` | Emit structured turn events as JSON Lines for harness audits. |
-| `heph chat list <path>` | List chat sessions in an armory. |
-| `heph start [path]` | Hidden backwards-compatible alias for `heph [path]`. |
 | `heph tui [path]` | Explicit alias for the default Textual TUI. |
 
 `heph` is the canonical public command. `hephaistos` is an
-equivalent long entrypoint. `heph start [path]` stays available as
-a hidden backwards-compatible alias and should not be the primary instruction in
-new docs.
+equivalent long entrypoint. Use `heph tui [path]` only when a script
+needs the explicit TUI subcommand.
 
 ## Slash commands
 
 | Command | Description |
 |---|---|
 | /help | Show available commands |
-| /exit | Leave the shell |
+| /exit | Leave Heph |
 | /login | Authenticate with a subscription or API key |
 | /logout | Clear stored subscription or API-key credentials |
 | /status | Show armory, session, and model info |
@@ -48,24 +43,22 @@ new docs.
 | /evidence | Show retrieved evidence for the last turn |
 | /tokens | Show or hide live token estimates |
 | /cost | Show or hide live cost estimates |
-| /stats | Show session, armory, and learning progress stats |
+| /stats | Show session, armory, and review stats |
 | /priority | Generate a printable priority PDF cheat sheet |
-| /mode | Set manual, guided, or autopilot learning mode |
-| /autopilot | Let Heph drive a bounded autonomous learning session |
+| /mode | Set manual, guided, or autopilot review mode |
+| /autopilot | Let Heph drive a bounded material review session |
 | /exam | Start an active-recall exam question |
 | /export | Export the current session to a markdown file |
 | /import | Import files into the armory materials directory |
 | /remind | Show upcoming review reminders and due cards |
-| /edit | Edit and resend the last user message |
 | /models | Pick the active model |
 | /recommend | Recommend models for sessions |
 | /memory | Manage local armory memory |
-| /persona | Show or switch the agent persona |
 | /settings | Manage cross-session preferences |
 | /sessions | Switch between saved sessions |
 | /index | Manage cross-armory search index |
 | /usage | Show token usage and cost for this session |
-| /vocab | Vocabulary drill with spaced repetition |
+| /vocabulary | Practice vocabulary translations from your materials |
 
 ## Environment variables
 

@@ -8,8 +8,6 @@ import pytest
 
 import hephaistos.commands.display as _commands_display
 import hephaistos.commands.model as _commands_model
-import hephaistos.commands.persona as _commands_persona
-import hephaistos.commands.session as _commands_session
 import hephaistos.commands.study as _commands_study
 import hephaistos.providers.model_choices as _model_choices
 from hephaistos import commands
@@ -48,14 +46,12 @@ def test_command_registry_has_unique_names_and_aliases() -> None:
     assert not any(alias.startswith("/") for alias in aliases)
 
 
-def test_command_registry_suggestions_include_only_visible_commands() -> None:
+def test_command_registry_suggestions_include_commands() -> None:
     registry = commands.get_registry()
     suggested_names = {suggestion.name for suggestion in registry.suggestions()}
-    visible_names = {cmd.name for cmd in registry.commands if not cmd.hidden}
-    hidden_names = {cmd.name for cmd in registry.commands if cmd.hidden}
+    command_names = {cmd.name for cmd in registry.commands}
 
-    assert suggested_names == visible_names
-    assert suggested_names.isdisjoint(hidden_names)
+    assert suggested_names == command_names
     assert all(suggestion.description for suggestion in registry.suggestions())
 
 
@@ -77,6 +73,18 @@ def test_command_registry_includes_settings() -> None:
 
     assert registry.find("settings") is not None
     assert "settings" in names
+
+
+def test_settings_command_prints_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    session = create_plain_session(ChatConfig(api_key="test-key"))
+
+    commands.SettingsCommand().handle(session, "")
+
+    out = capsys.readouterr().out
+    assert "Settings are managed in the TUI with /settings." in out
+    assert "Theme:" in out
+    assert "Activity trace:" in out
+    assert "Provider:" in out
 
 
 def test_command_registry_includes_exam_and_priority() -> None:
@@ -114,7 +122,7 @@ def test_mode_autopilot_starts_immediate_session(capsys: pytest.CaptureFixture[s
     out = capsys.readouterr().out
     assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
     assert session.study_state.autopilot_session_type == "general"
-    assert session.study_state.session_goal == "autonomous learning"
+    assert session.study_state.session_goal == "guided material review"
     assert session.study_state.autopilot_started_at is not None
     assert result.output is not None
     assert result.output.startswith("__RESEND__:Start an autopilot session")
@@ -150,7 +158,7 @@ def test_autopilot_without_args_starts_general_session(
     out = capsys.readouterr().out
     assert session.study_state.autonomy_mode is StudyAutonomyMode.AUTOPILOT
     assert session.study_state.autopilot_session_type == "general"
-    assert session.study_state.session_goal == "autonomous learning"
+    assert session.study_state.session_goal == "guided material review"
     assert result.output is not None
     assert result.output.startswith("__RESEND__:Start an autopilot session")
     assert "confidence from 0-100%" in result.output
@@ -213,7 +221,7 @@ def test_export_command_writes_session_markdown(tmp_path: Path) -> None:
             "",
             "What matters here?",
             "",
-            "## Hephaistos",
+            "## Heph",
             "",
             "The cited material.",
             "",
@@ -685,46 +693,6 @@ def test_switch_model_rejects_inaccessible_provider(
     assert session.config.model == "openai"
 
 
-def test_clear_command_supports_plain_chat(monkeypatch: pytest.MonkeyPatch) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-    session.conversation.add("user", "hello")
-
-    monkeypatch.setattr(
-        _commands_session,
-        "confirm",
-        lambda *_args, **_kwargs: True,
-    )
-
-    result = commands.ClearCommand().handle(session, "")
-
-    assert result.new_session is not None
-    assert result.new_session.armory_path is None
-    assert result.new_session.conversation.messages[0].role == "system"
-    assert len(result.new_session.conversation.messages) == 1
-
-
-def test_persona_command_updates_plain_chat_system_prompt(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-    before = session.conversation.messages[0].content
-
-    monkeypatch.setattr(
-        _commands_persona,
-        "print_success",
-        lambda _msg: None,
-    )
-
-    result = commands.PersonaCommand().handle(session, "tutor")
-
-    after = session.conversation.messages[0].content
-    assert result.output is None
-    assert session.persona.slug == "tutor"
-    assert after != before
-    assert "patient tutor" in after
-    assert "No armory or materials are attached" in after
-
-
 def test_models_command_reports_no_matching_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -774,16 +742,6 @@ def test_exit_command_returns_quit(
     session = create_plain_session(ChatConfig(api_key="test-key"))
 
     result = commands.ExitCommand().handle(session, "")
-
-    assert result.should_exit is True
-
-
-def test_quit_command_returns_quit(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    result = commands.QuitCommand().handle(session, "")
 
     assert result.should_exit is True
 
@@ -985,23 +943,6 @@ def test_evidence_command_handles_deleted_source(
     assert "Evidence source not found" in out
 
 
-def test_save_command_plain_session(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    monkeypatch.setattr(
-        _commands_session,
-        "save_session",
-        lambda _s: Path("/fake/saved.json"),
-    )
-
-    result = commands.SaveCommand().handle(session, "")
-    assert result.output is not None
-    assert "Saved" in result.output
-
-
 def test_compact_command_empty_session(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1010,16 +951,6 @@ def test_compact_command_empty_session(
     commands.CompactCommand().handle(session, "")
     out = capsys.readouterr().out
     assert "Nothing to compact" in out
-
-
-def test_edit_command_no_messages(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    session = create_plain_session(ChatConfig(api_key="test-key"))
-
-    commands.EditCommand().handle(session, "")
-    out = capsys.readouterr().out
-    assert "No user messages" in out
 
 
 def test_tokens_command_invalid_arg(

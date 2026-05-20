@@ -20,12 +20,7 @@ from hephaistos.rag.retrieve import ScoredChunk
 _CHARS_PER_TOKEN = 4
 _EVIDENCE_ID_PREFIX = "E"
 _EVIDENCE_HEADER_TEMPLATE = "[{evidence_id}] {source} (chunk {index}, relevance: {score:.2f})"
-_EVIDENCE_PROMPT_PREFIX = (
-    "Retrieved evidence for this question:\n\n"
-    "Cite the most specific evidence IDs in brackets after each factual claim, "
-    "for example [E1] or [E1][E2]. Do not cite filenames by themselves. "
-    "If the evidence is partial or missing, say what is missing instead of guessing.\n\n"
-)
+_EVIDENCE_PROMPT_PREFIX = "Retrieved evidence for this question:\n\n"
 _DISTINCT_SOURCE_HEAD_LIMIT = 4
 _TRUNCATION_MARKER = "[... truncated]"
 

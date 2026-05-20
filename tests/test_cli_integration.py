@@ -66,7 +66,7 @@ def test_update_command_is_not_treated_as_armory(
     run_argv(parser, ["update"])
 
     out = capsys.readouterr().out
-    assert "Hephaistos update" in out
+    assert "Heph update" in out
     assert "uv tool upgrade heph" in out
 
 
@@ -74,7 +74,7 @@ def test_source_runtime_reexecs_repo_venv(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    root = tmp_path / "Hephaistos"
+    root = tmp_path / "Heph"
     venv_bin = root / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
     venv_heph = venv_bin / "heph"
@@ -107,7 +107,7 @@ def test_source_runtime_warning_when_repo_venv_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    root = tmp_path / "Hephaistos"
+    root = tmp_path / "Heph"
     monkeypatch.setattr(cli_main_module, "_project_root", lambda: root)
     monkeypatch.setattr(cli_main_module, "_is_source_checkout", lambda _root: True)
     monkeypatch.setattr(cli_main_module, "_docling_available", lambda: False)
@@ -167,7 +167,7 @@ def test_top_level_help_is_compact_and_points_to_interactive_help() -> None:
     assert ".armories" in help_text
     assert "--profile" not in help_text
     assert "tracemalloc" not in help_text
-    assert "Inside Hephaistos, type /help" in help_text
+    assert "Inside Heph, type /help" in help_text
     assert "/models" in help_text
     assert "/exam" in help_text
     assert "/priority" in help_text
@@ -305,7 +305,7 @@ def test_main_without_args_uses_tui_on_non_tty(monkeypatch: pytest.MonkeyPatch) 
     assert called
 
 
-def test_start_command_launches_tui_without_path() -> None:
+def test_tui_command_launches_tui_without_path() -> None:
     parser = build_parser()
     called = False
 
@@ -315,12 +315,12 @@ def test_start_command_launches_tui_without_path() -> None:
         assert path is None
 
     with patch("hephaistos.tui.run_tui_for_path", fake_tui):
-        run_argv(parser, ["start"])
+        run_argv(parser, ["tui"])
 
     assert called
 
 
-def test_start_command_with_path_launches_tui_with_path(
+def test_tui_command_with_path_launches_tui_with_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -337,7 +337,7 @@ def test_start_command_with_path_launches_tui_with_path(
         captured_path = path
 
     with patch("hephaistos.tui.run_tui_for_path", fake_tui):
-        run_argv(parser, ["start", str(armory_path)])
+        run_argv(parser, ["tui", str(armory_path)])
 
     assert captured_path == armory_path
 

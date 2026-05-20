@@ -40,7 +40,6 @@ _log = get_logger("agent.compact")
 KEEP_RECENT: int = 3  # tool results left untouched by micro_compact
 KEEP_RECENT_EXCHANGES: int = 2  # complete exchanges preserved verbatim by auto_compact
 PLACEHOLDER_THRESHOLD: int = 100  # only replace results longer than this (chars)
-TOKEN_THRESHOLD: int = 50_000  # auto_compact trigger
 TRANSCRIPTS_DIR: str = ".hephaistos/transcripts"
 _COMPACTION_CACHE_DIR: str = ".hephaistos/compaction_cache"
 

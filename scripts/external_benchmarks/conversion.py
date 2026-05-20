@@ -1,7 +1,7 @@
 """Shared conversion helpers for external benchmark adapters.
 
 Adapters normalize external datasets into the benchmark shape consumed by
-``scripts.benchmark_rag``: a portable Hephaistos armory under ``armory/`` plus a
+``scripts.benchmark_rag``: a portable Heph armory under ``armory/`` plus a
 suite-level ``rag.jsonl`` file.
 """
 

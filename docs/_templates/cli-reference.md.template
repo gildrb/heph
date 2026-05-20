@@ -7,9 +7,8 @@
 [[CLI_COMMANDS_TABLE]]
 
 `[[SHORT_COMMAND]]` is the canonical public command. `[[LONG_COMMAND]]` is an
-equivalent long entrypoint. `[[SHORT_COMMAND]] start [path]` stays available as
-a hidden backwards-compatible alias and should not be the primary instruction in
-new docs.
+equivalent long entrypoint. Use `[[SHORT_COMMAND]] tui [path]` only when a script
+needs the explicit TUI subcommand.
 
 ## Slash commands
 

@@ -69,7 +69,7 @@ def _unindexable_reason(path: Path) -> str:
             return "document conversion failed (empty or corrupt document)"
         return (
             "binary document; document conversion backend unavailable "
-            "(update or reinstall Hephaistos, then rebuild the index)"
+            "(update or reinstall Heph, then rebuild the index)"
         )
     return "binary file; unsupported format"
 

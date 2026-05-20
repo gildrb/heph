@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hephaistos.agent.dispatch import agent_loop
+from hephaistos.agent.dispatch import iter_agent_events
 from hephaistos.agent.prompt import SystemPrompt, build_system_prompt_sections, render_tool_docs
 from hephaistos.agent.tool_execution import (
     ToolCall,
@@ -21,11 +21,11 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "ToolSpec",
-    "agent_loop",
     "build_system_prompt_sections",
     "default_registry",
     "execute_tool_calls",
     "format_tool_args",
+    "iter_agent_events",
     "merge_tool_call_deltas",
     "render_tool_docs",
     "summarize_result",

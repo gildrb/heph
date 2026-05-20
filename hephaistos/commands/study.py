@@ -1,4 +1,4 @@
-"""Study and vocabulary commands: vocab, remind."""
+"""Study and vocabulary commands: vocabulary, remind."""
 
 from __future__ import annotations
 
@@ -30,20 +30,18 @@ from hephaistos.study.priority import (
 )
 from hephaistos.study.schedule import StudyItemState, load_study_schedule
 from hephaistos.terminal import (
+    STYLE_ACCENT,
+    STYLE_DIM,
     STYLE_PROMPT,
+    STYLE_SUCCESS,
     MenuOption,
     confirm,
     direct_input,
     direct_print,
-    select_option,
-)
-from hephaistos.terminal.display import (
-    STYLE_ACCENT,
-    STYLE_DIM,
-    STYLE_SUCCESS,
     print_error,
     print_info,
     print_success,
+    select_option,
     styled,
 )
 from hephaistos.vocab.drill import run_drill
@@ -66,7 +64,7 @@ _AUTOPILOT_GOALS = {
     AutopilotSessionType.EXAM: "exam preparation",
     AutopilotSessionType.WEAK_TOPICS: "weak-topic repair",
     AutopilotSessionType.REVIEW: "due review",
-    AutopilotSessionType.SOCRATIC: "Socratic learning",
+    AutopilotSessionType.SOCRATIC: "Socratic review",
     AutopilotSessionType.CRAM: "cram session",
     AutopilotSessionType.DEEP: "deep understanding",
 }
@@ -132,7 +130,7 @@ def _remind_status_lines(
         lines.append(
             f"You have {len(due_cards)} card{'s' if len(due_cards) != 1 else ''} due for review."
         )
-        lines.append(f"  Run {styled('/vocab drill', STYLE_ACCENT)} to review them now.")
+        lines.append(f"  Run {styled('/vocabulary', STYLE_ACCENT)} to review them now.")
     elif all_cards:
         lines.append(styled("Vocabulary is caught up.", STYLE_SUCCESS))
 
@@ -192,9 +190,8 @@ class TerminalDrillUi:
 
 
 class VocabCommand(Command):
-    name = "vocab"
-    description = "Vocabulary drill with spaced repetition"
-    aliases = ("v",)
+    name = "vocabulary"
+    description = "Practice vocabulary translations from your materials"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -268,6 +265,7 @@ class RemindCommand(Command):
     description = "Show upcoming review reminders and due cards"
 
     def handle(self, session: object, args: str) -> CommandResult:
+        del args
         s = ensure_session(session)
         if s.armory_path is None:
             print_error("No armory attached. Use /armory to open one.")
@@ -330,7 +328,7 @@ class RemindCommand(Command):
 
 class ModeCommand(Command):
     name = "mode"
-    description = "Set manual, guided, or autopilot learning mode"
+    description = "Set manual, guided, or autopilot review mode"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -345,17 +343,17 @@ class ModeCommand(Command):
         if mode is StudyAutonomyMode.AUTOPILOT:
             session_type = AutopilotSessionType.GENERAL
             _start_autopilot_session(s, session_type, None, requested)
-            print_success(f"Learning mode set to {mode.value}.")
+            print_success(f"Review mode set to {mode.value}.")
             prompt = _autopilot_start_prompt(session_type, None)
             return CommandResult(output=f"__RESEND__:{prompt}")
         _set_study_mode(s, mode)
-        print_success(f"Learning mode set to {mode.value}.")
+        print_success(f"Review mode set to {mode.value}.")
         return CommandResult()
 
 
 class AutopilotCommand(Command):
     name = "autopilot"
-    description = "Let Heph drive a bounded autonomous learning session"
+    description = "Let Heph drive a bounded material review session"
 
     def handle(self, session: object, args: str) -> CommandResult:
         s = ensure_session(session)
@@ -369,11 +367,11 @@ class AutopilotCommand(Command):
             normalized = "on"
         if normalized in {"off", "manual"}:
             _set_study_mode(s, StudyAutonomyMode.MANUAL)
-            print_success("Autopilot off. Manual learning mode is active.")
+            print_success("Autopilot off. Manual review mode is active.")
             return CommandResult()
         if normalized == "guided":
             _set_study_mode(s, StudyAutonomyMode.GUIDED)
-            print_success("Guided learning mode is active.")
+            print_success("Guided review mode is active.")
             return CommandResult()
 
         session_type = session_type_from_text(requested)
@@ -523,8 +521,8 @@ def _autopilot_goal(session_type: AutopilotSessionType, raw_request: str) -> str
         return _AUTOPILOT_GOALS[session_type]
     normalized = raw_request.strip().casefold()
     if normalized in {"", "on", "autopilot"}:
-        return "autonomous learning"
-    return raw_request or "autonomous learning"
+        return "guided material review"
+    return raw_request or "guided material review"
 
 
 def _autopilot_start_prompt(

@@ -1,6 +1,6 @@
 # Agent Harness Roadmap
 
-Hephaistos should treat agent quality as an evaluated product surface, not as a
+Heph should treat agent quality as an evaluated product surface, not as a
 side effect of adding a framework. The target is a document workspace that can prove
 retrieval accuracy, grounded answering, citation faithfulness, and study-loop
 control across repeatable academic tasks.
@@ -23,7 +23,7 @@ improves academic RAG quality instead of merely changing behavior.
 
 ## Native Harness Stance
 
-Hephaistos should win with its own harness instead of outsourcing the core
+Heph should win with its own harness instead of outsourcing the core
 runtime to an agent framework. The important pieces are already local: armory
 layout, document conversion, retrieval, evidence IDs, study state, tool events,
 privacy boundaries, and benchmark gates.

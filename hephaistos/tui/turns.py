@@ -46,7 +46,7 @@ class _TurnHost(Protocol):
 
     def _refresh_footer_hints(self) -> None: ...
 
-    def _refresh_status(self, state: str) -> None: ...
+    def _refresh_status(self) -> None: ...
 
     def _current_turn_key(self) -> str: ...
 
@@ -58,11 +58,9 @@ class _TurnHost(Protocol):
 
     def _handle_turn_notice(self, turn_key: str, notice: str) -> None: ...
 
-    def _handle_turn_progress(self, turn_key: str, progress: str) -> None: ...
-
     def _handle_turn_reply(self, turn_key: str, reply: str) -> None: ...
 
-    def _sync_busy_to_current_session(self, *, idle_status: str = "ready") -> None: ...
+    def _sync_busy_to_current_session(self) -> None: ...
 
     def _turn_is_visible(self, turn_key: str) -> bool: ...
 
@@ -86,15 +84,11 @@ class TuiTurnMixin:
     def _turn_is_visible(self: _TurnHost, turn_key: str) -> bool:
         return self._current_turn_key() == turn_key
 
-    def _sync_busy_to_current_session(
-        self: _TurnHost,
-        *,
-        idle_status: str = "ready",
-    ) -> None:
+    def _sync_busy_to_current_session(self: _TurnHost) -> None:
         abort_event = self._active_turns.get(self._current_turn_key())
         self.busy = abort_event is not None
         self.abort_event = abort_event or threading.Event()
-        self._refresh_status("assistant working" if self.busy else idle_status)
+        self._refresh_status()
         self._refresh_footer_hints()
 
     def _handle_turn_reply(self: _TurnHost, turn_key: str, reply: str) -> None:
@@ -107,10 +101,6 @@ class TuiTurnMixin:
     def _handle_turn_notice(self: _TurnHost, turn_key: str, notice: str) -> None:
         if self._turn_is_visible(turn_key):
             self._append_notice(notice)
-
-    def _handle_turn_progress(self: _TurnHost, turn_key: str, progress: str) -> None:
-        if self._turn_is_visible(turn_key):
-            self._refresh_status(f"assistant {progress}")
 
     def _handle_turn_activity(self: _TurnHost, turn_key: str, line: str) -> None:
         if self._turn_is_visible(turn_key):
@@ -151,9 +141,6 @@ class TuiTurnMixin:
         def on_notice(notice: str) -> None:
             self.call_from_thread(self._handle_turn_notice, turn_key, notice)
 
-        def on_progress(progress: str) -> None:
-            self.call_from_thread(self._handle_turn_progress, turn_key, progress)
-
         def on_activity(line: str) -> None:
             nonlocal last_activity_line
             if line == last_activity_line:
@@ -175,6 +162,5 @@ class TuiTurnMixin:
             on_notice=on_notice,
             on_error=on_error,
             on_finish=on_finish,
-            on_progress=on_progress,
             on_activity=on_activity,
         )

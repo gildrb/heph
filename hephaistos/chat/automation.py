@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterator
-from dataclasses import dataclass
-from pathlib import Path
 
 from hephaistos.chat.events import (
     AssistantDeltaEvent,
@@ -21,13 +19,7 @@ from hephaistos.chat.events import (
     TurnEvent,
 )
 from hephaistos.chat.orchestrator import TurnOrchestrator
-from hephaistos.chat.session import ChatSession, save_session
-
-
-@dataclass(frozen=True, slots=True)
-class AutomationRunResult:
-    reply: str
-    saved_path: Path | None = None
+from hephaistos.chat.session import ChatSession
 
 
 def iter_chat_events(
@@ -40,15 +32,6 @@ def iter_chat_events(
     orchestrator = TurnOrchestrator(session)
     yield from orchestrator.iter_events(prompt, abort=abort)
     session.mark_activity()
-
-
-def run_chat_turn(session: ChatSession, prompt: str, *, save: bool = False) -> AutomationRunResult:
-    reply = ""
-    for event in iter_chat_events(session, prompt):
-        if isinstance(event, TurnCompleteEvent):
-            reply = event.full_text
-    saved_path = save_session(session) if save else None
-    return AutomationRunResult(reply=reply, saved_path=saved_path)
 
 
 def event_to_json_object(event: TurnEvent) -> dict[str, object]:

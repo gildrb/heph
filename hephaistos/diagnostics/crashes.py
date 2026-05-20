@@ -44,10 +44,10 @@ class _NoopSpan:
 class _NoopTracer:
     __slots__ = ()
 
-    def start_span(self, name: str, **kwargs: object) -> _NoopSpan:
+    def start_span(self, _name: str, **_kwargs: object) -> _NoopSpan:
         return _NoopSpan()
 
-    def start_as_current_span(self, name: str, **kwargs: object) -> _NoopSpan:
+    def start_as_current_span(self, _name: str, **_kwargs: object) -> _NoopSpan:
         return _NoopSpan()
 
 
@@ -72,15 +72,18 @@ _NoopGauge = _NoopInstrument
 class _NoopMeter:
     __slots__ = ()
 
-    def create_histogram(self, name: str, **kwargs: object) -> _NoopInstrument:
+    def create_histogram(self, name: str, **_kwargs: object) -> _NoopInstrument:
+        del name
         return _NoopInstrument()
 
-    def create_counter(self, name: str, **kwargs: object) -> _NoopInstrument:
+    def create_counter(self, name: str, **_kwargs: object) -> _NoopInstrument:
+        del name
         return _NoopInstrument()
 
     create_up_down_counter = create_counter
 
-    def create_gauge(self, _name: str, **_kwargs: object) -> _NoopInstrument:
+    def create_gauge(self, name: str, **_kwargs: object) -> _NoopInstrument:
+        del name
         return _NoopInstrument()
 
 
@@ -297,10 +300,6 @@ def get_meter(_name: str) -> _NoopMeter:
 
 
 def init_alerting() -> None:
-    pass
-
-
-def send_alert(level: int, title: str, body: str) -> None:
     pass
 
 

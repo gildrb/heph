@@ -25,10 +25,6 @@ class CircuitState(enum.IntEnum):
     HALF_OPEN = 2
 
 
-class CircuitOpenError(Exception):
-    pass
-
-
 @dataclass
 class CircuitBreaker:
     failure_threshold: int = 5
@@ -132,10 +128,10 @@ def offline_message(provider_name: str) -> str:
     return (
         f"Can't reach {provider_name}. "
         "You're offline — but you can still:\n"
-        "  · Review vocabulary with /vocab drill\n"
+        "  · Review vocabulary with /vocabulary\n"
         "  · Browse materials with /materials\n"
         "  · Export the chat with /export\n"
         "  · Check /stats for session progress\n"
         "\n"
-        "Hephaistos will reconnect automatically when connectivity returns."
+        "Heph will reconnect automatically when connectivity returns."
     )

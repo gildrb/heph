@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from hephaistos.parameters.settings import VOCAB_STRICTNESS_LENIENT, AppSettings
+from hephaistos.vocab import drill
 from hephaistos.vocab.parser import (
     VocabCard,
     parse_vocab_file,
@@ -497,6 +499,22 @@ class TestVocabScheduleStore:
 # ---------------------------------------------------------------------------
 # Integration: full drill scheduling flow
 # ---------------------------------------------------------------------------
+
+
+class TestAnswerMatching:
+    def test_strict_matching_rejects_missing_punctuation(self) -> None:
+        assert not drill._answer_matches("dont", "don't")
+
+    def test_lenient_matching_accepts_missing_punctuation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            drill,
+            "load_app_settings",
+            lambda: AppSettings(vocab_strictness=VOCAB_STRICTNESS_LENIENT),
+        )
+
+        assert drill._answer_matches("dont", "don't")
 
 
 class TestDrillIntegration:

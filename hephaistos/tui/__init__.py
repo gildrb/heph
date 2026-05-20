@@ -1,4 +1,4 @@
-"""Command-first Textual shell for Hephaistos.
+"""Command-first Textual app for Heph.
 
 Imports stay lazy so test suites can exercise dependency errors cleanly.
 """
@@ -30,6 +30,12 @@ from hephaistos.tui import armory as _tui_armory
 from hephaistos.tui import widgets as _tui_widgets
 from hephaistos.tui.armory import TuiArmoryMixin
 from hephaistos.tui.armory_browser import _DirEntry
+from hephaistos.tui.command_output import (
+    command_output_text,
+    filter_command_activity_details,
+    format_command_activity_details,
+    format_command_activity_line,
+)
 from hephaistos.tui.dependencies import (
     TuiDependencyError as TuiDependencyError,
 )
@@ -81,13 +87,6 @@ from hephaistos.tui.session_actions import (
     start_fresh_session as start_fresh_session,
 )
 from hephaistos.tui.session_state import TuiCaptureWriter, TuiRuntimeState, TuiTranscriptEntry
-from hephaistos.tui.shell import (
-    command_output_text,
-    filter_command_activity_details,
-    format_command_activity_details,
-    format_command_activity_line,
-    run_shell_escape_captured,
-)
 from hephaistos.tui.slash_command import (
     command_help,
     slash_suggestion,
@@ -200,11 +199,11 @@ _tui_input_route = tui_input_route
 _TuiInputRoute = TuiInputRoute
 
 _command_output_text = command_output_text
-_run_shell_escape_captured = run_shell_escape_captured
 _filter_command_activity_details = filter_command_activity_details
 _format_command_activity_details = format_command_activity_details
 _format_command_activity_line = format_command_activity_line
 _RESEND_PREFIX = "__RESEND__:"
+_INLINE_COMMANDS = {"/login", "/logout", "/settings", "/models"}
 _TUI_MANAGED_RESEND_COMMANDS = {"autopilot", "exam", "mode"}
 
 
@@ -337,8 +336,8 @@ class HephaistosTui(
             )
 
     def on_mount(self) -> None:
-        self.title = "Hephaistos"
-        self.sub_title = "command-first document shell"
+        self.title = "Heph"
+        self.sub_title = "local document harness"
         visible = self.size.width >= _SIDEBAR_MIN_WINDOW_WIDTH
         self._sidebar_width_visible = visible
         self._set_sidebar_visible(
@@ -607,6 +606,7 @@ class HephaistosTui(
         self._refresh_completion_position()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        del event
         self._submit_composer_value(apply_highlighted_completion=True)
 
     def _submit_composer_value(self, *, apply_highlighted_completion: bool) -> None:
@@ -622,53 +622,16 @@ class HephaistosTui(
         ):
             self._apply_highlighted_completion()
             value = composer.value.strip()
-        if self._armory_inline_active:
-            if self._armory_creating:
-                self._create_inline_armory(value)
-            else:
-                composer.value = ""
-                self._armory_filter = ""
-                self._armory_open_highlighted()
-                self._refresh_armory_inline()
-            return
-        if self._materials_inline_active:
-            self._close_materials_inline()
+        if self._submit_active_inline_surface(composer, value):
             return
         route = _tui_input_route(value)
         composer.value = ""
         self._hide_completions()
         if route is _TuiInputRoute.EMPTY:
             return
-        if route is _TuiInputRoute.MATERIALS:
-            self._record_history(value)
-            self._open_materials_inline(value)
+        if self._submit_special_route(route, value):
             return
-        if route is _TuiInputRoute.SESSIONS:
-            self._record_history(value)
-            self._append_user(value, mark_working=False)
-            self._handle_sessions_command(value)
-            return
-        if route is _TuiInputRoute.NEW:
-            self._record_history(value)
-            self._handle_new()
-            return
-        if route is _TuiInputRoute.ARMORY:
-            self._record_history(value)
-            self._handle_armory_browser(value)
-            return
-        if value in {"/login", "/logout", "/settings", "/models"}:
-            self._record_history(value)
-            self._append_user(value, mark_working=False)
-            self._handle_inline_command(value)
-            return
-        if self.busy:
-            if route is _TuiInputRoute.CHAT:
-                self.session.steering.enqueue(value)
-                self._record_history(value)
-                self._append_notice(f"Steering queued: {value}")
-            else:
-                self._record_history(value)
-                self._append_notice(f"Command unavailable while this answer is running: {value}")
+        if self.busy and self._submit_busy_value(route, value):
             return
         if route is _TuiInputRoute.EXTERNAL:
             self._record_history(value)
@@ -679,13 +642,66 @@ class HephaistosTui(
             self._record_history(value)
             self._append_user(value, mark_working=False)
             self._append_assistant_reply(reply)
-            self._refresh_status("ready")
+            self._refresh_status()
             self._update_info_panel()
             return
         config_error = _config_error(self.session)
         if config_error is not None:
             self._append_error(config_error)
             return
+        self._start_chat_turn(value)
+
+    def _submit_active_inline_surface(self, composer: Input, value: str) -> bool:
+        if self._armory_inline_active:
+            if self._armory_creating:
+                self._create_inline_armory(value)
+            else:
+                composer.value = ""
+                self._armory_filter = ""
+                self._armory_open_highlighted()
+                self._refresh_armory_inline()
+            return True
+        if self._materials_inline_active:
+            self._close_materials_inline()
+            return True
+        return False
+
+    def _submit_special_route(self, route: _TuiInputRoute, value: str) -> bool:
+        if route is _TuiInputRoute.MATERIALS:
+            self._record_history(value)
+            self._open_materials_inline(value)
+            return True
+        if route is _TuiInputRoute.SESSIONS:
+            self._record_history(value)
+            self._append_user(value, mark_working=False)
+            self._handle_sessions_command(value)
+            return True
+        if route is _TuiInputRoute.NEW:
+            self._record_history(value)
+            self._handle_new()
+            return True
+        if route is _TuiInputRoute.ARMORY:
+            self._record_history(value)
+            self._handle_armory_browser(value)
+            return True
+        if value in _INLINE_COMMANDS:
+            self._record_history(value)
+            self._append_user(value, mark_working=False)
+            self._handle_inline_command(value)
+            return True
+        return False
+
+    def _submit_busy_value(self, route: _TuiInputRoute, value: str) -> bool:
+        if route is _TuiInputRoute.CHAT:
+            self.session.steering.enqueue(value)
+            self._record_history(value)
+            self._append_notice(f"Steering queued: {value}")
+            return True
+        self._record_history(value)
+        self._append_notice(f"Command unavailable while this answer is running: {value}")
+        return True
+
+    def _start_chat_turn(self, value: str) -> None:
         self._record_history(value)
         self._append_user(value)
         turn_session = self.session
@@ -696,7 +712,7 @@ class HephaistosTui(
         self._turn_sessions[turn_key] = turn_session
         self.abort_event = turn_abort_event
         self.busy = True
-        self._refresh_status("assistant working")
+        self._refresh_status()
         self._refresh_footer_hints()
         self.run_worker(
             lambda: self._run_turn(turn_session, turn_key, turn_abort_event, value),
@@ -749,7 +765,7 @@ class HephaistosTui(
         if current is StudyAutonomyMode.GUIDED:
             self.session.study_state.start_autopilot_session(
                 session_type=AutopilotSessionType.GENERAL.value,
-                session_goal="autonomous learning",
+                session_goal="guided material review",
                 time_budget_minutes=None,
             )
         elif current is StudyAutonomyMode.AUTOPILOT:
@@ -760,7 +776,7 @@ class HephaistosTui(
             self.session.study_state.clear_autopilot_session()
         self.session.dirty = True
         self._hide_completions()
-        self._refresh_status("ready")
+        self._refresh_status()
         self._update_info_panel()
         self._update_cycle_mode_notice()
 
@@ -810,11 +826,6 @@ class HephaistosTui(
                 self._append_entry(message.content, "markdown")
 
     def _handle_external_input(self, value: str) -> None:
-        if value.startswith("!"):
-            output = _run_shell_escape_captured(value[1:].strip())
-            if output:
-                self._append_entry(output, "ansi")
-            return
         if _pending_input_requires_terminal(value):
             self.state.pending_input = value
             self.exit()
@@ -824,7 +835,7 @@ class HephaistosTui(
         self._append_user(value)
         self.busy = True
         self.abort_event.clear()
-        self._refresh_status("command working")
+        self._refresh_status()
         self.run_worker(lambda: self._run_external_command(value), thread=True)
 
     def _run_external_command(self, value: str) -> None:
@@ -867,17 +878,18 @@ class HephaistosTui(
         history: InputHistory,
         activity_trace_mode: str,
     ) -> bool:
-        from hephaistos.commands.harness import dispatch_slash_command
+        from hephaistos.commands import get_registry
 
         history.add(value)
+        command_name, _, command_args = value.strip()[1:].partition(" ")
+        cmd = get_registry().find(command_name.lower())
+        if cmd is None:
+            return False
+
         stdout = _TuiCaptureWriter()
         stderr = _TuiCaptureWriter()
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            dispatch = dispatch_slash_command(self.session, value)
-        if not dispatch.found or dispatch.result is None:
-            return False
-
-        result = dispatch.result
+            result = cmd.handle(self.session, command_args.strip())
         if result.new_session is not None:
             self.session = result.new_session
 
@@ -933,9 +945,6 @@ class HephaistosTui(
         def on_notice(notice: str) -> None:
             self.call_from_thread(self._append_notice, notice)
 
-        def on_progress(progress: str) -> None:
-            self.call_from_thread(self._refresh_status, f"assistant {progress}")
-
         def on_activity(line: str) -> None:
             self.call_from_thread(self._append_activity, line)
 
@@ -953,7 +962,6 @@ class HephaistosTui(
             on_notice=on_notice,
             on_error=on_error,
             on_finish=on_finish,
-            on_progress=on_progress,
             on_activity=on_activity,
         )
         return True

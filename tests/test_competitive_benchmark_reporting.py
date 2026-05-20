@@ -893,7 +893,7 @@ def test_public_target_claim_gate_rejects_unsupported_superiority_claim_text(
             "--evaluation-plan",
             str(paths["evaluation_plan"]),
             "--claim-text",
-            "Hephaistos beats Codex and is the best system.",
+            "Heph beats Codex and is the best system.",
             "--output",
             str(paths["output"]),
         ]

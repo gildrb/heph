@@ -421,7 +421,7 @@ class DocumentBm25Retriever:
 
     Enterprise-style RAG benchmarks often score document identifiers, and their
     BM25 baselines commonly index one concatenated ``title + content`` field per
-    source. This retriever preserves Hephaistos chunk references for context
+    source. This retriever preserves Heph chunk references for context
     injection, but its sparse corpus has exactly one row per indexed document.
     """
 

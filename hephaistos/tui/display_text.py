@@ -31,8 +31,8 @@ def require_rich_text() -> type[Text]:
     return _RichText
 
 
-def status_text(session: ChatSession, state: str = "ready") -> Text:
-    plain = status_lines(session, state)
+def status_text(session: ChatSession) -> Text:
+    plain = status_lines(session)
     palette = current_palette()
 
     text_cls = require_rich_text()

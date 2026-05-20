@@ -1,4 +1,4 @@
-"""Shared test fixtures for Hephaistos tests."""
+"""Shared test fixtures for Heph tests."""
 
 from __future__ import annotations
 

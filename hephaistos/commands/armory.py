@@ -12,7 +12,7 @@ from hephaistos.armory.search import (
 )
 from hephaistos.chat.session import refresh_armory_sources
 from hephaistos.commands._base import Command, CommandResult, ensure_session
-from hephaistos.terminal.display import print_error, print_info, print_success
+from hephaistos.terminal import print_error, print_info, print_success
 
 
 class ImportCommand(Command):
@@ -59,7 +59,7 @@ class ImportCommand(Command):
         for name in imported:
             print(f"  {name}")
         refresh_armory_sources(s)
-        print_info("Use /materials to browse or /vocab drill to review extracted cards.")
+        print_info("Use /materials to browse or /vocabulary to review extracted cards.")
         return CommandResult()
 
 
@@ -88,7 +88,7 @@ class ExportCommand(Command):
             lines.append("")
 
         for msg in messages:
-            heading = "You" if msg.role == "user" else "Hephaistos"
+            heading = "You" if msg.role == "user" else "Heph"
             lines.extend((f"## {heading}", "", msg.content, ""))
 
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,6 +102,7 @@ class IndexCommand(Command):
     description = "Manage cross-armory search index"
 
     def handle(self, session: object, args: str) -> CommandResult:
+        del session
         parts = args.strip().split(maxsplit=1)
         subcmd = parts[0].lower() if parts else "list"
         value = parts[1].strip() if len(parts) > 1 else ""

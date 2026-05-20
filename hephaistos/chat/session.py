@@ -1,4 +1,4 @@
-"""Reusable chat session helpers shared by the CLI and shell."""
+"""Reusable chat session helpers shared by the CLI and TUI."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hephaistos.agent.persona import Persona, resolve_persona
 from hephaistos.agent.prompt import build_system_prompt
 from hephaistos.agent.steering import Steering
 from hephaistos.agent.tools import ToolRegistry, default_registry
@@ -61,7 +60,6 @@ class ChatSession:
     trace: TraceWriter = field(init=False, repr=False)
     steering: Steering = field(default_factory=Steering, init=False, repr=False)
     study_state: StudyState = field(default_factory=StudyState)
-    persona: Persona = field(default_factory=lambda: resolve_persona(None))
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "trace", TraceWriter(self.session_id, self.armory_path))
@@ -107,17 +105,10 @@ class SessionError(Exception):
 
 
 _SYSTEM_PROMPT_FALLBACK = (
-    "Hephaistos. A recall practice engine.\n"
+    "Heph. A recall practice engine.\n"
     "You need an armory with materials for source-grounded answers. No armory is attached.\n"
-    "Tell the user to create one: run `heph armory init <path>` or type /armory "
-    "in the shell. Say nothing else."
-)
-
-_PLAIN_CHAT_CONTEXT = (
-    "No armory or materials are attached. Workspace tools are unavailable.\n"
-    "Do not answer general-knowledge questions or chat. Do not fabricate evidence.\n"
-    "Tell the user to create an armory (`heph armory init <path>` or /armory) and "
-    "add materials to begin. Be terse."
+    "Tell the user to create one: run `heph armory init <path>` or type /armory. "
+    "Say nothing else."
 )
 
 ARMORY_PLUGINS_TRUST_ENV = "HEPHAISTOS_TRUST_ARMORY_PLUGINS"
@@ -200,10 +191,8 @@ def _load_armory_tools(armory_path: Path) -> ToolRegistry:
     return registry
 
 
-def _build_plain_system_prompt(persona: Persona) -> str:
-    if persona.slug == "drill":
-        return _SYSTEM_PROMPT_FALLBACK
-    return f"{persona.role_block}\n\n{_PLAIN_CHAT_CONTEXT}"
+def _build_plain_system_prompt() -> str:
+    return _SYSTEM_PROMPT_FALLBACK
 
 
 def _scan_extraction_health_issues(armory_path: Path) -> tuple[ExtractionHealthIssue, ...]:
@@ -220,7 +209,7 @@ def _scan_extraction_health_issues(armory_path: Path) -> tuple[ExtractionHealthI
 
 def _replace_system_prompt(session: ChatSession) -> None:
     if session.armory_path is None:
-        new_prompt = _build_plain_system_prompt(session.persona)
+        new_prompt = _build_plain_system_prompt()
     else:
         source_files = _scan_source_files(session.armory_path)[1]
         memory_ctx = ""
@@ -233,7 +222,6 @@ def _replace_system_prompt(session: ChatSession) -> None:
             unindexable_files=unindexable or None,
             extraction_health_issues=_scan_extraction_health_issues(session.armory_path),
             memory_context=memory_ctx,
-            persona=session.persona,
         )
     for msg in session.conversation.messages:
         if msg.role == "system" and not msg.content.startswith("[Conversation summary]"):
@@ -248,7 +236,7 @@ replace_system_prompt = _replace_system_prompt
 
 def create_plain_session(config: ChatConfig) -> ChatSession:
     conversation = Conversation()
-    conversation.add("system", _build_plain_system_prompt(resolve_persona(None)))
+    conversation.add("system", _build_plain_system_prompt())
     session = ChatSession(
         config=config,
         conversation=conversation,
@@ -271,7 +259,7 @@ def create_plain_session(config: ChatConfig) -> ChatSession:
 
 def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
     if armory_path is None:
-        raise SessionError("An armory is required. Create one with: hephaistos armory init <path>")
+        raise SessionError("An armory is required. Create one with: heph armory init <path>")
 
     source_file_count, source_files = _scan_source_files(armory_path)
     if source_file_count == 0:
@@ -289,7 +277,6 @@ def create_session(config: ChatConfig, armory_path: Path) -> ChatSession:
             unindexable_files=scan_unindexable_files(armory_path),
             extraction_health_issues=_scan_extraction_health_issues(armory_path),
             memory_context=memory_ctx,
-            persona=None,
         ),
     )
 

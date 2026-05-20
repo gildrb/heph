@@ -119,6 +119,20 @@ class ToolRegistry:
         return list(result)
 
     @property
+    def specs(self) -> list[ToolSpec]:
+        seen: set[str] = set()
+        result: list[ToolSpec] = []
+        for spec in self._tools.values():
+            seen.add(spec.name)
+            result.append(spec)
+        if self._parent is not None:
+            for spec in self._parent.specs:
+                if spec.name not in seen:
+                    seen.add(spec.name)
+                    result.append(spec)
+        return result
+
+    @property
     def tool_names(self) -> list[str]:
         return [s["function"]["name"] for s in self.schemas]
 
@@ -188,15 +202,11 @@ def _tool(
 _BUILTIN_SCHEMAS: list[ToolSchema] = [
     _tool(
         "compact",
-        (
-            "Compress the conversation context to free up space. "
-            "Use when you notice the conversation is getting long or "
-            "you are running low on context."
-        ),
+        "Compress long conversation context.",
     ),
     _tool(
         "read_file",
-        "Read the contents of a file in the workspace.",
+        "Read workspace file contents.",
         {
             "path": _string("Relative path from workspace root."),
             "offset": _integer("Line number to start reading from (0-based)."),
@@ -206,7 +216,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "write_file",
-        "Create or overwrite a file in the workspace.",
+        "Create or overwrite a workspace file.",
         {
             "path": _string("Relative path from workspace root."),
             "content": _string("The content to write."),
@@ -215,7 +225,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "edit_file",
-        "Replace an exact text match in a file.",
+        "Replace exact text in a workspace file.",
         {
             "path": _string("Relative path from workspace root."),
             "old_text": _string("The exact text to find."),
@@ -225,7 +235,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "list_files",
-        "List files in a workspace directory.",
+        "List workspace directory contents.",
         {
             "path": _string("Relative directory path. Defaults to workspace root."),
             "pattern": _string("Glob pattern to filter files (e.g. '*.py')."),
@@ -233,10 +243,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "create_armory",
-        (
-            "Create or repair a Hephaistos armory with the canonical layout: "
-            "materials/ for user source files and .hephaistos/ for internal state."
-        ),
+        "Create or repair a portable Heph armory.",
         {
             "path": _string("Relative path from workspace root for the armory folder."),
         },
@@ -244,10 +251,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "validate_armory",
-        (
-            "Validate that a folder is a Hephaistos armory. Reports missing required "
-            "directories and marker metadata without modifying files."
-        ),
+        "Validate an armory layout without modifying it.",
         {
             "path": _string("Relative path from workspace root for the armory folder."),
         },
@@ -255,12 +259,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "search_files",
-        (
-            "Search for a text pattern across files in the workspace. "
-            "Returns matching lines with file paths and line numbers. "
-            "Use this to find where a topic, term, or formula is discussed "
-            "in source documents before answering."
-        ),
+        "Search text files in the workspace.",
         {
             "pattern": _string("Text or regex pattern to search for."),
             "path": _string("Directory to search in. Defaults to workspace root."),
@@ -273,12 +272,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "search_materials",
-        (
-            "Search the armory's indexed materials, including converted PDFs and "
-            "slides. Use this before answering when the initial evidence is thin, broad, "
-            "or ambiguous. Returns ranked material excerpts with source names and chunk "
-            "numbers for citation and follow-up reading."
-        ),
+        "Search indexed armory materials.",
         {
             "query": _string("Natural-language topic, question, term, or formula to search for."),
             "top_k": _integer("Maximum number of excerpts to return. Default: 8."),
@@ -287,11 +281,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "open_material",
-        (
-            "Open indexed material text around a source or chunk returned by "
-            "search_materials. Use this to read enough local context before synthesizing "
-            "an answer instead of pasting isolated passages."
-        ),
+        "Read indexed material context around a source chunk.",
         {
             "source": _string("Indexed source path such as materials/lecture.pdf."),
             "chunk": _integer("Chunk number to center on. Defaults to the first chunk."),
@@ -301,13 +291,7 @@ _BUILTIN_SCHEMAS: list[ToolSchema] = [
     ),
     _tool(
         "web_fetch",
-        (
-            "Fetch a web page and return its text content. "
-            "Use ONLY when the answer cannot be found in the armory documents. "
-            "The response always includes the source URL for verification. "
-            "Do NOT guess or fabricate information — if the fetch fails or "
-            "doesn't contain the answer, say so explicitly."
-        ),
+        "Fetch a web page when armory material is insufficient.",
         {
             "url": _string("The URL to fetch (must start with http:// or https://)."),
         },
@@ -604,7 +588,7 @@ def run_create_armory(
     lines = [
         f"Armory ready: {target}",
         "User source files belong in materials/.",
-        "Internal Hephaistos state belongs in .hephaistos/.",
+        "Internal Heph state belongs in .hephaistos/.",
         "Required layout:",
         *(f"  - {dirname}/" for dirname in created_paths),
         f"  - {marker_rel}",
@@ -642,7 +626,7 @@ def run_validate_armory(
     return ToolResult(
         success=True,
         content=(
-            f"Valid Hephaistos armory: {target}\n"
+            f"Valid Heph armory: {target}\n"
             "Use materials/ for user source files. .hephaistos/ is internal state."
         ),
         metadata={
@@ -772,7 +756,13 @@ for _schema in _BUILTIN_SCHEMAS:
     _name = _schema["function"]["name"]
     _handler = _HANDLERS[_name]
     _kind: Literal["normal", "control"] = "control" if _name == "compact" else "normal"
-    default_registry.register(ToolSpec(schema=_schema, handler=_handler, kind=_kind))
+    default_registry.register(
+        ToolSpec(
+            schema=_schema,
+            handler=_handler,
+            kind=_kind,
+        )
+    )
 
 # Backward-compatible alias: TOOL_SCHEMAS delegates to the registry.
 TOOL_SCHEMAS: list[ToolSchema] = default_registry.schemas

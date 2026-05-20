@@ -2,7 +2,7 @@
 
 This audit maps the user-facing objective to concrete artifacts and remaining
 gaps. It is intentionally stricter than a normal changelog: the goal is not
-"tests are green", but "Hephaistos can prove academic RAG quality across
+"tests are green", but "Heph can prove academic RAG quality across
 subjects, document roles, and answer behaviors."
 
 The machine-readable completion gate is:
@@ -177,7 +177,7 @@ local proxy.
 
 ## Objective
 
-Build a native Hephaistos function-tool harness that can be benchmarked and can
+Build a native Heph function-tool harness that can be benchmarked and can
 reliably compete in academic RAG, document understanding, and answer accuracy
 without adopting LangGraph, LlamaIndex, or LangChain as core runtime frameworks.
 

@@ -9,8 +9,15 @@ from hephaistos.providers.config import ProviderConfig
 from hephaistos.providers.endpoints import is_keyless_endpoint
 from hephaistos.providers.model_choices import configured_model_choices, model_free_description
 from hephaistos.providers.registry import get_registry as get_provider_registry
-from hephaistos.terminal import MenuOption, select_option
-from hephaistos.terminal.display import STYLE_DIM, print_error, print_info, print_success, styled
+from hephaistos.terminal import (
+    STYLE_DIM,
+    MenuOption,
+    print_error,
+    print_info,
+    print_success,
+    select_option,
+    styled,
+)
 
 
 class ModelsCommand(Command):
@@ -78,6 +85,7 @@ class RecommendCommand(Command):
     description = "Recommend models for sessions"
 
     def handle(self, session: object, args: str) -> CommandResult:
+        del session, args
         registry = get_provider_registry()
         models = [model for model in registry.list_models() if "study" in model.tags]
         if not models:
@@ -85,7 +93,7 @@ class RecommendCommand(Command):
             return CommandResult()
         print_info(
             "Model picks favor low cost, speed, and instruction following because "
-            "Hephaistos handles RAG retrieval and citation checks."
+            "Heph handles RAG retrieval and citation checks."
         )
         for model in models:
             price = (

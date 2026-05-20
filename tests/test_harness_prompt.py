@@ -2,42 +2,66 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaistos.agent.persona import TUTOR
 from hephaistos.agent.prompt import build_system_prompt, build_system_prompt_sections
+from hephaistos.rag.context import estimate_tokens
 from hephaistos.rag.health import ExtractionHealthIssue
+from hephaistos.study import StudyPhase, StudyState, plan_turn
 
 
 def test_build_system_prompt_includes_default_sections(armory: Path) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert prompt.startswith("Hephaistos. A recall practice engine.")
-    assert "## Recall Loop" in prompt
-    assert "## Accuracy Rules" in prompt
-    assert "## Verification-First Operating Mode" in prompt
-    assert "## Tools" in prompt
-    assert "## Hephaistos Operations" in prompt
-    assert "## Format" in prompt
+    assert prompt.startswith("Heph. Local document agent")
+    assert "Available tools:" in prompt
+    assert "## Guidelines" in prompt
+    assert "## Verification-First Operating Mode" not in prompt
+    assert "## Tool Contract" not in prompt
+    assert "## Recall Loop" not in prompt
+    assert "## Accuracy" not in prompt
+    assert "## Heph Operations" not in prompt
+    assert "## Format" not in prompt
+
+
+def test_default_prompt_and_common_steering_fit_token_budget() -> None:
+    prompt = build_system_prompt()
+    assert estimate_tokens(prompt) <= 600
+
+    common_steering = [
+        plan_turn(StudyState(), "what is this material about").prompt,
+        plan_turn(StudyState(), "what do the notes say about this topic?").prompt,
+        plan_turn(StudyState(), "explain the selected concept").prompt,
+        plan_turn(
+            StudyState(
+                phase=StudyPhase.WAITING_FOR_READY,
+                current_item="the selected concept",
+            ),
+            "ready",
+        ).prompt,
+    ]
+    for steering in common_steering:
+        assert estimate_tokens(f"{prompt}\n\n{steering}") <= 1000
 
 
 def test_custom_system_prompt_replaces_default_role_block(armory: Path) -> None:
     prompt_file = armory / ".hephaistos" / "system_prompt.md"
-    prompt_file.write_text("Custom persona.", encoding="utf-8")
+    prompt_file.write_text("Custom system prompt.", encoding="utf-8")
 
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert prompt.startswith("Custom persona.")
-    assert "Hephaistos. A recall practice engine." not in prompt
+    assert prompt.startswith("Custom system prompt.")
+    assert "Heph. Local document agent" not in prompt
     assert "## Recall Loop" not in prompt
+    assert "## Guidelines" in prompt
 
 
-def test_blank_custom_system_prompt_falls_back_to_default_persona(armory: Path) -> None:
+def test_blank_custom_system_prompt_falls_back_to_default_role_block(armory: Path) -> None:
     prompt_file = armory / ".hephaistos" / "system_prompt.md"
     prompt_file.write_text("   \n", encoding="utf-8")
 
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert prompt.startswith("Hephaistos. A recall practice engine.")
-    assert "## Recall Loop" in prompt
+    assert prompt.startswith("Heph. Local document agent")
+    assert "## Guidelines" in prompt
 
 
 def test_build_system_prompt_truncates_material_file_list(armory: Path) -> None:
@@ -77,11 +101,11 @@ def test_build_system_prompt_appends_memory_context(armory: Path) -> None:
     assert "## Memory\n- Already studied binary search." in prompt
 
 
-def test_build_system_prompt_without_armory_uses_persona_study_loop_and_date() -> None:
-    prompt = build_system_prompt(persona=TUTOR)
+def test_build_system_prompt_without_armory_uses_default_role_block_and_date() -> None:
+    prompt = build_system_prompt()
 
-    assert prompt.startswith(TUTOR.role_block)
-    assert "## Recall Loop" in prompt
+    assert prompt.startswith("Heph. Local document agent")
+    assert "## Guidelines" in prompt
     assert "Current date: " in prompt
     assert "Armory workspace:" not in prompt
 
@@ -89,8 +113,8 @@ def test_build_system_prompt_without_armory_uses_persona_study_loop_and_date() -
 def test_build_system_prompt_instructs_citation_inspection(armory: Path) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert "If the user asks what a citation like `[E1]` means" in prompt
-    assert "quote the matching evidence text" in prompt
+    assert "If asked what `[E1]` means" in prompt
+    assert "quote that evidence" in prompt
 
 
 def test_build_system_prompt_anchors_general_reasoning_to_material_evidence(
@@ -98,10 +122,9 @@ def test_build_system_prompt_anchors_general_reasoning_to_material_evidence(
 ) -> None:
     prompt = build_system_prompt(armory_path=armory, source_files=["materials/python.md"])
 
-    assert "Use the sources as the anchor, not as a cage" in prompt
-    assert "general academic reasoning" in prompt
-    assert "material-specific claim" in prompt
-    assert "Do not present memory or general knowledge as if it came from" in prompt
+    assert "For material-specific claims, reason from retrieved evidence" in prompt
+    assert "Use general reasoning to explain evidence" in prompt
+    assert "never as pretend file evidence" in prompt
 
 
 def test_build_system_prompt_sections_render_matches_string_builder(armory: Path) -> None:
@@ -114,28 +137,42 @@ def test_build_system_prompt_sections_render_matches_string_builder(armory: Path
         armory_path=armory,
         source_files=["materials/python.md"],
     )
-    assert sections.tool_docs.startswith("## Tools")
-    assert "### read_file" in sections.tool_docs
-    assert "### bash" not in sections.tool_docs
-    assert "materials/" in sections.hephaistos_operations
+    assert sections.tool_docs.startswith("Available tools:")
+    assert "Available tools:" in sections.tool_docs
+    assert "- read_file: Read workspace file contents." in sections.tool_docs
+    assert "Tool guidelines:" not in sections.tool_docs
+    assert "Use edit_file for surgical changes" not in sections.guidelines
+    assert "\nbash\n" not in sections.tool_docs
+    assert "Tool arguments:" not in sections.tool_docs
+    assert "materials/" in sections.guidelines
+
+
+def test_system_prompt_has_single_pi_style_guidelines_section() -> None:
+    prompt = build_system_prompt()
+
+    assert prompt.count("## Guidelines") == 1
+    assert "Tool guidelines:" not in prompt
+    assert "## Tool Contract" not in prompt
+    assert "## Accuracy" not in prompt
+    assert "## Recall Loop" not in prompt
 
 
 def test_tool_docs_are_generated_from_registry_schema() -> None:
     prompt = build_system_prompt()
 
-    assert "### web_fetch" in prompt
-    assert "### create_armory" in prompt
-    assert "### validate_armory" in prompt
-    assert "- `url` (required): The URL to fetch" in prompt
+    assert "- web_fetch: Fetch a web page when armory material is insufficient." in prompt
+    assert "- create_armory: Create or repair a portable Heph armory." in prompt
+    assert "- validate_armory: Validate" in prompt
+    assert "  - url: The URL to fetch" not in prompt
 
 
 def test_hephaistos_operations_teaches_armory_contract() -> None:
     prompt = build_system_prompt()
 
-    assert "A Hephaistos armory is a portable document workspace" in prompt
+    assert "Armory: portable workspace" in prompt
     assert "materials/" in prompt
-    assert "Do not create `source/`, `library/`, or `notes/` folders" in prompt
-    assert "use `create_armory` or `validate_armory`" in prompt
+    assert "User files go in `materials/`" in prompt
+    assert "Use `create_armory` or `validate_armory`" in prompt
 
 
 def test_unindexable_files_warning_in_prompt(armory: Path) -> None:

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from hephaistos.chat.session import ChatSession
 
 
-def status_lines(session: ChatSession, state: str = "ready") -> str:
+def status_lines(session: ChatSession) -> str:
     armory = "none"
     if session.armory_path is not None:
         try:

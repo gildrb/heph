@@ -294,7 +294,7 @@ def test_summary_rejects_unsupported_competitive_language(
         report_path,
         _external_report(
             "beir:beir/fixture",
-            warnings=["Hephaistos beats Codex and is objectively superior."],
+            warnings=["Heph beats Codex and is objectively superior."],
         ),
     )
 

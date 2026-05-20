@@ -36,8 +36,6 @@ def _imported_modules_after_import(module_name: str) -> set[str]:
 
 def test_copyable_packages_do_not_load_adapters_or_chat_session() -> None:
     forbidden = {
-        "hephaistos.shell.armory_actions",
-        "hephaistos.shell.saved_chats",
         "hephaistos.terminal.input",
         "hephaistos.tui",
         "hephaistos.chat.session",
@@ -92,11 +90,6 @@ def test_public_reusable_package_apis_are_explicit() -> None:
 def test_overworked_module_guardrails() -> None:
     max_lines = {
         "tui/__init__.py": 1250,
-        "shell/armory_actions.py": 180,
-        "shell/saved_chats.py": 190,
-        "shell/actions.py": 80,
-        "shell/lifecycle.py": 80,
-        "shell/status.py": 80,
         "terminal/input.py": 240,
         "agent/dispatch.py": 575,
         "agent/tools.py": 950,

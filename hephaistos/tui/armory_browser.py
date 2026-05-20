@@ -16,8 +16,6 @@ environments where Textual is not installed.
 from __future__ import annotations
 
 import os
-import stat
-import time
 from pathlib import Path
 from typing import ClassVar
 
@@ -29,8 +27,8 @@ from hephaistos.armory.search import (
 from hephaistos.armory.storage import MARKER_FILE, ArmoryError, initialize
 from hephaistos.matching import ranked_matches
 from hephaistos.materials import count_material_files
-from hephaistos.shell.startup_discovery import discover_available_armories
 from hephaistos.terminal import Theme, current_palette
+from hephaistos.tui.startup_discovery import discover_available_armories
 from hephaistos.tui.transparent import transparent_strip
 
 try:
@@ -58,67 +56,16 @@ except ImportError:
 # Constants
 # ---------------------------------------------------------------------------
 
-_PARENT_LABEL = "all armories"
 _NEW_ARMORY_LABEL = "+ new"
 _DIR_PREFIX = "  "
-_FILE_PREFIX = "  "
 _ARMORY_BADGE = ""
 _RECENT_PREFIX = "  "
-_MISSING_BADGE = "  missing"
 _RECENT_HEADING = "recent"
 _ALL_HEADING = "all"
 _EMPTY_RECENT_LABEL = "  no recent items"
 _EMPTY_ALL_LABEL = "  none found"
-_PARENT_COLUMN_WIDTH = 0
 _PREVIEW_COLUMN_WIDTH = 38
 _DEFAULT_ARMORY_HOME_ENV = "HEPHAISTOS_ARMORY_HOME"
-
-_TEXT_PREVIEW_EXTENSIONS: frozenset[str] = frozenset(
-    {
-        ".txt",
-        ".md",
-        ".py",
-        ".js",
-        ".ts",
-        ".java",
-        ".go",
-        ".rs",
-        ".c",
-        ".h",
-        ".cpp",
-        ".toml",
-        ".yaml",
-        ".yml",
-        ".json",
-        ".csv",
-        ".html",
-        ".css",
-        ".sh",
-        ".bash",
-        ".zsh",
-        ".fish",
-        ".r",
-        ".rb",
-        ".pl",
-        ".lua",
-        ".vim",
-        ".tex",
-        ".bib",
-        ".rst",
-        ".ini",
-        ".cfg",
-        ".conf",
-        ".log",
-        ".sql",
-        ".xml",
-        ".svg",
-        ".tcl",
-        ".m",
-        ".mat",
-    }
-)
-_PREVIEW_MAX_CHARS = 2048
-_PREVIEW_MAX_LINES = 30
 _BROWSER_HINT = "arrows navigate  enter open  n new  / filter  esc cancel"
 
 
@@ -127,7 +74,7 @@ _BROWSER_HINT = "arrows navigate  enter open  n new  / filter  esc cancel"
 # ---------------------------------------------------------------------------
 
 
-def _list_entries(path: Path, *, show_files: bool = False) -> list[Path]:
+def _list_entries(path: Path) -> list[Path]:
     try:
         entries = sorted(path.iterdir())
     except OSError:
@@ -136,7 +83,7 @@ def _list_entries(path: Path, *, show_files: bool = False) -> list[Path]:
     for e in entries:
         if e.name.startswith("."):
             continue
-        if e.is_dir() or (show_files and e.is_file()):
+        if e.is_dir():
             result.append(e)
     return result
 
@@ -146,26 +93,6 @@ def _is_armory(path: Path) -> bool:
         return (path / MARKER_FILE).is_file()
     except OSError:
         return False
-
-
-def _armory_root_from(path: Path) -> Path | None:
-    current = path
-    for _ in range(32):
-        if _is_armory(current):
-            return current
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
-    return None
-
-
-def _format_size(size: int) -> str:
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-    return f"{size / (1024 * 1024):.1f} MB"
 
 
 def _is_writable_directory(path: Path) -> bool:
@@ -228,24 +155,6 @@ def _default_start_path(start: Path | None) -> Path:
     return default_armory_home()
 
 
-def _file_preview_text(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix not in _TEXT_PREVIEW_EXTENSIONS:
-        return ""
-    try:
-        content = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-    lines = content.splitlines()
-    if len(lines) > _PREVIEW_MAX_LINES:
-        lines = lines[:_PREVIEW_MAX_LINES]
-        lines.append("...")
-    text = "\n".join(lines)
-    if len(text) > _PREVIEW_MAX_CHARS:
-        text = text[:_PREVIEW_MAX_CHARS] + "\n..."
-    return text
-
-
 # ---------------------------------------------------------------------------
 # Entry wrapper
 # ---------------------------------------------------------------------------
@@ -254,9 +163,6 @@ def _file_preview_text(path: Path) -> str:
 class _DirEntry:
     __slots__ = (
         "is_create",
-        "is_file",
-        "is_missing",
-        "is_parent",
         "is_place",
         "is_recent",
         "is_section",
@@ -269,21 +175,15 @@ class _DirEntry:
         label: str,
         path: Path | None = None,
         *,
-        is_parent: bool = False,
         is_create: bool = False,
         is_recent: bool = False,
-        is_missing: bool = False,
-        is_file: bool = False,
         is_place: bool = False,
         is_section: bool = False,
     ) -> None:
         self.label = label
         self.path = path
-        self.is_parent = is_parent
         self.is_create = is_create
         self.is_recent = is_recent
-        self.is_missing = is_missing
-        self.is_file = is_file
         self.is_place = is_place
         self.is_section = is_section
 
@@ -355,10 +255,8 @@ def _available_armory_entries() -> list[_DirEntry]:
 
 
 def build_entries(
-    current: Path,
     allow_create: bool,
     *,
-    show_files: bool = False,
     filter_query: str = "",
     show_places: bool = False,
 ) -> list[_DirEntry]:
@@ -396,30 +294,6 @@ def build_entries(
     return entries
 
 
-def build_parent_entries(current: Path) -> list[tuple[str, Path]]:
-    parent = current.parent
-
-    if parent == current or not parent.exists():
-        return []
-    if not _is_within_armory_home(parent):
-        return []
-
-    try:
-        siblings = sorted(parent.iterdir())
-    except PermissionError:
-        return []
-    result: list[tuple[str, Path]] = []
-    for s in siblings:
-        if s.name.startswith(".") or not s.is_dir():
-            continue
-        if not _is_within_armory_home(s):
-            continue
-        badge = _ARMORY_BADGE if _is_armory(s) else ""
-        marker = " > " if s == current else "   "
-        result.append((f"{marker}{s.name}{badge}", s))
-    return result
-
-
 def armory_detail(path: Path) -> str:
     if not path.exists():
         return (
@@ -439,39 +313,6 @@ def armory_detail(path: Path) -> str:
         "Internal state: .hephaistos/\n\n"
         f"{path}"
     )
-
-
-def file_detail(path: Path) -> str:
-    if not path.exists():
-        return f"{path.name}\n\nfile not found\n\n{path}"
-    try:
-        st = path.stat()
-    except OSError:
-        return f"{path.name}\n\ncannot stat file\n\n{path}"
-
-    lines: list[str] = [path.name, ""]
-    lines.append(f"Size: {_format_size(st.st_size)}")
-
-    mode = stat.filemode(st.st_mode)
-    lines.append(f"Mode: {mode}")
-
-    mtime = time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))
-    lines.append(f"Modified: {mtime}")
-
-    suffix = path.suffix.lower()
-    if suffix:
-        lines.append(f"Type: {suffix}")
-
-    lines.append("")
-    lines.append(str(path))
-
-    preview = _file_preview_text(path)
-    if preview:
-        lines.append("")
-        lines.append("--- preview ---")
-        lines.append(preview)
-
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -535,16 +376,6 @@ ArmoryBrowserScreen {{
     layout: horizontal;
     height: 1fr;
     width: 100%;
-}}
-#armory-parent-col {{
-    display: none;
-    width: {_PARENT_COLUMN_WIDTH};
-    height: 100%;
-    background: {bg};
-    border: none;
-    padding: 0 1 0 0;
-    color: {dim_color};
-    scrollbar-size: 0 0;
 }}
 #armory-current-col {{
     width: 1fr;
@@ -661,7 +492,6 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
                     id="armory-filter",
                 )
             with Horizontal(id="armory-columns"):
-                yield OptionList(id="armory-parent-col")
                 yield OptionList(id="armory-current-col")
                 yield Static("", id="armory-preview")
             with Vertical(id="armory-new-input-container"):
@@ -703,11 +533,8 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         self._set_error("")
         if not _is_within_armory_home(self._current):
             self._current = default_armory_home()
-        show_files = self._should_show_files()
         self._entries = build_entries(
-            self._current,
             self._allow_create,
-            show_files=show_files,
             filter_query=self._filter_query,
             show_places=True,
         )
@@ -722,16 +549,6 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         cur_ol.highlighted = self._first_selectable_index()
 
         self._update_preview()
-
-    def _should_show_files(self) -> bool:
-        armory_root = _armory_root_from(self._current)
-        if armory_root is None:
-            return False
-        try:
-            self._current.relative_to(armory_root)
-        except ValueError:
-            return False
-        return True
 
     def _set_error(self, message: str) -> None:
         error = self.query_one("#armory-error", Static)
@@ -772,10 +589,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
         if entry.path is None:
             preview.update("")
             return
-        if entry.is_file:
-            preview.update(file_detail(entry.path))
-        else:
-            preview.update(armory_detail(entry.path))
+        preview.update(armory_detail(entry.path))
 
     def _first_selectable_index(self) -> int | None:
         for index, entry in enumerate(self._entries):
@@ -807,7 +621,7 @@ class ArmoryBrowserScreen(ModalScreen[Path | None]):
             if not _is_within_armory_home(entry.path):
                 self._set_error(f"Cannot navigate outside armory home: {entry.path}")
                 return
-            if entry.is_missing or not entry.path.exists():
+            if not entry.path.exists():
                 self._set_error(f"Missing armory: {entry.path}")
                 return
             self.dismiss(entry.path)

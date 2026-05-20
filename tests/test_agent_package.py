@@ -14,7 +14,6 @@ from hephaistos.agent import (
     compact,
     dispatch,
     mutation_queue,
-    persona,
     prompt,
     steering,
     tools,
@@ -25,7 +24,7 @@ class TestAgentPackageImports:
     """Verify every module in hephaistos.agent is importable."""
 
     def test_import_dispatch(self) -> None:
-        assert hasattr(dispatch, "agent_loop")
+        assert hasattr(dispatch, "iter_agent_events")
         assert hasattr(dispatch, "execute_tool_calls")
         assert hasattr(dispatch, "SteeringQueue")
 
@@ -42,13 +41,6 @@ class TestAgentPackageImports:
         assert hasattr(compact, "micro_compact")
         assert hasattr(compact, "auto_compact")
 
-    def test_import_persona(self) -> None:
-        assert hasattr(persona, "Persona")
-        assert hasattr(persona, "DEFAULT")
-        assert hasattr(persona, "get_persona")
-        assert hasattr(persona, "list_personas")
-        assert hasattr(persona, "resolve_persona")
-
     def test_import_prompt(self) -> None:
         assert hasattr(prompt, "SystemPrompt")
         assert hasattr(prompt, "build_system_prompt")
@@ -64,7 +56,7 @@ class TestAgentPackageImports:
 
     def test_import_init_re_exports(self) -> None:
         """Verify agent/__init__.py re-exports the public API."""
-        assert callable(agent_pkg.agent_loop)
+        assert callable(agent_pkg.iter_agent_events)
         assert callable(agent_pkg.execute_tool_calls)
         assert callable(agent_pkg.render_tool_docs)
         assert agent_pkg.SystemPrompt is not None

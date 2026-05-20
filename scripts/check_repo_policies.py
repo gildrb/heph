@@ -144,19 +144,12 @@ ALLOWED_DEFERRED_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
         {
             "hephaistos.chat.cli",
             "hephaistos.commands",
-            "hephaistos.shell.armory_actions",
-            "hephaistos.shell.lifecycle",
             "hephaistos.terminal.input",
         }
     ),
     "hephaistos/tui/slash_command.py": frozenset(
         {
             "hephaistos.commands",
-        }
-    ),
-    "hephaistos/tui/slash_completion.py": frozenset(
-        {
-            "hephaistos.agent.persona",
         }
     ),
     "hephaistos/tui/status.py": frozenset(

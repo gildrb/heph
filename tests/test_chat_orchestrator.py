@@ -1407,7 +1407,7 @@ def test_overview_fallback_needed_for_vague_or_range_cited_answer() -> None:
             "- Graph algorithms [E1].\n"
             "- Recurrence relations [E2].\n"
             "- Bayes theorem [E1].\n"
-            "Use the shell menu to choose one cited topic for guided learning next."
+            "Use the menu to choose one cited topic for guided review next."
         ),
         evidence,
     )
@@ -1456,7 +1456,7 @@ def test_overview_shape_rejects_uncited_or_too_thin_summaries() -> None:
         "- Graph algorithms [E1].\n"
         "- Recurrence relations [E2].\n"
         "- Bayes theorem [E1].\n"
-        "Use the shell menu to choose one cited topic for guided learning next.",
+        "Use the menu to choose one cited topic for guided review next.",
         evidence,
     )
     assert not _overview_answer_has_bad_shape(
@@ -1479,7 +1479,7 @@ def test_overview_shape_accepts_multiple_chunks_from_one_source() -> None:
         "- Graph algorithms [E1].\n"
         "- Recurrence relations [E2].\n"
         "- Bayes theorem [E1].\n"
-        "Use the shell menu to choose one cited topic for guided learning next.",
+        "Use the menu to choose one cited topic for guided review next.",
         evidence,
     )
 
@@ -1561,7 +1561,7 @@ def test_overview_shape_rejects_non_topic_menu_labels() -> None:
         "- Definition only [E1].\n"
         "- Administrative Header 2 [E1].\n"
         "- exam-style questions or structured assessment prompts [E2].\n"
-        "Use the shell menu to choose one cited topic for guided learning next.",
+        "Use the menu to choose one cited topic for guided review next.",
         evidence,
     )
 
@@ -2536,7 +2536,7 @@ class TestTurnOrchestratorStudy:
     ) -> None:
         mock_resolve_evidence.return_value = None
         mock_iter_agent.return_value = iter(
-            [AssistantDeltaEvent("Ich kann dir beim Lernen mit Hephaistos helfen.")]
+            [AssistantDeltaEvent("Ich kann dir beim Lernen mit Heph helfen.")]
         )
         mock_stream.return_value = iter(
             [
@@ -2559,7 +2559,7 @@ class TestTurnOrchestratorStudy:
         notices = [event for event in events if isinstance(event, NoticeEvent)]
         resolved_plan = mock_resolve_evidence.call_args.args[1]
         extra_prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
-        assert deltas == ["Ich kann dir beim Lernen mit Hephaistos helfen."]
+        assert deltas == ["Ich kann dir beim Lernen mit Heph helfen."]
         assert resolved_plan.action is StudyAction.CHAT
         assert resolved_plan.retrieval_query is None
         assert resolved_plan.allow_tools is False
@@ -3095,7 +3095,7 @@ class TestTurnOrchestratorStudy:
             "- Graph algorithms [E1].\n"
             "- Recurrence relations [E2].\n"
             "- Bayes theorem [E1].\n"
-            "Use the shell menu to choose one cited topic for guided learning next."
+            "Use the menu to choose one cited topic for guided review next."
         )
         mock_iter_agent.return_value = iter([AssistantDeltaEvent(model_reply)])
 
@@ -3228,7 +3228,7 @@ class TestTurnOrchestratorStudy:
         assert "Recommendation: ask a contrastive question next" in final_reply
         assert "These are the topics I found in the material:" in final_reply
         assert (
-            "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter." in final_reply
+            "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter." in final_reply
         )
         assert "Recommended options:" in final_reply
         assert "Signal entropy [E1]" in final_reply
@@ -3302,7 +3302,7 @@ class TestTurnOrchestratorStudy:
         assert final_reply.startswith("The material introduces a small signal-processing")
         assert "These are the topics I found in the material:" in final_reply
         assert (
-            "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter." in final_reply
+            "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter." in final_reply
         )
         assert "Signal entropy [E1]" in final_reply
         assert "Carrier waves [E2]" in final_reply
@@ -3937,7 +3937,7 @@ class TestTurnOrchestratorStudy:
                 chunk=_make_chunk("materials/rag-target.md", 0),
                 score=0.9,
                 content=(
-                    "The QA sentinel fact is: Hephaistos retrieval should mention "
+                    "The QA sentinel fact is: Heph retrieval should mention "
                     "the phrase amber forge when asked about the sentinel."
                 ),
             )
@@ -4121,7 +4121,7 @@ class TestTurnOrchestratorStudy:
         mock_stream: MagicMock,
     ) -> None:
         direct_reply = (
-            "Use Hephaistos to study your own materials: ask a source-grounded question, "
+            "Use Heph to study your own materials: ask a source-grounded question, "
             "run /exam for active recall, run /priority for a plan, or /autopilot on "
             "to let Heph drive the session."
         )
@@ -4137,7 +4137,7 @@ class TestTurnOrchestratorStudy:
             [
                 CompletionDelta(
                     content=(
-                        "Nutze Hephaistos, um mit deinen eigenen Materialien zu lernen: "
+                        "Nutze Heph, um mit deinen eigenen Materialien zu lernen: "
                         "stelle eine quellenbasierte Frage, starte /exam fuer Active Recall, "
                         "nutze /priority fuer einen Plan oder /autopilot on, damit Heph die "
                         "Sitzung fuehrt."
@@ -4154,11 +4154,11 @@ class TestTurnOrchestratorStudy:
 
         deltas = [event.delta for event in events if isinstance(event, AssistantDeltaEvent)]
         assert len(deltas) == 1
-        assert deltas[0].startswith("Nutze Hephaistos")
+        assert deltas[0].startswith("Nutze Heph")
         assert "/exam" in deltas[0]
         assert "/priority" in deltas[0]
         assert "/autopilot" in deltas[0]
-        assert "Use Hephaistos" not in deltas[0]
+        assert "Use Heph" not in deltas[0]
         assert session.conversation.messages[-1].content == deltas[0]
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
@@ -4212,8 +4212,8 @@ class TestTurnOrchestratorStudy:
         list(TurnOrchestrator(session).iter_events("Using only the indexed sources, what is X?"))
 
         prompt = mock_iter_agent.call_args.kwargs["extra_system_prompt"]
-        assert "Evidence sufficiency gate:" in prompt
-        assert "Recommended action: give partial answer." in prompt
+        assert "Evidence gate:" in prompt
+        assert "action=give partial answer" in prompt
 
     @patch("hephaistos.chat.orchestrator.iter_agent_events")
     @patch("hephaistos.chat.orchestrator._resolve_turn_evidence")

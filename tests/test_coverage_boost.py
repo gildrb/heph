@@ -445,20 +445,11 @@ class TestPendingInputRequiresTerminal:
     def test_history_other(self) -> None:
         assert pending_input_requires_terminal("/sessions 5") is False
 
-    def test_persona_no_args(self) -> None:
-        assert pending_input_requires_terminal("/persona") is True
+    def test_vocabulary_defaults_to_drill(self) -> None:
+        assert pending_input_requires_terminal("/vocabulary") is True
 
-    def test_persona_with_args(self) -> None:
-        assert pending_input_requires_terminal("/persona custom") is False
-
-    def test_vocab_status(self) -> None:
-        assert pending_input_requires_terminal("/vocab status") is False
-
-    def test_vocab_drill(self) -> None:
-        assert pending_input_requires_terminal("/vocab drill") is True
-
-    def test_edit_command(self) -> None:
-        assert pending_input_requires_terminal("/edit") is True
+    def test_vocabulary_status(self) -> None:
+        assert pending_input_requires_terminal("/vocabulary status") is False
 
     def test_non_command(self) -> None:
         assert pending_input_requires_terminal("just chatting") is False

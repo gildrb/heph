@@ -41,22 +41,26 @@ def ranked_matches[T](
     matches: list[FuzzyMatch[T]] = []
     for choice in choices:
         candidate = key(choice)
-        if fuzz is not None:
-            score = float(fuzz.WRatio(query, candidate))
-        else:
-            normalized_candidate = candidate.casefold().strip()
-            if not normalized_query or not normalized_candidate:
-                score = 0.0
-            elif normalized_query == normalized_candidate:
-                score = 100.0
-            elif normalized_query in normalized_candidate:
-                score = 85.0
-            elif query_terms:
-                candidate_terms = set(normalized_candidate.split())
-                score = 100.0 * (len(query_terms & candidate_terms) / len(query_terms))
-            else:
-                score = 0.0
+        score = (
+            float(fuzz.WRatio(query, candidate))
+            if fuzz is not None
+            else _fallback_score(normalized_query, query_terms, candidate)
+        )
         if score >= min_score:
             matches.append(FuzzyMatch(value=choice, score=score))
     matches.sort(key=lambda match: match.score, reverse=True)
     return matches[:limit]
+
+
+def _fallback_score(normalized_query: str, query_terms: set[str], candidate: str) -> float:
+    normalized_candidate = candidate.casefold().strip()
+    if not normalized_query or not normalized_candidate:
+        return 0.0
+    if normalized_query == normalized_candidate:
+        return 100.0
+    if normalized_query in normalized_candidate:
+        return 85.0
+    if query_terms:
+        candidate_terms = set(normalized_candidate.split())
+        return 100.0 * (len(query_terms & candidate_terms) / len(query_terms))
+    return 0.0

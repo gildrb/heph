@@ -122,7 +122,7 @@ def _path_has(normalized: str, tokens: tuple[str, ...]) -> bool:
 def infer_material_role(rel_path: str | Path) -> tuple[MaterialRole, float, str]:
     """Infer a material role from its path.
 
-    This keeps the filesystem simple for users while giving Hephaistos useful
+    This keeps the filesystem simple for users while giving Heph useful
     retrieval/study hints. The heuristic is intentionally transparent and cheap;
     model-assisted classification can refine it later.
     """

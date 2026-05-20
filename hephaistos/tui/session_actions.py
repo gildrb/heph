@@ -3,42 +3,97 @@
 from __future__ import annotations
 
 import sys
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from hephaistos.armory.search import add_known_armory, set_last_armory
+from hephaistos.chat import storage as chat_storage
 from hephaistos.chat.cli import resolve_armory_session as chat_resolve_armory_session
-from hephaistos.parameters.cli import load_config
-from hephaistos.shell.armory_actions import start_fresh_session as shell_start_fresh_session
-from hephaistos.shell.lifecycle import (
-    create_startup_session as shell_create_startup_session,
+from hephaistos.chat.session import (
+    ChatSession,
+    SessionError,
+    create_plain_session,
+    create_session,
+    empty_armory_guidance,
+    save_session,
+    session_has_messages,
 )
-from hephaistos.shell.lifecycle import get_history_path as shell_get_history_path
-from hephaistos.shell.lifecycle import save_on_exit as shell_save_on_exit
-from hephaistos.terminal import current_palette, set_theme
+from hephaistos.diagnostics.events import capture as capture_analytics
+from hephaistos.parameters.cli import load_config
+from hephaistos.terminal import current_palette, print_error, print_info, set_theme
 from hephaistos.terminal.history import InputHistory
 from hephaistos.terminal.input import handle_input
 from hephaistos.tui.dependencies import TuiDependencyError, tui_dependency_message
+from hephaistos.tui.startup_discovery import discover_available_armories, discover_startup_armory
 
 if TYPE_CHECKING:
-    from hephaistos.chat.session import ChatSession
     from hephaistos.runtime import ChatConfig
+
+_HISTORY_DIR = Path.home() / ".cache" / "hephaistos"
 
 
 def start_fresh_session(session: ChatSession, armory_path: Path | None) -> ChatSession:
-    return shell_start_fresh_session(session, armory_path)
+    if armory_path is None and session.armory_path is None:
+        return session
+    if session.armory_path and session.dirty and session_has_messages(session):
+        with suppress(chat_storage.ChatStorageError):
+            save_session(session)
+    try:
+        new_session = (
+            create_plain_session(session.config)
+            if armory_path is None
+            else create_session(session.config, armory_path)
+        )
+    except SessionError:
+        return session
+    if armory_path is None:
+        capture_analytics("armory_detached", {"model": new_session.config.model})
+    else:
+        add_known_armory(armory_path)
+        set_last_armory(armory_path)
+        capture_analytics(
+            "armory_attached",
+            {
+                "source_file_count": new_session.source_file_count,
+                "model": new_session.config.model,
+            },
+        )
+    return new_session
 
 
 def create_startup_session(config: ChatConfig) -> ChatSession:
-    return shell_create_startup_session(config)
+    armory = discover_startup_armory()
+    if armory is None:
+        if discover_available_armories():
+            print_info("Multiple armories found. Use /armory to choose one.")
+        else:
+            print_info("No armory attached. Use /armory or `heph armory init <name>`.")
+        return create_plain_session(config)
+    try:
+        session = create_session(config, armory)
+        set_last_armory(armory)
+        return session
+    except SessionError:
+        print_error("Auto-discovered armory has no materials.")
+        print_info(empty_armory_guidance(armory))
+        return create_plain_session(config)
 
 
 def get_history_path(session: ChatSession) -> Path:
-    return shell_get_history_path(session)
+    if session.armory_path is None:
+        return _HISTORY_DIR / "plain-history"
+    return session.armory_path / ".hephaistos" / "history"
 
 
 def save_on_exit(session: ChatSession) -> None:
-    shell_save_on_exit(session)
+    if session.dirty and session_has_messages(session) and session.armory_path is not None:
+        try:
+            path = save_session(session)
+            print_info(f"Saved chat to {path}")
+        except chat_storage.ChatStorageError as exc:
+            print_error(str(exc))
+    session.trace.close()
 
 
 def run_tui(session: ChatSession | None = None) -> None:
@@ -85,12 +140,6 @@ def run_tui(session: ChatSession | None = None) -> None:
             state.pending_input = None
             if pending_input is None:
                 break
-
-            if pending_input.startswith("!"):
-                output = tui_module._run_shell_escape_captured(pending_input[1:].strip())
-                if output:
-                    state.transcript.append(tui_module._TuiTranscriptEntry(output, "ansi"))
-                continue
 
             history = InputHistory(state.history)
             if tui_module._pending_input_requires_terminal(pending_input):

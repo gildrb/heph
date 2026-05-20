@@ -120,7 +120,7 @@ class TestOfflineMessage:
 
     def test_mentions_offline_features(self) -> None:
         msg = offline_message("OpenRouter")
-        assert "/vocab" in msg
+        assert "/vocabulary" in msg
         assert "/materials" in msg
         assert "/export" in msg
         assert "/stats" in msg

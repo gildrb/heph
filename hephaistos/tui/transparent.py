@@ -305,14 +305,3 @@ def make_transparent_cls(base_cls: type) -> type:
             return strips
 
     return TransparentWidget
-
-
-def nonfocus_rich_log_class() -> type[RichLog]:
-    """Return a non-focusable ``RichLog`` subclass."""
-    if RichLog is None:
-        raise RuntimeError("Textual is not available")
-
-    class NonFocusRichLog(RichLog):
-        can_focus = False
-
-    return NonFocusRichLog

@@ -1,16 +1,22 @@
 <!-- Managed by scripts/sync_docs.py. Do not edit directly. -->
 
-# Hephaistos
+# Heph
 
-**A local-first document agent that works with your files and any LLM.**
+**Heph is a local document harness for accurate, cited answers.**
 
-Hephaistos, or `heph`, is a terminal app for working with document-heavy projects.
-Put files in an **armory**, start Heph, and ask questions. Heph retrieves from your
-materials before answering, checks citations against the retrieved evidence, and keeps
-memory scoped to that armory.
+Heph helps you understand and work with document-heavy projects
+without handing your files to a hosted workspace. Put materials in an **armory**,
+start Heph, and ask questions. Heph retrieves from your files before answering,
+checks citations against the retrieved evidence, and keeps memory scoped to that
+armory.
 
-An armory is the core idea: a normal portable folder with your materials, saved chats,
-retrieval index, and local memory. Your documents are not locked into a provider.
+The agent is there to reason over the material, ask follow-up questions, test your
+understanding, and keep long sessions grounded. Accuracy, verification, and privacy
+come first; model choice stays swappable.
+
+An armory is the core idea: a normal portable folder with your source files, saved
+chats, retrieval index, and local memory. Your documents are not locked into a
+provider.
 
 ## Install
 
@@ -43,13 +49,13 @@ uv tool install git+https://github.com/gildrb/hephaistos
 ```bash
 heph armory init ~/armories/exams
 # add documents to ~/armories/exams/materials
-heph start ~/armories/exams
+heph ~/armories/exams
 ```
 
 You can also run:
 
 ```bash
-heph start .
+heph .
 heph ~/armories/exams
 ```
 
@@ -68,7 +74,7 @@ environment variables such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_K
 ## Commands
 
 ```text
-heph start [path]       Open Heph.
+heph [path]             Open Heph.
 heph armory init PATH   Create an armory.
 heph index [path]       Refresh the materials index.
 heph health [path]      Check indexed materials.
@@ -88,8 +94,8 @@ guidelines.
 Analytics and crash reporting are opt-in from `/settings`. Source and Git installs do
 not enable hosted diagnostics by default.
 
-Model-generated shell commands are not exposed as a default agent tool. Explicit `!`
-shell escapes and armory plugins should only be used in armories you trust.
+Model-generated terminal commands are not exposed as a default agent tool. Explicit
+`!` terminal escapes and armory plugins should only be used in armories you trust.
 
 ## License
 

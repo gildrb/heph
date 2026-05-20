@@ -127,11 +127,6 @@ ENV_VAR_DESCRIPTIONS: Final[dict[str, str]] = {
     "CUSTOM_API_KEY": "API key for the custom provider entry.",
 }
 
-SHELL_SIGNATURE_OVERRIDES: Final[dict[str, str]] = {
-    "resume": "/resume [id-prefix]",
-    "api": "/api",
-}
-
 CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph": "Open your current armory or plain chat.",
     "heph <name-or-path>": "Open a known armory by name, e.g. `heph gdp`, or by path.",
@@ -139,9 +134,8 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
     "heph armory <name> [parent]": (
         "Create a named armory in ~/Armories or in <parent>/Armories."
     ),
-    "heph start [path]": "Hidden backwards-compatible alias for `heph [path]`.",
     "heph tui [path]": "Explicit alias for the default Textual TUI.",
-    "heph update": "Show how to update the active Hephaistos install.",
+    "heph update": "Show how to update the active Heph install.",
     "heph chat ask --jsonl <path> [prompt]": (
         "Emit structured turn events as JSON Lines for harness audits."
     ),
@@ -154,8 +148,7 @@ CLI_COMMAND_DESCRIPTIONS: Final[dict[str, str]] = {
 LEGACY_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     (
         re.compile(r"\bheph\s+start\b"),
-        "Use `heph` or `heph <path>` as the primary command. Reserve `start` for the "
-        "generated compatibility note only.",
+        "Use `heph` or `heph <path>` as the primary command.",
     ),
     (
         re.compile(r"\bhephaistos\s+start\b"),
@@ -233,8 +226,8 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
     }
     if not required_visible.issubset(top_level):
         raise RuntimeError("The top-level CLI surface changed; update sync_docs.py.")
-    if "chat" not in top_level or "start" not in top_level:
-        raise RuntimeError("Expected hidden `chat` and `start` commands to exist.")
+    if "chat" not in top_level:
+        raise RuntimeError("Expected hidden `chat` automation command to exist.")
 
     armory_parser = subparsers.choices["armory"]
     materials_parser = subparsers.choices["materials"]
@@ -280,17 +273,10 @@ def collect_cli_commands(short_command: str, long_command: str) -> tuple[Command
         CommandLine(f"{short_command} update", CLI_COMMAND_DESCRIPTIONS["heph update"]),
         CommandLine(f"{short_command} config show", config_help["show"]),
         CommandLine(f"{short_command} config set <key> <value>", config_help["set"]),
-        CommandLine(f"{short_command} chat start <path>", chat_help["start"]),
-        CommandLine(f"{short_command} chat resume <path> <id>", chat_help["resume"]),
         CommandLine(f"{short_command} chat ask <path> [prompt]", chat_help["ask"]),
         CommandLine(
             f"{short_command} chat ask --jsonl <path> [prompt]",
             CLI_COMMAND_DESCRIPTIONS["heph chat ask --jsonl <path> [prompt]"],
-        ),
-        CommandLine(f"{short_command} chat list <path>", chat_help["list"]),
-        CommandLine(
-            f"{short_command} start [path]",
-            CLI_COMMAND_DESCRIPTIONS[f"{short_command} start [path]"],
         ),
         CommandLine(
             f"{short_command} tui [path]",
@@ -316,11 +302,8 @@ def collect_common_commands(short_command: str, long_command: str) -> tuple[Comm
         f"{short_command} index [path]",
         f"{short_command} health [path]",
         f"{short_command} update",
-        f"{short_command} chat resume <path> <id>",
         f"{short_command} chat ask <path> [prompt]",
         f"{short_command} chat ask --jsonl <path> [prompt]",
-        f"{short_command} chat list <path>",
-        f"{short_command} start [path]",
         f"{short_command} tui [path]",
     )
     return tuple(CommandLine(command, cli_commands[command]) for command in selected)
@@ -330,7 +313,7 @@ def collect_slash_commands() -> tuple[CommandLine, ...]:
     registry = get_registry()
     return tuple(
         CommandLine(
-            SHELL_SIGNATURE_OVERRIDES.get(suggestion.name, f"/{suggestion.name}"),
+            f"/{suggestion.name}",
             suggestion.description,
         )
         for suggestion in registry.suggestions()
@@ -387,7 +370,7 @@ def collect_docs_model(root: Path) -> DocsModel:
     return DocsModel(
         short_command=short_command,
         long_command=long_command,
-        project_name="Hephaistos",
+        project_name="Heph",
         scripts_entrypoint=scripts[short_command],
         common_commands=collect_common_commands(short_command, long_command),
         cli_reference_commands=collect_cli_commands(short_command, long_command),
@@ -450,7 +433,7 @@ def render_create_armory_block(model: DocsModel) -> str:
         "```bash\n"
         f"{model.short_command} armory init ~/armories/exams\n"
         "# Add source files to ~/armories/exams/materials\n"
-        f"{model.short_command} start ~/armories/exams\n"
+        f"{model.short_command} ~/armories/exams\n"
         "```"
     )
 
@@ -482,8 +465,8 @@ def render_home_footer(*, docs_index: bool) -> str:
 def render_home_doc(model: DocsModel, *, docs_index: bool) -> str:
     long_entry = f"`{model.long_command}`"
     compatibility = (
-        f"`{model.short_command} start [path]` opens the TUI explicitly. "
-        f"`{model.short_command} [path]` is the shorthand, "
+        f"`{model.short_command} [path]` opens the TUI. "
+        f"`{model.short_command} tui [path]` is the explicit form, "
         f"and {long_entry} is the long entrypoint."
     )
     replacements = {

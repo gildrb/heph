@@ -1,4 +1,4 @@
-"""Convert Hephaistos session traces into grounded-answer benchmark fixtures.
+"""Convert Heph session traces into grounded-answer benchmark fixtures.
 
 Trace files live under ``<armory>/.hephaistos/traces/<session_id>.jsonl``.
 This helper extracts user/reply pairs plus the exact evidence metadata recorded

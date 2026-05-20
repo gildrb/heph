@@ -14,17 +14,12 @@ from hephaistos.commands.display import (
     TokensCommand,
     UsageCommand,
 )
-from hephaistos.commands.help import ExitCommand, HelpCommand, QuitCommand
+from hephaistos.commands.help import ExitCommand, HelpCommand
 from hephaistos.commands.memory import MemoryCommand
 from hephaistos.commands.model import ModelsCommand, RecommendCommand
-from hephaistos.commands.persona import PersonaCommand
 from hephaistos.commands.session import (
     ArmoryCommand,
-    ClearCommand,
-    EditCommand,
     NewCommand,
-    ResumeCommand,
-    SaveCommand,
     SessionsCommand,
     StatusCommand,
 )
@@ -39,8 +34,8 @@ from hephaistos.commands.study import (
 )
 from hephaistos.commands.suggestions import CommandSuggestion
 from hephaistos.providers.config import ProviderConfig
-from hephaistos.terminal import confirm
-from hephaistos.terminal.display import (
+from hephaistos.terminal import (
+    confirm,
     print_error,
     print_info,
     print_success,
@@ -63,7 +58,6 @@ class CommandRegistry:
         return [
             CommandSuggestion(name=cmd.name, description=cmd.description, aliases=cmd.aliases)
             for cmd in self.commands
-            if not cmd.hidden
         ]
 
 
@@ -96,11 +90,9 @@ def get_registry() -> CommandRegistry:
                 ExportCommand,
                 ImportCommand,
                 RemindCommand,
-                EditCommand,
                 ModelsCommand,
                 RecommendCommand,
                 MemoryCommand,
-                PersonaCommand,
                 SettingsCommand,
                 SessionsCommand,
                 IndexCommand,
@@ -121,13 +113,11 @@ __all__ = [
     # Command classes (for direct import)
     "ArmoryCommand",
     "AutopilotCommand",
-    "ClearCommand",
     "Command",
     "CommandRegistry",
     "CommandResult",
     "CompactCommand",
     "CostCommand",
-    "EditCommand",
     "EvidenceCommand",
     "ExamCommand",
     "ExitCommand",
@@ -141,14 +131,10 @@ __all__ = [
     "ModeCommand",
     "ModelsCommand",
     "NewCommand",
-    "PersonaCommand",
     "PriorityCommand",
     "ProviderConfig",
-    "QuitCommand",
     "RecommendCommand",
     "RemindCommand",
-    "ResumeCommand",
-    "SaveCommand",
     "SessionsCommand",
     "SettingsCommand",
     "StatsCommand",

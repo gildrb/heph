@@ -10,12 +10,13 @@ import pytest
 from conftest import message_text
 
 import hephaistos.agent.dispatch as dispatch_mod
-from hephaistos.agent.dispatch import (
+import hephaistos.agent.model_stream as model_stream_mod
+from hephaistos.agent.dispatch import summarize_result
+from hephaistos.agent.tool_execution import (
     ToolCall,
     execute_tool_calls,
     format_tool_args,
     merge_tool_call_deltas,
-    summarize_result,
 )
 from hephaistos.agent.tools import (
     TOOL_SCHEMAS,
@@ -426,7 +427,7 @@ class TestIterAgentEvents:
         def fail_stream(*_args: object, **_kwargs: object) -> None:
             raise AssertionError("streaming should be skipped")
 
-        monkeypatch.setattr(dispatch_mod, "stream_completion", fail_stream)
+        monkeypatch.setattr(model_stream_mod, "stream_completion", fail_stream)
         events = list(
             dispatch_mod.iter_agent_events(
                 ChatConfig(base_url="https://example.invalid", model="test-model"),
@@ -449,7 +450,7 @@ class TestIterAgentEvents:
             yield CompletionDelta(content="hello")
             yield CompletionDelta(finish_reason="stop")
 
-        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(model_stream_mod, "stream_completion", fake_stream)
 
         events = list(
             dispatch_mod.iter_agent_events(
@@ -475,7 +476,7 @@ class TestIterAgentEvents:
             yield CompletionDelta(content=" world")
             yield CompletionDelta(finish_reason="stop")
 
-        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(model_stream_mod, "stream_completion", fake_stream)
 
         events = list(
             dispatch_mod.iter_agent_events(
@@ -502,7 +503,7 @@ class TestIterAgentEvents:
             yield CompletionDelta(content="hello")
             yield CompletionDelta(finish_reason="stop")
 
-        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(model_stream_mod, "stream_completion", fake_stream)
 
         list(
             dispatch_mod.iter_agent_events(
@@ -546,7 +547,7 @@ class TestIterAgentEvents:
         ) -> list[ApiMessage]:
             return messages
 
-        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(model_stream_mod, "stream_completion", fake_stream)
         monkeypatch.setattr(dispatch_mod, "auto_compact", no_op_compact)
 
         events = list(
@@ -596,7 +597,7 @@ class TestIterAgentEvents:
             yield CompletionDelta(content="Chaperones prevent misfolding [M1].")
             yield CompletionDelta(finish_reason="stop")
 
-        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(model_stream_mod, "stream_completion", fake_stream)
 
         events = list(
             dispatch_mod.iter_agent_events(
@@ -667,7 +668,7 @@ class TestIterAgentEvents:
                 }
             ]
 
-        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(model_stream_mod, "stream_completion", fake_stream)
         monkeypatch.setattr(dispatch_mod, "execute_tool_calls", fake_execute_tool_calls)
 
         events = list(
@@ -740,7 +741,7 @@ class TestIterAgentEvents:
                 }
             ]
 
-        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(model_stream_mod, "stream_completion", fake_stream)
         monkeypatch.setattr(dispatch_mod, "execute_tool_calls", fake_execute_tool_calls)
 
         events = list(
@@ -770,19 +771,17 @@ class TestIterAgentEvents:
         workspace: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        observed_criteria: list[str] = []
+        observed_message_count: list[int] = []
 
         def fake_stream(_config: object, messages: list[ApiMessage], **_kwargs: object):
-            observed_criteria.extend(
-                str(message["content"])
-                for message in messages
-                if message["role"] == "system"
-                and "Acceptance criteria: inspect" in str(message["content"])
+            observed_message_count.append(len(messages))
+            assert not any(
+                "Acceptance criteria: inspect" in str(message["content"]) for message in messages
             )
             yield CompletionDelta(content="Done.")
             yield CompletionDelta(finish_reason="stop")
 
-        monkeypatch.setattr(dispatch_mod, "stream_completion", fake_stream)
+        monkeypatch.setattr(model_stream_mod, "stream_completion", fake_stream)
 
         events = list(
             dispatch_mod.iter_agent_events(
@@ -799,4 +798,4 @@ class TestIterAgentEvents:
         ]
         assert criteria_notices
         assert criteria_notices[0].metadata["requires_tools"] is True
-        assert observed_criteria
+        assert observed_message_count

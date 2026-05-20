@@ -91,7 +91,7 @@ def test_build_entries_include_recent_all_and_create(
     armory_home.mkdir()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
 
-    entries = armory_browser.build_entries(armory_home, allow_create=True)
+    entries = armory_browser.build_entries(allow_create=True)
 
     assert entries[0].is_section
     assert entries[0].label == armory_browser._RECENT_HEADING
@@ -101,7 +101,6 @@ def test_build_entries_include_recent_all_and_create(
     assert any(
         entry.is_section and entry.label == armory_browser._ALL_HEADING for entry in entries
     )
-    assert not any(entry.is_parent for entry in entries)
 
 
 def test_build_entries_without_create_flag(
@@ -111,7 +110,7 @@ def test_build_entries_without_create_flag(
     armory_home.mkdir()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     _make_dirs(armory_home, "alpha", "beta")
-    entries = armory_browser.build_entries(armory_home, allow_create=False)
+    entries = armory_browser.build_entries(allow_create=False)
 
     labels = [e.label for e in entries]
     assert not any(e.is_create for e in entries)
@@ -125,7 +124,7 @@ def test_build_entries_can_include_common_places(
     armory_home = tmp_path / ".armories"
     armory_home.mkdir()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
-    entries = armory_browser.build_entries(armory_home, allow_create=True, show_places=True)
+    entries = armory_browser.build_entries(allow_create=True, show_places=True)
 
     place_entries = [entry for entry in entries if entry.is_place]
     assert any(entry.path == armory_home for entry in place_entries)
@@ -154,7 +153,7 @@ def test_build_entries_filters_outside_recent_armories(
         ],
     )
 
-    entries = armory_browser.build_entries(armory_home, allow_create=True)
+    entries = armory_browser.build_entries(allow_create=True)
 
     recent_paths = [entry.path for entry in entries if entry.is_recent]
     assert recent_paths == [inside]
@@ -169,7 +168,7 @@ def test_build_entries_discovers_armories_in_home(
     second = _make_armory(armory_home, "beta")
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
 
-    entries = armory_browser.build_entries(armory_home, allow_create=True)
+    entries = armory_browser.build_entries(allow_create=True)
 
     all_paths = {entry.path for entry in entries if entry.path is not None}
     assert first.resolve() in all_paths
@@ -186,25 +185,9 @@ def test_build_entries_filters_symlink_escape(
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     (armory_home / "outside-link").symlink_to(outside, target_is_directory=True)
 
-    entries = armory_browser.build_entries(armory_home, allow_create=True)
+    entries = armory_browser.build_entries(allow_create=True)
 
     assert not any(entry.path == armory_home / "outside-link" for entry in entries)
-
-
-def test_build_parent_entries_filters_symlink_escape(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    armory_home = tmp_path / ".armories"
-    armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
-    current = _make_dirs(armory_home, "current")[0]
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (armory_home / "outside-link").symlink_to(outside, target_is_directory=True)
-
-    entries = armory_browser.build_parent_entries(current)
-
-    assert not any(path == armory_home / "outside-link" for _label, path in entries)
 
 
 def test_default_start_path_rejects_outside_start(
@@ -228,9 +211,8 @@ def test_build_entries_returns_sectioned_paths(
     armory_home.mkdir()
     monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
     alpha, beta = _make_dirs(armory_home, "alpha", "beta")
-    entries = armory_browser.build_entries(armory_home, allow_create=True)
+    entries = armory_browser.build_entries(allow_create=True)
 
-    assert not any(entry.is_parent for entry in entries)
     assert any(
         entry.is_section and entry.label == armory_browser._RECENT_HEADING for entry in entries
     )
@@ -356,19 +338,6 @@ def test_browser_right_arrow_does_not_navigate_into_child(
             assert screen._current == armory_home
 
     asyncio.run(run_nav())
-
-
-def test_browser_has_no_parent_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    armory_home = tmp_path / ".armories"
-    armory_home.mkdir()
-    monkeypatch.setenv("HEPHAISTOS_ARMORY_HOME", str(armory_home))
-    child_dir = armory_home / "child"
-    child_dir.mkdir()
-
-    screen = armory_browser.ArmoryBrowserScreen(start=child_dir)
-
-    assert screen._current == child_dir
-    assert not any(entry.is_parent for entry in armory_browser.build_entries(child_dir, True))
 
 
 def test_browser_left_does_not_navigate_above_armory_home(

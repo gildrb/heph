@@ -1,6 +1,6 @@
 # Architecture
 
-Hephaistos follows strict import boundaries enforced by `import-linter`. Only
+Heph follows strict import boundaries enforced by `import-linter`. Only
 adapter packages may import broadly; lower tiers must stay copyable and must
 not depend on product workflows.
 
@@ -10,12 +10,12 @@ not depend on product workflows.
   `terminal.palette`, `_types`. These are the most copyable packages and must
   not import product workflow packages.
 - **Domain reusable packages**: `materials`, `rag`, `memory`, `armory`, `vocab`,
-  `study`. These may model Hephaistos concepts, but must not depend on
+  `study`. These may model Heph concepts, but must not depend on
   adapters, CLI command handlers, TUI modules, or chat session orchestration.
 - **Application services**: `chat` and focused workflow modules. These compose
   core/domain packages into session lifecycle, evidence, memory workflows, and
   turn orchestration.
-- **Adapters**: `tui`, `cli`, `commands`, and shell compatibility
+- **Adapters**: `tui`, `cli`, `commands`, and terminal compatibility
   modules. The TUI is the human interface; the CLI is the command and automation
   skeleton. Adapters may depend broadly, but reusable decisions should be
   promoted into services or domain packages instead of staying in adapter code.
@@ -79,12 +79,11 @@ graph TD
     Chat -->|Session state| FileStore
 ```
 
-The top layer is the adapter surface: **tui**, **cli**, **commands**, **shell**,
+The top layer is the adapter surface: **tui**, **cli**, **commands**,
 and **terminal**. `tui` is the primary interactive Textual interface; `cli` is
 the public command dispatcher for launching the TUI, automation, and one-shot
-commands. `commands` contains slash-command handlers, `shell` holds
-plain-terminal session actions, and `terminal` owns low-level terminal I/O,
-styling, history, and shell-input dispatch. Reusable packages communicate
+commands. `commands` contains slash-command handlers, and `terminal` owns
+low-level terminal I/O, styling, history, and command dispatch. Reusable packages communicate
 through their public APIs and must not import adapter packages. Shared LLM
 request primitives live in **runtime** so chat, agent, memory, parameters, and
 providers do not import each other just to share message types or streaming
@@ -95,14 +94,13 @@ helpers.
 ```
 hephaistos/
   cli/          Command and automation dispatcher; launches the TUI by default
-  commands/     Slash-command handlers for shell/TUI adapters
+  commands/     Slash-command handlers for TUI and automation adapters
   tui/          Textual interactive adapter: widgets, key handling, rendering
-  shell/        Plain-terminal session, armory, and saved-chat actions
-  terminal/     Terminal I/O, styling, prompts, history, shell-input dispatch
+  terminal/     Terminal I/O, styling, prompts, history, command dispatch
   matching/     Fuzzy matching helpers for human-facing selectors
   chat/         Session lifecycle, storage, turn orchestration — no adapter imports
   runtime/      Shared LLM messages, config, client streaming, retry helpers
-  agent/        Prompt building, persona, citation, tools — no adapter imports
+  agent/        Prompt building, citation, tools — no adapter imports
   providers/    LLM provider registry, config, auth — no adapter imports
   rag/          RAG chunking, indexing, retrieval — no adapter imports
   materials/    Study-file discovery, ignore rules, and material role classification
@@ -122,9 +120,8 @@ hephaistos/
 ### Forbidden: reusable packages must not import adapters
 
 The following packages cannot import anything from adapter packages:
-`hephaistos.cli`, `hephaistos.commands`, `hephaistos.tui`, `hephaistos.shell`,
-`hephaistos.terminal.banner`, `hephaistos.terminal.display`,
-`hephaistos.terminal.history`, or `hephaistos.terminal.input`.
+`hephaistos.cli`, `hephaistos.commands`, `hephaistos.tui`,
+`hephaistos.terminal.history` or `hephaistos.terminal.input`.
 
 - `hephaistos.chat`
 - `hephaistos.agent`
@@ -185,8 +182,8 @@ An armory is a normal directory with a fixed layout:
 my-armory/
   .hephaistos/
     armory.toml         # armory marker and metadata
-    system_prompt.md    # optional custom system prompt (replaces default persona)
-    history             # shell history for this armory (created on use)
+    system_prompt.md    # optional custom system prompt (replaces the default role prompt)
+    history             # input history for this armory (created on use)
     memory.json         # extracted armory memory
     rag_index.json      # persisted retrieval index
     traces/             # per-session JSONL traces
@@ -201,7 +198,7 @@ the provenance path for a retrieved chunk.
 
 ## Study memory
 
-Hephaistos is local-first by default: extracted study concepts are written to
+Heph is local-first by default: extracted study concepts are written to
 `<armory>/.hephaistos/memory.json` and injected into future prompts so the
 assistant can avoid repeating material the user already covered.
 
@@ -210,7 +207,7 @@ entry count for the current armory session.
 
 ## Diagnostics
 
-Hephaistos uses local diagnostics that keep debugging data inside the CLI
+Heph uses local diagnostics that keep debugging data inside the CLI
 workflow and armory workspace.
 
 ```mermaid
@@ -248,7 +245,7 @@ graph TD
 <!-- sync-docs:privacy-diagnostics-architecture:start -->
 ## Privacy & Diagnostics
 
-Hephaistos keeps privacy-impacting diagnostics optional and maintainer-facing.
+Heph keeps privacy-impacting diagnostics optional and maintainer-facing.
 
 - `hephaistos.diagnostics.events` sends anonymous PostHog events only when a backend is
   configured and the user explicitly opts in.

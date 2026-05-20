@@ -1,4 +1,4 @@
-"""Shared LLM runtime primitives used across Hephaistos packages."""
+"""Shared LLM runtime primitives used across Heph packages."""
 
 from hephaistos.runtime._api_types import (
     ApiMessage,

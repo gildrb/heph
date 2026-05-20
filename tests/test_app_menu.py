@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 import hephaistos.terminal as menu
@@ -166,69 +164,3 @@ def test_select_option_eof_returns_none(monkeypatch: pytest.MonkeyPatch) -> None
         [MenuOption("Open existing armory", "Attach a workspace.")],
     )
     assert selected is None
-
-
-# ---------------------------------------------------------------------------
-# Directory browser
-# ---------------------------------------------------------------------------
-
-
-def test_browse_directory_choose_current(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    calls = iter(["c"])
-
-    monkeypatch.setattr("hephaistos.terminal.direct_input", lambda _prompt="": next(calls))
-
-    result = menu.browse_directory("Test Browser", tmp_path)
-    assert result == tmp_path
-
-
-def test_browse_directory_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hephaistos.terminal.direct_input", lambda _prompt="": "q")
-
-    result = menu.browse_directory("Test Browser", Path("/tmp"))
-    assert result is None
-
-
-def test_browse_directory_navigate_parent_and_cancel(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    child = tmp_path / "subdir"
-    child.mkdir()
-    calls = iter(["1", "c"])
-    monkeypatch.setattr("hephaistos.terminal.direct_input", lambda _prompt="": next(calls))
-
-    result = menu.browse_directory("Test", child)
-    assert result == tmp_path
-
-
-def test_browse_directory_keyboard_interrupt(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    def _raise(_: str = "") -> str:
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr("hephaistos.terminal.direct_input", _raise)
-
-    result = menu.browse_directory("Test", tmp_path)
-    assert result is None
-
-
-def test_browse_directory_eof(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    def _raise(_: str = "") -> str:
-        raise EOFError
-
-    monkeypatch.setattr("hephaistos.terminal.direct_input", _raise)
-
-    result = menu.browse_directory("Test", tmp_path)
-    assert result is None
-
-
-def test_browse_directory_defaults_to_home(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    calls = iter(["c"])
-    monkeypatch.setattr("hephaistos.terminal.direct_input", lambda _prompt="": next(calls))
-    monkeypatch.setattr("hephaistos.terminal.browse_directory", menu.browse_directory)
-
-    result = menu.browse_directory("Test")
-    assert result == Path.home()

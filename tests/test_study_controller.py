@@ -154,11 +154,10 @@ def test_guided_plan_attaches_study_move_policy() -> None:
     assert plan.autonomy_mode is StudyAutonomyMode.GUIDED
     assert plan.study_move is not None
     assert plan.study_move.kind == "ask_recall"
-    assert "Autonomous study policy" in plan.prompt
+    assert "Study policy" in plan.prompt
     assert "confidence from 0-100%" in plan.prompt
-    assert "why the recommendation is beneficial" in plan.prompt
-    assert "Treat the response shape as semantic guidance" in plan.prompt
-    assert "adapt the wording to the learner's language" in plan.prompt
+    assert "Target response shape" in plan.prompt
+    assert "Adapt the shape to the learner's language" in plan.prompt
 
 
 def test_manual_mode_answers_direct_requests_without_study_loop() -> None:
@@ -261,7 +260,7 @@ def test_autopilot_first_turn_drives_a_diagnostic() -> None:
     assert plan.study_move is not None
     assert plan.study_move.kind == "ask_recall"
     assert "HEPH AUTOPILOT calibration" in plan.prompt
-    assert "drive the learning workflow" in plan.prompt
+    assert "Drive the workflow" in plan.prompt
     assert "Start directly with the recall task" in plan.prompt
     assert "do not reveal the answer" in plan.prompt.lower()
     assert "confidence from 0-100%" in plan.prompt
@@ -270,14 +269,14 @@ def test_autopilot_first_turn_drives_a_diagnostic() -> None:
 def test_autopilot_command_bootstrap_uses_corpus_diagnostic() -> None:
     state = StudyState(
         autonomy_mode=StudyAutonomyMode.AUTOPILOT,
-        session_goal="autonomous learning",
+        session_goal="guided material review",
         autopilot_session_type="general",
     )
 
     plan = plan_turn(
         state,
         "Start an autopilot session from my materials using the general profile. "
-        "Use autonomous learning as the session goal.",
+        "Use guided material review as the session goal.",
     )
 
     assert plan.action is StudyAction.CALIBRATE
@@ -366,7 +365,7 @@ def test_choice_policy_prompt_overrides_passive_options() -> None:
     assert plan.study_move is not None
     assert plan.study_move.kind == "offer_choices"
     assert "Require: option, reason, confidence from 0-100%, and weakest point." in plan.prompt
-    assert "Override a weak choice" in plan.prompt
+    assert "Target response shape" in plan.prompt
 
 
 def test_choice_reply_selects_worked_example_when_justified() -> None:
@@ -1066,7 +1065,7 @@ def test_standalone_source_policy_in_recall_reprompts_without_assessing(message:
         ),
         (
             "What can I use this for?",
-            "Use Hephaistos to study your own materials: ask a source-grounded question, run "
+            "Use Heph to study your own materials: ask a source-grounded question, run "
             "/exam for active recall, run /priority for a plan, or /autopilot on to let Heph "
             "drive the session.",
         ),
@@ -1540,7 +1539,7 @@ def test_recall_reprompt_language_request_is_not_assessed(user_request: str) -> 
     "user_request",
     [
         "what can Heph do?",
-        "how do I switch models in Hephaistos?",
+        "how do I switch models in Heph?",
         "can you explain /autopilot?",
         "what can you do?",
         "how can you help?",

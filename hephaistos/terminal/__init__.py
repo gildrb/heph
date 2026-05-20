@@ -7,7 +7,6 @@ import re
 import sys
 from contextlib import redirect_stdout
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Final, Protocol, runtime_checkable
 
 from hephaistos.parameters.settings import DEFAULT_THEME
@@ -47,12 +46,14 @@ __all__ = [
     "MenuOption",
     "Theme",
     "ansi_fg",
-    "browse_directory",
     "confirm",
     "current_palette",
     "current_theme_name",
     "direct_input",
     "direct_print",
+    "print_error",
+    "print_info",
+    "print_success",
     "select_option",
     "set_theme",
     "styled",
@@ -144,6 +145,18 @@ _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 def visible_len(text: str) -> int:
     return len(_ANSI_RE.sub("", text))
+
+
+def print_error(msg: str) -> None:
+    print(f"{styled('error:', STYLE_ERROR)} {msg}")
+
+
+def print_info(msg: str) -> None:
+    print(f"{styled('info:', STYLE_DIM)} {msg}")
+
+
+def print_success(msg: str) -> None:
+    print(styled(msg, STYLE_SUCCESS))
 
 
 # ---------------------------------------------------------------------------
@@ -239,55 +252,3 @@ def confirm(title: str, default: bool = False) -> bool:
     ]
     selected = select_option(title, opts)
     return selected == 0
-
-
-# ---------------------------------------------------------------------------
-# Directory browser
-# ---------------------------------------------------------------------------
-
-_PARENT_LABEL = "..  (parent)"
-
-
-def _list_child_dirs(path: Path) -> list[Path]:
-    try:
-        entries = sorted(path.iterdir())
-    except PermissionError:
-        return []
-    return [e for e in entries if e.is_dir() and not e.name.startswith(".")]
-
-
-def browse_directory(
-    title: str = "Select Directory",
-    start: Path | None = None,
-) -> Path | None:
-    current = (start or Path.home()).resolve()
-    while True:
-        direct_print(styled(f"{title}: {current}", STYLE_PROMPT))
-        entries = [_PARENT_LABEL] + [d.name for d in _list_child_dirs(current)]
-        for name in entries:
-            direct_print(f"  {name}")
-        direct_print(styled("  c. choose this directory  q. cancel", STYLE_DIM))
-        try:
-            choice = direct_input("  > ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            return None
-        if choice in ("q", "quit", "cancel"):
-            return None
-        if choice in ("c", "choose"):
-            return current
-        try:
-            idx = int(choice) - 1
-        except ValueError:
-            direct_print("Unknown option.")
-            continue
-        if idx == 0:
-            parent = current.parent
-            if parent != current and parent.exists():
-                current = parent
-        elif 1 <= idx < len(entries):
-            children = _list_child_dirs(current)
-            child_idx = idx - 1
-            if 0 <= child_idx < len(children):
-                current = children[child_idx]
-        else:
-            direct_print("Unknown option.")

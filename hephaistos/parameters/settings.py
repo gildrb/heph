@@ -28,6 +28,17 @@ ACTIVITY_TRACE_LABELS: Final[dict[str, str]] = {
     ACTIVITY_TRACE_MINIMAL_TOOL_CALLS: "Minimal tool calls",
     ACTIVITY_TRACE_HIDDEN_TOOL_CALLS: "Hidden tool calls",
 }
+VOCAB_STRICTNESS_STRICT: Final[str] = "strict"
+VOCAB_STRICTNESS_LENIENT: Final[str] = "lenient"
+VOCAB_STRICTNESS_MODES: Final[tuple[str, ...]] = (
+    VOCAB_STRICTNESS_STRICT,
+    VOCAB_STRICTNESS_LENIENT,
+)
+VOCAB_STRICTNESS_LABELS: Final[dict[str, str]] = {
+    VOCAB_STRICTNESS_STRICT: "Strict",
+    VOCAB_STRICTNESS_LENIENT: "Lenient punctuation",
+}
+DEFAULT_VOCAB_STRICTNESS: Final[str] = VOCAB_STRICTNESS_STRICT
 BOOL_KEYS: Final[frozenset[str]] = frozenset(
     {
         "analytics_enabled",
@@ -44,6 +55,7 @@ STRING_KEYS: Final[frozenset[str]] = frozenset(
         "default_armory_path",
         "last_armory_path",
         "activity_trace_mode",
+        "vocab_strictness",
     }
 )
 INT_KEYS: Final[frozenset[str]] = frozenset({"max_tokens", "rag_context_budget", "session_count"})
@@ -56,6 +68,7 @@ PUBLIC_CONFIG_KEYS: Final[tuple[str, ...]] = (
     "theme",
     "default_armory_path",
     "activity_trace_mode",
+    "vocab_strictness",
     "analytics_enabled",
     "crash_reports_enabled",
 )
@@ -83,6 +96,7 @@ class AppSettings:
     default_armory_path: str = ""
     last_armory_path: str = ""
     activity_trace_mode: str = DEFAULT_ACTIVITY_TRACE_MODE
+    vocab_strictness: str = DEFAULT_VOCAB_STRICTNESS
     analytics_enabled: bool = False
     crash_reports_enabled: bool = False
     privacy_notice_seen: bool = False
@@ -147,6 +161,13 @@ def normalize_setting_value(key: str, value: object) -> object:
                 f"activity_trace_mode must be one of: {', '.join(ACTIVITY_TRACE_MODES)}"
             )
         return mode
+    if key == "vocab_strictness":
+        mode = str(value).strip().lower()
+        if mode not in VOCAB_STRICTNESS_MODES:
+            raise ValueError(
+                f"vocab_strictness must be one of: {', '.join(VOCAB_STRICTNESS_MODES)}"
+            )
+        return mode
     if key in {"default_armory_path", "last_armory_path"}:
         raw = str(value).strip()
         if not raw:
@@ -205,6 +226,9 @@ def load_app_settings() -> AppSettings:
     )
     if activity_trace_mode not in ACTIVITY_TRACE_MODES:
         activity_trace_mode = DEFAULT_ACTIVITY_TRACE_MODE
+    vocab_strictness = str(raw.get("vocab_strictness", DEFAULT_VOCAB_STRICTNESS)).strip().lower()
+    if vocab_strictness not in VOCAB_STRICTNESS_MODES:
+        vocab_strictness = DEFAULT_VOCAB_STRICTNESS
     raw_session_count = raw.get("session_count")
     session_count = 0
     if isinstance(raw_session_count, bool | int | float):
@@ -217,6 +241,7 @@ def load_app_settings() -> AppSettings:
         default_armory_path=default_armory,
         last_armory_path=last_armory,
         activity_trace_mode=activity_trace_mode,
+        vocab_strictness=vocab_strictness,
         analytics_enabled=_coerce_bool(raw.get("analytics_enabled"), default=False),
         crash_reports_enabled=_coerce_bool(raw.get("crash_reports_enabled"), default=False),
         privacy_notice_seen=_coerce_bool(raw.get("privacy_notice_seen"), default=False),

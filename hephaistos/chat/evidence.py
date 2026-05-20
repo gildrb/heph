@@ -160,6 +160,12 @@ class ResolvedTurnPlan:
     retrieval_latency_ms: float | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _EnabledCorpus:
+    documents: list[ChunkedDocument]
+    chunks: list[Chunk]
+
+
 def evidence_refs(turn_evidence: TurnEvidence | None) -> list[str]:
     if not turn_evidence:
         return []
@@ -168,16 +174,21 @@ def evidence_refs(turn_evidence: TurnEvidence | None) -> list[str]:
     ]
 
 
-def _enabled_documents(index: ArmoryIndex, disabled_sources: set[str]) -> list[ChunkedDocument]:
-    return [
+def _enabled_corpus(index: ArmoryIndex, disabled_sources: set[str]) -> _EnabledCorpus:
+    documents = [
         document
         for document in index.documents
         if document.source not in disabled_sources and document.chunks
     ]
-
-
-def _enabled_chunks(index: ArmoryIndex, disabled_sources: set[str]) -> list[Chunk]:
-    return [chunk for chunk in index.all_chunks if chunk.source not in disabled_sources]
+    if not documents:
+        return _EnabledCorpus(
+            documents=[],
+            chunks=[chunk for chunk in index.all_chunks if chunk.source not in disabled_sources],
+        )
+    return _EnabledCorpus(
+        documents=documents,
+        chunks=[chunk for document in documents for chunk in document.chunks],
+    )
 
 
 def _excerpt(text: str, *, limit: int = 240) -> str:
@@ -757,12 +768,12 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
             return None
 
         scored: list[ScoredChunk] = []
-        enabled_documents = _enabled_documents(index, session.disabled_source_files)
+        corpus = _enabled_corpus(index, session.disabled_source_files)
         overview_chunks_by_document = [
             document.chunks[1:]
             if len(document.chunks) > 1 and _looks_like_front_matter(document.chunks[0].text)
             else document.chunks
-            for document in enabled_documents
+            for document in corpus.documents
         ]
         for offset in range(_OVERVIEW_CHUNKS_PER_DOCUMENT):
             for document_chunks in overview_chunks_by_document:
@@ -779,7 +790,7 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
         if not scored:
             scored = [
                 ScoredChunk(chunk=_compact_overview_chunk(chunk), score=1.0)
-                for chunk in _enabled_chunks(index, session.disabled_source_files)
+                for chunk in corpus.chunks
             ][:_OVERVIEW_CHUNK_LIMIT]
         if not scored:
             return None
@@ -791,7 +802,7 @@ def build_turn_evidence_from_overview(session: ChatSession) -> TurnEvidence | No
         return TurnEvidence(
             items=evidence.items,
             sampled_source_count=len(sampled_sources),
-            total_source_count=len(enabled_documents),
+            total_source_count=len(corpus.documents),
         )
     except Exception:
         _log.warning("turn overview evidence build failed", exc_info=True)
@@ -825,13 +836,13 @@ def build_overview_context(session: ChatSession) -> str:
         index = ensure_rag_index(session)
         if index is None:
             return ""
-        enabled_documents = _enabled_documents(index, session.disabled_source_files)
-        if not enabled_documents:
+        corpus = _enabled_corpus(index, session.disabled_source_files)
+        if not corpus.documents:
             return ""
 
         role_counts: dict[str, int] = {}
         document_lines: list[str] = []
-        for document in enabled_documents[:_OVERVIEW_DOCUMENT_LIMIT]:
+        for document in corpus.documents[:_OVERVIEW_DOCUMENT_LIMIT]:
             text = " ".join(chunk.text for chunk in document.chunks)
             role, confidence, reason = infer_material_role_from_text(document.source, text)
             role_counts[role] = role_counts.get(role, 0) + 1
@@ -839,17 +850,16 @@ def build_overview_context(session: ChatSession) -> str:
                 f"- {document.source}: {role} ({confidence:.2f}; {reason}; "
                 f"{len(document.chunks)} chunks)"
             )
-        remaining = len(enabled_documents) - len(document_lines)
+        remaining = len(corpus.documents) - len(document_lines)
         if remaining > 0:
             document_lines.append(f"- ... {remaining} more enabled indexed document(s)")
 
-        enabled_chunks = [chunk for document in enabled_documents for chunk in document.chunks]
-        analysis = analyze_priority(enabled_chunks, limit=8)
+        analysis = analyze_priority(corpus.chunks, limit=8)
         role_summary = ", ".join(f"{role}={count}" for role, count in sorted(role_counts.items()))
         lines = [
             "Deterministic local corpus overview from enabled indexed material:",
-            f"- indexed_documents={len(enabled_documents)}",
-            f"- chunks={sum(len(document.chunks) for document in enabled_documents)}",
+            f"- indexed_documents={len(corpus.documents)}",
+            f"- chunks={len(corpus.chunks)}",
             f"- inferred_roles={role_summary or 'none'}",
             "Document role sample:",
             *document_lines,
@@ -873,8 +883,8 @@ def build_overview_context(session: ChatSession) -> str:
 
 
 def _priority_scored_chunks(session: ChatSession, index: ArmoryIndex) -> list[ScoredChunk]:
-    enabled_chunks = _enabled_chunks(index, session.disabled_source_files)
-    analysis = analyze_priority(enabled_chunks, limit=12)
+    corpus = _enabled_corpus(index, session.disabled_source_files)
+    analysis = analyze_priority(corpus.chunks, limit=12)
     scored: list[ScoredChunk] = []
     selected: set[tuple[str, int]] = set()
     topic_scores = {topic.topic: topic.score for topic in analysis.topics}
@@ -888,13 +898,13 @@ def _priority_scored_chunks(session: ChatSession, index: ArmoryIndex) -> list[Sc
 
     for topic in analysis.topics[:8]:
         for evidence in topic.evidence[:3]:
-            for chunk in enabled_chunks:
+            for chunk in corpus.chunks:
                 if chunk.source != evidence.source:
                     continue
                 if topic.topic in chunk.text.lower() or evidence.excerpt[:80] in chunk.text:
                     add(chunk, topic.score)
                     break
-    for chunk in enabled_chunks:
+    for chunk in corpus.chunks:
         text = chunk.text.lower()
         matching_scores = [score for topic, score in topic_scores.items() if topic in text]
         if matching_scores:
@@ -902,7 +912,7 @@ def _priority_scored_chunks(session: ChatSession, index: ArmoryIndex) -> list[Sc
         if len(scored) >= 10:
             break
     if not scored:
-        return [ScoredChunk(chunk=chunk, score=1.0) for chunk in enabled_chunks[:6]]
+        return [ScoredChunk(chunk=chunk, score=1.0) for chunk in corpus.chunks[:6]]
     return scored[:10]
 
 
@@ -925,8 +935,8 @@ def build_priority_context(session: ChatSession, *, limit: int = 8) -> str:
         index = ensure_rag_index(session)
         if index is None:
             return ""
-        enabled_chunks = _enabled_chunks(index, session.disabled_source_files)
-        analysis = analyze_priority(enabled_chunks, limit=12)
+        corpus = _enabled_corpus(index, session.disabled_source_files)
+        analysis = analyze_priority(corpus.chunks, limit=12)
         if not analysis.topics:
             return ""
         lines = [

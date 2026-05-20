@@ -55,6 +55,11 @@ def test_app_settings_default_activity_trace_mode_is_tool_calls() -> None:
     assert s.activity_trace_mode == settings.DEFAULT_ACTIVITY_TRACE_MODE
 
 
+def test_app_settings_default_vocab_strictness_is_strict() -> None:
+    s = settings.AppSettings()
+    assert s.vocab_strictness == settings.DEFAULT_VOCAB_STRICTNESS
+
+
 def test_load_app_settings_ignores_removed_interface_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -88,3 +93,22 @@ def test_activity_trace_mode_roundtrip(tmp_path: Path, monkeypatch: pytest.Monke
 def test_normalize_activity_trace_mode_rejects_invalid() -> None:
     with pytest.raises(ValueError, match="activity_trace_mode"):
         settings.normalize_setting_value("activity_trace_mode", "verbose")
+
+
+def test_vocab_strictness_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(settings, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings, "_USER_CONFIG_FILE", config_file)
+
+    settings.save_setting("vocab_strictness", settings.VOCAB_STRICTNESS_LENIENT)
+
+    assert settings.load_app_settings().vocab_strictness == settings.VOCAB_STRICTNESS_LENIENT
+
+
+def test_normalize_vocab_strictness_rejects_invalid() -> None:
+    with pytest.raises(ValueError, match="vocab_strictness"):
+        settings.normalize_setting_value("vocab_strictness", "loose")

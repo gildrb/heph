@@ -1,4 +1,4 @@
-"""Convert BEIR datasets into Hephaistos benchmark armories.
+"""Convert BEIR datasets into Heph benchmark armories.
 
 The adapter accepts local BEIR-format fixtures/directories for deterministic
 testing and can materialize approved public BEIR zip assets for named datasets.

@@ -116,6 +116,6 @@ def test_runner_records_prompt_identity_metadata(tmp_path: Path) -> None:
     assert status == 0
     assert metadata["prompt_path"] == str(PROMPT_PATH.resolve())
     assert metadata["prompt_hash"] == expected_hash
-    assert metadata["prompt_title"] == "Hephaistos Benchmark Evaluation Prompt"
+    assert metadata["prompt_title"] == "Heph Benchmark Evaluation Prompt"
     assert metadata["prompt_version"] == "1.0.0"
     assert metadata["model"] == "fixture-model"

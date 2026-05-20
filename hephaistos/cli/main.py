@@ -6,10 +6,6 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 _HELP_COMMANDS_HEADER = "Essential commands:"
 _HELP_OPTIONS_HEADER = "Options:"
@@ -116,6 +112,11 @@ def _cmd_health(args: argparse.Namespace) -> None:
     print("No generic extraction poison found.")
 
 
+def _cmd_chat_ask(args: argparse.Namespace) -> None:
+    chat_cli = importlib.import_module("hephaistos.chat.cli")
+    chat_cli._cmd_chat_ask(args)
+
+
 def _validated_armory_path(path: str) -> Path:
     armory_storage = importlib.import_module("hephaistos.armory.storage")
     try:
@@ -150,8 +151,7 @@ def _runtime_diagnostic_messages() -> list[str]:
         return [
             "warning: this `heph` executable is missing document conversion support.",
             f"  active Python: {executable}",
-            "  update or reinstall Hephaistos so PDF, DOCX, PPTX, and XLSX materials can be "
-            "indexed.",
+            "  update or reinstall Heph so PDF, DOCX, PPTX, and XLSX materials can be indexed.",
         ]
 
     expected_venv = root / ".venv"
@@ -190,7 +190,7 @@ def _maybe_reexec_source_venv() -> None:
 def _cmd_update(_args: argparse.Namespace) -> None:
     root = _project_root()
     executable = Path(sys.executable).resolve()
-    print("Hephaistos update")
+    print("Heph update")
     print(f"  executable: {executable}")
     print(f"  package: {Path(__file__).resolve()}")
     if _is_source_checkout(root):
@@ -245,7 +245,7 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
     lines = [
         f"Usage: {parser.prog} [options] [command] [path]",
         "",
-        "Hephaistos opens an armory and starts an interactive AI session.",
+        "Heph opens an armory and starts an interactive AI session.",
         _HELP_EXAMPLES_HEADER,
         f"  {parser.prog}                         Open your current armory or plain chat",
         f"  {parser.prog} gdp                     Open the known armory named gdp",
@@ -261,7 +261,7 @@ def _format_compact_help(parser: argparse.ArgumentParser) -> str:
         *_format_rows(options),
         "",
         "Tip: name armories after modules, e.g. gdp or swt, then open them with `heph gdp`.",
-        "Inside Hephaistos, type /help for commands like /status, /models, /exam, and /priority.",
+        "Inside Heph, type /help for commands like /status, /models, /exam, and /priority.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -375,14 +375,6 @@ def build_parser() -> argparse.ArgumentParser:
         parser_class=argparse.ArgumentParser,
     )
 
-    # Hidden backwards-compatible alias: `heph start [path]`
-    start = subparsers.add_parser(
-        "start",
-        help=argparse.SUPPRESS,
-    )
-    start.add_argument("path", nargs="?", help=argparse.SUPPRESS)
-    start.set_defaults(handler=_cmd_tui)
-
     tui = subparsers.add_parser(
         "tui",
         help=argparse.SUPPRESS,
@@ -422,42 +414,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     update = subparsers.add_parser(
         "update",
-        help="Show how to update the active Hephaistos install.",
+        help="Show how to update the active Heph install.",
     )
     update.set_defaults(handler=_cmd_update)
 
-    # Chat subcommands are hidden.  We register stub handlers here that
-    # lazily import the real implementation (and the heavy openai /
-    # sentence_transformers chain) only when `heph chat ...` is invoked.
+    # Chat automation is hidden from the main help, but kept for scripts and
+    # harness audits that need a structured non-interactive turn stream.
     chat = subparsers.add_parser(
         "chat",
         help=argparse.SUPPRESS,
         description="Chat with an LLM.",
     )
     chat_sub = chat.add_subparsers(dest="chat_command", required=True)
-
-    def _chat_handler(
-        chat_cmd: str,
-    ) -> Callable[[argparse.Namespace], None]:
-        def _handler(args: argparse.Namespace) -> None:
-            chat_cli = importlib.import_module("hephaistos.chat.cli")
-            if chat_cmd == "ask":
-                chat_cli._cmd_chat_ask(args)
-                return
-            if chat_cmd == "list":
-                chat_cli._cmd_chat_list(args)
-                return
-            tui_mod = importlib.import_module("hephaistos.tui")
-            if chat_cmd == "start":
-                chat_cli._cmd_chat_start(args, run_tui=tui_mod.run_tui)
-            elif chat_cmd == "resume":
-                chat_cli._cmd_chat_resume(args, run_tui=tui_mod.run_tui)
-
-        return _handler
-
-    start = chat_sub.add_parser("start", help="Start a new chat session in an armory.")
-    start.add_argument("path", help="Path to the armory folder.")
-    start.set_defaults(handler=_chat_handler("start"))
 
     ask = chat_sub.add_parser("ask", help="Ask one question without opening the TUI.")
     ask.add_argument(
@@ -467,20 +435,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument("path", help="Path to the armory folder.")
     ask.add_argument("prompt", nargs="+", help="Question or instruction to send.")
-    ask.set_defaults(handler=_chat_handler("ask"))
-
-    resume = chat_sub.add_parser("resume", help="Resume an existing chat session.")
-    resume.add_argument("path", help="Path to the armory folder.")
-    resume.add_argument("session_id", help="Session ID to resume.")
-    resume.set_defaults(handler=_chat_handler("resume"))
-
-    list_cmd = chat_sub.add_parser("list", help="List chat sessions in an armory.")
-    list_cmd.add_argument("path", help="Path to the armory folder.")
-    list_cmd.set_defaults(handler=_chat_handler("list"))
+    ask.set_defaults(handler=_cmd_chat_ask)
 
     register_config_commands = importlib.import_module("hephaistos.parameters.cli").register
     register_config_commands(subparsers)
-    _hide_subparser(subparsers, "start")
     _hide_subparser(subparsers, "chat")
 
     return parser

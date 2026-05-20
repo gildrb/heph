@@ -140,7 +140,7 @@ def selection_passthrough_transparent_cls(base: type) -> type:
         def text_selection(self) -> None:
             return None
 
-        def get_selection(self, selection: Selection) -> None:
+        def get_selection(self, _selection: Selection) -> None:
             return None
 
     return SelectionPassthroughTransparentWidget

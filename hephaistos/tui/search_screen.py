@@ -8,8 +8,8 @@ import sys
 from typing import ClassVar
 
 from hephaistos.armory.search import CrossArmoryIndex, SearchResult
-from hephaistos.shell.startup_discovery import discover_available_armories
 from hephaistos.terminal import Theme, current_palette
+from hephaistos.tui.startup_discovery import discover_available_armories
 
 try:
     from textual import events

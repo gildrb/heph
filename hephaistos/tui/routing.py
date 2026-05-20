@@ -9,12 +9,7 @@ from __future__ import annotations
 from enum import Enum
 
 TERMINAL_INTERACTIVE_COMMANDS = {
-    "edit",
-    "login",
-    "logout",
-    "persona",
-    "settings",
-    "vocab",
+    "vocabulary",
 }
 
 
@@ -39,9 +34,7 @@ def pending_input_requires_terminal(value: str) -> bool:
 
     if command_name in {"login", "logout", "settings"}:
         return False
-    if command_name == "persona":
-        return not arg_text
-    if command_name == "vocab":
+    if command_name == "vocabulary":
         return arg_text.lower() != "status"
 
     return command_name in TERMINAL_INTERACTIVE_COMMANDS
@@ -64,6 +57,6 @@ def tui_input_route(value: str) -> TuiInputRoute:
         return TuiInputRoute.NEW
     if is_armory_command(stripped):
         return TuiInputRoute.ARMORY
-    if stripped.startswith(("/", "!")):
+    if stripped.startswith("/"):
         return TuiInputRoute.EXTERNAL
     return TuiInputRoute.CHAT

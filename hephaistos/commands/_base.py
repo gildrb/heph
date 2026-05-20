@@ -28,7 +28,6 @@ class Command:
     name: str = ""
     description: str = ""
     aliases: tuple[str, ...] = ()
-    hidden: bool = False
 
     def handle(self, session: object, args: str) -> CommandResult:
         raise NotImplementedError

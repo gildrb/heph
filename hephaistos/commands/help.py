@@ -1,10 +1,9 @@
-"""Help, exit, and quit commands."""
+"""Help and exit commands."""
 
 from __future__ import annotations
 
 from hephaistos.commands._base import Command, CommandResult, get_registry_lazy
-from hephaistos.terminal import STYLE_PROMPT
-from hephaistos.terminal.display import print_info, styled
+from hephaistos.terminal import STYLE_PROMPT, styled
 
 
 class HelpCommand(Command):
@@ -13,26 +12,24 @@ class HelpCommand(Command):
     aliases = ("?", "h")
 
     def handle(self, session: object, args: str) -> CommandResult:
+        del session, args
         registry = get_registry_lazy()
-        visible = [c for c in registry.commands if not c.hidden]
-        max_name = max(len(c.name) for c in visible)
+        max_name = max(len(c.name) for c in registry.commands)
         lines: list[str] = []
         lines.append(styled("Commands", STYLE_PROMPT))
-        for cmd in sorted(visible, key=lambda c: c.name):
+        for cmd in sorted(registry.commands, key=lambda c: c.name):
             padded = f"  /{cmd.name}".ljust(max_name + 4)
             lines.append(f"{padded} {cmd.description}")
         lines.append("")
         lines.append(styled("Input", STYLE_PROMPT))
-        pad = max_name + 2
-        lines.append(f"  !{'command'.ljust(pad)} Run a shell command")
         lines.append("  /help           Show command reference")
         lines.append("")
         lines.append(styled("Shortcuts", STYLE_PROMPT))
         lines.append("  Up/Down         Browse input history")
         lines.append("  Tab             Autocomplete slash commands")
         lines.append("  Alt+Enter       Insert newline")
-        lines.append("  Ctrl+C          Cancel current response")
-        lines.append("  Ctrl+D          Exit shell")
+        lines.append("  Ctrl+C          Exit Heph")
+        lines.append("  Ctrl+D          Exit Heph")
         lines.append("")
         print("\n".join(lines))
         return CommandResult()
@@ -40,19 +37,9 @@ class HelpCommand(Command):
 
 class ExitCommand(Command):
     name = "exit"
-    description = "Leave the shell"
+    description = "Leave Heph"
     aliases = ("quit", "q")
 
     def handle(self, session: object, args: str) -> CommandResult:
-        return CommandResult(should_exit=True)
-
-
-class QuitCommand(Command):
-    name = "quit"
-    description = "Leave the shell"
-    aliases = ("q",)
-    hidden = True
-
-    def handle(self, session: object, args: str) -> CommandResult:
-        print_info(f"Exiting... (/{self.name} \u2192 /exit)")
+        del session, args
         return CommandResult(should_exit=True)

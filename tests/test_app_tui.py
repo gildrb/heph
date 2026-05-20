@@ -1,4 +1,4 @@
-"""Tests for the optional Textual shell wrapper."""
+"""Tests for the Textual app."""
 
 from __future__ import annotations
 
@@ -138,7 +138,6 @@ def test_session_status_for_plain_session() -> None:
     assert "test-model" in status
     assert "armory" in status
     assert "mode guided" in status
-    assert "Hephaistos" not in status
     assert "api" not in status
     assert "materials" not in status
     assert "enter" not in status
@@ -1735,7 +1734,6 @@ def test_run_tui_reports_missing_textual(monkeypatch: pytest.MonkeyPatch) -> Non
     [
         ("/help", "Commands"),
         ("/status", "Model:"),
-        ("!echo shell-ok", "shell-ok"),
     ],
 )
 def test_run_tui_appends_pending_command_output_to_transcript(
@@ -1985,7 +1983,7 @@ def test_is_armory_command_matches_inline_forms() -> None:
         ("/armory", tui._TuiInputRoute.ARMORY),
         ("/armory open", tui._TuiInputRoute.ARMORY),
         ("/help", tui._TuiInputRoute.EXTERNAL),
-        ("!echo hi", tui._TuiInputRoute.EXTERNAL),
+        ("!echo hi", tui._TuiInputRoute.CHAT),
     ],
 )
 def test_tui_input_route_classifies_submissions(
@@ -1996,7 +1994,9 @@ def test_tui_input_route_classifies_submissions(
 
 
 def test_pending_terminal_commands_are_registered() -> None:
-    registered = {cmd.name for cmd in tui.get_registry().commands}
+    registered = {
+        token for cmd in tui.get_registry().commands for token in (cmd.name, *cmd.aliases)
+    }
 
     assert registered >= tui._TERMINAL_INTERACTIVE_COMMANDS
 
@@ -2049,7 +2049,7 @@ def test_armory_browser_entries_include_recent_and_missing_armories(
         ],
     )
 
-    entries = build_entries(armory_home, allow_create=True)
+    entries = build_entries(allow_create=True)
     recent_labels = [entry.label for entry in entries if entry.is_recent]
 
     assert len(recent_labels) == 1
@@ -2146,7 +2146,7 @@ def test_overview_topic_reply_opens_arrow_key_study_flow(
                 "These are the topics I found in the material:\n"
                 "- Enzyme Kinetics [E1]\n"
                 "- Protein Folding [E2]\n\n"
-                "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter.\n\n"
+                "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter.\n\n"
                 "Recommended options:\n"
                 "- Start with a guided explanation of Enzyme Kinetics [E1].\n"
                 "- Practice one exam-style or exercise question on Protein Folding [E2].\n"
@@ -2361,7 +2361,7 @@ def test_overview_topic_options_parse_only_actual_topic_section() -> None:
         "These are the topics I found in the material [E1][E2].\n"
         "- Matrix multiplication [E1].\n"
         "- Eigenvalues [E2].\n\n"
-        "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter.\n\n"
+        "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter.\n\n"
         "Recommended options:\n"
         "- Start with a guided explanation of Matrix multiplication [E1]."
     )
@@ -2379,7 +2379,7 @@ def test_overview_topic_options_accepts_shell_menu_hint() -> None:
         "These are the topics I found in the material [E1][E2].\n"
         "- Signal entropy [E1].\n"
         "- Carrier waves [E2].\n"
-        "Use the shell menu to choose one cited topic for guided learning next."
+        "Use the menu to choose one cited topic for guided review next."
     )
 
     assert overview_topic_options(reply) == [
@@ -2427,7 +2427,7 @@ def test_overview_topic_menu_converts_recommendation_to_direct_prompt() -> None:
         "because it separates closely related ideas.\n\n"
         "These are the topics I found in the material:\n"
         "- Sequences [E1]\n\n"
-        "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter."
+        "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter."
     )
 
     menu = overview_topic_menu(reply)
@@ -2448,7 +2448,7 @@ def test_overview_topic_menu_adds_recommended_options_as_direct_prompts() -> Non
         "These are the topics I found in the material:\n"
         "- Signal Entropy [E11]\n"
         "- Carrier Waves [E13]\n\n"
-        "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter.\n\n"
+        "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter.\n\n"
         "Recommended options:\n"
         "- Start with a guided explanation of Signal Entropy [E11].\n"
         "- Practice one exam-style or exercise question on Carrier Waves [E13].\n"
@@ -2484,7 +2484,7 @@ def test_overview_topic_options_uses_specific_fallback_descriptions() -> None:
     reply = (
         "These are the topics I found in the material:\n"
         "- Byzantine Consensus [E1].\n"
-        "Use the shell menu to choose one cited topic for guided learning next."
+        "Use the menu to choose one cited topic for guided review next."
     )
 
     assert overview_topic_options(reply) == [
@@ -2498,7 +2498,7 @@ def test_overview_topic_options_limits_to_seven_topics() -> None:
     reply = (
         "These are the topics I found in the material:\n"
         f"{topics}\n\n"
-        "Choose a topic to explore next. In the shell, use ↑/↓ and press Enter."
+        "Choose a topic to explore next. In the menu, use ↑/↓ and press Enter."
     )
 
     assert [label for label, _description in overview_topic_options(reply)] == [
@@ -2569,14 +2569,23 @@ def test_settings_inline_escape_returns_from_submenu() -> None:
 
     async def check_escape_back_navigation() -> None:
         async with typed_app.run_test(size=(120, 24)) as pilot:
-            app._open_settings_flow()
-            app._handle_inline_menu_choice("Appearance")
+            for submenu in (
+                "Privacy & Diagnostics",
+                "Appearance",
+                "Activity trace",
+                "Vocabulary practice",
+            ):
+                app._open_settings_flow()
+                app._handle_inline_menu_choice(submenu)
 
-            await pilot.press("escape")
+                await pilot.press("escape")
 
-            assert app._inline_flow.active is True
-            assert app._inline_flow.name == "settings"
-            assert app._inline_flow.step == "menu"
+                assert app._inline_flow.active is True
+                assert app._inline_flow.name == "settings"
+                assert app._inline_flow.step == "menu"
+                labels = [label for label, _description in app._inline_flow.options]
+                suggestions = app.query_one("#suggestions", tui.OptionList)
+                assert suggestions.highlighted == labels.index(submenu)
 
             await pilot.press("escape")
 
@@ -2629,6 +2638,52 @@ def test_settings_inline_toggles_privacy_and_theme(
 
     try:
         asyncio.run(check_settings_changes())
+    finally:
+        set_theme("forge")
+
+
+def test_settings_inline_keeps_selected_row_after_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if tui.Input is None or tui.OptionList is None:
+        pytest.skip("Textual is not installed")
+
+    config_dir = tmp_path / "config"
+    config_file = config_dir / "config.json"
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(settings_store, "_USER_CONFIG_FILE", config_file)
+
+    app = tui.HephaistosTui(
+        _plain_session(),
+        tui._TuiRuntimeState(),
+        tui.current_palette(),
+    )
+    typed_app = cast("TextualApp[None]", app)
+
+    async def check_stable_selection() -> None:
+        async with typed_app.run_test(size=(120, 24)):
+            cases = [
+                ("Privacy & Diagnostics", "Crash reports"),
+                ("Appearance", "light"),
+                ("Activity trace", "Hidden tool calls"),
+                ("Vocabulary practice", "Lenient punctuation"),
+            ]
+            for submenu, choice in cases:
+                app._open_settings_flow()
+                app._submit_inline_flow(submenu)
+                before = list(app._inline_flow.options)
+
+                app._submit_inline_flow(choice)
+
+                after = list(app._inline_flow.options)
+                labels = [label for label, _description in after]
+                suggestions = app.query_one("#suggestions", tui.OptionList)
+                assert [label for label, _description in before] == labels
+                assert suggestions.highlighted == labels.index(choice)
+
+    try:
+        asyncio.run(check_stable_selection())
     finally:
         set_theme("forge")
 
@@ -2728,7 +2783,7 @@ def test_logout_inline_names_environment_credentials_when_none_clearable(
 
             assert app._inline_flow.active is False
             assert any(
-                "Environment credentials cannot be cleared inside Hephaistos" in entry.content
+                "Environment credentials cannot be cleared inside Heph" in entry.content
                 for entry in app.state.transcript
             )
             assert any(
@@ -3130,10 +3185,7 @@ def test_composer_input_does_not_retain_ctrl_a_home_binding() -> None:
 
 @pytest.mark.parametrize(
     "command_input",
-    [
-        *(f"/{suggestion.name}" for suggestion in tui._tui_command_suggestions()),
-        "!echo shell",
-    ],
+    [f"/{suggestion.name}" for suggestion in tui._tui_command_suggestions()],
 )
 def test_command_input_executes_without_user_transcript(
     monkeypatch: pytest.MonkeyPatch,
@@ -3598,7 +3650,7 @@ def test_multiline_notice_does_not_emit_broken_markup() -> None:
             await pilot.pause()
             app._append_notice(
                 "Can't reach openai-codex. You're offline.\n"
-                "Hephaistos will reconnect automatically when connectivity returns."
+                "Heph will reconnect automatically when connectivity returns."
             )
             await pilot.pause()
 
@@ -5186,8 +5238,8 @@ def test_tui_runs_external_commands_in_worker(monkeypatch: pytest.MonkeyPatch) -
     def fake_append_user(value: str, mark_working: bool = True) -> None:
         calls.append(f"user:{value}:{mark_working}")
 
-    def fake_refresh_status(state: str = "ready") -> None:
-        calls.append(f"status:{state}")
+    def fake_refresh_status() -> None:
+        calls.append("status")
 
     def fake_run_worker(work: object, *, thread: bool = False) -> object:
         calls.append(f"worker:{thread}")
@@ -5201,7 +5253,7 @@ def test_tui_runs_external_commands_in_worker(monkeypatch: pytest.MonkeyPatch) -
 
     assert app.busy is True
     assert app._thinking_label == "working"
-    assert calls == ["user:/priority:True", "status:command working", "worker:True"]
+    assert calls == ["user:/priority:True", "status", "worker:True"]
 
 
 def test_external_command_streams_notice_lines_live(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5317,4 +5369,4 @@ def test_autopilot_command_resend_renders_reply_as_assistant(
     assert any("Autopilot general session started" in str(notice) for notice in notices)
     assert replies == ["State the definition of a sequence."]
     assert seen["user_input"].startswith("Start an autopilot session")
-    assert all("Hephaistos:" not in str(args) for _, args in calls)
+    assert all("Heph:" not in str(args) for _, args in calls)

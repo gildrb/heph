@@ -29,12 +29,12 @@ class TestBuildTurnEvidence:
         )
         assert [item.evidence_id for item in evidence.items] == ["E1", "E2"]
 
-    def test_render_includes_instruction_and_content(self) -> None:
+    def test_render_includes_header_and_content(self) -> None:
         evidence = build_turn_evidence([_make_scored("Python is great.", "python.md", 0.95)])
         rendered = evidence.render()
         assert "Retrieved evidence for this question" in rendered
-        assert "Cite the most specific evidence IDs" in rendered
-        assert "If the evidence is partial or missing" in rendered
+        assert "Cite the most specific evidence IDs" not in rendered
+        assert "If the evidence is partial or missing" not in rendered
         assert "[E1]" in rendered
         assert "python.md" in rendered
         assert "Python is great." in rendered

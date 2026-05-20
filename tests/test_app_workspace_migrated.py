@@ -1,10 +1,10 @@
-"""Tests for shared session lifecycle and shell input helpers."""
+"""Tests for shared session lifecycle and terminal input helpers."""
 
 from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -25,14 +25,14 @@ from hephaistos.chat.session import (
 )
 from hephaistos.commands import CommandResult
 from hephaistos.runtime import ChatConfig
-from hephaistos.shell.lifecycle import (
+from hephaistos.terminal.history import InputHistory
+from hephaistos.terminal.input import handle_input
+from hephaistos.tui.session_actions import (
     create_startup_session,
-    discover_startup_armory,
     get_history_path,
     save_on_exit,
 )
-from hephaistos.terminal.history import InputHistory
-from hephaistos.terminal.input import handle_input
+from hephaistos.tui.startup_discovery import discover_startup_armory
 
 
 @pytest.fixture
@@ -253,34 +253,7 @@ class TestCreateStartupSession:
         assert isinstance(session, ChatSession)
         assert session.armory_path is None
 
-    def test_onboarding_creates_armory_and_waits_for_materials(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        clean_armory_env: Path,
-    ) -> None:
-        monkeypatch.chdir(tmp_path)
-        armory_path = clean_armory_env / "onboarded"
-        config = ChatConfig(base_url="https://api.example.com", model="test-model")
-        prompts: list[str] = []
-
-        def fake_input(prompt: str) -> str:
-            prompts.append(prompt)
-            if len(prompts) == 1:
-                return "onboarded"
-            (armory_path / "materials" / "notes.md").write_text("# Notes\nStudy content.\n")
-            return ""
-
-        monkeypatch.setattr("hephaistos.shell.lifecycle._stdio_is_interactive", lambda: True)
-        monkeypatch.setattr("builtins.input", fake_input)
-
-        session = create_startup_session(config)
-
-        assert session.armory_path == armory_path.resolve()
-        assert session.source_file_count == 1
-        assert len(prompts) == 2
-
-    def test_multiple_known_armories_skip_onboarding(
+    def test_multiple_known_armories_do_not_prompt_before_tui(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -296,10 +269,9 @@ class TestCreateStartupSession:
         add_known_armory(armory_b)
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
 
-        monkeypatch.setattr("hephaistos.shell.lifecycle._stdio_is_interactive", lambda: True)
         monkeypatch.setattr(
             "builtins.input",
-            lambda _prompt: pytest.fail("startup should not run onboarding"),
+            lambda _prompt: pytest.fail("startup should not prompt before TUI"),
         )
 
         session = create_startup_session(config)
@@ -308,7 +280,7 @@ class TestCreateStartupSession:
         assert session.armory_path is None
         assert "Multiple armories found" in captured.out
 
-    def test_multiple_armories_in_home_are_registered_and_skip_onboarding(
+    def test_multiple_armories_in_home_do_not_prompt_before_tui(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -321,10 +293,9 @@ class TestCreateStartupSession:
         initialize(armory_b)
         config = ChatConfig(base_url="https://api.example.com", model="test-model")
 
-        monkeypatch.setattr("hephaistos.shell.lifecycle._stdio_is_interactive", lambda: True)
         monkeypatch.setattr(
             "builtins.input",
-            lambda _prompt: pytest.fail("startup should not run onboarding"),
+            lambda _prompt: pytest.fail("startup should not prompt before TUI"),
         )
 
         session = create_startup_session(config)
@@ -351,8 +322,6 @@ class TestCreateStartupSession:
         assert session.armory_path is None
         assert "no materials" in captured.out.lower()
         assert f"Add files to: {armory_path / 'materials'}" in captured.out
-        assert "~/.armories/" in captured.out
-        assert "No session started because the armory still has no materials" in captured.out
 
     def test_creates_armory_session_when_armory_found(
         self, initialized_armory: Path, monkeypatch: pytest.MonkeyPatch
@@ -411,33 +380,6 @@ class TestHandleInput:
         history = InputHistory()
         _new_session, should_continue = handle_input(session, "   ", history)
         assert should_continue is True
-
-    def test_streaming_sets_steering(self) -> None:
-        session = self._make_session()
-        history = InputHistory()
-        _new_session, should_continue = handle_input(
-            session, "steer this", history, streaming=True
-        )
-        assert should_continue is True
-        assert session.steering.drain() == ["steer this"]
-
-    def test_streaming_steering_keeps_latest_message(self) -> None:
-        session = self._make_session()
-        history = InputHistory()
-        handle_input(session, "older steering", history, streaming=True)
-        _new_session, should_continue = handle_input(
-            session, "latest steering", history, streaming=True
-        )
-        assert should_continue is True
-        assert session.steering.drain() == ["latest steering"]
-
-    def test_shell_escape_adds_to_history(self) -> None:
-        session = self._make_session()
-        history = InputHistory()
-        with patch("hephaistos.terminal.input.run_shell_command"):
-            _new_session, should_continue = handle_input(session, "!echo hi", history)
-        assert should_continue is True
-        assert "echo hi" in str(history._entries)
 
     def test_unknown_command_prints_error(self, capsys: pytest.CaptureFixture[str]) -> None:
         session = self._make_session()

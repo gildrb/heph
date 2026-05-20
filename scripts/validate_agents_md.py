@@ -26,7 +26,6 @@ SKIP_COMMANDS = {
     "uv sync",
     "uv build",
     "uv run heph",
-    "uv run heph chat",
     "uv run heph armory",
 }
 

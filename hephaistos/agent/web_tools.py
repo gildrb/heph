@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlparse
 _WEB_FETCH_TIMEOUT = 15
 _WEB_FETCH_MAX_CHARS = 20_000
 _WEB_FETCH_MAX_REDIRECTS = 5
-_WEB_USER_AGENT = "Hephaistos/0.1 (document workspace)"
+_WEB_USER_AGENT = "Heph/0.1 (document workspace)"
 _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 
@@ -50,7 +50,7 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         headers: object,
         newurl: str,
     ) -> None:
-        del fp, newurl
+        del req, fp, code, msg, headers, newurl
 
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)

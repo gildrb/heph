@@ -261,7 +261,7 @@ _WEB_PREREQ_ENV = "HEPHAISTOS_PRIORITY_WEB_PREREQS"
 _WEB_PREREQ_TIMEOUT = 8
 _WEB_PREREQ_TOPICS = 6
 _WEB_PREREQ_RESULTS = 4
-_WEB_PREREQ_USER_AGENT = "Hephaistos/0.1 priority prerequisites"
+_WEB_PREREQ_USER_AGENT = "Heph/0.1 priority prerequisites"
 _WEB_PREREQ_SEARCH_URL = "https://duckduckgo.com/html/"
 _MODEL_HEARTBEAT_SECONDS = 10.0
 _MODEL_STREAM_PROGRESS_SECONDS = 8.0
@@ -747,6 +747,21 @@ class _PriorityScanState:
                 )
 
 
+@dataclass(frozen=True, slots=True)
+class _PriorityScanContext:
+    chunk_list: tuple[PriorityChunk, ...]
+    source_order: tuple[str, ...]
+    source_positions: dict[str, int]
+    source_chunk_counts: Counter[str]
+    source_chunk_positions: Counter[str]
+    seen_sources: set[str]
+    total_chunks: int
+
+    @property
+    def total_sources(self) -> int:
+        return len(self.source_order)
+
+
 def analyze_priority(
     chunks: Iterable[PriorityChunk],
     *,
@@ -755,124 +770,18 @@ def analyze_priority(
     progress: PriorityProgressReporter | None = None,
 ) -> PriorityAnalysis:
     scan_started_at = time.perf_counter()
-    chunk_list = list(chunks)
-    source_order = tuple(dict.fromkeys(chunk.source for chunk in chunk_list))
-    total_sources = len(source_order)
-    total_chunks = len(chunk_list)
-    source_positions = {source: index for index, source in enumerate(source_order, start=1)}
-    source_chunk_counts = Counter(chunk.source for chunk in chunk_list)
-    source_chunk_positions: Counter[str] = Counter()
-    if total_sources:
+    scan = _priority_scan_context(chunks)
+    if scan.total_sources:
         _emit_progress(
             progress,
-            f"Ran priority.scan --sources {total_sources} --chunks {total_chunks}.",
+            f"Ran priority.scan --sources {scan.total_sources} --chunks {scan.total_chunks}.",
         )
     state = _PriorityScanState()
-    seen_sources: set[str] = set()
-
-    for global_index, chunk in enumerate(chunk_list, start=1):
-        chunk_started_at = time.perf_counter()
-        source_chunk_positions[chunk.source] += 1
-        source_index = source_positions.get(chunk.source, 0)
-        if chunk.source not in seen_sources:
-            seen_sources.add(chunk.source)
-            _emit_progress(
-                progress,
-                f"Read source {len(seen_sources)}/{total_sources}: "
-                f"@{material_display_name(chunk.source)} "
-                f"({source_chunk_counts[chunk.source]} chunk(s)).",
-            )
-        chunk_label = _chunk_progress_label(
-            chunk,
-            global_index=global_index,
-            total_chunks=total_chunks,
-            source_index=source_index,
-            total_sources=total_sources,
-            source_chunk_index=source_chunk_positions[chunk.source],
-            source_chunk_count=source_chunk_counts[chunk.source],
-        )
-        role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
-        exam_sections = tuple(_exam_sections(chunk.text)) if role == "past_exam" else ()
-        if role == "past_exam":
-            state.past_exam_sources.add(chunk.source)
-            questions = tuple(_exam_questions(chunk.source, exam_sections))
-            for question in questions:
-                state.record_exam_question(question)
-            topic_signal_count = len({term for question in questions for term in question.topics})
-            _emit_progress(
-                progress,
-                f"Read {chunk_label}: role past_exam, {len(questions)} question(s), "
-                f"{topic_signal_count} topic signal(s) in "
-                f"{_format_elapsed_since(chunk_started_at)}.",
-            )
-            continue
-        terms = set(_topic_terms(chunk.heading, chunk.text))
-        state.material_sources.add(chunk.source)
-        if not terms:
-            _emit_progress(
-                progress,
-                f"Read {chunk_label}: role {role}, 0 topic signals in "
-                f"{_format_elapsed_since(chunk_started_at)}.",
-            )
-            continue
-        state.record_material_terms(chunk, terms)
-        state.add_prerequisites(
-            terms,
-            _explicit_prerequisites(chunk.text),
-            _dependency_prerequisites(chunk.text, terms),
-        )
-        _emit_progress(
-            progress,
-            f"Read {chunk_label}: role {role}, {len(terms)} topic signal(s) in "
-            f"{_format_elapsed_since(chunk_started_at)}.",
-        )
+    for global_index, chunk in enumerate(scan.chunk_list, start=1):
+        _scan_priority_chunk(state, scan, chunk, global_index=global_index, progress=progress)
 
     _emit_progress(progress, "Scoring topic recurrence from exams and support files...")
-    topics: list[PriorityTopic] = []
-    has_exam_corpus = bool(state.past_exam_sources)
-    for term in sorted(set(state.exam_counts) | set(state.material_counts)):
-        exam_hits = state.exam_counts[term]
-        marks = state.exam_marks[term]
-        material_hits = state.material_counts[term]
-        exam_source_frequency = len(state.exam_sources_by_topic.get(term, set()))
-        supporting_material_coverage = len(state.material_sources_by_topic.get(term, set()))
-        if exam_hits:
-            material_signal = min(material_hits, 6) * 0.6
-        elif has_exam_corpus:
-            material_signal = min(material_hits, 4) * 0.25
-        else:
-            material_signal = float(material_hits)
-        score = exam_hits * 10.0 + marks * 1.0 + exam_source_frequency * 3.0 + material_signal
-        if score <= 0:
-            continue
-        confidence = _topic_confidence(
-            exam_hits=exam_hits,
-            marks=marks,
-            material_hits=material_hits,
-            source_count=len(state.sources_by_topic.get(term, set())),
-        )
-        topics.append(
-            PriorityTopic(
-                topic=term,
-                score=score,
-                exam_hits=exam_hits,
-                exam_marks=marks,
-                material_hits=material_hits,
-                sources=tuple(sorted(state.sources_by_topic.get(term, set()))),
-                exam_source_frequency=exam_source_frequency,
-                supporting_material_coverage=supporting_material_coverage,
-                confidence=confidence,
-                prerequisites=_prerequisites_for(
-                    term,
-                    state.prerequisite_hints,
-                    state.exam_counts,
-                ),
-                evidence=tuple(state.evidence_by_topic.get(term, ())),
-            )
-        )
-
-    topics.sort(key=lambda topic: (-topic.score, -topic.exam_marks, -topic.exam_hits, topic.topic))
-    topics = [topic for topic in topics if not _covered_by_preferred_topic(topic, topics)]
+    topics = _ranked_priority_topics(state)
     topics = _with_web_prerequisites(topics[:limit], web_searcher)
     _emit_progress(
         progress,
@@ -882,9 +791,175 @@ def analyze_priority(
         topics=tuple(topics),
         past_exam_sources=tuple(sorted(state.past_exam_sources)),
         material_sources=tuple(sorted(state.material_sources)),
-        chunks=tuple(chunk_list),
+        chunks=scan.chunk_list,
         exam_questions=tuple(state.exam_questions),
     )
+
+
+def _priority_scan_context(chunks: Iterable[PriorityChunk]) -> _PriorityScanContext:
+    chunk_list = tuple(chunks)
+    source_order = tuple(dict.fromkeys(chunk.source for chunk in chunk_list))
+    return _PriorityScanContext(
+        chunk_list=chunk_list,
+        source_order=source_order,
+        source_positions={source: index for index, source in enumerate(source_order, start=1)},
+        source_chunk_counts=Counter(chunk.source for chunk in chunk_list),
+        source_chunk_positions=Counter(),
+        seen_sources=set(),
+        total_chunks=len(chunk_list),
+    )
+
+
+def _scan_priority_chunk(
+    state: _PriorityScanState,
+    scan: _PriorityScanContext,
+    chunk: PriorityChunk,
+    *,
+    global_index: int,
+    progress: PriorityProgressReporter | None,
+) -> None:
+    chunk_started_at = time.perf_counter()
+    scan.source_chunk_positions[chunk.source] += 1
+    _emit_source_progress(scan, chunk, progress)
+    chunk_label = _chunk_progress_label(
+        chunk,
+        global_index=global_index,
+        total_chunks=scan.total_chunks,
+        source_index=scan.source_positions.get(chunk.source, 0),
+        total_sources=scan.total_sources,
+        source_chunk_index=scan.source_chunk_positions[chunk.source],
+        source_chunk_count=scan.source_chunk_counts[chunk.source],
+    )
+    role, _confidence, _reason = infer_material_role_from_text(chunk.source, chunk.text)
+    if role == "past_exam":
+        _record_exam_chunk(state, chunk, chunk_label, chunk_started_at, progress)
+        return
+    _record_material_chunk(state, chunk, role, chunk_label, chunk_started_at, progress)
+
+
+def _emit_source_progress(
+    scan: _PriorityScanContext,
+    chunk: PriorityChunk,
+    progress: PriorityProgressReporter | None,
+) -> None:
+    if chunk.source in scan.seen_sources:
+        return
+    scan.seen_sources.add(chunk.source)
+    _emit_progress(
+        progress,
+        f"Read source {len(scan.seen_sources)}/{scan.total_sources}: "
+        f"@{material_display_name(chunk.source)} "
+        f"({scan.source_chunk_counts[chunk.source]} chunk(s)).",
+    )
+
+
+def _record_exam_chunk(
+    state: _PriorityScanState,
+    chunk: PriorityChunk,
+    chunk_label: str,
+    chunk_started_at: float,
+    progress: PriorityProgressReporter | None,
+) -> None:
+    state.past_exam_sources.add(chunk.source)
+    questions = tuple(_exam_questions(chunk.source, tuple(_exam_sections(chunk.text))))
+    for question in questions:
+        state.record_exam_question(question)
+    topic_signal_count = len({term for question in questions for term in question.topics})
+    _emit_progress(
+        progress,
+        f"Read {chunk_label}: role past_exam, {len(questions)} question(s), "
+        f"{topic_signal_count} topic signal(s) in {_format_elapsed_since(chunk_started_at)}.",
+    )
+
+
+def _record_material_chunk(
+    state: _PriorityScanState,
+    chunk: PriorityChunk,
+    role: str,
+    chunk_label: str,
+    chunk_started_at: float,
+    progress: PriorityProgressReporter | None,
+) -> None:
+    terms = set(_topic_terms(chunk.heading, chunk.text))
+    state.material_sources.add(chunk.source)
+    if terms:
+        state.record_material_terms(chunk, terms)
+        state.add_prerequisites(
+            terms,
+            _explicit_prerequisites(chunk.text),
+            _dependency_prerequisites(chunk.text, terms),
+        )
+    _emit_progress(
+        progress,
+        f"Read {chunk_label}: role {role}, {len(terms)} topic signal(s) in "
+        f"{_format_elapsed_since(chunk_started_at)}.",
+    )
+
+
+def _ranked_priority_topics(state: _PriorityScanState) -> list[PriorityTopic]:
+    topics = [
+        topic
+        for term in sorted(set(state.exam_counts) | set(state.material_counts))
+        if (topic := _priority_topic(term, state)) is not None
+    ]
+    topics.sort(key=lambda topic: (-topic.score, -topic.exam_marks, -topic.exam_hits, topic.topic))
+    return [topic for topic in topics if not _covered_by_preferred_topic(topic, topics)]
+
+
+def _priority_topic(term: str, state: _PriorityScanState) -> PriorityTopic | None:
+    exam_hits = state.exam_counts[term]
+    marks = state.exam_marks[term]
+    material_hits = state.material_counts[term]
+    exam_source_frequency = len(state.exam_sources_by_topic.get(term, set()))
+    supporting_material_coverage = len(state.material_sources_by_topic.get(term, set()))
+    score = _priority_score(
+        exam_hits=exam_hits,
+        marks=marks,
+        material_hits=material_hits,
+        exam_source_frequency=exam_source_frequency,
+        has_exam_corpus=bool(state.past_exam_sources),
+    )
+    if score <= 0:
+        return None
+    return PriorityTopic(
+        topic=term,
+        score=score,
+        exam_hits=exam_hits,
+        exam_marks=marks,
+        material_hits=material_hits,
+        sources=tuple(sorted(state.sources_by_topic.get(term, set()))),
+        exam_source_frequency=exam_source_frequency,
+        supporting_material_coverage=supporting_material_coverage,
+        confidence=_topic_confidence(
+            exam_hits=exam_hits,
+            marks=marks,
+            material_hits=material_hits,
+            source_count=len(state.sources_by_topic.get(term, set())),
+        ),
+        prerequisites=_prerequisites_for(
+            term,
+            state.prerequisite_hints,
+            state.exam_counts,
+        ),
+        evidence=tuple(state.evidence_by_topic.get(term, ())),
+    )
+
+
+def _priority_score(
+    *,
+    exam_hits: int,
+    marks: int,
+    material_hits: int,
+    exam_source_frequency: int,
+    has_exam_corpus: bool,
+) -> float:
+    if exam_hits:
+        material_signal = min(material_hits, 6) * 0.6
+    elif has_exam_corpus:
+        material_signal = min(material_hits, 4) * 0.25
+    else:
+        material_signal = float(material_hits)
+    return exam_hits * 10.0 + marks + exam_source_frequency * 3.0 + material_signal
 
 
 def _emit_progress(progress: PriorityProgressReporter | None, message: str) -> None:
@@ -1469,7 +1544,7 @@ _PRIORITY_SCHEMA = """
 
 
 _PRIORITY_SYSTEM_PROMPT = """
-You are Hephaistos priority analysis. Produce a study-priority report using only the supplied
+You are Heph priority analysis. Produce a priority report using only the supplied
 indexed material excerpts for topics, exam claims, marks, and source evidence. Do not add outside
 facts for those sections. Web-backed prerequisite hints may be used only when they are explicitly
 listed in the local scan context; label them as web-backed if you mention them. If the material
@@ -1542,55 +1617,16 @@ def generate_priority_report(
     path = output_dir / f"hephaistos-priority-{datetime.now(UTC):%Y%m%d-%H%M%S}.pdf"
     sidecar_path = path.with_suffix(".json")
     compiler = compiler or ExternalLatexCompiler.discover()
-    if compiler is None:
-        tex_path = _save_priority_draft(
-            analysis,
-            sheet,
-            tex_text,
-            path=path,
-            sidecar_path=sidecar_path,
-            progress=progress,
-        )
-        _emit_progress(progress, f"No LaTeX engine found; saved draft to {tex_path}.")
-        raise PriorityPdfError(
-            "No LaTeX PDF engine found. Install latexmk, lualatex, xelatex, pdflatex, "
-            f"or tectonic; LaTeX draft saved to {tex_path}."
-        )
-    with tempfile.TemporaryDirectory(prefix="heph-priority-") as temp_dir_name:
-        temp_dir = Path(temp_dir_name)
-        temp_tex_path = temp_dir / path.with_suffix(".tex").name
-        _write_text_artifact(temp_tex_path, tex_text, progress=progress, label="temporary LaTeX")
-        try:
-            compile_started_at = time.perf_counter()
-            if isinstance(compiler, ExternalLatexCompiler):
-                compiler.compile(temp_tex_path, path, progress=progress)
-            else:
-                _emit_progress(
-                    progress,
-                    f"Ran {compiler.__class__.__name__}.compile({temp_tex_path}, {path}).",
-                )
-                compiler.compile(temp_tex_path, path)
-            _emit_progress(
-                progress,
-                f"PDF compile finished in {_format_elapsed_since(compile_started_at)}.",
-            )
-            if path.is_file() and not isinstance(compiler, ExternalLatexCompiler):
-                _emit_progress(progress, f"Wrote PDF {path} ({path.stat().st_size} bytes).")
-        except (OSError, subprocess.CalledProcessError, PriorityPdfError) as exc:
-            tex_path = _save_priority_draft(
-                analysis,
-                sheet,
-                tex_text,
-                path=path,
-                sidecar_path=sidecar_path,
-                progress=progress,
-            )
-            raise PriorityPdfError(
-                f"Priority PDF compile failed; LaTeX draft saved to {tex_path}."
-            ) from exc
-        tex_path = path.with_suffix(".tex") if keep_tex else None
-        if tex_path is not None:
-            _write_text_artifact(tex_path, tex_text, progress=progress, label="LaTeX source")
+    tex_path = _compile_priority_report_pdf(
+        analysis,
+        sheet,
+        tex_text,
+        path=path,
+        sidecar_path=sidecar_path,
+        compiler=compiler,
+        keep_tex=keep_tex,
+        progress=progress,
+    )
     _emit_progress(progress, f"Read compiled PDF {path} for verification.")
     verify_started_at = time.perf_counter()
     verification = verify_priority_output(analysis, sheet, tex_text, pdf_path=path)
@@ -1778,7 +1814,7 @@ def _representative_chunks(
 ) -> tuple[PriorityChunk, ...]:
     selected: list[PriorityChunk] = []
     seen: set[tuple[str, str]] = set()
-    topic_names = {topic.topic for topic in analysis.topics}
+    topic_names = {topic.topic.lower() for topic in analysis.topics}
     for chunk in analysis.chunks:
         key = (chunk.source, chunk.text[:120])
         if key in seen:
@@ -1885,6 +1921,86 @@ class ExternalLatexCompiler:
         return command, 2
 
 
+def _compile_priority_report_pdf(
+    analysis: PriorityAnalysis,
+    sheet: PriorityCheatSheet,
+    tex_text: str,
+    *,
+    path: Path,
+    sidecar_path: Path,
+    compiler: PriorityPdfCompiler | None,
+    keep_tex: bool,
+    progress: PriorityProgressReporter | None,
+) -> Path | None:
+    if compiler is None:
+        tex_path = _save_priority_draft(
+            analysis,
+            sheet,
+            tex_text,
+            path=path,
+            sidecar_path=sidecar_path,
+            progress=progress,
+        )
+        _emit_progress(progress, f"No LaTeX engine found; saved draft to {tex_path}.")
+        raise PriorityPdfError(
+            "No LaTeX PDF engine found. Install latexmk, lualatex, xelatex, pdflatex, "
+            f"or tectonic; LaTeX draft saved to {tex_path}."
+        )
+
+    with tempfile.TemporaryDirectory(prefix="heph-priority-") as temp_dir_name:
+        temp_tex_path = Path(temp_dir_name) / path.with_suffix(".tex").name
+        _write_text_artifact(temp_tex_path, tex_text, progress=progress, label="temporary LaTeX")
+        try:
+            _run_priority_pdf_compiler(
+                compiler,
+                temp_tex_path,
+                path,
+                progress=progress,
+            )
+        except (OSError, subprocess.CalledProcessError, PriorityPdfError) as exc:
+            tex_path = _save_priority_draft(
+                analysis,
+                sheet,
+                tex_text,
+                path=path,
+                sidecar_path=sidecar_path,
+                progress=progress,
+            )
+            raise PriorityPdfError(
+                f"Priority PDF compile failed; LaTeX draft saved to {tex_path}."
+            ) from exc
+
+    if not keep_tex:
+        return None
+    tex_path = path.with_suffix(".tex")
+    _write_text_artifact(tex_path, tex_text, progress=progress, label="LaTeX source")
+    return tex_path
+
+
+def _run_priority_pdf_compiler(
+    compiler: PriorityPdfCompiler,
+    tex_path: Path,
+    pdf_path: Path,
+    *,
+    progress: PriorityProgressReporter | None,
+) -> None:
+    compile_started_at = time.perf_counter()
+    if isinstance(compiler, ExternalLatexCompiler):
+        compiler.compile(tex_path, pdf_path, progress=progress)
+    else:
+        _emit_progress(
+            progress,
+            f"Ran {compiler.__class__.__name__}.compile({tex_path}, {pdf_path}).",
+        )
+        compiler.compile(tex_path, pdf_path)
+    _emit_progress(
+        progress,
+        f"PDF compile finished in {_format_elapsed_since(compile_started_at)}.",
+    )
+    if pdf_path.is_file() and not isinstance(compiler, ExternalLatexCompiler):
+        _emit_progress(progress, f"Wrote PDF {pdf_path} ({pdf_path.stat().st_size} bytes).")
+
+
 def build_priority_cheat_sheet(
     analysis: PriorityAnalysis,
     *,
@@ -1899,7 +2015,7 @@ def build_priority_cheat_sheet(
     )
     uncertainties = _analysis_uncertainties(analysis, topics)
     return PriorityCheatSheet(
-        title="Hephaistos priority sheet",
+        title="Heph priority sheet",
         generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         focus=focus.strip(),
         sources=sources,

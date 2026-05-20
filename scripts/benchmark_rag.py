@@ -1,4 +1,4 @@
-"""Benchmark Hephaistos RAG retrieval against labelled cases.
+"""Benchmark Heph RAG retrieval against labelled cases.
 
 Dataset format:
 
