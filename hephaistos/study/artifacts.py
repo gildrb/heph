@@ -103,6 +103,7 @@ _BROAD_RE = re.compile(
     r"(?:course|exam|module|subject|syllabus|textbook|topic)\b",
     re.IGNORECASE,
 )
+_INVALID_DIFFICULTY_MESSAGE = "difficulty must be a LearningArtifactDifficulty"
 _VAGUE_PHRASES = frozenset(
     {
         "explain this",
@@ -326,12 +327,33 @@ def _validate_review_input(
     reviewed_at: datetime,
     hint_level_needed: int | None,
 ) -> None:
-    if not isinstance(rating, RecallRating):
-        raise TypeError("rating must be a RecallRating")
-    if reviewed_at.tzinfo is None or reviewed_at.utcoffset() is None:
-        raise ValueError("reviewed_at must be timezone-aware")
+    if error := _review_input_error(rating, reviewed_at, hint_level_needed):
+        exc_type, message = error
+        raise exc_type(message)
+
+
+def _review_input_error(
+    rating: RecallRating,
+    reviewed_at: datetime,
+    hint_level_needed: int | None,
+) -> tuple[type[Exception], str] | None:
+    if error := _rating_input_error(rating):
+        return error
+    if _is_naive_datetime(reviewed_at):
+        return ValueError, "reviewed_at must be timezone-aware"
     if hint_level_needed is not None and hint_level_needed < 0:
-        raise ValueError("hint_level_needed cannot be negative")
+        return ValueError, "hint_level_needed cannot be negative"
+    return None
+
+
+def _rating_input_error(rating: RecallRating) -> tuple[type[Exception], str] | None:
+    if isinstance(rating, RecallRating):
+        return None
+    return TypeError, "rating must be a RecallRating"
+
+
+def _is_naive_datetime(value: datetime) -> bool:
+    return value.tzinfo is None or value.utcoffset() is None
 
 
 def _next_artifact_review_interval(
@@ -388,27 +410,31 @@ def _shape_issues(artifact: LearningArtifact) -> tuple[LearningArtifactIssue, ..
     issues: list[LearningArtifactIssue] = []
     if not artifact.artifact_id.strip():
         issues.append(_issue(artifact, "missing_id", "artifact_id is required"))
-    valid_kind = isinstance(artifact.kind, LearningArtifactKind)
-    if not valid_kind:
-        issues.append(_issue(artifact, "invalid_kind", "kind must be a LearningArtifactKind"))
-    if not isinstance(artifact.difficulty, LearningArtifactDifficulty):
-        issues.append(
-            _issue(
-                artifact,
-                "invalid_difficulty",
-                "difficulty must be a LearningArtifactDifficulty",
-            )
-        )
+    issues.extend(_enum_shape_issues(artifact))
     prompt = _clean(artifact.prompt)
     answer = _clean(artifact.answer)
     content = _clean(artifact.content)
     issues.extend(_text_shape_issues(artifact, (prompt, answer, content)))
 
-    if valid_kind:
-        code, message, is_valid = _ARTIFACT_KIND_RULES[artifact.kind]
-        if not is_valid(artifact):
-            issues.append(_issue(artifact, code, message))
+    if isinstance(artifact.kind, LearningArtifactKind) and (
+        rule_issue := _kind_rule_issue(artifact)
+    ):
+        issues.append(rule_issue)
     return tuple(issues)
+
+
+def _enum_shape_issues(artifact: LearningArtifact) -> tuple[LearningArtifactIssue, ...]:
+    issues: list[LearningArtifactIssue] = []
+    if not isinstance(artifact.kind, LearningArtifactKind):
+        issues.append(_issue(artifact, "invalid_kind", "kind must be a LearningArtifactKind"))
+    if not isinstance(artifact.difficulty, LearningArtifactDifficulty):
+        issues.append(_issue(artifact, "invalid_difficulty", _INVALID_DIFFICULTY_MESSAGE))
+    return tuple(issues)
+
+
+def _kind_rule_issue(artifact: LearningArtifact) -> LearningArtifactIssue | None:
+    code, message, is_valid = _ARTIFACT_KIND_RULES[artifact.kind]
+    return None if is_valid(artifact) else _issue(artifact, code, message)
 
 
 def _text_shape_issues(
@@ -446,46 +472,76 @@ def _single_source_span_issues(
     span: LearningArtifactSourceSpan,
     source_text_by_ref: Mapping[str, str],
 ) -> tuple[LearningArtifactIssue, ...]:
-    if not span.source_ref.strip() or not span.text.strip():
+    if _has_empty_source_span_part(span):
         return (_issue(artifact, "invalid_source_span", "source ref and text required"),)
     if offset_issue := _source_span_offset_issue(artifact, span):
         return (offset_issue,)
 
     source_text = source_text_by_ref.get(span.source_ref)
+    if availability_issue := _source_availability_issue(artifact, span, source_text_by_ref):
+        return (availability_issue,)
     if source_text is None:
-        if not source_text_by_ref:
-            return ()
-        return (
-            _issue(
-                artifact,
-                "source_mismatch",
-                f"source ref is not available: {span.source_ref}",
-            ),
-        )
+        return ()
+    return _available_source_span_issues(artifact, span, source_text)
+
+
+def _has_empty_source_span_part(span: LearningArtifactSourceSpan) -> bool:
+    return not span.source_ref.strip() or not span.text.strip()
+
+
+def _source_availability_issue(
+    artifact: LearningArtifact,
+    span: LearningArtifactSourceSpan,
+    source_text_by_ref: Mapping[str, str],
+) -> LearningArtifactIssue | None:
+    if span.source_ref in source_text_by_ref or not source_text_by_ref:
+        return None
+    return _issue(
+        artifact,
+        "source_mismatch",
+        f"source ref is not available: {span.source_ref}",
+    )
+
+
+def _available_source_span_issues(
+    artifact: LearningArtifact,
+    span: LearningArtifactSourceSpan,
+    source_text: str,
+) -> tuple[LearningArtifactIssue, ...]:
     if offset_issue := _source_span_bounds_issue(artifact, span, source_text):
         return (offset_issue,)
     if _span_matches_source(span, source_text):
         return ()
-    return (
-        _issue(
-            artifact,
-            "source_mismatch",
-            f"source span text is not present in {span.source_ref}",
-        ),
-    )
+    return (_issue(artifact, "source_mismatch", _missing_source_span_message(span)),)
+
+
+def _missing_source_span_message(span: LearningArtifactSourceSpan) -> str:
+    return f"source span text is not present in {span.source_ref}"
 
 
 def _source_span_offset_issue(
     artifact: LearningArtifact,
     span: LearningArtifactSourceSpan,
 ) -> LearningArtifactIssue | None:
-    if (span.start is None) != (span.end is None):
+    if _span_has_unpaired_offset(span):
         return _issue(artifact, "invalid_source_span", "span offsets must be paired")
-    if span.start is None or span.end is None:
+    if not _span_has_offsets(span):
         return None
-    if span.start < 0 or span.end <= span.start:
+    if _span_offsets_are_invalid(span):
         return _issue(artifact, "invalid_source_span", "span offsets are invalid")
     return None
+
+
+def _span_has_offsets(span: LearningArtifactSourceSpan) -> bool:
+    return span.start is not None and span.end is not None
+
+
+def _span_has_unpaired_offset(span: LearningArtifactSourceSpan) -> bool:
+    return (span.start is None) != (span.end is None)
+
+
+def _span_offsets_are_invalid(span: LearningArtifactSourceSpan) -> bool:
+    return span.start is None or span.end is None or span.start < 0 or span.end <= span.start
 
 
 def _source_span_bounds_issue(
@@ -501,6 +557,16 @@ def _source_span_bounds_issue(
 def _review_state_issues(artifact: LearningArtifact) -> tuple[LearningArtifactIssue, ...]:
     state = artifact.review_state
     issues: list[LearningArtifactIssue] = []
+    issues.extend(_review_count_issues(artifact, state))
+    issues.extend(_review_time_issues(artifact, state))
+    return tuple(issues)
+
+
+def _review_count_issues(
+    artifact: LearningArtifact,
+    state: LearningArtifactReviewState,
+) -> tuple[LearningArtifactIssue, ...]:
+    issues: list[LearningArtifactIssue] = []
     if state.reviews < 0 or state.lapses < 0:
         issues.append(
             _issue(artifact, "invalid_review_state", "reviews and lapses cannot be negative")
@@ -509,15 +575,21 @@ def _review_state_issues(artifact: LearningArtifact) -> tuple[LearningArtifactIs
         issues.append(_issue(artifact, "invalid_review_state", "lapses cannot exceed reviews"))
     if not 0.0 <= state.mastery <= 1.0:
         issues.append(_issue(artifact, "invalid_review_state", "mastery must be within [0, 1]"))
-    for label, value in (
-        ("last_reviewed_at", state.last_reviewed_at),
-        ("due_at", state.due_at),
-    ):
-        if value is not None and value.tzinfo is None:
-            issues.append(
-                _issue(artifact, "invalid_review_state", f"{label} must be timezone-aware")
-            )
     return tuple(issues)
+
+
+def _review_time_issues(
+    artifact: LearningArtifact,
+    state: LearningArtifactReviewState,
+) -> tuple[LearningArtifactIssue, ...]:
+    return tuple(
+        _issue(artifact, "invalid_review_state", f"{label} must be timezone-aware")
+        for label, value in (
+            ("last_reviewed_at", state.last_reviewed_at),
+            ("due_at", state.due_at),
+        )
+        if value is not None and value.tzinfo is None
+    )
 
 
 def _support_issues(
@@ -526,40 +598,75 @@ def _support_issues(
 ) -> tuple[LearningArtifactIssue, ...]:
     if not source_tokens:
         return ()
-    issues: list[LearningArtifactIssue] = []
-    for label, text in (("answer", artifact.answer), ("content", artifact.content)):
-        tokens = _significant_tokens(_CLOZE_RE.sub(lambda match: match.group("text"), text))
-        if tokens and len(tokens & source_tokens) / len(tokens) < 0.55:
-            issues.append(
-                _issue(
-                    artifact,
-                    "unsupported_content",
-                    f"{label} is not sufficiently supported by source spans",
-                )
-            )
-    for tag in artifact.concept_tags + artifact.prerequisite_tags:
-        tokens = _significant_tokens(tag)
-        if tokens and not tokens <= source_tokens:
-            issues.append(
-                _issue(
-                    artifact,
-                    "unsupported_tag",
-                    f"tag is not supported by source spans: {tag}",
-                )
-            )
-    return tuple(issues)
+    return (
+        *_content_support_issues(artifact, source_tokens),
+        *_tag_support_issues(artifact, source_tokens),
+    )
+
+
+def _content_support_issues(
+    artifact: LearningArtifact,
+    source_tokens: set[str],
+) -> tuple[LearningArtifactIssue, ...]:
+    return tuple(
+        _issue(
+            artifact,
+            "unsupported_content",
+            f"{label} is not sufficiently supported by source spans",
+        )
+        for label, text in (("answer", artifact.answer), ("content", artifact.content))
+        if _has_weak_source_overlap(text, source_tokens)
+    )
+
+
+def _tag_support_issues(
+    artifact: LearningArtifact,
+    source_tokens: set[str],
+) -> tuple[LearningArtifactIssue, ...]:
+    return tuple(
+        _issue(artifact, "unsupported_tag", f"tag is not supported by source spans: {tag}")
+        for tag in artifact.concept_tags + artifact.prerequisite_tags
+        if _unsupported_tag(tag, source_tokens)
+    )
+
+
+def _has_weak_source_overlap(text: str, source_tokens: set[str]) -> bool:
+    tokens = _significant_tokens(_CLOZE_RE.sub(lambda match: match.group("text"), text))
+    return bool(tokens) and len(tokens & source_tokens) / len(tokens) < 0.55
+
+
+def _unsupported_tag(tag: str, source_tokens: set[str]) -> bool:
+    tokens = _significant_tokens(tag)
+    return bool(tokens) and not tokens <= source_tokens
 
 
 def _span_matches_source(span: LearningArtifactSourceSpan, source_text: str) -> bool:
     normalized_span = _normalized_for_match(span.text)
-    if not normalized_span:
+    return bool(normalized_span) and (
+        _offset_span_matches(span, source_text, normalized_span)
+        if span.start is not None and span.end is not None
+        else normalized_span in _normalized_for_match(source_text)
+    )
+
+
+def _offset_span_matches(
+    span: LearningArtifactSourceSpan,
+    source_text: str,
+    normalized_span: str,
+) -> bool:
+    if not _span_offsets_select_source(span, source_text):
         return False
-    if span.start is not None and span.end is not None:
-        if span.start < 0 or span.end > len(source_text) or span.end <= span.start:
-            return False
-        selected = source_text[span.start : span.end]
-        return _normalized_for_match(selected) == normalized_span
-    return normalized_span in _normalized_for_match(source_text)
+    return _normalized_for_match(source_text[span.start : span.end]) == normalized_span
+
+
+def _span_offsets_select_source(span: LearningArtifactSourceSpan, source_text: str) -> bool:
+    return (
+        span.start is not None
+        and span.end is not None
+        and span.start >= 0
+        and span.end <= len(source_text)
+        and span.end > span.start
+    )
 
 
 def _significant_tokens(text: str) -> set[str]:

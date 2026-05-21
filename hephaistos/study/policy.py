@@ -197,6 +197,23 @@ _NEXT_ACTION_BY_FEEDBACK: dict[LearningFeedbackType, LearningMoveKind] = {
     LearningFeedbackType.PARTIAL: "give_hint",
     LearningFeedbackType.WRONG: "ask_recall",
 }
+_CORRECTNESS_BY_FEEDBACK = {
+    LearningFeedbackType.CORRECT: 1.0,
+    LearningFeedbackType.PARTIAL: 0.55,
+    LearningFeedbackType.WRONG: 0.0,
+}
+_REASONING_QUALITY_BY_RATING = {
+    RecallRating.EASY: 0.9,
+    RecallRating.GOOD: 0.75,
+    RecallRating.HARD: 0.35,
+    RecallRating.NONE: 0.0,
+}
+_CONFIDENCE_UNIT_DIVISORS = {"%": 100.0, "/10": 10.0, "/5": 5.0}
+_CONFIDENCE_VALUE_DIVISORS: tuple[tuple[float, float], ...] = (
+    (1.0, 1.0),
+    (5.0, 5.0),
+    (10.0, 10.0),
+)
 
 
 class LearningPolicy:
@@ -216,24 +233,39 @@ def assess_evidence(
     source_only: bool = False,
     missing_hint: str = "more targeted indexed source evidence",
 ) -> EvidenceAssessment:
-    sources = {ref.split("#chunk=", maxsplit=1)[0] for ref in refs}
-    diversity = min(1.0, len(sources) / 3) if refs else 0.0
     if not refs:
-        return _evidence_assessment(
-            sufficient=False,
-            confidence=0.0,
-            missing_information=(missing_hint,),
-            recommended_action="abstain" if source_only else "retrieve_more",
-        )
+        return _missing_evidence_assessment(source_only=source_only, missing_hint=missing_hint)
     if len(refs) == 1:
-        return _evidence_assessment(
-            sufficient=not source_only,
-            confidence=0.48 if source_only else 0.58,
-            supporting_refs=refs,
-            missing_information=("corroborating source span",),
-            source_diversity_score=diversity,
-            recommended_action="give_partial_answer" if source_only else "answer",
-        )
+        return _single_ref_evidence_assessment(refs, source_only=source_only)
+    return _multi_ref_evidence_assessment(refs)
+
+
+def _missing_evidence_assessment(*, source_only: bool, missing_hint: str) -> EvidenceAssessment:
+    return _evidence_assessment(
+        sufficient=False,
+        confidence=0.0,
+        missing_information=(missing_hint,),
+        recommended_action="abstain" if source_only else "retrieve_more",
+    )
+
+
+def _single_ref_evidence_assessment(
+    refs: tuple[str, ...],
+    *,
+    source_only: bool,
+) -> EvidenceAssessment:
+    return _evidence_assessment(
+        sufficient=not source_only,
+        confidence=0.48 if source_only else 0.58,
+        supporting_refs=refs,
+        missing_information=("corroborating source span",),
+        source_diversity_score=_source_diversity_score(refs),
+        recommended_action="give_partial_answer" if source_only else "answer",
+    )
+
+
+def _multi_ref_evidence_assessment(refs: tuple[str, ...]) -> EvidenceAssessment:
+    diversity = _source_diversity_score(refs)
     return _evidence_assessment(
         sufficient=True,
         confidence=min(0.95, 0.62 + 0.1 * len(refs) + 0.1 * diversity),
@@ -241,6 +273,11 @@ def assess_evidence(
         source_diversity_score=diversity,
         recommended_action="answer",
     )
+
+
+def _source_diversity_score(refs: tuple[str, ...]) -> float:
+    sources = {ref.split("#chunk=", maxsplit=1)[0] for ref in refs}
+    return min(1.0, len(sources) / 3) if refs else 0.0
 
 
 def _evidence_assessment(
@@ -269,34 +306,31 @@ def learner_assessment_from_state(
     topic: str = "",
     hint_level_used: int | None = None,
 ) -> LearnerAssessment:
-    correctness = {
-        LearningFeedbackType.CORRECT: 1.0,
-        LearningFeedbackType.PARTIAL: 0.55,
-        LearningFeedbackType.WRONG: 0.0,
-    }.get(state.last_feedback_type, 0.0)
-    reasoning_quality = {
-        RecallRating.EASY: 0.9,
-        RecallRating.GOOD: 0.75,
-        RecallRating.HARD: 0.35,
-        RecallRating.NONE: 0.0,
-    }[state.last_recall_rating]
+    correctness = _CORRECTNESS_BY_FEEDBACK.get(state.last_feedback_type, 0.0)
+    reasoning_quality = _REASONING_QUALITY_BY_RATING[state.last_recall_rating]
     confidence = state.last_confidence
     calibration_gap = abs(confidence - correctness) if confidence is not None else None
     misconception_tags = ("high_confidence_gap",) if _high_confidence_gap(state) else ()
     return LearnerAssessment(
-        topic=topic or state.retrieval_query or state.current_item,
+        topic=_learner_topic(state, topic),
         correctness=correctness,
         reasoning_quality=reasoning_quality,
         confidence=confidence,
         calibration_gap=calibration_gap,
         misconception_tags=misconception_tags,
         hint_level_used=hint_level_used,
-        next_action=(
-            "contrastive_question"
-            if _high_confidence_gap(state)
-            else _NEXT_ACTION_BY_FEEDBACK.get(state.last_feedback_type, "answer")
-        ),
+        next_action=_learner_next_action(state),
     )
+
+
+def _learner_topic(state: LearningState, requested_topic: str) -> str:
+    return requested_topic or state.retrieval_query or state.current_item
+
+
+def _learner_next_action(state: LearningState) -> LearningMoveKind:
+    if _high_confidence_gap(state):
+        return "contrastive_question"
+    return _NEXT_ACTION_BY_FEEDBACK.get(state.last_feedback_type, "answer")
 
 
 def validate_pedagogy(reply: str, move: LearningMove) -> PedagogyValidation:
@@ -311,13 +345,15 @@ def validate_pedagogy(reply: str, move: LearningMove) -> PedagogyValidation:
     return PedagogyValidation(
         valid=False,
         issues=tuple(issues),
-        rewrite_instruction=(
-            "Rewrite to require an attempt and confidence before revealing more."
-            if move.requires_user_commitment
-            else "Rewrite to match the selected learning move and include one clear next step."
-        ),
+        rewrite_instruction=_pedagogy_rewrite_instruction(move),
         suggested_next_action=move.expected_output_shape,
     )
+
+
+def _pedagogy_rewrite_instruction(move: LearningMove) -> str:
+    if move.requires_user_commitment:
+        return "Rewrite to require an attempt and confidence before revealing more."
+    return "Rewrite to match the selected learning move without adding unsolicited guidance."
 
 
 def _looks_like_recall_answer_leak(normalized_reply: str, move: LearningMove) -> bool:
@@ -337,13 +373,6 @@ def move_for_plan(
     due_reviews: tuple[ReviewItem, ...] = (),
     memory_state: MemoryState | None = None,
 ) -> LearningMove:
-    material_status = MaterialStatus(
-        has_materials=bool(evidence_refs),
-        has_indexed_evidence=bool(evidence_refs),
-        evidence_refs=evidence_refs,
-        sampled_source_count=len({ref.split("#chunk=", maxsplit=1)[0] for ref in evidence_refs}),
-        total_source_count=len({ref.split("#chunk=", maxsplit=1)[0] for ref in evidence_refs}),
-    )
     input_data = LearningPolicyInput(
         user_message=user_message,
         session_goal=state.session_goal or None,
@@ -352,12 +381,23 @@ def move_for_plan(
         memory_state=memory_state if memory_state is not None else MemoryState(),
         due_reviews=due_reviews,
         recent_turns=(),
-        material_status=material_status,
+        material_status=_material_status_from_refs(evidence_refs),
     )
     move = _move_from_action(plan_action, input_data)
     if move is not None:
         return move
     return LearningPolicy().next_turn(input_data)
+
+
+def _material_status_from_refs(evidence_refs: tuple[str, ...]) -> MaterialStatus:
+    source_count = len({ref.split("#chunk=", maxsplit=1)[0] for ref in evidence_refs})
+    return MaterialStatus(
+        has_materials=bool(evidence_refs),
+        has_indexed_evidence=bool(evidence_refs),
+        evidence_refs=evidence_refs,
+        sampled_source_count=source_count,
+        total_source_count=source_count,
+    )
 
 
 def append_policy_prompt(
@@ -429,18 +469,11 @@ def normalize_confidence_value(raw_value: float, unit: str = "") -> float | None
 
 
 def _confidence_divisor(raw_value: float, unit: str) -> float | None:
-    if unit == "%":
-        return 100
-    if unit == "/10":
-        return 10
-    if unit == "/5":
-        return 5
-    if raw_value <= 1:
-        return 1
-    if raw_value <= 5:
-        return 5
-    if raw_value <= 10:
-        return 10
+    if unit in _CONFIDENCE_UNIT_DIVISORS:
+        return _CONFIDENCE_UNIT_DIVISORS[unit]
+    for maximum, divisor in _CONFIDENCE_VALUE_DIVISORS:
+        if raw_value <= maximum:
+            return divisor
     return None
 
 
@@ -559,34 +592,41 @@ def _material_learning_move(input_data: LearningPolicyInput) -> LearningMove:
         _due_review_move(input_data),
         _active_recall_move(input_data.learning_state),
         _stored_memory_move(input_data),
+        _missing_index_move(input_data.material_status),
+        _explicit_study_move(input_data.user_message),
     ):
         if maybe_move is not None:
             return maybe_move
 
-    if (
-        input_data.material_status.has_materials
-        and not input_data.material_status.has_indexed_evidence
-    ):
-        return _move(
-            "retrieve_more",
-            "material exists but indexed evidence is not available for this turn",
-            requires_evidence=True,
-            expected_output_shape=(
-                "State the evidence gap and ask for a narrower source-grounded target."
-            ),
-        )
-    if _STUDY_RE.search(input_data.user_message):
-        return _learning_move(
-            "ask_recall",
-            "the user asked to study, so active recall should come before more exposition",
-            difficulty="easy",
-            expected_output_shape="Ask one material-backed recall question with confidence.",
-        )
     return _move(
         "answer",
         "learning policy should answer the user's material question",
         requires_evidence=True,
         expected_output_shape="Answer directly from evidence.",
+    )
+
+
+def _missing_index_move(material_status: MaterialStatus) -> LearningMove | None:
+    if not material_status.has_materials or material_status.has_indexed_evidence:
+        return None
+    return _move(
+        "retrieve_more",
+        "material exists but indexed evidence is not available for this turn",
+        requires_evidence=True,
+        expected_output_shape=(
+            "State the evidence gap and ask for a narrower source-grounded target."
+        ),
+    )
+
+
+def _explicit_study_move(user_message: str) -> LearningMove | None:
+    if not _STUDY_RE.search(user_message):
+        return None
+    return _learning_move(
+        "ask_recall",
+        "the user asked to study, so active recall should come before more exposition",
+        difficulty="easy",
+        expected_output_shape="Ask one material-backed recall question with confidence.",
     )
 
 
